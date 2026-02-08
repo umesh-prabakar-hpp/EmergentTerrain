@@ -6,6 +6,7 @@ import com.emergentterrain.service.ProfileResult;
 import com.emergentterrain.service.ProfileService;
 import com.emergentterrain.web.ProfileForm;
 import com.emergentterrain.web.QuestionItem;
+import com.emergentterrain.web.ProfileSelectItem;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,6 +31,19 @@ public class ProfileController {
         model.addAttribute("form", new ProfileForm());
         model.addAttribute("questions", questions());
         return "profile_form";
+    }
+
+    @GetMapping("/profile/select")
+    public String selectProfile(Principal principal, Model model) {
+        User user = userRepository.findByEmail(principal.getName().toLowerCase()).orElseThrow();
+        List<ProfileSelectItem> items = profileService.getProfilesForUser(user).stream()
+            .map(profile -> new ProfileSelectItem(
+                profile.getId().toString(),
+                profileService.buildTokenForProfile(profile),
+                profile.getCreatedAt()
+            )).toList();
+        model.addAttribute("profiles", items);
+        return "profile_select";
     }
 
     @PostMapping("/profile")

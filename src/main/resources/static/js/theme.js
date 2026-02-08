@@ -1,7 +1,7 @@
 (() => {
   const storageKey = 'et-theme';
   const root = document.documentElement;
-  const toggle = document.getElementById('themeToggle');
+  const toggle = document.getElementById('themeToggle') || document.getElementById('themeToggleFallback');
   const label = document.getElementById('themeLabel');
   const icon = document.getElementById('themeIcon');
 
@@ -15,6 +15,9 @@
       }
       if (icon) {
         icon.textContent = isDark ? 'light_mode' : 'dark_mode';
+      }
+      if (!label) {
+        toggle.textContent = isDark ? 'Light mode' : 'Dark mode';
       }
     }
   }

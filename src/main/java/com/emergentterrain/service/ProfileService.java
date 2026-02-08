@@ -73,6 +73,31 @@ public class ProfileService {
         return new ProfileResult(profile, token, payloadWithId);
     }
 
+    public java.util.List<com.emergentterrain.domain.Profile> getProfilesForUser(User user) {
+        return profileRepository.findByUser(user);
+    }
+
+    public String buildTokenForProfile(Profile profile) {
+        try {
+            @SuppressWarnings("unchecked")
+            Map<String, Boolean> answers = objectMapper.readValue(profile.getAnswersJson(), Map.class);
+            HiddenProperties hidden = objectMapper.readValue(profile.getHiddenPropsJson(), HiddenProperties.class);
+            Payload payload = new Payload(
+                1,
+                profile.getId().toString(),
+                profile.getAge(),
+                profile.getSex(),
+                profile.getLocation(),
+                answers,
+                hidden,
+                payloadService.issuedAtNow()
+            );
+            return payloadService.buildToken(payload);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build token for profile", e);
+        }
+    }
+
     public HiddenProperties deriveHidden(ProfileForm form, Map<String, Boolean> answers) {
         double ageN = clamp((form.getAge() - 13.0) / (80.0 - 13.0));
         double sexN = mapSex(form.getSex());

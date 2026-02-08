@@ -27,21 +27,81 @@
     <div class="card">
       <div class="game-layout">
         <div class="game-panel">
-          <canvas id="world" width="640" height="480"></canvas>
-          <div class="tools">
-            <md-filled-tonal-button data-tool="forest">Paint Forest</md-filled-tonal-button>
-            <md-filled-tonal-button data-tool="clear">Paint Clear</md-filled-tonal-button>
-            <md-filled-button id="applyChanges">Apply Changes</md-filled-button>
+          <div class="canvas-wrap">
+            <canvas id="world" width="900" height="620"></canvas>
+            <div class="overlay-toolbar">
+              <md-icon-button data-tool="forest" title="Paint Forest"><md-icon>forest</md-icon></md-icon-button>
+              <md-icon-button data-tool="clear" title="Paint Clear"><md-icon>crop_free</md-icon></md-icon-button>
+              <md-icon-button data-tool="water" id="toolWater" title="Paint Water" disabled><md-icon>water</md-icon></md-icon-button>
+              <md-icon-button id="applyChanges" title="Apply Changes"><md-icon>check_circle</md-icon></md-icon-button>
+              <md-icon-button id="confirmYes" title="Confirm"><md-icon>done</md-icon></md-icon-button>
+              <md-icon-button id="confirmNo" title="Reconsider"><md-icon>undo</md-icon></md-icon-button>
+              <md-icon-button id="toggleFog" title="Toggle Fog" disabled><md-icon>visibility</md-icon></md-icon-button>
+              <md-icon-button id="toggleTime" title="Toggle Dusk" disabled><md-icon>dark_mode</md-icon></md-icon-button>
+              <md-icon-button id="loadLatestSnapshot" title="Load Past Snapshot"><md-icon>history</md-icon></md-icon-button>
+              <md-icon-button id="toggleTokens" title="Tokens"><md-icon>insights</md-icon></md-icon-button>
+              <md-icon-button id="toggleQuests" title="Quests"><md-icon>flag</md-icon></md-icon-button>
+              <md-icon-button id="toggleMilestones" title="Milestones"><md-icon>emoji_events</md-icon></md-icon-button>
+              <md-icon-button id="toggleSnapshots" title="Snapshots"><md-icon>layers</md-icon></md-icon-button>
+            </div>
+            <div class="overlay-panel" id="tokensPanel">
+              <div class="chip">Insight Tokens</div>
+              <div class="token-grid">
+                <div class="token-card">
+                  <div class="token-label">Insight Points</div>
+                  <div id="insightPoints" class="token-value">0</div>
+                </div>
+                <div class="token-card">
+                  <div class="token-label">Pattern Stability</div>
+                  <div id="patternStability" class="token-value">0</div>
+                </div>
+                <div class="token-card">
+                  <div class="token-label">Cognitive Energy</div>
+                  <div id="cognitiveEnergy" class="token-value">0</div>
+                </div>
+              </div>
+              <md-outlined-button class="panel-close" data-close="tokensPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="questsPanel">
+              <div class="chip">Inner Quests</div>
+              <div id="seasonPanel" class="season-panel md-typescale-body-medium">Season: Exploration Phase</div>
+              <div id="questList" class="quest-list md-typescale-body-medium"></div>
+              <md-outlined-button class="panel-close" data-close="questsPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="milestonesPanel">
+              <div class="chip">Milestones</div>
+              <div id="milestoneList" class="quest-list md-typescale-body-medium"></div>
+              <md-outlined-button class="panel-close" data-close="milestonesPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="snapshotsPanel">
+              <div class="chip">Snapshot History</div>
+              <div id="snapshotList" class="snapshot-list md-typescale-body-medium"></div>
+              <md-outlined-button class="panel-close" data-close="snapshotsPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="observerPanel">
+              <div class="chip">The Observer</div>
+              <div id="observerText" class="md-typescale-body-medium">Listening…</div>
+              <md-filled-button id="observerAck">Acknowledge</md-filled-button>
+            </div>
+          </div>
+          <div class="qr-panel">
+            <div class="chip">Living QR</div>
+            <img id="liveQr" alt="Living QR" />
+            <div id="qrCaption" class="md-typescale-body-medium">Make changes to evolve your QR.</div>
           </div>
         </div>
         <div class="info-panel">
           <div class="chip">Pattern Insights</div>
           <h3 class="section-title md-typescale-title-large">Explanation</h3>
           <div id="explanation" class="md-typescale-body-medium">Make changes to see explanations.</div>
-          <div class="tools">
-            <md-filled-button id="confirmYes">Yes, this reflects me</md-filled-button>
-            <md-outlined-button id="confirmNo">No, adjust</md-outlined-button>
+          <div id="tradeoffPanel" class="tradeoff-panel md-typescale-body-medium"></div>
+          <h4 class="section-title md-typescale-title-large">Region Meanings</h4>
+          <div class="md-typescale-body-medium">
+            <div>Dense Forest Clusters → Comfort with complexity / introspection</div>
+            <div>Open Clearings → Desire for freedom / clarity</div>
+            <div>Water Pockets → Emotional flow / adaptability</div>
           </div>
+          <div id="ahaPanel" class="aha-panel md-typescale-body-medium">Earn insights by exploring and confirming changes.</div>
         </div>
       </div>
     </div>
@@ -49,6 +109,7 @@
 
   <script>
     window.APP_TOKEN = "[[${token}]]";
+    window.SNAPSHOT_ID = "[[${snapshotId}]]";
   </script>
   <script src="/js/game.js"></script>
   <script defer src="/js/theme.js"></script>

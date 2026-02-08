@@ -23,8 +23,7 @@ public class DiagnosticsController {
     @GetMapping("/diag/cdn")
     public ResponseEntity<List<Map<String, Object>>> cdnCheck() {
         List<String> urls = List.of(
-            "https://cdn.jsdelivr.net/npm/@material/web@2.4.1/all.js",
-            "https://cdn.jsdelivr.net/npm/tslib@2.6.2/tslib.es6.js",
+            "https://cdn.skypack.dev/@material/web@2.4.1/all.js?min",
             "https://fonts.googleapis.com/css?family=Roboto:300,400,500",
             "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined",
             "https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxP.ttf"

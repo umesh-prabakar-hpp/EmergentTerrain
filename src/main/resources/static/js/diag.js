@@ -31,25 +31,28 @@
     const maxWaitMs = 6000;
     const intervalMs = 500;
 
+    const overlay = document.createElement('div');
+    overlay.className = 'diag-overlay';
     const loader = document.createElement('div');
     loader.className = 'diag-loader';
     loader.textContent = 'Loading Material Web…';
-    document.body.appendChild(loader);
+    overlay.appendChild(loader);
+    document.body.appendChild(overlay);
 
     const timer = setInterval(() => {
       if (document.documentElement.dataset.m3 === 'ready') {
-        loader.remove();
+        overlay.remove();
         clearInterval(timer);
         return;
       }
       if (window.__m3Status && window.__m3Status.loaded) {
-        loader.remove();
+        overlay.remove();
         clearInterval(timer);
         return;
       }
       const anyDefined = m3TestElements.some(name => customElements.get(name));
       if (anyDefined) {
-        loader.remove();
+        overlay.remove();
         clearInterval(timer);
         return;
       }

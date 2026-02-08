@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Select Profile</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <script type="module" src="/js/m3.js"></script>
+  <script defer src="/js/diag.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="chip">Emergent Terrain</div>
+          <h2 class="section-title md-typescale-headline-medium">Select a Profile</h2>
+        </div>
+        <md-outlined-button id="themeToggle" type="button" class="theme-toggle m3-only">
+          <md-icon id="themeIcon">dark_mode</md-icon>
+          <span id="themeLabel">Dark mode</span>
+        </md-outlined-button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="snapshot-list">
+        <div th:if="${#lists.isEmpty(profiles)}">No profiles yet. Create one.</div>
+        <div th:each="p : ${profiles}" class="snapshot-item">
+          <div th:text="${#dates.format(p.createdAt, 'yyyy-MM-dd HH:mm')}"></div>
+          <a th:href="@{/game(token=${p.token})}">Resume</a>
+        </div>
+      </div>
+      <div class="tools">
+        <a th:href="@{/profile/new}">Create New Profile</a>
+      </div>
+    </div>
+  </div>
+  <script defer src="/js/theme.js"></script>
+</body>
+</html>

@@ -20,4 +20,10 @@ public class QrController {
         byte[] png = qrService.generatePng(token, 260);
         return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(png);
     }
+
+    @GetMapping("/qr/url")
+    public ResponseEntity<byte[]> qrUrl(@RequestParam("data") String data) {
+        byte[] png = qrService.generatePng(data, 260);
+        return ResponseEntity.ok().contentType(MediaType.IMAGE_PNG).body(png);
+    }
 }
