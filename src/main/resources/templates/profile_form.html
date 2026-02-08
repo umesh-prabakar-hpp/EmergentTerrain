@@ -3,20 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <title>Create Profile</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
   <link rel="stylesheet" th:href="@{/css/app.css}" />
-  <script type="importmap">
-    {
-      "imports": {
-        "tslib": "https://cdn.jsdelivr.net/npm/tslib@2.6.2/tslib.es6.js"
-      }
-    }
-  </script>
-  <script type="module">
-    import "https://cdn.jsdelivr.net/npm/@material/web@2.4.1/all.js";
-    document.documentElement.dataset.m3 = "ready";
-  </script>
+  <script type="module" src="/js/m3.js"></script>
   <script defer src="/js/diag.js"></script>
 </head>
 <body>
@@ -31,83 +22,48 @@
           <md-icon id="themeIcon">dark_mode</md-icon>
           <span id="themeLabel">Dark mode</span>
         </md-outlined-button>
-        <button id="themeToggleFallback" type="button" class="theme-toggle fallback-button fallback-only">Dark mode</button>
       </div>
     </div>
     <div class="card">
       <form th:action="@{/profile}" method="post" class="form-grid">
         <div class="form-row">
-          <div class="m3-only">
-            <md-filled-text-field label="Age" type="number" min="13" max="80" name="age" required></md-filled-text-field>
-          </div>
-          <input class="fallback-input fallback-only" type="number" min="13" max="80" name="age" placeholder="Age" required />
-          <div class="m3-only">
-            <md-filled-select label="Sex" name="sex" required>
-              <md-select-option value="MALE" selected>Male</md-select-option>
-              <md-select-option value="FEMALE">Female</md-select-option>
-              <md-select-option value="OTHER">Other</md-select-option>
-            </md-filled-select>
-          </div>
-          <select class="fallback-select fallback-only" name="sex" required>
-            <option value="MALE">Male</option>
-            <option value="FEMALE">Female</option>
-            <option value="OTHER">Other</option>
-          </select>
+          <md-filled-text-field label="Age" type="number" min="13" max="80" name="age" required></md-filled-text-field>
+          <md-filled-select label="Sex" name="sex" required>
+            <md-select-option value="MALE" selected>Male</md-select-option>
+            <md-select-option value="FEMALE">Female</md-select-option>
+            <md-select-option value="OTHER">Other</md-select-option>
+          </md-filled-select>
         </div>
 
-        <div class="m3-only">
-          <md-filled-text-field label="Location" name="location" required></md-filled-text-field>
-        </div>
-        <input class="fallback-input fallback-only" type="text" name="location" placeholder="Location" required />
+        <md-filled-text-field label="Location" name="location" required></md-filled-text-field>
 
         <h3 class="section-title md-typescale-title-large">Preferences</h3>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesForests" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesForests" value="true" />
+          <md-switch name="likesForests" value="true"></md-switch>
           <span>Do you like forests?</span>
         </div>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesWater" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesWater" value="true" />
+          <md-switch name="likesWater" value="true"></md-switch>
           <span>Do you like water features?</span>
         </div>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesMountains" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesMountains" value="true" />
+          <md-switch name="likesMountains" value="true"></md-switch>
           <span>Do you like mountains?</span>
         </div>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesOpenFields" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesOpenFields" value="true" />
+          <md-switch name="likesOpenFields" value="true"></md-switch>
           <span>Do you like open fields?</span>
         </div>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesWetClimate" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesWetClimate" value="true" />
+          <md-switch name="likesWetClimate" value="true"></md-switch>
           <span>Do you like wet climates?</span>
         </div>
         <div class="question">
-          <div class="m3-only">
-            <md-switch name="likesSunny" value="true"></md-switch>
-          </div>
-          <input class="fallback-only" type="checkbox" name="likesSunny" value="true" />
+          <md-switch name="likesSunny" value="true"></md-switch>
           <span>Do you like sunny weather?</span>
         </div>
 
-        <div class="m3-only">
-          <md-filled-button type="submit">Create Profile</md-filled-button>
-        </div>
-        <button class="fallback-button fallback-only" type="submit">Create Profile</button>
+        <md-filled-button type="submit">Create Profile</md-filled-button>
       </form>
     </div>
   </div>
