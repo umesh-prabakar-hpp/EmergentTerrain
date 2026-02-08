@@ -1,15 +1,20 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:emergentdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:file:C:/dev/ide/eclipse/workspace-web/EmergentTerrain/data/emergentdb;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE;USER=sa;PASSWORD=
     driverClassName: org.h2.Driver
     username: sa
     password:
   jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         format_sql: true
+      jakarta:
+        persistence:
+          jdbc:
+            url: ${spring.datasource.url}
   thymeleaf:
     cache: false
   h2:

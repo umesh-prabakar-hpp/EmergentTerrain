@@ -43,6 +43,10 @@
               <md-icon-button id="toggleQuests" title="Quests"><md-icon>flag</md-icon></md-icon-button>
               <md-icon-button id="toggleMilestones" title="Milestones"><md-icon>emoji_events</md-icon></md-icon-button>
               <md-icon-button id="toggleSnapshots" title="Snapshots"><md-icon>layers</md-icon></md-icon-button>
+              <md-icon-button id="toggleResonance" title="Resonance Overlay"><md-icon>blur_on</md-icon></md-icon-button>
+              <md-icon-button id="toggleMirror" title="Mirror Walk"><md-icon>visibility_off</md-icon></md-icon-button>
+              <md-icon-button id="toggleMultiplayer" title="Multiplayer"><md-icon>groups</md-icon></md-icon-button>
+              <md-icon-button id="toggleBots" title="Companions"><md-icon>smart_toy</md-icon></md-icon-button>
             </div>
             <div class="overlay-panel" id="tokensPanel">
               <div class="chip">Insight Tokens</div>
@@ -77,6 +81,51 @@
               <div class="chip">Snapshot History</div>
               <div id="snapshotList" class="snapshot-list md-typescale-body-medium"></div>
               <md-outlined-button class="panel-close" data-close="snapshotsPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="multiplayerPanel">
+              <div class="chip">Multiplayer</div>
+              <div class="multiplayer-form">
+                <md-outlined-text-field id="roomName" label="Room name"></md-outlined-text-field>
+                <md-filled-button id="createRoomBtn">Create Room</md-filled-button>
+              </div>
+              <div class="multiplayer-form">
+                <md-outlined-text-field id="roomIdInput" label="Room ID"></md-outlined-text-field>
+                <md-outlined-button id="joinRoomBtn">Join Room</md-outlined-button>
+              </div>
+              <div id="roomStatus" class="md-typescale-body-medium"></div>
+              <div class="chip">Participants</div>
+              <div id="participantsList" class="list md-typescale-body-medium"></div>
+              <div class="chip">Proposals</div>
+              <div id="proposalsList" class="list md-typescale-body-medium"></div>
+              <div class="multiplayer-actions">
+                <md-filled-button id="proposeRoomBtn">Propose</md-filled-button>
+                <md-outlined-button id="approveProposalBtn">Approve</md-outlined-button>
+                <md-outlined-button id="rejectProposalBtn">Reject</md-outlined-button>
+                <md-filled-tonal-button id="applyProposalBtn">Apply Approved</md-filled-tonal-button>
+              </div>
+              <div class="chip">Shared Tokens</div>
+              <div id="sharedTokens" class="token-grid small"></div>
+              <div class="chip">Shared Quests</div>
+              <div id="sharedQuestsList" class="quest-list md-typescale-body-medium"></div>
+              <div class="chip">Memory Seeds</div>
+              <div class="memory-actions">
+                <md-outlined-text-field id="memoryLabel" label="Memory label"></md-outlined-text-field>
+                <md-outlined-button id="dropMemoryBtn">Drop at Player</md-outlined-button>
+              </div>
+              <div id="memoryList" class="list md-typescale-body-medium"></div>
+              <md-outlined-button class="panel-close" data-close="multiplayerPanel">Close</md-outlined-button>
+            </div>
+            <div class="overlay-panel" id="botsPanel">
+              <div class="chip">Companions</div>
+              <div class="bot-actions">
+                <md-filled-button data-bot="OBSERVER">Observer</md-filled-button>
+                <md-filled-button data-bot="COPILOT">Co-Pilot</md-filled-button>
+                <md-filled-button data-bot="TENSION">Tension Bot</md-filled-button>
+                <md-filled-button data-bot="ECHO">Echo Bot</md-filled-button>
+                <md-filled-button data-bot="QUEST">Quest Bot</md-filled-button>
+              </div>
+              <div id="botPrompt" class="md-typescale-body-medium">Select a companion to ask for insight.</div>
+              <md-outlined-button class="panel-close" data-close="botsPanel">Close</md-outlined-button>
             </div>
             <div class="overlay-panel" id="observerPanel">
               <div class="chip">The Observer</div>

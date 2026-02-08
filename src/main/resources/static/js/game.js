@@ -31,6 +31,29 @@ const toggleTokensBtn = document.getElementById('toggleTokens');
 const toggleQuestsBtn = document.getElementById('toggleQuests');
 const toggleMilestonesBtn = document.getElementById('toggleMilestones');
 const toggleSnapshotsBtn = document.getElementById('toggleSnapshots');
+const toggleResonanceBtn = document.getElementById('toggleResonance');
+const toggleMirrorBtn = document.getElementById('toggleMirror');
+const toggleMultiplayerBtn = document.getElementById('toggleMultiplayer');
+const toggleBotsBtn = document.getElementById('toggleBots');
+const multiplayerPanel = document.getElementById('multiplayerPanel');
+const botsPanel = document.getElementById('botsPanel');
+const roomNameInput = document.getElementById('roomName');
+const roomIdInput = document.getElementById('roomIdInput');
+const createRoomBtn = document.getElementById('createRoomBtn');
+const joinRoomBtn = document.getElementById('joinRoomBtn');
+const roomStatus = document.getElementById('roomStatus');
+const participantsList = document.getElementById('participantsList');
+const proposalsList = document.getElementById('proposalsList');
+const proposeRoomBtn = document.getElementById('proposeRoomBtn');
+const approveProposalBtn = document.getElementById('approveProposalBtn');
+const rejectProposalBtn = document.getElementById('rejectProposalBtn');
+const applyProposalBtn = document.getElementById('applyProposalBtn');
+const sharedTokensEl = document.getElementById('sharedTokens');
+const sharedQuestsList = document.getElementById('sharedQuestsList');
+const memoryLabelInput = document.getElementById('memoryLabel');
+const dropMemoryBtn = document.getElementById('dropMemoryBtn');
+const memoryList = document.getElementById('memoryList');
+const botPromptEl = document.getElementById('botPrompt');
 
 let tool = 'forest';
 let tiles = [];
@@ -60,6 +83,16 @@ let quests = [];
 let season = 'Exploration Phase';
 let lastSeasonSwitch = Date.now();
 let milestones = [];
+let roomId = '';
+let participantId = '';
+let roomState = null;
+let selectedProposalId = '';
+let resonanceOverlay = null;
+let resonanceEnabled = false;
+let mirrorMode = false;
+let sharedTokens = { insight: 0, stability: 0, energy: 0 };
+let sharedQuests = [];
+let memoryMarkers = [];
 
 function copyTiles(src) {
   return src.map(row => row.slice());
@@ -91,6 +124,26 @@ function draw() {
     }
   }
 
+  if (resonanceEnabled && resonanceOverlay && resonanceOverlay.length) {
+    ctx.fillStyle = 'rgba(0, 105, 92, 0.18)';
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        if (resonanceOverlay[y] && resonanceOverlay[y][x]) {
+          ctx.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+        }
+      }
+    }
+  }
+
+  if (memoryMarkers.length) {
+    ctx.fillStyle = '#ff7043';
+    memoryMarkers.forEach(marker => {
+      ctx.beginPath();
+      ctx.arc(marker.x * tileSize + tileSize / 2, marker.y * tileSize + tileSize / 2, tileSize / 5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }
+
   ctx.fillStyle = '#ffb300';
   ctx.beginPath();
   ctx.arc(player.x * tileSize + tileSize / 2, player.y * tileSize + tileSize / 2, tileSize / 3, 0, Math.PI * 2);
@@ -98,6 +151,11 @@ function draw() {
 
   if (duskEnabled) {
     ctx.fillStyle = 'rgba(25, 30, 45, 0.25)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  if (mirrorMode) {
+    ctx.fillStyle = 'rgba(12, 18, 22, 0.35)';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
   }
 }
@@ -157,7 +215,9 @@ const panelMap = {
   tokens: tokensPanel,
   quests: questsPanel,
   milestones: milestonesPanel,
-  snapshots: snapshotsPanel
+  snapshots: snapshotsPanel,
+  multiplayer: multiplayerPanel,
+  bots: botsPanel
 };
 
 function togglePanel(name) {
@@ -174,6 +234,8 @@ if (toggleTokensBtn) toggleTokensBtn.addEventListener('click', () => togglePanel
 if (toggleQuestsBtn) toggleQuestsBtn.addEventListener('click', () => togglePanel('quests'));
 if (toggleMilestonesBtn) toggleMilestonesBtn.addEventListener('click', () => togglePanel('milestones'));
 if (toggleSnapshotsBtn) toggleSnapshotsBtn.addEventListener('click', () => togglePanel('snapshots'));
+if (toggleMultiplayerBtn) toggleMultiplayerBtn.addEventListener('click', () => togglePanel('multiplayer'));
+if (toggleBotsBtn) toggleBotsBtn.addEventListener('click', () => togglePanel('bots'));
 
 for (const btn of document.querySelectorAll('[data-close]')) {
   btn.addEventListener('click', () => {
@@ -224,6 +286,9 @@ applyBtn.addEventListener('click', async () => {
   checkQuests();
   revealAt(player.x, player.y, 5);
   updateLiveQr(false);
+  if (roomId) {
+    await proposeToRoom();
+  }
 });
 
 confirmYes.addEventListener('click', async () => {
@@ -288,6 +353,8 @@ async function init() {
   }
   updateLiveQr(false);
   draw();
+  initMultiplayer();
+  initBots();
 }
 
 init();
@@ -307,6 +374,10 @@ function revealAt(cx, cy, radius) {
 
 function showRegionInfo(x, y) {
   if (!regionIds.length || !regions.length) return;
+  if (mirrorMode) {
+    explanationEl.textContent = 'Mirror walk: you sense the region without naming it.';
+    return;
+  }
   const regionId = regionIds[y][x];
   const info = regions.find(r => r.id === regionId);
   if (!info) return;
@@ -353,6 +424,33 @@ toggleTimeBtn.addEventListener('click', () => {
   toggleTimeBtn.textContent = duskEnabled ? 'Clear Dusk' : 'Toggle Dusk';
   draw();
 });
+
+if (toggleResonanceBtn) {
+  toggleResonanceBtn.addEventListener('click', async () => {
+    if (!roomId) {
+      resonanceEnabled = false;
+      resonanceOverlay = null;
+      explanationEl.textContent = 'Join a room to view resonance overlays.';
+      draw();
+      return;
+    }
+    resonanceEnabled = !resonanceEnabled;
+    if (resonanceEnabled) {
+      await refreshResonance();
+    }
+    draw();
+  });
+}
+
+if (toggleMirrorBtn) {
+  toggleMirrorBtn.addEventListener('click', () => {
+    mirrorMode = !mirrorMode;
+    explanationEl.textContent = mirrorMode
+      ? 'Mirror walk: interpretive hints are muted. Feel the terrain first.'
+      : 'Mirror walk disabled. Interpretations restored.';
+    draw();
+  });
+}
 
 function awardTokens(type) {
   if (type === 'confirm') {
@@ -432,7 +530,7 @@ function startLock(seconds) {
 }
 
 function isLocked() {
-  return Date.now() < lockUntil;
+  return Date.now() < lockUntil || isRoomLocked();
 }
 
 function updateLockUI() {
@@ -443,12 +541,33 @@ function updateLockUI() {
   if (toolWaterBtn) toolWaterBtn.disabled = locked || tokens.insight < 5;
   if (toggleFogBtn) toggleFogBtn.disabled = locked || tokens.energy < 4;
   if (toggleTimeBtn) toggleTimeBtn.disabled = locked || tokens.stability < 4;
+  if (proposeRoomBtn) proposeRoomBtn.disabled = locked || !isTurnOwner();
+  if (approveProposalBtn) approveProposalBtn.disabled = locked || !selectedProposalId;
+  if (rejectProposalBtn) rejectProposalBtn.disabled = locked || !selectedProposalId;
+  if (applyProposalBtn) applyProposalBtn.disabled = locked || !selectedProposalId;
   if (locked) {
-    const remaining = Math.ceil((lockUntil - Date.now()) / 1000);
-    tradeoffPanel.textContent = `Terrain is settling. Please wait ${remaining}s.`;
+    const localRemaining = Math.max(0, Math.ceil((lockUntil - Date.now()) / 1000));
+    const roomRemaining = roomState && roomState.lockUntil
+      ? Math.max(0, Math.ceil((new Date(roomState.lockUntil).getTime() - Date.now()) / 1000))
+      : 0;
+    const remaining = Math.max(localRemaining, roomRemaining);
+    if (remaining > 0) {
+      tradeoffPanel.textContent = `Terrain is settling. Please wait ${remaining}s.`;
+    }
   } else if (tradeoffPanel.textContent.startsWith('Terrain is settling')) {
     tradeoffPanel.textContent = '';
   }
+}
+
+function isRoomLocked() {
+  if (!roomState || !roomState.lockUntil) return false;
+  return Date.now() < new Date(roomState.lockUntil).getTime();
+}
+
+function isTurnOwner() {
+  if (!roomState || !roomState.turnOwnerParticipantId || !participantId) return false;
+  if (new Date(roomState.turnExpiresAt || 0).getTime() < Date.now()) return true;
+  return roomState.turnOwnerParticipantId === participantId;
 }
 
 function updateUnlocks() {
@@ -823,6 +942,327 @@ if (loadLatestSnapshotBtn) {
       }
     }
   });
+}
+
+function initMultiplayer() {
+  if (createRoomBtn) {
+    createRoomBtn.addEventListener('click', async () => {
+      const name = roomNameInput ? roomNameInput.value : '';
+      const res = await fetch('/room/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, name })
+      });
+      if (!res.ok) {
+        roomStatus.textContent = 'Failed to create room.';
+        return;
+      }
+      const data = await res.json();
+      roomId = data.roomId;
+      participantId = data.participantId;
+      roomIdInput.value = roomId;
+      setRoomStateFromResponse(data);
+      roomStatus.textContent = `Room created: ${data.roomName}`;
+    });
+  }
+
+  if (joinRoomBtn) {
+    joinRoomBtn.addEventListener('click', async () => {
+      const id = roomIdInput ? roomIdInput.value.trim() : '';
+      if (!id) return;
+      const res = await fetch('/room/join', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, roomId: id })
+      });
+      if (!res.ok) {
+        roomStatus.textContent = 'Failed to join room.';
+        return;
+      }
+      const data = await res.json();
+      roomId = data.roomId;
+      participantId = data.participantId;
+      roomStatus.textContent = `Joined room: ${data.roomName}`;
+      await refreshRoomState();
+    });
+  }
+
+  if (proposeRoomBtn) {
+    proposeRoomBtn.addEventListener('click', async () => {
+      await proposeToRoom();
+    });
+  }
+
+  if (approveProposalBtn) {
+    approveProposalBtn.addEventListener('click', async () => {
+      await voteProposal(true);
+    });
+  }
+
+  if (rejectProposalBtn) {
+    rejectProposalBtn.addEventListener('click', async () => {
+      await voteProposal(false);
+    });
+  }
+
+  if (applyProposalBtn) {
+    applyProposalBtn.addEventListener('click', async () => {
+      await applyProposal();
+    });
+  }
+
+  if (dropMemoryBtn) {
+    dropMemoryBtn.addEventListener('click', async () => {
+      if (!roomId) return;
+      const label = memoryLabelInput ? memoryLabelInput.value : '';
+      const res = await fetch(`/room/${roomId}/memory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, x: player.x, y: player.y, label })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoomStateFromResponse(data);
+      }
+    });
+  }
+
+  setInterval(() => {
+    if (roomId) {
+      refreshRoomState();
+    }
+  }, 10000);
+}
+
+function initBots() {
+  if (!botsPanel) return;
+  botsPanel.querySelectorAll('[data-bot]').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      if (!roomId) {
+        botPromptEl.textContent = 'Join a room to engage companions.';
+        return;
+      }
+      const type = btn.getAttribute('data-bot');
+      const res = await fetch(`/room/${roomId}/bot`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, type })
+      });
+      if (!res.ok) {
+        botPromptEl.textContent = 'Companion unavailable.';
+        return;
+      }
+      const data = await res.json();
+      botPromptEl.textContent = data.prompt || 'The companion is quiet for now.';
+    });
+  });
+}
+
+async function refreshRoomState() {
+  if (!roomId) return;
+  const res = await fetch(`/room/${roomId}/state`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, roomId })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    setRoomStateFromResponse(data);
+  }
+}
+
+function setRoomStateFromResponse(data) {
+  roomState = data;
+  if (data.roomId) {
+    roomId = data.roomId;
+  }
+  if (data.tiles) {
+    tiles = data.tiles;
+    baseTiles = copyTiles(tiles);
+  }
+  sharedTokens = data.sharedTokens || sharedTokens;
+  sharedQuests = data.sharedQuests || sharedQuests;
+  memoryMarkers = data.memoryMarkers || [];
+  renderRoomState();
+  if (roomState && roomState.turnOwnerParticipantId) {
+    const isMine = roomState.turnOwnerParticipantId === participantId;
+    const turnLabel = isMine ? 'Your turn to propose.' : 'Waiting for others.';
+    roomStatus.textContent = `${roomState.roomName} â€¢ ${turnLabel}`;
+  }
+  if (resonanceEnabled) {
+    refreshResonance();
+  }
+  updateLockUI();
+  draw();
+}
+
+function renderRoomState() {
+  renderParticipants();
+  renderProposals();
+  renderSharedTokens();
+  renderSharedQuests();
+  renderMemoryMarkers();
+}
+
+function renderParticipants() {
+  if (!participantsList || !roomState) return;
+  participantsList.innerHTML = '';
+  (roomState.participants || []).forEach(p => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    const label = document.createElement('div');
+    label.textContent = `${p.displayName} â€¢ ${p.role} â€¢ ${p.lens}`;
+    row.appendChild(label);
+    participantsList.appendChild(row);
+  });
+}
+
+function renderProposals() {
+  if (!proposalsList || !roomState) return;
+  proposalsList.innerHTML = '';
+  const proposals = roomState.proposals || [];
+  proposals.forEach(p => {
+    const row = document.createElement('div');
+    row.className = `list-item${selectedProposalId === p.id ? ' active' : ''}`;
+    const title = document.createElement('div');
+    title.textContent = `Proposal by ${p.proposerName}`;
+    const meta = document.createElement('div');
+    meta.textContent = `${p.status} â€¢ +${p.approvals} / -${p.rejections}`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    row.addEventListener('click', () => {
+      selectedProposalId = p.id;
+      renderProposals();
+      updateLockUI();
+    });
+    proposalsList.appendChild(row);
+  });
+  if (!proposals.length) {
+    const empty = document.createElement('div');
+    empty.className = 'md-typescale-body-medium';
+    empty.textContent = 'No proposals yet.';
+    proposalsList.appendChild(empty);
+  }
+}
+
+function renderSharedTokens() {
+  if (!sharedTokensEl) return;
+  sharedTokensEl.innerHTML = '';
+  const tokens = sharedTokens || { insight: 0, stability: 0, energy: 0 };
+  const items = [
+    { label: 'Insight', value: tokens.insight },
+    { label: 'Stability', value: tokens.stability },
+    { label: 'Energy', value: tokens.energy }
+  ];
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'token-card';
+    const label = document.createElement('div');
+    label.className = 'token-label';
+    label.textContent = item.label;
+    const value = document.createElement('div');
+    value.className = 'token-value';
+    value.textContent = item.value;
+    card.appendChild(label);
+    card.appendChild(value);
+    sharedTokensEl.appendChild(card);
+  });
+}
+
+function renderSharedQuests() {
+  if (!sharedQuestsList) return;
+  sharedQuestsList.innerHTML = '';
+  (sharedQuests || []).forEach(q => {
+    const row = document.createElement('div');
+    row.className = `quest-item${q.completed ? ' completed' : ''}`;
+    const title = document.createElement('div');
+    title.className = 'quest-title';
+    title.textContent = q.title;
+    const hint = document.createElement('div');
+    hint.textContent = q.hint;
+    row.appendChild(title);
+    row.appendChild(hint);
+    sharedQuestsList.appendChild(row);
+  });
+}
+
+function renderMemoryMarkers() {
+  if (!memoryList) return;
+  memoryList.innerHTML = '';
+  if (!memoryMarkers.length) {
+    memoryList.textContent = 'No memory seeds yet.';
+    return;
+  }
+  memoryMarkers.forEach(marker => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    const title = document.createElement('div');
+    title.textContent = marker.label || 'Memory';
+    const meta = document.createElement('div');
+    meta.textContent = `${marker.createdBy || 'Unknown'} â€¢ (${marker.x},${marker.y})`;
+    row.appendChild(title);
+    row.appendChild(meta);
+    memoryList.appendChild(row);
+  });
+}
+
+async function proposeToRoom() {
+  if (!roomId || !isTurnOwner()) return;
+  const res = await fetch(`/room/${roomId}/propose`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, tiles, delta: pendingDelta, note: explanationEl.textContent })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    setRoomStateFromResponse(data);
+    roomStatus.textContent = 'Proposal submitted. Waiting for votes.';
+  } else {
+    roomStatus.textContent = 'Proposal failed.';
+  }
+}
+
+async function voteProposal(approve) {
+  if (!roomId || !selectedProposalId) return;
+  const res = await fetch(`/room/${roomId}/vote`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, proposalId: selectedProposalId, approve })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    setRoomStateFromResponse(data);
+  }
+}
+
+async function applyProposal() {
+  if (!roomId || !selectedProposalId) return;
+  const res = await fetch(`/room/${roomId}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, proposalId: selectedProposalId })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    setRoomStateFromResponse(data);
+    explanationEl.textContent = 'Shared terrain updated after consensus.';
+  }
+}
+
+async function refreshResonance() {
+  if (!roomId) return;
+  const res = await fetch(`/room/${roomId}/resonance`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, roomId })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    resonanceOverlay = data.overlay || null;
+    if (data.matchRatio !== undefined) {
+      qrCaption.textContent = `Resonance alignment: ${(data.matchRatio * 100).toFixed(0)}%.`;
+    }
+  }
 }
 
 function regionTotals() {

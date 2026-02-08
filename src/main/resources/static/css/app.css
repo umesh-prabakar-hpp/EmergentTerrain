@@ -271,6 +271,19 @@ md-icon {
   margin-bottom: 12px;
 }
 
+.token-grid.small {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.token-grid.small .token-card {
+  padding: 8px;
+}
+
+.token-grid.small .token-value {
+  font-size: 16px;
+}
+
 .token-card {
   background: var(--md-sys-color-surface);
   border: 1px solid var(--md-sys-color-outline);
@@ -319,6 +332,25 @@ md-icon {
   gap: 8px;
 }
 
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+.list-item {
+  display: grid;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--md-sys-color-outline);
+  background: var(--md-sys-color-surface);
+}
+
+.list-item.active {
+  border-color: rgba(0, 105, 92, 0.6);
+  box-shadow: 0 0 0 2px rgba(0, 105, 92, 0.15) inset;
+}
+
 .snapshot-item {
   display: flex;
   justify-content: space-between;
@@ -362,6 +394,39 @@ md-icon {
   border-radius: 12px;
   background: rgba(0, 105, 92, 0.12);
   margin-bottom: 8px;
+}
+
+.multiplayer-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.multiplayer-actions {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+
+.bot-actions {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.memory-actions {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+#multiplayerPanel {
+  width: 320px;
+  max-height: 80%;
+}
+
+#botsPanel {
+  width: 280px;
 }
 
 .observer-panel {

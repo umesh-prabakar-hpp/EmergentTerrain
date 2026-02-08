@@ -19,7 +19,7 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/register", "/login", "/profile/select", "/css/**", "/js/**", "/qr", "/qr/**", "/game", "/game/state", "/game/update", "/game/confirm", "/game/qr/state", "/game/snapshot", "/game/snapshot/latest", "/game/snapshot/load", "/game/quest/save", "/diag/**", "/h2/**").permitAll()
+                .requestMatchers("/register", "/login", "/profile/select", "/css/**", "/js/**", "/qr", "/qr/**", "/game", "/game/state", "/game/update", "/game/confirm", "/game/qr/state", "/game/snapshot", "/game/snapshot/latest", "/game/snapshot/load", "/game/quest/save", "/room/**", "/diag/**", "/h2/**").permitAll()
                 .anyRequest().authenticated()
             )
             .formLogin(form -> form
