@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Emergent Terrain</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <script type="module" src="https://unpkg.com/@material/web@latest/all.js"></script>
+</head>
+<body>
+  <div class="container wide">
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="chip">Live Terrain</div>
+          <h2 class="section-title md-typescale-headline-medium">Emergent Terrain Lab</h2>
+        </div>
+        <md-outlined-button id="themeToggle" type="button" class="theme-toggle">
+          <md-icon id="themeIcon">dark_mode</md-icon>
+          <span id="themeLabel">Dark mode</span>
+        </md-outlined-button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="game-layout">
+        <div class="game-panel">
+          <canvas id="world" width="640" height="480"></canvas>
+          <div class="tools">
+            <md-filled-tonal-button data-tool="forest">Paint Forest</md-filled-tonal-button>
+            <md-filled-tonal-button data-tool="clear">Paint Clear</md-filled-tonal-button>
+            <md-filled-button id="applyChanges">Apply Changes</md-filled-button>
+          </div>
+        </div>
+        <div class="info-panel">
+          <div class="chip">Pattern Insights</div>
+          <h3 class="section-title md-typescale-title-large">Explanation</h3>
+          <div id="explanation" class="md-typescale-body-medium">Make changes to see explanations.</div>
+          <div class="tools">
+            <md-filled-button id="confirmYes">Yes, this reflects me</md-filled-button>
+            <md-outlined-button id="confirmNo">No, adjust</md-outlined-button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.APP_TOKEN = "[[${token}]]";
+  </script>
+  <script src="/js/game.js"></script>
+  <script defer src="/js/theme.js"></script>
+</body>
+</html>

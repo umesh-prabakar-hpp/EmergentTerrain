@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Create Profile</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <script type="module" src="https://unpkg.com/@material/web@latest/all.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="chip">Profile Setup</div>
+          <h2 class="section-title md-typescale-headline-medium">Shape your terrain DNA</h2>
+        </div>
+        <md-outlined-button id="themeToggle" type="button" class="theme-toggle">
+          <md-icon id="themeIcon">dark_mode</md-icon>
+          <span id="themeLabel">Dark mode</span>
+        </md-outlined-button>
+      </div>
+    </div>
+    <div class="card">
+      <form th:action="@{/profile}" method="post" class="form-grid">
+        <div class="form-row">
+          <md-filled-text-field label="Age" type="number" min="13" max="80" name="age" required></md-filled-text-field>
+          <md-filled-select label="Sex" name="sex" required>
+            <md-select-option value="MALE" selected>Male</md-select-option>
+            <md-select-option value="FEMALE">Female</md-select-option>
+            <md-select-option value="OTHER">Other</md-select-option>
+          </md-filled-select>
+        </div>
+
+        <md-filled-text-field label="Location" name="location" required></md-filled-text-field>
+
+        <h3 class="section-title md-typescale-title-large">Preferences</h3>
+        <div class="question">
+          <md-switch name="likesForests" value="true"></md-switch>
+          <span>Do you like forests?</span>
+        </div>
+        <div class="question">
+          <md-switch name="likesWater" value="true"></md-switch>
+          <span>Do you like water features?</span>
+        </div>
+        <div class="question">
+          <md-switch name="likesMountains" value="true"></md-switch>
+          <span>Do you like mountains?</span>
+        </div>
+        <div class="question">
+          <md-switch name="likesOpenFields" value="true"></md-switch>
+          <span>Do you like open fields?</span>
+        </div>
+        <div class="question">
+          <md-switch name="likesWetClimate" value="true"></md-switch>
+          <span>Do you like wet climates?</span>
+        </div>
+        <div class="question">
+          <md-switch name="likesSunny" value="true"></md-switch>
+          <span>Do you like sunny weather?</span>
+        </div>
+
+        <md-filled-button type="submit">Create Profile</md-filled-button>
+      </form>
+    </div>
+  </div>
+  <script defer src="/js/theme.js"></script>
+</body>
+</html>

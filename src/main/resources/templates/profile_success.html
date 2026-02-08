@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Profile Created</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <script type="module" src="https://unpkg.com/@material/web@latest/all.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="chip">QR Ready</div>
+          <h2 class="section-title md-typescale-headline-medium">Your terrain key is ready</h2>
+        </div>
+        <md-outlined-button id="themeToggle" type="button" class="theme-toggle">
+          <md-icon id="themeIcon">dark_mode</md-icon>
+          <span id="themeLabel">Dark mode</span>
+        </md-outlined-button>
+      </div>
+    </div>
+    <div class="card">
+      <p class="md-typescale-body-medium">Your QR code encodes your profile and hidden properties.</p>
+      <div class="qr">
+        <a th:href="@{/game(token=${token})}">
+          <img th:src="@{/qr(token=${token})}" alt="QR Code" />
+        </a>
+      </div>
+      <p class="md-typescale-body-medium">Click the QR code to open the game.</p>
+      <md-filled-tonal-button th:href="@{/game(token=${token})}">Open Game</md-filled-tonal-button>
+    </div>
+  </div>
+  <script defer src="/js/theme.js"></script>
+</body>
+</html>
