@@ -21,6 +21,13 @@ public class RoomBot {
 
     private Instant lastRunAt;
 
+    private Integer x;
+
+    private Integer y;
+
+    @Lob
+    private String profileJson;
+
     public UUID getId() {
         return id;
     }
@@ -55,5 +62,29 @@ public class RoomBot {
 
     public void setLastRunAt(Instant lastRunAt) {
         this.lastRunAt = lastRunAt;
+    }
+
+    public Integer getX() {
+        return x;
+    }
+
+    public void setX(Integer x) {
+        this.x = x;
+    }
+
+    public Integer getY() {
+        return y;
+    }
+
+    public void setY(Integer y) {
+        this.y = y;
+    }
+
+    public String getProfileJson() {
+        return profileJson;
+    }
+
+    public void setProfileJson(String profileJson) {
+        this.profileJson = profileJson;
     }
 }

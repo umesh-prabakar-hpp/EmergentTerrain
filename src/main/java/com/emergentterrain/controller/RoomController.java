@@ -34,15 +34,27 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/state")
-    public ResponseEntity<RoomStateResponse> roomState(@PathVariable String roomId,
+    public ResponseEntity<RoomStateResponse> roomState(@PathVariable("roomId") String roomId,
                                                        @RequestBody RoomJoinRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         RoomStateResponse response = roomService.getRoomState(payload, UUID.fromString(roomId));
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/room/{roomId}/move")
+    public ResponseEntity<?> move(@PathVariable("roomId") String roomId,
+                                  @RequestBody RoomMoveRequest request) {
+        Payload payload = payloadService.parseToken(request.getToken());
+        try {
+            RoomStateResponse response = roomService.move(payload, UUID.fromString(roomId), request.getX(), request.getY());
+            return ResponseEntity.ok(response);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
     @PostMapping("/room/{roomId}/propose")
-    public ResponseEntity<?> propose(@PathVariable String roomId,
+    public ResponseEntity<?> propose(@PathVariable("roomId") String roomId,
                                      @RequestBody RoomProposalRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {
@@ -54,7 +66,7 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/vote")
-    public ResponseEntity<?> vote(@PathVariable String roomId,
+    public ResponseEntity<?> vote(@PathVariable("roomId") String roomId,
                                   @RequestBody RoomVoteRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {
@@ -66,7 +78,7 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/apply")
-    public ResponseEntity<?> apply(@PathVariable String roomId,
+    public ResponseEntity<?> apply(@PathVariable("roomId") String roomId,
                                    @RequestBody RoomApplyRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {
@@ -78,7 +90,7 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/memory")
-    public ResponseEntity<?> addMemory(@PathVariable String roomId,
+    public ResponseEntity<?> addMemory(@PathVariable("roomId") String roomId,
                                        @RequestBody RoomMemoryRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {
@@ -90,7 +102,7 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/bot")
-    public ResponseEntity<?> botPrompt(@PathVariable String roomId,
+    public ResponseEntity<?> botPrompt(@PathVariable("roomId") String roomId,
                                        @RequestBody RoomBotPromptRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {
@@ -102,7 +114,7 @@ public class RoomController {
     }
 
     @PostMapping("/room/{roomId}/resonance")
-    public ResponseEntity<?> resonance(@PathVariable String roomId,
+    public ResponseEntity<?> resonance(@PathVariable("roomId") String roomId,
                                        @RequestBody RoomJoinRequest request) {
         Payload payload = payloadService.parseToken(request.getToken());
         try {

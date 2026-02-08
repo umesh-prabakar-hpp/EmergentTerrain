@@ -24,12 +24,27 @@ public class RoomProposal {
     @Lob
     private String deltaJson;
 
+    @Lob
+    private String neighborIdsJson;
+
     @Column(nullable = false)
     private String status = "PENDING";
 
     private int approvals = 0;
 
     private int rejections = 0;
+
+    private Integer anchorX;
+
+    private Integer anchorY;
+
+    private Boolean botGenerated;
+
+    private String botLabel;
+
+    private int requiredVotes = 0;
+
+    private Instant expiresAt;
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
@@ -70,6 +85,14 @@ public class RoomProposal {
         this.deltaJson = deltaJson;
     }
 
+    public String getNeighborIdsJson() {
+        return neighborIdsJson;
+    }
+
+    public void setNeighborIdsJson(String neighborIdsJson) {
+        this.neighborIdsJson = neighborIdsJson;
+    }
+
     public String getStatus() {
         return status;
     }
@@ -92,6 +115,54 @@ public class RoomProposal {
 
     public void setRejections(int rejections) {
         this.rejections = rejections;
+    }
+
+    public Integer getAnchorX() {
+        return anchorX;
+    }
+
+    public void setAnchorX(Integer anchorX) {
+        this.anchorX = anchorX;
+    }
+
+    public Integer getAnchorY() {
+        return anchorY;
+    }
+
+    public void setAnchorY(Integer anchorY) {
+        this.anchorY = anchorY;
+    }
+
+    public Boolean isBotGenerated() {
+        return botGenerated;
+    }
+
+    public void setBotGenerated(Boolean botGenerated) {
+        this.botGenerated = botGenerated;
+    }
+
+    public String getBotLabel() {
+        return botLabel;
+    }
+
+    public void setBotLabel(String botLabel) {
+        this.botLabel = botLabel;
+    }
+
+    public int getRequiredVotes() {
+        return requiredVotes;
+    }
+
+    public void setRequiredVotes(int requiredVotes) {
+        this.requiredVotes = requiredVotes;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(Instant expiresAt) {
+        this.expiresAt = expiresAt;
     }
 
     public Instant getCreatedAt() {

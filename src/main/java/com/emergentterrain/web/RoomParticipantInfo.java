@@ -6,6 +6,10 @@ public class RoomParticipantInfo {
     private String displayName;
     private String role;
     private String lens;
+    private int x;
+    private int y;
+    private int missedVotes;
+    private java.time.Instant lockedUntil;
 
     public String getId() {
         return id;
@@ -45,5 +49,37 @@ public class RoomParticipantInfo {
 
     public void setLens(String lens) {
         this.lens = lens;
+    }
+
+    public int getX() {
+        return x;
+    }
+
+    public void setX(int x) {
+        this.x = x;
+    }
+
+    public int getY() {
+        return y;
+    }
+
+    public void setY(int y) {
+        this.y = y;
+    }
+
+    public int getMissedVotes() {
+        return missedVotes;
+    }
+
+    public void setMissedVotes(int missedVotes) {
+        this.missedVotes = missedVotes;
+    }
+
+    public java.time.Instant getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public void setLockedUntil(java.time.Instant lockedUntil) {
+        this.lockedUntil = lockedUntil;
     }
 }

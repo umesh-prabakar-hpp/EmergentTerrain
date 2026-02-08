@@ -29,13 +29,9 @@
         <div class="game-panel">
           <div class="canvas-wrap">
             <canvas id="world" width="900" height="620"></canvas>
+            <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
+            <div id="radialMenu" class="radial-menu"></div>
             <div class="overlay-toolbar">
-              <md-icon-button data-tool="forest" title="Paint Forest"><md-icon>forest</md-icon></md-icon-button>
-              <md-icon-button data-tool="clear" title="Paint Clear"><md-icon>crop_free</md-icon></md-icon-button>
-              <md-icon-button data-tool="water" id="toolWater" title="Paint Water" disabled><md-icon>water</md-icon></md-icon-button>
-              <md-icon-button id="applyChanges" title="Apply Changes"><md-icon>check_circle</md-icon></md-icon-button>
-              <md-icon-button id="confirmYes" title="Confirm"><md-icon>done</md-icon></md-icon-button>
-              <md-icon-button id="confirmNo" title="Reconsider"><md-icon>undo</md-icon></md-icon-button>
               <md-icon-button id="toggleFog" title="Toggle Fog" disabled><md-icon>visibility</md-icon></md-icon-button>
               <md-icon-button id="toggleTime" title="Toggle Dusk" disabled><md-icon>dark_mode</md-icon></md-icon-button>
               <md-icon-button id="loadLatestSnapshot" title="Load Past Snapshot"><md-icon>history</md-icon></md-icon-button>
@@ -93,8 +89,12 @@
                 <md-outlined-button id="joinRoomBtn">Join Room</md-outlined-button>
               </div>
               <div id="roomStatus" class="md-typescale-body-medium"></div>
+              <div class="chip">Neighborhood</div>
+              <div id="neighborStats" class="list md-typescale-body-medium"></div>
               <div class="chip">Participants</div>
               <div id="participantsList" class="list md-typescale-body-medium"></div>
+              <div class="chip">Bot Profiles</div>
+              <div id="botProfilesList" class="list md-typescale-body-medium"></div>
               <div class="chip">Proposals</div>
               <div id="proposalsList" class="list md-typescale-body-medium"></div>
               <div class="multiplayer-actions">
@@ -133,22 +133,26 @@
               <md-filled-button id="observerAck">Acknowledge</md-filled-button>
             </div>
           </div>
-          <div class="qr-panel">
-            <div class="chip">Living QR</div>
-            <img id="liveQr" alt="Living QR" />
-            <div id="qrCaption" class="md-typescale-body-medium">Make changes to evolve your QR.</div>
-          </div>
         </div>
         <div class="info-panel">
           <div class="chip">Pattern Insights</div>
           <h3 class="section-title md-typescale-title-large">Explanation</h3>
           <div id="explanation" class="md-typescale-body-medium">Make changes to see explanations.</div>
           <div id="tradeoffPanel" class="tradeoff-panel md-typescale-body-medium"></div>
+          <div class="chip">Local Proposals</div>
+          <div id="localProposalsList" class="list md-typescale-body-medium"></div>
+          <div class="chip">Participation</div>
+          <div id="lockStatus" class="md-typescale-body-medium">No lock active.</div>
+          <div id="missedVotes" class="md-typescale-body-medium">Missed votes: 0</div>
+          <div class="chip">Poll Results</div>
+          <div id="pollResultsList" class="list md-typescale-body-medium"></div>
+          <div id="pollDetails" class="md-typescale-body-medium">Select a 1x1 area to start a poll.</div>
           <h4 class="section-title md-typescale-title-large">Region Meanings</h4>
           <div class="md-typescale-body-medium">
             <div>Dense Forest Clusters → Comfort with complexity / introspection</div>
             <div>Open Clearings → Desire for freedom / clarity</div>
             <div>Water Pockets → Emotional flow / adaptability</div>
+            <div>Industry Grids → Drive for structure / productivity</div>
           </div>
           <div id="ahaPanel" class="aha-panel md-typescale-body-medium">Earn insights by exploring and confirming changes.</div>
         </div>

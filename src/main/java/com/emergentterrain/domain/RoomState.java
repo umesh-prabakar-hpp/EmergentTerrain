@@ -27,9 +27,14 @@ public class RoomState {
     @Lob
     private String memoryMarkersJson;
 
+    @Lob
+    private String highwaysJson;
+
     private String stateHash;
 
     private String previousStateHash;
+
+    private Instant lastBotProposalAt;
 
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
@@ -78,6 +83,14 @@ public class RoomState {
         this.memoryMarkersJson = memoryMarkersJson;
     }
 
+    public String getHighwaysJson() {
+        return highwaysJson;
+    }
+
+    public void setHighwaysJson(String highwaysJson) {
+        this.highwaysJson = highwaysJson;
+    }
+
     public String getStateHash() {
         return stateHash;
     }
@@ -92,6 +105,14 @@ public class RoomState {
 
     public void setPreviousStateHash(String previousStateHash) {
         this.previousStateHash = previousStateHash;
+    }
+
+    public Instant getLastBotProposalAt() {
+        return lastBotProposalAt;
+    }
+
+    public void setLastBotProposalAt(Instant lastBotProposalAt) {
+        this.lastBotProposalAt = lastBotProposalAt;
     }
 
     public Instant getUpdatedAt() {

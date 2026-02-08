@@ -27,5 +27,19 @@ app:
   qr:
     hmacSecret: "dev-secret-change"
   world:
+    auto: true
     width: 40
     height: 30
+    maxTiles: 120000
+    aspectRatio: 1.3333
+    highwayRatio: 0.02
+  consensus:
+    neighborRadius: 8
+    voteWindowSeconds: 45
+    minNeighbors: 3
+    noParticipationLockSeconds: 300
+  density:
+    areaSize: 20
+    maxOccupants: 8
+  bots:
+    populationFraction: 0.25

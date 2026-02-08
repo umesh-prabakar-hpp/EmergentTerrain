@@ -29,6 +29,14 @@ public class RoomParticipant {
     @Column(nullable = false)
     private boolean active = true;
 
+    private Integer x;
+
+    private Integer y;
+
+    private int missedVotes = 0;
+
+    private Instant lockedUntil;
+
     @Column(nullable = false)
     private Instant joinedAt = Instant.now();
 
@@ -82,6 +90,38 @@ public class RoomParticipant {
 
     public void setActive(boolean active) {
         this.active = active;
+    }
+
+    public Integer getX() {
+        return x;
+    }
+
+    public void setX(Integer x) {
+        this.x = x;
+    }
+
+    public Integer getY() {
+        return y;
+    }
+
+    public void setY(Integer y) {
+        this.y = y;
+    }
+
+    public int getMissedVotes() {
+        return missedVotes;
+    }
+
+    public void setMissedVotes(int missedVotes) {
+        this.missedVotes = missedVotes;
+    }
+
+    public Instant getLockedUntil() {
+        return lockedUntil;
+    }
+
+    public void setLockedUntil(Instant lockedUntil) {
+        this.lockedUntil = lockedUntil;
     }
 
     public Instant getJoinedAt() {

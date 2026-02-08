@@ -15,11 +15,27 @@ import java.util.Map;
 public class WorldService {
     private final int width;
     private final int height;
+    private final double highwayRatio;
+    private final double aspectRatio;
+    private final int maxTiles;
 
     public WorldService(@Value("${app.world.width}") int width,
-                        @Value("${app.world.height}") int height) {
-        this.width = width;
-        this.height = height;
+                        @Value("${app.world.height}") int height,
+                        @Value("${app.world.auto:true}") boolean auto,
+                        @Value("${app.world.maxTiles:120000}") int maxTiles,
+                        @Value("${app.world.aspectRatio:1.3333}") double aspectRatio,
+                        @Value("${app.world.highwayRatio:0.02}") double highwayRatio) {
+        this.highwayRatio = highwayRatio;
+        this.aspectRatio = aspectRatio <= 0 ? 1.3333 : aspectRatio;
+        this.maxTiles = Math.max(20000, maxTiles);
+        if (auto) {
+            int[] dims = computeWorldSize(this.maxTiles, this.aspectRatio);
+            this.width = dims[0];
+            this.height = dims[1];
+        } else {
+            this.width = width;
+            this.height = height;
+        }
     }
 
     public GameStateResponse generateWorld(Payload payload, long seed) {
@@ -27,6 +43,7 @@ public class WorldService {
         double forestDensity = 0.30 + 0.50 * hp.humidity();
         double clusterBias = 0.20 + 0.60 * hp.density();
         double waterDensity = 0.05 + 0.20 * hp.humidity() + 0.10 * hp.energy();
+        double industryDensity = 0.02 + 0.06 * hp.pressure();
 
         int[][] tiles = new int[height][width];
         for (int y = 0; y < height; y++) {
@@ -38,6 +55,8 @@ public class WorldService {
 
         tiles = smooth(tiles, clusterBias);
         placeWater(seed, tiles, waterDensity);
+        placeIndustry(seed, tiles, industryDensity);
+        boolean[][] highways = generateHighways(seed);
 
         int regionsCount = 6;
         int[][] regionIds = assignRegions(seed, regionsCount);
@@ -57,12 +76,15 @@ public class WorldService {
         props.put("pressure", hp.pressure());
         props.put("energy", hp.energy());
         props.put("entropy", hp.entropy());
+        props.put("industryDensity", industryDensity);
+        props.put("highwayRatio", highwayRatio);
 
         GameStateResponse response = new GameStateResponse();
         response.setSeed(seed);
         response.setWidth(width);
         response.setHeight(height);
         response.setTiles(tiles);
+        response.setHighways(highways);
         response.setRegionIds(regionIds);
         response.setRegions(regions);
         response.setFog(fog);
@@ -120,6 +142,59 @@ public class WorldService {
         }
     }
 
+    private void placeIndustry(long seed, int[][] tiles, double industryDensity) {
+        int h = tiles.length;
+        int w = tiles[0].length;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (tiles[y][x] == 2) {
+                    continue;
+                }
+                double n = hashNoise(seed + 2718, x, y);
+                if (n < industryDensity) {
+                    tiles[y][x] = 3;
+                }
+            }
+        }
+    }
+
+    private boolean[][] generateHighways(long seed) {
+        int h = height;
+        int w = width;
+        boolean[][] highways = new boolean[h][w];
+        int target = Math.max(1, (int) Math.round(w * h * highwayRatio));
+        int spacing = Math.max(8, (int) Math.round(Math.sqrt(2.0 / Math.max(0.01, highwayRatio))));
+
+        int placed = 0;
+        for (int y = 0; y < h; y++) {
+            for (int x = 0; x < w; x++) {
+                if (x % spacing == 0 || y % spacing == 0) {
+                    highways[y][x] = true;
+                    placed++;
+                }
+            }
+        }
+
+        if (placed > target) {
+            int prune = placed - target;
+            int tries = 0;
+            while (prune > 0 && tries < placed * 5) {
+                int x = (int) (hashNoise(seed + 8888 + tries, tries, 41) * w);
+                int y = (int) (hashNoise(seed + 8888 + tries, tries, 47) * h);
+                if (highways[y][x] && (x % spacing != 0 || y % spacing != 0 || (tries % 3 == 0))) {
+                    highways[y][x] = false;
+                    prune--;
+                }
+                tries++;
+            }
+        }
+        return highways;
+    }
+
+    private int clamp(int val, int min, int max) {
+        return Math.max(min, Math.min(max, val));
+    }
+
     private int[][] assignRegions(long seed, int regions) {
         int[][] regionIds = new int[height][width];
         int[] rx = new int[regions];
@@ -157,27 +232,34 @@ public class WorldService {
         int[] total = new int[regions];
         int[] forest = new int[regions];
         int[] water = new int[regions];
+        int[] industry = new int[regions];
         for (int y = 0; y < regionIds.length; y++) {
             for (int x = 0; x < regionIds[0].length; x++) {
                 int r = regionIds[y][x];
                 total[r] += 1;
                 if (tiles[y][x] == 1) forest[r] += 1;
                 if (tiles[y][x] == 2) water[r] += 1;
+                if (tiles[y][x] == 3) industry[r] += 1;
             }
         }
         List<RegionInfo> infos = new ArrayList<>();
         for (int i = 0; i < regions; i++) {
             double forestDensity = total[i] == 0 ? 0 : (double) forest[i] / total[i];
             double waterDensity = total[i] == 0 ? 0 : (double) water[i] / total[i];
-            double clearDensity = 1.0 - forestDensity - waterDensity;
+            double industryDensity = total[i] == 0 ? 0 : (double) industry[i] / total[i];
+            double clearDensity = 1.0 - forestDensity - waterDensity - industryDensity;
             RegionInfo info = new RegionInfo();
             info.setId(i);
             info.setForestDensity(forestDensity);
             info.setWaterDensity(waterDensity);
             info.setClearDensity(clearDensity);
+            info.setIndustryDensity(industryDensity);
             String name;
             String meaning;
-            if (forestDensity >= waterDensity && forestDensity >= clearDensity) {
+            if (industryDensity >= forestDensity && industryDensity >= waterDensity && industryDensity >= clearDensity) {
+                name = "Industry Grid";
+                meaning = "Drive for structure / productivity";
+            } else if (forestDensity >= waterDensity && forestDensity >= clearDensity) {
                 name = "Dense Forest Cluster";
                 meaning = "Comfort with complexity / introspection";
             } else if (waterDensity >= forestDensity && waterDensity >= clearDensity) {
@@ -199,6 +281,13 @@ public class WorldService {
         boolean likesForests = payload.answers().getOrDefault("likes_forests", false);
         boolean likesOpen = payload.answers().getOrDefault("likes_open_fields", false);
         boolean likesWater = payload.answers().getOrDefault("likes_water", false);
+        boolean likesIndustry = payload.answers().getOrDefault("likes_industry", false);
+        if (info.getName().contains("Industry")) {
+            if (likesIndustry) {
+                return "This industry grid forms where structure and output are reinforced.";
+            }
+            return "This industry grid suggests focus on systems and throughput.";
+        }
         if (info.getName().contains("Forest")) {
             if (likesForests && !likesOpen) {
                 return "This dense forest formed where multiple preferences reinforce each other.";
@@ -238,5 +327,20 @@ public class WorldService {
                 }
             }
         }
+    }
+
+    private int[] computeWorldSize(int maxTiles, double aspectRatio) {
+        long maxMemory = Runtime.getRuntime().maxMemory();
+        int maxMb = (int) Math.max(128, maxMemory / (1024L * 1024L));
+        int safeTiles = Math.min(maxTiles, maxMb * 220);
+        safeTiles = Math.max(30000, safeTiles);
+        double targetArea = safeTiles;
+        double w = Math.sqrt(targetArea * aspectRatio);
+        double h = w / aspectRatio;
+        int width = Math.max(60, (int) Math.round(w));
+        int height = Math.max(45, (int) Math.round(h));
+        width = Math.min(width, 220);
+        height = Math.min(height, 165);
+        return new int[] { width, height };
     }
 }

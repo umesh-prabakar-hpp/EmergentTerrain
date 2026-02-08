@@ -9,6 +9,13 @@ public class RoomProposalInfo {
     private int approvals;
     private int rejections;
     private Instant createdAt;
+    private int requiredVotes;
+    private int neighborCount;
+    private Instant expiresAt;
+    private Integer anchorX;
+    private Integer anchorY;
+    private boolean botGenerated;
+    private String botLabel;
 
     public String getId() {
         return id;
@@ -56,5 +63,61 @@ public class RoomProposalInfo {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public int getRequiredVotes() {
+        return requiredVotes;
+    }
+
+    public void setRequiredVotes(int requiredVotes) {
+        this.requiredVotes = requiredVotes;
+    }
+
+    public int getNeighborCount() {
+        return neighborCount;
+    }
+
+    public void setNeighborCount(int neighborCount) {
+        this.neighborCount = neighborCount;
+    }
+
+    public Instant getExpiresAt() {
+        return expiresAt;
+    }
+
+    public void setExpiresAt(Instant expiresAt) {
+        this.expiresAt = expiresAt;
+    }
+
+    public Integer getAnchorX() {
+        return anchorX;
+    }
+
+    public void setAnchorX(Integer anchorX) {
+        this.anchorX = anchorX;
+    }
+
+    public Integer getAnchorY() {
+        return anchorY;
+    }
+
+    public void setAnchorY(Integer anchorY) {
+        this.anchorY = anchorY;
+    }
+
+    public boolean isBotGenerated() {
+        return botGenerated;
+    }
+
+    public void setBotGenerated(boolean botGenerated) {
+        this.botGenerated = botGenerated;
+    }
+
+    public String getBotLabel() {
+        return botLabel;
+    }
+
+    public void setBotLabel(String botLabel) {
+        this.botLabel = botLabel;
     }
 }

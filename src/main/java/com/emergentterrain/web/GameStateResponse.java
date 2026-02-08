@@ -8,6 +8,7 @@ public class GameStateResponse {
     private int width;
     private int height;
     private int[][] tiles;
+    private boolean[][] highways;
     private int[][] regionIds;
     private boolean[][] fog;
     private List<RegionInfo> regions;
@@ -46,6 +47,14 @@ public class GameStateResponse {
 
     public void setTiles(int[][] tiles) {
         this.tiles = tiles;
+    }
+
+    public boolean[][] getHighways() {
+        return highways;
+    }
+
+    public void setHighways(boolean[][] highways) {
+        this.highways = highways;
     }
 
     public int[][] getRegionIds() {

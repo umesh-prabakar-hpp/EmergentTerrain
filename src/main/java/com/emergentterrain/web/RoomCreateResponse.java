@@ -8,14 +8,20 @@ public class RoomCreateResponse {
     private String roomName;
     private String participantId;
     private int[][] tiles;
+    private boolean[][] highways;
     private SharedTokens sharedTokens;
     private List<QuestItem> sharedQuests;
     private List<MemoryMarker> memoryMarkers;
     private List<RoomParticipantInfo> participants;
+    private List<RoomBotInfo> bots;
     private List<RoomProposalInfo> proposals;
     private String turnOwnerParticipantId;
     private Instant turnExpiresAt;
     private Instant lockUntil;
+    private int neighborRadius;
+    private int minNeighbors;
+    private int densityAreaSize;
+    private int maxOccupants;
 
     public String getRoomId() {
         return roomId;
@@ -47,6 +53,14 @@ public class RoomCreateResponse {
 
     public void setTiles(int[][] tiles) {
         this.tiles = tiles;
+    }
+
+    public boolean[][] getHighways() {
+        return highways;
+    }
+
+    public void setHighways(boolean[][] highways) {
+        this.highways = highways;
     }
 
     public SharedTokens getSharedTokens() {
@@ -81,6 +95,14 @@ public class RoomCreateResponse {
         this.participants = participants;
     }
 
+    public List<RoomBotInfo> getBots() {
+        return bots;
+    }
+
+    public void setBots(List<RoomBotInfo> bots) {
+        this.bots = bots;
+    }
+
     public List<RoomProposalInfo> getProposals() {
         return proposals;
     }
@@ -111,5 +133,37 @@ public class RoomCreateResponse {
 
     public void setLockUntil(Instant lockUntil) {
         this.lockUntil = lockUntil;
+    }
+
+    public int getNeighborRadius() {
+        return neighborRadius;
+    }
+
+    public void setNeighborRadius(int neighborRadius) {
+        this.neighborRadius = neighborRadius;
+    }
+
+    public int getMinNeighbors() {
+        return minNeighbors;
+    }
+
+    public void setMinNeighbors(int minNeighbors) {
+        this.minNeighbors = minNeighbors;
+    }
+
+    public int getDensityAreaSize() {
+        return densityAreaSize;
+    }
+
+    public void setDensityAreaSize(int densityAreaSize) {
+        this.densityAreaSize = densityAreaSize;
+    }
+
+    public int getMaxOccupants() {
+        return maxOccupants;
+    }
+
+    public void setMaxOccupants(int maxOccupants) {
+        this.maxOccupants = maxOccupants;
     }
 }

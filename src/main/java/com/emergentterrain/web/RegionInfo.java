@@ -8,6 +8,7 @@ public class RegionInfo {
     private double forestDensity;
     private double clearDensity;
     private double waterDensity;
+    private double industryDensity;
 
     public int getId() {
         return id;
@@ -63,5 +64,13 @@ public class RegionInfo {
 
     public void setWaterDensity(double waterDensity) {
         this.waterDensity = waterDensity;
+    }
+
+    public double getIndustryDensity() {
+        return industryDensity;
+    }
+
+    public void setIndustryDensity(double industryDensity) {
+        this.industryDensity = industryDensity;
     }
 }
