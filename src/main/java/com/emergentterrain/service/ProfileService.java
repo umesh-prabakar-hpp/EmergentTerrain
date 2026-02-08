@@ -44,6 +44,7 @@ public class ProfileService {
         );
 
         Profile profile = new Profile();
+        profile.setId(java.util.UUID.randomUUID());
         profile.setUser(user);
         profile.setAge(form.getAge());
         profile.setSex(form.getSex());
@@ -55,7 +56,6 @@ public class ProfileService {
             throw new IllegalStateException("Failed to serialize profile", e);
         }
 
-        profile = profileRepository.save(profile);
         Payload payloadWithId = new Payload(
             payload.v(),
             profile.getId().toString(),
@@ -68,7 +68,7 @@ public class ProfileService {
         );
         String token = payloadService.buildToken(payloadWithId);
         profile.setPayloadHash(payloadService.hashPayload(payloadWithId));
-        profileRepository.save(profile);
+        profile = profileRepository.save(profile);
 
         return new ProfileResult(profile, token, payloadWithId);
     }

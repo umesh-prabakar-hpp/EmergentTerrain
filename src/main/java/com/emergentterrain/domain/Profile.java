@@ -8,7 +8,6 @@ import java.util.UUID;
 @Table(name = "profiles")
 public class Profile {
     @Id
-    @GeneratedValue
     private UUID id;
 
     @ManyToOne(optional = false)
@@ -32,6 +31,10 @@ public class Profile {
 
     @Column(nullable = false)
     private String payloadHash;
+
+    public void setId(UUID id) {
+        this.id = id;
+    }
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
