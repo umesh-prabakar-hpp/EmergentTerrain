@@ -16,13 +16,9 @@ import java.util.UUID;
 
 public interface RoomProposalVoteRepository extends JpaRepository<RoomProposalVote, UUID> {
     Optional<RoomProposalVote> findByProposalAndParticipant(RoomProposal proposal, RoomParticipant participant);
-    Optional<RoomProposalVote> findByProposalAndBotId(RoomProposal proposal, String botId);
     List<RoomProposalVote> findByProposal(RoomProposal proposal);
     @Modifying
     @Query("delete from RoomProposalVote v where v.proposal.room = :room and v.proposal.createdAt < :cutoff")
     void deleteByRoomBefore(@Param("room") Room room, @Param("cutoff") Instant cutoff);
 
-    @Modifying
-    @Query("delete from RoomProposalVote v where v.proposal.room = :room and v.botVote = true and v.createdAt < :cutoff")
-    void deleteBotVotesBefore(@Param("room") Room room, @Param("cutoff") Instant cutoff);
 }

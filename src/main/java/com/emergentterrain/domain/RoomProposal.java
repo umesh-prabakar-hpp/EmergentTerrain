@@ -47,6 +47,9 @@ public class RoomProposal {
 
     private String botLabel;
 
+    @Lob
+    private String botVoteSummaryJson;
+
     private int requiredVotes = 0;
 
     private Instant expiresAt;
@@ -160,6 +163,14 @@ public class RoomProposal {
 
     public void setBotLabel(String botLabel) {
         this.botLabel = botLabel;
+    }
+
+    public String getBotVoteSummaryJson() {
+        return botVoteSummaryJson;
+    }
+
+    public void setBotVoteSummaryJson(String botVoteSummaryJson) {
+        this.botVoteSummaryJson = botVoteSummaryJson;
     }
 
     public int getRequiredVotes() {

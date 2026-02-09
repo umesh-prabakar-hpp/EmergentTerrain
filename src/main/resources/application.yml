@@ -37,7 +37,7 @@ app:
     neighborRadius: 8
     voteWindowSeconds: 60
     minProposalLiveSeconds: 3
-    botVoteRetentionSeconds: 20
+    botVoteRetentionSeconds: 0
     minVotesToResolve: 3
     botRuleChecksEnabled: false
     minNeighbors: 3

@@ -590,6 +590,8 @@ public class RoomService {
         if (needed == 0) {
             return;
         }
+        int botYes = 0;
+        int botNo = 0;
         List<RoomBot> bots = botRepository.findByRoom(room);
         int near = 0;
         for (RoomBot bot : bots) {
@@ -714,6 +716,11 @@ public class RoomService {
             if (proposal.getBotProposer() != null) {
                 info.setBotId(proposal.getBotProposer().getId().toString());
             }
+            Map<String, Integer> summary = readBotVoteSummary(proposal);
+            if (summary != null) {
+                info.setBotYes(summary.getOrDefault("botYes", 0));
+                info.setBotNo(summary.getOrDefault("botNo", 0));
+            }
             info.setTileType(proposalDeltaType(proposal));
             if (participantKey != null) {
                 info.setCanVote(canVoteNow(room, proposal, participant));
@@ -732,8 +739,7 @@ public class RoomService {
         try {
         Instant now = Instant.now();
         proposalRepository.rejectExpiredPending(room, now);
-        Instant botVoteCutoff = now.minusSeconds(botVoteRetentionSeconds);
-        voteRepository.deleteBotVotesBefore(room, botVoteCutoff);
+        // Bot votes are no longer stored as rows.
         } finally {
             proposalTableLock.unlock();
         }
@@ -1306,6 +1312,17 @@ public class RoomService {
         return null;
     }
 
+    private Map<String, Integer> readBotVoteSummary(RoomProposal proposal) {
+        if (proposal.getBotVoteSummaryJson() == null || proposal.getBotVoteSummaryJson().isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(proposal.getBotVoteSummaryJson(), new TypeReference<Map<String, Integer>>() {});
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
     private Map<String, Double> readBotProfile(RoomBot bot) {
         if (bot.getProfileJson() == null || bot.getProfileJson().isBlank()) {
             return randomBotProfile(Objects.hash(bot.getType()));
@@ -1745,32 +1762,34 @@ public class RoomService {
         if (neighborIds.isEmpty()) {
             return;
         }
+        int botYes = 0;
+        int botNo = 0;
         List<RoomBot> bots = botRepository.findByRoom(room);
         for (RoomBot bot : bots) {
             String key = "B:" + bot.getId();
             if (!neighborIds.contains(key)) {
                 continue;
             }
-            String botId = bot.getId().toString();
-            if (voteRepository.findByProposalAndBotId(proposal, botId).isPresent()) {
-                continue;
-            }
             BotVote vote = botVoteDecision(room, bot, baseTiles, proposedTiles, Boolean.TRUE.equals(proposal.isBotGenerated()));
             if (vote == BotVote.ABSTAIN) {
                 continue;
             }
-            RoomProposalVote botVote = new RoomProposalVote();
-            botVote.setProposal(proposal);
-            botVote.setParticipant(null);
-            botVote.setBotVote(true);
-            botVote.setBotId(botId);
-            botVote.setApprove(vote == BotVote.APPROVE);
-            voteRepository.save(botVote);
             if (vote == BotVote.APPROVE) {
                 proposal.setApprovals(proposal.getApprovals() + 1);
             } else {
                 proposal.setRejections(proposal.getRejections() + 1);
             }
+            if (vote == BotVote.APPROVE) {
+                botYes++;
+            } else {
+                botNo++;
+            }
+        }
+        if (botYes > 0 || botNo > 0) {
+            Map<String, Integer> summary = new HashMap<>();
+            summary.put("botYes", botYes);
+            summary.put("botNo", botNo);
+            proposal.setBotVoteSummaryJson(toJson(summary));
         }
         proposalRepository.save(proposal);
     }

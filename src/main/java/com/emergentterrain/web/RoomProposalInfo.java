@@ -20,6 +20,8 @@ public class RoomProposalInfo {
     private boolean canVote;
     private boolean owner;
     private String botId;
+    private Integer botYes;
+    private Integer botNo;
 
     public String getId() {
         return id;
@@ -155,5 +157,21 @@ public class RoomProposalInfo {
 
     public void setBotId(String botId) {
         this.botId = botId;
+    }
+
+    public Integer getBotYes() {
+        return botYes;
+    }
+
+    public void setBotYes(Integer botYes) {
+        this.botYes = botYes;
+    }
+
+    public Integer getBotNo() {
+        return botNo;
+    }
+
+    public void setBotNo(Integer botNo) {
+        this.botNo = botNo;
     }
 }

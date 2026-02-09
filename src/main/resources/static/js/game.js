@@ -776,7 +776,10 @@ function renderLocalProposals() {
     title.textContent = `Proposal by ${label}`;
     const meta = document.createElement('div');
     const needed = p.requiredVotes || 0;
-    meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections} - need ${needed}`;
+    const botYes = p.botYes || 0;
+    const botNo = p.botNo || 0;
+    const botLabel = botYes || botNo ? ` (bots +${botYes} / -${botNo})` : '';
+    meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections}${botLabel} - need ${needed}`;
     const dismiss = document.createElement('button');
     dismiss.className = 'fallback-button';
     dismiss.textContent = '✕';
@@ -834,7 +837,10 @@ function renderPollOverlay() {
     label.textContent = who;
     marker.appendChild(label);
     const typeLabel = document.createElement('div');
-    typeLabel.textContent = `Tile: ${proposalTypeLabel(p)}`;
+    const botYes = p.botYes || 0;
+    const botNo = p.botNo || 0;
+    const botInfo = botYes || botNo ? ` bots +${botYes}/-${botNo}` : '';
+    typeLabel.textContent = `Tile: ${proposalTypeLabel(p)}${botInfo}`;
     marker.appendChild(typeLabel);
     const actions = document.createElement('div');
     actions.className = 'poll-marker-actions';
@@ -882,7 +888,10 @@ function renderPollResults() {
     title.textContent = `${p.status} - ${label}`;
     const meta = document.createElement('div');
     const needed = p.requiredVotes || 0;
-    meta.textContent = `+${p.approvals} / -${p.rejections} - need ${needed}`;
+    const botYes = p.botYes || 0;
+    const botNo = p.botNo || 0;
+    const botInfo = botYes || botNo ? ` (bots +${botYes} / -${botNo})` : '';
+    meta.textContent = `+${p.approvals} / -${p.rejections}${botInfo} - need ${needed}`;
     row.appendChild(title);
     row.appendChild(meta);
     pollResultsList.appendChild(row);
