@@ -18,4 +18,8 @@ public interface RoomProposalRepository extends JpaRepository<RoomProposal, UUID
     @Modifying
     @Query("delete from RoomProposal p where p.room = :room and p.createdAt < :cutoff")
     void deleteByRoomBefore(@Param("room") Room room, @Param("cutoff") Instant cutoff);
+
+    @Modifying
+    @Query("update RoomProposal p set p.status = 'REJECTED' where p.room = :room and p.status = 'PENDING' and p.expiresAt < :now")
+    int rejectExpiredPending(@Param("room") Room room, @Param("now") Instant now);
 }

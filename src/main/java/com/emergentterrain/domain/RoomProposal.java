@@ -14,8 +14,13 @@ public class RoomProposal {
     @ManyToOne(optional = false)
     private Room room;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = true)
+    @JoinColumn(nullable = true)
     private RoomParticipant proposer;
+
+    @ManyToOne(optional = true)
+    @JoinColumn(nullable = true)
+    private RoomBot botProposer;
 
     @Lob
     @Column(nullable = false)
@@ -67,6 +72,14 @@ public class RoomProposal {
 
     public void setProposer(RoomParticipant proposer) {
         this.proposer = proposer;
+    }
+
+    public RoomBot getBotProposer() {
+        return botProposer;
+    }
+
+    public void setBotProposer(RoomBot botProposer) {
+        this.botProposer = botProposer;
     }
 
     public String getTilesJson() {

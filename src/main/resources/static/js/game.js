@@ -349,7 +349,7 @@ if (miniMap) {
     const tx = miniTarget.x;
     const ty = miniTarget.y;
     const plainPath = buildManhattanPath(sx, sy, tx, ty);
-    const roadResult = buildRoadPath(sx, sy, tx, ty);
+    const roadResult = buildRoadBiasedPath(sx, sy, tx, ty);
     pendingRoutes = {
       plain: plainPath,
       road: roadResult.path
@@ -767,7 +767,7 @@ function renderLocalProposals() {
   localProposalsList.innerHTML = '';
   const me = participants.find(p => p.id === participantId);
   const myName = me ? me.displayName : '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && p.canVote);
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && p.canVote && !p.owner);
   proposals.forEach(p => {
     const row = document.createElement('div');
     row.className = 'list-item';
@@ -820,7 +820,7 @@ function renderLocalProposals() {
 function renderPollOverlay() {
   if (!pollOverlay || !roomState) return;
   pollOverlay.innerHTML = '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && (p.canVote || p.owner));
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && p.canVote && !p.owner);
   proposals.forEach(p => {
     if (p.anchorX === undefined || p.anchorY === undefined) return;
     if (p.anchorX < viewX || p.anchorX >= viewX + viewWidth) return;
@@ -1299,7 +1299,7 @@ function buildRoadPath(sx, sy, tx, ty) {
       if (n.x < 0 || n.x >= width || n.y < 0 || n.y >= height) continue;
       const nKey = n.y * width + n.x;
       const road = (highways[n.y] && highways[n.y][n.x]) || tiles[n.y][n.x] === 4;
-      const stepCost = road ? 1 / 3 : 1.6;
+      const stepCost = road ? 1 / 3 : 2.5;
       const tentative = (gScore.get(current.key) || Number.POSITIVE_INFINITY) + stepCost;
       if (tentative < (gScore.get(nKey) || Number.POSITIVE_INFINITY)) {
         cameFrom.set(nKey, current.key);
@@ -1311,6 +1311,45 @@ function buildRoadPath(sx, sy, tx, ty) {
     }
   }
   return { path: [], cost: Number.POSITIVE_INFINITY };
+}
+
+function findNearestRoad(x, y, maxRadius = 20) {
+  if (!tiles.length) return null;
+  for (let r = 0; r <= maxRadius; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      const y0 = y + dy;
+      if (y0 < 0 || y0 >= height) continue;
+      const dx = r - Math.abs(dy);
+      const candidates = [x - dx, x + dx];
+      for (const x0 of candidates) {
+        if (x0 < 0 || x0 >= width) continue;
+        if ((highways[y0] && highways[y0][x0]) || tiles[y0][x0] === 4) {
+          return { x: x0, y: y0 };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function buildRoadBiasedPath(sx, sy, tx, ty) {
+  const startRoad = findNearestRoad(sx, sy);
+  const endRoad = findNearestRoad(tx, ty);
+  if (!startRoad || !endRoad) {
+    return buildRoadPath(sx, sy, tx, ty);
+  }
+  const toRoad = buildRoadPath(sx, sy, startRoad.x, startRoad.y).path;
+  const onRoad = buildRoadPath(startRoad.x, startRoad.y, endRoad.x, endRoad.y).path;
+  const fromRoad = buildRoadPath(endRoad.x, endRoad.y, tx, ty).path;
+  const full = [];
+  for (const seg of [toRoad, onRoad, fromRoad]) {
+    for (const step of seg) {
+      if (!full.length || full[full.length - 1].x !== step.x || full[full.length - 1].y !== step.y) {
+        full.push(step);
+      }
+    }
+  }
+  return { path: full, cost: full.length ? full.length - 1 : Number.POSITIVE_INFINITY };
 }
 
 function heuristic(x, y, tx, ty) {

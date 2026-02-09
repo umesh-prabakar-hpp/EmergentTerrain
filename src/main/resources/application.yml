@@ -38,6 +38,7 @@ app:
     voteWindowSeconds: 60
     minProposalLiveSeconds: 3
     botVoteRetentionSeconds: 20
+    minVotesToResolve: 3
     minNeighbors: 3
     noParticipationLockSeconds: 300
   density:

@@ -32,6 +32,7 @@ public class RoomService {
     private final ObjectMapper objectMapper;
     private final int neighborRadius;
     private final int voteWindowSeconds;
+    private final int minVotesToResolve;
     private final int botVoteRetentionSeconds;
     private final int minProposalLiveSeconds;
     private final int minNeighbors;
@@ -63,6 +64,7 @@ public class RoomService {
                        ObjectMapper objectMapper,
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
+                       @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
                        @Value("${app.consensus.botVoteRetentionSeconds:20}") int botVoteRetentionSeconds,
                        @Value("${app.consensus.minProposalLiveSeconds:3}") int minProposalLiveSeconds,
                        @Value("${app.consensus.minNeighbors:3}") int minNeighbors,
@@ -83,6 +85,7 @@ public class RoomService {
         this.objectMapper = objectMapper;
         this.neighborRadius = neighborRadius;
         this.voteWindowSeconds = voteWindowSeconds;
+        this.minVotesToResolve = minVotesToResolve;
         this.botVoteRetentionSeconds = botVoteRetentionSeconds;
         this.minProposalLiveSeconds = minProposalLiveSeconds;
         this.minNeighbors = minNeighbors;
@@ -328,7 +331,7 @@ public class RoomService {
             if (!proposal.getRoom().getId().equals(room.getId())) {
                 throw new IllegalStateException("Proposal mismatch");
             }
-            if (!isNeighbor(proposal, participant)) {
+            if (!canVoteNow(room, proposal, participant)) {
                 throw new IllegalStateException("Only nearby neighbors can vote");
             }
             if (voteRepository.findByProposalAndParticipant(proposal, participant).isPresent()) {
@@ -689,7 +692,11 @@ public class RoomService {
         for (RoomProposal proposal : proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room)) {
             RoomProposalInfo info = new RoomProposalInfo();
             info.setId(proposal.getId().toString());
-            info.setProposerName(proposal.getProposer().getDisplayName());
+            if (proposal.getProposer() != null) {
+                info.setProposerName(proposal.getProposer().getDisplayName());
+            } else {
+                info.setProposerName(proposal.getBotLabel() == null ? "Bot" : proposal.getBotLabel());
+            }
             info.setStatus(proposal.getStatus());
             info.setApprovals(proposal.getApprovals());
             info.setRejections(proposal.getRejections());
@@ -701,9 +708,12 @@ public class RoomService {
             info.setAnchorY(proposal.getAnchorY());
             info.setBotGenerated(Boolean.TRUE.equals(proposal.isBotGenerated()));
             info.setBotLabel(proposal.getBotLabel());
+            if (proposal.getBotProposer() != null) {
+                info.setBotId(proposal.getBotProposer().getId().toString());
+            }
             info.setTileType(proposalDeltaType(proposal));
             if (participantKey != null) {
-                info.setCanVote(readNeighborIds(proposal).contains(participantKey));
+                info.setCanVote(canVoteNow(room, proposal, participant));
                 info.setOwner(proposal.getProposer() != null && proposal.getProposer().getId().equals(participant.getId()));
             }
             infos.add(info);
@@ -717,11 +727,10 @@ public class RoomService {
             return;
         }
         try {
-        Instant cutoff = Instant.now().minusSeconds(5);
-        Instant botVoteCutoff = Instant.now().minusSeconds(botVoteRetentionSeconds);
+        Instant now = Instant.now();
+        proposalRepository.rejectExpiredPending(room, now);
+        Instant botVoteCutoff = now.minusSeconds(botVoteRetentionSeconds);
         voteRepository.deleteBotVotesBefore(room, botVoteCutoff);
-        voteRepository.deleteByRoomBefore(room, cutoff);
-        proposalRepository.deleteByRoomBefore(room, cutoff);
         } finally {
             proposalTableLock.unlock();
         }
@@ -1277,6 +1286,16 @@ public class RoomService {
             Object type = map.get("type");
             if (type instanceof Number) {
                 return ((Number) type).intValue();
+            }
+            if (type instanceof String s) {
+                return switch (s) {
+                    case "forest" -> 1;
+                    case "water" -> 2;
+                    case "industry" -> 3;
+                    case "highway" -> 4;
+                    case "clear" -> 0;
+                    default -> null;
+                };
             }
         } catch (Exception ignored) {
         }
@@ -1846,13 +1865,6 @@ public class RoomService {
             return;
         }
         int[][] baseTiles = fromJsonTiles(state.getTilesJson());
-        RoomParticipant proposer = participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room)
-            .stream()
-            .findFirst()
-            .orElse(null);
-        if (proposer == null) {
-            return;
-        }
         for (RoomBot bot : bots) {
             if (bot.getX() == null || bot.getY() == null) {
                 continue;
@@ -1870,7 +1882,8 @@ public class RoomService {
             }
             RoomProposal proposal = new RoomProposal();
             proposal.setRoom(room);
-            proposal.setProposer(proposer);
+            proposal.setProposer(null);
+            proposal.setBotProposer(bot);
             proposal.setTilesJson(toJson(proposed));
             Map<String, Object> delta = new HashMap<>();
             delta.put("x", anchor[0]);
@@ -1882,7 +1895,7 @@ public class RoomService {
             proposal.setBotGenerated(true);
             proposal.setBotLabel(botDisplayName(bot));
             proposal.setStatus("PENDING");
-            List<String> neighbors = findNeighbors(room, proposer, proposed);
+            List<String> neighbors = findNeighborsForAnchor(room, baseTiles, anchor[0], anchor[1]);
             if (neighbors.size() < minNeighbors) {
                 continue;
             }
@@ -1970,14 +1983,16 @@ public class RoomService {
                 return;
             }
         }
-        int required = proposal.getRequiredVotes();
-        if (proposal.getApprovals() >= required) {
-            applyProposal(room, proposal);
-            return;
-        }
-        if (proposal.getRejections() >= required) {
-            proposal.setStatus("REJECTED");
-            proposalRepository.save(proposal);
+        int approvals = proposal.getApprovals();
+        int rejections = proposal.getRejections();
+        int totalVotes = approvals + rejections;
+        if (totalVotes >= Math.max(1, minVotesToResolve)) {
+            if (approvals > rejections) {
+                applyProposal(room, proposal);
+            } else if (rejections > approvals) {
+                proposal.setStatus("REJECTED");
+                proposalRepository.save(proposal);
+            }
             return;
         }
         if (proposal.getExpiresAt() != null && proposal.getExpiresAt().isBefore(Instant.now())) {
@@ -2080,17 +2095,28 @@ public class RoomService {
                 });
             }
         }
-        int required = proposal.getRequiredVotes();
-        if (proposal.getApprovals() >= required) {
+        int approvals = proposal.getApprovals();
+        int rejections = proposal.getRejections();
+        if (approvals > rejections) {
             applyProposal(room, proposal);
-            return;
+        } else {
+            proposal.setStatus("REJECTED");
+            proposalRepository.save(proposal);
         }
-        proposal.setStatus("REJECTED");
         proposalRepository.save(proposal);
     }
 
-    private boolean isNeighbor(RoomProposal proposal, RoomParticipant participant) {
-        return readNeighborIds(proposal).contains("P:" + participant.getId());
+    private boolean canVoteNow(Room room, RoomProposal proposal, RoomParticipant participant) {
+        if (proposal.getAnchorX() == null || proposal.getAnchorY() == null) {
+            return false;
+        }
+        if (participant.getX() == null || participant.getY() == null) {
+            return false;
+        }
+        int[][] tiles = fromJsonTiles(stateRepository.findByRoom(room)
+            .orElseThrow(() -> new IllegalStateException("Room state missing")).getTilesJson());
+        int[] view = computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
+        return inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
     }
 
     private List<String> readNeighborIds(RoomProposal proposal) {
@@ -2137,13 +2163,17 @@ public class RoomService {
     private List<String> findNeighbors(Room room, RoomParticipant proposer, int[][] proposedTiles) {
         int[][] tiles = fromJsonTiles(stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing")).getTilesJson());
-        int cx = proposer.getX() == null ? 0 : proposer.getX();
-        int cy = proposer.getY() == null ? 0 : proposer.getY();
+        int cx = proposer != null && proposer.getX() != null ? proposer.getX() : 0;
+        int cy = proposer != null && proposer.getY() != null ? proposer.getY() : 0;
         int[] change = findChangeType(tiles, proposedTiles);
         if (change != null) {
             cx = change[0];
             cy = change[1];
         }
+        return findNeighborsForAnchor(room, tiles, cx, cy);
+    }
+
+    private List<String> findNeighborsForAnchor(Room room, int[][] tiles, int cx, int cy) {
         int[] view = computeViewBounds(cx, cy, tiles);
         int viewX = view[0];
         int viewY = view[1];
