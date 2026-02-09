@@ -2,6 +2,7 @@ const token = window.APP_TOKEN;
 const canvas = document.getElementById('world');
 const ctx = canvas.getContext('2d');
 const miniMap = document.getElementById('miniMap');
+const miniMapContainer = document.getElementById('miniMapContainer');
 const miniCtx = miniMap ? miniMap.getContext('2d') : null;
 const miniMapToggle = document.getElementById('toggleMiniMap');
 const pollOverlay = document.getElementById('pollOverlay');
@@ -76,6 +77,10 @@ let player = { x: 0, y: 0 };
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
+let ws = null;
+let wsRoomId = null;
+let wsReconnectTimer = null;
+let refreshInFlight = false;
 
 let tool = 'forest';
 
@@ -356,13 +361,18 @@ if (miniMap) {
 
 if (miniMapToggle && miniMap) {
   miniMapToggle.addEventListener('click', () => {
-    miniMap.classList.toggle('collapsed');
+    if (miniMapContainer) {
+      miniMapContainer.classList.toggle('collapsed');
+    } else {
+      miniMap.classList.toggle('collapsed');
+    }
   });
 }
 
 if (infoToggle && infoPanel) {
   infoToggle.addEventListener('click', () => {
     infoPanel.classList.toggle('open');
+    document.body.classList.toggle('drawer-open', infoPanel.classList.contains('open'));
     resizeViewport();
     draw();
   });
@@ -467,6 +477,7 @@ function setRoomStateFromResponse(data) {
     roomId = data.roomId;
     if (roomIdInput) roomIdInput.value = roomId;
   }
+  ensureWebSocket();
   if (data.tiles) {
     tiles = data.tiles;
     const nextWidth = tiles[0] ? tiles[0].length : 0;
@@ -506,6 +517,45 @@ function setRoomStateFromResponse(data) {
   draw();
 }
 
+function ensureWebSocket() {
+  if (!roomId) return;
+  if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    if (ws.readyState === WebSocket.OPEN && wsRoomId !== roomId) {
+      ws.send(JSON.stringify({ type: 'subscribe', roomId }));
+      wsRoomId = roomId;
+    }
+    return;
+  }
+  const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${protocol}://${window.location.host}/ws/room`);
+  wsRoomId = roomId;
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'subscribe', roomId }));
+  };
+  ws.onmessage = (evt) => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'refresh' && msg.roomId === roomId) {
+        if (!refreshInFlight) {
+          refreshInFlight = true;
+          refreshRoomState().finally(() => {
+            refreshInFlight = false;
+          });
+        }
+      }
+    } catch (e) {
+      // ignore bad messages
+    }
+  };
+  ws.onclose = () => {
+    if (wsReconnectTimer) return;
+    wsReconnectTimer = setTimeout(() => {
+      wsReconnectTimer = null;
+      ensureWebSocket();
+    }, 2000);
+  };
+}
+
 function renderRoomState() {
   renderNeighborStats();
   renderParticipants();
@@ -534,21 +584,20 @@ function renderRouteChoices(plainPath, roadPath, roadCost) {
     return;
   }
   const plainSteps = Math.max(0, plain.length - 1);
+  const plainCost = plainSteps;
   const roadSteps = road && road.length ? Math.max(0, road.length - 1) : plainSteps;
+  const roadTime = roadCost !== undefined && Number.isFinite(roadCost) ? roadCost : roadSteps;
   const row = document.createElement('div');
   row.className = 'list-item';
 
   const directBtn = document.createElement('button');
   directBtn.className = 'fallback-button';
-  directBtn.textContent = `Direct (${plainSteps} steps)`;
+  directBtn.textContent = `Direct (${plainSteps} steps, ${plainCost.toFixed(1)} time)`;
   directBtn.addEventListener('click', () => beginAutoNav(plain));
 
   const roadBtn = document.createElement('button');
   roadBtn.className = 'fallback-button';
-  const roadLabel = roadCost !== undefined && Number.isFinite(roadCost)
-    ? `Road-biased (${roadSteps} steps, cost ${roadCost.toFixed(2)})`
-    : `Road-biased (${roadSteps} steps)`;
-  roadBtn.textContent = roadLabel;
+  roadBtn.textContent = `Road-biased (${roadSteps} steps, ${roadTime.toFixed(1)} time)`;
   roadBtn.addEventListener('click', () => beginAutoNav(road && road.length ? road : plain));
 
   row.appendChild(directBtn);
@@ -718,7 +767,7 @@ function renderLocalProposals() {
   localProposalsList.innerHTML = '';
   const me = participants.find(p => p.id === participantId);
   const myName = me ? me.displayName : '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id));
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && p.canVote);
   proposals.forEach(p => {
     const row = document.createElement('div');
     row.className = 'list-item';
@@ -730,7 +779,8 @@ function renderLocalProposals() {
     meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections} - need ${needed}`;
     const dismiss = document.createElement('button');
     dismiss.className = 'fallback-button';
-    dismiss.textContent = 'X';
+    dismiss.textContent = '✕';
+    dismiss.classList.add('poll-action');
     dismiss.addEventListener('click', (evt) => {
       evt.stopPropagation();
       dismissPollById(p.id);
@@ -744,14 +794,14 @@ function renderLocalProposals() {
       row.appendChild(note);
     } else {
       const actions = document.createElement('div');
-      actions.className = 'multiplayer-actions';
+      actions.className = 'multiplayer-actions poll-actions-inline';
       const yesBtn = document.createElement('button');
-      yesBtn.className = 'fallback-button';
-      yesBtn.textContent = 'Yes';
+      yesBtn.className = 'fallback-button poll-action';
+      yesBtn.textContent = '✓';
       yesBtn.addEventListener('click', () => voteProposalById(p.id, true));
       const noBtn = document.createElement('button');
-      noBtn.className = 'fallback-button';
-      noBtn.textContent = 'No';
+      noBtn.className = 'fallback-button poll-action';
+      noBtn.textContent = '✕';
       noBtn.addEventListener('click', () => voteProposalById(p.id, false));
       actions.appendChild(yesBtn);
       actions.appendChild(noBtn);
@@ -770,7 +820,7 @@ function renderLocalProposals() {
 function renderPollOverlay() {
   if (!pollOverlay || !roomState) return;
   pollOverlay.innerHTML = '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id));
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id) && (p.canVote || p.owner));
   proposals.forEach(p => {
     if (p.anchorX === undefined || p.anchorY === undefined) return;
     if (p.anchorX < viewX || p.anchorX >= viewX + viewWidth) return;
@@ -789,13 +839,15 @@ function renderPollOverlay() {
     const actions = document.createElement('div');
     actions.className = 'poll-marker-actions';
     const yes = document.createElement('button');
-    yes.textContent = 'Yes';
+    yes.textContent = '✓';
+    yes.className = 'poll-action';
     yes.addEventListener('click', (evt) => {
       evt.stopPropagation();
       voteProposalById(p.id, true);
     });
     const no = document.createElement('button');
-    no.textContent = 'No';
+    no.textContent = '✕';
+    no.className = 'poll-action';
     no.addEventListener('click', (evt) => {
       evt.stopPropagation();
       voteProposalById(p.id, false);
@@ -1081,12 +1133,6 @@ function initMultiplayer() {
   }
 
   setInterval(() => {
-    if (roomId) {
-      refreshRoomState();
-    }
-  }, 10000);
-
-  setInterval(() => {
     renderLockStatus();
   }, 1000);
 }
@@ -1253,7 +1299,7 @@ function buildRoadPath(sx, sy, tx, ty) {
       if (n.x < 0 || n.x >= width || n.y < 0 || n.y >= height) continue;
       const nKey = n.y * width + n.x;
       const road = (highways[n.y] && highways[n.y][n.x]) || tiles[n.y][n.x] === 4;
-      const stepCost = road ? 1 / 3 : 1;
+      const stepCost = road ? 1 / 3 : 1.6;
       const tentative = (gScore.get(current.key) || Number.POSITIVE_INFINITY) + stepCost;
       if (tentative < (gScore.get(nKey) || Number.POSITIVE_INFINITY)) {
         cameFrom.set(nKey, current.key);
@@ -1375,6 +1421,9 @@ async function init() {
   roomId = data.roomId;
   participantId = data.participantId;
   setRoomStateFromResponse(data);
+  if (infoPanel) {
+    document.body.classList.toggle('drawer-open', infoPanel.classList.contains('open'));
+  }
   width = tiles[0] ? tiles[0].length : 0;
   height = tiles.length || 0;
   resizeViewport();
@@ -1390,3 +1439,9 @@ window.addEventListener('resize', () => {
 });
 
 init();
+
+setInterval(() => {
+  if (roomState && miniCtx && miniMap && tiles.length) {
+    drawMiniMap();
+  }
+}, 2000);

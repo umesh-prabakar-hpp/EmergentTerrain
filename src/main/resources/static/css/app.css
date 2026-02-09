@@ -72,6 +72,10 @@ body {
   overflow: hidden;
 }
 
+.game-page {
+  --drawer-width: 360px;
+}
+
 .game-page .container.wide {
   max-width: none;
   width: 100vw;
@@ -243,6 +247,12 @@ md-icon {
 }
 
 #miniMap {
+  width: 180px;
+  height: 180px;
+  display: block;
+}
+
+.mini-map-container {
   position: absolute;
   right: 12px;
   top: 12px;
@@ -255,7 +265,12 @@ md-icon {
   z-index: 4;
 }
 
-#miniMap.collapsed {
+.drawer-open .mini-map-container {
+  right: calc(var(--drawer-width) + 24px);
+}
+
+#miniMap.collapsed,
+#miniMapContainer.collapsed {
   display: none;
 }
 
@@ -368,14 +383,32 @@ md-icon {
   position: absolute;
   right: 12px;
   top: 12px;
-  width: 320px;
-  transform: translateX(360px);
+  width: var(--drawer-width);
+  transform: translateX(calc(var(--drawer-width) + 48px));
   transition: transform 0.2s ease;
   z-index: 3;
+  box-shadow: -18px 0 30px rgba(0, 0, 0, 0.18);
 }
 
 .drawer.open {
   transform: translateX(0);
+}
+
+.info-section {
+  margin: 16px 0 22px;
+}
+
+.info-section:first-child {
+  margin-top: 0;
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--md-sys-color-on-surface-variant);
+  margin-bottom: 10px;
 }
 
 .chip {
@@ -475,6 +508,35 @@ md-icon {
 
 .info-panel .list-item {
   position: relative;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+
+.poll-action {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  min-width: 28px;
+  border-radius: 999px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.poll-marker-actions .poll-action {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+}
+
+.poll-actions-inline {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .info-panel .list-item::after {

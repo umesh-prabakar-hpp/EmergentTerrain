@@ -7,6 +7,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,10 +27,13 @@ public class RoomService {
     private final RoomBotRepository botRepository;
     private final ProfileRepository profileRepository;
     private final PayloadService payloadService;
+    private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
     private final ObjectMapper objectMapper;
     private final int neighborRadius;
     private final int voteWindowSeconds;
+    private final int botVoteRetentionSeconds;
+    private final int minProposalLiveSeconds;
     private final int minNeighbors;
     private final int densityAreaSize;
     private final int maxOccupants;
@@ -43,6 +47,7 @@ public class RoomService {
     );
     private final ConcurrentHashMap<UUID, ReentrantLock> botLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ReentrantLock> proposalLocks = new ConcurrentHashMap<>();
+    private final ReentrantLock proposalTableLock = new ReentrantLock();
     private final ConcurrentHashMap<UUID, CachedMap> mapCache = new ConcurrentHashMap<>();
 
     public RoomService(RoomRepository roomRepository,
@@ -53,10 +58,13 @@ public class RoomService {
                        RoomBotRepository botRepository,
                        ProfileRepository profileRepository,
                        PayloadService payloadService,
+                       RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
                        ObjectMapper objectMapper,
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
+                       @Value("${app.consensus.botVoteRetentionSeconds:20}") int botVoteRetentionSeconds,
+                       @Value("${app.consensus.minProposalLiveSeconds:3}") int minProposalLiveSeconds,
                        @Value("${app.consensus.minNeighbors:3}") int minNeighbors,
                        @Value("${app.density.areaSize:20}") int densityAreaSize,
                        @Value("${app.density.maxOccupants:8}") int maxOccupants,
@@ -70,10 +78,13 @@ public class RoomService {
         this.botRepository = botRepository;
         this.profileRepository = profileRepository;
         this.payloadService = payloadService;
+        this.broadcaster = broadcaster;
         this.worldService = worldService;
         this.objectMapper = objectMapper;
         this.neighborRadius = neighborRadius;
         this.voteWindowSeconds = voteWindowSeconds;
+        this.botVoteRetentionSeconds = botVoteRetentionSeconds;
+        this.minProposalLiveSeconds = minProposalLiveSeconds;
         this.minNeighbors = minNeighbors;
         this.densityAreaSize = densityAreaSize;
         this.maxOccupants = maxOccupants;
@@ -130,7 +141,7 @@ public class RoomService {
         response.setMemoryMarkers(new ArrayList<>());
         response.setParticipants(buildParticipants(room));
         response.setBots(buildBots(room));
-        response.setProposals(buildProposals(room));
+        response.setProposals(buildProposals(room, host));
         response.setLockUntil(room.getLockUntil());
         response.setNeighborRadius(neighborRadius);
         response.setMinNeighbors(minNeighbors);
@@ -184,20 +195,48 @@ public class RoomService {
         RoomParticipant participant = ensureParticipant(room, profile);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        ReentrantLock lock = proposalLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
-        lock.lock();
-        try {
-            cleanupOldProposals(room);
-            ensureBots(room, fromJsonTiles(state.getTilesJson()));
-            maybeCreateBotProposal(room, state);
-            tickBots(room, state);
-            evaluatePendingProposals(room);
-        } finally {
-            lock.unlock();
-        }
-        return toRoomStateResponse(room, state);
+        ensureBots(room, fromJsonTiles(state.getTilesJson()));
+        return toRoomStateResponse(room, state, participant);
     }
 
+    @Scheduled(fixedDelay = 5000)
+    @Transactional
+    public void scheduledRoomMaintenance() {
+        List<Room> rooms = roomRepository.findAll();
+        if (rooms.isEmpty()) {
+            return;
+        }
+        for (Room room : rooms) {
+            RoomState state = stateRepository.findByRoom(room).orElse(null);
+            if (state == null) {
+                continue;
+            }
+            ReentrantLock lock = proposalLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
+            if (!lock.tryLock()) {
+                continue;
+            }
+            try {
+                int[][] tiles = fromJsonTiles(state.getTilesJson());
+                Instant now = Instant.now();
+                if (state.getLastCleanupAt() == null || state.getLastCleanupAt().isBefore(now.minusSeconds(15))) {
+                    cleanupOldProposals(room);
+                    state.setLastCleanupAt(now);
+                }
+                ensureBots(room, tiles);
+                maybeCreateBotProposal(room, state);
+                if (state.getLastBotTickAt() == null || state.getLastBotTickAt().isBefore(now.minusSeconds(5))) {
+                    tickBots(room, state);
+                    state.setLastBotTickAt(now);
+                }
+                evaluatePendingProposals(room);
+                stateRepository.save(state);
+                broadcaster.broadcastRoom(room.getId());
+            } catch (Exception ignored) {
+            } finally {
+                lock.unlock();
+            }
+        }
+    }
     @Transactional
     public RoomStateResponse move(Payload payload, UUID roomId, int x, int y) {
         Profile profile = profileFromPayload(payload);
@@ -207,14 +246,6 @@ public class RoomService {
         ensurePlayable(participant);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        ReentrantLock lock = proposalLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
-        lock.lock();
-        try {
-            cleanupOldProposals(room);
-            maybeCreateBotProposal(room, state);
-        } finally {
-            lock.unlock();
-        }
         int[][] tiles = fromJsonTiles(state.getTilesJson());
         if (x < 0 || y < 0 || y >= tiles.length || x >= tiles[0].length) {
             throw new IllegalStateException("Move out of bounds");
@@ -226,14 +257,9 @@ public class RoomService {
         participant.setY(y);
         participantRepository.save(participant);
         ensureNearbyBots(room, tiles, participant.getX(), participant.getY());
-        lock.lock();
-        try {
-            tickBots(room, state);
-            evaluatePendingProposals(room);
-        } finally {
-            lock.unlock();
-        }
-        return toRoomStateResponse(room, state);
+        RoomStateResponse response = toRoomStateResponse(room, state, participant);
+        broadcaster.broadcastRoom(room.getId());
+        return response;
     }
 
     public RoomStateResponse propose(Payload payload, UUID roomId, RoomProposalRequest request) {
@@ -279,7 +305,9 @@ public class RoomService {
 
             applyBotVotes(room, proposal, baseTiles, request.getTiles());
             evaluateProposal(room, proposal);
-            return toRoomStateResponse(room, state);
+            RoomStateResponse response = toRoomStateResponse(room, state, participant);
+            broadcaster.broadcastRoom(room.getId());
+            return response;
         } finally {
             lock.unlock();
         }
@@ -322,7 +350,7 @@ public class RoomService {
 
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
-            return toRoomStateResponse(room, state);
+            return toRoomStateResponse(room, state, participant);
         } finally {
             lock.unlock();
         }
@@ -350,7 +378,7 @@ public class RoomService {
         markers.add(marker);
         state.setMemoryMarkersJson(toJson(markers));
         stateRepository.save(state);
-        return toRoomStateResponse(room, state);
+        return toRoomStateResponse(room, state, participant);
     }
 
     public RoomBotPromptResponse botPrompt(Payload payload, UUID roomId, String type) {
@@ -375,6 +403,27 @@ public class RoomService {
         response.setType(type);
         response.setPrompt(prompt);
         response.setLastPrompt(bot.getLastPrompt());
+        return response;
+    }
+
+    public RoomStateResponse dismissPoll(Payload payload, UUID roomId, String proposalId) {
+        Profile profile = profileFromPayload(payload);
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        RoomParticipant participant = ensureParticipant(room, profile);
+        RoomState state = stateRepository.findByRoom(room)
+            .orElseThrow(() -> new IllegalStateException("Room state missing"));
+        List<String> dismissed = new ArrayList<>(readDismissedPollIds(participant));
+        if (proposalId != null && !proposalId.isBlank() && !dismissed.contains(proposalId)) {
+            dismissed.add(proposalId);
+        }
+        if (dismissed.size() > 100) {
+            dismissed = dismissed.subList(dismissed.size() - 100, dismissed.size());
+        }
+        participant.setDismissedPollsJson(toJson(dismissed));
+        participantRepository.save(participant);
+        RoomStateResponse response = toRoomStateResponse(room, state, participant);
+        broadcaster.broadcastRoom(room.getId());
         return response;
     }
 
@@ -634,8 +683,9 @@ public class RoomService {
         return infos;
     }
 
-    private List<RoomProposalInfo> buildProposals(Room room) {
+    private List<RoomProposalInfo> buildProposals(Room room, RoomParticipant participant) {
         List<RoomProposalInfo> infos = new ArrayList<>();
+        String participantKey = participant == null ? null : "P:" + participant.getId();
         for (RoomProposal proposal : proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room)) {
             RoomProposalInfo info = new RoomProposalInfo();
             info.setId(proposal.getId().toString());
@@ -652,6 +702,10 @@ public class RoomService {
             info.setBotGenerated(Boolean.TRUE.equals(proposal.isBotGenerated()));
             info.setBotLabel(proposal.getBotLabel());
             info.setTileType(proposalDeltaType(proposal));
+            if (participantKey != null) {
+                info.setCanVote(readNeighborIds(proposal).contains(participantKey));
+                info.setOwner(proposal.getProposer() != null && proposal.getProposer().getId().equals(participant.getId()));
+            }
             infos.add(info);
         }
         return infos;
@@ -659,12 +713,21 @@ public class RoomService {
 
     @Transactional
     private void cleanupOldProposals(Room room) {
+        if (!proposalTableLock.tryLock()) {
+            return;
+        }
+        try {
         Instant cutoff = Instant.now().minusSeconds(5);
+        Instant botVoteCutoff = Instant.now().minusSeconds(botVoteRetentionSeconds);
+        voteRepository.deleteBotVotesBefore(room, botVoteCutoff);
         voteRepository.deleteByRoomBefore(room, cutoff);
         proposalRepository.deleteByRoomBefore(room, cutoff);
+        } finally {
+            proposalTableLock.unlock();
+        }
     }
 
-    private RoomStateResponse toRoomStateResponse(Room room, RoomState state) {
+    private RoomStateResponse toRoomStateResponse(Room room, RoomState state, RoomParticipant participant) {
         RoomStateResponse response = new RoomStateResponse();
         response.setRoomId(room.getId().toString());
         response.setRoomName(room.getName());
@@ -675,7 +738,7 @@ public class RoomService {
         response.setMemoryMarkers(readMemoryMarkers(state));
         response.setParticipants(buildParticipants(room));
         response.setBots(buildBots(room));
-        response.setProposals(buildProposals(room));
+        response.setProposals(buildProposals(room, participant));
         response.setTurnOwnerParticipantId(room.getTurnOwnerParticipantId() == null ? null : room.getTurnOwnerParticipantId().toString());
         response.setTurnExpiresAt(room.getTurnExpiresAt());
         response.setLockUntil(room.getLockUntil());
@@ -685,7 +748,21 @@ public class RoomService {
         response.setMinNeighbors(minNeighbors);
         response.setDensityAreaSize(densityAreaSize);
         response.setMaxOccupants(maxOccupants);
+        if (participant != null) {
+            response.setDismissedPollIds(readDismissedPollIds(participant));
+        }
         return response;
+    }
+
+    private List<String> readDismissedPollIds(RoomParticipant participant) {
+        if (participant.getDismissedPollsJson() == null || participant.getDismissedPollsJson().isBlank()) {
+            return new ArrayList<>();
+        }
+        try {
+            return objectMapper.readValue(participant.getDismissedPollsJson(), new TypeReference<List<String>>() {});
+        } catch (JsonProcessingException e) {
+            return new ArrayList<>();
+        }
     }
 
     private List<QuestItem> defaultSharedQuests() {
@@ -913,8 +990,8 @@ public class RoomService {
         double consensus = 0.3 + rand.nextDouble() * 0.6;
         double mobility = 0.3 + rand.nextDouble() * 0.6;
         double risk = 0.1 + rand.nextDouble() * 0.4;
-        double abstain = 0.03 + rand.nextDouble() * 0.12;
-        double conflict = 0.03 + rand.nextDouble() * 0.12;
+        double abstain = 0.01 + rand.nextDouble() * 0.04;
+        double conflict = 0.01 + rand.nextDouble() * 0.04;
         double drift = 0.001 + rand.nextDouble() * 0.004;
         Map<String, Double> profile = new HashMap<>();
         profile.put("forest", forest);
@@ -1651,10 +1728,21 @@ public class RoomService {
             if (!neighborIds.contains(key)) {
                 continue;
             }
+            String botId = bot.getId().toString();
+            if (voteRepository.findByProposalAndBotId(proposal, botId).isPresent()) {
+                continue;
+            }
             BotVote vote = botVoteDecision(room, bot, baseTiles, proposedTiles);
             if (vote == BotVote.ABSTAIN) {
                 continue;
             }
+            RoomProposalVote botVote = new RoomProposalVote();
+            botVote.setProposal(proposal);
+            botVote.setParticipant(null);
+            botVote.setBotVote(true);
+            botVote.setBotId(botId);
+            botVote.setApprove(vote == BotVote.APPROVE);
+            voteRepository.save(botVote);
             if (vote == BotVote.APPROVE) {
                 proposal.setApprovals(proposal.getApprovals() + 1);
             } else {
@@ -1749,14 +1837,8 @@ public class RoomService {
     }
 
     private void maybeCreateBotProposal(Room room, RoomState state) {
-        Instant last = state.getLastBotProposalAt();
-        if (last != null && last.isAfter(Instant.now().minusSeconds(10))) {
-            return;
-        }
-        long pendingCount = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room).stream()
-            .filter(p -> "PENDING".equals(p.getStatus()))
-            .count();
-        if (pendingCount >= 3) {
+        Instant lastSweep = state.getLastBotProposalSweepAt();
+        if (lastSweep != null && lastSweep.isAfter(Instant.now().minusSeconds(60))) {
             return;
         }
         List<RoomBot> bots = botRepository.findByRoom(room);
@@ -1764,21 +1846,6 @@ public class RoomService {
             return;
         }
         int[][] baseTiles = fromJsonTiles(state.getTilesJson());
-        RoomBot bot = bots.get(new Random().nextInt(bots.size()));
-        if (bot.getX() == null || bot.getY() == null) {
-            return;
-        }
-        int[] anchor = pickBotProposalAnchor(bot, baseTiles);
-        if (anchor == null) {
-            return;
-        }
-        int targetType = dominantTileType(readBotProfile(bot));
-        int[][] proposed = applyBotChange(baseTiles, anchor[0], anchor[1], targetType);
-        try {
-            validateProposalChange(baseTiles, proposed);
-        } catch (IllegalStateException e) {
-            return;
-        }
         RoomParticipant proposer = participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room)
             .stream()
             .findFirst()
@@ -1786,32 +1853,50 @@ public class RoomService {
         if (proposer == null) {
             return;
         }
-        RoomProposal proposal = new RoomProposal();
-        proposal.setRoom(room);
-        proposal.setProposer(proposer);
-        proposal.setTilesJson(toJson(proposed));
-        Map<String, Object> delta = new HashMap<>();
-        delta.put("x", anchor[0]);
-        delta.put("y", anchor[1]);
-        delta.put("type", targetType);
-        proposal.setDeltaJson(toJson(delta));
-        proposal.setAnchorX(anchor[0]);
-        proposal.setAnchorY(anchor[1]);
-        proposal.setBotGenerated(true);
-        proposal.setBotLabel(botDisplayName(bot));
-        proposal.setStatus("PENDING");
-        List<String> neighbors = findNeighbors(room, proposer, proposed);
-        if (neighbors.size() < minNeighbors) {
-            return;
+        for (RoomBot bot : bots) {
+            if (bot.getX() == null || bot.getY() == null) {
+                continue;
+            }
+            int[] anchor = pickBotProposalAnchor(bot, baseTiles);
+            if (anchor == null) {
+                continue;
+            }
+            int targetType = dominantTileType(readBotProfile(bot));
+            int[][] proposed = applyBotChange(baseTiles, anchor[0], anchor[1], targetType);
+            try {
+                validateProposalChange(baseTiles, proposed);
+            } catch (IllegalStateException e) {
+                continue;
+            }
+            RoomProposal proposal = new RoomProposal();
+            proposal.setRoom(room);
+            proposal.setProposer(proposer);
+            proposal.setTilesJson(toJson(proposed));
+            Map<String, Object> delta = new HashMap<>();
+            delta.put("x", anchor[0]);
+            delta.put("y", anchor[1]);
+            delta.put("type", targetType);
+            proposal.setDeltaJson(toJson(delta));
+            proposal.setAnchorX(anchor[0]);
+            proposal.setAnchorY(anchor[1]);
+            proposal.setBotGenerated(true);
+            proposal.setBotLabel(botDisplayName(bot));
+            proposal.setStatus("PENDING");
+            List<String> neighbors = findNeighbors(room, proposer, proposed);
+            if (neighbors.size() < minNeighbors) {
+                continue;
+            }
+            proposal.setNeighborIdsJson(toJson(neighbors));
+            proposal.setRequiredVotes(neighbors.size() / 2 + 1);
+            proposal.setExpiresAt(Instant.now().plusSeconds(voteWindowSeconds));
+            proposal.setApprovals(0);
+            proposal.setRejections(0);
+            proposalRepository.save(proposal);
+            applyBotVotes(room, proposal, baseTiles, proposed);
+            evaluateProposal(room, proposal);
+            state.setLastBotProposalAt(Instant.now());
         }
-        proposal.setNeighborIdsJson(toJson(neighbors));
-        proposal.setRequiredVotes(neighbors.size() / 2 + 1);
-        proposal.setExpiresAt(Instant.now().plusSeconds(voteWindowSeconds));
-        proposal.setApprovals(0);
-        proposal.setRejections(0);
-        proposalRepository.save(proposal);
-        evaluateProposal(room, proposal);
-        state.setLastBotProposalAt(Instant.now());
+        state.setLastBotProposalSweepAt(Instant.now());
         stateRepository.save(state);
     }
 
@@ -1878,6 +1963,12 @@ public class RoomService {
     private void evaluateProposal(Room room, RoomProposal proposal) {
         if (!"PENDING".equals(proposal.getStatus())) {
             return;
+        }
+        if (proposal.getCreatedAt() != null) {
+            Instant earliest = proposal.getCreatedAt().plusSeconds(minProposalLiveSeconds);
+            if (Instant.now().isBefore(earliest)) {
+                return;
+            }
         }
         int required = proposal.getRequiredVotes();
         if (proposal.getApprovals() >= required) {
@@ -1962,9 +2053,10 @@ public class RoomService {
         List<String> neighborIds = readNeighborIds(proposal);
         Set<String> voted = new HashSet<>();
         for (RoomProposalVote vote : voteRepository.findByProposal(proposal)) {
-            voted.add("P:" + vote.getParticipant().getId());
+            if (vote.getParticipant() != null) {
+                voted.add("P:" + vote.getParticipant().getId());
+            }
         }
-        int[] missing = {0};
         Integer anchorX = proposal.getAnchorX();
         Integer anchorY = proposal.getAnchorY();
         if (anchorX == null || anchorY == null) {
@@ -1979,7 +2071,6 @@ public class RoomService {
                             return;
                         }
                     }
-                    missing[0]++;
                     p.setMissedVotes(p.getMissedVotes() + 1);
                     if (p.getMissedVotes() >= 2) {
                         p.setLockedUntil(Instant.now().plusSeconds(noParticipationLockSeconds));
@@ -1989,15 +2080,12 @@ public class RoomService {
                 });
             }
         }
-        proposal.setRejections(proposal.getRejections() + missing[0]);
         int required = proposal.getRequiredVotes();
         if (proposal.getApprovals() >= required) {
             applyProposal(room, proposal);
             return;
         }
-        if (proposal.getRejections() >= required) {
-            proposal.setStatus("REJECTED");
-        }
+        proposal.setStatus("REJECTED");
         proposalRepository.save(proposal);
     }
 

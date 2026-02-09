@@ -35,7 +35,9 @@ app:
     highwayRatio: 0.02
   consensus:
     neighborRadius: 8
-    voteWindowSeconds: 45
+    voteWindowSeconds: 60
+    minProposalLiveSeconds: 3
+    botVoteRetentionSeconds: 20
     minNeighbors: 3
     noParticipationLockSeconds: 300
   density:

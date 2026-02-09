@@ -10,7 +10,7 @@
   <script type="module" src="/js/m3.js"></script>
   <script defer src="/js/diag.js"></script>
 </head>
-<body>
+<body class="game-page">
   <div class="container wide">
     <div class="hero">
       <div class="hero-row">
@@ -29,7 +29,9 @@
         <div class="game-panel">
           <div class="canvas-wrap">
             <canvas id="world" width="900" height="620"></canvas>
-            <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
+            <div id="miniMapContainer" class="mini-map-container">
+              <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
+            </div>
             <div id="pollOverlay" class="poll-overlay"></div>
             <div id="radialMenu" class="radial-menu"></div>
             <div class="overlay-toolbar">
@@ -44,6 +46,7 @@
               <md-icon-button id="toggleMultiplayer" title="Multiplayer"><md-icon>groups</md-icon></md-icon-button>
               <md-icon-button id="toggleBots" title="Companions"><md-icon>smart_toy</md-icon></md-icon-button>
               <md-icon-button id="toggleMiniMap" title="Toggle Map"><md-icon>map</md-icon></md-icon-button>
+              <md-icon-button id="toggleInfoPanel" title="Toggle Panel"><md-icon>view_sidebar</md-icon></md-icon-button>
             </div>
             <div class="overlay-panel" id="tokensPanel">
               <div class="chip">Insight Tokens</div>
@@ -135,29 +138,41 @@
             </div>
           </div>
         </div>
-        <div class="info-panel">
-          <div class="chip">Pattern Insights</div>
-          <h3 class="section-title md-typescale-title-large">Explanation</h3>
-          <div id="explanation" class="md-typescale-body-medium">Make changes to see explanations.</div>
-          <div id="tradeoffPanel" class="tradeoff-panel md-typescale-body-medium"></div>
-          <div class="chip">Local Proposals</div>
-          <div id="localProposalsList" class="list md-typescale-body-medium"></div>
-          <div class="chip">Participation</div>
-          <div id="lockStatus" class="md-typescale-body-medium">No lock active.</div>
-          <div id="missedVotes" class="md-typescale-body-medium">Missed votes: 0</div>
-          <div class="chip">Poll Results</div>
-          <div id="pollResultsList" class="list md-typescale-body-medium"></div>
-          <div class="chip">Routes</div>
-          <div id="routeChoices" class="list md-typescale-body-medium"></div>
-          <div id="pollDetails" class="md-typescale-body-medium">Select a 1x1 area to start a poll.</div>
-          <h4 class="section-title md-typescale-title-large">Region Meanings</h4>
-          <div class="md-typescale-body-medium">
-            <div>Dense Forest Clusters → Comfort with complexity / introspection</div>
-            <div>Open Clearings → Desire for freedom / clarity</div>
-            <div>Water Pockets → Emotional flow / adaptability</div>
-            <div>Industry Grids → Drive for structure / productivity</div>
+                <div class="info-panel drawer open" id="infoPanel">
+          <div class="info-section">
+            <div class="chip">Pattern Insights</div>
+            <h3 class="section-title md-typescale-title-large">Explanation</h3>
+            <div id="explanation" class="md-typescale-body-medium">Make changes to see explanations.</div>
+            <div id="tradeoffPanel" class="tradeoff-panel md-typescale-body-medium"></div>
           </div>
-          <div id="ahaPanel" class="aha-panel md-typescale-body-medium">Earn insights by exploring and confirming changes.</div>
+          <div class="info-section">
+            <div class="section-label">Local Proposals</div>
+            <div id="localProposalsList" class="list md-typescale-body-medium"></div>
+          </div>
+          <div class="info-section">
+            <div class="section-label">Participation</div>
+            <div id="lockStatus" class="md-typescale-body-medium">No lock active.</div>
+            <div id="missedVotes" class="md-typescale-body-medium">Missed votes: 0</div>
+          </div>
+          <div class="info-section">
+            <div class="section-label">Poll Results</div>
+            <div id="pollResultsList" class="list md-typescale-body-medium"></div>
+          </div>
+          <div class="info-section">
+            <div class="section-label">Routes</div>
+            <div id="routeChoices" class="list md-typescale-body-medium"></div>
+            <div id="pollDetails" class="md-typescale-body-medium">Select a 1x1 area to start a poll.</div>
+          </div>
+          <div class="info-section">
+            <h4 class="section-title md-typescale-title-large">Region Meanings</h4>
+            <div class="md-typescale-body-medium">
+              <div>Dense Forest Clusters â†’ Comfort with complexity / introspection</div>
+              <div>Open Clearings â†’ Desire for freedom / clarity</div>
+              <div>Water Pockets â†’ Emotional flow / adaptability</div>
+              <div>Industry Grids â†’ Drive for structure / productivity</div>
+            </div>
+            <div id="ahaPanel" class="aha-panel md-typescale-body-medium">Earn insights by exploring and confirming changes.</div>
+          </div>
         </div>
       </div>
     </div>

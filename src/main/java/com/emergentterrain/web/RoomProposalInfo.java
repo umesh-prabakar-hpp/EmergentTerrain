@@ -17,6 +17,8 @@ public class RoomProposalInfo {
     private boolean botGenerated;
     private String botLabel;
     private Integer tileType;
+    private boolean canVote;
+    private boolean owner;
 
     public String getId() {
         return id;
@@ -128,5 +130,21 @@ public class RoomProposalInfo {
 
     public void setTileType(Integer tileType) {
         this.tileType = tileType;
+    }
+
+    public boolean isCanVote() {
+        return canVote;
+    }
+
+    public void setCanVote(boolean canVote) {
+        this.canVote = canVote;
+    }
+
+    public boolean isOwner() {
+        return owner;
+    }
+
+    public void setOwner(boolean owner) {
+        this.owner = owner;
     }
 }

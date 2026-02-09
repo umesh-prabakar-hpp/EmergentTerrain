@@ -35,7 +35,9 @@ public class RoomState {
     private String previousStateHash;
 
     private Instant lastBotProposalAt;
+    private Instant lastBotProposalSweepAt;
     private Instant lastBotTickAt;
+    private Instant lastCleanupAt;
 
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
@@ -116,12 +118,28 @@ public class RoomState {
         this.lastBotProposalAt = lastBotProposalAt;
     }
 
+    public Instant getLastBotProposalSweepAt() {
+        return lastBotProposalSweepAt;
+    }
+
+    public void setLastBotProposalSweepAt(Instant lastBotProposalSweepAt) {
+        this.lastBotProposalSweepAt = lastBotProposalSweepAt;
+    }
+
     public Instant getLastBotTickAt() {
         return lastBotTickAt;
     }
 
     public void setLastBotTickAt(Instant lastBotTickAt) {
         this.lastBotTickAt = lastBotTickAt;
+    }
+
+    public Instant getLastCleanupAt() {
+        return lastCleanupAt;
+    }
+
+    public void setLastCleanupAt(Instant lastCleanupAt) {
+        this.lastCleanupAt = lastCleanupAt;
     }
 
     public Instant getUpdatedAt() {

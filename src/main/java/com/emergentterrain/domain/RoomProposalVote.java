@@ -14,11 +14,17 @@ public class RoomProposalVote {
     @ManyToOne(optional = false)
     private RoomProposal proposal;
 
-    @ManyToOne(optional = false)
+    @ManyToOne(optional = true)
+    @JoinColumn(nullable = true)
     private RoomParticipant participant;
 
     @Column(nullable = false)
     private boolean approve;
+
+    @Column(nullable = false)
+    private boolean botVote = false;
+
+    private String botId;
 
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
@@ -49,6 +55,22 @@ public class RoomProposalVote {
 
     public void setApprove(boolean approve) {
         this.approve = approve;
+    }
+
+    public boolean isBotVote() {
+        return botVote;
+    }
+
+    public void setBotVote(boolean botVote) {
+        this.botVote = botVote;
+    }
+
+    public String getBotId() {
+        return botId;
+    }
+
+    public void setBotId(String botId) {
+        this.botId = botId;
     }
 
     public Instant getCreatedAt() {
