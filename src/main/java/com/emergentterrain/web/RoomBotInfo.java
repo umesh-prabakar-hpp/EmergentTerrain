@@ -7,6 +7,7 @@ public class RoomBotInfo {
     private int x;
     private int y;
     private java.util.Map<String, Double> profile;
+    private String role;
 
     public String getId() {
         return id;
@@ -54,5 +55,13 @@ public class RoomBotInfo {
 
     public void setProfile(java.util.Map<String, Double> profile) {
         this.profile = profile;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public void setRole(String role) {
+        this.role = role;
     }
 }

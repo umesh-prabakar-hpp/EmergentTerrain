@@ -3,6 +3,8 @@ const canvas = document.getElementById('world');
 const ctx = canvas.getContext('2d');
 const miniMap = document.getElementById('miniMap');
 const miniCtx = miniMap ? miniMap.getContext('2d') : null;
+const miniMapToggle = document.getElementById('toggleMiniMap');
+const pollOverlay = document.getElementById('pollOverlay');
 const explanationEl = document.getElementById('explanation');
 const tradeoffPanel = document.getElementById('tradeoffPanel');
 const radialMenu = document.getElementById('radialMenu');
@@ -31,6 +33,7 @@ const pollDetails = document.getElementById('pollDetails');
 const lockStatusEl = document.getElementById('lockStatus');
 const missedVotesEl = document.getElementById('missedVotes');
 const pollResultsList = document.getElementById('pollResultsList');
+const routeChoicesEl = document.getElementById('routeChoices');
 const neighborStats = document.getElementById('neighborStats');
 const proposeRoomBtn = document.getElementById('proposeRoomBtn');
 const approveProposalBtn = document.getElementById('approveProposalBtn');
@@ -56,6 +59,9 @@ let miniTarget = null;
 let autoNavTarget = null;
 let autoNavTimer = null;
 let autoNavInFlight = false;
+let autoNavPath = null;
+let autoNavIndex = 0;
+let pendingRoutes = null;
 let roomId = '';
 let participantId = '';
 let roomState = null;
@@ -207,6 +213,7 @@ function draw() {
   }
 
   drawMiniMap();
+  renderPollOverlay();
 }
 
 function gridFromEvent(evt) {
@@ -287,6 +294,22 @@ function drawMiniMap() {
     miniCtx.lineTo(tx, ty + 5);
     miniCtx.stroke();
   }
+
+  if (pendingRoutes) {
+    const drawPath = (path, color) => {
+      if (!path || path.length < 2) return;
+      miniCtx.strokeStyle = color;
+      miniCtx.lineWidth = 2;
+      miniCtx.beginPath();
+      miniCtx.moveTo(path[0].x * sx, path[0].y * sy);
+      for (let i = 1; i < path.length; i++) {
+        miniCtx.lineTo(path[i].x * sx, path[i].y * sy);
+      }
+      miniCtx.stroke();
+    };
+    drawPath(pendingRoutes.plain, 'rgba(255, 193, 7, 0.9)');
+    drawPath(pendingRoutes.road, 'rgba(56, 142, 60, 0.9)');
+  }
 }
 
 if (miniMap) {
@@ -299,8 +322,24 @@ if (miniMap) {
       x: Math.max(0, Math.min(width - 1, x)),
       y: Math.max(0, Math.min(height - 1, y))
     };
-    startAutoNav(miniTarget);
+    const sx = player.x;
+    const sy = player.y;
+    const tx = miniTarget.x;
+    const ty = miniTarget.y;
+    const plainPath = buildManhattanPath(sx, sy, tx, ty);
+    const roadResult = buildRoadPath(sx, sy, tx, ty);
+    pendingRoutes = {
+      plain: plainPath,
+      road: roadResult.path
+    };
+    renderRouteChoices(plainPath, roadResult.path, roadResult.cost);
     draw();
+  });
+}
+
+if (miniMapToggle && miniMap) {
+  miniMapToggle.addEventListener('click', () => {
+    miniMap.classList.toggle('collapsed');
   });
 }
 
@@ -448,10 +487,47 @@ function renderRoomState() {
   renderLocalProposals();
   renderLockStatus();
   renderPollResults();
+  renderRouteChoices();
+  renderPollOverlay();
   renderProposals();
   renderSharedTokens();
   renderSharedQuests();
   renderMemoryMarkers();
+}
+
+function renderRouteChoices(plainPath, roadPath, roadCost) {
+  if (!routeChoicesEl) return;
+  routeChoicesEl.innerHTML = '';
+  const plain = plainPath || (pendingRoutes ? pendingRoutes.plain : null);
+  const road = roadPath || (pendingRoutes ? pendingRoutes.road : null);
+  if (!plain || !plain.length) {
+    const empty = document.createElement('div');
+    empty.className = 'md-typescale-body-medium';
+    empty.textContent = 'Tap the minimap to choose a route.';
+    routeChoicesEl.appendChild(empty);
+    return;
+  }
+  const plainSteps = Math.max(0, plain.length - 1);
+  const roadSteps = road && road.length ? Math.max(0, road.length - 1) : plainSteps;
+  const row = document.createElement('div');
+  row.className = 'list-item';
+
+  const directBtn = document.createElement('button');
+  directBtn.className = 'fallback-button';
+  directBtn.textContent = `Direct (${plainSteps} steps)`;
+  directBtn.addEventListener('click', () => beginAutoNav(plain));
+
+  const roadBtn = document.createElement('button');
+  roadBtn.className = 'fallback-button';
+  const roadLabel = roadCost !== undefined && Number.isFinite(roadCost)
+    ? `Road-biased (${roadSteps} steps, cost ${roadCost.toFixed(2)})`
+    : `Road-biased (${roadSteps} steps)`;
+  roadBtn.textContent = roadLabel;
+  roadBtn.addEventListener('click', () => beginAutoNav(road && road.length ? road : plain));
+
+  row.appendChild(directBtn);
+  row.appendChild(roadBtn);
+  routeChoicesEl.appendChild(row);
 }
 
 function renderNeighborStats() {
@@ -505,6 +581,10 @@ function renderBotProfiles() {
     badge.className = 'profile-badge';
     badge.textContent = dominant ? `Dominant: ${dominant}` : 'Dominant: balanced';
     badges.appendChild(badge);
+    const roleBadge = document.createElement('div');
+    roleBadge.className = 'profile-badge';
+    roleBadge.textContent = bot.role ? `Role: ${bot.role}` : 'Role: unknown';
+    badges.appendChild(roleBadge);
     card.appendChild(badges);
 
     const bars = document.createElement('div');
@@ -515,7 +595,10 @@ function renderBotProfiles() {
       { key: 'clear', label: 'Clear', color: '#e2c28b' },
       { key: 'industry', label: 'Industry', color: '#6b6f7a' },
       { key: 'consensus', label: 'Consensus', color: '#8e8e8e' },
-      { key: 'mobility', label: 'Mobility', color: '#ffb300' }
+      { key: 'mobility', label: 'Mobility', color: '#ffb300' },
+      { key: 'risk', label: 'Risk', color: '#ef6c00' },
+      { key: 'abstain', label: 'Abstain', color: '#8d6e63' },
+      { key: 'conflict', label: 'Conflict', color: '#c62828' }
     ];
     traits.forEach(trait => {
       const row = document.createElement('div');
@@ -650,6 +733,57 @@ function renderLocalProposals() {
   }
 }
 
+function renderPollOverlay() {
+  if (!pollOverlay || !roomState) return;
+  pollOverlay.innerHTML = '';
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING');
+  proposals.forEach(p => {
+    if (p.anchorX === undefined || p.anchorY === undefined) return;
+    if (p.anchorX < viewX || p.anchorX >= viewX + viewWidth) return;
+    if (p.anchorY < viewY || p.anchorY >= viewY + viewHeight) return;
+    const marker = document.createElement('div');
+    marker.className = 'poll-marker';
+    marker.style.left = `${(p.anchorX - viewX + 0.5) * tileSize}px`;
+    marker.style.top = `${(p.anchorY - viewY + 0.2) * tileSize}px`;
+    const label = document.createElement('div');
+    const who = p.botGenerated ? `Bot: ${p.botLabel || 'Neighbor'}` : p.proposerName;
+    label.textContent = who;
+    marker.appendChild(label);
+    const typeLabel = document.createElement('div');
+    typeLabel.textContent = `Tile: ${proposalTypeLabel(p)}`;
+    marker.appendChild(typeLabel);
+    const actions = document.createElement('div');
+    actions.className = 'poll-marker-actions';
+    const yes = document.createElement('button');
+    yes.textContent = '✓';
+    yes.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      voteProposalById(p.id, true);
+    });
+    const no = document.createElement('button');
+    no.textContent = '✕';
+    no.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      voteProposalById(p.id, false);
+    });
+    actions.appendChild(yes);
+    actions.appendChild(no);
+    marker.appendChild(actions);
+    pollOverlay.appendChild(marker);
+  });
+}
+
+function proposalTypeLabel(p) {
+  if (!p) return 'Unknown';
+  const type = p.tileType !== undefined ? p.tileType : p.type;
+  if (type === 1 || type === 'forest') return 'Forest';
+  if (type === 2 || type === 'water') return 'Water';
+  if (type === 3 || type === 'industry') return 'Industry';
+  if (type === 4 || type === 'highway') return 'Highway';
+  if (type === 0 || type === 'clear') return 'Clear';
+  return 'Unknown';
+}
+
 function renderPollResults() {
   if (!pollResultsList || !roomState) return;
   pollResultsList.innerHTML = '';
@@ -680,10 +814,12 @@ function renderPollResults() {
 
 function isLocalProposal(p) {
   if (!p || p.anchorX === undefined || p.anchorY === undefined) return true;
-  if (!roomState || !roomState.neighborRadius) return true;
-  const dx = p.anchorX - player.x;
-  const dy = p.anchorY - player.y;
-  return dx * dx + dy * dy <= roomState.neighborRadius * roomState.neighborRadius;
+  if (!roomState) return true;
+  const viewX0 = viewX;
+  const viewY0 = viewY;
+  const viewX1 = viewX + viewWidth;
+  const viewY1 = viewY + viewHeight;
+  return p.anchorX >= viewX0 && p.anchorX < viewX1 && p.anchorY >= viewY0 && p.anchorY < viewY1;
 }
 
 async function voteProposalById(proposalId, approve) {
@@ -804,7 +940,7 @@ window.addEventListener('keydown', (evt) => {
   let nx = player.x;
   let ny = player.y;
   const onRoad = (highways[player.y] && highways[player.y][player.x]) || tiles[player.y][player.x] === 4;
-  const step = onRoad ? 2 : 1;
+  const step = onRoad ? 3 : 1;
   if (evt.key === 'ArrowUp' || evt.key === 'w') ny -= step;
   if (evt.key === 'ArrowDown' || evt.key === 's') ny += step;
   if (evt.key === 'ArrowLeft' || evt.key === 'a') nx -= step;
@@ -985,61 +1121,165 @@ document.addEventListener('click', (evt) => {
   closeRadialMenu();
 });
 
-function startAutoNav(target) {
-  if (!target) return;
-  autoNavTarget = { x: target.x, y: target.y };
+function beginAutoNav(path) {
+  if (!path || !path.length) return;
+  autoNavPath = path;
+  autoNavIndex = 0;
+  autoNavTarget = { x: path[path.length - 1].x, y: path[path.length - 1].y };
+  pendingRoutes = null;
+  renderRouteChoices();
   if (autoNavTimer) return;
   autoNavTimer = setInterval(() => {
     if (!autoNavTarget) return;
     if (isLocked()) return;
     if (autoNavInFlight) return;
-    const dx = autoNavTarget.x - player.x;
-    const dy = autoNavTarget.y - player.y;
-    if (Math.abs(dx) <= 0 && Math.abs(dy) <= 0) {
+    if (!autoNavPath || autoNavPath.length <= 1 || autoNavIndex >= autoNavPath.length - 1) {
       stopAutoNav();
       miniTarget = null;
       draw();
       return;
     }
     const onRoad = (highways[player.y] && highways[player.y][player.x]) || tiles[player.y][player.x] === 4;
-    const step = onRoad ? 2 : 1;
-    const choice = pickRoadBiasedStep(dx, dy, step);
-    let nx = choice.x;
-    let ny = choice.y;
+    const step = onRoad ? 3 : 1;
+    const nextIndex = Math.min(autoNavIndex + step, autoNavPath.length - 1);
+    const next = autoNavPath[nextIndex];
+    let nx = next.x;
+    let ny = next.y;
     if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
       stopAutoNav();
       return;
     }
     autoNavInFlight = true;
+    autoNavIndex = nextIndex;
     moveTo(nx, ny).finally(() => {
       autoNavInFlight = false;
     });
   }, 350);
 }
 
-function pickRoadBiasedStep(dx, dy, step) {
-  const candidates = [];
-  if (dx !== 0) {
-    const nx = player.x + (dx > 0 ? Math.min(step, Math.abs(dx)) : -Math.min(step, Math.abs(dx)));
-    candidates.push({ x: nx, y: player.y });
+function buildManhattanPath(sx, sy, tx, ty) {
+  const path = [{ x: sx, y: sy }];
+  let x = sx;
+  let y = sy;
+  while (x !== tx) {
+    x += x < tx ? 1 : -1;
+    path.push({ x, y });
   }
-  if (dy !== 0) {
-    const ny = player.y + (dy > 0 ? Math.min(step, Math.abs(dy)) : -Math.min(step, Math.abs(dy)));
-    candidates.push({ x: player.x, y: ny });
+  while (y !== ty) {
+    y += y < ty ? 1 : -1;
+    path.push({ x, y });
   }
-  if (candidates.length === 1) {
-    return candidates[0];
+  return path;
+}
+
+function buildRoadPath(sx, sy, tx, ty) {
+  const maxNodes = 800000;
+  const startKey = sy * width + sx;
+  const targetKey = ty * width + tx;
+  const open = new MinHeap();
+  const gScore = new Map();
+  const fScore = new Map();
+  const cameFrom = new Map();
+  gScore.set(startKey, 0);
+  fScore.set(startKey, heuristic(sx, sy, tx, ty));
+  open.push({ key: startKey, x: sx, y: sy, f: fScore.get(startKey) });
+  let visited = 0;
+  while (!open.isEmpty()) {
+    const current = open.pop();
+    if (current.key === targetKey) {
+      const path = reconstructPath(cameFrom, current.x, current.y);
+      return { path, cost: gScore.get(current.key) || Number.POSITIVE_INFINITY };
+    }
+    visited++;
+    if (visited > maxNodes) break;
+    const neighbors = [
+      { x: current.x + 1, y: current.y },
+      { x: current.x - 1, y: current.y },
+      { x: current.x, y: current.y + 1 },
+      { x: current.x, y: current.y - 1 }
+    ];
+    for (const n of neighbors) {
+      if (n.x < 0 || n.x >= width || n.y < 0 || n.y >= height) continue;
+      const nKey = n.y * width + n.x;
+      const road = (highways[n.y] && highways[n.y][n.x]) || tiles[n.y][n.x] === 4;
+      const stepCost = road ? 1 / 3 : 1;
+      const tentative = (gScore.get(current.key) || Number.POSITIVE_INFINITY) + stepCost;
+      if (tentative < (gScore.get(nKey) || Number.POSITIVE_INFINITY)) {
+        cameFrom.set(nKey, current.key);
+        gScore.set(nKey, tentative);
+        const f = tentative + heuristic(n.x, n.y, tx, ty);
+        fScore.set(nKey, f);
+        open.push({ key: nKey, x: n.x, y: n.y, f });
+      }
+    }
   }
-  const inBounds = candidates.filter(c => c.x >= 0 && c.x < width && c.y >= 0 && c.y < height);
-  const roadFirst = inBounds.filter(c => (highways[c.y] && highways[c.y][c.x]) || tiles[c.y][c.x] === 4);
-  if (roadFirst.length) {
-    return roadFirst[0];
+  return { path: [], cost: Number.POSITIVE_INFINITY };
+}
+
+function heuristic(x, y, tx, ty) {
+  return Math.abs(tx - x) + Math.abs(ty - y);
+}
+
+function reconstructPath(cameFrom, tx, ty) {
+  const path = [];
+  let key = ty * width + tx;
+  path.push({ x: tx, y: ty });
+  while (cameFrom.has(key)) {
+    key = cameFrom.get(key);
+    const x = key % width;
+    const y = Math.floor(key / width);
+    path.push({ x, y });
   }
-  return inBounds[0] || candidates[0];
+  path.reverse();
+  return path;
+}
+
+class MinHeap {
+  constructor() {
+    this.items = [];
+  }
+  push(node) {
+    this.items.push(node);
+    this.bubbleUp(this.items.length - 1);
+  }
+  pop() {
+    if (this.items.length === 1) return this.items.pop();
+    const root = this.items[0];
+    this.items[0] = this.items.pop();
+    this.bubbleDown(0);
+    return root;
+  }
+  isEmpty() {
+    return this.items.length === 0;
+  }
+  bubbleUp(index) {
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (this.items[parent].f <= this.items[index].f) break;
+      [this.items[parent], this.items[index]] = [this.items[index], this.items[parent]];
+      index = parent;
+    }
+  }
+  bubbleDown(index) {
+    const length = this.items.length;
+    while (true) {
+      let left = index * 2 + 1;
+      let right = index * 2 + 2;
+      let smallest = index;
+      if (left < length && this.items[left].f < this.items[smallest].f) smallest = left;
+      if (right < length && this.items[right].f < this.items[smallest].f) smallest = right;
+      if (smallest === index) break;
+      [this.items[smallest], this.items[index]] = [this.items[index], this.items[smallest]];
+      index = smallest;
+    }
+  }
 }
 
 function stopAutoNav() {
   autoNavTarget = null;
+  autoNavPath = null;
+  autoNavIndex = 0;
+  pendingRoutes = null;
   if (autoNavTimer) {
     clearInterval(autoNavTimer);
     autoNavTimer = null;

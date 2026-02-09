@@ -35,6 +35,7 @@ public class RoomState {
     private String previousStateHash;
 
     private Instant lastBotProposalAt;
+    private Instant lastBotTickAt;
 
     @Column(nullable = false)
     private Instant updatedAt = Instant.now();
@@ -113,6 +114,14 @@ public class RoomState {
 
     public void setLastBotProposalAt(Instant lastBotProposalAt) {
         this.lastBotProposalAt = lastBotProposalAt;
+    }
+
+    public Instant getLastBotTickAt() {
+        return lastBotTickAt;
+    }
+
+    public void setLastBotTickAt(Instant lastBotTickAt) {
+        this.lastBotTickAt = lastBotTickAt;
     }
 
     public Instant getUpdatedAt() {

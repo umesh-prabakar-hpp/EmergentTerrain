@@ -72,6 +72,27 @@ body {
   overflow: hidden;
 }
 
+.game-page .container.wide {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.game-page .hero {
+  padding: 12px 20px 6px;
+  flex: 0 0 auto;
+}
+
+.game-page .card {
+  flex: 1 1 auto;
+  height: auto;
+  margin: 0 20px 20px;
+}
+
+.game-page .game-layout {
+  height: 100%;
+}
+
 .md-typescale-headline-medium {
   font-family: var(--md-sys-typescale-headline-medium-font-family);
   font-weight: var(--md-sys-typescale-headline-medium-font-weight);
@@ -205,6 +226,11 @@ md-icon {
   border: 2px solid rgba(27, 31, 26, 0.7);
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 10px 24px rgba(0, 0, 0, 0.15);
+  z-index: 4;
+}
+
+#miniMap.collapsed {
+  display: none;
 }
 
 .radial-menu {
@@ -399,9 +425,61 @@ md-icon {
   display: grid;
   gap: 4px;
   padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid var(--md-sys-color-outline);
-  background: var(--md-sys-color-surface);
+  border-radius: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08);
+}
+
+.info-panel .list-item {
+  position: relative;
+}
+
+.info-panel .list-item::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  border-left: 1px solid rgba(0, 0, 0, 0.08);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  transform: rotate(45deg);
+}
+
+.poll-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.poll-marker {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  min-width: 120px;
+  padding: 6px 8px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.15);
+  pointer-events: auto;
+}
+
+.poll-marker-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.poll-marker button {
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 0;
 }
 
 .list-item.active {

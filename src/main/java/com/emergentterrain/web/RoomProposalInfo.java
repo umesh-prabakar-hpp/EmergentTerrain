@@ -16,6 +16,7 @@ public class RoomProposalInfo {
     private Integer anchorY;
     private boolean botGenerated;
     private String botLabel;
+    private Integer tileType;
 
     public String getId() {
         return id;
@@ -119,5 +120,13 @@ public class RoomProposalInfo {
 
     public void setBotLabel(String botLabel) {
         this.botLabel = botLabel;
+    }
+
+    public Integer getTileType() {
+        return tileType;
+    }
+
+    public void setTileType(Integer tileType) {
+        this.tileType = tileType;
     }
 }

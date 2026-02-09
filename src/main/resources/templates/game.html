@@ -30,11 +30,11 @@
           <div class="canvas-wrap">
             <canvas id="world" width="900" height="620"></canvas>
             <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
+            <div id="pollOverlay" class="poll-overlay"></div>
             <div id="radialMenu" class="radial-menu"></div>
             <div class="overlay-toolbar">
               <md-icon-button id="toggleFog" title="Toggle Fog" disabled><md-icon>visibility</md-icon></md-icon-button>
               <md-icon-button id="toggleTime" title="Toggle Dusk" disabled><md-icon>dark_mode</md-icon></md-icon-button>
-              <md-icon-button id="loadLatestSnapshot" title="Load Past Snapshot"><md-icon>history</md-icon></md-icon-button>
               <md-icon-button id="toggleTokens" title="Tokens"><md-icon>insights</md-icon></md-icon-button>
               <md-icon-button id="toggleQuests" title="Quests"><md-icon>flag</md-icon></md-icon-button>
               <md-icon-button id="toggleMilestones" title="Milestones"><md-icon>emoji_events</md-icon></md-icon-button>
@@ -43,6 +43,7 @@
               <md-icon-button id="toggleMirror" title="Mirror Walk"><md-icon>visibility_off</md-icon></md-icon-button>
               <md-icon-button id="toggleMultiplayer" title="Multiplayer"><md-icon>groups</md-icon></md-icon-button>
               <md-icon-button id="toggleBots" title="Companions"><md-icon>smart_toy</md-icon></md-icon-button>
+              <md-icon-button id="toggleMiniMap" title="Toggle Map"><md-icon>map</md-icon></md-icon-button>
             </div>
             <div class="overlay-panel" id="tokensPanel">
               <div class="chip">Insight Tokens</div>
@@ -146,6 +147,8 @@
           <div id="missedVotes" class="md-typescale-body-medium">Missed votes: 0</div>
           <div class="chip">Poll Results</div>
           <div id="pollResultsList" class="list md-typescale-body-medium"></div>
+          <div class="chip">Routes</div>
+          <div id="routeChoices" class="list md-typescale-body-medium"></div>
           <div id="pollDetails" class="md-typescale-body-medium">Select a 1x1 area to start a poll.</div>
           <h4 class="section-title md-typescale-title-large">Region Meanings</h4>
           <div class="md-typescale-body-medium">
