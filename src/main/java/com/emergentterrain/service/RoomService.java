@@ -33,6 +33,7 @@ public class RoomService {
     private final int neighborRadius;
     private final int voteWindowSeconds;
     private final int minVotesToResolve;
+    private final boolean botRuleChecksEnabled;
     private final int botVoteRetentionSeconds;
     private final int minProposalLiveSeconds;
     private final int minNeighbors;
@@ -65,6 +66,7 @@ public class RoomService {
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
                        @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
+                       @Value("${app.consensus.botRuleChecksEnabled:false}") boolean botRuleChecksEnabled,
                        @Value("${app.consensus.botVoteRetentionSeconds:20}") int botVoteRetentionSeconds,
                        @Value("${app.consensus.minProposalLiveSeconds:3}") int minProposalLiveSeconds,
                        @Value("${app.consensus.minNeighbors:3}") int minNeighbors,
@@ -86,6 +88,7 @@ public class RoomService {
         this.neighborRadius = neighborRadius;
         this.voteWindowSeconds = voteWindowSeconds;
         this.minVotesToResolve = minVotesToResolve;
+        this.botRuleChecksEnabled = botRuleChecksEnabled;
         this.botVoteRetentionSeconds = botVoteRetentionSeconds;
         this.minProposalLiveSeconds = minProposalLiveSeconds;
         this.minNeighbors = minNeighbors;
@@ -996,11 +999,11 @@ public class RoomService {
         double water = 0.2 + rand.nextDouble() * 0.6;
         double clear = 0.2 + rand.nextDouble() * 0.6;
         double industry = 0.2 + rand.nextDouble() * 0.6;
-        double consensus = 0.3 + rand.nextDouble() * 0.6;
+        double consensus = 0.55 + rand.nextDouble() * 0.4;
         double mobility = 0.3 + rand.nextDouble() * 0.6;
         double risk = 0.1 + rand.nextDouble() * 0.4;
-        double abstain = 0.01 + rand.nextDouble() * 0.04;
-        double conflict = 0.01 + rand.nextDouble() * 0.04;
+        double abstain = rand.nextDouble() * 0.02;
+        double conflict = rand.nextDouble() * 0.02;
         double drift = 0.001 + rand.nextDouble() * 0.004;
         Map<String, Double> profile = new HashMap<>();
         profile.put("forest", forest);
@@ -1142,20 +1145,21 @@ public class RoomService {
             return false;
         }
         double maxShare = Math.max(Math.max(after.forest, after.water), Math.max(after.clear, after.industry));
-        if (maxShare > 0.48 && Math.random() < adherence) {
+        double gate = adherence * 0.6;
+        if (maxShare > 0.55 && Math.random() < gate) {
             return true;
         }
         double nature = after.forest + after.water;
-        if (nature < 0.22 && Math.random() < adherence) {
+        if (nature < 0.18 && Math.random() < gate) {
             return true;
         }
-        if (after.industry < 0.06 && Math.random() < adherence) {
+        if (after.industry < 0.04 && Math.random() < gate) {
             return true;
         }
-        if (!hasAccessConnectivity(tiles, highways, anchorX, anchorY) && Math.random() < adherence) {
+        if (!hasAccessConnectivity(tiles, highways, anchorX, anchorY) && Math.random() < gate) {
             return true;
         }
-        if (isRapidOscillation(room) && Math.random() < adherence) {
+        if (isRapidOscillation(room) && Math.random() < gate) {
             return true;
         }
         return false;
@@ -1666,7 +1670,7 @@ public class RoomService {
             if (!readNeighborIds(proposal).contains("B:" + bot.getId())) continue;
             int[][] baseTiles = tiles;
             int[][] proposed = fromJsonTiles(proposal.getTilesJson());
-            BotVote vote = botVoteDecision(room, bot, baseTiles, proposed);
+            BotVote vote = botVoteDecision(room, bot, baseTiles, proposed, Boolean.TRUE.equals(proposal.isBotGenerated()));
             if (vote == BotVote.ABSTAIN) {
                 continue;
             }
@@ -1751,7 +1755,7 @@ public class RoomService {
             if (voteRepository.findByProposalAndBotId(proposal, botId).isPresent()) {
                 continue;
             }
-            BotVote vote = botVoteDecision(room, bot, baseTiles, proposedTiles);
+            BotVote vote = botVoteDecision(room, bot, baseTiles, proposedTiles, Boolean.TRUE.equals(proposal.isBotGenerated()));
             if (vote == BotVote.ABSTAIN) {
                 continue;
             }
@@ -1773,7 +1777,7 @@ public class RoomService {
 
     private enum BotVote { APPROVE, REJECT, ABSTAIN }
 
-    private BotVote botVoteDecision(Room room, RoomBot bot, int[][] baseTiles, int[][] proposedTiles) {
+    private BotVote botVoteDecision(Room room, RoomBot bot, int[][] baseTiles, int[][] proposedTiles, boolean proposalBotGenerated) {
         Map<String, Double> profile = readBotProfile(bot);
         int[] change = findChangeType(baseTiles, proposedTiles);
         if (change == null) {
@@ -1815,8 +1819,10 @@ public class RoomService {
             return BotVote.REJECT;
         }
 
-        if (violatesCommunityRules(room, after, highways, proposedTiles, change[0], change[1], community)) {
-            return BotVote.REJECT;
+        if (!proposalBotGenerated || botRuleChecksEnabled) {
+            if (violatesCommunityRules(room, after, highways, proposedTiles, change[0], change[1], community)) {
+                return BotVote.REJECT;
+            }
         }
 
         if (Math.abs(improvement) < 0.01 && Math.random() < abstainProb) {
