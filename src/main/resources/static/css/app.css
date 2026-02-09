@@ -73,24 +73,35 @@ body {
 }
 
 .game-page .container.wide {
+  max-width: none;
+  width: 100vw;
   height: 100vh;
+  margin: 0;
+  padding: 0 16px 16px;
   display: flex;
   flex-direction: column;
+  min-height: 0;
 }
 
 .game-page .hero {
-  padding: 12px 20px 6px;
+  padding: 12px 8px 6px;
   flex: 0 0 auto;
 }
 
 .game-page .card {
+  border-radius: 0;
+  padding: 0;
+  margin: 0;
   flex: 1 1 auto;
   height: auto;
-  margin: 0 20px 20px;
+  min-height: 0;
 }
 
 .game-page .game-layout {
   height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .md-typescale-headline-medium {
@@ -196,24 +207,39 @@ md-icon {
 }
 
 .game-layout {
-  display: grid;
-  grid-template-columns: 3fr 1fr;
-  gap: 20px;
+  display: flex;
+  height: 100%;
+  position: relative;
 }
 
 .game-panel {
-  display: grid;
-  gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  flex: 1 1 auto;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
 }
 
 #world {
   border-radius: 14px;
   border: 2px solid #1b1f1a;
   background: #e8f5e9;
+  width: 100%;
+  height: 100%;
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
 }
 
 .canvas-wrap {
   position: relative;
+  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 #miniMap {
@@ -334,6 +360,22 @@ md-icon {
   border-radius: 16px;
   border: 1px solid var(--md-sys-color-outline);
   min-height: 280px;
+  max-height: calc(100% - 24px);
+  overflow: auto;
+}
+
+.drawer {
+  position: absolute;
+  right: 12px;
+  top: 12px;
+  width: 320px;
+  transform: translateX(360px);
+  transition: transform 0.2s ease;
+  z-index: 3;
+}
+
+.drawer.open {
+  transform: translateX(0);
 }
 
 .chip {

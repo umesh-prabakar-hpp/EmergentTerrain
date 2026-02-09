@@ -5,6 +5,8 @@ const miniMap = document.getElementById('miniMap');
 const miniCtx = miniMap ? miniMap.getContext('2d') : null;
 const miniMapToggle = document.getElementById('toggleMiniMap');
 const pollOverlay = document.getElementById('pollOverlay');
+const infoPanel = document.getElementById('infoPanel');
+const infoToggle = document.getElementById('toggleInfoPanel');
 const explanationEl = document.getElementById('explanation');
 const tradeoffPanel = document.getElementById('tradeoffPanel');
 const radialMenu = document.getElementById('radialMenu');
@@ -73,6 +75,7 @@ let radialMenuIgnoreUntil = 0;
 let player = { x: 0, y: 0 };
 let playerLockedUntil = 0;
 let selectedProposalId = '';
+const dismissedPolls = new Set();
 
 let tool = 'forest';
 
@@ -246,6 +249,20 @@ function updateViewCenter() {
   viewY = Math.max(0, Math.min(height - viewHeight, cy - Math.floor(viewHeight / 2)));
 }
 
+function resizeViewport() {
+  if (!canvas) return;
+  const parent = canvas.parentElement;
+  if (!parent) return;
+  const w = Math.max(320, parent.clientWidth || 0);
+  const h = Math.max(240, parent.clientHeight || 0);
+  const desired = 14;
+  viewWidth = Math.max(12, Math.min(width || 48, Math.floor(w / desired)));
+  viewHeight = Math.max(10, Math.min(height || 36, Math.floor(h / desired)));
+  tileSize = Math.max(4, Math.floor(Math.min(w / viewWidth, h / viewHeight)));
+  canvas.width = viewWidth * tileSize;
+  canvas.height = viewHeight * tileSize;
+  updateViewCenter();
+}
 function drawMiniMap() {
   if (!miniCtx || !miniMap || !tiles.length) return;
   const mw = miniMap.width;
@@ -340,6 +357,14 @@ if (miniMap) {
 if (miniMapToggle && miniMap) {
   miniMapToggle.addEventListener('click', () => {
     miniMap.classList.toggle('collapsed');
+  });
+}
+
+if (infoToggle && infoPanel) {
+  infoToggle.addEventListener('click', () => {
+    infoPanel.classList.toggle('open');
+    resizeViewport();
+    draw();
   });
 }
 
@@ -444,14 +469,13 @@ function setRoomStateFromResponse(data) {
   }
   if (data.tiles) {
     tiles = data.tiles;
-    if (!width || !height) {
-      width = tiles[0] ? tiles[0].length : 0;
-      height = tiles.length || 0;
-      viewWidth = Math.min(width, 48);
-      viewHeight = Math.min(height, 36);
-      tileSize = Math.max(6, Math.floor(640 / Math.max(viewWidth, 1)));
-      canvas.width = viewWidth * tileSize;
-      canvas.height = viewHeight * tileSize;
+    const nextWidth = tiles[0] ? tiles[0].length : 0;
+    const nextHeight = tiles.length || 0;
+    const sizeChanged = nextWidth !== width || nextHeight !== height;
+    width = nextWidth;
+    height = nextHeight;
+    if (sizeChanged || !viewWidth || !viewHeight) {
+      resizeViewport();
     }
     pendingChange = null;
     if (pollDetails) {
@@ -463,6 +487,8 @@ function setRoomStateFromResponse(data) {
   }
   participants = data.participants || [];
   bots = data.bots || [];
+  dismissedPolls.clear();
+  (data.dismissedPollIds || []).forEach(id => dismissedPolls.add(id));
   const me = participants.find(p => p.id === participantId);
   if (me) {
     player = { x: me.x, y: me.y };
@@ -692,7 +718,7 @@ function renderLocalProposals() {
   localProposalsList.innerHTML = '';
   const me = participants.find(p => p.id === participantId);
   const myName = me ? me.displayName : '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING');
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id));
   proposals.forEach(p => {
     const row = document.createElement('div');
     row.className = 'list-item';
@@ -702,8 +728,16 @@ function renderLocalProposals() {
     const meta = document.createElement('div');
     const needed = p.requiredVotes || 0;
     meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections} - need ${needed}`;
+    const dismiss = document.createElement('button');
+    dismiss.className = 'fallback-button';
+    dismiss.textContent = 'X';
+    dismiss.addEventListener('click', (evt) => {
+      evt.stopPropagation();
+      dismissPollById(p.id);
+    });
     row.appendChild(title);
     row.appendChild(meta);
+    row.appendChild(dismiss);
     if (!p.botGenerated && myName && p.proposerName === myName) {
       const note = document.createElement('div');
       note.textContent = 'You started this poll.';
@@ -736,7 +770,7 @@ function renderLocalProposals() {
 function renderPollOverlay() {
   if (!pollOverlay || !roomState) return;
   pollOverlay.innerHTML = '';
-  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING');
+  const proposals = (roomState.proposals || []).filter(p => isLocalProposal(p) && p.status === 'PENDING' && !dismissedPolls.has(p.id));
   proposals.forEach(p => {
     if (p.anchorX === undefined || p.anchorY === undefined) return;
     if (p.anchorX < viewX || p.anchorX >= viewX + viewWidth) return;
@@ -755,13 +789,13 @@ function renderPollOverlay() {
     const actions = document.createElement('div');
     actions.className = 'poll-marker-actions';
     const yes = document.createElement('button');
-    yes.textContent = '✓';
+    yes.textContent = 'Yes';
     yes.addEventListener('click', (evt) => {
       evt.stopPropagation();
       voteProposalById(p.id, true);
     });
     const no = document.createElement('button');
-    no.textContent = '✕';
+    no.textContent = 'No';
     no.addEventListener('click', (evt) => {
       evt.stopPropagation();
       voteProposalById(p.id, false);
@@ -841,6 +875,23 @@ async function voteProposalById(proposalId, approve) {
       selectedProposalId = '';
       await refreshRoomState();
     }
+  }
+}
+
+async function dismissPollById(proposalId) {
+  if (!roomId || !proposalId) return;
+  const res = await fetch(`/room/${roomId}/poll/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, proposalId })
+  });
+  if (res.ok) {
+    const data = await res.json();
+    setRoomStateFromResponse(data);
+  } else {
+    const message = await res.text();
+    roomStatus.textContent = message || 'Dismiss failed.';
+    tradeoffPanel.textContent = message || 'Dismiss failed.';
   }
 }
 
@@ -1326,15 +1377,16 @@ async function init() {
   setRoomStateFromResponse(data);
   width = tiles[0] ? tiles[0].length : 0;
   height = tiles.length || 0;
-  viewWidth = Math.min(width, 48);
-  viewHeight = Math.min(height, 36);
-  tileSize = Math.max(6, Math.floor(640 / Math.max(viewWidth, 1)));
-  canvas.width = viewWidth * tileSize;
-  canvas.height = viewHeight * tileSize;
+  resizeViewport();
   updateViewCenter();
   draw();
   initMultiplayer();
   initBots();
 }
+
+window.addEventListener('resize', () => {
+  resizeViewport();
+  draw();
+});
 
 init();
