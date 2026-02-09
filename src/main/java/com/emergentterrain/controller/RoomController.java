@@ -124,4 +124,16 @@ public class RoomController {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
     }
+
+    @PostMapping("/room/{roomId}/poll/dismiss")
+    public ResponseEntity<?> dismissPoll(@PathVariable("roomId") String roomId,
+                                         @RequestBody RoomDismissRequest request) {
+        Payload payload = payloadService.parseToken(request.getToken());
+        try {
+            RoomStateResponse response = roomService.dismissPoll(payload, UUID.fromString(roomId), request.getProposalId());
+            return ResponseEntity.ok(response);
+        } catch (IllegalStateException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
 }

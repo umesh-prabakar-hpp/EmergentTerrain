@@ -23,6 +23,7 @@ public class RoomStateResponse {
     private int minNeighbors;
     private int densityAreaSize;
     private int maxOccupants;
+    private List<String> dismissedPollIds;
 
     public String getRoomId() {
         return roomId;
@@ -174,5 +175,13 @@ public class RoomStateResponse {
 
     public void setMaxOccupants(int maxOccupants) {
         this.maxOccupants = maxOccupants;
+    }
+
+    public List<String> getDismissedPollIds() {
+        return dismissedPollIds;
+    }
+
+    public void setDismissedPollIds(List<String> dismissedPollIds) {
+        this.dismissedPollIds = dismissedPollIds;
     }
 }

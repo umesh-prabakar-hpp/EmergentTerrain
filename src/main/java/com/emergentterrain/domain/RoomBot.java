@@ -21,6 +21,8 @@ public class RoomBot {
 
     private Instant lastRunAt;
 
+    private Instant lastProposalAt;
+
     private Integer x;
 
     private Integer y;
@@ -62,6 +64,14 @@ public class RoomBot {
 
     public void setLastRunAt(Instant lastRunAt) {
         this.lastRunAt = lastRunAt;
+    }
+
+    public Instant getLastProposalAt() {
+        return lastProposalAt;
+    }
+
+    public void setLastProposalAt(Instant lastProposalAt) {
+        this.lastProposalAt = lastProposalAt;
     }
 
     public Integer getX() {

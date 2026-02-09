@@ -40,6 +40,7 @@ app:
     botVoteRetentionSeconds: 0
     minVotesToResolve: 3
     botRuleChecksEnabled: false
+    botProposalsPerMinute: 10
     minNeighbors: 3
     noParticipationLockSeconds: 300
   density:

@@ -37,6 +37,9 @@ public class RoomParticipant {
 
     private Instant lockedUntil;
 
+    @Lob
+    private String dismissedPollsJson;
+
     @Column(nullable = false)
     private Instant joinedAt = Instant.now();
 
@@ -122,6 +125,14 @@ public class RoomParticipant {
 
     public void setLockedUntil(Instant lockedUntil) {
         this.lockedUntil = lockedUntil;
+    }
+
+    public String getDismissedPollsJson() {
+        return dismissedPollsJson;
+    }
+
+    public void setDismissedPollsJson(String dismissedPollsJson) {
+        this.dismissedPollsJson = dismissedPollsJson;
     }
 
     public Instant getJoinedAt() {
