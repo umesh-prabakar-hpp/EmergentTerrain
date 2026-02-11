@@ -17,8 +17,7 @@ public class ProfileQuestState {
     @Column(nullable = false)
     private String season;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String questsJson;
 
     @Column(nullable = true)

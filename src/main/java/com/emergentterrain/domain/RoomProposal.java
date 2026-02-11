@@ -22,14 +22,13 @@ public class RoomProposal {
     @JoinColumn(nullable = true)
     private RoomBot botProposer;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String tilesJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String deltaJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String neighborIdsJson;
 
     @Column(nullable = false)
@@ -47,7 +46,7 @@ public class RoomProposal {
 
     private String botLabel;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String botVoteSummaryJson;
 
     private int requiredVotes = 0;

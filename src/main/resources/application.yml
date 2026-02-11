@@ -1,25 +1,24 @@
 spring:
   datasource:
-    url: jdbc:h2:file:C:/dev/ide/eclipse/workspace-web/EmergentTerrain/data/emergentdb;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE;USER=sa;PASSWORD=
-    driverClassName: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://localhost:5432/emergentterrain
+    driverClassName: org.postgresql.Driver
+    username: postgres
+    password: NewStrongPasswordHere
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update
     properties:
       hibernate:
         format_sql: true
-      jakarta:
-        persistence:
-          jdbc:
-            url: ${spring.datasource.url}
+        jdbc:
+          lob:
+            non_contextual_creation: true
   thymeleaf:
     cache: false
   h2:
     console:
-      enabled: true
+      enabled: false
       path: /h2
 server:
   port: 8080
@@ -48,3 +47,9 @@ app:
     maxOccupants: 8
   bots:
     populationFraction: 0.25
+  activityLog:
+    intervalMs: 30000
+
+logging:
+  level:
+    org.springframework.boot.context.config: DEBUG

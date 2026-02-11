@@ -21,12 +21,10 @@ public class Profile {
     @Column(nullable = false)
     private String location;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String answersJson;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String hiddenPropsJson;
 
     @Column(nullable = false)

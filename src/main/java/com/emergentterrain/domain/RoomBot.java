@@ -27,7 +27,7 @@ public class RoomBot {
 
     private Integer y;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String profileJson;
 
     public UUID getId() {

@@ -17,8 +17,7 @@ public class GameSnapshot {
     @Column(nullable = false)
     private String stateHash;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String tilesJson;
 
     @Column(nullable = false)

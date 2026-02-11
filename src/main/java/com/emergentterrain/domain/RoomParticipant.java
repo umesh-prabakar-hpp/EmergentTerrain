@@ -37,7 +37,7 @@ public class RoomParticipant {
 
     private Instant lockedUntil;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String dismissedPollsJson;
 
     @Column(nullable = false)

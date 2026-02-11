@@ -14,20 +14,19 @@ public class RoomState {
     @OneToOne(optional = false)
     private Room room;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String tilesJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String sharedTokensJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String sharedQuestsJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String memoryMarkersJson;
 
-    @Lob
+    @Column(columnDefinition = "text")
     private String highwaysJson;
 
     private String stateHash;

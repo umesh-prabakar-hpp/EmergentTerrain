@@ -14,12 +14,10 @@ public class GameConfirmation {
     @ManyToOne(optional = false)
     private Profile profile;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String deltaJson;
 
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "text")
     private String explanationText;
 
     @Column(nullable = false)

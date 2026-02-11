@@ -36,6 +36,7 @@ const pollDetails = document.getElementById('pollDetails');
 const lockStatusEl = document.getElementById('lockStatus');
 const missedVotesEl = document.getElementById('missedVotes');
 const pollResultsList = document.getElementById('pollResultsList');
+const togglePollResultsBtn = document.getElementById('togglePollResults');
 const routeChoicesEl = document.getElementById('routeChoices');
 const neighborStats = document.getElementById('neighborStats');
 const proposeRoomBtn = document.getElementById('proposeRoomBtn');
@@ -329,7 +330,6 @@ function drawMiniMap() {
       }
       miniCtx.stroke();
     };
-    drawPath(pendingRoutes.plain, 'rgba(255, 193, 7, 0.9)');
     drawPath(pendingRoutes.road, 'rgba(56, 142, 60, 0.9)');
   }
 }
@@ -348,13 +348,11 @@ if (miniMap) {
     const sy = player.y;
     const tx = miniTarget.x;
     const ty = miniTarget.y;
-    const plainPath = buildManhattanPath(sx, sy, tx, ty);
     const roadResult = buildRoadBiasedPath(sx, sy, tx, ty);
     pendingRoutes = {
-      plain: plainPath,
       road: roadResult.path
     };
-    renderRouteChoices(plainPath, roadResult.path, roadResult.cost);
+    renderRouteChoices(null, roadResult.path, roadResult.cost);
     draw();
   });
 }
@@ -574,33 +572,24 @@ function renderRoomState() {
 function renderRouteChoices(plainPath, roadPath, roadCost) {
   if (!routeChoicesEl) return;
   routeChoicesEl.innerHTML = '';
-  const plain = plainPath || (pendingRoutes ? pendingRoutes.plain : null);
   const road = roadPath || (pendingRoutes ? pendingRoutes.road : null);
-  if (!plain || !plain.length) {
+  if (!road || !road.length) {
     const empty = document.createElement('div');
     empty.className = 'md-typescale-body-medium';
     empty.textContent = 'Tap the minimap to choose a route.';
     routeChoicesEl.appendChild(empty);
     return;
   }
-  const plainSteps = Math.max(0, plain.length - 1);
-  const plainCost = plainSteps;
-  const roadSteps = road && road.length ? Math.max(0, road.length - 1) : plainSteps;
+  const roadSteps = Math.max(0, road.length - 1);
   const roadTime = roadCost !== undefined && Number.isFinite(roadCost) ? roadCost : roadSteps;
   const row = document.createElement('div');
   row.className = 'list-item';
 
-  const directBtn = document.createElement('button');
-  directBtn.className = 'fallback-button';
-  directBtn.textContent = `Direct (${plainSteps} steps, ${plainCost.toFixed(1)} time)`;
-  directBtn.addEventListener('click', () => beginAutoNav(plain));
-
   const roadBtn = document.createElement('button');
   roadBtn.className = 'fallback-button';
   roadBtn.textContent = `Road-biased (${roadSteps} steps, ${roadTime.toFixed(1)} time)`;
-  roadBtn.addEventListener('click', () => beginAutoNav(road && road.length ? road : plain));
+  roadBtn.addEventListener('click', () => beginAutoNav(road));
 
-  row.appendChild(directBtn);
   row.appendChild(roadBtn);
   routeChoicesEl.appendChild(row);
 }
@@ -829,7 +818,7 @@ function renderPollOverlay() {
     if (p.anchorX < viewX || p.anchorX >= viewX + viewWidth) return;
     if (p.anchorY < viewY || p.anchorY >= viewY + viewHeight) return;
     const marker = document.createElement('div');
-    marker.className = 'poll-marker';
+    marker.className = p.botGenerated ? 'poll-marker bot-poll-marker' : 'poll-marker';
     marker.style.left = `${(p.anchorX - viewX + 0.5) * tileSize}px`;
     marker.style.top = `${(p.anchorY - viewY + 0.2) * tileSize}px`;
     const label = document.createElement('div');
@@ -902,9 +891,13 @@ function renderPollResults() {
     empty.textContent = 'No polls yet.';
     pollResultsList.appendChild(empty);
   }
-  setTimeout(() => {
-    pollResultsList.innerHTML = '';
-  }, 3000);
+}
+
+if (togglePollResultsBtn && pollResultsList) {
+  togglePollResultsBtn.addEventListener('click', () => {
+    const collapsed = pollResultsList.classList.toggle('collapsed');
+    togglePollResultsBtn.textContent = collapsed ? 'Expand' : 'Collapse';
+  });
 }
 
 function isLocalProposal(p) {
@@ -1261,21 +1254,6 @@ function beginAutoNav(path) {
       autoNavInFlight = false;
     });
   }, 350);
-}
-
-function buildManhattanPath(sx, sy, tx, ty) {
-  const path = [{ x: sx, y: sy }];
-  let x = sx;
-  let y = sy;
-  while (x !== tx) {
-    x += x < tx ? 1 : -1;
-    path.push({ x, y });
-  }
-  while (y !== ty) {
-    y += y < ty ? 1 : -1;
-    path.push({ x, y });
-  }
-  return path;
 }
 
 function buildRoadPath(sx, sy, tx, ty) {

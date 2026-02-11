@@ -16,6 +16,7 @@ import com.emergentterrain.repo.GameSnapshotRepository;
 import com.emergentterrain.repo.ProfileRepository;
 import com.emergentterrain.repo.ProfileQuestStateRepository;
 import com.emergentterrain.service.ExplanationService;
+import com.emergentterrain.service.ActivityMetrics;
 import com.emergentterrain.service.Payload;
 import com.emergentterrain.service.PayloadService;
 import com.emergentterrain.service.SnapshotPayload;
@@ -45,6 +46,7 @@ public class GameController {
     private final ProfileQuestStateRepository questStateRepository;
     private final SnapshotTokenService snapshotTokenService;
     private final ObjectMapper objectMapper;
+    private final ActivityMetrics metrics;
 
     public GameController(PayloadService payloadService,
                           WorldService worldService,
@@ -54,7 +56,8 @@ public class GameController {
                           GameSnapshotRepository snapshotRepository,
                           ProfileQuestStateRepository questStateRepository,
                           SnapshotTokenService snapshotTokenService,
-                          ObjectMapper objectMapper) {
+                          ObjectMapper objectMapper,
+                          ActivityMetrics metrics) {
         this.payloadService = payloadService;
         this.worldService = worldService;
         this.explanationService = explanationService;
@@ -64,12 +67,14 @@ public class GameController {
         this.questStateRepository = questStateRepository;
         this.snapshotTokenService = snapshotTokenService;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
     }
 
     @GetMapping("/game")
     public String gamePage(@RequestParam("token") String token,
                            @RequestParam(value = "snapshot", required = false) String snapshot,
                            Model model) {
+        metrics.increment("game.page");
         model.addAttribute("token", token);
         model.addAttribute("snapshotId", snapshot == null ? "" : snapshot);
         return "game";
@@ -78,6 +83,7 @@ public class GameController {
     @PostMapping("/game/state")
     @ResponseBody
     public ResponseEntity<GameStateResponse> gameState(@RequestBody GameStateRequest request) {
+        metrics.increment("game.state");
         Payload payload = payloadService.parseToken(request.getToken());
         long seed = payloadService.seedFromPayload(payload);
         GameStateResponse response;
@@ -119,6 +125,7 @@ public class GameController {
     @PostMapping("/game/update")
     @ResponseBody
     public ResponseEntity<GameUpdateResponse> gameUpdate(@RequestBody GameUpdateRequest request) {
+        metrics.increment("game.update");
         Payload payload = payloadService.parseToken(request.getToken());
         String explanation = explanationService.explain(request.getDelta(), payload.answers());
         return ResponseEntity.ok(new GameUpdateResponse(explanation, true));
@@ -127,6 +134,7 @@ public class GameController {
     @PostMapping("/game/confirm")
     @ResponseBody
     public ResponseEntity<?> confirm(@RequestBody ConfirmRequest request) {
+        metrics.increment("game.confirm");
         Payload payload = payloadService.parseToken(request.getToken());
         Profile profile = profileRepository.findById(java.util.UUID.fromString(payload.profileId()))
             .orElseThrow();
@@ -148,6 +156,7 @@ public class GameController {
     @PostMapping("/game/qr/state")
     @ResponseBody
     public ResponseEntity<StateHashResponse> stateHash(@RequestBody StateHashRequest request) {
+        metrics.increment("game.qr.state");
         Payload payload = payloadService.parseToken(request.getToken());
         String hash = hashTiles(request.getTiles());
         SnapshotPayload snapshotPayload = new SnapshotPayload(
@@ -173,6 +182,7 @@ public class GameController {
     @PostMapping("/game/quest/save")
     @ResponseBody
     public ResponseEntity<?> saveQuestState(@RequestBody QuestStateRequest request) {
+        metrics.increment("game.quest.save");
         Payload payload = payloadService.parseToken(request.getToken());
         Profile profile = profileRepository.findById(java.util.UUID.fromString(payload.profileId()))
             .orElseThrow();
@@ -195,6 +205,7 @@ public class GameController {
     @PostMapping("/game/snapshot")
     @ResponseBody
     public ResponseEntity<StateHashResponse> snapshot(@RequestBody StateHashRequest request) {
+        metrics.increment("game.snapshot");
         Payload payload = payloadService.parseToken(request.getToken());
         Profile profile = profileRepository.findById(java.util.UUID.fromString(payload.profileId()))
             .orElseThrow();
@@ -230,6 +241,7 @@ public class GameController {
     @PostMapping("/game/snapshot/latest")
     @ResponseBody
     public ResponseEntity<StateHashResponse> latestSnapshot(@RequestBody StateHashRequest request) {
+        metrics.increment("game.snapshot.latest");
         Payload payload = payloadService.parseToken(request.getToken());
         Profile profile = profileRepository.findById(java.util.UUID.fromString(payload.profileId()))
             .orElseThrow();
@@ -258,6 +270,7 @@ public class GameController {
     @PostMapping("/game/snapshot/load")
     @ResponseBody
     public ResponseEntity<SnapshotLoadResponse> loadSnapshot(@RequestBody StateHashRequest request) {
+        metrics.increment("game.snapshot.load");
         Payload payload = payloadService.parseToken(request.getToken());
         if (request.getSnapshotId() == null || request.getSnapshotId().isBlank()) {
             return ResponseEntity.<SnapshotLoadResponse>badRequest().build();

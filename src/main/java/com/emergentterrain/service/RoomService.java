@@ -42,6 +42,7 @@ public class RoomService {
     private final int maxOccupants;
     private final double botPopulationFraction;
     private final int noParticipationLockSeconds;
+    private final ActivityMetrics metrics;
     private static final int VISIBLE_WIDTH = 48;
     private static final int VISIBLE_HEIGHT = 36;
     private static final List<String> BOT_ARCHETYPES = List.of(
@@ -64,6 +65,7 @@ public class RoomService {
                        RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
                        ObjectMapper objectMapper,
+                       ActivityMetrics metrics,
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
                        @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
@@ -87,6 +89,7 @@ public class RoomService {
         this.broadcaster = broadcaster;
         this.worldService = worldService;
         this.objectMapper = objectMapper;
+        this.metrics = metrics;
         this.neighborRadius = neighborRadius;
         this.voteWindowSeconds = voteWindowSeconds;
         this.minVotesToResolve = minVotesToResolve;
@@ -211,6 +214,7 @@ public class RoomService {
     @Scheduled(fixedDelay = 5000)
     @Transactional
     public void scheduledRoomMaintenance() {
+        metrics.increment("room.maintenance");
         List<Room> rooms = roomRepository.findAll();
         if (rooms.isEmpty()) {
             return;
@@ -2010,16 +2014,11 @@ public class RoomService {
         if (!"PENDING".equals(proposal.getStatus())) {
             return;
         }
-        if (proposal.getCreatedAt() != null) {
-            Instant earliest = proposal.getCreatedAt().plusSeconds(minProposalLiveSeconds);
-            if (Instant.now().isBefore(earliest)) {
-                return;
-            }
-        }
         int approvals = proposal.getApprovals();
         int rejections = proposal.getRejections();
         int totalVotes = approvals + rejections;
-        if (totalVotes >= Math.max(1, minVotesToResolve)) {
+        int quorum = Math.max(1, Math.max(minVotesToResolve, proposal.getRequiredVotes()));
+        if (totalVotes >= quorum) {
             if (approvals > rejections) {
                 applyProposal(room, proposal);
             } else if (rejections > approvals) {
@@ -2027,6 +2026,12 @@ public class RoomService {
                 proposalRepository.save(proposal);
             }
             return;
+        }
+        if (proposal.getCreatedAt() != null) {
+            Instant earliest = proposal.getCreatedAt().plusSeconds(minProposalLiveSeconds);
+            if (Instant.now().isBefore(earliest)) {
+                return;
+            }
         }
         if (proposal.getExpiresAt() != null && proposal.getExpiresAt().isBefore(Instant.now())) {
             applyNoParticipation(room, proposal);

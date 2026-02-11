@@ -13,4 +13,5 @@ public interface RoomParticipantRepository extends JpaRepository<RoomParticipant
     List<RoomParticipant> findByRoomOrderByJoinedAt(Room room);
     List<RoomParticipant> findByRoomAndActiveTrueOrderByJoinedAt(Room room);
     Optional<RoomParticipant> findByRoomAndProfile(Room room, Profile profile);
+    long countByActiveTrue();
 }

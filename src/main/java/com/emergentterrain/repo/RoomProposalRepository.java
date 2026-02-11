@@ -14,6 +14,7 @@ import java.util.UUID;
 public interface RoomProposalRepository extends JpaRepository<RoomProposal, UUID> {
     List<RoomProposal> findTop10ByRoomOrderByCreatedAtDesc(Room room);
     void deleteByRoomAndCreatedAtBefore(Room room, Instant cutoff);
+    long countByStatus(String status);
 
     @Modifying
     @Query("delete from RoomProposal p where p.room = :room and p.createdAt < :cutoff")
