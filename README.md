@@ -4,7 +4,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 
 ## Stack
 - Java 21, Spring Boot 3.x, Spring Security, Spring Data JPA (Hibernate)
-- H2 (dev)
+- PostgreSQL (dev)
 - Thymeleaf + Material Web (M3) components + minimal JS
 - ZXing (QR generation)
 
@@ -17,18 +17,13 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Neighbor-based consensus voting for 2x2 terrain changes
 - Bots with persistent profiles and visible positions
 - High-speed highway corridors (precomputed)
+- Bot map changes applied in-memory with periodic room state snapshot flushes
 
 ## Run
 ```powershell
 mvn spring-boot:run
 ```
 Open `http://localhost:8080/`
-
-## H2 Console
-- URL: `http://localhost:8080/h2`
-- JDBC URL: `jdbc:h2:file:C:/dev/ide/eclipse/workspace-web/EmergentTerrain/data/emergentdb`
-- User: `sa`
-- Password: (blank)
 
 ## UI Assets
 Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
@@ -37,10 +32,11 @@ Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
+- `app.world.flushIntervalMs`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
 - `app.consensus.noParticipationLockSeconds`
 - `app.density.areaSize`, `app.density.maxOccupants`
-- `app.bots.populationFraction`
+- `app.bots.populationFraction`, `app.bots.maxPerRoom`
 
 ## Routes (summary)
 - `GET /register`, `POST /register`
@@ -51,6 +47,7 @@ See `src/main/resources/application.yml` for app settings:
 - `POST /game/state` (world seed + regions)
 - `POST /room/create`
 - `POST /room/join`
+- `POST /room/last` (join last room or create new)
 - `POST /room/{roomId}/state`
 - `POST /room/{roomId}/move`
 - `POST /room/{roomId}/propose`
@@ -76,3 +73,4 @@ See `src/main/resources/application.yml` for app settings:
 ## Notes
 - This is a POC focused on end-to-end flow, not production hardening.
 - The QR payload is signed (tamper detection) but not encrypted.
+- Bot-generated changes are applied in memory and flushed as room state snapshots; bot proposals are not persisted.
