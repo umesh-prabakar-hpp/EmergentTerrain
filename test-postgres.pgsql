@@ -15,6 +15,34 @@ FROM room_state
 ORDER BY updated_at DESC
 LIMIT 10;
 
+-- Snapshot history (latest 20)
+SELECT room_id, snapshot_at, total_change_count, changes_since_flush,
+       tile_clear_count, tile_forest_count, tile_water_count, tile_industry_count, tile_highway_count
+FROM room_state_history
+ORDER BY snapshot_at DESC
+LIMIT 20;
+
+-- Average changes per minute (last 60 minutes)
+SELECT
+  room_id,
+  ROUND(AVG(changes_since_flush)::numeric, 2) AS avg_changes_per_flush,
+  ROUND(
+    SUM(changes_since_flush)::numeric
+    / NULLIF(EXTRACT(EPOCH FROM (MAX(snapshot_at) - MIN(snapshot_at))), 0) * 60,
+    2
+  ) AS avg_changes_per_minute
+FROM room_state_history
+WHERE snapshot_at >= NOW() - INTERVAL '60 minutes'
+GROUP BY room_id
+ORDER BY avg_changes_per_minute DESC;
+
+-- Tile mix over time (last 20 snapshots)
+SELECT room_id, snapshot_at,
+       tile_clear_count, tile_forest_count, tile_water_count, tile_industry_count, tile_highway_count
+FROM room_state_history
+ORDER BY snapshot_at DESC
+LIMIT 20;
+
 -- Tile counts + change counters
 SELECT
   room_id,

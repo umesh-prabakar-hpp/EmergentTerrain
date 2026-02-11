@@ -25,6 +25,7 @@ public class RoomService {
     private final RoomRepository roomRepository;
     private final RoomParticipantRepository participantRepository;
     private final RoomStateRepository stateRepository;
+    private final RoomStateSnapshotRepository snapshotRepository;
     private final RoomProposalRepository proposalRepository;
     private final RoomProposalVoteRepository voteRepository;
     private final RoomBotRepository botRepository;
@@ -62,6 +63,7 @@ public class RoomService {
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
                        RoomStateRepository stateRepository,
+                       RoomStateSnapshotRepository snapshotRepository,
                        RoomProposalRepository proposalRepository,
                        RoomProposalVoteRepository voteRepository,
                        RoomBotRepository botRepository,
@@ -87,6 +89,7 @@ public class RoomService {
         this.roomRepository = roomRepository;
         this.participantRepository = participantRepository;
         this.stateRepository = stateRepository;
+        this.snapshotRepository = snapshotRepository;
         this.proposalRepository = proposalRepository;
         this.voteRepository = voteRepository;
         this.botRepository = botRepository;
@@ -348,6 +351,17 @@ public class RoomService {
                 state.setTileHighwayCount(cached.tileHighwayCount);
                 state.setUpdatedAt(now);
                 stateRepository.save(state);
+                RoomStateSnapshot snapshot = new RoomStateSnapshot();
+                snapshot.setRoom(room);
+                snapshot.setSnapshotAt(now);
+                snapshot.setTotalChangeCount(state.getTotalChangeCount());
+                snapshot.setChangesSinceFlush(state.getChangesSinceFlush());
+                snapshot.setTileClearCount(state.getTileClearCount());
+                snapshot.setTileForestCount(state.getTileForestCount());
+                snapshot.setTileWaterCount(state.getTileWaterCount());
+                snapshot.setTileIndustryCount(state.getTileIndustryCount());
+                snapshot.setTileHighwayCount(state.getTileHighwayCount());
+                snapshotRepository.save(snapshot);
                 cached.dirty = false;
                 cached.lastFlushAt = now;
                 cached.changesSinceFlush = 0;
