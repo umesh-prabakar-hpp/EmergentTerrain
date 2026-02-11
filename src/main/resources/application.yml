@@ -36,6 +36,7 @@ app:
     maxTiles: 120000
     aspectRatio: 1.3333
     highwayRatio: 0.02
+    flushIntervalMs: 30000
   consensus:
     neighborRadius: 24
     voteWindowSeconds: 60

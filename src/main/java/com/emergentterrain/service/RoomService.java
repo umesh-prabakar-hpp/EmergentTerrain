@@ -57,6 +57,7 @@ public class RoomService {
     private final ConcurrentHashMap<UUID, ReentrantLock> proposalLocks = new ConcurrentHashMap<>();
     private final ReentrantLock proposalTableLock = new ReentrantLock();
     private final ConcurrentHashMap<UUID, CachedMap> mapCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, CachedRoomState> roomStateCache = new ConcurrentHashMap<>();
 
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
@@ -146,6 +147,7 @@ public class RoomService {
         state.setMemoryMarkersJson(toJson(new ArrayList<>()));
         state.setStateHash(hashTiles(world.getTiles()));
         state = stateRepository.save(state);
+        updateCacheFromState(room, state);
 
         ensureBots(room, world.getTiles());
         ensureNearbyBots(room, world.getTiles(), host.getX(), host.getY());
@@ -185,20 +187,20 @@ public class RoomService {
                 RoomState state = stateRepository.findByRoom(room)
                     .orElse(null);
                 if (state != null) {
-                    assignSpawnPosition(created, fromJsonTiles(state.getTilesJson()));
+                    assignSpawnPosition(created, getTilesForRoom(room, state));
                 }
                 return participantRepository.save(created);
             });
         if (participant.getX() == null || participant.getY() == null) {
             RoomState state = stateRepository.findByRoom(room).orElse(null);
             if (state != null) {
-                assignSpawnPosition(participant, fromJsonTiles(state.getTilesJson()));
+                assignSpawnPosition(participant, getTilesForRoom(room, state));
                 participantRepository.save(participant);
             }
         }
         RoomState joinState = stateRepository.findByRoom(room).orElse(null);
         if (joinState != null) {
-            ensureNearbyBots(room, fromJsonTiles(joinState.getTilesJson()), participant.getX(), participant.getY());
+            ensureNearbyBots(room, getTilesForRoom(room, joinState), participant.getX(), participant.getY());
         }
         profile.setLastRoomId(room.getId());
         profileRepository.save(profile);
@@ -237,7 +239,7 @@ public class RoomService {
         RoomParticipant participant = ensureParticipant(room, profile);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        ensureBots(room, fromJsonTiles(state.getTilesJson()));
+        ensureBots(room, getTilesForRoom(room, state));
         return toRoomStateResponse(room, state, participant);
     }
 
@@ -247,7 +249,7 @@ public class RoomService {
         metrics.increment("room.maintenance");
         long start = System.nanoTime();
         List<Room> rooms = roomRepository.findAll();
-        log.info("maintenance start rooms={}", rooms.size());
+        log.debug("maintenance start rooms={}", rooms.size());
         try {
             for (Room room : rooms) {
                 RoomState state = stateRepository.findByRoom(room).orElse(null);
@@ -260,8 +262,8 @@ public class RoomService {
                 }
                 try {
                     long roomStart = System.nanoTime();
-                    log.info("maintenance step=ensureBots start roomId={}", room.getId());
-                    int[][] tiles = fromJsonTiles(state.getTilesJson());
+                    log.debug("maintenance step=ensureBots start roomId={}", room.getId());
+                    int[][] tiles = getTilesForRoom(room, state);
                     Instant now = Instant.now();
                     if (state.getLastCleanupAt() == null || state.getLastCleanupAt().isBefore(now.minusSeconds(15))) {
                         cleanupOldProposals(room);
@@ -270,23 +272,23 @@ public class RoomService {
                     long botsStart = System.nanoTime();
                     ensureBots(room, tiles);
                     long botsMs = (System.nanoTime() - botsStart) / 1_000_000;
-                    log.info("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
-                    log.info("maintenance step=maybeCreateBotProposal start roomId={}", room.getId());
+                    log.debug("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
+                    log.debug("maintenance step=maybeCreateBotProposal start roomId={}", room.getId());
                     maybeCreateBotProposal(room, state);
-                    log.info("maintenance step=maybeCreateBotProposal end roomId={}", room.getId());
-                    log.info("maintenance step=tickBots start roomId={}", room.getId());
+                    log.debug("maintenance step=maybeCreateBotProposal end roomId={}", room.getId());
+                    log.debug("maintenance step=tickBots start roomId={}", room.getId());
                     if (state.getLastBotTickAt() == null || state.getLastBotTickAt().isBefore(now.minusSeconds(5))) {
                         tickBots(room, state);
                         state.setLastBotTickAt(now);
                     }
-                    log.info("maintenance step=tickBots end roomId={}", room.getId());
-                    log.info("maintenance step=evaluatePendingProposals start roomId={}", room.getId());
+                    log.debug("maintenance step=tickBots end roomId={}", room.getId());
+                    log.debug("maintenance step=evaluatePendingProposals start roomId={}", room.getId());
                     evaluatePendingProposals(room);
-                    log.info("maintenance step=evaluatePendingProposals end roomId={}", room.getId());
+                    log.debug("maintenance step=evaluatePendingProposals end roomId={}", room.getId());
                     stateRepository.save(state);
                     broadcaster.broadcastRoom(room.getId());
                     long roomMs = (System.nanoTime() - roomStart) / 1_000_000;
-                    log.info("maintenance roomId={} botsMs={} roomMs={}", room.getId(), botsMs, roomMs);
+                    log.debug("maintenance roomId={} botsMs={} roomMs={}", room.getId(), botsMs, roomMs);
                 } catch (Exception e) {
                     log.warn("maintenance error roomId={} msg={}", room.getId(), e.getMessage());
                 } finally {
@@ -295,7 +297,48 @@ public class RoomService {
             }
         } finally {
             long totalMs = (System.nanoTime() - start) / 1_000_000;
-            log.info("maintenance total rooms={} totalMs={}", rooms.size(), totalMs);
+            log.debug("maintenance total rooms={} totalMs={}", rooms.size(), totalMs);
+        }
+    }
+
+    @Scheduled(fixedDelayString = "${app.world.flushIntervalMs:30000}")
+    @Transactional
+    public void flushRoomStateCache() {
+        Instant now = Instant.now();
+        for (Map.Entry<UUID, CachedRoomState> entry : roomStateCache.entrySet()) {
+            UUID roomId = entry.getKey();
+            CachedRoomState cached = entry.getValue();
+            if (!cached.dirty) {
+                continue;
+            }
+            ReentrantLock lock = proposalLocks.computeIfAbsent(roomId, id -> new ReentrantLock());
+            if (!lock.tryLock()) {
+                continue;
+            }
+            try {
+                Room room = roomRepository.findById(roomId).orElse(null);
+                if (room == null) {
+                    continue;
+                }
+                RoomState state = stateRepository.findByRoom(room).orElse(null);
+                if (state == null) {
+                    continue;
+                }
+                state.setTilesJson(toJson(cached.tiles));
+                state.setHighwaysJson(toJson(cached.highways));
+                state.setSharedTokensJson(cached.sharedTokensJson);
+                state.setSharedQuestsJson(cached.sharedQuestsJson);
+                state.setMemoryMarkersJson(cached.memoryMarkersJson);
+                state.setPreviousStateHash(cached.previousStateHash);
+                state.setStateHash(cached.stateHash == null ? hashTiles(cached.tiles) : cached.stateHash);
+                state.setUpdatedAt(now);
+                stateRepository.save(state);
+                cached.dirty = false;
+                cached.lastFlushAt = now;
+                log.info("roomStateFlush roomId={} updatedAt={} stateHash={}", roomId, now, state.getStateHash());
+            } finally {
+                lock.unlock();
+            }
         }
     }
     @Transactional
@@ -307,7 +350,7 @@ public class RoomService {
         ensurePlayable(participant);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        int[][] tiles = fromJsonTiles(state.getTilesJson());
+        int[][] tiles = getTilesForRoom(room, state);
         if (x < 0 || y < 0 || y >= tiles.length || x >= tiles[0].length) {
             throw new IllegalStateException("Move out of bounds");
         }
@@ -337,7 +380,7 @@ public class RoomService {
             proposal.setProposer(participant);
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
-            int[][] baseTiles = fromJsonTiles(state.getTilesJson());
+            int[][] baseTiles = getTilesForRoom(room, state);
             int[] delta = extractAnchor(request.getDelta());
             validateProposalDelta(baseTiles, delta, request.getDelta());
             proposal.setDeltaJson(toJson(request.getDelta()));
@@ -501,7 +544,7 @@ public class RoomService {
         long seed = payloadService.seedFromPayload(payload);
         GameStateResponse world = worldService.generateWorld(payload, seed);
         int[][] baseTiles = world.getTiles();
-        int[][] roomTiles = fromJsonTiles(state.getTilesJson());
+        int[][] roomTiles = getTilesForRoom(room, state);
         boolean[][] overlay = new boolean[roomTiles.length][roomTiles[0].length];
         int matches = 0;
         int total = 0;
@@ -533,7 +576,7 @@ public class RoomService {
         if (participant.getX() == null || participant.getY() == null) {
             RoomState state = stateRepository.findByRoom(room).orElse(null);
             if (state != null) {
-                assignSpawnPosition(participant, fromJsonTiles(state.getTilesJson()));
+                assignSpawnPosition(participant, getTilesForRoom(room, state));
                 participantRepository.save(participant);
             }
         }
@@ -806,22 +849,33 @@ public class RoomService {
     }
 
     private RoomStateResponse toRoomStateResponse(Room room, RoomState state, RoomParticipant participant) {
+        CachedRoomState cached = roomStateCache.get(room.getId());
         RoomStateResponse response = new RoomStateResponse();
         response.setRoomId(room.getId().toString());
         response.setRoomName(room.getName());
-        response.setTiles(fromJsonTiles(state.getTilesJson()));
-        response.setHighways(fromJsonHighways(state.getHighwaysJson()));
-        response.setSharedTokens(readSharedTokens(state));
-        response.setSharedQuests(readSharedQuests(state));
-        response.setMemoryMarkers(readMemoryMarkers(state));
+        if (cached != null) {
+            response.setTiles(cached.tiles);
+            response.setHighways(cached.highways);
+            response.setSharedTokens(readSharedTokensJson(cached.sharedTokensJson));
+            response.setSharedQuests(readSharedQuestsJson(cached.sharedQuestsJson));
+            response.setMemoryMarkers(readMemoryMarkersJson(cached.memoryMarkersJson));
+            response.setStateHash(cached.stateHash);
+            response.setPreviousStateHash(cached.previousStateHash);
+        } else {
+            response.setTiles(fromJsonTiles(state.getTilesJson()));
+            response.setHighways(fromJsonHighways(state.getHighwaysJson()));
+            response.setSharedTokens(readSharedTokens(state));
+            response.setSharedQuests(readSharedQuests(state));
+            response.setMemoryMarkers(readMemoryMarkers(state));
+            response.setStateHash(state.getStateHash());
+            response.setPreviousStateHash(state.getPreviousStateHash());
+        }
         response.setParticipants(buildParticipants(room));
         response.setBots(buildBots(room));
         response.setProposals(buildProposals(room, participant));
         response.setTurnOwnerParticipantId(room.getTurnOwnerParticipantId() == null ? null : room.getTurnOwnerParticipantId().toString());
         response.setTurnExpiresAt(room.getTurnExpiresAt());
         response.setLockUntil(room.getLockUntil());
-        response.setStateHash(state.getStateHash());
-        response.setPreviousStateHash(state.getPreviousStateHash());
         response.setNeighborRadius(neighborRadius);
         response.setMinNeighbors(minNeighbors);
         response.setDensityAreaSize(densityAreaSize);
@@ -867,14 +921,7 @@ public class RoomService {
     }
 
     private SharedTokens readSharedTokens(RoomState state) {
-        if (state.getSharedTokensJson() == null || state.getSharedTokensJson().isBlank()) {
-            return new SharedTokens(0, 0, 0);
-        }
-        try {
-            return objectMapper.readValue(state.getSharedTokensJson(), SharedTokens.class);
-        } catch (JsonProcessingException e) {
-            return new SharedTokens(0, 0, 0);
-        }
+        return readSharedTokensJson(state.getSharedTokensJson());
     }
 
     private void updateSharedTokens(RoomState state, int insight, int stability, int energy) {
@@ -886,22 +933,41 @@ public class RoomService {
     }
 
     private List<QuestItem> readSharedQuests(RoomState state) {
-        if (state.getSharedQuestsJson() == null || state.getSharedQuestsJson().isBlank()) {
+        return readSharedQuestsJson(state.getSharedQuestsJson());
+    }
+
+    private List<MemoryMarker> readMemoryMarkers(RoomState state) {
+        return readMemoryMarkersJson(state.getMemoryMarkersJson());
+    }
+
+    private SharedTokens readSharedTokensJson(String json) {
+        if (json == null || json.isBlank()) {
+            return new SharedTokens(0, 0, 0);
+        }
+        try {
+            return objectMapper.readValue(json, SharedTokens.class);
+        } catch (JsonProcessingException e) {
+            return new SharedTokens(0, 0, 0);
+        }
+    }
+
+    private List<QuestItem> readSharedQuestsJson(String json) {
+        if (json == null || json.isBlank()) {
             return defaultSharedQuests();
         }
         try {
-            return objectMapper.readValue(state.getSharedQuestsJson(), new TypeReference<List<QuestItem>>() {});
+            return objectMapper.readValue(json, new TypeReference<List<QuestItem>>() {});
         } catch (JsonProcessingException e) {
             return defaultSharedQuests();
         }
     }
 
-    private List<MemoryMarker> readMemoryMarkers(RoomState state) {
-        if (state.getMemoryMarkersJson() == null || state.getMemoryMarkersJson().isBlank()) {
+    private List<MemoryMarker> readMemoryMarkersJson(String json) {
+        if (json == null || json.isBlank()) {
             return new ArrayList<>();
         }
         try {
-            return objectMapper.readValue(state.getMemoryMarkersJson(), new TypeReference<List<MemoryMarker>>() {});
+            return objectMapper.readValue(json, new TypeReference<List<MemoryMarker>>() {});
         } catch (JsonProcessingException e) {
             return new ArrayList<>();
         }
@@ -1487,7 +1553,7 @@ public class RoomService {
     }
 
     private CachedMap getCachedMap(Room room, RoomState state, int[][] tiles, boolean[][] highways) {
-        String key = state.getStateHash() + "|" + (state.getHighwaysJson() == null ? "" : state.getHighwaysJson().hashCode());
+        String key = hashTiles(tiles) + "|" + Arrays.deepHashCode(highways);
         CachedMap cached = mapCache.get(room.getId());
         if (cached != null && key.equals(cached.key)) {
             return cached;
@@ -1526,6 +1592,49 @@ public class RoomService {
         return new CachedMap(key, integrals, cells, viewW, viewH, step);
     }
 
+    private CachedRoomState getCachedRoomState(Room room, RoomState state) {
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        if (cached != null) {
+            return cached;
+        }
+        int[][] tiles = fromJsonTiles(state.getTilesJson());
+        boolean[][] highways = fromJsonHighways(state.getHighwaysJson());
+        CachedRoomState built = new CachedRoomState(
+            tiles,
+            highways,
+            state.getSharedTokensJson(),
+            state.getSharedQuestsJson(),
+            state.getMemoryMarkersJson(),
+            state.getStateHash(),
+            state.getPreviousStateHash()
+        );
+        roomStateCache.put(room.getId(), built);
+        return built;
+    }
+
+    private int[][] getTilesForRoom(Room room, RoomState state) {
+        return getCachedRoomState(room, state).tiles;
+    }
+
+    private boolean[][] getHighwaysForRoom(Room room, RoomState state) {
+        return getCachedRoomState(room, state).highways;
+    }
+
+    private void updateCacheFromState(Room room, RoomState state) {
+        CachedRoomState cached = new CachedRoomState(
+            fromJsonTiles(state.getTilesJson()),
+            fromJsonHighways(state.getHighwaysJson()),
+            state.getSharedTokensJson(),
+            state.getSharedQuestsJson(),
+            state.getMemoryMarkersJson(),
+            state.getStateHash(),
+            state.getPreviousStateHash()
+        );
+        cached.dirty = false;
+        cached.lastFlushAt = Instant.now();
+        roomStateCache.put(room.getId(), cached);
+    }
+
     private static class CoarseCell {
         final int x;
         final int y;
@@ -1561,6 +1670,36 @@ public class RoomService {
             this.viewW = viewW;
             this.viewH = viewH;
             this.step = step;
+        }
+    }
+
+    private static class CachedRoomState {
+        final int[][] tiles;
+        final boolean[][] highways;
+        String sharedTokensJson;
+        String sharedQuestsJson;
+        String memoryMarkersJson;
+        String stateHash;
+        String previousStateHash;
+        boolean dirty;
+        Instant lastFlushAt;
+
+        CachedRoomState(int[][] tiles,
+                        boolean[][] highways,
+                        String sharedTokensJson,
+                        String sharedQuestsJson,
+                        String memoryMarkersJson,
+                        String stateHash,
+                        String previousStateHash) {
+            this.tiles = tiles;
+            this.highways = highways;
+            this.sharedTokensJson = sharedTokensJson;
+            this.sharedQuestsJson = sharedQuestsJson;
+            this.memoryMarkersJson = memoryMarkersJson;
+            this.stateHash = stateHash;
+            this.previousStateHash = previousStateHash;
+            this.dirty = false;
+            this.lastFlushAt = Instant.now();
         }
     }
 
@@ -1642,8 +1781,8 @@ public class RoomService {
         ReentrantLock lock = botLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
         lock.lock();
         try {
-            int[][] tiles = fromJsonTiles(state.getTilesJson());
-            boolean[][] highways = fromJsonHighways(state.getHighwaysJson());
+            int[][] tiles = getTilesForRoom(room, state);
+            boolean[][] highways = getHighwaysForRoom(room, state);
             CachedMap cached = getCachedMap(room, state, tiles, highways);
             List<RoomProposal> recentProposals = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
             List<RoomBot> moved = new ArrayList<>();
@@ -1863,9 +2002,11 @@ public class RoomService {
         }
         int type = change[2];
         String archetype = botArchetype(bot);
-        boolean[][] highways = fromJsonHighways(stateRepository.findByRoom(room)
-            .map(RoomState::getHighwaysJson)
-            .orElse(""));
+        RoomState state = stateRepository.findByRoom(room).orElse(null);
+        boolean[][] highways = new boolean[0][0];
+        if (state != null) {
+            highways = getHighwaysForRoom(room, state);
+        }
         LocalStats before = localStats(baseTiles, highways, change[0], change[1]);
         LocalStats after = localStats(proposedTiles, highways, change[0], change[1]);
         double beforeScore = prosperityScore(before, archetype);
@@ -1942,7 +2083,6 @@ public class RoomService {
     private void maybeCreateBotProposal(Room room, RoomState state) {
         long totalStart = System.nanoTime();
         int intervalSeconds = Math.max(1, 60 / botProposalsPerMinute);
-        int batchSize = 25;
         Instant now = Instant.now();
         long fetchStart = System.nanoTime();
         List<RoomBot> bots = botRepository.findByRoom(room);
@@ -1950,8 +2090,10 @@ public class RoomService {
         if (bots.isEmpty()) {
             return;
         }
+        CachedRoomState cached = getCachedRoomState(room, state);
         long tilesStart = System.nanoTime();
-        int[][] baseTiles = fromJsonTiles(state.getTilesJson());
+        int[][] baseTiles = cached.tiles;
+        boolean[][] highways = cached.highways;
         long tilesMs = (System.nanoTime() - tilesStart) / 1_000_000;
         long selectionNs = 0;
         long neighborNs = 0;
@@ -1963,8 +2105,6 @@ public class RoomService {
         int skippedNeighbors = 0;
         int proposedCount = 0;
         List<RoomBot> botsToUpdate = new ArrayList<>();
-        List<RoomProposal> proposalBatch = new ArrayList<>();
-        List<int[][]> proposedTilesBatch = new ArrayList<>();
         int processed = 0;
         for (RoomBot bot : bots) {
             long selectionStart = System.nanoTime();
@@ -1997,70 +2137,43 @@ public class RoomService {
             }
             selectionNs += System.nanoTime() - selectionStart;
             long neighborStart = System.nanoTime();
-            RoomProposal proposal = new RoomProposal();
-            proposal.setRoom(room);
-            proposal.setProposer(null);
-            proposal.setBotProposer(bot);
-            proposal.setTilesJson(toJson(proposed));
-            Map<String, Object> delta = new HashMap<>();
-            delta.put("x", anchor[0]);
-            delta.put("y", anchor[1]);
-            delta.put("type", targetType);
-            proposal.setDeltaJson(toJson(delta));
-            proposal.setAnchorX(anchor[0]);
-            proposal.setAnchorY(anchor[1]);
-            proposal.setBotGenerated(true);
-            proposal.setBotLabel(botDisplayName(bot));
-            proposal.setStatus("PENDING");
             List<String> neighbors = findNeighborsForAnchor(room, baseTiles, anchor[0], anchor[1]);
             neighborNs += System.nanoTime() - neighborStart;
             if (neighbors.size() < minNeighbors) {
                 skippedNeighbors++;
                 continue;
             }
-            proposal.setNeighborIdsJson(toJson(neighbors));
-            proposal.setRequiredVotes(neighbors.size() / 2 + 1);
-            proposal.setExpiresAt(Instant.now().plusSeconds(voteWindowSeconds));
-            proposal.setApprovals(0);
-            proposal.setRejections(0);
-            proposalBatch.add(proposal);
-            proposedTilesBatch.add(proposed);
+            String previousHash = cached.stateHash;
+            if (targetType == 4) {
+                highways[anchor[1]][anchor[0]] = true;
+                baseTiles[anchor[1]][anchor[0]] = 0;
+            } else {
+                highways[anchor[1]][anchor[0]] = false;
+                baseTiles[anchor[1]][anchor[0]] = targetType;
+            }
+            cached.previousStateHash = previousHash;
+            cached.stateHash = hashTiles(baseTiles);
+            RoomState tempState = new RoomState();
+            tempState.setSharedTokensJson(cached.sharedTokensJson);
+            tempState.setSharedQuestsJson(cached.sharedQuestsJson);
+            updateSharedTokens(tempState, 2, 1, 1);
+            updateSharedQuests(tempState, baseTiles);
+            cached.sharedTokensJson = tempState.getSharedTokensJson();
+            cached.sharedQuestsJson = tempState.getSharedQuestsJson();
+            cached.dirty = true;
+            cached.lastFlushAt = Instant.now();
             bot.setLastProposalAt(now);
             botsToUpdate.add(bot);
-            if (proposalBatch.size() >= batchSize) {
-                long dbStart = System.nanoTime();
-                proposalRepository.saveAll(proposalBatch);
-                dbNs += System.nanoTime() - dbStart;
-                List<RoomProposal> pendingUpdates = new ArrayList<>();
-                for (int i = 0; i < proposalBatch.size(); i++) {
-                    RoomProposal saved = proposalBatch.get(i);
-                    int[][] proposedTiles = proposedTilesBatch.get(i);
-                    dbStart = System.nanoTime();
-                    applyBotVotes(room, saved, baseTiles, proposedTiles);
-                    evaluateProposal(room, saved);
-                    if ("PENDING".equals(saved.getStatus())) {
-                        pendingUpdates.add(saved);
-                    }
-                    dbNs += System.nanoTime() - dbStart;
-                    proposedCount++;
-                }
-                if (!pendingUpdates.isEmpty()) {
-                    dbStart = System.nanoTime();
-                    proposalRepository.saveAll(pendingUpdates);
-                    dbNs += System.nanoTime() - dbStart;
-                }
-                proposalBatch.clear();
-                proposedTilesBatch.clear();
-            }
+            proposedCount++;
             if (processed % 50 == 0) {
                 long elapsedMs = (System.nanoTime() - totalStart) / 1_000_000;
-                log.info("botProposalsProgress roomId={} processed={} proposed={} elapsedMs={}",
+                log.debug("botProposalsProgress roomId={} processed={} proposed={} elapsedMs={}",
                     room.getId(),
                     processed,
                     proposedCount,
                     elapsedMs
                 );
-                log.info("botProposalsProgressTiming roomId={} processed={} selectMs={} neighborsMs={} dbMs={}",
+                log.debug("botProposalsProgressTiming roomId={} processed={} selectMs={} neighborsMs={} dbMs={}",
                     room.getId(),
                     processed,
                     selectionNs / 1_000_000,
@@ -2069,41 +2182,12 @@ public class RoomService {
                 );
             }
         }
-        if (!proposalBatch.isEmpty()) {
-            long dbStart = System.nanoTime();
-            proposalRepository.saveAll(proposalBatch);
-            dbNs += System.nanoTime() - dbStart;
-            List<RoomProposal> pendingUpdates = new ArrayList<>();
-            for (int i = 0; i < proposalBatch.size(); i++) {
-                RoomProposal saved = proposalBatch.get(i);
-                int[][] proposedTiles = proposedTilesBatch.get(i);
-                dbStart = System.nanoTime();
-                applyBotVotes(room, saved, baseTiles, proposedTiles);
-                evaluateProposal(room, saved);
-                if ("PENDING".equals(saved.getStatus())) {
-                    pendingUpdates.add(saved);
-                }
-                dbNs += System.nanoTime() - dbStart;
-                proposedCount++;
-            }
-            if (!pendingUpdates.isEmpty()) {
-                dbStart = System.nanoTime();
-                proposalRepository.saveAll(pendingUpdates);
-                dbNs += System.nanoTime() - dbStart;
-            }
-            proposalBatch.clear();
-            proposedTilesBatch.clear();
-        }
         long dbStart = System.nanoTime();
-        if (proposedCount > 0) {
-            state.setLastBotProposalAt(Instant.now());
-        }
         if (!botsToUpdate.isEmpty()) {
             botRepository.saveAll(botsToUpdate);
         }
-        stateRepository.save(state);
         dbNs += System.nanoTime() - dbStart;
-        log.info("botProposals roomId={} bots={} proposed={} skippedNoPos={} skippedRate={} skippedAnchor={} skippedInvalid={} skippedNeighbors={}",
+        log.debug("botProposals roomId={} bots={} proposed={} skippedNoPos={} skippedRate={} skippedAnchor={} skippedInvalid={} skippedNeighbors={}",
             room.getId(),
             bots.size(),
             proposedCount,
@@ -2114,7 +2198,7 @@ public class RoomService {
             skippedNeighbors
         );
         long totalMs = (System.nanoTime() - totalStart) / 1_000_000;
-        log.info("botProposalsTiming roomId={} totalMs={} fetchBotsMs={} tilesMs={} selectMs={} neighborsMs={} dbMs={}",
+        log.debug("botProposalsTiming roomId={} totalMs={} fetchBotsMs={} tilesMs={} selectMs={} neighborsMs={} dbMs={}",
             room.getId(),
             totalMs,
             fetchMs,
@@ -2217,9 +2301,9 @@ public class RoomService {
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
         state.setPreviousStateHash(state.getStateHash());
-        int[][] baseTiles = fromJsonTiles(state.getTilesJson());
+        int[][] baseTiles = getTilesForRoom(room, state);
         int[][] tiles = applyDeltaToTiles(baseTiles, proposal);
-        boolean[][] highways = fromJsonHighways(state.getHighwaysJson());
+        boolean[][] highways = getHighwaysForRoom(room, state);
         if (highways.length == 0 && tiles.length > 0) {
             highways = new boolean[tiles.length][tiles[0].length];
         }
@@ -2268,6 +2352,7 @@ public class RoomService {
         updateSharedTokens(state, 2, 1, 1);
         updateSharedQuests(state, tiles);
         stateRepository.save(state);
+        updateCacheFromState(room, state);
         proposal.setStatus("APPLIED");
         proposalRepository.save(proposal);
         room.setLockUntil(Instant.now().plusSeconds(2));
@@ -2323,8 +2408,9 @@ public class RoomService {
         if (participant.getX() == null || participant.getY() == null) {
             return false;
         }
-        int[][] tiles = fromJsonTiles(stateRepository.findByRoom(room)
-            .orElseThrow(() -> new IllegalStateException("Room state missing")).getTilesJson());
+        RoomState state = stateRepository.findByRoom(room)
+            .orElseThrow(() -> new IllegalStateException("Room state missing"));
+        int[][] tiles = getTilesForRoom(room, state);
         int[] view = computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
         return inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
     }
