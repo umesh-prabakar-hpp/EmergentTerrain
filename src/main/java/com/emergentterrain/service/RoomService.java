@@ -10,6 +10,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -19,6 +21,7 @@ import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 public class RoomService {
+    private static final Logger log = LoggerFactory.getLogger(RoomService.class);
     private final RoomRepository roomRepository;
     private final RoomParticipantRepository participantRepository;
     private final RoomStateRepository stateRepository;
@@ -43,6 +46,7 @@ public class RoomService {
     private final double botPopulationFraction;
     private final int noParticipationLockSeconds;
     private final ActivityMetrics metrics;
+    private final int maxBotsPerRoom;
     private static final int VISIBLE_WIDTH = 48;
     private static final int VISIBLE_HEIGHT = 36;
     private static final List<String> BOT_ARCHETYPES = List.of(
@@ -77,6 +81,7 @@ public class RoomService {
                        @Value("${app.density.areaSize:20}") int densityAreaSize,
                        @Value("${app.density.maxOccupants:8}") int maxOccupants,
                        @Value("${app.bots.populationFraction:0.25}") double botPopulationFraction,
+                       @Value("${app.bots.maxPerRoom:200}") int maxBotsPerRoom,
                        @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds) {
         this.roomRepository = roomRepository;
         this.participantRepository = participantRepository;
@@ -101,6 +106,7 @@ public class RoomService {
         this.densityAreaSize = densityAreaSize;
         this.maxOccupants = maxOccupants;
         this.botPopulationFraction = botPopulationFraction;
+        this.maxBotsPerRoom = Math.max(1, maxBotsPerRoom);
         this.noParticipationLockSeconds = noParticipationLockSeconds;
     }
 
@@ -117,6 +123,8 @@ public class RoomService {
         room.setName(safeName);
         room.setHostProfile(profile);
         room = roomRepository.save(room);
+        profile.setLastRoomId(room.getId());
+        profileRepository.save(profile);
 
         RoomParticipant host = new RoomParticipant();
         host.setRoom(room);
@@ -192,10 +200,32 @@ public class RoomService {
         if (joinState != null) {
             ensureNearbyBots(room, fromJsonTiles(joinState.getTilesJson()), participant.getX(), participant.getY());
         }
+        profile.setLastRoomId(room.getId());
+        profileRepository.save(profile);
         RoomJoinResponse response = new RoomJoinResponse();
         response.setRoomId(room.getId().toString());
         response.setRoomName(room.getName());
         response.setParticipantId(participant.getId().toString());
+        return response;
+    }
+
+    public RoomJoinResponse joinOrCreateLastRoom(Payload payload, String name) {
+        Profile profile = profileFromPayload(payload);
+        if (profile == null) {
+            throw new IllegalStateException("Profile not found");
+        }
+        UUID lastRoomId = profile.getLastRoomId();
+        if (lastRoomId != null) {
+            Room room = roomRepository.findById(lastRoomId).orElse(null);
+            if (room != null) {
+                return joinRoom(payload, room.getId());
+            }
+        }
+        RoomCreateResponse created = createRoom(payload, name);
+        RoomJoinResponse response = new RoomJoinResponse();
+        response.setRoomId(created.getRoomId());
+        response.setRoomName(created.getRoomName());
+        response.setParticipantId(created.getParticipantId());
         return response;
     }
 
@@ -215,39 +245,57 @@ public class RoomService {
     @Transactional
     public void scheduledRoomMaintenance() {
         metrics.increment("room.maintenance");
+        long start = System.nanoTime();
         List<Room> rooms = roomRepository.findAll();
-        if (rooms.isEmpty()) {
-            return;
-        }
-        for (Room room : rooms) {
-            RoomState state = stateRepository.findByRoom(room).orElse(null);
-            if (state == null) {
-                continue;
-            }
-            ReentrantLock lock = proposalLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
-            if (!lock.tryLock()) {
-                continue;
-            }
-            try {
-                int[][] tiles = fromJsonTiles(state.getTilesJson());
-                Instant now = Instant.now();
-                if (state.getLastCleanupAt() == null || state.getLastCleanupAt().isBefore(now.minusSeconds(15))) {
-                    cleanupOldProposals(room);
-                    state.setLastCleanupAt(now);
+        log.info("maintenance start rooms={}", rooms.size());
+        try {
+            for (Room room : rooms) {
+                RoomState state = stateRepository.findByRoom(room).orElse(null);
+                if (state == null) {
+                    continue;
                 }
-                ensureBots(room, tiles);
-                maybeCreateBotProposal(room, state);
-                if (state.getLastBotTickAt() == null || state.getLastBotTickAt().isBefore(now.minusSeconds(5))) {
-                    tickBots(room, state);
-                    state.setLastBotTickAt(now);
+                ReentrantLock lock = proposalLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
+                if (!lock.tryLock()) {
+                    continue;
                 }
-                evaluatePendingProposals(room);
-                stateRepository.save(state);
-                broadcaster.broadcastRoom(room.getId());
-            } catch (Exception ignored) {
-            } finally {
-                lock.unlock();
+                try {
+                    long roomStart = System.nanoTime();
+                    log.info("maintenance step=ensureBots start roomId={}", room.getId());
+                    int[][] tiles = fromJsonTiles(state.getTilesJson());
+                    Instant now = Instant.now();
+                    if (state.getLastCleanupAt() == null || state.getLastCleanupAt().isBefore(now.minusSeconds(15))) {
+                        cleanupOldProposals(room);
+                        state.setLastCleanupAt(now);
+                    }
+                    long botsStart = System.nanoTime();
+                    ensureBots(room, tiles);
+                    long botsMs = (System.nanoTime() - botsStart) / 1_000_000;
+                    log.info("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
+                    log.info("maintenance step=maybeCreateBotProposal start roomId={}", room.getId());
+                    maybeCreateBotProposal(room, state);
+                    log.info("maintenance step=maybeCreateBotProposal end roomId={}", room.getId());
+                    log.info("maintenance step=tickBots start roomId={}", room.getId());
+                    if (state.getLastBotTickAt() == null || state.getLastBotTickAt().isBefore(now.minusSeconds(5))) {
+                        tickBots(room, state);
+                        state.setLastBotTickAt(now);
+                    }
+                    log.info("maintenance step=tickBots end roomId={}", room.getId());
+                    log.info("maintenance step=evaluatePendingProposals start roomId={}", room.getId());
+                    evaluatePendingProposals(room);
+                    log.info("maintenance step=evaluatePendingProposals end roomId={}", room.getId());
+                    stateRepository.save(state);
+                    broadcaster.broadcastRoom(room.getId());
+                    long roomMs = (System.nanoTime() - roomStart) / 1_000_000;
+                    log.info("maintenance roomId={} botsMs={} roomMs={}", room.getId(), botsMs, roomMs);
+                } catch (Exception e) {
+                    log.warn("maintenance error roomId={} msg={}", room.getId(), e.getMessage());
+                } finally {
+                    lock.unlock();
+                }
             }
+        } finally {
+            long totalMs = (System.nanoTime() - start) / 1_000_000;
+            log.info("maintenance total rooms={} totalMs={}", rooms.size(), totalMs);
         }
     }
     @Transactional
@@ -320,6 +368,9 @@ public class RoomService {
             int[][] proposedTiles = applyDeltaToTiles(baseTiles, proposal);
             applyBotVotes(room, proposal, baseTiles, proposedTiles);
             evaluateProposal(room, proposal);
+            if ("PENDING".equals(proposal.getStatus())) {
+                proposalRepository.save(proposal);
+            }
             RoomStateResponse response = toRoomStateResponse(room, state, participant);
             broadcaster.broadcastRoom(room.getId());
             return response;
@@ -545,7 +596,7 @@ public class RoomService {
         List<RoomBot> existing = botRepository.findByRoom(room);
         int maxOccupantsTotal = Math.max(3, (tiles.length * tiles[0].length * maxOccupants) / (densityAreaSize * densityAreaSize));
         int targetBots = Math.max(40, (int) Math.round(maxOccupantsTotal * botPopulationFraction));
-        targetBots = Math.min(targetBots, 200);
+        targetBots = Math.min(targetBots, maxBotsPerRoom);
 
         Map<String, RoomBot> byType = new HashMap<>();
         for (RoomBot bot : existing) {
@@ -1800,7 +1851,6 @@ public class RoomService {
             summary.put("botNo", botNo);
             proposal.setBotVoteSummaryJson(toJson(summary));
         }
-        proposalRepository.save(proposal);
     }
 
     private enum BotVote { APPROVE, REJECT, ABSTAIN }
@@ -1890,23 +1940,50 @@ public class RoomService {
     }
 
     private void maybeCreateBotProposal(Room room, RoomState state) {
+        long totalStart = System.nanoTime();
         int intervalSeconds = Math.max(1, 60 / botProposalsPerMinute);
+        int batchSize = 25;
         Instant now = Instant.now();
+        long fetchStart = System.nanoTime();
         List<RoomBot> bots = botRepository.findByRoom(room);
+        long fetchMs = (System.nanoTime() - fetchStart) / 1_000_000;
         if (bots.isEmpty()) {
             return;
         }
+        long tilesStart = System.nanoTime();
         int[][] baseTiles = fromJsonTiles(state.getTilesJson());
+        long tilesMs = (System.nanoTime() - tilesStart) / 1_000_000;
+        long selectionNs = 0;
+        long neighborNs = 0;
+        long dbNs = 0;
+        int skippedNoPos = 0;
+        int skippedRate = 0;
+        int skippedAnchor = 0;
+        int skippedInvalid = 0;
+        int skippedNeighbors = 0;
+        int proposedCount = 0;
+        List<RoomBot> botsToUpdate = new ArrayList<>();
+        List<RoomProposal> proposalBatch = new ArrayList<>();
+        List<int[][]> proposedTilesBatch = new ArrayList<>();
+        int processed = 0;
         for (RoomBot bot : bots) {
+            long selectionStart = System.nanoTime();
+            processed++;
             if (bot.getX() == null || bot.getY() == null) {
+                skippedNoPos++;
+                selectionNs += System.nanoTime() - selectionStart;
                 continue;
             }
             Instant last = bot.getLastProposalAt();
             if (last != null && last.isAfter(now.minusSeconds(intervalSeconds))) {
+                skippedRate++;
+                selectionNs += System.nanoTime() - selectionStart;
                 continue;
             }
             int[] anchor = pickBotProposalAnchor(bot, baseTiles);
             if (anchor == null) {
+                skippedAnchor++;
+                selectionNs += System.nanoTime() - selectionStart;
                 continue;
             }
             int targetType = dominantTileType(readBotProfile(bot));
@@ -1914,8 +1991,12 @@ public class RoomService {
             try {
                 validateProposalChange(baseTiles, proposed);
             } catch (IllegalStateException e) {
+                skippedInvalid++;
+                selectionNs += System.nanoTime() - selectionStart;
                 continue;
             }
+            selectionNs += System.nanoTime() - selectionStart;
+            long neighborStart = System.nanoTime();
             RoomProposal proposal = new RoomProposal();
             proposal.setRoom(room);
             proposal.setProposer(null);
@@ -1932,7 +2013,9 @@ public class RoomService {
             proposal.setBotLabel(botDisplayName(bot));
             proposal.setStatus("PENDING");
             List<String> neighbors = findNeighborsForAnchor(room, baseTiles, anchor[0], anchor[1]);
+            neighborNs += System.nanoTime() - neighborStart;
             if (neighbors.size() < minNeighbors) {
+                skippedNeighbors++;
                 continue;
             }
             proposal.setNeighborIdsJson(toJson(neighbors));
@@ -1940,14 +2023,106 @@ public class RoomService {
             proposal.setExpiresAt(Instant.now().plusSeconds(voteWindowSeconds));
             proposal.setApprovals(0);
             proposal.setRejections(0);
-            proposalRepository.save(proposal);
-            applyBotVotes(room, proposal, baseTiles, proposed);
-            evaluateProposal(room, proposal);
-            state.setLastBotProposalAt(Instant.now());
+            proposalBatch.add(proposal);
+            proposedTilesBatch.add(proposed);
             bot.setLastProposalAt(now);
-            botRepository.save(bot);
+            botsToUpdate.add(bot);
+            if (proposalBatch.size() >= batchSize) {
+                long dbStart = System.nanoTime();
+                proposalRepository.saveAll(proposalBatch);
+                dbNs += System.nanoTime() - dbStart;
+                List<RoomProposal> pendingUpdates = new ArrayList<>();
+                for (int i = 0; i < proposalBatch.size(); i++) {
+                    RoomProposal saved = proposalBatch.get(i);
+                    int[][] proposedTiles = proposedTilesBatch.get(i);
+                    dbStart = System.nanoTime();
+                    applyBotVotes(room, saved, baseTiles, proposedTiles);
+                    evaluateProposal(room, saved);
+                    if ("PENDING".equals(saved.getStatus())) {
+                        pendingUpdates.add(saved);
+                    }
+                    dbNs += System.nanoTime() - dbStart;
+                    proposedCount++;
+                }
+                if (!pendingUpdates.isEmpty()) {
+                    dbStart = System.nanoTime();
+                    proposalRepository.saveAll(pendingUpdates);
+                    dbNs += System.nanoTime() - dbStart;
+                }
+                proposalBatch.clear();
+                proposedTilesBatch.clear();
+            }
+            if (processed % 50 == 0) {
+                long elapsedMs = (System.nanoTime() - totalStart) / 1_000_000;
+                log.info("botProposalsProgress roomId={} processed={} proposed={} elapsedMs={}",
+                    room.getId(),
+                    processed,
+                    proposedCount,
+                    elapsedMs
+                );
+                log.info("botProposalsProgressTiming roomId={} processed={} selectMs={} neighborsMs={} dbMs={}",
+                    room.getId(),
+                    processed,
+                    selectionNs / 1_000_000,
+                    neighborNs / 1_000_000,
+                    dbNs / 1_000_000
+                );
+            }
+        }
+        if (!proposalBatch.isEmpty()) {
+            long dbStart = System.nanoTime();
+            proposalRepository.saveAll(proposalBatch);
+            dbNs += System.nanoTime() - dbStart;
+            List<RoomProposal> pendingUpdates = new ArrayList<>();
+            for (int i = 0; i < proposalBatch.size(); i++) {
+                RoomProposal saved = proposalBatch.get(i);
+                int[][] proposedTiles = proposedTilesBatch.get(i);
+                dbStart = System.nanoTime();
+                applyBotVotes(room, saved, baseTiles, proposedTiles);
+                evaluateProposal(room, saved);
+                if ("PENDING".equals(saved.getStatus())) {
+                    pendingUpdates.add(saved);
+                }
+                dbNs += System.nanoTime() - dbStart;
+                proposedCount++;
+            }
+            if (!pendingUpdates.isEmpty()) {
+                dbStart = System.nanoTime();
+                proposalRepository.saveAll(pendingUpdates);
+                dbNs += System.nanoTime() - dbStart;
+            }
+            proposalBatch.clear();
+            proposedTilesBatch.clear();
+        }
+        long dbStart = System.nanoTime();
+        if (proposedCount > 0) {
+            state.setLastBotProposalAt(Instant.now());
+        }
+        if (!botsToUpdate.isEmpty()) {
+            botRepository.saveAll(botsToUpdate);
         }
         stateRepository.save(state);
+        dbNs += System.nanoTime() - dbStart;
+        log.info("botProposals roomId={} bots={} proposed={} skippedNoPos={} skippedRate={} skippedAnchor={} skippedInvalid={} skippedNeighbors={}",
+            room.getId(),
+            bots.size(),
+            proposedCount,
+            skippedNoPos,
+            skippedRate,
+            skippedAnchor,
+            skippedInvalid,
+            skippedNeighbors
+        );
+        long totalMs = (System.nanoTime() - totalStart) / 1_000_000;
+        log.info("botProposalsTiming roomId={} totalMs={} fetchBotsMs={} tilesMs={} selectMs={} neighborsMs={} dbMs={}",
+            room.getId(),
+            totalMs,
+            fetchMs,
+            tilesMs,
+            selectionNs / 1_000_000,
+            neighborNs / 1_000_000,
+            dbNs / 1_000_000
+        );
     }
 
     private int[] pickBotProposalAnchor(RoomBot bot, int[][] tiles) {

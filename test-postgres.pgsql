@@ -37,13 +37,23 @@ SELECT COUNT(*) FROM rooms;
 SELECT COUNT(*) FROM room_bots;
 SELECT COUNT(*) FROM room_participants;
 SELECT COUNT(*) FROM room_proposals;
-SELECT status, COUNT(*) FROM room_proposals GROUP BY status;
 SELECT COUNT(*) FROM room_proposal_votes;
 SELECT COUNT(*) FROM room_state;
 SELECT COUNT(*) FROM users;
 
+-- Get width and height from tiles_json
+SELECT
+  jsonb_array_length(tiles_json::jsonb) AS height,
+  jsonb_array_length((tiles_json::jsonb)->0) AS width
+FROM room_state
+LIMIT 1;
+
 -- How many bots are in the room?
-SELECT COUNT(*) FROM room_bots;
+SELECT room_id, COUNT(*) AS bots
+FROM room_bots
+GROUP BY room_id
+ORDER BY bots DESC;
+SELECT status, COUNT(*) FROM room_proposals GROUP BY status;
 
 
 -- Database size (MB and GB)
@@ -54,6 +64,35 @@ SELECT
   ROUND(pg_database_size(pg_database.datname) / 1024.0 / 1024.0 / 1024.0, 2) AS size_gb
 FROM pg_database
 WHERE pg_database.datname = current_database();
+
+-- Average polls created per bot (all time)
+SELECT
+  COUNT(*) FILTER (WHERE bot_generated) AS bot_proposals,
+  (SELECT COUNT(*) FROM room_bots) AS total_bots,
+  ROUND(
+    COUNT(*) FILTER (WHERE bot_generated)::numeric
+    / NULLIF((SELECT COUNT(*) FROM room_bots), 0),
+    2
+  ) AS avg_proposals_per_bot
+FROM room_proposals;
+
+-- Average polls created per bot per minute (last 1 minute)
+SELECT
+  COUNT(*) FILTER (WHERE bot_generated AND created_at >= NOW() - INTERVAL '1 minute') AS bot_proposals_1m,
+  (SELECT COUNT(*) FROM room_bots) AS total_bots,
+  ROUND(
+    COUNT(*) FILTER (WHERE bot_generated AND created_at >= NOW() - INTERVAL '1 minute')::numeric
+    / NULLIF((SELECT COUNT(*) FROM room_bots), 0),
+    2
+  ) AS avg_proposals_per_bot_1m
+FROM room_proposals;
+
+-- Min/Max/Avg votes per poll
+SELECT
+  MIN(approvals + rejections) AS min_votes,
+  MAX(approvals + rejections) AS max_votes,
+  ROUND(AVG((approvals + rejections)::numeric), 2) AS avg_votes
+FROM room_proposals;
 
 
 

@@ -1434,19 +1434,20 @@ function initBots() {
 }
 
 async function init() {
-  const res = await fetch('/room/create', {
+  const res = await fetch('/room/last', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token, name: 'Consensus Field' })
   });
   if (!res.ok) {
-    roomStatus.textContent = 'Failed to create room.';
+    roomStatus.textContent = 'Failed to start room.';
     return;
   }
   const data = await res.json();
   roomId = data.roomId;
   participantId = data.participantId;
-  setRoomStateFromResponse(data);
+  roomStatus.textContent = `Joined room: ${data.roomName}`;
+  await refreshRoomState();
   if (infoPanel) {
     document.body.classList.toggle('drawer-open', infoPanel.classList.contains('open'));
   }

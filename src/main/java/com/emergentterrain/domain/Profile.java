@@ -30,6 +30,8 @@ public class Profile {
     @Column(nullable = false)
     private String payloadHash;
 
+    private UUID lastRoomId;
+
     public void setId(UUID id) {
         this.id = id;
     }
@@ -95,6 +97,14 @@ public class Profile {
 
     public void setPayloadHash(String payloadHash) {
         this.payloadHash = payloadHash;
+    }
+
+    public UUID getLastRoomId() {
+        return lastRoomId;
+    }
+
+    public void setLastRoomId(UUID lastRoomId) {
+        this.lastRoomId = lastRoomId;
     }
 
     public Instant getCreatedAt() {

@@ -20,6 +20,10 @@ spring:
     console:
       enabled: false
       path: /h2
+  task:
+    scheduling:
+      pool:
+        size: 2
 server:
   port: 8080
 app:
@@ -33,23 +37,25 @@ app:
     aspectRatio: 1.3333
     highwayRatio: 0.02
   consensus:
-    neighborRadius: 8
+    neighborRadius: 24
     voteWindowSeconds: 60
     minProposalLiveSeconds: 3
     botVoteRetentionSeconds: 0
     minVotesToResolve: 3
     botRuleChecksEnabled: false
-    botProposalsPerMinute: 10
+    botProposalsPerMinute: 100
     minNeighbors: 3
     noParticipationLockSeconds: 300
   density:
     areaSize: 20
-    maxOccupants: 8
+    maxOccupants: 15
   bots:
-    populationFraction: 0.25
+    populationFraction: 0.7
+    maxPerRoom: 1000
   activityLog:
     intervalMs: 30000
 
 logging:
   level:
     org.springframework.boot.context.config: DEBUG
+    com.emergentterrain.service.RoomService: INFO

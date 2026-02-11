@@ -38,6 +38,14 @@ public class RoomController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/room/last")
+    public ResponseEntity<RoomJoinResponse> lastRoom(@RequestBody RoomCreateRequest request) {
+        metrics.increment("room.join");
+        Payload payload = payloadService.parseToken(request.getToken());
+        RoomJoinResponse response = roomService.joinOrCreateLastRoom(payload, request.getName());
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/room/{roomId}/state")
     public ResponseEntity<RoomStateResponse> roomState(@PathVariable("roomId") String roomId,
                                                        @RequestBody RoomJoinRequest request) {

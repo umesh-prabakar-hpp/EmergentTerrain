@@ -9,6 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import jakarta.annotation.PostConstruct;
 
 import java.time.Instant;
 import java.util.Map;
@@ -23,6 +24,7 @@ public class ActivityReporter {
     private final RoomBotRepository botRepository;
     private final RoomProposalRepository proposalRepository;
     private final long intervalMs;
+    private volatile boolean started = false;
 
     public ActivityReporter(ActivityMetrics metrics,
                             RoomRepository roomRepository,
@@ -38,8 +40,17 @@ public class ActivityReporter {
         this.intervalMs = intervalMs;
     }
 
+    @PostConstruct
+    public void logStartup() {
+        log.info("activity reporter initialized intervalMs={}", intervalMs);
+    }
+
     @Scheduled(fixedDelayString = "${app.activityLog.intervalMs:30000}")
     public void logActivity() {
+        if (!started) {
+            log.info("activity heartbeat started intervalMs={}", intervalMs);
+            started = true;
+        }
         Map<String, Long> deltas = metrics.snapshotDeltas();
         Map<String, Long> totals = metrics.snapshotTotals();
         long rooms = roomRepository.count();
