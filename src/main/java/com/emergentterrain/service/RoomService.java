@@ -146,6 +146,14 @@ public class RoomService {
         state.setSharedQuestsJson(toJson(defaultSharedQuests()));
         state.setMemoryMarkersJson(toJson(new ArrayList<>()));
         state.setStateHash(hashTiles(world.getTiles()));
+        TileCounts counts = computeTileCounts(world.getTiles(), world.getHighways());
+        state.setTileClearCount(counts.clear);
+        state.setTileForestCount(counts.forest);
+        state.setTileWaterCount(counts.water);
+        state.setTileIndustryCount(counts.industry);
+        state.setTileHighwayCount(counts.road);
+        state.setTotalChangeCount(0L);
+        state.setChangesSinceFlush(0);
         state = stateRepository.save(state);
         updateCacheFromState(room, state);
 
@@ -331,10 +339,18 @@ public class RoomService {
                 state.setMemoryMarkersJson(cached.memoryMarkersJson);
                 state.setPreviousStateHash(cached.previousStateHash);
                 state.setStateHash(cached.stateHash == null ? hashTiles(cached.tiles) : cached.stateHash);
+                state.setTotalChangeCount(cached.totalChangeCount == null ? 0 : cached.totalChangeCount);
+                state.setChangesSinceFlush(cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush);
+                state.setTileClearCount(cached.tileClearCount);
+                state.setTileForestCount(cached.tileForestCount);
+                state.setTileWaterCount(cached.tileWaterCount);
+                state.setTileIndustryCount(cached.tileIndustryCount);
+                state.setTileHighwayCount(cached.tileHighwayCount);
                 state.setUpdatedAt(now);
                 stateRepository.save(state);
                 cached.dirty = false;
                 cached.lastFlushAt = now;
+                cached.changesSinceFlush = 0;
                 log.info("roomStateFlush roomId={} updatedAt={} stateHash={}", roomId, now, state.getStateHash());
             } finally {
                 lock.unlock();
@@ -1599,6 +1615,7 @@ public class RoomService {
         }
         int[][] tiles = fromJsonTiles(state.getTilesJson());
         boolean[][] highways = fromJsonHighways(state.getHighwaysJson());
+        TileCounts counts = computeTileCounts(tiles, highways);
         CachedRoomState built = new CachedRoomState(
             tiles,
             highways,
@@ -1606,7 +1623,10 @@ public class RoomService {
             state.getSharedQuestsJson(),
             state.getMemoryMarkersJson(),
             state.getStateHash(),
-            state.getPreviousStateHash()
+            state.getPreviousStateHash(),
+            counts,
+            state.getTotalChangeCount(),
+            state.getChangesSinceFlush()
         );
         roomStateCache.put(room.getId(), built);
         return built;
@@ -1620,19 +1640,59 @@ public class RoomService {
         return getCachedRoomState(room, state).highways;
     }
 
-    private void updateCacheFromState(Room room, RoomState state) {
+    private void updateCacheFromState(Room room, RoomState state, int changeDelta) {
+        CachedRoomState existing = roomStateCache.get(room.getId());
+        long totalChanges = existing != null && existing.totalChangeCount != null
+            ? existing.totalChangeCount
+            : (state.getTotalChangeCount() == null ? 0 : state.getTotalChangeCount());
+        int changesSinceFlush = existing != null && existing.changesSinceFlush != null
+            ? existing.changesSinceFlush
+            : (state.getChangesSinceFlush() == null ? 0 : state.getChangesSinceFlush());
+        totalChanges += Math.max(0, changeDelta);
+        changesSinceFlush += Math.max(0, changeDelta);
+        int[][] tiles = fromJsonTiles(state.getTilesJson());
+        boolean[][] highways = fromJsonHighways(state.getHighwaysJson());
+        TileCounts counts = computeTileCounts(tiles, highways);
         CachedRoomState cached = new CachedRoomState(
-            fromJsonTiles(state.getTilesJson()),
-            fromJsonHighways(state.getHighwaysJson()),
+            tiles,
+            highways,
             state.getSharedTokensJson(),
             state.getSharedQuestsJson(),
             state.getMemoryMarkersJson(),
             state.getStateHash(),
-            state.getPreviousStateHash()
+            state.getPreviousStateHash(),
+            counts,
+            totalChanges,
+            changesSinceFlush
         );
         cached.dirty = false;
         cached.lastFlushAt = Instant.now();
         roomStateCache.put(room.getId(), cached);
+    }
+
+    private void updateCacheFromState(Room room, RoomState state) {
+        updateCacheFromState(room, state, 0);
+    }
+
+    private TileCounts computeTileCounts(int[][] tiles, boolean[][] highways) {
+        int clear = 0;
+        int forest = 0;
+        int water = 0;
+        int industry = 0;
+        int road = 0;
+        for (int y = 0; y < tiles.length; y++) {
+            for (int x = 0; x < tiles[0].length; x++) {
+                int v = tiles[y][x];
+                if (v == 0) clear++;
+                else if (v == 1) forest++;
+                else if (v == 2) water++;
+                else if (v == 3) industry++;
+                if (highways.length > 0 && highways[y][x]) {
+                    road++;
+                }
+            }
+        }
+        return new TileCounts(clear, forest, water, industry, road);
     }
 
     private static class CoarseCell {
@@ -1681,6 +1741,13 @@ public class RoomService {
         String memoryMarkersJson;
         String stateHash;
         String previousStateHash;
+        int tileClearCount;
+        int tileForestCount;
+        int tileWaterCount;
+        int tileIndustryCount;
+        int tileHighwayCount;
+        Long totalChangeCount;
+        Integer changesSinceFlush;
         boolean dirty;
         Instant lastFlushAt;
 
@@ -1690,7 +1757,10 @@ public class RoomService {
                         String sharedQuestsJson,
                         String memoryMarkersJson,
                         String stateHash,
-                        String previousStateHash) {
+                        String previousStateHash,
+                        TileCounts counts,
+                        Long totalChangeCount,
+                        Integer changesSinceFlush) {
             this.tiles = tiles;
             this.highways = highways;
             this.sharedTokensJson = sharedTokensJson;
@@ -1698,8 +1768,31 @@ public class RoomService {
             this.memoryMarkersJson = memoryMarkersJson;
             this.stateHash = stateHash;
             this.previousStateHash = previousStateHash;
+            this.tileClearCount = counts.clear;
+            this.tileForestCount = counts.forest;
+            this.tileWaterCount = counts.water;
+            this.tileIndustryCount = counts.industry;
+            this.tileHighwayCount = counts.road;
+            this.totalChangeCount = totalChangeCount == null ? 0 : totalChangeCount;
+            this.changesSinceFlush = changesSinceFlush == null ? 0 : changesSinceFlush;
             this.dirty = false;
             this.lastFlushAt = Instant.now();
+        }
+    }
+
+    private static class TileCounts {
+        final int clear;
+        final int forest;
+        final int water;
+        final int industry;
+        final int road;
+
+        TileCounts(int clear, int forest, int water, int industry, int road) {
+            this.clear = clear;
+            this.forest = forest;
+            this.water = water;
+            this.industry = industry;
+            this.road = road;
         }
     }
 
@@ -2144,13 +2237,27 @@ public class RoomService {
                 continue;
             }
             String previousHash = cached.stateHash;
-            if (targetType == 4) {
-                highways[anchor[1]][anchor[0]] = true;
-                baseTiles[anchor[1]][anchor[0]] = 0;
-            } else {
-                highways[anchor[1]][anchor[0]] = false;
-                baseTiles[anchor[1]][anchor[0]] = targetType;
+            int x = anchor[0];
+            int y = anchor[1];
+            int oldTile = baseTiles[y][x];
+            boolean oldHighway = highways.length > 0 && highways[y][x];
+            int newTile = targetType == 4 ? 0 : targetType;
+            boolean newHighway = targetType == 4;
+            if (oldTile != newTile) {
+                if (oldTile == 0) cached.tileClearCount--;
+                else if (oldTile == 1) cached.tileForestCount--;
+                else if (oldTile == 2) cached.tileWaterCount--;
+                else if (oldTile == 3) cached.tileIndustryCount--;
+                if (newTile == 0) cached.tileClearCount++;
+                else if (newTile == 1) cached.tileForestCount++;
+                else if (newTile == 2) cached.tileWaterCount++;
+                else if (newTile == 3) cached.tileIndustryCount++;
             }
+            if (oldHighway != newHighway) {
+                cached.tileHighwayCount += newHighway ? 1 : -1;
+            }
+            highways[y][x] = newHighway;
+            baseTiles[y][x] = newTile;
             cached.previousStateHash = previousHash;
             cached.stateHash = hashTiles(baseTiles);
             RoomState tempState = new RoomState();
@@ -2160,6 +2267,8 @@ public class RoomService {
             updateSharedQuests(tempState, baseTiles);
             cached.sharedTokensJson = tempState.getSharedTokensJson();
             cached.sharedQuestsJson = tempState.getSharedQuestsJson();
+            cached.totalChangeCount = cached.totalChangeCount == null ? 1 : cached.totalChangeCount + 1;
+            cached.changesSinceFlush = cached.changesSinceFlush == null ? 1 : cached.changesSinceFlush + 1;
             cached.dirty = true;
             cached.lastFlushAt = Instant.now();
             bot.setLastProposalAt(now);
@@ -2348,11 +2457,28 @@ public class RoomService {
         state.setTilesJson(toJson(tiles));
         state.setHighwaysJson(toJson(highways));
         state.setStateHash(hashTiles(tiles));
+        TileCounts counts = computeTileCounts(tiles, highways);
+        state.setTileClearCount(counts.clear);
+        state.setTileForestCount(counts.forest);
+        state.setTileWaterCount(counts.water);
+        state.setTileIndustryCount(counts.industry);
+        state.setTileHighwayCount(counts.road);
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        long totalChanges = cached != null && cached.totalChangeCount != null
+            ? cached.totalChangeCount
+            : (state.getTotalChangeCount() == null ? 0 : state.getTotalChangeCount());
+        int changesSinceFlush = cached != null && cached.changesSinceFlush != null
+            ? cached.changesSinceFlush
+            : (state.getChangesSinceFlush() == null ? 0 : state.getChangesSinceFlush());
+        totalChanges += changed;
+        changesSinceFlush += changed;
+        state.setTotalChangeCount(totalChanges);
+        state.setChangesSinceFlush(changesSinceFlush);
         state.setUpdatedAt(Instant.now());
         updateSharedTokens(state, 2, 1, 1);
         updateSharedQuests(state, tiles);
         stateRepository.save(state);
-        updateCacheFromState(room, state);
+        updateCacheFromState(room, state, changed);
         proposal.setStatus("APPLIED");
         proposalRepository.save(proposal);
         room.setLockUntil(Instant.now().plusSeconds(2));
