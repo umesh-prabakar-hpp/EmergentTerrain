@@ -64,8 +64,12 @@ let miniTarget = null;
 let autoNavTarget = null;
 let autoNavTimer = null;
 let autoNavInFlight = false;
+let autoNavInFlightCount = 0;
 let autoNavPath = null;
 let autoNavIndex = 0;
+let autoNavSentIndex = 0;
+let autoNavPredictedIndex = 0;
+let autoNavLastPredictAt = 0;
 let pendingRoutes = null;
 let roomId = '';
 let participantId = '';
@@ -76,6 +80,11 @@ let pendingChange = null;
 let pendingAnchor = null;
 let radialMenuIgnoreUntil = 0;
 let player = { x: 0, y: 0 };
+let playerTarget = { x: 0, y: 0 };
+let playerRender = { x: 0, y: 0 };
+let playerAnimFrame = null;
+let playerAnimActive = false;
+let lastPlayerAnimTs = 0;
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
@@ -87,6 +96,9 @@ let refreshQueued = false;
 const debugMinimap = new URLSearchParams(window.location.search).has('debugMinimap');
 
 let tool = 'forest';
+const AUTO_NAV_MAX_IN_FLIGHT = 2;
+const AUTO_NAV_MAX_STEPS = 4;
+const AUTO_NAV_PREDICT_INTERVAL_MS = 160;
 
 const panelMap = {
   tokens: tokensPanel,
@@ -117,6 +129,50 @@ function applyChangeToTiles(src, change) {
   const type = toolToTile(change.type);
   out[y0][x0] = type;
   return out;
+}
+
+function ensurePlayerRender() {
+  if (!Number.isFinite(playerRender.x) || !Number.isFinite(playerRender.y)) {
+    playerRender = { x: player.x || 0, y: player.y || 0 };
+  }
+  if (!Number.isFinite(playerTarget.x) || !Number.isFinite(playerTarget.y)) {
+    playerTarget = { x: playerRender.x, y: playerRender.y };
+  }
+}
+
+function setPlayerTarget(x, y) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  ensurePlayerRender();
+  playerTarget = { x, y };
+  if (!playerAnimActive) {
+    playerAnimActive = true;
+    lastPlayerAnimTs = 0;
+    playerAnimFrame = requestAnimationFrame(stepPlayerAnimation);
+  }
+}
+
+function stepPlayerAnimation(ts) {
+  if (!playerAnimActive) return;
+  if (!lastPlayerAnimTs) {
+    lastPlayerAnimTs = ts;
+  }
+  const dt = ts - lastPlayerAnimTs;
+  lastPlayerAnimTs = ts;
+  const alpha = 1 - Math.exp(-dt / 120);
+  playerRender.x += (playerTarget.x - playerRender.x) * alpha;
+  playerRender.y += (playerTarget.y - playerRender.y) * alpha;
+  const dx = playerTarget.x - playerRender.x;
+  const dy = playerTarget.y - playerRender.y;
+  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+    playerRender.x = playerTarget.x;
+    playerRender.y = playerTarget.y;
+    playerAnimActive = false;
+    playerAnimFrame = null;
+    draw();
+    return;
+  }
+  draw();
+  playerAnimFrame = requestAnimationFrame(stepPlayerAnimation);
 }
 
 function draw() {
@@ -174,10 +230,12 @@ function draw() {
 
   participants.forEach(p => {
     if (p.x === undefined || p.y === undefined || p.x < 0 || p.y < 0) return;
-    if (p.x < startX || p.x >= endX || p.y < startY || p.y >= endY) return;
-    const cx = (p.x - viewX) * tileSize + tileSize / 2;
-    const cy = (p.y - viewY) * tileSize + tileSize / 2;
     const isSelf = p.id === participantId;
+    const px = isSelf && Number.isFinite(playerRender.x) ? playerRender.x : p.x;
+    const py = isSelf && Number.isFinite(playerRender.y) ? playerRender.y : p.y;
+    if (px < startX || px >= endX || py < startY || py >= endY) return;
+    const cx = (px - viewX) * tileSize + tileSize / 2;
+    const cy = (py - viewY) * tileSize + tileSize / 2;
     ctx.fillStyle = isSelf ? '#ffb300' : '#ffd180';
     ctx.beginPath();
     ctx.arc(cx, cy, playerRadius, 0, Math.PI * 2);
@@ -192,9 +250,11 @@ function draw() {
   });
 
   if (!participants.length && player.x >= 0 && player.y >= 0) {
-    if (player.x >= startX && player.x < endX && player.y >= startY && player.y < endY) {
-    const cx = player.x * tileSize + tileSize / 2;
-    const cy = player.y * tileSize + tileSize / 2;
+    const px = Number.isFinite(playerRender.x) ? playerRender.x : player.x;
+    const py = Number.isFinite(playerRender.y) ? playerRender.y : player.y;
+    if (px >= startX && px < endX && py >= startY && py < endY) {
+    const cx = px * tileSize + tileSize / 2;
+    const cy = py * tileSize + tileSize / 2;
     ctx.fillStyle = '#ffb300';
     ctx.beginPath();
     ctx.arc(cx, cy, playerRadius, 0, Math.PI * 2);
@@ -303,9 +363,11 @@ function drawMiniMap() {
   miniCtx.strokeRect(viewX * sx, viewY * sy, viewWidth * sx, viewHeight * sy);
 
   if (player && player.x >= 0 && player.y >= 0) {
+    const px = Number.isFinite(playerRender.x) ? playerRender.x : player.x;
+    const py = Number.isFinite(playerRender.y) ? playerRender.y : player.y;
     miniCtx.fillStyle = '#ffb300';
     miniCtx.beginPath();
-    miniCtx.arc(player.x * sx, player.y * sy, 3, 0, Math.PI * 2);
+    miniCtx.arc(px * sx, py * sy, 3, 0, Math.PI * 2);
     miniCtx.fill();
   }
 
@@ -596,6 +658,8 @@ function setRoomStateFromResponse(data) {
   } else if (width && height) {
     player = { x: Math.floor(width / 2), y: Math.floor(height / 2) };
   }
+  setPlayerTarget(player.x, player.y);
+  reconcileAutoNavFromServer();
   updateViewCenter();
   renderRoomState();
   if (roomState) {
@@ -1123,21 +1187,48 @@ async function applyProposal() {
   }
 }
 
-async function moveTo(x, y) {
+async function moveTo(x, y, options = {}) {
   if (!roomId) return;
-  const res = await fetch(`/room/${roomId}/move`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token, x, y })
-  });
-  if (res.ok) {
-    const data = await res.json();
-    setRoomStateFromResponse(data);
-    updateViewCenter();
-  } else {
+  try {
+    const body = { token, x, y };
+    if (options && Array.isArray(options.path) && options.path.length) {
+      const path = options.path.map((step) => {
+        if (Array.isArray(step)) return step;
+        if (step && Number.isFinite(step.x) && Number.isFinite(step.y)) {
+          return [step.x, step.y];
+        }
+        return null;
+      }).filter(Boolean);
+      if (path.length) {
+        body.path = path;
+        const last = path[path.length - 1];
+        if (last && last.length >= 2) {
+          body.x = last[0];
+          body.y = last[1];
+        }
+      }
+    }
+    const res = await fetch(`/room/${roomId}/move`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setRoomStateFromResponse(data);
+      updateViewCenter();
+      return true;
+    }
     const message = await res.text();
     tradeoffPanel.textContent = message || 'Move rejected.';
     roomStatus.textContent = message || 'Move rejected.';
+    setPlayerTarget(player.x, player.y);
+    return false;
+  } catch (err) {
+    tradeoffPanel.textContent = 'Move failed.';
+    roomStatus.textContent = 'Move failed.';
+    setPlayerTarget(player.x, player.y);
+    return false;
   }
 }
 
@@ -1241,6 +1332,35 @@ function initMultiplayer() {
   }, 1000);
 }
 
+function canOccupyClient(x, y) {
+  if (!roomState) return true;
+  const areaSize = roomState.densityAreaSize || 20;
+  const maxOccupants = roomState.maxOccupants || 8;
+  const half = Math.floor(areaSize / 2);
+  const minX = x - half;
+  const maxX = x + half - 1;
+  const minY = y - half;
+  const maxY = y + half - 1;
+  let count = 0;
+  participants.forEach(p => {
+    if (!p || p.id === participantId) return;
+    if (p.x === undefined || p.y === undefined) return;
+    if (p.x < 0 || p.y < 0) return;
+    if (p.x >= minX && p.x <= maxX && p.y >= minY && p.y <= maxY) {
+      count += 1;
+    }
+  });
+  bots.forEach(b => {
+    if (!b) return;
+    if (b.x === undefined || b.y === undefined) return;
+    if (b.x < 0 || b.y < 0) return;
+    if (b.x >= minX && b.x <= maxX && b.y >= minY && b.y <= maxY) {
+      count += 1;
+    }
+  });
+  return count < maxOccupants;
+}
+
 async function refreshRoomState() {
   if (!roomId) return;
   const res = await fetch(`/room/${roomId}/state`, {
@@ -1325,10 +1445,61 @@ document.addEventListener('click', (evt) => {
   closeRadialMenu();
 });
 
+function findPathIndex(x, y, path, startIndex = 0) {
+  if (!path || !path.length) return -1;
+  for (let i = Math.max(0, startIndex); i < path.length; i++) {
+    const step = path[i];
+    if (step && step.x === x && step.y === y) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function reconcileAutoNavFromServer() {
+  if (!autoNavPath || !autoNavPath.length) return;
+  const idx = findPathIndex(player.x, player.y, autoNavPath, autoNavIndex);
+  if (idx >= 0) {
+    autoNavIndex = idx;
+    if (autoNavSentIndex < autoNavIndex) {
+      autoNavSentIndex = autoNavIndex;
+    }
+    if (autoNavPredictedIndex < autoNavIndex) {
+      autoNavPredictedIndex = autoNavIndex;
+    }
+  }
+}
+
+function advanceAutoNavPrediction() {
+  if (!autoNavPath || !autoNavPath.length) return;
+  if (autoNavPredictedIndex >= autoNavSentIndex) return;
+  const now = Date.now();
+  if (!autoNavLastPredictAt) {
+    autoNavLastPredictAt = now;
+  }
+  const elapsed = now - autoNavLastPredictAt;
+  if (elapsed < AUTO_NAV_PREDICT_INTERVAL_MS) return;
+  const steps = Math.max(1, Math.floor(elapsed / AUTO_NAV_PREDICT_INTERVAL_MS));
+  autoNavPredictedIndex = Math.min(autoNavSentIndex, autoNavPredictedIndex + steps);
+  autoNavLastPredictAt = now;
+  const predicted = autoNavPath[autoNavPredictedIndex];
+  if (predicted) {
+    setPlayerTarget(predicted.x, predicted.y);
+  }
+}
+
 function beginAutoNav(path) {
   if (!path || !path.length) return;
   autoNavPath = path;
-  autoNavIndex = 0;
+  autoNavIndex = findPathIndex(player.x, player.y, path, 0);
+  if (autoNavIndex < 0) {
+    autoNavIndex = 0;
+  }
+  autoNavSentIndex = autoNavIndex;
+  autoNavPredictedIndex = autoNavIndex;
+  autoNavInFlightCount = 0;
+  autoNavInFlight = false;
+  autoNavLastPredictAt = 0;
   autoNavTarget = { x: path[path.length - 1].x, y: path[path.length - 1].y };
   pendingRoutes = null;
   renderRouteChoices();
@@ -1336,29 +1507,51 @@ function beginAutoNav(path) {
   autoNavTimer = setInterval(() => {
     if (!autoNavTarget) return;
     if (isLocked()) return;
-    if (autoNavInFlight) return;
     if (!autoNavPath || autoNavPath.length <= 1 || autoNavIndex >= autoNavPath.length - 1) {
       stopAutoNav();
       miniTarget = null;
       draw();
       return;
     }
-    const onRoad = (highways[player.y] && highways[player.y][player.x]) || tiles[player.y][player.x] === 4;
-    const step = onRoad ? 3 : 1;
-    const nextIndex = Math.min(autoNavIndex + step, autoNavPath.length - 1);
-    const next = autoNavPath[nextIndex];
-    let nx = next.x;
-    let ny = next.y;
-    if (nx < 0 || nx >= width || ny < 0 || ny >= height) {
-      stopAutoNav();
-      return;
+    while (autoNavInFlightCount < AUTO_NAV_MAX_IN_FLIGHT) {
+      if (autoNavSentIndex >= autoNavPath.length - 1) break;
+      const startIndex = autoNavSentIndex + 1;
+      const maxAdvance = Math.min(autoNavPath.length - 1, startIndex + AUTO_NAV_MAX_STEPS + 6);
+      const steps = [];
+      let endIndex = -1;
+      for (let i = startIndex; i <= maxAdvance && steps.length < AUTO_NAV_MAX_STEPS; i++) {
+        const candidate = autoNavPath[i];
+        if (!candidate) continue;
+        if (!canOccupyClient(candidate.x, candidate.y)) continue;
+        steps.push({ x: candidate.x, y: candidate.y });
+        endIndex = i;
+      }
+      if (!steps.length || endIndex < 0) {
+        tradeoffPanel.textContent = 'Auto-route blocked by nearby occupancy.';
+        stopAutoNav();
+        return;
+      }
+      autoNavSentIndex = endIndex;
+      autoNavInFlightCount += 1;
+      autoNavInFlight = autoNavInFlightCount > 0;
+      const predicted = autoNavPath[endIndex];
+      if (predicted) {
+        setPlayerTarget(predicted.x, predicted.y);
+      }
+      moveTo(steps[steps.length - 1].x, steps[steps.length - 1].y, { path: steps })
+        .then((ok) => {
+          if (!ok) {
+            stopAutoNav();
+            return;
+          }
+        })
+        .finally(() => {
+          autoNavInFlightCount = Math.max(0, autoNavInFlightCount - 1);
+          autoNavInFlight = autoNavInFlightCount > 0;
+        });
     }
-    autoNavInFlight = true;
-    autoNavIndex = nextIndex;
-    moveTo(nx, ny).finally(() => {
-      autoNavInFlight = false;
-    });
-  }, 350);
+    advanceAutoNavPrediction();
+  }, 300);
 }
 
 function buildRoadPath(sx, sy, tx, ty) {
@@ -1507,6 +1700,11 @@ function stopAutoNav() {
   autoNavTarget = null;
   autoNavPath = null;
   autoNavIndex = 0;
+  autoNavSentIndex = 0;
+  autoNavPredictedIndex = 0;
+  autoNavInFlightCount = 0;
+  autoNavInFlight = false;
+  autoNavLastPredictAt = 0;
   pendingRoutes = null;
   if (autoNavTimer) {
     clearInterval(autoNavTimer);

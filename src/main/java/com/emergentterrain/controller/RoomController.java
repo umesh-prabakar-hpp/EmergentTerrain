@@ -6,9 +6,12 @@ import com.emergentterrain.service.ActivityMetrics;
 import com.emergentterrain.service.RoomService;
 import com.emergentterrain.web.*;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.HttpHeaders;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import java.util.Map;
+import java.util.StringJoiner;
 
 @RestController
 public class RoomController {
@@ -61,8 +64,11 @@ public class RoomController {
         metrics.increment("room.move");
         Payload payload = payloadService.parseToken(request.getToken());
         try {
-            RoomStateResponse response = roomService.move(payload, UUID.fromString(roomId), request.getX(), request.getY());
-            return ResponseEntity.ok(response);
+            RoomService.MoveResult result = roomService.moveWithTimings(payload, UUID.fromString(roomId), request);
+            HttpHeaders headers = new HttpHeaders();
+            headers.add("Server-Timing", formatServerTiming(result.timings()));
+            headers.add("X-Move-Timing", formatMoveTiming(result.timings()));
+            return ResponseEntity.ok().headers(headers).body(result.response());
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
@@ -157,5 +163,21 @@ public class RoomController {
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
+    }
+
+    private String formatServerTiming(Map<String, Double> timings) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (Map.Entry<String, Double> entry : timings.entrySet()) {
+            joiner.add(entry.getKey() + ";dur=" + String.format(java.util.Locale.ROOT, "%.1f", entry.getValue()));
+        }
+        return joiner.toString();
+    }
+
+    private String formatMoveTiming(Map<String, Double> timings) {
+        StringJoiner joiner = new StringJoiner(", ");
+        for (Map.Entry<String, Double> entry : timings.entrySet()) {
+            joiner.add(entry.getKey() + "=" + String.format(java.util.Locale.ROOT, "%.1f", entry.getValue()));
+        }
+        return joiner.toString();
     }
 }

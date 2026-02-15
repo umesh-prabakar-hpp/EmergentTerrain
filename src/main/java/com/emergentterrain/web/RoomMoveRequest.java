@@ -4,6 +4,7 @@ public class RoomMoveRequest {
     private String token;
     private int x;
     private int y;
+    private int[][] path;
 
     public String getToken() {
         return token;
@@ -27,5 +28,13 @@ public class RoomMoveRequest {
 
     public void setY(int y) {
         this.y = y;
+    }
+
+    public int[][] getPath() {
+        return path;
+    }
+
+    public void setPath(int[][] path) {
+        this.path = path;
     }
 }

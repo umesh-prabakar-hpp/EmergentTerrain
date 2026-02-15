@@ -29,6 +29,11 @@ public class RoomState {
     @Column(columnDefinition = "text")
     private String highwaysJson;
 
+    @Column(columnDefinition = "text")
+    private String occupancyJson;
+
+    private Instant occupancyUpdatedAt;
+
     private String stateHash;
 
     private String previousStateHash;
@@ -99,6 +104,22 @@ public class RoomState {
 
     public void setHighwaysJson(String highwaysJson) {
         this.highwaysJson = highwaysJson;
+    }
+
+    public String getOccupancyJson() {
+        return occupancyJson;
+    }
+
+    public void setOccupancyJson(String occupancyJson) {
+        this.occupancyJson = occupancyJson;
+    }
+
+    public Instant getOccupancyUpdatedAt() {
+        return occupancyUpdatedAt;
+    }
+
+    public void setOccupancyUpdatedAt(Instant occupancyUpdatedAt) {
+        this.occupancyUpdatedAt = occupancyUpdatedAt;
     }
 
     public String getStateHash() {
