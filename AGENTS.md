@@ -1,4 +1,4 @@
-# AGENTS.md — EmergentTerrain
+﻿# AGENTS.md - EmergentTerrain
 
 This file captures practical repo guidance learned while working on the app.
 
@@ -11,6 +11,12 @@ This file captures practical repo guidance learned while working on the app.
 ```powershell
 setx JAVA_HOME "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
 setx PATH "%JAVA_HOME%\bin;%PATH%"
+```
+
+Note: `setx` updates future shells only. For the current shell, use:
+```powershell
+$env:JAVA_HOME = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 ```
 
 ```powershell
@@ -45,7 +51,7 @@ If tests need a real DB, ensure Postgres is running and the app datasource prope
 - Do not commit local outputs under `sample-output/` (already in `.gitignore`).
 - Avoid touching `target/` or generated test reports in commits.
 - Keep secrets out of git:
-  - Don’t commit real database passwords or API keys.
+  - Don't commit real database passwords or API keys.
   - Use env vars or local overrides for sensitive values.
 - If you change persistence behavior, update relevant docs in `README.md` if user-facing behavior changes.
 
@@ -58,3 +64,4 @@ If tests need a real DB, ensure Postgres is running and the app datasource prope
 - Do not log credentials or full connection strings.
 - Avoid logging full payloads of user data or bot profiles.
 - When running locally, use a dedicated dev database (not production).
+

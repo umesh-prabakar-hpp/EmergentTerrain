@@ -21,7 +21,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 
 ## Run
 ```powershell
-mvn spring-boot:run
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd spring-boot:run
 ```
 Open `http://localhost:8080/`
 
