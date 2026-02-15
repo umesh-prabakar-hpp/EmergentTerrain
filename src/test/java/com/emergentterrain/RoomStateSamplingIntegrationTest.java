@@ -96,7 +96,7 @@ class RoomStateSamplingIntegrationTest {
                  EXTRACT(EPOCH FROM (snapshot_at - LAG(snapshot_at) OVER (ORDER BY snapshot_at))) AS gap_s,
                  changes_since_flush
           FROM room_state_history
-          WHERE room_id = ?
+          WHERE room_id = CAST(? AS uuid)
             AND snapshot_at >= NOW() - INTERVAL '10 minutes'
         )
         SELECT
@@ -257,13 +257,12 @@ class RoomStateSamplingIntegrationTest {
 
         private void writeNdjson(int sampleIndex, String label, Map<String, Object> row, String error) {
             try {
-                Map<String, Object> payload = Map.of(
-                    "sample", sampleIndex,
-                    "label", label,
-                    "timestamp", Instant.now().toString(),
-                    "row", row,
-                    "error", error
-                );
+                Map<String, Object> payload = new java.util.HashMap<>();
+                payload.put("sample", sampleIndex);
+                payload.put("label", label);
+                payload.put("timestamp", Instant.now().toString());
+                payload.put("row", row);
+                payload.put("error", error);
                 ndjsonWriter.write(mapper.writeValueAsString(payload));
                 ndjsonWriter.newLine();
             } catch (IOException ex) {
