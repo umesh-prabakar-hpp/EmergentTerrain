@@ -34,3 +34,4 @@ Thumbs.db
 # Local env
 .env
 /sample-output/
+scratch.txt
