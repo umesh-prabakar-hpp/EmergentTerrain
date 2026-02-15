@@ -222,6 +222,7 @@ function draw() {
     }
   }
 
+  drawAxisLabels();
   drawMiniMap();
   renderPollOverlay();
 }
@@ -333,6 +334,32 @@ function drawMiniMap() {
     };
     drawPath(pendingRoutes.road, 'rgba(56, 142, 60, 0.9)');
   }
+}
+
+function drawAxisLabels() {
+  if (!tiles.length) return;
+  const step = Math.max(1, Math.ceil(32 / tileSize));
+  const fontSize = Math.max(10, Math.floor(tileSize * 0.65));
+  const xEnd = viewX + viewWidth;
+  const yEnd = viewY + viewHeight;
+  ctx.save();
+  ctx.font = `${fontSize}px Roboto, "Segoe UI", sans-serif`;
+  ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
+  ctx.shadowColor = 'rgba(255, 255, 255, 0.75)';
+  ctx.shadowBlur = 4;
+  ctx.shadowOffsetX = 0;
+  ctx.shadowOffsetY = 0;
+  const yText = Math.max(12, Math.floor(tileSize * 0.8));
+  for (let x = viewX; x < xEnd; x += step) {
+    const screenX = (x - viewX) * tileSize + 2;
+    ctx.fillText(String(x), screenX, yText);
+  }
+  const xText = 2;
+  for (let y = viewY; y < yEnd; y += step) {
+    const screenY = (y - viewY) * tileSize + yText;
+    ctx.fillText(String(y), xText, screenY);
+  }
+  ctx.restore();
 }
 
 if (miniMap) {
@@ -883,17 +910,15 @@ function renderPollResults() {
   proposals.forEach(p => {
     const row = document.createElement('div');
     row.className = 'list-item';
+    const label = p.botGenerated ? `Bot: ${p.botLabel || 'Neighbor'}` : (p.proposerName || 'Unknown');
+    const x = p.anchorX !== undefined ? p.anchorX : p.x;
+    const y = p.anchorY !== undefined ? p.anchorY : p.y;
+    const coord = `${x !== undefined && x !== null ? x : '?'}${','}${y !== undefined && y !== null ? y : '?'}`;
+    const typeLabel = proposalTypeLabel(p).toUpperCase();
+    const status = (p.status || 'UNKNOWN').toUpperCase();
     const title = document.createElement('div');
-    const label = p.botGenerated ? `Bot: ${p.botLabel || 'Neighbor'}` : p.proposerName;
-    title.textContent = `${p.status} - ${label}`;
-    const meta = document.createElement('div');
-    const needed = p.requiredVotes || 0;
-    const botYes = p.botYes || 0;
-    const botNo = p.botNo || 0;
-    const botInfo = botYes || botNo ? ` (bots +${botYes} / -${botNo})` : '';
-    meta.textContent = `+${p.approvals} / -${p.rejections}${botInfo} - need ${needed}`;
+    title.textContent = `${status} - ${label} (${coord} ${typeLabel})`;
     row.appendChild(title);
-    row.appendChild(meta);
     pollResultsList.appendChild(row);
   });
   if (!proposals.length) {
@@ -1192,11 +1217,14 @@ function buildRadialMenu() {
     btn.addEventListener('click', async (evt) => {
       evt.stopPropagation();
       if (!pendingAnchor) return;
-      tool = opt.tool;
-      setPendingChange(pendingAnchor.x, pendingAnchor.y, opt.tool);
-      await proposeToRoom();
-      closeRadialMenu();
+      const anchor = pendingAnchor;
       pendingAnchor = null;
+      tool = opt.tool;
+      closeRadialMenu();
+      window.requestAnimationFrame(async () => {
+        setPendingChange(anchor.x, anchor.y, opt.tool);
+        await proposeToRoom();
+      });
     });
     radialMenu.appendChild(btn);
   });
