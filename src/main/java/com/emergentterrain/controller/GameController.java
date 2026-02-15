@@ -1,5 +1,6 @@
 package com.emergentterrain.controller;
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -8,6 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.emergentterrain.domain.GameConfirmation;
 import com.emergentterrain.domain.Profile;
@@ -19,6 +21,7 @@ import com.emergentterrain.service.ExplanationService;
 import com.emergentterrain.service.ActivityMetrics;
 import com.emergentterrain.service.Payload;
 import com.emergentterrain.service.PayloadService;
+import com.emergentterrain.service.RoomService;
 import com.emergentterrain.service.SnapshotPayload;
 import com.emergentterrain.service.SnapshotTokenService;
 import com.emergentterrain.service.WorldService;
@@ -34,6 +37,7 @@ import com.emergentterrain.web.SnapshotLoadResponse;
 import com.emergentterrain.web.StateHashRequest;
 import com.emergentterrain.web.StateHashResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 
 @Controller
 public class GameController {
@@ -45,8 +49,10 @@ public class GameController {
     private final GameSnapshotRepository snapshotRepository;
     private final ProfileQuestStateRepository questStateRepository;
     private final SnapshotTokenService snapshotTokenService;
+    private final RoomService roomService;
     private final ObjectMapper objectMapper;
     private final ActivityMetrics metrics;
+    private final boolean e2eEnabled;
 
     public GameController(PayloadService payloadService,
                           WorldService worldService,
@@ -56,8 +62,10 @@ public class GameController {
                           GameSnapshotRepository snapshotRepository,
                           ProfileQuestStateRepository questStateRepository,
                           SnapshotTokenService snapshotTokenService,
+                          RoomService roomService,
                           ObjectMapper objectMapper,
-                          ActivityMetrics metrics) {
+                          ActivityMetrics metrics,
+                          @Value("${app.e2e.enabled:false}") boolean e2eEnabled) {
         this.payloadService = payloadService;
         this.worldService = worldService;
         this.explanationService = explanationService;
@@ -66,8 +74,10 @@ public class GameController {
         this.snapshotRepository = snapshotRepository;
         this.questStateRepository = questStateRepository;
         this.snapshotTokenService = snapshotTokenService;
+        this.roomService = roomService;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.e2eEnabled = e2eEnabled;
     }
 
     @GetMapping("/game")
@@ -75,6 +85,19 @@ public class GameController {
                            @RequestParam(value = "snapshot", required = false) String snapshot,
                            Model model) {
         metrics.increment("game.page");
+        model.addAttribute("token", token);
+        model.addAttribute("snapshotId", snapshot == null ? "" : snapshot);
+        return "game";
+    }
+
+    @GetMapping("/game/test")
+    public String gameTest(@RequestParam(value = "snapshot", required = false) String snapshot,
+                           Model model) {
+        if (!e2eEnabled) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        metrics.increment("game.test.page");
+        String token = roomService.buildSystemToken();
         model.addAttribute("token", token);
         model.addAttribute("snapshotId", snapshot == null ? "" : snapshot);
         return "game";

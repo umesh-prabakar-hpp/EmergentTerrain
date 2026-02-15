@@ -10,16 +10,49 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.beans.factory.annotation.Value;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
+    @Value("${app.e2e.enabled:false}")
+    private boolean e2eEnabled;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        List<String> openEndpoints = new ArrayList<>(Arrays.asList(
+            "/register",
+            "/login",
+            "/profile/select",
+            "/css/**",
+            "/js/**",
+            "/qr",
+            "/qr/**",
+            "/game",
+            "/game/state",
+            "/game/update",
+            "/game/confirm",
+            "/game/qr/state",
+            "/game/snapshot",
+            "/game/snapshot/latest",
+            "/game/snapshot/load",
+            "/game/quest/save",
+            "/room/**",
+            "/diag/**",
+            "/h2/**",
+            "/ws/**"
+        ));
+        if (e2eEnabled) {
+            openEndpoints.add("/game/test");
+        }
         http
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/register", "/login", "/profile/select", "/css/**", "/js/**", "/qr", "/qr/**", "/game", "/game/state", "/game/update", "/game/confirm", "/game/qr/state", "/game/snapshot", "/game/snapshot/latest", "/game/snapshot/load", "/game/quest/save", "/room/**", "/diag/**", "/h2/**", "/ws/**").permitAll()
+                .requestMatchers(openEndpoints.toArray(new String[0])).permitAll()
                 .anyRequest().authenticated()
             )
             .formLogin(form -> form

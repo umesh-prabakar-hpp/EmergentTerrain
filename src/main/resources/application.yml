@@ -27,6 +27,8 @@ spring:
 server:
   port: 8080
 app:
+  e2e:
+    enabled: true
   qr:
     hmacSecret: "dev-secret-change"
   room:

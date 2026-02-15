@@ -11,6 +11,7 @@ const infoToggle = document.getElementById('toggleInfoPanel');
 const explanationEl = document.getElementById('explanation');
 const tradeoffPanel = document.getElementById('tradeoffPanel');
 const radialMenu = document.getElementById('radialMenu');
+let tileHighlightEl = null;
 const toggleTokensBtn = document.getElementById('toggleTokens');
 const toggleQuestsBtn = document.getElementById('toggleQuests');
 const toggleMilestonesBtn = document.getElementById('toggleMilestones');
@@ -83,6 +84,7 @@ let wsRoomId = null;
 let wsReconnectTimer = null;
 let refreshInFlight = false;
 let refreshQueued = false;
+const debugMinimap = new URLSearchParams(window.location.search).has('debugMinimap');
 
 let tool = 'forest';
 
@@ -321,10 +323,21 @@ function drawMiniMap() {
   }
 
   if (pendingRoutes) {
-    const drawPath = (path, color) => {
+    const drawPath = (path) => {
       if (!path || path.length < 2) return;
-      miniCtx.strokeStyle = color;
-      miniCtx.lineWidth = 2;
+      const baseWidth = Math.max(2, Math.floor(Math.min(mw, mh) * 0.02));
+      miniCtx.lineCap = 'round';
+      miniCtx.lineJoin = 'round';
+      miniCtx.strokeStyle = 'rgba(15, 64, 34, 0.95)';
+      miniCtx.lineWidth = baseWidth + 2;
+      miniCtx.beginPath();
+      miniCtx.moveTo(path[0].x * sx, path[0].y * sy);
+      for (let i = 1; i < path.length; i++) {
+        miniCtx.lineTo(path[i].x * sx, path[i].y * sy);
+      }
+      miniCtx.stroke();
+      miniCtx.strokeStyle = 'rgba(120, 200, 96, 0.98)';
+      miniCtx.lineWidth = baseWidth;
       miniCtx.beginPath();
       miniCtx.moveTo(path[0].x * sx, path[0].y * sy);
       for (let i = 1; i < path.length; i++) {
@@ -332,7 +345,7 @@ function drawMiniMap() {
       }
       miniCtx.stroke();
     };
-    drawPath(pendingRoutes.road, 'rgba(56, 142, 60, 0.9)');
+    drawPath(pendingRoutes.road);
   }
 }
 
@@ -362,6 +375,37 @@ function drawAxisLabels() {
   ctx.restore();
 }
 
+function ensureTileHighlight() {
+  if (tileHighlightEl) return;
+  const wrap = canvas ? (canvas.parentElement || canvas) : null;
+  if (!wrap) return;
+  tileHighlightEl = document.createElement('div');
+  tileHighlightEl.id = 'tileHighlight';
+  tileHighlightEl.className = 'tile-highlight';
+  tileHighlightEl.addEventListener('animationend', () => {
+    tileHighlightEl.classList.remove('blink');
+    tileHighlightEl.style.opacity = '0';
+  });
+  wrap.appendChild(tileHighlightEl);
+}
+
+function blinkTileAt(x, y) {
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+  if (x < viewX || x >= viewX + viewWidth || y < viewY || y >= viewY + viewHeight) return;
+  ensureTileHighlight();
+  if (!tileHighlightEl) return;
+  const size = Math.max(tileSize * 2.6, 36);
+  tileHighlightEl.style.width = `${size}px`;
+  tileHighlightEl.style.height = `${size}px`;
+  tileHighlightEl.style.left = `${(x - viewX + 0.5) * tileSize}px`;
+  tileHighlightEl.style.top = `${(y - viewY + 0.5) * tileSize}px`;
+  tileHighlightEl.classList.remove('blink');
+  // force reflow so the animation restarts
+  void tileHighlightEl.offsetWidth;
+  tileHighlightEl.style.opacity = '1';
+  tileHighlightEl.classList.add('blink');
+}
+
 if (miniMap) {
   miniMap.addEventListener('click', (evt) => {
     const rect = miniMap.getBoundingClientRect();
@@ -380,6 +424,25 @@ if (miniMap) {
     pendingRoutes = {
       road: roadResult.path
     };
+    if (debugMinimap) {
+      const len = pendingRoutes.road ? pendingRoutes.road.length : 0;
+      window.__minimapRouteLength = len;
+      const px = player && Number.isFinite(player.x) ? player.x : 'n/a';
+      const py = player && Number.isFinite(player.y) ? player.y : 'n/a';
+      const first = len ? `${pendingRoutes.road[0].x},${pendingRoutes.road[0].y}` : 'n/a';
+      const last = len ? `${pendingRoutes.road[len - 1].x},${pendingRoutes.road[len - 1].y}` : 'n/a';
+      const cost = roadResult && Number.isFinite(roadResult.cost) ? roadResult.cost.toFixed(2) : 'n/a';
+      const plain = buildRoadPath(sx, sy, tx, ty);
+      const plainLen = plain && plain.path ? plain.path.length : 0;
+      const plainFirst = plainLen ? `${plain.path[0].x},${plain.path[0].y}` : 'n/a';
+      const plainLast = plainLen ? `${plain.path[plainLen - 1].x},${plain.path[plainLen - 1].y}` : 'n/a';
+      const plainCost = plain && Number.isFinite(plain.cost) ? plain.cost.toFixed(2) : 'n/a';
+      const startTile = tiles[sy] ? tiles[sy][sx] : 'n/a';
+      const targetTile = tiles[ty] ? tiles[ty][tx] : 'n/a';
+      const tileW = tiles[0] ? tiles[0].length : 0;
+      const tileH = tiles.length;
+      console.log(`[minimap] route length=${len} target=(${tx},${ty}) player=(${px},${py}) size=(${width},${height}) tiles=(${tileW},${tileH}) startTile=${startTile} targetTile=${targetTile} first=(${first}) last=(${last}) cost=${cost} plainLen=${plainLen} plainFirst=(${plainFirst}) plainLast=(${plainLast}) plainCost=${plainCost}`);
+    }
     renderRouteChoices(null, roadResult.path, roadResult.cost);
     draw();
   });
@@ -919,6 +982,9 @@ function renderPollResults() {
     const title = document.createElement('div');
     title.textContent = `${status} - ${label} (${coord} ${typeLabel})`;
     row.appendChild(title);
+    row.addEventListener('click', () => {
+      blinkTileAt(x, y);
+    });
     pollResultsList.appendChild(row);
   });
   if (!proposals.length) {
@@ -1326,8 +1392,8 @@ function buildRoadPath(sx, sy, tx, ty) {
       const nKey = n.y * width + n.x;
       const road = (highways[n.y] && highways[n.y][n.x]) || tiles[n.y][n.x] === 4;
       const stepCost = road ? 1 / 3 : 2.5;
-      const tentative = (gScore.get(current.key) || Number.POSITIVE_INFINITY) + stepCost;
-      if (tentative < (gScore.get(nKey) || Number.POSITIVE_INFINITY)) {
+      const tentative = (gScore.get(current.key) ?? Number.POSITIVE_INFINITY) + stepCost;
+      if (tentative < (gScore.get(nKey) ?? Number.POSITIVE_INFINITY)) {
         cameFrom.set(nKey, current.key);
         gScore.set(nKey, tentative);
         const f = tentative + heuristic(n.x, n.y, tx, ty);

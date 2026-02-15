@@ -393,6 +393,11 @@ public class RoomService {
         );
     }
 
+    public String buildSystemToken() {
+        Payload payload = buildSystemPayload();
+        return payloadService.buildToken(payload);
+    }
+
     private Profile ensureSystemProfile() {
         User user = userRepository.findByEmail(defaultRoomSystemEmail)
             .orElseGet(() -> {
