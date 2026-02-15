@@ -23,7 +23,7 @@ spring:
   task:
     scheduling:
       pool:
-        size: 2
+        size: 12
 server:
   port: 8080
 app:
@@ -36,23 +36,35 @@ app:
     maxTiles: 120000
     aspectRatio: 1.3333
     highwayRatio: 0.02
-    flushIntervalMs: 30000
+    flushIntervalMs: 250
+    flushMinChanges: 5
+    flushMaxIntervalMs: 1000
+    flushOverdueLockTimeoutMs: 10
   consensus:
     neighborRadius: 24
-    voteWindowSeconds: 60
-    minProposalLiveSeconds: 3
+    voteWindowSeconds: 6
+    minProposalLiveSeconds: 1
+    maintenanceIntervalMs: 250
+    maintenanceWorkers: 4
+    broadcastMinIntervalMs: 100
     botVoteRetentionSeconds: 0
-    minVotesToResolve: 3
+    minVotesToResolve: 2
+    quorumCap: 4
     botRuleChecksEnabled: false
-    botProposalsPerMinute: 100
-    minNeighbors: 3
+    botProposalsPerMinute: 480
+    maxBotProposalsPerMaintenance: 20
+    maxBotsInspectedPerMaintenance: 400
+    botApproveBias: 0.35
+    approveOnTieAfterExpiry: true
+    minNeighbors: 1
     noParticipationLockSeconds: 300
   density:
     areaSize: 20
     maxOccupants: 15
   bots:
-    populationFraction: 0.7
+    populationFraction: 0.8
     maxPerRoom: 1000
+    maxTickPerMaintenance: 400
   activityLog:
     intervalMs: 30000
 

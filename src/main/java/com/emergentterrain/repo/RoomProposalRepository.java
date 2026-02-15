@@ -13,6 +13,7 @@ import java.util.UUID;
 
 public interface RoomProposalRepository extends JpaRepository<RoomProposal, UUID> {
     List<RoomProposal> findTop10ByRoomOrderByCreatedAtDesc(Room room);
+    List<RoomProposal> findTop200ByRoomAndStatusOrderByCreatedAtDesc(Room room, String status);
     void deleteByRoomAndCreatedAtBefore(Room room, Instant cutoff);
     long countByStatus(String status);
 

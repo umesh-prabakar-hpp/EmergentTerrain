@@ -1,0 +1,49 @@
+spring:
+  datasource:
+    url: ${PG_TEST_URL:jdbc:postgresql://localhost:5432/emergentterrain_test}
+    driverClassName: org.postgresql.Driver
+    username: ${PG_TEST_USER:postgres}
+    password: ${PG_TEST_PASSWORD:NewStrongPasswordHere}
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: create-drop
+  task:
+    scheduling:
+      enabled: false
+
+app:
+  qr:
+    hmacSecret: test-secret
+  world:
+    auto: false
+    width: 80
+    height: 60
+    flushIntervalMs: 100
+    flushMinChanges: 5
+    flushMaxIntervalMs: 1000
+    flushOverdueLockTimeoutMs: 10
+  consensus:
+    neighborRadius: 24
+    voteWindowSeconds: 1
+    minProposalLiveSeconds: 0
+    maintenanceIntervalMs: 100
+    maintenanceWorkers: 4
+    broadcastMinIntervalMs: 50
+    minVotesToResolve: 1
+    quorumCap: 1
+    botRuleChecksEnabled: false
+    botProposalsPerMinute: 600
+    maxBotProposalsPerMaintenance: 200
+    maxBotsInspectedPerMaintenance: 1000
+    botApproveBias: 0.0
+    approveOnTieAfterExpiry: true
+    minNeighbors: 1
+    noParticipationLockSeconds: 1
+  density:
+    areaSize: 20
+    maxOccupants: 15
+  bots:
+    populationFraction: 0.9
+    maxPerRoom: 1000
+    maxTickPerMaintenance: 500

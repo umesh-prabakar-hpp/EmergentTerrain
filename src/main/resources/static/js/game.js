@@ -82,6 +82,7 @@ let ws = null;
 let wsRoomId = null;
 let wsReconnectTimer = null;
 let refreshInFlight = false;
+let refreshQueued = false;
 
 let tool = 'forest';
 
@@ -534,12 +535,7 @@ function ensureWebSocket() {
     try {
       const msg = JSON.parse(evt.data);
       if (msg.type === 'refresh' && msg.roomId === roomId) {
-        if (!refreshInFlight) {
-          refreshInFlight = true;
-          refreshRoomState().finally(() => {
-            refreshInFlight = false;
-          });
-        }
+        queueRoomRefresh();
       }
     } catch (e) {
       // ignore bad messages
@@ -552,6 +548,21 @@ function ensureWebSocket() {
       ensureWebSocket();
     }, 2000);
   };
+}
+
+function queueRoomRefresh() {
+  if (refreshInFlight) {
+    refreshQueued = true;
+    return;
+  }
+  refreshInFlight = true;
+  refreshRoomState().finally(() => {
+    refreshInFlight = false;
+    if (refreshQueued) {
+      refreshQueued = false;
+      queueRoomRefresh();
+    }
+  });
 }
 
 function renderRoomState() {
