@@ -1,0 +1,13 @@
+spring:
+  datasource:
+    url: ${PG_APP_URL:jdbc:postgresql://localhost:5432/emergentterrain}
+    driverClassName: org.postgresql.Driver
+    username: ${PG_APP_USER:postgres}
+    password: ${PG_APP_PASSWORD:NewStrongPasswordHere}
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+  task:
+    scheduling:
+      enabled: false
