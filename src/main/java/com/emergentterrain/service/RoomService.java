@@ -16,6 +16,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.security.MessageDigest;
 import java.time.Instant;
@@ -26,6 +27,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -40,6 +42,7 @@ public class RoomService {
     private final RoomProposalVoteRepository voteRepository;
     private final RoomBotRepository botRepository;
     private final ProfileRepository profileRepository;
+    private final UserRepository userRepository;
     private final PayloadService payloadService;
     private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
@@ -69,6 +72,11 @@ public class RoomService {
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
     private final int maintenanceWorkers;
+    private final String defaultRoomName;
+    private final boolean defaultRoomAutoCreate;
+    private final boolean defaultRoomUseWhenAvailable;
+    private final String defaultRoomSystemEmail;
+    private final String defaultRoomSystemPasswordHash;
     private static final int VISIBLE_WIDTH = 48;
     private static final int VISIBLE_HEIGHT = 36;
     private static final List<String> BOT_ARCHETYPES = List.of(
@@ -86,6 +94,7 @@ public class RoomService {
     private final TransactionTemplate transactionTemplate;
     private final TransactionTemplate botTransactionTemplate;
     private final ReentrantLock botWriteLock = new ReentrantLock();
+    private final AtomicReference<UUID> defaultRoomId = new AtomicReference<>();
 
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
@@ -95,6 +104,7 @@ public class RoomService {
                        RoomProposalVoteRepository voteRepository,
                        RoomBotRepository botRepository,
                        ProfileRepository profileRepository,
+                       UserRepository userRepository,
                        PayloadService payloadService,
                        RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
@@ -124,7 +134,12 @@ public class RoomService {
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
                        @Value("${app.consensus.maintenanceWorkers:1}") int maintenanceWorkers,
-                       @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds) {
+                       @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds,
+                       @Value("${app.room.defaultName:}") String defaultRoomName,
+                       @Value("${app.room.defaultAutoCreate:false}") boolean defaultRoomAutoCreate,
+                       @Value("${app.room.defaultUseWhenAvailable:false}") boolean defaultRoomUseWhenAvailable,
+                       @Value("${app.room.defaultSystemEmail:system@emergentterrain.local}") String defaultRoomSystemEmail,
+                       @Value("${app.room.defaultSystemPasswordHash:system-hash}") String defaultRoomSystemPasswordHash) {
         this.roomRepository = roomRepository;
         this.participantRepository = participantRepository;
         this.stateRepository = stateRepository;
@@ -133,6 +148,7 @@ public class RoomService {
         this.voteRepository = voteRepository;
         this.botRepository = botRepository;
         this.profileRepository = profileRepository;
+        this.userRepository = userRepository;
         this.payloadService = payloadService;
         this.broadcaster = broadcaster;
         this.worldService = worldService;
@@ -166,6 +182,27 @@ public class RoomService {
         this.maintenanceWorkers = Math.max(1, maintenanceWorkers);
         this.maintenanceExecutor = Executors.newFixedThreadPool(this.maintenanceWorkers);
         this.noParticipationLockSeconds = noParticipationLockSeconds;
+        this.defaultRoomName = defaultRoomName == null ? "" : defaultRoomName.trim();
+        this.defaultRoomAutoCreate = defaultRoomAutoCreate;
+        this.defaultRoomUseWhenAvailable = defaultRoomUseWhenAvailable;
+        this.defaultRoomSystemEmail = (defaultRoomSystemEmail == null || defaultRoomSystemEmail.isBlank())
+            ? "system@emergentterrain.local"
+            : defaultRoomSystemEmail.toLowerCase(Locale.ROOT).trim();
+        this.defaultRoomSystemPasswordHash = (defaultRoomSystemPasswordHash == null || defaultRoomSystemPasswordHash.isBlank())
+            ? "system-hash"
+            : defaultRoomSystemPasswordHash.trim();
+    }
+
+    @PostConstruct
+    public void initializeDefaultRoom() {
+        if (!defaultRoomAutoCreate || defaultRoomName.isBlank()) {
+            return;
+        }
+        try {
+            transactionTemplate.executeWithoutResult(status -> ensureDefaultRoom());
+        } catch (Exception e) {
+            log.warn("default room bootstrap failed name={} error={}", defaultRoomName, e.getMessage());
+        }
     }
 
     @PreDestroy
@@ -286,6 +323,12 @@ public class RoomService {
         if (profile == null) {
             throw new IllegalStateException("Profile not found");
         }
+        if (defaultRoomUseWhenAvailable) {
+            UUID defaultId = ensureDefaultRoom();
+            if (defaultId != null) {
+                return joinRoom(payload, defaultId);
+            }
+        }
         UUID lastRoomId = profile.getLastRoomId();
         if (lastRoomId != null) {
             Room room = roomRepository.findById(lastRoomId).orElse(null);
@@ -299,6 +342,127 @@ public class RoomService {
         response.setRoomName(created.getRoomName());
         response.setParticipantId(created.getParticipantId());
         return response;
+    }
+
+    private UUID ensureDefaultRoom() {
+        UUID existing = resolveDefaultRoomId();
+        if (existing != null) {
+            return existing;
+        }
+        if (!defaultRoomAutoCreate || defaultRoomName.isBlank()) {
+            return null;
+        }
+        if (roomRepository.count() > 0) {
+            return null;
+        }
+        Payload payload = buildSystemPayload();
+        RoomCreateResponse created = createRoom(payload, defaultRoomName);
+        UUID createdId = UUID.fromString(created.getRoomId());
+        defaultRoomId.set(createdId);
+        log.info("default room created id={} name={}", createdId, defaultRoomName);
+        return createdId;
+    }
+
+    private UUID resolveDefaultRoomId() {
+        UUID cached = defaultRoomId.get();
+        if (cached != null) {
+            return cached;
+        }
+        if (defaultRoomName.isBlank()) {
+            return null;
+        }
+        roomRepository.findTopByNameOrderByCreatedAtAsc(defaultRoomName)
+            .map(Room::getId)
+            .ifPresent(defaultRoomId::set);
+        return defaultRoomId.get();
+    }
+
+    private Payload buildSystemPayload() {
+        Profile profile = ensureSystemProfile();
+        Map<String, Boolean> answers = readAnswers(profile.getAnswersJson());
+        HiddenProperties hidden = readHidden(profile.getHiddenPropsJson());
+        return new Payload(
+            1,
+            profile.getId().toString(),
+            profile.getAge(),
+            profile.getSex(),
+            profile.getLocation(),
+            answers,
+            hidden,
+            payloadService.issuedAtNow()
+        );
+    }
+
+    private Profile ensureSystemProfile() {
+        User user = userRepository.findByEmail(defaultRoomSystemEmail)
+            .orElseGet(() -> {
+                User created = new User();
+                created.setEmail(defaultRoomSystemEmail);
+                created.setPasswordHash(defaultRoomSystemPasswordHash);
+                created.setRole("SYSTEM");
+                return userRepository.save(created);
+            });
+        List<Profile> profiles = profileRepository.findByUser(user);
+        if (!profiles.isEmpty()) {
+            return profiles.get(0);
+        }
+        Profile profile = new Profile();
+        profile.setId(UUID.randomUUID());
+        profile.setUser(user);
+        profile.setAge(30);
+        profile.setSex("N");
+        profile.setLocation("SYSTEM");
+        Map<String, Boolean> answers = defaultAnswers();
+        HiddenProperties hidden = defaultHidden();
+        profile.setAnswersJson(toJson(answers));
+        profile.setHiddenPropsJson(toJson(hidden));
+        Payload payload = new Payload(
+            1,
+            profile.getId().toString(),
+            profile.getAge(),
+            profile.getSex(),
+            profile.getLocation(),
+            answers,
+            hidden,
+            payloadService.issuedAtNow()
+        );
+        profile.setPayloadHash(payloadService.hashPayload(payload));
+        return profileRepository.save(profile);
+    }
+
+    private Map<String, Boolean> readAnswers(String json) {
+        if (json == null || json.isBlank()) {
+            return defaultAnswers();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Boolean>>() {});
+        } catch (JsonProcessingException e) {
+            return defaultAnswers();
+        }
+    }
+
+    private HiddenProperties readHidden(String json) {
+        if (json == null || json.isBlank()) {
+            return defaultHidden();
+        }
+        try {
+            return objectMapper.readValue(json, HiddenProperties.class);
+        } catch (JsonProcessingException e) {
+            return defaultHidden();
+        }
+    }
+
+    private Map<String, Boolean> defaultAnswers() {
+        return Map.of(
+            "likes_forests", true,
+            "likes_open_fields", true,
+            "likes_water", true,
+            "likes_industry", false
+        );
+    }
+
+    private HiddenProperties defaultHidden() {
+        return new HiddenProperties(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
     }
 
     @Transactional

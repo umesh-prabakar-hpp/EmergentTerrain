@@ -15,6 +15,9 @@ spring:
 app:
   qr:
     hmacSecret: test-secret
+  room:
+    defaultAutoCreate: false
+    defaultUseWhenAvailable: false
   world:
     auto: false
     width: 80

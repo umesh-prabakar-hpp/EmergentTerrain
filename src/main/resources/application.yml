@@ -29,6 +29,12 @@ server:
 app:
   qr:
     hmacSecret: "dev-secret-change"
+  room:
+    defaultName: "Consensus Field"
+    defaultAutoCreate: true
+    defaultUseWhenAvailable: true
+    defaultSystemEmail: "system@emergentterrain.local"
+    defaultSystemPasswordHash: "system-hash"
   world:
     auto: true
     width: 40

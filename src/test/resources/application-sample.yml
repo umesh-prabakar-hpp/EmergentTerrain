@@ -11,3 +11,8 @@ spring:
   task:
     scheduling:
       enabled: false
+
+app:
+  room:
+    defaultAutoCreate: false
+    defaultUseWhenAvailable: false
