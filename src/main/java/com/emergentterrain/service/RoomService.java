@@ -1001,7 +1001,7 @@ public class RoomService {
     }
 
     private void ensureBots(Room room, int[][] tiles) {
-        List<RoomBot> existing = botRepository.findByRoomOrderByIdAsc(room);
+        List<RoomBot> existing = botRepository.findByRoom(room);
         int maxOccupantsTotal = Math.max(3, (tiles.length * tiles[0].length * maxOccupants) / (densityAreaSize * densityAreaSize));
         int targetBots = Math.max(40, (int) Math.round(maxOccupantsTotal * botPopulationFraction));
         targetBots = Math.min(targetBots, maxBotsPerRoom);
@@ -1023,7 +1023,7 @@ public class RoomService {
             });
         }
 
-        for (RoomBot bot : botRepository.findByRoomOrderByIdAsc(room)) {
+        for (RoomBot bot : botRepository.findByRoom(room)) {
             boolean dirty = false;
             if (bot.getProfileJson() == null || bot.getProfileJson().isBlank()) {
                 bot.setProfileJson(toJson(randomBotProfile(room.getId().hashCode() ^ bot.getType().hashCode())));
@@ -1038,7 +1038,7 @@ public class RoomService {
             }
         }
 
-        int created = botRepository.findByRoomOrderByIdAsc(room).size();
+        int created = botRepository.findByRoom(room).size();
         for (int i = created; i < targetBots; i++) {
             String type = "AGENT-" + (i + 1);
             RoomBot bot = new RoomBot();
@@ -1060,7 +1060,7 @@ public class RoomService {
         }
         int botYes = 0;
         int botNo = 0;
-        List<RoomBot> bots = botRepository.findByRoomOrderByIdAsc(room);
+        List<RoomBot> bots = botRepository.findByRoom(room);
         int near = 0;
         for (RoomBot bot : bots) {
             if (bot.getX() == null || bot.getY() == null) {
@@ -1139,7 +1139,7 @@ public class RoomService {
         boolean[][] highways = stateRepository.findByRoom(room)
             .map(s -> fromJsonHighways(s.getHighwaysJson()))
             .orElse(new boolean[0][0]);
-        for (RoomBot bot : botRepository.findByRoomOrderByIdAsc(room)) {
+        for (RoomBot bot : botRepository.findByRoom(room)) {
             RoomBotInfo info = new RoomBotInfo();
             info.setId(bot.getId().toString());
             info.setType(bot.getType());
@@ -2229,7 +2229,7 @@ public class RoomService {
             CachedMap cached = getCachedMap(room, state, tiles, highways);
             List<RoomProposal> recentProposals = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
             List<RoomBot> moved = new ArrayList<>();
-            List<RoomBot> bots = new ArrayList<>(botRepository.findByRoomOrderByIdAsc(room));
+            List<RoomBot> bots = new ArrayList<>(botRepository.findByRoom(room));
             if (maxBotsTickedPerMaintenance > 0 && bots.size() > maxBotsTickedPerMaintenance) {
                 Collections.shuffle(bots, new Random(Objects.hash(room.getId(), Instant.now().getEpochSecond())));
                 bots = bots.subList(0, maxBotsTickedPerMaintenance);
@@ -2312,7 +2312,7 @@ public class RoomService {
                 visibleNeighbors++;
             }
         }
-        for (RoomBot other : botRepository.findByRoomOrderByIdAsc(room)) {
+        for (RoomBot other : botRepository.findByRoom(room)) {
             if (other.getId().equals(bot.getId())) continue;
             if (other.getX() != null && other.getY() != null
                 && inView(viewX, viewY, viewW, viewH, other.getX(), other.getY())) {
@@ -2411,7 +2411,7 @@ public class RoomService {
         }
         int botYes = 0;
         int botNo = 0;
-        List<RoomBot> bots = botRepository.findByRoomOrderByIdAsc(room);
+        List<RoomBot> bots = botRepository.findByRoom(room);
         for (RoomBot bot : bots) {
             String key = "B:" + bot.getId();
             if (!neighborIds.contains(key)) {
@@ -2536,7 +2536,7 @@ public class RoomService {
         long intervalMs = Math.max(200L, 60000L / Math.max(1, botProposalsPerMinute));
         Instant now = Instant.now();
         long fetchStart = System.nanoTime();
-        List<RoomBot> bots = new ArrayList<>(botRepository.findByRoomOrderByIdAsc(room));
+        List<RoomBot> bots = new ArrayList<>(botRepository.findByRoom(room));
         List<RoomParticipant> participants = participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room);
         long fetchMs = (System.nanoTime() - fetchStart) / 1_000_000;
         if (bots.isEmpty()) {
@@ -3035,7 +3035,7 @@ public class RoomService {
             cx,
             cy,
             participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room),
-            botRepository.findByRoomOrderByIdAsc(room)
+            botRepository.findByRoom(room)
         );
     }
 
@@ -3102,7 +3102,7 @@ public class RoomService {
                 count++;
             }
         }
-        for (RoomBot bot : botRepository.findByRoomOrderByIdAsc(room)) {
+        for (RoomBot bot : botRepository.findByRoom(room)) {
             if (bot.getId() != null && (("B:" + bot.getId()).equals(ignoreId) || bot.getId().toString().equals(ignoreId))) {
                 continue;
             }

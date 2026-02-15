@@ -42,9 +42,9 @@ app:
     maxTiles: 120000
     aspectRatio: 1.3333
     highwayRatio: 0.02
-    flushIntervalMs: 250
-    flushMinChanges: 5
-    flushMaxIntervalMs: 1000
+    flushIntervalMs: 2000
+    flushMinChanges: 200
+    flushMaxIntervalMs: 15000
     flushOverdueLockTimeoutMs: 10
   consensus:
     neighborRadius: 24
@@ -58,7 +58,7 @@ app:
     quorumCap: 4
     botRuleChecksEnabled: false
     botProposalsPerMinute: 480
-    maxBotProposalsPerMaintenance: 20
+    maxBotProposalsPerMaintenance: 200
     maxBotsInspectedPerMaintenance: 400
     botApproveBias: 0.35
     approveOnTieAfterExpiry: true
