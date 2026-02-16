@@ -176,6 +176,23 @@ async function run() {
       console.log('Stopping app...');
       appProc.kill('SIGTERM');
     }
+    console.log('Force-stopping any process on port 8080...');
+    try {
+      const { execSync } = require('child_process');
+      const output = execSync(
+        'powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8080 -State Listen | Select-Object -ExpandProperty OwningProcess"',
+        { stdio: ['ignore', 'pipe', 'ignore'] }
+      ).toString().trim();
+      if (output) {
+        output.split(/\s+/).forEach((pid) => {
+          if (pid) {
+            execSync(`powershell -NoProfile -Command \"Stop-Process -Id ${pid} -Force\"`, { stdio: 'ignore' });
+          }
+        });
+      }
+    } catch (err) {
+      // ignore if no process or insufficient permissions
+    }
   }
 }
 
