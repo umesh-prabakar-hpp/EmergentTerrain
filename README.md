@@ -25,6 +25,26 @@ C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd spring-boot:run
 ```
 Open `http://localhost:8080/`
 
+## Tests (summary)
+- `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
+- `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
+- `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
+- `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
+
+## Reset Postgres Password (Windows)
+If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
+
+1. Open **Services** (`services.msc`) as Administrator and stop the service `postgresql-x64-18`.
+2. Open `C:\Program Files\PostgreSQL\18\data\pg_hba.conf` in a text editor running as Administrator.
+3. Find the localhost entries and change the auth method to `trust`:
+   - `host    all    all    127.0.0.1/32    scram-sha-256` → `trust`
+   - `host    all    all    ::1/128         scram-sha-256` → `trust`
+4. Save the file, then start the `postgresql-x64-18` service.
+5. Open PowerShell and run:
+   - `& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost -p 5432 -d postgres -c "ALTER USER postgres WITH PASSWORD 'NewStrongPasswordHere';"`
+6. Re-open `pg_hba.conf` and revert both localhost lines back to `scram-sha-256`.
+7. Restart the `postgresql-x64-18` service.
+
 ## UI Assets
 Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 

@@ -8,6 +8,10 @@ spring:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: create-drop
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema-test.sql
   task:
     scheduling:
       enabled: false

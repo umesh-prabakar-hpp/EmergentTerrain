@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.time.Duration;
@@ -36,8 +37,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @SpringBootTest(classes = EmergentTerrainApplication.class)
 @ActiveProfiles("test")
-class RoomRapidModeIntegrationTest {
-    private static final Logger LOGGER = LoggerFactory.getLogger(RoomRapidModeIntegrationTest.class);
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
+class RoomRapidChangePersistenceIntegrationTest {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RoomRapidChangePersistenceIntegrationTest.class);
 
     @Autowired
     private RoomService roomService;

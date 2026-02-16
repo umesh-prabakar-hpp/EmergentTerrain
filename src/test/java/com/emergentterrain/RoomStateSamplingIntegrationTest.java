@@ -1,5 +1,14 @@
 package com.emergentterrain;
 
+import com.emergentterrain.domain.Profile;
+import com.emergentterrain.domain.User;
+import com.emergentterrain.repo.ProfileRepository;
+import com.emergentterrain.repo.UserRepository;
+import com.emergentterrain.service.HiddenProperties;
+import com.emergentterrain.service.Payload;
+import com.emergentterrain.service.RoomService;
+import com.emergentterrain.web.RoomCreateResponse;
+import com.emergentterrain.web.RoomProposalRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -8,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.io.BufferedWriter;
@@ -19,9 +29,11 @@ import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @SpringBootTest(classes = EmergentTerrainApplication.class)
-@ActiveProfiles("sample")
+@ActiveProfiles("test")
+@DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_EACH_TEST_METHOD)
 class RoomStateSamplingIntegrationTest {
     private static final Logger LOGGER = LoggerFactory.getLogger(RoomStateSamplingIntegrationTest.class);
 
@@ -110,8 +122,20 @@ class RoomStateSamplingIntegrationTest {
     @Autowired
     private JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private RoomService roomService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Autowired
+    private ProfileRepository profileRepository;
+
     @Test
     void sampleRoomStateQueries() throws Exception {
+        seedRoomData();
+
+        long waitMs = parseLongProperty("sample.waitMs", 180_000L);
         int sampleCount = parseIntProperty("sample.count", 3);
         long intervalMs = parseLongProperty("sample.intervalMs", 60_000L);
         boolean failOnError = Boolean.parseBoolean(System.getProperty("sample.failOnError", "false"));
@@ -124,6 +148,14 @@ class RoomStateSamplingIntegrationTest {
         }
         if (intervalMs < 0) {
             intervalMs = 0;
+        }
+        if (waitMs < 0) {
+            waitMs = 0;
+        }
+
+        if (waitMs > 0) {
+            LOGGER.info("sampleWait ms={} starting at={}", waitMs, Instant.now());
+            Thread.sleep(waitMs);
         }
 
         for (int i = 1; i <= sampleCount; i++) {
@@ -191,6 +223,81 @@ class RoomStateSamplingIntegrationTest {
             LOGGER.warn("sampleQuery label=latestRoomId failed error={}", ex.getMessage());
             return null;
         }
+    }
+
+    private void seedRoomData() {
+        int seedChanges = parseIntProperty("sample.seedChanges", 6);
+        if (seedChanges < 5) {
+            seedChanges = 5;
+        }
+
+        Payload payload = createPayload();
+        RoomCreateResponse created = roomService.createRoom(payload, "Sampling Test Room");
+        UUID roomId = UUID.fromString(created.getRoomId());
+        int[][] tiles = created.getTiles();
+
+        for (int round = 0; round < 2; round++) {
+            for (int i = 0; i < seedChanges; i++) {
+                int x = Math.floorMod(3 + (round * seedChanges + i) * 7, tiles[0].length);
+                int y = Math.floorMod(5 + (round * seedChanges + i) * 11, tiles.length);
+                int nextType = tiles[y][x] == 1 ? 0 : 1;
+
+                RoomProposalRequest req = new RoomProposalRequest();
+                req.setDelta(Map.of("x", x, "y", y, "type", nextType));
+                req.setTiles(copyWithChange(tiles, x, y, nextType));
+                req.setNote("sample-seed-" + round + "-" + i);
+                roomService.propose(payload, roomId, req);
+
+                tiles[y][x] = nextType;
+            }
+
+            roomService.flushRoomStateCache();
+        }
+    }
+
+    private Payload createPayload() {
+        User user = new User();
+        user.setEmail("sample-test-" + UUID.randomUUID() + "@example.com");
+        user.setPasswordHash("test-hash");
+        user = userRepository.save(user);
+
+        Profile profile = new Profile();
+        profile.setId(UUID.randomUUID());
+        profile.setUser(user);
+        profile.setAge(30);
+        profile.setSex("N");
+        profile.setLocation("US");
+        profile.setAnswersJson("{}");
+        profile.setHiddenPropsJson("{}");
+        profile.setPayloadHash("test-payload-hash");
+        profileRepository.save(profile);
+
+        HiddenProperties hidden = new HiddenProperties(0.4, 0.5, 0.6, 0.5, 0.7, 0.3);
+        Map<String, Boolean> answers = Map.of(
+            "likes_forests", true,
+            "likes_open_fields", false,
+            "likes_water", true,
+            "likes_industry", false
+        );
+        return new Payload(
+            1,
+            profile.getId().toString(),
+            profile.getAge(),
+            profile.getSex(),
+            profile.getLocation(),
+            answers,
+            hidden,
+            Instant.now().toString()
+        );
+    }
+
+    private static int[][] copyWithChange(int[][] source, int x, int y, int type) {
+        int[][] out = new int[source.length][source[0].length];
+        for (int row = 0; row < source.length; row++) {
+            System.arraycopy(source[row], 0, out[row], 0, source[0].length);
+        }
+        out[y][x] = type;
+        return out;
     }
 
     private int parseIntProperty(String key, int fallback) {
