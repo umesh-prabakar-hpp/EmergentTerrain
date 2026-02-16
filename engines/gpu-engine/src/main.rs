@@ -28,7 +28,7 @@ impl GpuTerrainService for GpuEngineService {
             width: region.width,
             height: region.height,
             tiles: vec![0; size],
-            encoding: TileEncoding::TileEncodingU8 as i32,
+            encoding: TileEncoding::U8 as i32,
         };
         let highways = BoolGrid {
             width: region.width,
@@ -55,7 +55,7 @@ impl GpuTerrainService for GpuEngineService {
             width: patch.width,
             height: patch.height,
             tiles: vec![0; size],
-            encoding: TileEncoding::TileEncodingU8 as i32,
+            encoding: TileEncoding::U8 as i32,
         };
         let patch_highways = BoolGrid {
             width: patch.width,

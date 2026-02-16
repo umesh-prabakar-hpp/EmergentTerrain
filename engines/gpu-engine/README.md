@@ -36,6 +36,20 @@ If `winget` finishes but you still do not have `link.exe`, install the workload 
 In the installer, select the **Desktop development with C++** workload.
 After install, open a new terminal so `link.exe` is on PATH.
 
+### Protobuf Compiler (protoc)
+`build.rs` uses `protoc` to compile `proto/terrain_gpu.proto`.
+Install via winget:
+```powershell
+winget install --id Google.Protobuf --source winget --accept-package-agreements --accept-source-agreements --silent
+```
+
+If `protoc` is not on PATH in the current shell, either open a new terminal or set `PROTOC`:
+```powershell
+where.exe protoc
+# If not found, set PROTOC to the full path:
+$env:PROTOC="C:\\path\\to\\protoc.exe"
+```
+
 ### Maintenance
 If Rust tooling or build requirements change, update this README so it remains the source of truth for setup.
 
