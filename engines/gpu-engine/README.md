@@ -27,8 +27,17 @@ Install either Visual Studio Build Tools or Visual Studio Community with the C++
 winget install --id Microsoft.VisualStudio.2022.BuildTools --source winget --accept-package-agreements --accept-source-agreements --silent
 ```
 
-In the installer, select the "Desktop development with C++" workload.
+If `winget` finishes but you still do not have `link.exe`, install the workload manually:
+1. Open **Visual Studio Installer**.
+2. Find **Visual Studio Build Tools 2022** and click **Modify**.
+3. Select **Desktop development with C++**.
+4. Install and then open a new terminal.
+
+In the installer, select the **Desktop development with C++** workload.
 After install, open a new terminal so `link.exe` is on PATH.
+
+### Maintenance
+If Rust tooling or build requirements change, update this README so it remains the source of truth for setup.
 
 ## Build / Run
 ```powershell
