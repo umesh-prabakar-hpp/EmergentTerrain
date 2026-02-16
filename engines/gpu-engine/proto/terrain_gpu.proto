@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package emergentterrain.gpu.v1;
+
+option java_multiple_files = true;
+option java_package = "com.emergentterrain.gpu.v1";
+option java_outer_classname = "GpuEngineProto";
+
+message Region {
+  int32 x = 1;
+  int32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+message Rect {
+  int32 x = 1;
+  int32 y = 2;
+  uint32 width = 3;
+  uint32 height = 4;
+}
+
+enum TileEncoding {
+  TILE_ENCODING_UNSPECIFIED = 0;
+  TILE_ENCODING_U8 = 1;
+  TILE_ENCODING_I32 = 2;
+}
+
+message TileGrid {
+  uint32 width = 1;
+  uint32 height = 2;
+  bytes tiles = 3;
+  TileEncoding encoding = 4;
+}
+
+message BoolGrid {
+  uint32 width = 1;
+  uint32 height = 2;
+  bytes values = 3;
+}
+
+message TileEdit {
+  int32 x = 1;
+  int32 y = 2;
+  int32 type = 3;
+}
+
+message BotState {
+  string id = 1;
+  int32 x = 2;
+  int32 y = 3;
+  bytes state = 4;
+}
+
+message GenerateRegionRequest {
+  string request_id = 1;
+  uint64 seed = 2;
+  Region region = 3;
+  string params_json = 4;
+}
+
+message GenerateRegionResponse {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  string debug_json = 4;
+}
+
+message RebuildPatchRequest {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  Region region = 4;
+  Rect patch = 5;
+  repeated TileEdit applied_edits = 6;
+  string params_json = 7;
+}
+
+message RebuildPatchResponse {
+  string request_id = 1;
+  Rect patch = 2;
+  TileGrid patch_tiles = 3;
+  BoolGrid patch_highways = 4;
+  string debug_json = 5;
+}
+
+message SimulateBotsRequest {
+  string request_id = 1;
+  TileGrid tiles = 2;
+  BoolGrid highways = 3;
+  repeated BotState bots = 4;
+  string params_json = 5;
+}
+
+message SimulateBotsResponse {
+  string request_id = 1;
+  repeated BotState bots = 2;
+  repeated TileEdit edits = 3;
+  string debug_json = 4;
+}
+
+service GpuTerrainService {
+  rpc GenerateRegion(GenerateRegionRequest) returns (GenerateRegionResponse);
+  rpc RebuildPatch(RebuildPatchRequest) returns (RebuildPatchResponse);
+  rpc SimulateBots(SimulateBotsRequest) returns (SimulateBotsResponse);
+}
