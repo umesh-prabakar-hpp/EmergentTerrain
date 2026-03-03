@@ -70,6 +70,7 @@ GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` 
 ## GPU Engine Integration
 - World generation can call the GPU engine when enabled.
 - Bot simulation can call the GPU engine when enabled (optional tile edits).
+- Bot simulation sends structured preference fields and can cache world state in the GPU engine; diffs + step batching are controlled by `app.gpu.bots.*`.
 - Defaults are off.
 
 ## Reset Postgres Password (Windows)
@@ -99,6 +100,7 @@ See `src/main/resources/application.yml` for app settings:
 - `app.density.areaSize`, `app.density.maxOccupants`
 - `app.bots.populationFraction`, `app.bots.maxPerRoom`
 - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
+- `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`
 
 ## Routes (summary)
 - `GET /register`, `POST /register`

@@ -36,6 +36,9 @@ app:
     bots:
       enabled: true 
       applyEdits: true 
+      cacheWorld: true
+      steps: 5
+      diffMaxEdits: 2000
   qr:
     hmacSecret: "dev-secret-change"
   room:

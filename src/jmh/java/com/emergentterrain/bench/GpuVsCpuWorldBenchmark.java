@@ -35,9 +35,9 @@ public class GpuVsCpuWorldBenchmark {
 
     @State(Scope.Benchmark)
     public static class WorldState {
-        private static final int WIDTH = 120;
-        private static final int HEIGHT = 90;
-        private static final int MAX_TILES = 120000;
+        private static final int WIDTH = 320;
+        private static final int HEIGHT = 240;
+        private static final int MAX_TILES = 200000;
         private static final double ASPECT = 1.3333;
         private static final double HIGHWAY_RATIO = 0.02;
 
