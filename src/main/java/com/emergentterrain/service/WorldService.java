@@ -1,33 +1,55 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.gpu.GpuEngineAdapter;
+import com.emergentterrain.gpu.GpuEngineCodec;
+import com.emergentterrain.gpu.v1.GenerateRegionRequest;
+import com.emergentterrain.gpu.v1.GenerateRegionResponse;
+import com.emergentterrain.gpu.v1.Region;
 import com.emergentterrain.web.GameStateResponse;
 import com.emergentterrain.web.PlayerPosition;
 import com.emergentterrain.web.RegionInfo;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
-import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @Service
 public class WorldService {
+    private static final Logger log = LoggerFactory.getLogger(WorldService.class);
     private final int width;
     private final int height;
     private final double highwayRatio;
     private final double aspectRatio;
     private final int maxTiles;
+    private final boolean gpuEnabled;
+    private final boolean gpuWorldEnabled;
+    private final ObjectMapper objectMapper;
+    private final GpuEngineAdapter gpuEngineAdapter;
 
     public WorldService(@Value("${app.world.width}") int width,
                         @Value("${app.world.height}") int height,
                         @Value("${app.world.auto:true}") boolean auto,
                         @Value("${app.world.maxTiles:120000}") int maxTiles,
                         @Value("${app.world.aspectRatio:1.3333}") double aspectRatio,
-                        @Value("${app.world.highwayRatio:0.02}") double highwayRatio) {
+                        @Value("${app.world.highwayRatio:0.02}") double highwayRatio,
+                        @Value("${app.gpu.enabled:false}") boolean gpuEnabled,
+                        @Value("${app.gpu.world.enabled:false}") boolean gpuWorldEnabled,
+                        ObjectMapper objectMapper,
+                        GpuEngineAdapter gpuEngineAdapter) {
         this.highwayRatio = highwayRatio;
         this.aspectRatio = aspectRatio <= 0 ? 1.3333 : aspectRatio;
         this.maxTiles = Math.max(20000, maxTiles);
+        this.gpuEnabled = gpuEnabled;
+        this.gpuWorldEnabled = gpuWorldEnabled;
+        this.objectMapper = objectMapper;
+        this.gpuEngineAdapter = gpuEngineAdapter;
         if (auto) {
             int[] dims = computeWorldSize(this.maxTiles, this.aspectRatio);
             this.width = dims[0];
@@ -45,18 +67,26 @@ public class WorldService {
         double waterDensity = 0.05 + 0.20 * hp.humidity() + 0.10 * hp.energy();
         double industryDensity = 0.02 + 0.06 * hp.pressure();
 
-        int[][] tiles = new int[height][width];
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                double noise = hashNoise(seed, x, y);
-                tiles[y][x] = (noise < forestDensity) ? 1 : 0;
+        GpuWorldResult gpuWorld = tryGenerateWithGpu(seed, width, height, hp);
+        int[][] tiles;
+        boolean[][] highways;
+        if (gpuWorld != null) {
+            tiles = gpuWorld.tiles;
+            highways = gpuWorld.highways;
+        } else {
+            tiles = new int[height][width];
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    double noise = hashNoise(seed, x, y);
+                    tiles[y][x] = (noise < forestDensity) ? 1 : 0;
+                }
             }
-        }
 
-        tiles = smooth(tiles, clusterBias);
-        placeWater(seed, tiles, waterDensity);
-        placeIndustry(seed, tiles, industryDensity);
-        boolean[][] highways = generateHighways(seed);
+            tiles = smooth(tiles, clusterBias);
+            placeWater(seed, tiles, waterDensity);
+            placeIndustry(seed, tiles, industryDensity);
+            highways = generateHighways(seed);
+        }
 
         int regionsCount = 6;
         int[][] regionIds = assignRegions(seed, regionsCount);
@@ -91,6 +121,68 @@ public class WorldService {
         response.setPlayer(player);
         response.setProperties(props);
         return response;
+    }
+
+    private GpuWorldResult tryGenerateWithGpu(long seed, int width, int height, HiddenProperties hp) {
+        if (!gpuEnabled || !gpuWorldEnabled) {
+            return null;
+        }
+        try {
+            String paramsJson = buildGpuWorldParams(hp, width, height);
+            GenerateRegionRequest request = GenerateRegionRequest.newBuilder()
+                .setRequestId(UUID.randomUUID().toString())
+                .setSeed(seed)
+                .setRegion(Region.newBuilder().setX(0).setY(0).setWidth(width).setHeight(height))
+                .setParamsJson(paramsJson)
+                .build();
+            GenerateRegionResponse response = gpuEngineAdapter.generateRegion(request);
+            if (!response.hasTiles()) {
+                return null;
+            }
+            int[][] tiles = GpuEngineCodec.fromTileGrid(response.getTiles());
+            boolean[][] highways = GpuEngineCodec.fromBoolGrid(response.getHighways(), width, height);
+            if (tiles.length == 0 || tiles[0].length == 0) {
+                return null;
+            }
+            if (tiles.length != height || tiles[0].length != width) {
+                log.warn("gpu world size mismatch expected={}x{} actual={}x{}", width, height, tiles[0].length, tiles.length);
+                return null;
+            }
+            return new GpuWorldResult(tiles, highways);
+        } catch (Exception e) {
+            log.warn("gpu world generation failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildGpuWorldParams(HiddenProperties hp, int width, int height) {
+        try {
+            Map<String, Object> params = new HashMap<>();
+            Map<String, Double> hidden = new HashMap<>();
+            hidden.put("pressure", hp.pressure());
+            hidden.put("temperature", hp.temperature());
+            hidden.put("humidity", hp.humidity());
+            hidden.put("density", hp.density());
+            hidden.put("energy", hp.energy());
+            hidden.put("entropy", hp.entropy());
+            params.put("hidden", hidden);
+            params.put("width", width);
+            params.put("height", height);
+            params.put("highwayRatio", highwayRatio);
+            return objectMapper.writeValueAsString(params);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    private static final class GpuWorldResult {
+        private final int[][] tiles;
+        private final boolean[][] highways;
+
+        private GpuWorldResult(int[][] tiles, boolean[][] highways) {
+            this.tiles = tiles;
+            this.highways = highways;
+        }
     }
 
     private int[][] smooth(int[][] tiles, double clusterBias) {

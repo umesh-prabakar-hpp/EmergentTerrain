@@ -29,6 +29,13 @@ server:
 app:
   e2e:
     enabled: true
+  gpu:
+    enabled: true 
+    world:
+      enabled: true 
+    bots:
+      enabled: true 
+      applyEdits: true 
   qr:
     hmacSecret: "dev-secret-change"
   room:

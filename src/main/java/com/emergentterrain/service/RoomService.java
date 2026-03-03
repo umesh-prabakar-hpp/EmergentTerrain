@@ -1,11 +1,18 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.domain.*;
+import com.emergentterrain.gpu.GpuEngineAdapter;
+import com.emergentterrain.gpu.GpuEngineCodec;
+import com.emergentterrain.gpu.v1.BotState;
+import com.emergentterrain.gpu.v1.SimulateBotsRequest;
+import com.emergentterrain.gpu.v1.SimulateBotsResponse;
+import com.emergentterrain.gpu.v1.TileEdit;
 import com.emergentterrain.repo.*;
 import com.emergentterrain.web.*;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.protobuf.ByteString;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -46,7 +53,11 @@ public class RoomService {
     private final PayloadService payloadService;
     private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
+    private final GpuEngineAdapter gpuEngineAdapter;
     private final ObjectMapper objectMapper;
+    private final boolean gpuEnabled;
+    private final boolean gpuBotsEnabled;
+    private final boolean gpuBotsApplyEdits;
     private final int neighborRadius;
     private final int voteWindowSeconds;
     private final int minVotesToResolve;
@@ -110,9 +121,13 @@ public class RoomService {
                        PayloadService payloadService,
                        RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
+                       GpuEngineAdapter gpuEngineAdapter,
                        ObjectMapper objectMapper,
                        ActivityMetrics metrics,
                        PlatformTransactionManager transactionManager,
+                       @Value("${app.gpu.enabled:false}") boolean gpuEnabled,
+                       @Value("${app.gpu.bots.enabled:false}") boolean gpuBotsEnabled,
+                       @Value("${app.gpu.bots.applyEdits:false}") boolean gpuBotsApplyEdits,
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
                        @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
@@ -156,8 +171,12 @@ public class RoomService {
         this.payloadService = payloadService;
         this.broadcaster = broadcaster;
         this.worldService = worldService;
+        this.gpuEngineAdapter = gpuEngineAdapter;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
+        this.gpuEnabled = gpuEnabled;
+        this.gpuBotsEnabled = gpuBotsEnabled;
+        this.gpuBotsApplyEdits = gpuBotsApplyEdits;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.botTransactionTemplate = new TransactionTemplate(transactionManager);
         this.botTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -2435,6 +2454,9 @@ public class RoomService {
         ReentrantLock lock = botLocks.computeIfAbsent(room.getId(), id -> new ReentrantLock());
         lock.lock();
         try {
+            if (trySimulateBotsWithGpu(room, state)) {
+                return;
+            }
             int[][] tiles = getTilesForRoom(room, state);
             boolean[][] highways = getHighwaysForRoom(room, state);
             CachedMap cached = getCachedMap(room, state, tiles, highways);
@@ -3372,6 +3394,178 @@ public class RoomService {
         } catch (JsonProcessingException e) {
             return new ArrayList<>();
         }
+    }
+
+    private boolean trySimulateBotsWithGpu(Room room, RoomState state) {
+        if (!gpuEnabled || !gpuBotsEnabled || gpuEngineAdapter == null) {
+            return false;
+        }
+        try {
+            int[][] tiles = getTilesForRoom(room, state);
+            if (tiles.length == 0 || tiles[0].length == 0) {
+                return false;
+            }
+            boolean[][] highways = getHighwaysForRoom(room, state);
+            int width = tiles[0].length;
+            int height = tiles.length;
+            List<RoomBot> bots = new ArrayList<>(botRepository.findByRoom(room));
+            if (bots.isEmpty()) {
+                return true;
+            }
+
+            List<RoomBot> spawned = new ArrayList<>();
+            for (RoomBot bot : bots) {
+                if (bot.getX() == null || bot.getY() == null) {
+                    assignBotSpawn(bot, tiles);
+                    spawned.add(bot);
+                }
+            }
+            if (!spawned.isEmpty()) {
+                botRepository.saveAll(spawned);
+            }
+
+            SimulateBotsRequest.Builder builder = SimulateBotsRequest.newBuilder()
+                .setRequestId(UUID.randomUUID().toString())
+                .setTiles(GpuEngineCodec.toTileGrid(tiles))
+                .setHighways(GpuEngineCodec.toBoolGrid(highways, width, height))
+                .setParamsJson(buildGpuBotParams(room, width, height));
+
+            for (RoomBot bot : bots) {
+                if (bot.getId() == null || bot.getX() == null || bot.getY() == null) {
+                    continue;
+                }
+                BotState.Builder botState = BotState.newBuilder()
+                    .setId(bot.getId().toString())
+                    .setX(bot.getX())
+                    .setY(bot.getY());
+                if (bot.getProfileJson() != null && !bot.getProfileJson().isBlank()) {
+                    botState.setState(ByteString.copyFromUtf8(bot.getProfileJson()));
+                }
+                builder.addBots(botState);
+            }
+
+            SimulateBotsResponse response = gpuEngineAdapter.simulateBots(builder.build());
+            Map<String, RoomBot> byId = new HashMap<>();
+            for (RoomBot bot : bots) {
+                if (bot.getId() != null) {
+                    byId.put(bot.getId().toString(), bot);
+                }
+            }
+            List<RoomBot> moved = new ArrayList<>();
+            for (BotState botState : response.getBotsList()) {
+                RoomBot bot = byId.get(botState.getId());
+                if (bot == null) {
+                    continue;
+                }
+                if (bot.getX() == null || bot.getY() == null
+                    || bot.getX() != botState.getX() || bot.getY() != botState.getY()) {
+                    bot.setX(botState.getX());
+                    bot.setY(botState.getY());
+                    moved.add(bot);
+                }
+            }
+            if (!moved.isEmpty()) {
+                botRepository.saveAll(moved);
+            }
+
+            if (response.getEditsCount() > 0) {
+                if (gpuBotsApplyEdits) {
+                    int changed = applyGpuEditsToCachedState(room, state, response.getEditsList());
+                    if (changed > 0) {
+                        log.debug("gpu bot edits applied roomId={} edits={} changed={}", room.getId(), response.getEditsCount(), changed);
+                    }
+                } else {
+                    log.debug("gpu bot edits ignored roomId={} edits={}", room.getId(), response.getEditsCount());
+                }
+            }
+
+            return true;
+        } catch (Exception e) {
+            log.warn("gpu bot simulation failed roomId={} msg={}", room.getId(), e.getMessage());
+            return false;
+        }
+    }
+
+    private String buildGpuBotParams(Room room, int width, int height) {
+        try {
+            Map<String, Object> params = new HashMap<>();
+            params.put("roomId", room.getId().toString());
+            params.put("width", width);
+            params.put("height", height);
+            params.put("neighborRadius", neighborRadius);
+            params.put("minNeighbors", minNeighbors);
+            params.put("densityAreaSize", densityAreaSize);
+            params.put("maxOccupants", maxOccupants);
+            return objectMapper.writeValueAsString(params);
+        } catch (Exception e) {
+            return "{}";
+        }
+    }
+
+    private int applyGpuEditsToCachedState(Room room, RoomState state, List<TileEdit> edits) {
+        if (edits == null || edits.isEmpty()) {
+            return 0;
+        }
+        CachedRoomState cached = getCachedRoomState(room, state);
+        int[][] tiles = cached.tiles;
+        boolean[][] highways = cached.highways;
+        int height = tiles.length;
+        int width = height == 0 ? 0 : tiles[0].length;
+        if (width == 0 || height == 0) {
+            return 0;
+        }
+        int changed = 0;
+        for (TileEdit edit : edits) {
+            if (edit == null) {
+                continue;
+            }
+            int x = edit.getX();
+            int y = edit.getY();
+            if (x < 0 || y < 0 || y >= height || x >= width) {
+                continue;
+            }
+            int newTile = edit.getType();
+            boolean newHighway = false;
+            if (newTile == 4) {
+                newHighway = true;
+                newTile = 0;
+            }
+            int oldTile = tiles[y][x];
+            boolean oldHighway = highways.length > 0 && highways[y][x];
+            if (oldTile == newTile && oldHighway == newHighway) {
+                continue;
+            }
+            tiles[y][x] = newTile;
+            if (highways.length > 0) {
+                highways[y][x] = newHighway;
+            }
+            changed++;
+        }
+        if (changed == 0) {
+            return 0;
+        }
+        cached.previousStateHash = cached.stateHash;
+        cached.stateHash = hashTiles(tiles);
+        TileCounts counts = computeTileCounts(tiles, highways);
+        cached.tileClearCount = counts.clear;
+        cached.tileForestCount = counts.forest;
+        cached.tileWaterCount = counts.water;
+        cached.tileIndustryCount = counts.industry;
+        cached.tileHighwayCount = counts.road;
+        cached.totalChangeCount = (cached.totalChangeCount == null ? 0 : cached.totalChangeCount) + changed;
+        cached.changesSinceFlush = (cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush) + changed;
+
+        RoomState tempState = new RoomState();
+        tempState.setSharedTokensJson(cached.sharedTokensJson);
+        tempState.setSharedQuestsJson(cached.sharedQuestsJson);
+        updateSharedTokens(tempState, 2, 1, 1);
+        updateSharedQuests(tempState, tiles);
+        cached.sharedTokensJson = tempState.getSharedTokensJson();
+        cached.sharedQuestsJson = tempState.getSharedQuestsJson();
+
+        cached.dirty = true;
+        cached.lastFlushAt = Instant.now();
+        return changed;
     }
 
     private void ensurePlayable(RoomParticipant participant) {

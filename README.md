@@ -20,7 +20,18 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Bot map changes applied in-memory with periodic room state snapshot flushes
 
 ## Run
+Java 21 required. On this machine, the installed JDK 21 path is:
+`C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7`
+
+Example (current shell):
 ```powershell
+$env:JAVA_HOME = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
+$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
+```
+
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
 C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd spring-boot:run
 ```
 Open `http://localhost:8080/`
@@ -30,6 +41,22 @@ Open `http://localhost:8080/`
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
 - `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
+
+## Benchmarks (JMH)
+Benchmarks live under `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\test\java\com\emergentterrain\bench`.
+
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests jmh:jmh
+```
+
+GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` if needed.
+
+## GPU Engine Integration
+- World generation can call the GPU engine when enabled.
+- Bot simulation can call the GPU engine when enabled (optional tile edits).
+- Defaults are off.
 
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
@@ -57,6 +84,7 @@ See `src/main/resources/application.yml` for app settings:
 - `app.consensus.noParticipationLockSeconds`
 - `app.density.areaSize`, `app.density.maxOccupants`
 - `app.bots.populationFraction`, `app.bots.maxPerRoom`
+- `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
 
 ## Routes (summary)
 - `GET /register`, `POST /register`
@@ -94,3 +122,4 @@ See `src/main/resources/application.yml` for app settings:
 - This is a POC focused on end-to-end flow, not production hardening.
 - The QR payload is signed (tamper detection) but not encrypted.
 - Bot-generated changes are applied in memory and flushed as room state snapshots; bot proposals are not persisted.
+- Docs policy: when behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md`.
