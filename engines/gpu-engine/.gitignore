@@ -3,4 +3,4 @@
 /.idea/
 /.vscode/
 .DS_Store
-.env
+.env.gpu_server_pid

@@ -55,15 +55,21 @@ If Rust tooling or build requirements change, update this README so it remains t
 
 ## Build / Run
 ```powershell
+cd C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine
+
 cargo build
 ```
 
 ```powershell
 # Default listens on 127.0.0.1:50051
+cd C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine
+
 cargo run
 
 # Custom address
 $env:GPU_ENGINE_ADDR="127.0.0.1:50052"
+cd C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine
+
 cargo run
 ```
 
