@@ -75,3 +75,8 @@ cargo run
 
 ## Protobuf
 The contract lives at `proto/terrain_gpu.proto` and is compiled by `build.rs` (tonic-build).
+
+## Simulation Notes
+- `SimulateBotsRequest` supports world caching via `world_id` (send `tiles`/`highways` once, then only diffs via `tile_edits`).
+- Use `steps` to batch multiple simulation ticks per RPC.
+- `BotState` includes numeric preference fields (`forest`, `water`, `industry`, `clear`, `mobility`); `state` bytes remain legacy.

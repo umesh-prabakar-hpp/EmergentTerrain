@@ -50,6 +50,11 @@ message BotState {
   int32 x = 2;
   int32 y = 3;
   bytes state = 4;
+  float forest = 5;
+  float water = 6;
+  float industry = 7;
+  float clear = 8;
+  float mobility = 9;
 }
 
 message GenerateRegionRequest {
@@ -90,6 +95,9 @@ message SimulateBotsRequest {
   BoolGrid highways = 3;
   repeated BotState bots = 4;
   string params_json = 5;
+  uint32 steps = 6;
+  string world_id = 7;
+  repeated TileEdit tile_edits = 8;
 }
 
 message SimulateBotsResponse {
