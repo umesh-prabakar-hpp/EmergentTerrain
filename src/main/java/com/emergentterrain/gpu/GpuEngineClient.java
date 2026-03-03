@@ -4,6 +4,7 @@ import com.emergentterrain.gpu.v1.GpuTerrainServiceGrpc;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
 import jakarta.annotation.PreDestroy;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ public class GpuEngineClient {
     private final ManagedChannel channel;
     private final GpuTerrainServiceGrpc.GpuTerrainServiceBlockingStub blockingStub;
 
+    @Autowired
     public GpuEngineClient(
         @Value("${app.gpu.host:127.0.0.1}") String host,
         @Value("${app.gpu.port:50051}") int port,

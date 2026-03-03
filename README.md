@@ -43,12 +43,26 @@ Open `http://localhost:8080/`
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
 
 ## Benchmarks (JMH)
-Benchmarks live under `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\test\java\com\emergentterrain\bench`.
+Benchmarks live under `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench`.
 
 ```powershell
 cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 
-C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests jmh:jmh
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests -Pbench package
+```
+
+Standalone (forked, recommended for real numbers):
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target\\jmh-result.json
+```
+
+In-process (no fork, quick sanity):
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd --% -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target\\jmh-result.json"
 ```
 
 GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` if needed.
@@ -122,4 +136,5 @@ See `src/main/resources/application.yml` for app settings:
 - This is a POC focused on end-to-end flow, not production hardening.
 - The QR payload is signed (tamper detection) but not encrypted.
 - Bot-generated changes are applied in memory and flushed as room state snapshots; bot proposals are not persisted.
+- Dev note: `GpuEngineClient` is wired via a Spring constructor; if adding constructors, keep the `@Autowired` config-based one.
 - Docs policy: when behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md`.

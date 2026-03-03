@@ -35,3 +35,6 @@ Thumbs.db
 .env
 /sample-output/
 scratch.txt
+
+# Maven Shade
+dependency-reduced-pom.xml

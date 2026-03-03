@@ -49,13 +49,27 @@ If tests need a real DB, ensure Postgres is running and the app datasource prope
 ```powershell
 cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 
-C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests jmh:jmh
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests -Pbench package
+```
+
+Standalone (forked, recommended for real numbers):
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target\\jmh-result.json
+```
+
+In-process (no fork, quick sanity):
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd --% -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target\\jmh-result.json"
 ```
 
 GPU benchmarks require the Rust GPU engine running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` to point at it.
 Benchmark classes:
-- `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\test\java\com\emergentterrain\bench\GpuVsCpuWorldBenchmark.java`
-- `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\test\java\com\emergentterrain\bench\GpuVsCpuBotSimulationBenchmark.java`
+- `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench\GpuVsCpuWorldBenchmark.java`
+- `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench\GpuVsCpuBotSimulationBenchmark.java`
 
 ### GPU Engine (Rust gRPC service)
 See `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine\README.md` for full setup.
@@ -95,6 +109,7 @@ cargo run
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
+- Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
