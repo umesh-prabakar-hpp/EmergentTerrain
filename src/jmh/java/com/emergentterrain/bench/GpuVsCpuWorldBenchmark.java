@@ -15,6 +15,7 @@ import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -35,11 +36,14 @@ public class GpuVsCpuWorldBenchmark {
 
     @State(Scope.Benchmark)
     public static class WorldState {
-        private static final int WIDTH = 320;
-        private static final int HEIGHT = 240;
-        private static final int MAX_TILES = 200000;
-        private static final double ASPECT = 1.3333;
-        private static final double HIGHWAY_RATIO = 0.02;
+        @Param({"RPC", "HEAVY"})
+        private String profile;
+
+        private int width;
+        private int height;
+        private int maxTiles;
+        private double aspect;
+        private double highwayRatio;
 
         private Payload payload;
         private long seed;
@@ -49,6 +53,17 @@ public class GpuVsCpuWorldBenchmark {
 
         @Setup(Level.Trial)
         public void setup() {
+            if ("RPC".equalsIgnoreCase(profile)) {
+                width = 64;
+                height = 48;
+                maxTiles = 40000;
+            } else {
+                width = 320;
+                height = 240;
+                maxTiles = 200000;
+            }
+            aspect = 1.3333;
+            highwayRatio = 0.02;
             HiddenProperties hidden = new HiddenProperties(0.45, 0.55, 0.6, 0.5, 0.5, 0.4);
             payload = new Payload(
                 1,
@@ -64,12 +79,12 @@ public class GpuVsCpuWorldBenchmark {
             ObjectMapper objectMapper = new ObjectMapper();
 
             cpuWorldService = new WorldService(
-                WIDTH,
-                HEIGHT,
+                width,
+                height,
                 false,
-                MAX_TILES,
-                ASPECT,
-                HIGHWAY_RATIO,
+                maxTiles,
+                aspect,
+                highwayRatio,
                 false,
                 false,
                 objectMapper,
@@ -83,12 +98,12 @@ public class GpuVsCpuWorldBenchmark {
             gpuEngineClient = new GpuEngineClient(host, port, false);
             GpuEngineAdapter gpuEngineAdapter = new GpuEngineAdapter(gpuEngineClient);
             gpuWorldService = new WorldService(
-                WIDTH,
-                HEIGHT,
+                width,
+                height,
                 false,
-                MAX_TILES,
-                ASPECT,
-                HIGHWAY_RATIO,
+                maxTiles,
+                aspect,
+                highwayRatio,
                 true,
                 true,
                 objectMapper,

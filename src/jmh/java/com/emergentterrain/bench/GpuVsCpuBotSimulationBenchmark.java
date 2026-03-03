@@ -14,6 +14,7 @@ import org.openjdk.jmh.annotations.Level;
 import org.openjdk.jmh.annotations.Measurement;
 import org.openjdk.jmh.annotations.Mode;
 import org.openjdk.jmh.annotations.OutputTimeUnit;
+import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
@@ -35,10 +36,13 @@ public class GpuVsCpuBotSimulationBenchmark {
 
     @State(Scope.Benchmark)
     public static class BotStateData {
-        private static final int WIDTH = 256;
-        private static final int HEIGHT = 192;
-        private static final int BOT_COUNT = 2000;
-        private static final int STEPS = 10;
+        @Param({"RPC", "HEAVY"})
+        private String profile;
+
+        private int width;
+        private int height;
+        private int botCount;
+        private int steps;
 
         private int[][] tiles;
         private boolean[][] highways;
@@ -59,11 +63,22 @@ public class GpuVsCpuBotSimulationBenchmark {
 
         @Setup(Level.Trial)
         public void setup() {
+            if ("RPC".equalsIgnoreCase(profile)) {
+                width = 48;
+                height = 36;
+                botCount = 100;
+                steps = 1;
+            } else {
+                width = 256;
+                height = 192;
+                botCount = 2000;
+                steps = 10;
+            }
             Random rand = new Random(42);
-            tiles = new int[HEIGHT][WIDTH];
-            highways = new boolean[HEIGHT][WIDTH];
-            for (int y = 0; y < HEIGHT; y++) {
-                for (int x = 0; x < WIDTH; x++) {
+            tiles = new int[height][width];
+            highways = new boolean[height][width];
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
                     int v = rand.nextInt(100);
                     if (v < 55) tiles[y][x] = 1; // forest
                     else if (v < 70) tiles[y][x] = 2; // water
@@ -73,17 +88,17 @@ public class GpuVsCpuBotSimulationBenchmark {
                 }
             }
 
-            botX = new int[BOT_COUNT];
-            botY = new int[BOT_COUNT];
-            botForest = new double[BOT_COUNT];
-            botWater = new double[BOT_COUNT];
-            botIndustry = new double[BOT_COUNT];
-            botClear = new double[BOT_COUNT];
-            botMobility = new double[BOT_COUNT];
-            gpuBots = new BotState[BOT_COUNT];
-            for (int i = 0; i < BOT_COUNT; i++) {
-                botX[i] = rand.nextInt(WIDTH);
-                botY[i] = rand.nextInt(HEIGHT);
+            botX = new int[botCount];
+            botY = new int[botCount];
+            botForest = new double[botCount];
+            botWater = new double[botCount];
+            botIndustry = new double[botCount];
+            botClear = new double[botCount];
+            botMobility = new double[botCount];
+            gpuBots = new BotState[botCount];
+            for (int i = 0; i < botCount; i++) {
+                botX[i] = rand.nextInt(width);
+                botY[i] = rand.nextInt(height);
                 botForest[i] = 0.2 + rand.nextDouble() * 0.6;
                 botWater[i] = 0.1 + rand.nextDouble() * 0.6;
                 botIndustry[i] = 0.05 + rand.nextDouble() * 0.5;
@@ -102,7 +117,7 @@ public class GpuVsCpuBotSimulationBenchmark {
             }
 
             tileGrid = GpuEngineCodec.toTileGrid(tiles);
-            highwayGrid = GpuEngineCodec.toBoolGrid(highways, WIDTH, HEIGHT);
+            highwayGrid = GpuEngineCodec.toBoolGrid(highways, width, height);
 
             String host = System.getProperty("gpu.host",
                 System.getenv().getOrDefault("GPU_ENGINE_HOST", "127.0.0.1"));
@@ -129,7 +144,7 @@ public class GpuVsCpuBotSimulationBenchmark {
                     .setWorldId(worldId)
                     .setTiles(tileGrid)
                     .setHighways(highwayGrid)
-                    .setSteps(1)
+                    .setSteps(steps)
                     .addBots(BotState.newBuilder().setId("probe").setX(0).setY(0))
                     .build();
                 gpuEngineAdapter.simulateBots(request);
@@ -149,7 +164,7 @@ public class GpuVsCpuBotSimulationBenchmark {
         int[] currY = Arrays.copyOf(state.botY, state.botY.length);
         Random rand = new Random(123);
         int[][] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int step = 0; step < BotStateData.STEPS; step++) {
+        for (int step = 0; step < state.steps; step++) {
             int[] nextX = new int[state.botX.length];
             int[] nextY = new int[state.botY.length];
             for (int i = 0; i < currX.length; i++) {
@@ -166,7 +181,7 @@ public class GpuVsCpuBotSimulationBenchmark {
                 for (int[] d : dirs) {
                     int nx = x + d[0];
                     int ny = y + d[1];
-                    if (nx < 0 || ny < 0 || nx >= BotStateData.WIDTH || ny >= BotStateData.HEIGHT) {
+                    if (nx < 0 || ny < 0 || nx >= state.width || ny >= state.height) {
                         continue;
                     }
                     int type = state.tiles[ny][nx];
@@ -195,7 +210,7 @@ public class GpuVsCpuBotSimulationBenchmark {
         SimulateBotsRequest.Builder builder = SimulateBotsRequest.newBuilder()
             .setRequestId(UUID.randomUUID().toString())
             .setWorldId(state.worldId)
-            .setSteps(BotStateData.STEPS);
+            .setSteps(state.steps);
         for (BotState bot : state.gpuBots) {
             builder.addBots(bot);
         }

@@ -58,6 +58,15 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target\\jmh-result.json
 ```
 
+Profiles:
+```powershell
+# RPC overhead (small sizes)
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=RPC -f 1
+
+# Compute-heavy (larger sizes)
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=HEAVY -f 1
+```
+
 In-process (no fork, quick sanity):
 ```powershell
 cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
