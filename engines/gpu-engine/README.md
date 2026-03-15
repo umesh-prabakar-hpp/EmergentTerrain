@@ -52,6 +52,24 @@ $env:PROTOC="C:\\path\\to\\protoc.exe"
 
 ### Maintenance
 If Rust tooling or build requirements change, update this README so it remains the source of truth for setup.
+Add any new engine-specific learnings from setup, WSL usage, integration checks, or debugging to markdown in the same change.
+
+## Linux / WSL
+For WSL or OpenClaw use, prefer a Linux-native copy such as:
+`/home/umesh/workspace/EmergentTerrainGPUEngine`
+
+Important:
+- `Cargo.lock` currently requires a newer Cargo than the Ubuntu 24.04 distro package.
+- Use `rustup` inside Ubuntu so `cargo` and `rustc` come from `~/.cargo/bin`.
+
+Example:
+```bash
+curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
+. "$HOME/.cargo/env"
+rustc --version
+cargo --version
+protoc --version
+```
 
 ## Build / Run
 ```powershell
@@ -70,6 +88,14 @@ cargo run
 $env:GPU_ENGINE_ADDR="127.0.0.1:50052"
 cd C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine
 
+cargo run
+```
+
+Ubuntu / WSL:
+```bash
+cd /home/umesh/workspace/EmergentTerrainGPUEngine
+. "$HOME/.cargo/env"
+cargo build
 cargo run
 ```
 
