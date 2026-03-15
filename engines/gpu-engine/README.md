@@ -87,11 +87,13 @@ Today that script verifies two things:
 - room bot positions change while the Java app is connected to the live engine
 - a live proposal applies through `rebuild_patch`
 - the engine log contains `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` proof markers
+- the script lowers the adaptive bot and patch thresholds on purpose so the live GPU bot and patch RPCs are still proven after the runtime moved small work back to CPU by default
 
 Current caveat: the supported local path is the native Windows one, and it is GPU-backed for `GenerateRegion`, `RebuildPatch`, and `SimulateBots`.
 Current learning: the supported local end-to-end path is the native Windows run of `scripts/run-real-gpu-e2e.ps1`.
 Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 Current learning: the Windows E2E path now proves `RebuildPatch` against the live engine rather than only world generation and bot simulation.
+Current learning: local CPU-vs-GPU performance comparisons should use `scripts\compare-cpu-vs-gpu-performance.ps1`, which runs the Java jar plus the Rust `release` binary instead of `spring-boot:run` / `cargo run`.
 
 If engine behavior changes, update those scripts and this README note in the same change.
 
@@ -102,3 +104,4 @@ The contract lives at `proto/terrain_gpu.proto` and is compiled by `build.rs` (t
 - `SimulateBotsRequest` supports world caching via `world_id` (send `tiles`/`highways` once, then only diffs via `tile_edits`).
 - Use `steps` to batch multiple simulation ticks per RPC.
 - `BotState` includes numeric preference fields (`forest`, `water`, `industry`, `clear`, `mobility`); `state` bytes remain legacy.
+- `BoolGrid` payloads now support packed booleans in addition to the legacy byte-per-cell format, which reduces highway payload size on the Java/Rust boundary.

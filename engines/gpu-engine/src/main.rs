@@ -696,7 +696,31 @@ fn u32_to_u8(values: &[u32]) -> Vec<u8> {
 }
 
 fn u32_to_bool_bytes(values: &[u32]) -> Vec<u8> {
-    values.iter().map(|&value| if value == 0 { 0 } else { 1 }).collect()
+    pack_bool_bytes(values.iter().map(|&value| value != 0))
+}
+
+fn pack_bool_bytes<I>(values: I) -> Vec<u8>
+where
+    I: IntoIterator<Item = bool>,
+{
+    let mut packed = Vec::new();
+    let mut byte = 0u8;
+    let mut bit_index = 0usize;
+    for value in values {
+        if value {
+            byte |= 1 << bit_index;
+        }
+        bit_index += 1;
+        if bit_index == 8 {
+            packed.push(byte);
+            byte = 0;
+            bit_index = 0;
+        }
+    }
+    if bit_index > 0 {
+        packed.push(byte);
+    }
+    packed
 }
 
 fn bots_to_gpu(bots: &[BotState]) -> Vec<GpuBotState> {
@@ -740,10 +764,19 @@ fn decode_tile_grid(grid: &TileGrid) -> Result<(u32, u32, Vec<u8>), Status> {
 
 fn decode_bool_grid(grid: &BoolGrid, width: u32, height: u32) -> Result<Vec<u8>, Status> {
     let size = grid_size(width, height)?;
-    if grid.values.len() != size {
-        return Err(Status::invalid_argument("highways buffer size mismatch"));
+    if grid.values.len() == size {
+        return Ok(grid.values.clone());
     }
-    Ok(grid.values.clone())
+    let packed_len = size.div_ceil(8);
+    if grid.values.len() == packed_len {
+        let mut unpacked = vec![0u8; size];
+        for (index, cell) in unpacked.iter_mut().enumerate() {
+            let byte = grid.values[index / 8];
+            *cell = if (byte >> (index % 8)) & 1 == 0 { 0 } else { 1 };
+        }
+        return Ok(unpacked);
+    }
+    Err(Status::invalid_argument("highways buffer size mismatch"))
 }
 
 fn apply_tile_edits(world: &mut CachedWorld, edits: &[TileEdit]) {
