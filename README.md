@@ -36,6 +36,18 @@ C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd spring-boot:run
 ```
 Open `http://localhost:8080/`
 
+## WSL / OpenClaw
+- For WSL or OpenClaw, prefer the Linux-native copy at `/home/umesh/workspace/EmergentTerrain` instead of working from `/mnt/c/...`.
+- The paired Linux-native GPU engine copy is `/home/umesh/workspace/EmergentTerrainGPUEngine`.
+- Keep Windows and WSL working trees separate. Do not edit the same checkout from both Windows Git and WSL Git.
+
+## Line Endings
+- The repo now uses `.gitattributes` to normalize text files to `LF`.
+- `*.bat` and `*.cmd` are kept as `CRLF`.
+- Recommended local Git settings on both Windows and Linux:
+  - `git config --global core.autocrlf false`
+  - `git config --global core.eol lf`
+
 ## Tests (summary)
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
@@ -81,6 +93,15 @@ GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` 
 - Bot simulation can call the GPU engine when enabled (optional tile edits).
 - Bot simulation sends structured preference fields and can cache world state in the GPU engine; diffs + step batching are controlled by `app.gpu.bots.*`.
 - Defaults are off.
+
+### Two-app integration check
+A real Java app + Rust GPU engine smoke check was verified from Ubuntu using the Linux-native copies plus local Postgres:
+- Start the Rust engine on `127.0.0.1:50051`
+- Start the Java app on `127.0.0.1:8080`
+- Call `GET /game/test` to obtain a token
+- Call `POST /game/state`
+
+With the current Rust stub engine, a successful GPU-backed world-generation call returns an all-zero `220x165` world with zero highways. That is a practical signal that the Java app is using the GPU engine gRPC path rather than the CPU world generator.
 
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
@@ -149,3 +170,4 @@ See `src/main/resources/application.yml` for app settings:
 - Bot-generated changes are applied in memory and flushed as room state snapshots; bot proposals are not persisted.
 - Dev note: `GpuEngineClient` is wired via a Spring constructor; if adding constructors, keep the `@Autowired` config-based one.
 - Docs policy: when behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md`.
+- Any new learnings from setup, WSL/OpenClaw use, debugging, performance work, or integration checks should be added to markdown in the same change.

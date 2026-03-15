@@ -5,6 +5,8 @@ This file captures practical repo guidance learned while working on the app(s).
 ## Repo locations (this machine)
 - Java web app: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain`
 - Rust GPU engine: `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine`
+- Linux-native Java app copy for WSL/OpenClaw: `/home/umesh/workspace/EmergentTerrain`
+- Linux-native GPU engine copy for WSL/OpenClaw: `/home/umesh/workspace/EmergentTerrainGPUEngine`
 
 ## How to run / test / build
 ### Required environment
@@ -96,6 +98,11 @@ $env:GPU_ENGINE_ADDR="127.0.0.1:50052"
 cargo run
 ```
 
+### WSL / OpenClaw workflow
+- Prefer the Linux-native copies under `/home/umesh/workspace/...` when using WSL or OpenClaw. They are faster and avoid `/mnt/c/...` filesystem overhead.
+- Do not actively develop the same working tree from both Windows Git and WSL Git. Keep separate Windows and Linux-native copies and sync intentionally.
+- The repo now enforces line endings with `.gitattributes`: default text files are `LF`; `*.bat` and `*.cmd` stay `CRLF`.
+
 ## Runtime ports / URLs
 - Web app: `http://localhost:8080/`
 - GPU engine gRPC: `127.0.0.1:50051` by default (`GPU_ENGINE_ADDR` to override)
@@ -120,6 +127,7 @@ cargo run
     - `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
 - Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
+- Verified two-app smoke check: with the current Rust stub engine running, `/game/state` from the Java app returns an all-zero `220x165` world with zero highways when GPU world generation is enabled. That is a useful proof that the Java app is crossing the gRPC boundary rather than using the CPU world generator.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
@@ -134,6 +142,7 @@ cargo run
   - Use env vars or local overrides for sensitive values.
 - If you change persistence behavior, update relevant docs in `README.md` if user-facing behavior changes.
 - Documentation hygiene: if behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` in the same change.
+- Any new learnings from setup, WSL/OpenClaw usage, debugging, performance work, or integration checks must be added to markdown in the same change. Use `AGENTS.md` and `README.md`, and update the GPU engine `README.md` as well when the learning is engine-specific.
 
 ## Tooling preferences
 - Prefer `rg` for code search.
