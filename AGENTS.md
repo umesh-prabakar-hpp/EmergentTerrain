@@ -5,8 +5,6 @@ This file captures practical repo guidance learned while working on the app(s).
 ## Repo locations (this machine)
 - Java web app: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain`
 - Rust GPU engine: `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine`
-- Linux-native Java app copy for WSL/OpenClaw: `/home/umesh/workspace/EmergentTerrain`
-- Linux-native GPU engine copy for WSL/OpenClaw: `/home/umesh/workspace/EmergentTerrainGPUEngine`
 
 ## How to run / test / build
 ### Required environment
@@ -58,26 +56,10 @@ What it proves today:
 - the Java app can reach the real Rust GPU engine on `127.0.0.1:50051`
 - `POST /game/state` returns non-stub GPU-generated world data
 - room bot positions change while the Java app is running against the live engine
-- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
+- a live proposal applies through `rebuild_patch`
+- the engine log contains `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` proof markers
 
 The script writes logs under `sample-output\gpu-e2e-*`.
-By default it starts both processes from the native Windows repos. Pass `-UseWslGpuEngine` only when you intentionally want to launch the engine from the Linux-native copy.
-
-Linux-native WSL smoke check:
-```bash
-cd /home/umesh/workspace/EmergentTerrain
-
-./scripts/run-real-gpu-e2e-wsl.sh
-```
-
-What it proves today:
-- both the Java app and Rust GPU engine are running inside WSL
-- `POST /game/state` returns non-stub GPU-generated world data
-- room bot positions change while the Java app is running against the live engine in Linux
-- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
-
-The script writes logs under `/home/umesh/workspace/EmergentTerrain/sample-output/gpu-e2e-wsl-*`.
-It also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
 
 ### Benchmarks (JMH)
 ```powershell
@@ -130,10 +112,8 @@ $env:GPU_ENGINE_ADDR="127.0.0.1:50052"
 cargo run
 ```
 
-### WSL / OpenClaw workflow
-- Prefer the Linux-native copies under `/home/umesh/workspace/...` when using WSL or OpenClaw. They are faster and avoid `/mnt/c/...` filesystem overhead.
-- Do not actively develop the same working tree from both Windows Git and WSL Git. Keep separate Windows and Linux-native copies and sync intentionally.
-- The repo now enforces line endings with `.gitattributes`: default text files are `LF`; `*.bat` and `*.cmd` stay `CRLF`.
+### Windows workflow
+- The repo enforces line endings with `.gitattributes`: default text files are `LF`; `*.bat` and `*.cmd` stay `CRLF`.
 
 ## Runtime ports / URLs
 - Web app: `http://localhost:8080/`
@@ -160,11 +140,11 @@ cargo run
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
 - Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
 - Verified two-app smoke check: `/game/state` from the Java app now returns a non-stub `220x165` world with non-zero tiles and highways when GPU world generation is enabled, and the engine log shows `wgpu-world` / `wgpu-bot-sim` markers. That is a direct proof that the Java app is crossing the gRPC boundary to the live GPU engine rather than using the CPU world generator or the old stub.
-- Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` now starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU flags forced on, verifies non-stub world output, and checks the engine log for `wgpu-world` and `wgpu-bot-sim` markers before passing. Use `-UseWslGpuEngine` only when you intentionally want the older mixed Windows/WSL path. If engine behavior changes, update the script assertions and this markdown note in the same change.
-- WSL-native full two-process shortcut: `scripts/run-real-gpu-e2e-wsl.sh` runs the Linux-native Java and GPU repos under `/home/umesh/workspace/...`, verifies non-stub world output, and checks the engine log for `wgpu-world` and `wgpu-bot-sim` markers before passing. If engine behavior changes, update the script assertions and this markdown note in the same change.
-- Current caveat: the native Windows path is now GPU-backed for world generation, patch rebuilds, and bot simulation. The Linux-native WSL path still depends on a synced Linux copy and a real Linux GPU adapter being available.
-- Current learning: when native Linux GPU work is deferred, the supported no-WSL smoke path is `scripts\run-real-gpu-e2e.ps1` with its default native Windows engine launch.
+- Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine`, starts the Java app with GPU flags forced on, verifies non-stub world output, submits a live proposal, and checks the engine log for `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` markers before passing. If engine behavior changes, update the script assertions and this markdown note in the same change.
+- Current caveat: the supported local path is the native Windows one, and it is GPU-backed for world generation, patch rebuilds, and bot simulation.
+- Current learning: the supported local smoke path is `scripts\run-real-gpu-e2e.ps1`.
 - Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
+- Current learning: persisted proposal JSON is not a reliable source of anchors by itself; use the stored `anchorX` / `anchorY` fields so GPU patch rebuilds are exercised consistently.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
@@ -179,7 +159,7 @@ cargo run
   - Use env vars or local overrides for sensitive values.
 - If you change persistence behavior, update relevant docs in `README.md` if user-facing behavior changes.
 - Documentation hygiene: if behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` in the same change.
-- Any new learnings from setup, WSL/OpenClaw usage, debugging, performance work, or integration checks must be added to markdown in the same change. Use `AGENTS.md` and `README.md`, and update the GPU engine `README.md` as well when the learning is engine-specific.
+- Any new learnings from setup, debugging, performance work, or integration checks must be added to markdown in the same change. Use `AGENTS.md` and `README.md`, and update the GPU engine `README.md` as well when the learning is engine-specific.
 
 ## Tooling preferences
 - Prefer `rg` for code search.

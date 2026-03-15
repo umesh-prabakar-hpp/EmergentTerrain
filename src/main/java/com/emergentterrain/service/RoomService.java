@@ -4,6 +4,10 @@ import com.emergentterrain.domain.*;
 import com.emergentterrain.gpu.GpuEngineAdapter;
 import com.emergentterrain.gpu.GpuEngineCodec;
 import com.emergentterrain.gpu.v1.BotState;
+import com.emergentterrain.gpu.v1.RebuildPatchRequest;
+import com.emergentterrain.gpu.v1.RebuildPatchResponse;
+import com.emergentterrain.gpu.v1.Rect;
+import com.emergentterrain.gpu.v1.Region;
 import com.emergentterrain.gpu.v1.SimulateBotsRequest;
 import com.emergentterrain.gpu.v1.SimulateBotsResponse;
 import com.emergentterrain.gpu.v1.TileEdit;
@@ -2287,6 +2291,18 @@ public class RoomService {
         }
     }
 
+    private static class ProposalApplyResult {
+        final int[][] tiles;
+        final boolean[][] highways;
+        final int changed;
+
+        ProposalApplyResult(int[][] tiles, boolean[][] highways, int changed) {
+            this.tiles = tiles;
+            this.highways = highways;
+            this.changed = changed;
+        }
+    }
+
     private static class OccupantSnapshot {
         private String id;
         private int x;
@@ -2969,6 +2985,13 @@ public class RoomService {
         if (delta == null) {
             return null;
         }
+        if (delta instanceof String json && !json.isBlank()) {
+            try {
+                Map<String, Object> map = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+                return extractAnchor(map);
+            } catch (Exception ignored) {
+            }
+        }
         if (delta instanceof Map<?, ?> map) {
             Object x = map.get("x");
             Object y = map.get("y");
@@ -3029,49 +3052,11 @@ public class RoomService {
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
         state.setPreviousStateHash(state.getStateHash());
         int[][] baseTiles = getTilesForRoom(room, state);
-        int[][] tiles = applyDeltaToTiles(baseTiles, proposal);
         boolean[][] highways = getHighwaysForRoom(room, state);
-        if (highways.length == 0 && tiles.length > 0) {
-            highways = new boolean[tiles.length][tiles[0].length];
-        }
-        int minX = tiles[0].length;
-        int minY = tiles.length;
-        int maxX = 0;
-        int maxY = 0;
-        int type = -1;
-        int changed = 0;
-        for (int y = 0; y < tiles.length; y++) {
-            for (int x = 0; x < tiles[0].length; x++) {
-                if (baseTiles[y][x] != tiles[y][x]) {
-                    minX = Math.min(minX, x);
-                    minY = Math.min(minY, y);
-                    maxX = Math.max(maxX, x);
-                    maxY = Math.max(maxY, y);
-                    type = tiles[y][x];
-                    changed++;
-                }
-            }
-        }
-        if (changed > 0 && minX <= maxX && minY <= maxY) {
-            int[][] points = new int[1][2];
-            int idx = 0;
-            int[] anchor = extractAnchor(proposal.getDeltaJson());
-            if (anchor != null) {
-                points[idx][0] = anchor[0];
-                points[idx][1] = anchor[1];
-                idx = 1;
-            }
-            for (int i = 0; i < idx; i++) {
-                int x = points[i][0];
-                int y = points[i][1];
-                if (type == 4) {
-                    highways[y][x] = true;
-                    tiles[y][x] = 0;
-                } else {
-                    highways[y][x] = false;
-                }
-            }
-        }
+        ProposalApplyResult applied = applyProposalPatch(room, proposal, baseTiles, highways);
+        int[][] tiles = applied.tiles;
+        highways = applied.highways;
+        int changed = applied.changed;
         state.setTilesJson(toJson(tiles));
         state.setHighwaysJson(toJson(highways));
         state.setStateHash(hashTiles(tiles));
@@ -3101,6 +3086,110 @@ public class RoomService {
         proposalRepository.save(proposal);
         room.setLockUntil(Instant.now().plusSeconds(2));
         roomRepository.save(room);
+    }
+
+    private ProposalApplyResult applyProposalPatch(Room room,
+                                                   RoomProposal proposal,
+                                                   int[][] baseTiles,
+                                                   boolean[][] baseHighways) {
+        boolean[][] normalizedHighways = baseHighways;
+        if (normalizedHighways.length == 0 && baseTiles.length > 0) {
+            normalizedHighways = new boolean[baseTiles.length][baseTiles[0].length];
+        }
+        int[] anchor = proposalAnchor(proposal);
+        int type = extractDeltaTypeFromProposal(proposal);
+        if (gpuEnabled && anchor != null && type >= 0) {
+            ProposalApplyResult gpuResult = tryApplyProposalPatchWithGpu(room, proposal, baseTiles, normalizedHighways, anchor, type);
+            if (gpuResult != null) {
+                return gpuResult;
+            }
+        }
+        int[][] tiles = applyDeltaToTiles(baseTiles, proposal);
+        boolean[][] highways = copyHighways(normalizedHighways, tiles.length, tiles[0].length);
+        if (anchor != null && type >= 0) {
+            int x = anchor[0];
+            int y = anchor[1];
+            if (type == 4) {
+                highways[y][x] = true;
+                tiles[y][x] = 0;
+            } else {
+                highways[y][x] = false;
+            }
+        }
+        return summarizeProposalApply(baseTiles, normalizedHighways, tiles, highways);
+    }
+
+    private int[] proposalAnchor(RoomProposal proposal) {
+        if (proposal.getAnchorX() != null && proposal.getAnchorY() != null) {
+            return new int[] { proposal.getAnchorX(), proposal.getAnchorY() };
+        }
+        return extractAnchor(proposal.getDeltaJson());
+    }
+
+    private ProposalApplyResult tryApplyProposalPatchWithGpu(Room room,
+                                                             RoomProposal proposal,
+                                                             int[][] baseTiles,
+                                                             boolean[][] baseHighways,
+                                                             int[] anchor,
+                                                             int type) {
+        try {
+            int width = baseTiles[0].length;
+            int height = baseTiles.length;
+            RebuildPatchRequest request = RebuildPatchRequest.newBuilder()
+                .setRequestId(UUID.randomUUID().toString())
+                .setTiles(GpuEngineCodec.toTileGrid(baseTiles))
+                .setHighways(GpuEngineCodec.toBoolGrid(baseHighways, width, height))
+                .setRegion(Region.newBuilder().setX(0).setY(0).setWidth(width).setHeight(height))
+                .setPatch(Rect.newBuilder().setX(anchor[0]).setY(anchor[1]).setWidth(1).setHeight(1))
+                .addAppliedEdits(TileEdit.newBuilder().setX(anchor[0]).setY(anchor[1]).setType(type))
+                .build();
+            RebuildPatchResponse response = gpuEngineAdapter.rebuildPatch(request);
+            if (!response.hasPatchTiles() || !response.hasPatchHighways()) {
+                throw new IllegalStateException("GPU patch rebuild response missing patch grids");
+            }
+            int[][] patchTiles = GpuEngineCodec.fromTileGrid(response.getPatchTiles());
+            boolean[][] patchHighways = GpuEngineCodec.fromBoolGrid(response.getPatchHighways(), 1, 1);
+            if (patchTiles.length != 1 || patchTiles[0].length != 1 || patchHighways.length != 1 || patchHighways[0].length != 1) {
+                throw new IllegalStateException("GPU patch rebuild returned unexpected patch size");
+            }
+            int[][] tiles = copyTiles(baseTiles);
+            boolean[][] highways = copyHighways(baseHighways, baseTiles.length, baseTiles[0].length);
+            tiles[anchor[1]][anchor[0]] = patchTiles[0][0];
+            highways[anchor[1]][anchor[0]] = patchHighways[0][0];
+            return summarizeProposalApply(baseTiles, baseHighways, tiles, highways);
+        } catch (Exception e) {
+            log.warn("gpu patch rebuild failed roomId={} proposalId={} error={}",
+                room.getId(),
+                proposal.getId(),
+                e.getMessage());
+            return null;
+        }
+    }
+
+    private ProposalApplyResult summarizeProposalApply(int[][] baseTiles,
+                                                       boolean[][] baseHighways,
+                                                       int[][] tiles,
+                                                       boolean[][] highways) {
+        int changed = 0;
+        for (int y = 0; y < tiles.length; y++) {
+            for (int x = 0; x < tiles[0].length; x++) {
+                if (baseTiles[y][x] != tiles[y][x] || baseHighways[y][x] != highways[y][x]) {
+                    changed++;
+                }
+            }
+        }
+        return new ProposalApplyResult(tiles, highways, changed);
+    }
+
+    private boolean[][] copyHighways(boolean[][] source, int height, int width) {
+        boolean[][] out = new boolean[height][width];
+        for (int y = 0; y < Math.min(source.length, height); y++) {
+            if (source[y] == null) {
+                continue;
+            }
+            System.arraycopy(source[y], 0, out[y], 0, Math.min(source[y].length, width));
+        }
+        return out;
     }
 
     private void applyNoParticipation(Room room, RoomProposal proposal) {
@@ -3250,7 +3339,7 @@ public class RoomService {
         for (int y = 0; y < baseTiles.length; y++) {
             System.arraycopy(baseTiles[y], 0, out[y], 0, baseTiles[0].length);
         }
-        int[] anchor = extractAnchor(proposal.getDeltaJson());
+        int[] anchor = proposalAnchor(proposal);
         int type = extractDeltaTypeFromProposal(proposal);
         if (anchor != null && type >= 0) {
             out[anchor[1]][anchor[0]] = type;

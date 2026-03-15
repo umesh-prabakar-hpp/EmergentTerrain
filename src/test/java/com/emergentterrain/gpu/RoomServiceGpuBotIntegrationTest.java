@@ -7,8 +7,13 @@ import com.emergentterrain.domain.User;
 import com.emergentterrain.gpu.v1.BoolGrid;
 import com.emergentterrain.gpu.v1.BotState;
 import com.emergentterrain.gpu.v1.GpuTerrainServiceGrpc;
+import com.emergentterrain.gpu.v1.RebuildPatchRequest;
+import com.emergentterrain.gpu.v1.RebuildPatchResponse;
+import com.emergentterrain.gpu.v1.Rect;
 import com.emergentterrain.gpu.v1.SimulateBotsRequest;
 import com.emergentterrain.gpu.v1.SimulateBotsResponse;
+import com.emergentterrain.gpu.v1.TileEncoding;
+import com.emergentterrain.gpu.v1.TileGrid;
 import com.emergentterrain.repo.ProfileRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.repo.RoomRepository;
@@ -18,6 +23,8 @@ import com.emergentterrain.service.Payload;
 import com.emergentterrain.service.RoomService;
 import com.emergentterrain.web.RoomBotInfo;
 import com.emergentterrain.web.RoomCreateResponse;
+import com.emergentterrain.web.RoomParticipantInfo;
+import com.emergentterrain.web.RoomProposalRequest;
 import com.emergentterrain.web.RoomStateResponse;
 import com.google.protobuf.ByteString;
 import io.grpc.ManagedChannel;
@@ -40,6 +47,7 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -57,6 +65,10 @@ import static org.assertj.core.api.Assertions.assertThat;
     "app.gpu.bots.applyEdits=false",
     "app.gpu.bots.cacheWorld=false",
     "app.gpu.bots.steps=1",
+    "app.consensus.botApproveBias=1.0",
+    "app.consensus.minVotesToResolve=1",
+    "app.consensus.minNeighbors=1",
+    "app.consensus.quorumCap=1",
     "app.consensus.maintenanceIntervalMs=3600000",
     "app.consensus.maintenanceWorkers=1",
     "app.bots.maxPerRoom=5"
@@ -119,6 +131,56 @@ class RoomServiceGpuBotIntegrationTest {
         assertThat(roomBotRepository.findByRoom(room))
             .extracting(bot -> bot.getId().toString())
             .containsExactlyInAnyOrderElementsOf(updatedBotsById.keySet());
+    }
+
+    @Test
+    void proposeUsesGpuPatchRebuildAndAppliesReturnedPatch() {
+        Payload payload = createPayload();
+        RoomCreateResponse created = roomService.createRoom(payload, "GPU Patch Integration Room");
+        UUID roomId = UUID.fromString(created.getRoomId());
+
+        RoomStateResponse initial = roomService.getRoomState(payload, roomId);
+        RoomParticipantInfo participant = initial.getParticipants().stream()
+            .filter(info -> Objects.equals(info.getId(), created.getParticipantId()))
+            .findFirst()
+            .orElseGet(() -> initial.getParticipants().get(0));
+
+        int x = participant.getX();
+        int y = participant.getY();
+        int targetType = initial.getTiles()[y][x] == 3 ? 1 : 3;
+        int[][] proposedTiles = copyTiles(initial.getTiles());
+        proposedTiles[y][x] = targetType;
+
+        RoomProposalRequest request = new RoomProposalRequest();
+        request.setTiles(proposedTiles);
+        request.setDelta(Map.of(
+            "x", x,
+            "y", y,
+            "type", targetType
+        ));
+        request.setNote("gpu-patch-test");
+
+        roomService.propose(payload, roomId, request);
+
+        RebuildPatchRequest patchRequest = gpuService.lastRebuildPatchRequest();
+        assertThat(patchRequest).as("GPU patch request should be captured").isNotNull();
+        assertThat(patchRequest.getPatch()).isEqualTo(Rect.newBuilder().setX(x).setY(y).setWidth(1).setHeight(1).build());
+        assertThat(patchRequest.getAppliedEditsCount()).isEqualTo(1);
+        assertThat(patchRequest.getAppliedEdits(0).getX()).isEqualTo(x);
+        assertThat(patchRequest.getAppliedEdits(0).getY()).isEqualTo(y);
+        assertThat(patchRequest.getAppliedEdits(0).getType()).isEqualTo(targetType);
+
+        RoomStateResponse updated = roomService.getRoomState(payload, roomId);
+        assertThat(updated.getTiles()[y][x]).isEqualTo(targetType);
+        assertThat(updated.getHighways()[y][x]).isFalse();
+    }
+
+    private int[][] copyTiles(int[][] tiles) {
+        int[][] out = new int[tiles.length][];
+        for (int y = 0; y < tiles.length; y++) {
+            out[y] = tiles[y].clone();
+        }
+        return out;
     }
 
     private int expectedX(BotState botState, int width) {
@@ -198,9 +260,14 @@ class RoomServiceGpuBotIntegrationTest {
 
     static class RecordingGpuService extends GpuTerrainServiceGrpc.GpuTerrainServiceImplBase {
         private final AtomicReference<SimulateBotsRequest> lastSimulateBotsRequest = new AtomicReference<>();
+        private final AtomicReference<RebuildPatchRequest> lastRebuildPatchRequest = new AtomicReference<>();
 
         SimulateBotsRequest lastSimulateBotsRequest() {
             return lastSimulateBotsRequest.get();
+        }
+
+        RebuildPatchRequest lastRebuildPatchRequest() {
+            return lastRebuildPatchRequest.get();
         }
 
         @Override
@@ -244,6 +311,32 @@ class RoomServiceGpuBotIntegrationTest {
                     .setHeight(height)
                     .setValues(ByteString.copyFrom(new byte[size]))
                     .build())
+                .build());
+            responseObserver.onCompleted();
+        }
+
+        @Override
+        public void rebuildPatch(RebuildPatchRequest request, StreamObserver<RebuildPatchResponse> responseObserver) {
+            lastRebuildPatchRequest.set(request);
+            int type = request.getAppliedEditsCount() > 0 ? request.getAppliedEdits(0).getType() : 0;
+            byte tileValue = (byte) (type == 4 ? 0 : type);
+            byte highwayValue = (byte) (type == 4 ? 1 : 0);
+            Rect patch = request.getPatch();
+            responseObserver.onNext(RebuildPatchResponse.newBuilder()
+                .setRequestId(request.getRequestId())
+                .setPatch(patch)
+                .setPatchTiles(TileGrid.newBuilder()
+                    .setWidth(patch.getWidth())
+                    .setHeight(patch.getHeight())
+                    .setEncoding(TileEncoding.TILE_ENCODING_U8)
+                    .setTiles(ByteString.copyFrom(new byte[] { tileValue }))
+                    .build())
+                .setPatchHighways(BoolGrid.newBuilder()
+                    .setWidth(patch.getWidth())
+                    .setHeight(patch.getHeight())
+                    .setValues(ByteString.copyFrom(new byte[] { highwayValue }))
+                    .build())
+                .setDebugJson("{\"stub\":true}")
                 .build());
             responseObserver.onCompleted();
         }
