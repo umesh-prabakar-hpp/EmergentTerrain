@@ -99,6 +99,33 @@ cargo build
 cargo run
 ```
 
+## Full App E2E Check
+From the Java app repo on this machine, there is a Windows-side script that runs a full two-process check against the real engine on `127.0.0.1:50051`:
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+.\scripts\run-real-gpu-e2e.ps1
+```
+
+Today that script verifies two things:
+- the Java app sees the current stub-world signal from the Rust engine (all-zero world, zero highways)
+- room bot positions change while the Java app is connected to the live engine
+
+There is also a Linux-native WSL script:
+```bash
+cd /home/umesh/workspace/EmergentTerrain
+
+./scripts/run-real-gpu-e2e-wsl.sh
+```
+
+That version runs both the Java app and the Rust engine inside WSL from the Linux-native copies.
+
+That WSL script also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
+
+Current caveat: the engine is still a stub implementation, so those timings are integration metrics, not true hardware GPU/Vulkan performance numbers.
+
+If engine behavior changes, update those scripts and this README note in the same change.
+
 ## Protobuf
 The contract lives at `proto/terrain_gpu.proto` and is compiled by `build.rs` (tonic-build).
 
