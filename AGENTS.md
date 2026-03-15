@@ -47,6 +47,35 @@ C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd test -DtrimStackTrace=false
 
 If tests need a real DB, ensure Postgres is running and the app datasource properties are correct in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml` (or via env vars).
 
+Real two-process GPU smoke check:
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+.\scripts\run-real-gpu-e2e.ps1
+```
+
+What it proves today:
+- the Java app can reach the real Rust GPU engine on `127.0.0.1:50051`
+- `POST /game/state` returns the current stub-engine signal (all-zero world, zero highways)
+- room bot positions change while the Java app is running against the live engine
+
+The script writes logs under `sample-output\gpu-e2e-*`.
+
+Linux-native WSL smoke check:
+```bash
+cd /home/umesh/workspace/EmergentTerrain
+
+./scripts/run-real-gpu-e2e-wsl.sh
+```
+
+What it proves today:
+- both the Java app and Rust GPU engine are running inside WSL
+- `POST /game/state` returns the current stub-engine signal (all-zero world, zero highways)
+- room bot positions change while the Java app is running against the live engine in Linux
+
+The script writes logs under `/home/umesh/workspace/EmergentTerrain/sample-output/gpu-e2e-wsl-*`.
+It also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
+
 ### Benchmarks (JMH)
 ```powershell
 cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
@@ -128,6 +157,9 @@ cargo run
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
 - Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
 - Verified two-app smoke check: with the current Rust stub engine running, `/game/state` from the Java app returns an all-zero `220x165` world with zero highways when GPU world generation is enabled. That is a useful proof that the Java app is crossing the gRPC boundary rather than using the CPU world generator.
+- Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` starts the real Rust engine from the WSL copy, starts the Java app with GPU flags forced on, verifies the current stub-world signal, creates a room, and waits for live bot movement. If engine behavior changes away from the current stub output, update the script assertions and this markdown note in the same change.
+- WSL-native full two-process shortcut: `scripts/run-real-gpu-e2e-wsl.sh` runs the Linux-native Java and GPU repos under `/home/umesh/workspace/...`, verifies the current stub-world signal, and waits for live bot movement. If engine behavior changes away from the current stub output, update the script assertions and this markdown note in the same change.
+- Current caveat: the Rust engine is still a stub implementation. The WSL script timings are valid Linux-native end-to-end integration metrics on this GPU-capable machine, but they are not hardware GPU/Vulkan performance numbers.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
