@@ -52,24 +52,7 @@ $env:PROTOC="C:\\path\\to\\protoc.exe"
 
 ### Maintenance
 If Rust tooling or build requirements change, update this README so it remains the source of truth for setup.
-Add any new engine-specific learnings from setup, WSL usage, integration checks, or debugging to markdown in the same change.
-
-## Linux / WSL
-For WSL or OpenClaw use, prefer a Linux-native copy such as:
-`/home/umesh/workspace/EmergentTerrainGPUEngine`
-
-Important:
-- `Cargo.lock` currently requires a newer Cargo than the Ubuntu 24.04 distro package.
-- Use `rustup` inside Ubuntu so `cargo` and `rustc` come from `~/.cargo/bin`.
-
-Example:
-```bash
-curl https://sh.rustup.rs -sSf | sh -s -- -y --profile minimal
-. "$HOME/.cargo/env"
-rustc --version
-cargo --version
-protoc --version
-```
+Add any new engine-specific learnings from setup, integration checks, or debugging to markdown in the same change.
 
 ## Build / Run
 ```powershell
@@ -91,14 +74,6 @@ cd C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine
 cargo run
 ```
 
-Ubuntu / WSL:
-```bash
-cd /home/umesh/workspace/EmergentTerrainGPUEngine
-. "$HOME/.cargo/env"
-cargo build
-cargo run
-```
-
 ## Full App E2E Check
 From the Java app repo on this machine, there is a Windows-side script that runs a full two-process check against the real engine on `127.0.0.1:50051`:
 ```powershell
@@ -110,24 +85,13 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 Today that script verifies two things:
 - the Java app sees non-stub GPU-generated world data from the Rust engine
 - room bot positions change while the Java app is connected to the live engine
-- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
+- a live proposal applies through `rebuild_patch`
+- the engine log contains `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` proof markers
 
-By default that PowerShell script now launches the engine from this native Windows repo. Use `-UseWslGpuEngine` only when you intentionally want the older mixed Windows/WSL path.
-
-There is also a Linux-native WSL script:
-```bash
-cd /home/umesh/workspace/EmergentTerrain
-
-./scripts/run-real-gpu-e2e-wsl.sh
-```
-
-That version runs both the Java app and the Rust engine inside WSL from the Linux-native copies.
-
-That WSL script also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
-
-Current caveat: the native Windows path is now GPU-backed for `GenerateRegion`, `RebuildPatch`, and `SimulateBots`, but the Linux-native WSL path still depends on a synced Linux copy and a real Linux GPU adapter being available.
-Current learning: when Linux-native GPU work is deferred, the supported no-WSL end-to-end path is the default native Windows run of `scripts/run-real-gpu-e2e.ps1`.
+Current caveat: the supported local path is the native Windows one, and it is GPU-backed for `GenerateRegion`, `RebuildPatch`, and `SimulateBots`.
+Current learning: the supported local end-to-end path is the native Windows run of `scripts/run-real-gpu-e2e.ps1`.
 Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
+Current learning: the Windows E2E path now proves `RebuildPatch` against the live engine rather than only world generation and bot simulation.
 
 If engine behavior changes, update those scripts and this README note in the same change.
 
