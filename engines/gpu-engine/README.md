@@ -108,8 +108,11 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 ```
 
 Today that script verifies two things:
-- the Java app sees the current stub-world signal from the Rust engine (all-zero world, zero highways)
+- the Java app sees non-stub GPU-generated world data from the Rust engine
 - room bot positions change while the Java app is connected to the live engine
+- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
+
+By default that PowerShell script now launches the engine from this native Windows repo. Use `-UseWslGpuEngine` only when you intentionally want the older mixed Windows/WSL path.
 
 There is also a Linux-native WSL script:
 ```bash
@@ -122,7 +125,9 @@ That version runs both the Java app and the Rust engine inside WSL from the Linu
 
 That WSL script also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
 
-Current caveat: the engine is still a stub implementation, so those timings are integration metrics, not true hardware GPU/Vulkan performance numbers.
+Current caveat: the native Windows path is now GPU-backed for `GenerateRegion`, `RebuildPatch`, and `SimulateBots`, but the Linux-native WSL path still depends on a synced Linux copy and a real Linux GPU adapter being available.
+Current learning: when Linux-native GPU work is deferred, the supported no-WSL end-to-end path is the default native Windows run of `scripts/run-real-gpu-e2e.ps1`.
+Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 
 If engine behavior changes, update those scripts and this README note in the same change.
 
