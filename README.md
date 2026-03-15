@@ -46,7 +46,8 @@ Open `http://localhost:8080/`
 ## Tests (summary)
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
-- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app from the native Windows repos, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Expected time: ~30-60s after startup.
+- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app from the native Windows repos, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Expected time: ~30-60s after startup.
+- `scripts/compare-cpu-vs-gpu-performance.ps1` runs release-binary CPU-vs-GPU comparisons with the `perf` profile and prints JSON with per-run timings, averages, and GPU-minus-CPU deltas.
 - `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
 
@@ -84,10 +85,21 @@ C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd --% -DskipTests -Pbench exec:j
 
 GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` if needed.
 
+Focused patch benchmark:
+```powershell
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
+```
+
 ## GPU Engine Integration
 - World generation can call the GPU engine when enabled.
 - Bot simulation can call the GPU engine when enabled (optional tile edits).
 - Bot simulation sends structured preference fields and can cache world state in the GPU engine; diffs + step batching are controlled by `app.gpu.bots.*`.
+- World generation now uses a short-lived response cache keyed by seed/profile/size so `/game/state` and `/room/create` can reuse the same generated world.
+- GPU dispatch is now adaptive by default:
+  - `app.gpu.world.minCells` keeps small worlds on CPU.
+  - `app.gpu.bots.minBotCount` and `app.gpu.bots.minWorkItems` keep low-work bot ticks on CPU.
+  - `app.gpu.patch.minArea` keeps tiny patch rebuilds on CPU; 1x1 proposals stay CPU by default.
+- Initial room creation now lazily materializes bots up to `app.bots.initialRoomCreateTarget` and batches persistence work to reduce room setup overhead.
 - Defaults are off.
 
 ### Two-app integration check
@@ -106,8 +118,18 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 .\scripts\run-real-gpu-e2e.ps1
 ```
 
-The script starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output\gpu-e2e-*`.
+The script starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output\gpu-e2e-*`.
 Important caveat: the supported local workflow is now the native Windows path. `GenerateRegion`, `RebuildPatch`, and `SimulateBots` are GPU-backed there.
+
+### Release perf comparison
+Use the release-binary comparison harness for CPU-vs-GPU timings:
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+.\scripts\compare-cpu-vs-gpu-performance.ps1 -Iterations 2 -BuildArtifacts
+```
+
+It packages the Spring app to `target\emergent-terrain-0.0.1-SNAPSHOT.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
 
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
@@ -131,12 +153,16 @@ See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.world.flushIntervalMs`
+- `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
 - `app.consensus.noParticipationLockSeconds`
 - `app.density.areaSize`, `app.density.maxOccupants`
 - `app.bots.populationFraction`, `app.bots.maxPerRoom`
+- `app.bots.initialRoomCreateTarget`
 - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
-- `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`
+- `app.gpu.world.minCells`
+- `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`, `app.gpu.bots.minBotCount`, `app.gpu.bots.minWorkItems`
+- `app.gpu.patch.minArea`
 
 ## Routes (summary)
 - `GET /register`, `POST /register`
@@ -180,3 +206,5 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: `scripts/run-real-gpu-e2e.ps1` is the supported local end-to-end path for both the Java app and Rust engine.
 - Current learning: native Windows end-to-end verification now hits real GPU-backed world generation and bot simulation. On this machine the verified adapter was `Radeon RX 580 Series via Vulkan`.
 - Current learning: proposal patch application now uses the persisted proposal anchor fields for GPU patch rebuilds, so `rebuild_patch` is exercised cleanly in the native Windows E2E run.
+- Current learning: adaptive GPU thresholds matter more than raw GPU enablement on this workload. Small worlds, 1x1 proposal patches, and low-work bot ticks should stay on CPU by default, while the proof script lowers those thresholds explicitly when it needs to prove the live GPU RPCs.
+- Current learning: release-binary comparisons now live in `scripts/compare-cpu-vs-gpu-performance.ps1`; use that path with the `perf` profile for meaningful CPU-vs-GPU numbers.

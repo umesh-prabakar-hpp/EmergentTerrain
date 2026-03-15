@@ -64,6 +64,9 @@ public class RoomService {
     private final boolean gpuBotsCacheWorld;
     private final int gpuBotsSteps;
     private final int gpuBotsDiffMaxEdits;
+    private final int gpuBotsMinBotCount;
+    private final int gpuBotsMinWorkItems;
+    private final int gpuPatchMinArea;
     private final int neighborRadius;
     private final int voteWindowSeconds;
     private final int minVotesToResolve;
@@ -85,6 +88,7 @@ public class RoomService {
     private final int noParticipationLockSeconds;
     private final ActivityMetrics metrics;
     private final int maxBotsPerRoom;
+    private final int initialRoomCreateTarget;
     private final int maxBotsTickedPerMaintenance;
     private final int flushMinChanges;
     private final long flushMaxIntervalMs;
@@ -138,6 +142,9 @@ public class RoomService {
                        @Value("${app.gpu.bots.cacheWorld:true}") boolean gpuBotsCacheWorld,
                        @Value("${app.gpu.bots.steps:1}") int gpuBotsSteps,
                        @Value("${app.gpu.bots.diffMaxEdits:2000}") int gpuBotsDiffMaxEdits,
+                       @Value("${app.gpu.bots.minBotCount:512}") int gpuBotsMinBotCount,
+                       @Value("${app.gpu.bots.minWorkItems:2000}") int gpuBotsMinWorkItems,
+                       @Value("${app.gpu.patch.minArea:4}") int gpuPatchMinArea,
                        @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
                        @Value("${app.consensus.voteWindowSeconds:15}") int voteWindowSeconds,
                        @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
@@ -157,6 +164,7 @@ public class RoomService {
                        @Value("${app.move.maxSteps:6}") int maxMoveSteps,
                        @Value("${app.bots.populationFraction:0.25}") double botPopulationFraction,
                        @Value("${app.bots.maxPerRoom:200}") int maxBotsPerRoom,
+                       @Value("${app.bots.initialRoomCreateTarget:200}") int initialRoomCreateTarget,
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
                        @Value("${app.world.flushMinChanges:1}") int flushMinChanges,
                        @Value("${app.world.flushMaxIntervalMs:30000}") long flushMaxIntervalMs,
@@ -190,6 +198,9 @@ public class RoomService {
         this.gpuBotsCacheWorld = gpuBotsCacheWorld;
         this.gpuBotsSteps = Math.max(1, gpuBotsSteps);
         this.gpuBotsDiffMaxEdits = Math.max(0, gpuBotsDiffMaxEdits);
+        this.gpuBotsMinBotCount = Math.max(0, gpuBotsMinBotCount);
+        this.gpuBotsMinWorkItems = Math.max(0, gpuBotsMinWorkItems);
+        this.gpuPatchMinArea = Math.max(1, gpuPatchMinArea);
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         this.botTransactionTemplate = new TransactionTemplate(transactionManager);
         this.botTransactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
@@ -212,6 +223,7 @@ public class RoomService {
         this.maxMoveSteps = Math.max(1, maxMoveSteps);
         this.botPopulationFraction = botPopulationFraction;
         this.maxBotsPerRoom = Math.max(1, maxBotsPerRoom);
+        this.initialRoomCreateTarget = Math.max(minNeighbors, initialRoomCreateTarget);
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
         this.flushMinChanges = Math.max(1, flushMinChanges);
         this.flushMaxIntervalMs = Math.max(250, flushMaxIntervalMs);
@@ -294,12 +306,13 @@ public class RoomService {
         state = stateRepository.save(state);
         updateCacheFromState(room, state);
 
-        ensureBots(room, world.getTiles());
-        ensureNearbyBots(room, world.getTiles(), host.getX(), host.getY());
+        List<RoomBot> bots = ensureBots(room, world.getTiles(), false);
+        ensureNearbyBots(room, world.getTiles(), host.getX(), host.getY(), bots);
         if (refreshOccupancySnapshot(room, state, Instant.now())) {
             stateRepository.save(state);
             updateCacheFromState(room, state);
         }
+        CachedRoomState cachedState = getCachedRoomState(room, state);
 
         RoomCreateResponse response = new RoomCreateResponse();
         response.setRoomId(room.getId().toString());
@@ -311,7 +324,7 @@ public class RoomService {
         response.setSharedQuests(defaultSharedQuests());
         response.setMemoryMarkers(new ArrayList<>());
         response.setParticipants(buildParticipants(room));
-        response.setBots(buildBots(room));
+        response.setBots(buildBots(room, cachedState, bots));
         response.setProposals(buildProposals(room, host));
         response.setLockUntil(room.getLockUntil());
         response.setNeighborRadius(neighborRadius);
@@ -349,7 +362,8 @@ public class RoomService {
         }
         RoomState joinState = stateRepository.findByRoom(room).orElse(null);
         if (joinState != null) {
-            ensureNearbyBots(room, getTilesForRoom(room, joinState), participant.getX(), participant.getY());
+            List<RoomBot> bots = ensureBots(room, getTilesForRoom(room, joinState), false);
+            ensureNearbyBots(room, getTilesForRoom(room, joinState), participant.getX(), participant.getY(), bots);
             if (refreshOccupancySnapshot(room, joinState, Instant.now())) {
                 stateRepository.save(joinState);
                 updateCacheFromState(room, joinState);
@@ -524,7 +538,7 @@ public class RoomService {
         RoomParticipant participant = ensureParticipant(room, profile);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        ensureBots(room, getTilesForRoom(room, state));
+        ensureBots(room, getTilesForRoom(room, state), false);
         return toRoomStateResponse(room, state, participant);
     }
 
@@ -578,7 +592,7 @@ public class RoomService {
                         }
                         int[][] tiles = getTilesForRoom(room, botState);
                         long botsStart = System.nanoTime();
-                        ensureBots(room, tiles);
+                        ensureBots(room, tiles, true);
                         long botsMs = (System.nanoTime() - botsStart) / 1_000_000;
                         log.debug("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
                         if (shouldTickBots) {
@@ -1194,11 +1208,12 @@ public class RoomService {
         return active / 2 + 1;
     }
 
-    private void ensureBots(Room room, int[][] tiles) {
+    private List<RoomBot> ensureBots(Room room, int[][] tiles, boolean fullPopulation) {
         List<RoomBot> existing = botRepository.findByRoom(room);
         int maxOccupantsTotal = Math.max(3, (tiles.length * tiles[0].length * maxOccupants) / (densityAreaSize * densityAreaSize));
         int targetBots = Math.max(40, (int) Math.round(maxOccupantsTotal * botPopulationFraction));
         targetBots = Math.min(targetBots, maxBotsPerRoom);
+        int desiredBots = fullPopulation ? targetBots : Math.min(targetBots, initialRoomCreateTarget);
 
         Map<String, RoomBot> byType = new HashMap<>();
         for (RoomBot bot : existing) {
@@ -1206,18 +1221,24 @@ public class RoomService {
         }
 
         List<String> companions = List.of("OBSERVER", "COPILOT", "TENSION", "ECHO", "QUEST");
+        List<RoomBot> createdCompanions = new ArrayList<>();
         for (String type : companions) {
-            byType.computeIfAbsent(type, t -> {
+            if (!byType.containsKey(type)) {
                 RoomBot bot = new RoomBot();
                 bot.setRoom(room);
-                bot.setType(t);
-                bot.setProfileJson(toJson(randomBotProfile(room.getId().hashCode() ^ t.hashCode())));
+                bot.setType(type);
+                bot.setProfileJson(toJson(randomBotProfile(room.getId().hashCode() ^ type.hashCode())));
                 assignBotSpawn(bot, tiles);
-                return botRepository.save(bot);
-            });
+                createdCompanions.add(bot);
+                byType.put(type, bot);
+            }
+        }
+        if (!createdCompanions.isEmpty()) {
+            existing.addAll(botRepository.saveAll(createdCompanions));
         }
 
-        for (RoomBot bot : botRepository.findByRoom(room)) {
+        List<RoomBot> dirtyBots = new ArrayList<>();
+        for (RoomBot bot : existing) {
             boolean dirty = false;
             if (bot.getProfileJson() == null || bot.getProfileJson().isBlank()) {
                 bot.setProfileJson(toJson(randomBotProfile(room.getId().hashCode() ^ bot.getType().hashCode())));
@@ -1228,23 +1249,38 @@ public class RoomService {
                 dirty = true;
             }
             if (dirty) {
-                botRepository.save(bot);
+                dirtyBots.add(bot);
             }
         }
+        if (!dirtyBots.isEmpty()) {
+            botRepository.saveAll(dirtyBots);
+        }
 
-        int created = botRepository.findByRoom(room).size();
-        for (int i = created; i < targetBots; i++) {
+        List<RoomBot> newBots = new ArrayList<>();
+        for (int i = existing.size(); i < desiredBots; i++) {
             String type = "AGENT-" + (i + 1);
             RoomBot bot = new RoomBot();
             bot.setRoom(room);
             bot.setType(type);
             bot.setProfileJson(toJson(randomBotProfile(room.getId().hashCode() ^ i)));
             assignBotSpawn(bot, tiles);
-            botRepository.save(bot);
+            newBots.add(bot);
         }
+        if (!newBots.isEmpty()) {
+            existing.addAll(botRepository.saveAll(newBots));
+        }
+        return existing;
+    }
+
+    private List<RoomBot> ensureBots(Room room, int[][] tiles) {
+        return ensureBots(room, tiles, true);
     }
 
     private void ensureNearbyBots(Room room, int[][] tiles, Integer cx, Integer cy) {
+        ensureNearbyBots(room, tiles, cx, cy, null);
+    }
+
+    private void ensureNearbyBots(Room room, int[][] tiles, Integer cx, Integer cy, List<RoomBot> existingBots) {
         if (cx == null || cy == null) {
             return;
         }
@@ -1252,9 +1288,7 @@ public class RoomService {
         if (needed == 0) {
             return;
         }
-        int botYes = 0;
-        int botNo = 0;
-        List<RoomBot> bots = botRepository.findByRoom(room);
+        List<RoomBot> bots = existingBots != null ? existingBots : botRepository.findByRoom(room);
         int near = 0;
         for (RoomBot bot : bots) {
             if (bot.getX() == null || bot.getY() == null) {
@@ -1270,6 +1304,7 @@ public class RoomService {
         int toMove = Math.min(needed - near, bots.size());
         Random rand = new Random(Objects.hash(room.getId(), cx, cy));
         int attempts = 0;
+        List<RoomBot> movedBots = new ArrayList<>();
         for (RoomBot bot : bots) {
             if (toMove <= 0) {
                 break;
@@ -1282,13 +1317,16 @@ public class RoomService {
             if (pos != null) {
                 bot.setX(pos[0]);
                 bot.setY(pos[1]);
-                botRepository.save(bot);
+                movedBots.add(bot);
                 toMove--;
             }
             attempts++;
             if (attempts > bots.size() * 3) {
                 break;
             }
+        }
+        if (!movedBots.isEmpty()) {
+            botRepository.saveAll(movedBots);
         }
     }
 
@@ -1326,14 +1364,16 @@ public class RoomService {
     }
 
     private List<RoomBotInfo> buildBots(Room room) {
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        return buildBots(room, cached, null);
+    }
+
+    private List<RoomBotInfo> buildBots(Room room, CachedRoomState cached, List<RoomBot> existingBots) {
         List<RoomBotInfo> infos = new ArrayList<>();
-        int[][] tiles = stateRepository.findByRoom(room)
-            .map(s -> fromJsonTiles(s.getTilesJson()))
-            .orElse(new int[0][0]);
-        boolean[][] highways = stateRepository.findByRoom(room)
-            .map(s -> fromJsonHighways(s.getHighwaysJson()))
-            .orElse(new boolean[0][0]);
-        for (RoomBot bot : botRepository.findByRoom(room)) {
+        int[][] tiles = cached == null ? new int[0][0] : cached.tiles;
+        boolean[][] highways = cached == null ? new boolean[0][0] : cached.highways;
+        List<RoomBot> bots = existingBots != null ? existingBots : botRepository.findByRoom(room);
+        for (RoomBot bot : bots) {
             RoomBotInfo info = new RoomBotInfo();
             info.setId(bot.getId().toString());
             info.setType(bot.getType());
@@ -3098,7 +3138,7 @@ public class RoomService {
         }
         int[] anchor = proposalAnchor(proposal);
         int type = extractDeltaTypeFromProposal(proposal);
-        if (gpuEnabled && anchor != null && type >= 0) {
+        if (gpuEnabled && anchor != null && type >= 0 && gpuPatchMinArea <= 1) {
             ProposalApplyResult gpuResult = tryApplyProposalPatchWithGpu(room, proposal, baseTiles, normalizedHighways, anchor, type);
             if (gpuResult != null) {
                 return gpuResult;
@@ -3519,6 +3559,13 @@ public class RoomService {
             List<RoomBot> bots = new ArrayList<>(botRepository.findByRoom(room));
             if (bots.isEmpty()) {
                 return true;
+            }
+            if (bots.size() < gpuBotsMinBotCount) {
+                return false;
+            }
+            long botWorkItems = (long) bots.size() * (long) gpuBotsSteps;
+            if (botWorkItems < gpuBotsMinWorkItems) {
+                return false;
             }
 
             List<RoomBot> spawned = new ArrayList<>();

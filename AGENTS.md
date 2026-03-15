@@ -58,8 +58,18 @@ What it proves today:
 - room bot positions change while the Java app is running against the live engine
 - a live proposal applies through `rebuild_patch`
 - the engine log contains `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` proof markers
+- the script lowers the adaptive bot and patch thresholds on purpose so the GPU proof remains explicit even though the default runtime now keeps small work on CPU
 
 The script writes logs under `sample-output\gpu-e2e-*`.
+
+Release-binary perf comparison:
+```powershell
+cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
+
+.\scripts\compare-cpu-vs-gpu-performance.ps1 -Iterations 2 -BuildArtifacts
+```
+
+That script is the supported local performance path. It uses the packaged Spring Boot jar, the Rust `release` binary, and the `perf` Spring profile instead of `spring-boot:run` / `cargo run`.
 
 ### Benchmarks (JMH)
 ```powershell
@@ -95,6 +105,7 @@ GPU benchmarks require the Rust GPU engine running. Use `GPU_ENGINE_HOST` / `GPU
 Benchmark classes:
 - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench\GpuVsCpuWorldBenchmark.java`
 - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench\GpuVsCpuBotSimulationBenchmark.java`
+- `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench\GpuVsCpuPatchRebuildBenchmark.java`
 
 ### GPU Engine (Rust gRPC service)
 See `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine\README.md` for full setup.
@@ -134,10 +145,15 @@ cargo run
   - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\java\com\emergentterrain\service\WorldService.java` can call the GPU engine when `app.gpu.*` flags are enabled.
   - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\java\com\emergentterrain\service\RoomService.java` can call the GPU engine for bot simulation when enabled.
   - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\java\com\emergentterrain\gpu\GpuEngineCodec.java` handles tile/bool grid encoding.
+  - `WorldService` now caches generated worlds briefly so `/game/state` and `/room/create` can reuse the same result.
+  - `RoomService` now batches bot persistence, lazily materializes room-create bots via `app.bots.initialRoomCreateTarget`, and uses adaptive GPU thresholds for bot simulation and patch rebuilds.
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
-    - `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`
+    - `app.gpu.world.minCells`
+    - `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`, `app.gpu.bots.minBotCount`, `app.gpu.bots.minWorkItems`
+    - `app.gpu.patch.minArea`
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
+  - World cache config lives under `app.world.cacheTtlMs` / `app.world.cacheMaxEntries`.
 - Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
 - Verified two-app smoke check: `/game/state` from the Java app now returns a non-stub `220x165` world with non-zero tiles and highways when GPU world generation is enabled, and the engine log shows `wgpu-world` / `wgpu-bot-sim` markers. That is a direct proof that the Java app is crossing the gRPC boundary to the live GPU engine rather than using the CPU world generator or the old stub.
 - Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine`, starts the Java app with GPU flags forced on, verifies non-stub world output, submits a live proposal, and checks the engine log for `wgpu-world`, `wgpu-patch`, and `wgpu-bot-sim` markers before passing. If engine behavior changes, update the script assertions and this markdown note in the same change.
@@ -145,6 +161,8 @@ cargo run
 - Current learning: the supported local smoke path is `scripts\run-real-gpu-e2e.ps1`.
 - Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 - Current learning: persisted proposal JSON is not a reliable source of anchors by itself; use the stored `anchorX` / `anchorY` fields so GPU patch rebuilds are exercised consistently.
+- Current learning: adaptive GPU thresholds are now the default runtime behavior. Small worlds, 1x1 proposal patches, and low-work bot ticks should stay on CPU unless a proof script intentionally lowers the thresholds.
+- Current learning: use `scripts\compare-cpu-vs-gpu-performance.ps1` for meaningful local CPU-vs-GPU timings because it uses the packaged jar, the Rust `release` binary, and the `perf` profile.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

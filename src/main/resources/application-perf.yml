@@ -1,0 +1,20 @@
+spring:
+  main:
+    banner-mode: "off"
+
+app:
+  gpu:
+    bots:
+      cacheWorld: true
+      steps: 10
+      diffMaxEdits: 4000
+  world:
+    cacheTtlMs: 15000
+
+logging:
+  level:
+    root: WARN
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
+    org.springframework.boot.context.config: WARN
+    com.emergentterrain.service.RoomService: WARN

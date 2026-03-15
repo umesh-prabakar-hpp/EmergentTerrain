@@ -19,6 +19,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class WorldService {
@@ -30,8 +31,12 @@ public class WorldService {
     private final int maxTiles;
     private final boolean gpuEnabled;
     private final boolean gpuWorldEnabled;
+    private final int gpuWorldMinCells;
+    private final long worldCacheTtlMs;
+    private final int worldCacheMaxEntries;
     private final ObjectMapper objectMapper;
     private final GpuEngineAdapter gpuEngineAdapter;
+    private final ConcurrentHashMap<WorldCacheKey, CachedWorldResponse> worldCache = new ConcurrentHashMap<>();
 
     public WorldService(@Value("${app.world.width}") int width,
                         @Value("${app.world.height}") int height,
@@ -39,15 +44,21 @@ public class WorldService {
                         @Value("${app.world.maxTiles:120000}") int maxTiles,
                         @Value("${app.world.aspectRatio:1.3333}") double aspectRatio,
                         @Value("${app.world.highwayRatio:0.02}") double highwayRatio,
+                        @Value("${app.world.cacheTtlMs:5000}") long worldCacheTtlMs,
+                        @Value("${app.world.cacheMaxEntries:32}") int worldCacheMaxEntries,
                         @Value("${app.gpu.enabled:false}") boolean gpuEnabled,
                         @Value("${app.gpu.world.enabled:false}") boolean gpuWorldEnabled,
+                        @Value("${app.gpu.world.minCells:30000}") int gpuWorldMinCells,
                         ObjectMapper objectMapper,
                         GpuEngineAdapter gpuEngineAdapter) {
         this.highwayRatio = highwayRatio;
         this.aspectRatio = aspectRatio <= 0 ? 1.3333 : aspectRatio;
         this.maxTiles = Math.max(20000, maxTiles);
+        this.worldCacheTtlMs = Math.max(0, worldCacheTtlMs);
+        this.worldCacheMaxEntries = Math.max(1, worldCacheMaxEntries);
         this.gpuEnabled = gpuEnabled;
         this.gpuWorldEnabled = gpuWorldEnabled;
+        this.gpuWorldMinCells = Math.max(0, gpuWorldMinCells);
         this.objectMapper = objectMapper;
         this.gpuEngineAdapter = gpuEngineAdapter;
         if (auto) {
@@ -61,6 +72,11 @@ public class WorldService {
     }
 
     public GameStateResponse generateWorld(Payload payload, long seed) {
+        WorldCacheKey cacheKey = new WorldCacheKey(seed, width, height, shouldUseGpuWorld(width, height), payload.hidden());
+        GameStateResponse cached = getCachedWorld(cacheKey);
+        if (cached != null) {
+            return cached;
+        }
         HiddenProperties hp = payload.hidden();
         double forestDensity = 0.30 + 0.50 * hp.humidity();
         double clusterBias = 0.20 + 0.60 * hp.density();
@@ -120,11 +136,12 @@ public class WorldService {
         response.setFog(fog);
         response.setPlayer(player);
         response.setProperties(props);
+        cacheWorld(cacheKey, response);
         return response;
     }
 
     private GpuWorldResult tryGenerateWithGpu(long seed, int width, int height, HiddenProperties hp) {
-        if (!gpuEnabled || !gpuWorldEnabled) {
+        if (!shouldUseGpuWorld(width, height)) {
             return null;
         }
         try {
@@ -155,6 +172,96 @@ public class WorldService {
         }
     }
 
+    private boolean shouldUseGpuWorld(int width, int height) {
+        return gpuEnabled
+            && gpuWorldEnabled
+            && ((long) width * (long) height) >= gpuWorldMinCells;
+    }
+
+    private GameStateResponse getCachedWorld(WorldCacheKey key) {
+        if (worldCacheTtlMs <= 0) {
+            return null;
+        }
+        CachedWorldResponse cached = worldCache.get(key);
+        if (cached == null) {
+            return null;
+        }
+        if ((System.currentTimeMillis() - cached.createdAtMs) > worldCacheTtlMs) {
+            worldCache.remove(key, cached);
+            return null;
+        }
+        return copyResponse(cached.response);
+    }
+
+    private void cacheWorld(WorldCacheKey key, GameStateResponse response) {
+        if (worldCacheTtlMs <= 0) {
+            return;
+        }
+        if (worldCache.size() >= worldCacheMaxEntries) {
+            pruneExpiredCacheEntries();
+            if (worldCache.size() >= worldCacheMaxEntries) {
+                WorldCacheKey oldestKey = null;
+                long oldestAt = Long.MAX_VALUE;
+                for (Map.Entry<WorldCacheKey, CachedWorldResponse> entry : worldCache.entrySet()) {
+                    if (entry.getValue().createdAtMs < oldestAt) {
+                        oldestAt = entry.getValue().createdAtMs;
+                        oldestKey = entry.getKey();
+                    }
+                }
+                if (oldestKey != null) {
+                    worldCache.remove(oldestKey);
+                }
+            }
+        }
+        worldCache.put(key, new CachedWorldResponse(copyResponse(response), System.currentTimeMillis()));
+    }
+
+    private void pruneExpiredCacheEntries() {
+        long now = System.currentTimeMillis();
+        worldCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs) > worldCacheTtlMs);
+    }
+
+    private GameStateResponse copyResponse(GameStateResponse source) {
+        GameStateResponse copy = new GameStateResponse();
+        copy.setSeed(source.getSeed());
+        copy.setWidth(source.getWidth());
+        copy.setHeight(source.getHeight());
+        copy.setTiles(copyTiles(source.getTiles()));
+        copy.setHighways(copyHighways(source.getHighways()));
+        copy.setRegionIds(copyTiles(source.getRegionIds()));
+        copy.setFog(copyHighways(source.getFog()));
+        copy.setRegions(source.getRegions() == null ? null : new ArrayList<>(source.getRegions()));
+        if (source.getPlayer() != null) {
+            copy.setPlayer(new PlayerPosition(source.getPlayer().getX(), source.getPlayer().getY()));
+        }
+        copy.setSnapshots(source.getSnapshots() == null ? null : new ArrayList<>(source.getSnapshots()));
+        copy.setQuestState(source.getQuestState());
+        copy.setProperties(source.getProperties() == null ? null : new HashMap<>(source.getProperties()));
+        return copy;
+    }
+
+    private int[][] copyTiles(int[][] source) {
+        if (source == null) {
+            return null;
+        }
+        int[][] copy = new int[source.length][];
+        for (int y = 0; y < source.length; y++) {
+            copy[y] = source[y] == null ? null : source[y].clone();
+        }
+        return copy;
+    }
+
+    private boolean[][] copyHighways(boolean[][] source) {
+        if (source == null) {
+            return null;
+        }
+        boolean[][] copy = new boolean[source.length][];
+        for (int y = 0; y < source.length; y++) {
+            copy[y] = source[y] == null ? null : source[y].clone();
+        }
+        return copy;
+    }
+
     private String buildGpuWorldParams(HiddenProperties hp, int width, int height) {
         try {
             Map<String, Object> params = new HashMap<>();
@@ -182,6 +289,19 @@ public class WorldService {
         private GpuWorldResult(int[][] tiles, boolean[][] highways) {
             this.tiles = tiles;
             this.highways = highways;
+        }
+    }
+
+    private record WorldCacheKey(long seed, int width, int height, boolean gpuWorld, HiddenProperties hiddenProperties) {
+    }
+
+    private static final class CachedWorldResponse {
+        private final GameStateResponse response;
+        private final long createdAtMs;
+
+        private CachedWorldResponse(GameStateResponse response, long createdAtMs) {
+            this.response = response;
+            this.createdAtMs = createdAtMs;
         }
     }
 

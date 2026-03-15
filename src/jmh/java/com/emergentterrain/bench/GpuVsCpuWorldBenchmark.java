@@ -85,8 +85,11 @@ public class GpuVsCpuWorldBenchmark {
                 maxTiles,
                 aspect,
                 highwayRatio,
+                0,
+                1,
                 false,
                 false,
+                0,
                 objectMapper,
                 null
             );
@@ -104,8 +107,11 @@ public class GpuVsCpuWorldBenchmark {
                 maxTiles,
                 aspect,
                 highwayRatio,
+                0,
+                1,
                 true,
                 true,
+                0,
                 objectMapper,
                 gpuEngineAdapter
             );

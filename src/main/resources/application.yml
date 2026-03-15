@@ -33,12 +33,17 @@ app:
     enabled: true 
     world:
       enabled: true 
+      minCells: 30000
     bots:
       enabled: true 
       applyEdits: true 
       cacheWorld: true
       steps: 5
       diffMaxEdits: 2000
+      minBotCount: 512
+      minWorkItems: 2000
+    patch:
+      minArea: 4
   qr:
     hmacSecret: "dev-secret-change"
   room:
@@ -52,6 +57,8 @@ app:
     width: 40
     height: 30
     maxTiles: 120000
+    cacheTtlMs: 5000
+    cacheMaxEntries: 32
     aspectRatio: 1.3333
     highwayRatio: 0.02
     flushIntervalMs: 2000
@@ -85,6 +92,7 @@ app:
   bots:
     populationFraction: 0.8
     maxPerRoom: 1000
+    initialRoomCreateTarget: 200
     maxTickPerMaintenance: 400
   activityLog:
     intervalMs: 30000

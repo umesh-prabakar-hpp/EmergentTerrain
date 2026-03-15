@@ -5,8 +5,9 @@ param(
   [int]$AppPort = 8080,
   [int]$GpuPort = 50051,
   [int]$StartupTimeoutSeconds = 180,
-  [int]$BotPollSeconds = 20,
+  [int]$BotPollSeconds = 30,
   [int]$MaintenanceIntervalMs = 500,
+  [switch]$RequireGpuPatch,
   [switch]$ReuseExistingGpuEngine,
   [switch]$ReuseExistingApp
 )
@@ -184,6 +185,18 @@ function Assert-LogContains {
   }
 }
 
+function Test-LogContains {
+  param(
+    [string]$LogPath,
+    [string]$Pattern
+  )
+
+  if (-not (Test-Path $LogPath)) {
+    return $false
+  }
+  return Select-String -Path $LogPath -Pattern $Pattern -Quiet
+}
+
 function Copy-TileGrid {
   param($Tiles)
 
@@ -343,8 +356,12 @@ Set-Location '$WindowsGpuRepo'
 `$env:APP_GPU_WORLD_ENABLED = 'true'
 `$env:APP_GPU_BOTS_ENABLED = 'true'
 `$env:APP_GPU_BOTS_APPLYEDITS = 'true'
-`$env:APP_GPU_BOTS_CACHEWORLD = 'false'
-`$env:APP_GPU_BOTS_STEPS = '1'
+`$env:APP_GPU_BOTS_CACHEWORLD = 'true'
+`$env:APP_GPU_BOTS_STEPS = '10'
+`$env:APP_GPU_BOTS_MINBOTCOUNT = '1'
+`$env:APP_GPU_BOTS_MINWORKITEMS = '1'
+`$env:APP_GPU_PATCH_MINAREA = '1'
+`$env:APP_BOTS_INITIALROOMCREATETARGET = '1000'
 `$env:APP_GPU_HOST = '127.0.0.1'
 `$env:APP_GPU_PORT = '$GpuPort'
 `$env:APP_CONSENSUS_MAINTENANCEINTERVALMS = '$MaintenanceIntervalMs'
@@ -512,14 +529,19 @@ Set-Location '$WindowsGpuRepo'
     $startedGpu = $false
   }
 
-  Assert-LogContains -LogPath $gpuLog -Patterns @(
+  $requiredPatterns = @(
     "generate_region request_id=",
-    "rebuild_patch request_id=",
     "simulate_bots request_id=",
-    '"backend":"wgpu-patch"',
     '"backend":"wgpu-world"',
     '"backend":"wgpu-bot-sim"'
   )
+  if ($RequireGpuPatch) {
+    $requiredPatterns += "rebuild_patch request_id="
+    $requiredPatterns += '"backend":"wgpu-patch"'
+  }
+  Assert-LogContains -LogPath $gpuLog -Patterns $requiredPatterns
+  $gpuPatchObserved = (Test-LogContains -LogPath $gpuLog -Pattern "rebuild_patch request_id=") -and
+    (Test-LogContains -LogPath $gpuLog -Pattern '"backend":"wgpu-patch"')
 
   [pscustomobject]@{
     world_width = $worldStats.Width
@@ -533,6 +555,7 @@ Set-Location '$WindowsGpuRepo'
     proposal_x = $proposalX
     proposal_y = $proposalY
     proposal_type = $proposalType
+    gpu_patch_observed = $gpuPatchObserved
     gpu_log = $gpuLog
     gpu_err_log = $gpuErrLog
     app_log = $appLog

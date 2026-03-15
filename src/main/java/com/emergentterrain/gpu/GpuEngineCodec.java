@@ -31,12 +31,16 @@ public final class GpuEngineCodec {
     }
 
     public static BoolGrid toBoolGrid(boolean[][] values, int width, int height) {
-        byte[] data = new byte[width * height];
+        int total = width * height;
+        byte[] data = new byte[(total + 7) / 8];
         int idx = 0;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 boolean v = y < values.length && x < values[y].length && values[y][x];
-                data[idx++] = (byte) (v ? 1 : 0);
+                if (v) {
+                    data[idx / 8] |= (byte) (1 << (idx % 8));
+                }
+                idx++;
             }
         }
         return BoolGrid.newBuilder()
@@ -90,14 +94,28 @@ public final class GpuEngineCodec {
             return out;
         }
         byte[] bytes = grid.getValues().toByteArray();
-        int idx = 0;
         int h = Math.min(height, (int) grid.getHeight());
         int w = Math.min(width, (int) grid.getWidth());
+        int total = w * h;
+        if (bytes.length == total) {
+            int idx = 0;
+            for (int y = 0; y < h; y++) {
+                for (int x = 0; x < w; x++) {
+                    if (idx < bytes.length) {
+                        out[y][x] = bytes[idx++] != 0;
+                    }
+                }
+            }
+            return out;
+        }
         for (int y = 0; y < h; y++) {
             for (int x = 0; x < w; x++) {
-                if (idx < bytes.length) {
-                    out[y][x] = bytes[idx++] != 0;
+                int flat = y * w + x;
+                int byteIndex = flat / 8;
+                if (byteIndex >= bytes.length) {
+                    continue;
                 }
+                out[y][x] = (bytes[byteIndex] & (1 << (flat % 8))) != 0;
             }
         }
         return out;
