@@ -51,7 +51,7 @@ Open `http://localhost:8080/`
 ## Tests (summary)
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
-- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, verifies the current stub-world signal over `/game/state`, creates a room, and waits for live bot movement over `/room/{roomId}/state`. Expected time: ~30-60s after startup.
+- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app from the native Windows repos by default, verifies non-stub world data over `/game/state`, creates a room, and waits for live bot movement over `/room/{roomId}/state`. Expected time: ~30-60s after startup.
 - `scripts/run-real-gpu-e2e-wsl.sh` does the same check with both apps running inside WSL from `/home/umesh/workspace/EmergentTerrain` and `/home/umesh/workspace/EmergentTerrainGPUEngine`.
 - `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
@@ -103,7 +103,7 @@ A real Java app + Rust GPU engine smoke check was verified from Ubuntu using the
 - Call `GET /game/test` to obtain a token
 - Call `POST /game/state`
 
-With the current Rust stub engine, a successful GPU-backed world-generation call returns an all-zero `220x165` world with zero highways. That is a practical signal that the Java app is using the GPU engine gRPC path rather than the CPU world generator.
+With the native Windows GPU path, a successful GPU-backed engine call now returns a non-stub `220x165` world with non-zero tiles and highways, and live bot simulation RPCs are also handled by the GPU engine. The current Windows-native verification on this machine used `Radeon RX 580 Series via Vulkan` for both `GenerateRegion` and `SimulateBots`.
 
 Windows shortcut for a full two-process check:
 ```powershell
@@ -112,7 +112,12 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 .\scripts\run-real-gpu-e2e.ps1
 ```
 
-The script starts the real Rust engine from the WSL copy by default, starts the Java app with GPU world/bot flags forced on, verifies the current stub-world signal, creates a room, and polls until at least one bot position changes. It writes logs under `sample-output\gpu-e2e-*`.
+The script starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, verifies non-stub world output, creates a room, and polls until at least one bot position changes. It also checks the engine log to prove `generate_region` and `simulate_bots` were handled by the live engine. Logs go under `sample-output\gpu-e2e-*`.
+
+If you explicitly want the older WSL-backed engine path instead, use:
+```powershell
+.\scripts\run-real-gpu-e2e.ps1 -UseWslGpuEngine
+```
 
 WSL-native shortcut for the same check with both apps in Linux:
 ```bash
@@ -121,10 +126,10 @@ cd /home/umesh/workspace/EmergentTerrain
 ./scripts/run-real-gpu-e2e-wsl.sh
 ```
 
-That script starts both the Java app and Rust engine inside WSL, verifies the same current stub-world signal, creates a room, and waits for live bot movement. It writes logs under `/home/umesh/workspace/EmergentTerrain/sample-output/gpu-e2e-wsl-*`.
+That script starts both the Java app and Rust engine inside WSL, verifies non-stub world output, creates a room, and waits for live bot movement. It also checks the engine log for `wgpu-world` and `wgpu-bot-sim` proof markers. It writes logs under `/home/umesh/workspace/EmergentTerrain/sample-output/gpu-e2e-wsl-*`.
 It also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
 
-Important caveat: the current Rust engine is still the stub implementation, so these timings measure the Linux-native Java-to-Rust integration path on this GPU-capable machine, not actual hardware GPU/Vulkan compute throughput.
+Important caveat: the native Windows path is now GPU-backed for `GenerateRegion`, `RebuildPatch`, and `SimulateBots`, but the Linux-native WSL path still depends on whether the Linux copy is synced to the same engine revision and whether a real Linux GPU adapter is exposed.
 
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
@@ -194,3 +199,5 @@ See `src/main/resources/application.yml` for app settings:
 - Dev note: `GpuEngineClient` is wired via a Spring constructor; if adding constructors, keep the `@Autowired` config-based one.
 - Docs policy: when behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md`.
 - Any new learnings from setup, WSL/OpenClaw use, debugging, performance work, or integration checks should be added to markdown in the same change.
+- Current learning: `scripts/run-real-gpu-e2e.ps1` now defaults to a fully native Windows run for both the Java app and Rust engine; pass `-UseWslGpuEngine` only when you intentionally want the older mixed Windows/WSL path.
+- Current learning: native Windows end-to-end verification now hits real GPU-backed world generation and bot simulation. On this machine the verified adapter was `Radeon RX 580 Series via Vulkan`.

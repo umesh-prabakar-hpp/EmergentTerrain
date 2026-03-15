@@ -1,6 +1,7 @@
 param(
   [string]$JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7",
   [string]$MavenCmd = "",
+  [string]$WindowsGpuRepo = "C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine",
   [string]$WslDistro = "Ubuntu",
   [string]$WslGpuRepo = "/home/umesh/workspace/EmergentTerrainGPUEngine",
   [int]$AppPort = 8080,
@@ -8,6 +9,7 @@ param(
   [int]$StartupTimeoutSeconds = 180,
   [int]$BotPollSeconds = 20,
   [int]$MaintenanceIntervalMs = 500,
+  [switch]$UseWslGpuEngine,
   [switch]$ReuseExistingGpuEngine,
   [switch]$ReuseExistingApp
 )
@@ -166,6 +168,24 @@ function Assert-NoGpuFallbackWarnings {
   }
 }
 
+function Assert-LogContains {
+  param(
+    [string]$LogPath,
+    [string[]]$Patterns
+  )
+
+  if (-not (Test-Path $LogPath)) {
+    throw "Expected log file was not found: $LogPath"
+  }
+
+  foreach ($pattern in $Patterns) {
+    $match = Select-String -Path $LogPath -Pattern $pattern -Quiet
+    if (-not $match) {
+      throw "Expected pattern '$pattern' was not found in $LogPath"
+    }
+  }
+}
+
 function Get-ChildProcessIds {
   param([int]$ParentId)
 
@@ -206,17 +226,36 @@ try {
   }
 
   if (-not $ReuseExistingGpuEngine) {
-    & wsl.exe -d $WslDistro bash -lc "test -d '$WslGpuRepo'"
-    if ($LASTEXITCODE -ne 0) {
-      throw "WSL GPU repo path not found: $WslGpuRepo"
-    }
+    if ($UseWslGpuEngine) {
+      & wsl.exe -d $WslDistro bash -lc "test -d '$WslGpuRepo'"
+      if ($LASTEXITCODE -ne 0) {
+        throw "WSL GPU repo path not found: $WslGpuRepo"
+      }
 
-    $gpuCommand = 'source "$HOME/.cargo/env" 2>/dev/null || true; export PATH="$HOME/.cargo/bin:$PATH"; export GPU_ENGINE_ADDR="127.0.0.1:{0}"; cd "{1}"; cargo run' -f $GpuPort, $WslGpuRepo
-    $gpuProcess = Start-Process -FilePath "wsl.exe" `
-      -ArgumentList @("-d", $WslDistro, "bash", "-lc", $gpuCommand) `
-      -RedirectStandardOutput $gpuLog `
-      -RedirectStandardError $gpuErrLog `
-      -PassThru
+      $gpuCommand = 'source "$HOME/.cargo/env" 2>/dev/null || true; export PATH="$HOME/.cargo/bin:$PATH"; export GPU_ENGINE_ADDR="127.0.0.1:{0}"; cd "{1}"; cargo run' -f $GpuPort, $WslGpuRepo
+      $gpuProcess = Start-Process -FilePath "wsl.exe" `
+        -ArgumentList @("-d", $WslDistro, "bash", "-lc", $gpuCommand) `
+        -RedirectStandardOutput $gpuLog `
+        -RedirectStandardError $gpuErrLog `
+        -PassThru
+    } else {
+      if (-not (Test-Path $WindowsGpuRepo)) {
+        throw "Windows GPU repo path not found: $WindowsGpuRepo"
+      }
+
+      $gpuCommand = @"
+`$env:PATH = '`$env:USERPROFILE\.cargo\bin;' + `$env:PATH
+`$env:GPU_ENGINE_ADDR = '127.0.0.1:$GpuPort'
+Set-Location '$WindowsGpuRepo'
+& cargo run
+"@
+      $gpuProcess = Start-Process -FilePath "powershell.exe" `
+        -ArgumentList @("-NoProfile", "-Command", $gpuCommand) `
+        -WorkingDirectory $WindowsGpuRepo `
+        -RedirectStandardOutput $gpuLog `
+        -RedirectStandardError $gpuErrLog `
+        -PassThru
+    }
     $startedGpu = $true
   }
 
@@ -261,8 +300,8 @@ try {
   if ($worldStats.Width -le 0 -or $worldStats.Height -le 0) {
     throw "World state did not include a valid tile grid."
   }
-  if ($worldStats.NonZeroTileCount -ne 0 -or $worldStats.HighwayCount -ne 0) {
-    throw "Expected the current Rust stub engine to yield an all-zero world and zero highways, got nonZeroTiles=$($worldStats.NonZeroTileCount) highwayCount=$($worldStats.HighwayCount)."
+  if ($worldStats.NonZeroTileCount -le 0 -or $worldStats.HighwayCount -le 0) {
+    throw "Expected the GPU engine to yield a non-stub world with non-zero tiles and highways, got nonZeroTiles=$($worldStats.NonZeroTileCount) highwayCount=$($worldStats.HighwayCount)."
   }
 
   $roomCreate = Invoke-RestMethod -Uri "$baseUrl/room/create" `
@@ -316,6 +355,13 @@ try {
     Stop-ProcessTree -RootProcessId $gpuProcess.Id
     $startedGpu = $false
   }
+
+  Assert-LogContains -LogPath $gpuLog -Patterns @(
+    "generate_region request_id=",
+    "simulate_bots request_id=",
+    '"backend":"wgpu-world"',
+    '"backend":"wgpu-bot-sim"'
+  )
 
   [pscustomobject]@{
     world_width = $worldStats.Width

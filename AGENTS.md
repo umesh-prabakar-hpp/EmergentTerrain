@@ -56,10 +56,12 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 
 What it proves today:
 - the Java app can reach the real Rust GPU engine on `127.0.0.1:50051`
-- `POST /game/state` returns the current stub-engine signal (all-zero world, zero highways)
+- `POST /game/state` returns non-stub GPU-generated world data
 - room bot positions change while the Java app is running against the live engine
+- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
 
 The script writes logs under `sample-output\gpu-e2e-*`.
+By default it starts both processes from the native Windows repos. Pass `-UseWslGpuEngine` only when you intentionally want to launch the engine from the Linux-native copy.
 
 Linux-native WSL smoke check:
 ```bash
@@ -70,8 +72,9 @@ cd /home/umesh/workspace/EmergentTerrain
 
 What it proves today:
 - both the Java app and Rust GPU engine are running inside WSL
-- `POST /game/state` returns the current stub-engine signal (all-zero world, zero highways)
+- `POST /game/state` returns non-stub GPU-generated world data
 - room bot positions change while the Java app is running against the live engine in Linux
+- the engine log contains `wgpu-world` and `wgpu-bot-sim` proof markers
 
 The script writes logs under `/home/umesh/workspace/EmergentTerrain/sample-output/gpu-e2e-wsl-*`.
 It also prints end-to-end timings for engine startup, app startup, token fetch, `/game/state`, `/room/create`, and bot-move detection.
@@ -156,10 +159,12 @@ cargo run
     - `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`
     - `app.gpu.host`, `app.gpu.port`, `app.gpu.useTls`
 - Spring wiring note: `GpuEngineClient` relies on the `@Autowired` config constructor; keep that annotation if adding constructors.
-- Verified two-app smoke check: with the current Rust stub engine running, `/game/state` from the Java app returns an all-zero `220x165` world with zero highways when GPU world generation is enabled. That is a useful proof that the Java app is crossing the gRPC boundary rather than using the CPU world generator.
-- Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` starts the real Rust engine from the WSL copy, starts the Java app with GPU flags forced on, verifies the current stub-world signal, creates a room, and waits for live bot movement. If engine behavior changes away from the current stub output, update the script assertions and this markdown note in the same change.
-- WSL-native full two-process shortcut: `scripts/run-real-gpu-e2e-wsl.sh` runs the Linux-native Java and GPU repos under `/home/umesh/workspace/...`, verifies the current stub-world signal, and waits for live bot movement. If engine behavior changes away from the current stub output, update the script assertions and this markdown note in the same change.
-- Current caveat: the Rust engine is still a stub implementation. The WSL script timings are valid Linux-native end-to-end integration metrics on this GPU-capable machine, but they are not hardware GPU/Vulkan performance numbers.
+- Verified two-app smoke check: `/game/state` from the Java app now returns a non-stub `220x165` world with non-zero tiles and highways when GPU world generation is enabled, and the engine log shows `wgpu-world` / `wgpu-bot-sim` markers. That is a direct proof that the Java app is crossing the gRPC boundary to the live GPU engine rather than using the CPU world generator or the old stub.
+- Windows-side full two-process shortcut: `scripts\run-real-gpu-e2e.ps1` now starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU flags forced on, verifies non-stub world output, and checks the engine log for `wgpu-world` and `wgpu-bot-sim` markers before passing. Use `-UseWslGpuEngine` only when you intentionally want the older mixed Windows/WSL path. If engine behavior changes, update the script assertions and this markdown note in the same change.
+- WSL-native full two-process shortcut: `scripts/run-real-gpu-e2e-wsl.sh` runs the Linux-native Java and GPU repos under `/home/umesh/workspace/...`, verifies non-stub world output, and checks the engine log for `wgpu-world` and `wgpu-bot-sim` markers before passing. If engine behavior changes, update the script assertions and this markdown note in the same change.
+- Current caveat: the native Windows path is now GPU-backed for world generation, patch rebuilds, and bot simulation. The Linux-native WSL path still depends on a synced Linux copy and a real Linux GPU adapter being available.
+- Current learning: when native Linux GPU work is deferred, the supported no-WSL smoke path is `scripts\run-real-gpu-e2e.ps1` with its default native Windows engine launch.
+- Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

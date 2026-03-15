@@ -110,7 +110,7 @@ PY
   return 1
 }
 
-assert_world_stub_signal() {
+assert_world_gpu_signal() {
   python3 - "$1" <<'PY'
 import json
 import sys
@@ -127,9 +127,9 @@ highway_count = sum(1 for row in highways for cell in row if bool(cell))
 
 if width <= 0 or height <= 0:
     raise SystemExit("World state did not include a valid tile grid.")
-if non_zero_tiles != 0 or highway_count != 0:
+if non_zero_tiles <= 0 or highway_count <= 0:
     raise SystemExit(
-        f"Expected current Rust stub signal, got non_zero_tiles={non_zero_tiles} highway_count={highway_count}"
+        f"Expected GPU-backed non-stub signal, got non_zero_tiles={non_zero_tiles} highway_count={highway_count}"
     )
 
 print(width)
@@ -237,7 +237,7 @@ curl -fsS "$base_url/game/state" \
   -o "$world_state_json"
 world_request_end_ms="$(now_ms)"
 
-mapfile -t world_summary < <(assert_world_stub_signal "$world_state_json")
+mapfile -t world_summary < <(assert_world_gpu_signal "$world_state_json")
 world_width="${world_summary[0]}"
 world_height="${world_summary[1]}"
 non_zero_tiles="${world_summary[2]}"
@@ -282,6 +282,14 @@ bot_move_ready_ms="$(now_ms)"
 
 if grep -qE 'gpu bot simulation failed|gpu world generation failed' "$app_log" "$app_err_log"; then
   echo "GPU fallback warnings were found in app logs under $output_dir" >&2
+  exit 1
+fi
+if ! grep -q 'backend":"wgpu-world"' "$gpu_log"; then
+  echo "GPU world backend proof was not found in $gpu_log" >&2
+  exit 1
+fi
+if ! grep -q 'backend":"wgpu-bot-sim"' "$gpu_log"; then
+  echo "GPU bot backend proof was not found in $gpu_log" >&2
   exit 1
 fi
 
