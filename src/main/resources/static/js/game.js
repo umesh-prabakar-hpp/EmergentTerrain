@@ -82,9 +82,10 @@ let radialMenuIgnoreUntil = 0;
 let player = { x: 0, y: 0 };
 let playerTarget = { x: 0, y: 0 };
 let playerRender = { x: 0, y: 0 };
-let playerAnimFrame = null;
-let playerAnimActive = false;
-let lastPlayerAnimTs = 0;
+let sceneAnimFrame = null;
+let lastSceneAnimTs = 0;
+let botRenderState = new Map();
+let tileTransitions = new Map();
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
@@ -99,6 +100,9 @@ let tool = 'forest';
 const AUTO_NAV_MAX_IN_FLIGHT = 2;
 const AUTO_NAV_MAX_STEPS = 4;
 const AUTO_NAV_PREDICT_INTERVAL_MS = 160;
+const PLAYER_INTERPOLATION_MS = 120;
+const BOT_INTERPOLATION_MS = 150;
+const TILE_TRANSITION_MS = 180;
 
 const panelMap = {
   tokens: tokensPanel,
@@ -144,38 +148,184 @@ function setPlayerTarget(x, y) {
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
   ensurePlayerRender();
   playerTarget = { x, y };
-  if (!playerAnimActive) {
-    playerAnimActive = true;
-    lastPlayerAnimTs = 0;
-    playerAnimFrame = requestAnimationFrame(stepPlayerAnimation);
-  }
+  ensureSceneAnimation();
 }
 
-function stepPlayerAnimation(ts) {
-  if (!playerAnimActive) return;
-  if (!lastPlayerAnimTs) {
-    lastPlayerAnimTs = ts;
-  }
-  const dt = ts - lastPlayerAnimTs;
-  lastPlayerAnimTs = ts;
-  const alpha = 1 - Math.exp(-dt / 120);
-  playerRender.x += (playerTarget.x - playerRender.x) * alpha;
-  playerRender.y += (playerTarget.y - playerRender.y) * alpha;
+function stepTowards(current, target, dt, smoothingMs) {
+  const alpha = 1 - Math.exp(-dt / smoothingMs);
+  return current + (target - current) * alpha;
+}
+
+function tileTransitionKey(x, y) {
+  return `${x}:${y}`;
+}
+
+function botKey(bot, index) {
+  if (bot && bot.id) return String(bot.id);
+  if (bot && bot.botId) return String(bot.botId);
+  if (bot && bot.displayName) return `name:${bot.displayName}:${index}`;
+  return `index:${index}`;
+}
+
+function ensureSceneAnimation() {
+  if (sceneAnimFrame !== null) return;
+  lastSceneAnimTs = 0;
+  sceneAnimFrame = requestAnimationFrame(stepSceneAnimation);
+}
+
+function animatePlayer(dt) {
+  ensurePlayerRender();
+  playerRender.x = stepTowards(playerRender.x, playerTarget.x, dt, PLAYER_INTERPOLATION_MS);
+  playerRender.y = stepTowards(playerRender.y, playerTarget.y, dt, PLAYER_INTERPOLATION_MS);
   const dx = playerTarget.x - playerRender.x;
   const dy = playerTarget.y - playerRender.y;
   if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
     playerRender.x = playerTarget.x;
     playerRender.y = playerTarget.y;
-    playerAnimActive = false;
-    playerAnimFrame = null;
-    draw();
-    return;
+    return false;
   }
-  draw();
-  playerAnimFrame = requestAnimationFrame(stepPlayerAnimation);
+  return true;
 }
 
-function draw() {
+function animateBots(dt) {
+  let active = false;
+  botRenderState.forEach((state) => {
+    state.x = stepTowards(state.x, state.targetX, dt, BOT_INTERPOLATION_MS);
+    state.y = stepTowards(state.y, state.targetY, dt, BOT_INTERPOLATION_MS);
+    const dx = state.targetX - state.x;
+    const dy = state.targetY - state.y;
+    if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+      state.x = state.targetX;
+      state.y = state.targetY;
+      return;
+    }
+    active = true;
+  });
+  return active;
+}
+
+function pruneTileTransitions(ts) {
+  let active = false;
+  tileTransitions.forEach((transition, key) => {
+    if (ts - transition.startTs >= TILE_TRANSITION_MS) {
+      tileTransitions.delete(key);
+      return;
+    }
+    active = true;
+  });
+  return active;
+}
+
+function stepSceneAnimation(ts) {
+  if (!sceneAnimFrame) return;
+  if (!lastSceneAnimTs) {
+    lastSceneAnimTs = ts;
+  }
+  const dt = Math.max(1, ts - lastSceneAnimTs);
+  lastSceneAnimTs = ts;
+  const playerActive = animatePlayer(dt);
+  const botActive = animateBots(dt);
+  const tileActive = pruneTileTransitions(ts);
+  draw(ts);
+  if (playerActive || botActive || tileActive) {
+    sceneAnimFrame = requestAnimationFrame(stepSceneAnimation);
+    return;
+  }
+  sceneAnimFrame = null;
+  lastSceneAnimTs = 0;
+}
+
+function terrainColor(tileValue) {
+  if (tileValue === 2) return '#4aa3df';
+  if (tileValue === 1) return '#2a7f62';
+  if (tileValue === 3) return '#6b6f7a';
+  if (tileValue === 4) return '#c39b6b';
+  return '#e2c28b';
+}
+
+function drawTerrainCell(cellX, cellY, tileValue, highwayValue, alpha = 1) {
+  if (alpha <= 0) return;
+  const px = (cellX - viewX) * tileSize;
+  const py = (cellY - viewY) * tileSize;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = terrainColor(tileValue);
+  ctx.fillRect(px, py, tileSize, tileSize);
+  if (highwayValue || tileValue === 4) {
+    ctx.fillStyle = 'rgba(131, 95, 60, 0.85)';
+    ctx.fillRect(px, py, tileSize, tileSize);
+    ctx.strokeStyle = 'rgba(245, 235, 220, 0.65)';
+    ctx.lineWidth = Math.max(1, Math.floor(tileSize * 0.06));
+    const cx = px + tileSize / 2;
+    const cy = py + tileSize / 2;
+    ctx.beginPath();
+    ctx.moveTo(cx - tileSize * 0.18, cy);
+    ctx.lineTo(cx + tileSize * 0.18, cy);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function captureTileTransitions(nextTiles, nextHighways) {
+  if (!tiles.length || !nextTiles || !nextTiles.length) {
+    tileTransitions.clear();
+    return;
+  }
+  const nextWidth = nextTiles[0] ? nextTiles[0].length : 0;
+  const nextHeight = nextTiles.length || 0;
+  if (nextWidth !== width || nextHeight !== height) {
+    tileTransitions.clear();
+    return;
+  }
+  const startedAt = performance.now();
+  const nextTransitions = new Map();
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const prevTile = tiles[y] ? tiles[y][x] : 0;
+      const nextTile = nextTiles[y] ? nextTiles[y][x] : 0;
+      const prevHighway = !!(highways[y] && highways[y][x]);
+      const nextHighway = !!(nextHighways && nextHighways[y] && nextHighways[y][x]);
+      if (prevTile === nextTile && prevHighway === nextHighway) {
+        continue;
+      }
+      nextTransitions.set(tileTransitionKey(x, y), {
+        prevTile,
+        nextTile,
+        prevHighway,
+        nextHighway,
+        startTs: startedAt
+      });
+    }
+  }
+  tileTransitions = nextTransitions;
+  if (tileTransitions.size) {
+    ensureSceneAnimation();
+  }
+}
+
+function syncBotRenderState(nextBots) {
+  const nextState = new Map();
+  let shouldAnimate = false;
+  (nextBots || []).forEach((bot, index) => {
+    const key = botKey(bot, index);
+    const targetX = Number.isFinite(bot.x) ? bot.x : -1;
+    const targetY = Number.isFinite(bot.y) ? bot.y : -1;
+    const existing = botRenderState.get(key);
+    const state = existing
+      ? { ...existing, targetX, targetY }
+      : { x: targetX, y: targetY, targetX, targetY };
+    if (existing && (Math.abs(existing.targetX - targetX) > 0.01 || Math.abs(existing.targetY - targetY) > 0.01)) {
+      shouldAnimate = true;
+    }
+    nextState.set(key, state);
+  });
+  botRenderState = nextState;
+  if (shouldAnimate) {
+    ensureSceneAnimation();
+  }
+}
+
+function draw(ts = performance.now()) {
   if (!tiles.length) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   const startX = viewX;
@@ -184,44 +334,14 @@ function draw() {
   const endY = Math.min(height, viewY + viewHeight);
   for (let y = startY; y < endY; y++) {
     for (let x = startX; x < endX; x++) {
-      const v = tiles[y][x];
-      if (v === 2) {
-        ctx.fillStyle = '#4aa3df';
-      } else if (v === 1) {
-        ctx.fillStyle = '#2a7f62';
-      } else if (v === 3) {
-        ctx.fillStyle = '#6b6f7a';
-      } else if (v === 4) {
-        ctx.fillStyle = '#c39b6b';
-      } else {
-        ctx.fillStyle = '#e2c28b';
+      const transition = tileTransitions.get(tileTransitionKey(x, y));
+      if (transition) {
+        const progress = Math.max(0, Math.min(1, (ts - transition.startTs) / TILE_TRANSITION_MS));
+        drawTerrainCell(x, y, transition.prevTile, transition.prevHighway, 1 - progress);
+        drawTerrainCell(x, y, transition.nextTile, transition.nextHighway, progress);
+        continue;
       }
-      ctx.fillRect((x - viewX) * tileSize, (y - viewY) * tileSize, tileSize, tileSize);
-    }
-  }
-
-  if (highways.length) {
-    ctx.fillStyle = 'rgba(131, 95, 60, 0.85)';
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        if ((highways[y] && highways[y][x]) || tiles[y][x] === 4) {
-          ctx.fillRect((x - viewX) * tileSize, (y - viewY) * tileSize, tileSize, tileSize);
-        }
-      }
-    }
-    ctx.strokeStyle = 'rgba(245, 235, 220, 0.65)';
-    ctx.lineWidth = Math.max(1, Math.floor(tileSize * 0.06));
-    for (let y = startY; y < endY; y++) {
-      for (let x = startX; x < endX; x++) {
-        if ((highways[y] && highways[y][x]) || tiles[y][x] === 4) {
-          const cx = (x - viewX) * tileSize + tileSize / 2;
-          const cy = (y - viewY) * tileSize + tileSize / 2;
-          ctx.beginPath();
-          ctx.moveTo(cx - tileSize * 0.18, cy);
-          ctx.lineTo(cx + tileSize * 0.18, cy);
-          ctx.stroke();
-        }
-      }
+      drawTerrainCell(x, y, tiles[y][x], highways[y] && highways[y][x]);
     }
   }
 
@@ -267,12 +387,15 @@ function draw() {
     }
   }
 
-  bots.forEach(b => {
+  bots.forEach((b, index) => {
     if (b.x === undefined || b.y === undefined || b.x < 0 || b.y < 0) return;
-    if (b.x < startX || b.x >= endX || b.y < startY || b.y >= endY) return;
+    const render = botRenderState.get(botKey(b, index));
+    const bx = render && Number.isFinite(render.x) ? render.x : b.x;
+    const by = render && Number.isFinite(render.y) ? render.y : b.y;
+    if (bx < startX || bx >= endX || by < startY || by >= endY) return;
     ctx.fillStyle = '#ff6f61';
     ctx.beginPath();
-    ctx.arc((b.x - viewX) * tileSize + tileSize / 2, (b.y - viewY) * tileSize + tileSize / 2, botRadius, 0, Math.PI * 2);
+    ctx.arc((bx - viewX) * tileSize + tileSize / 2, (by - viewY) * tileSize + tileSize / 2, botRadius, 0, Math.PI * 2);
     ctx.fill();
   });
 
@@ -624,13 +747,16 @@ function renderLockStatus() {
 
 function setRoomStateFromResponse(data) {
   roomState = data;
+  const nextTiles = data.tiles || null;
+  const nextHighways = data.highways || highways || [];
   if (data.roomId) {
     roomId = data.roomId;
     if (roomIdInput) roomIdInput.value = roomId;
   }
   ensureWebSocket();
-  if (data.tiles) {
-    tiles = data.tiles;
+  if (nextTiles) {
+    captureTileTransitions(nextTiles, nextHighways);
+    tiles = nextTiles;
     const nextWidth = tiles[0] ? tiles[0].length : 0;
     const nextHeight = tiles.length || 0;
     const sizeChanged = nextWidth !== width || nextHeight !== height;
@@ -644,10 +770,9 @@ function setRoomStateFromResponse(data) {
       pollDetails.textContent = 'Select a 1x1 area to start a poll.';
     }
   }
-  if (data.highways) {
-    highways = data.highways;
-  }
+  highways = nextHighways;
   participants = data.participants || [];
+  syncBotRenderState(data.bots || []);
   bots = data.bots || [];
   dismissedPolls.clear();
   (data.dismissedPollIds || []).forEach(id => dismissedPolls.add(id));

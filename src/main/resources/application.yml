@@ -57,17 +57,17 @@ app:
     cacheMaxEntries: 64
     aspectRatio: 1.3333
     highwayRatio: 0.02
-    flushIntervalMs: 2000
-    flushMinChanges: 200
+    flushIntervalMs: 750
+    flushMinChanges: 80
     flushMaxIntervalMs: 15000
     flushOverdueLockTimeoutMs: 10
   consensus:
     neighborRadius: 24
     voteWindowSeconds: 6
     minProposalLiveSeconds: 1
-    maintenanceIntervalMs: 250
+    maintenanceIntervalMs: 150
     maintenanceWorkers: 4
-    broadcastMinIntervalMs: 100
+    broadcastMinIntervalMs: 40
     botVoteRetentionSeconds: 0
     minVotesToResolve: 2
     quorumCap: 4
@@ -82,7 +82,7 @@ app:
   density:
     areaSize: 20
     maxOccupants: 15
-    occupancyRefreshMs: 1000
+    occupancyRefreshMs: 250
   move:
     maxSteps: 6
   bots:

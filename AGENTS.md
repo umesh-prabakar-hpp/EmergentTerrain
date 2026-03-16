@@ -150,6 +150,8 @@ cargo run
   - `WorldService` now caches generated worlds briefly so `/game/state` and `/room/create` can reuse the same result.
   - `RoomService` now batches bot persistence, lazily materializes room-create bots via `app.bots.initialRoomCreateTarget`, and uses adaptive GPU thresholds for bot simulation and patch rebuilds.
   - On `radical-changes`, the normal runtime also uses more aggressive GPU bot defaults than `main`: `app.gpu.bots.steps=1`, lower GPU thresholds, and a longer world cache TTL so repeated live maintenance ticks can benefit from the Rust engine's cached GPU world buffers.
+  - On `radical-changes`, the normal runtime also uses a tighter update cadence for browser clients: `maintenanceIntervalMs=150`, `broadcastMinIntervalMs=40`, `occupancyRefreshMs=250`, `flushIntervalMs=750`, and `flushMinChanges=80`.
+  - `src\main\resources\static\js\game.js` now smooths bot motion client-side and crossfades terrain deltas after room refreshes. If movement looks jumpy again, inspect that file before lowering backend intervals further.
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
     - `app.gpu.world.minCells`
@@ -170,6 +172,7 @@ cargo run
 - Current learning: on this machine the inherited `DEBUG` environment variable can accidentally enable Spring Boot debug startup. Clear it for perf runs; the compare script does this explicitly now.
 - Current learning: the current CPU-vs-GPU compare harness is intentionally bot-simulation-heavy. That was necessary because cold-start and tiny request flows were dominated by startup/DB overhead and did not show the GPU advantage.
 - Current learning: the selective runtime settings worth carrying back from the heavy benchmark were lower bot-simulation thresholds, longer world-cache reuse, and `app.gpu.bots.steps=1`. Those now live in `application.yml` on `radical-changes`; the `/perf/**` endpoints remain benchmark-only.
+- Current learning: making the UI feel fluid requires both faster backend cadence and client-side interpolation. Lowering backend intervals by itself just increases visible snapping frequency.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
