@@ -149,6 +149,7 @@ cargo run
   - `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\java\com\emergentterrain\gpu\GpuEngineCodec.java` handles tile/bool grid encoding.
   - `WorldService` now caches generated worlds briefly so `/game/state` and `/room/create` can reuse the same result.
   - `RoomService` now batches bot persistence, lazily materializes room-create bots via `app.bots.initialRoomCreateTarget`, and uses adaptive GPU thresholds for bot simulation and patch rebuilds.
+  - On `radical-changes`, the normal runtime also uses more aggressive GPU bot defaults than `main`: `app.gpu.bots.steps=1`, lower GPU thresholds, and a longer world cache TTL so repeated live maintenance ticks can benefit from the Rust engine's cached GPU world buffers.
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
     - `app.gpu.world.minCells`
@@ -168,6 +169,7 @@ cargo run
 - Current learning: the `perf` profile is PostgreSQL-only and targets `emergentterrain_perf` by default through `PG_PERF_URL` / `PG_PERF_USER` / `PG_PERF_PASSWORD`.
 - Current learning: on this machine the inherited `DEBUG` environment variable can accidentally enable Spring Boot debug startup. Clear it for perf runs; the compare script does this explicitly now.
 - Current learning: the current CPU-vs-GPU compare harness is intentionally bot-simulation-heavy. That was necessary because cold-start and tiny request flows were dominated by startup/DB overhead and did not show the GPU advantage.
+- Current learning: the selective runtime settings worth carrying back from the heavy benchmark were lower bot-simulation thresholds, longer world-cache reuse, and `app.gpu.bots.steps=1`. Those now live in `application.yml` on `radical-changes`; the `/perf/**` endpoints remain benchmark-only.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`
