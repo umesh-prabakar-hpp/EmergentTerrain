@@ -710,7 +710,7 @@ public class RoomService {
                 if (metadataDirty && !flushed) {
                     stateRepository.save(state);
                 }
-                maybeBroadcast(room.getId());
+                maybeBroadcast(room, state);
                 long roomMs = (System.nanoTime() - roomStart) / 1_000_000;
                 log.debug("maintenance roomId={} roomMs={}", room.getId(), roomMs);
             } catch (Exception e) {
@@ -742,16 +742,17 @@ public class RoomService {
         return true;
     }
 
-    private void maybeBroadcast(UUID roomId) {
+    private void maybeBroadcast(Room room, RoomState state) {
+        UUID roomId = room.getId();
         if (broadcastMinIntervalMs <= 0) {
-            broadcaster.broadcastRoom(roomId);
+            broadcaster.broadcastRoom(toRoomVisualState(room, state));
             return;
         }
         long nowMs = System.currentTimeMillis();
         Long last = lastBroadcastAtMs.get(roomId);
         if (last == null || nowMs - last >= broadcastMinIntervalMs) {
             lastBroadcastAtMs.put(roomId, nowMs);
-            broadcaster.broadcastRoom(roomId);
+            broadcaster.broadcastRoom(toRoomVisualState(room, state));
         }
     }
 
@@ -939,7 +940,7 @@ public class RoomService {
         long t9 = System.nanoTime();
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
         long t10 = System.nanoTime();
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         long t11 = System.nanoTime();
 
         Map<String, Double> timings = new LinkedHashMap<>();
@@ -1057,7 +1058,7 @@ public class RoomService {
                 latestState = stateRepository.findByRoom(room).orElse(state);
             }
             RoomStateResponse response = toRoomStateResponse(room, latestState, participant);
-            maybeBroadcast(room.getId());
+            maybeBroadcast(room, latestState);
             return response;
         } finally {
             lock.unlock();
@@ -1103,7 +1104,7 @@ public class RoomService {
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
             RoomStateResponse response = toRoomStateResponse(room, state, participant);
-            maybeBroadcast(room.getId());
+            maybeBroadcast(room, state);
             return response;
         } finally {
             lock.unlock();
@@ -1134,7 +1135,7 @@ public class RoomService {
         state.setMemoryMarkersJson(toJson(markers));
         stateRepository.save(state);
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         return response;
     }
 
@@ -1180,7 +1181,7 @@ public class RoomService {
         participant.setDismissedPollsJson(toJson(dismissed));
         participantRepository.save(participant);
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         return response;
     }
 
@@ -1558,6 +1559,25 @@ public class RoomService {
             response.setDismissedPollIds(readDismissedPollIds(participant));
         }
         return response;
+    }
+
+    private RoomVisualState toRoomVisualState(Room room, RoomState state) {
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        RoomVisualState visual = new RoomVisualState();
+        visual.setRoomId(room.getId());
+        if (cached != null) {
+            visual.setTiles(copyTiles(cached.tiles));
+            visual.setHighways(copyHighways(cached.highways));
+            visual.setStateHash(cached.stateHash);
+            visual.setPreviousStateHash(cached.previousStateHash);
+        } else {
+            visual.setTiles(fromJsonTiles(state.getTilesJson()));
+            visual.setHighways(fromJsonHighways(state.getHighwaysJson()));
+            visual.setStateHash(state.getStateHash());
+            visual.setPreviousStateHash(state.getPreviousStateHash());
+        }
+        visual.setProposals(buildProposals(room, null));
+        return visual;
     }
 
     private List<String> readDismissedPollIds(RoomParticipant participant) {

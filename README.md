@@ -19,6 +19,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - High-speed highway corridors (precomputed)
 - Bot map changes applied in-memory with periodic room state snapshot flushes
 - Normal runtime now eases bot movement in the browser and crossfades terrain refreshes so the room feels less snap-based
+- Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
 
 ## Run
 Java 21 required. On this machine, the installed JDK 21 path is:
@@ -103,6 +104,7 @@ java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild
 - Initial room creation now lazily materializes bots up to `app.bots.initialRoomCreateTarget` and batches persistence work to reduce room setup overhead.
 - The default runtime on `radical-changes` now uses more aggressive GPU bot-simulation defaults than `main`: lower GPU thresholds, a longer world cache TTL, and `app.gpu.bots.steps=1` so repeated live maintenance ticks can reuse cached GPU world buffers more effectively.
 - The default runtime on `radical-changes` also uses a tighter live-update cadence than `main`: `maintenanceIntervalMs=150`, `broadcastMinIntervalMs=40`, `occupancyRefreshMs=250`, `flushIntervalMs=750`, and `flushMinChanges=80`.
+- The browser now uses a dedicated `#worldFx` WebGPU overlay canvas for vote-pressure fields, predictive proposal waves, and transition glow. The base terrain canvas is still authoritative for tiles and actors; the WebGPU layer is purely visual.
 - Defaults are off.
 
 ### Two-app integration check
@@ -229,3 +231,4 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: GPU only showed a decisive win once the benchmark shifted to repeated heavy bot simulation instead of mostly startup and a single small request. The current compare harness is intentionally bot-simulation-heavy for that reason.
 - Current learning: for the normal runtime, the most portable parts of the GPU win were lower bot-simulation thresholds, longer world-cache reuse, and `steps=1`. Those are now moved into `application.yml` on `radical-changes`, while the heavy perf-only endpoints remain benchmark-only.
 - Current learning: making the map feel fluid requires both faster backend cadence and browser-side interpolation. Lowering backend intervals alone only makes bots and tiles snap more often.
+- Current learning: for voting visuals, browser GPU is the right first hop. The server now streams proposal and tile-transition deltas over websocket, and the browser turns them into continuous WebGPU overlays without round-tripping every animation frame.

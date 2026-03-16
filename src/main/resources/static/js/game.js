@@ -1,6 +1,7 @@
 const token = window.APP_TOKEN;
 const canvas = document.getElementById('world');
 const ctx = canvas.getContext('2d');
+const worldFxCanvas = document.getElementById('worldFx');
 const miniMap = document.getElementById('miniMap');
 const miniMapContainer = document.getElementById('miniMapContainer');
 const miniCtx = miniMap ? miniMap.getContext('2d') : null;
@@ -86,6 +87,9 @@ let sceneAnimFrame = null;
 let lastSceneAnimTs = 0;
 let botRenderState = new Map();
 let tileTransitions = new Map();
+let worldFxRenderer = null;
+let proposalVisuals = new Map();
+let resolvedProposalBursts = [];
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
@@ -103,6 +107,7 @@ const AUTO_NAV_PREDICT_INTERVAL_MS = 160;
 const PLAYER_INTERPOLATION_MS = 120;
 const BOT_INTERPOLATION_MS = 150;
 const TILE_TRANSITION_MS = 180;
+const PROPOSAL_BURST_RETENTION_MS = 1400;
 
 const panelMap = {
   tokens: tokensPanel,
@@ -112,6 +117,200 @@ const panelMap = {
   multiplayer: multiplayerPanel,
   bots: botsPanel
 };
+
+function parseTimeMs(value) {
+  if (!value) return 0;
+  const parsed = new Date(value).getTime();
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function phaseForProposal(proposal) {
+  const status = proposal && proposal.status ? proposal.status : 'PENDING';
+  if (status === 'APPLIED') return { stage: 4, label: 'committed', statusCode: 1 };
+  if (status === 'REJECTED') return { stage: 1, label: 'collapsed', statusCode: 2 };
+  const approvals = proposal && Number.isFinite(proposal.approvals) ? proposal.approvals : 0;
+  const rejections = proposal && Number.isFinite(proposal.rejections) ? proposal.rejections : 0;
+  const requiredVotes = Math.max(1, proposal && Number.isFinite(proposal.requiredVotes) ? proposal.requiredVotes : approvals + rejections || 1);
+  const supportRatio = approvals / requiredVotes;
+  const balance = approvals - rejections;
+  if (balance <= 0) return { stage: 1, label: 'contested', statusCode: 0 };
+  if (supportRatio < 0.55) return { stage: 2, label: 'leaning', statusCode: 0 };
+  if (supportRatio < 0.9) return { stage: 3, label: 'nearly accepted', statusCode: 0 };
+  return { stage: 4, label: 'committed', statusCode: 0 };
+}
+
+function proposalSupport(proposal) {
+  const approvals = proposal && Number.isFinite(proposal.approvals) ? proposal.approvals : 0;
+  const rejections = proposal && Number.isFinite(proposal.rejections) ? proposal.rejections : 0;
+  const botYes = proposal && Number.isFinite(proposal.botYes) ? proposal.botYes : 0;
+  const botNo = proposal && Number.isFinite(proposal.botNo) ? proposal.botNo : 0;
+  const yes = approvals + botYes * 0.25;
+  const no = rejections + botNo * 0.25;
+  const total = Math.max(1, yes + no);
+  return Math.max(0.05, Math.min(1, yes / total));
+}
+
+function buildProposalVisual(proposal, resolvedAtMs = 0) {
+  const phase = phaseForProposal(proposal || {});
+  const createdAtMs = parseTimeMs(proposal && proposal.createdAt);
+  const expiresAtMs = parseTimeMs(proposal && proposal.expiresAt);
+  const neighborCount = proposal && Number.isFinite(proposal.neighborCount) ? proposal.neighborCount : 0;
+  return {
+    id: proposal && proposal.id ? proposal.id : `burst-${Math.random().toString(36).slice(2)}`,
+    anchorX: proposal && Number.isFinite(proposal.anchorX) ? proposal.anchorX : 0,
+    anchorY: proposal && Number.isFinite(proposal.anchorY) ? proposal.anchorY : 0,
+    tileType: proposal && proposal.tileType !== undefined ? proposal.tileType : 0,
+    stage: phase.stage,
+    stageLabel: phase.label,
+    support: proposalSupport(proposal || {}),
+    createdAtMs,
+    expiresAtMs,
+    resolvedAtMs,
+    status: proposal && proposal.status ? proposal.status : 'PENDING',
+    statusCode: phase.statusCode,
+    radius: Math.max(5, 4 + neighborCount * 0.35 + phase.stage * 1.8),
+    waveStrength: phase.statusCode === 0 ? 0.85 : 1.15
+  };
+}
+
+function proposalStageLabel(proposal) {
+  const visual = proposal && proposal.id ? proposalVisuals.get(proposal.id) : null;
+  if (visual && visual.stageLabel) {
+    return visual.stageLabel;
+  }
+  return phaseForProposal(proposal || {}).label;
+}
+
+function upsertRoomProposal(proposal) {
+  if (!roomState) return;
+  const proposals = Array.isArray(roomState.proposals) ? roomState.proposals.slice() : [];
+  const index = proposals.findIndex((item) => item.id === proposal.id);
+  if (index >= 0) {
+    proposals[index] = { ...proposals[index], ...proposal };
+  } else {
+    proposals.unshift(proposal);
+  }
+  proposals.sort((left, right) => parseTimeMs(right.createdAt) - parseTimeMs(left.createdAt));
+  roomState.proposals = proposals.slice(0, 10);
+}
+
+function syncProposalVisuals(nextProposals) {
+  const nextMap = new Map();
+  (nextProposals || []).forEach((proposal) => {
+    const existing = proposalVisuals.get(proposal.id);
+    const visual = buildProposalVisual(proposal, existing ? existing.resolvedAtMs : 0);
+    nextMap.set(proposal.id, visual);
+    if (existing && existing.status === 'PENDING' && visual.status !== 'PENDING') {
+      resolvedProposalBursts.push(visual);
+    }
+  });
+  proposalVisuals = nextMap;
+  if (proposalVisuals.size || resolvedProposalBursts.length) {
+    ensureSceneAnimation();
+  }
+}
+
+function handleProposalSocketEvent(type, proposal) {
+  if (!proposal || !proposal.id) return;
+  upsertRoomProposal(proposal);
+  const resolvedAtMs = type === 'proposal_resolved' ? Date.now() : 0;
+  proposalVisuals.set(proposal.id, buildProposalVisual(proposal, resolvedAtMs));
+  if (type === 'proposal_resolved') {
+    resolvedProposalBursts.push(buildProposalVisual(proposal, resolvedAtMs));
+  }
+  renderRoomState();
+  ensureSceneAnimation();
+}
+
+function applyTileTransitionEvent(transition) {
+  if (!transition) return;
+  const key = tileTransitionKey(transition.x, transition.y);
+  tileTransitions.set(key, {
+    prevTile: transition.fromTile,
+    nextTile: transition.toTile,
+    prevHighway: !!transition.fromHighway,
+    nextHighway: !!transition.toHighway,
+    startTs: performance.now(),
+    durationMs: transition.durationMs || 900,
+    phase: transition.phase || 'committed'
+  });
+}
+
+function applyTileTransitionProgressEvent(transition) {
+  if (!transition) return;
+  const key = tileTransitionKey(transition.x, transition.y);
+  const durationMs = transition.durationMs || 900;
+  tileTransitions.set(key, {
+    prevTile: transition.fromTile,
+    nextTile: transition.toTile,
+    prevHighway: !!transition.fromHighway,
+    nextHighway: !!transition.toHighway,
+    startTs: performance.now() - (transition.progress || 0) * durationMs,
+    durationMs,
+    phase: transition.phase || 'committed'
+  });
+}
+
+function handleTileTransitionSocketEvent(transitions, type) {
+  const apply = type === 'tile_transition_progress' ? applyTileTransitionProgressEvent : applyTileTransitionEvent;
+  (transitions || []).forEach(apply);
+  if ((transitions || []).length) {
+    ensureSceneAnimation();
+  }
+}
+
+function pruneResolvedProposalBursts(nowMs) {
+  const before = resolvedProposalBursts.length;
+  resolvedProposalBursts = resolvedProposalBursts.filter((proposal) => nowMs - proposal.resolvedAtMs < PROPOSAL_BURST_RETENTION_MS);
+  return before !== resolvedProposalBursts.length;
+}
+
+function hasLiveProposalVisuals() {
+  if (resolvedProposalBursts.length) return true;
+  for (const proposal of proposalVisuals.values()) {
+    if (proposal.status === 'PENDING') {
+      return true;
+    }
+  }
+  return false;
+}
+
+function buildRendererProposals() {
+  const proposals = [];
+  proposalVisuals.forEach((proposal) => {
+    if (proposal.status === 'PENDING') {
+      proposals.push(proposal);
+    }
+  });
+  resolvedProposalBursts.forEach((proposal) => {
+    proposals.push(proposal);
+  });
+  return proposals;
+}
+
+async function initWorldFxRenderer() {
+  if (!worldFxCanvas || !window.WorldFxRenderer) return;
+  try {
+    worldFxRenderer = await window.WorldFxRenderer.create(worldFxCanvas);
+  } catch (err) {
+    worldFxRenderer = null;
+  }
+}
+
+function renderWorldFx(ts = performance.now()) {
+  if (!worldFxRenderer || !worldFxRenderer.ready) return;
+  worldFxRenderer.render({
+    nowMs: ts,
+    tileSize,
+    viewX,
+    viewY,
+    viewWidth,
+    viewHeight,
+    worldWidth: width,
+    worldHeight: height,
+    proposals: buildRendererProposals()
+  });
+}
 
 function copyTiles(src) {
   return src.map(row => row.slice());
@@ -207,7 +406,8 @@ function animateBots(dt) {
 function pruneTileTransitions(ts) {
   let active = false;
   tileTransitions.forEach((transition, key) => {
-    if (ts - transition.startTs >= TILE_TRANSITION_MS) {
+    const durationMs = transition.durationMs || TILE_TRANSITION_MS;
+    if (ts - transition.startTs >= durationMs) {
       tileTransitions.delete(key);
       return;
     }
@@ -226,8 +426,10 @@ function stepSceneAnimation(ts) {
   const playerActive = animatePlayer(dt);
   const botActive = animateBots(dt);
   const tileActive = pruneTileTransitions(ts);
+  const burstPruned = pruneResolvedProposalBursts(ts);
+  const proposalActive = hasLiveProposalVisuals();
   draw(ts);
-  if (playerActive || botActive || tileActive) {
+  if (playerActive || botActive || tileActive || proposalActive || burstPruned) {
     sceneAnimFrame = requestAnimationFrame(stepSceneAnimation);
     return;
   }
@@ -336,7 +538,7 @@ function draw(ts = performance.now()) {
     for (let x = startX; x < endX; x++) {
       const transition = tileTransitions.get(tileTransitionKey(x, y));
       if (transition) {
-        const progress = Math.max(0, Math.min(1, (ts - transition.startTs) / TILE_TRANSITION_MS));
+        const progress = Math.max(0, Math.min(1, (ts - transition.startTs) / (transition.durationMs || TILE_TRANSITION_MS)));
         drawTerrainCell(x, y, transition.prevTile, transition.prevHighway, 1 - progress);
         drawTerrainCell(x, y, transition.nextTile, transition.nextHighway, progress);
         continue;
@@ -410,6 +612,7 @@ function draw(ts = performance.now()) {
   drawAxisLabels();
   drawMiniMap();
   renderPollOverlay();
+  renderWorldFx(ts);
 }
 
 function gridFromEvent(evt) {
@@ -454,6 +657,10 @@ function resizeViewport() {
   tileSize = Math.max(4, Math.floor(Math.min(w / viewWidth, h / viewHeight)));
   canvas.width = viewWidth * tileSize;
   canvas.height = viewHeight * tileSize;
+  if (worldFxCanvas) {
+    worldFxCanvas.width = canvas.width;
+    worldFxCanvas.height = canvas.height;
+  }
   updateViewCenter();
 }
 function drawMiniMap() {
@@ -774,6 +981,7 @@ function setRoomStateFromResponse(data) {
   participants = data.participants || [];
   syncBotRenderState(data.bots || []);
   bots = data.bots || [];
+  syncProposalVisuals(data.proposals || []);
   dismissedPolls.clear();
   (data.dismissedPollIds || []).forEach(id => dismissedPolls.add(id));
   const me = participants.find(p => p.id === participantId);
@@ -813,7 +1021,18 @@ function ensureWebSocket() {
   ws.onmessage = (evt) => {
     try {
       const msg = JSON.parse(evt.data);
-      if (msg.type === 'refresh' && msg.roomId === roomId) {
+      if (msg.roomId !== roomId) {
+        return;
+      }
+      if (msg.type === 'proposal_created' || msg.type === 'proposal_vote_delta' || msg.type === 'proposal_resolved') {
+        handleProposalSocketEvent(msg.type, msg.proposal);
+        return;
+      }
+      if (msg.type === 'tile_transition_started' || msg.type === 'tile_transition_progress') {
+        handleTileTransitionSocketEvent(msg.transitions || [], msg.type);
+        return;
+      }
+      if (msg.type === 'refresh') {
         queueRoomRefresh();
       }
     } catch (e) {
@@ -1023,7 +1242,7 @@ function renderProposals() {
     const expiresAt = p.expiresAt ? new Date(p.expiresAt).getTime() : 0;
     const remaining = expiresAt ? Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)) : 0;
     const timeLabel = expiresAt ? ` - ${remaining}s` : '';
-    meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections} - need ${needed}${timeLabel}`;
+    meta.textContent = `${p.status} / ${proposalStageLabel(p)} - +${p.approvals} / -${p.rejections} - need ${needed}${timeLabel}`;
     row.appendChild(title);
     row.appendChild(meta);
     row.addEventListener('click', () => {
@@ -1058,7 +1277,7 @@ function renderLocalProposals() {
     const botYes = p.botYes || 0;
     const botNo = p.botNo || 0;
     const botLabel = botYes || botNo ? ` (bots +${botYes} / -${botNo})` : '';
-    meta.textContent = `${p.status} - +${p.approvals} / -${p.rejections}${botLabel} - need ${needed}`;
+    meta.textContent = `${p.status} / ${proposalStageLabel(p)} - +${p.approvals} / -${p.rejections}${botLabel} - need ${needed}`;
     const dismiss = document.createElement('button');
     dismiss.className = 'fallback-button';
     dismiss.textContent = '✕';
@@ -1119,7 +1338,7 @@ function renderPollOverlay() {
     const botYes = p.botYes || 0;
     const botNo = p.botNo || 0;
     const botInfo = botYes || botNo ? ` bots +${botYes}/-${botNo}` : '';
-    typeLabel.textContent = `Tile: ${proposalTypeLabel(p)}${botInfo}`;
+    typeLabel.textContent = `Tile: ${proposalTypeLabel(p)} / ${proposalStageLabel(p)}${botInfo}`;
     marker.appendChild(typeLabel);
     const actions = document.createElement('div');
     actions.className = 'poll-marker-actions';
@@ -1168,8 +1387,9 @@ function renderPollResults() {
     const coord = `${x !== undefined && x !== null ? x : '?'}${','}${y !== undefined && y !== null ? y : '?'}`;
     const typeLabel = proposalTypeLabel(p).toUpperCase();
     const status = (p.status || 'UNKNOWN').toUpperCase();
+    const phase = proposalStageLabel(p).toUpperCase();
     const title = document.createElement('div');
-    title.textContent = `${status} - ${label} (${coord} ${typeLabel})`;
+    title.textContent = `${status} / ${phase} - ${label} (${coord} ${typeLabel})`;
     row.appendChild(title);
     row.addEventListener('click', () => {
       blinkTileAt(x, y);
@@ -1862,6 +2082,7 @@ function initBots() {
 }
 
 async function init() {
+  await initWorldFxRenderer();
   const res = await fetch('/room/last', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
