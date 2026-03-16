@@ -20,6 +20,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Bot map changes applied in-memory with periodic room state snapshot flushes
 - Normal runtime now eases bot movement in the browser and crossfades terrain refreshes so the room feels less snap-based
 - Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
+- The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
 
 ## Run
 Java 21 required. On this machine, the installed JDK 21 path is:
@@ -104,7 +105,8 @@ java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild
 - Initial room creation now lazily materializes bots up to `app.bots.initialRoomCreateTarget` and batches persistence work to reduce room setup overhead.
 - The default runtime on `radical-changes` now uses more aggressive GPU bot-simulation defaults than `main`: lower GPU thresholds, a longer world cache TTL, and `app.gpu.bots.steps=1` so repeated live maintenance ticks can reuse cached GPU world buffers more effectively.
 - The default runtime on `radical-changes` also uses a tighter live-update cadence than `main`: `maintenanceIntervalMs=150`, `broadcastMinIntervalMs=40`, `occupancyRefreshMs=250`, `flushIntervalMs=750`, and `flushMinChanges=80`.
-- The browser now uses a dedicated `#worldFx` WebGPU overlay canvas for vote-pressure fields, predictive proposal waves, and transition glow. The base terrain canvas is still authoritative for tiles and actors; the WebGPU layer is purely visual.
+- The browser now uses WebGPU for the full world scene, not just an overlay: `#worldFx` renders terrain, actors, proposal fields, transitions, and particles, while the minimap is also rendered through WebGPU. The base `#world` canvas remains in place as the interaction/input surface.
+- Bot movement now carries short-term motion memory in both the Java CPU path and the Rust GPU path: reverse moves are penalized, heading continuity is preferred, bots keep a short plan, and immediate reversals are cooled down for a few ticks.
 - Defaults are off.
 
 ### Two-app integration check
@@ -232,3 +234,5 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: for the normal runtime, the most portable parts of the GPU win were lower bot-simulation thresholds, longer world-cache reuse, and `steps=1`. Those are now moved into `application.yml` on `radical-changes`, while the heavy perf-only endpoints remain benchmark-only.
 - Current learning: making the map feel fluid requires both faster backend cadence and browser-side interpolation. Lowering backend intervals alone only makes bots and tiles snap more often.
 - Current learning: for voting visuals, browser GPU is the right first hop. The server now streams proposal and tile-transition deltas over websocket, and the browser turns them into continuous WebGPU overlays without round-tripping every animation frame.
+- Current learning: once terrain, actors, and minimap all move onto WebGPU, the plain canvas should be treated as an input layer and DOM anchor, not as a competing renderer.
+- Current learning: the visible two-tile bot bounce was real simulation behavior, not just a rendering artifact. Fix it in both the Java fallback path and the Rust GPU path, otherwise faster rendering just makes the oscillation easier to notice.

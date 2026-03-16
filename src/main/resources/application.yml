@@ -90,6 +90,10 @@ app:
     maxPerRoom: 1000
     initialRoomCreateTarget: 200
     maxTickPerMaintenance: 0
+    reversePenalty: 0.6
+    headingBias: 0.18
+    planLength: 3
+    reverseCooldownTicks: 2
   activityLog:
     intervalMs: 30000
 

@@ -229,7 +229,7 @@ md-icon {
 #world {
   border-radius: 14px;
   border: 2px solid #1b1f1a;
-  background: #e8f5e9;
+  background: radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.14), rgba(13, 20, 17, 0.3));
   width: 100%;
   height: 100%;
   display: block;
@@ -245,7 +245,7 @@ md-icon {
   display: block;
   pointer-events: none;
   z-index: 2;
-  mix-blend-mode: screen;
+  border-radius: 14px;
 }
 
 .canvas-wrap {
@@ -261,6 +261,7 @@ md-icon {
   width: 180px;
   height: 180px;
   display: block;
+  border-radius: 10px;
 }
 
 .mini-map-container {

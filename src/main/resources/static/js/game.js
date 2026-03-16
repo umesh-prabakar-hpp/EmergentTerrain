@@ -4,7 +4,7 @@ const ctx = canvas.getContext('2d');
 const worldFxCanvas = document.getElementById('worldFx');
 const miniMap = document.getElementById('miniMap');
 const miniMapContainer = document.getElementById('miniMapContainer');
-const miniCtx = miniMap ? miniMap.getContext('2d') : null;
+const miniCtx = null;
 const miniMapToggle = document.getElementById('toggleMiniMap');
 const pollOverlay = document.getElementById('pollOverlay');
 const infoPanel = document.getElementById('infoPanel');
@@ -288,10 +288,52 @@ function buildRendererProposals() {
   return proposals;
 }
 
+function buildRendererActors() {
+  const actors = [];
+  participants.forEach((participant) => {
+    if (!participant || !Number.isFinite(participant.x) || !Number.isFinite(participant.y) || participant.x < 0 || participant.y < 0) {
+      return;
+    }
+    const isSelf = participant.id === participantId;
+    const px = isSelf && Number.isFinite(playerRender.x) ? playerRender.x : participant.x;
+    const py = isSelf && Number.isFinite(playerRender.y) ? playerRender.y : participant.y;
+    actors.push({
+      x: px,
+      y: py,
+      radius: isSelf ? 0.5 : 0.46,
+      color: isSelf ? [1.0, 0.7, 0.12, 0.96] : [1.0, 0.82, 0.5, 0.82],
+      glow: isSelf ? 1.0 : 0.42
+    });
+  });
+  if (!participants.length && Number.isFinite(player.x) && Number.isFinite(player.y) && player.x >= 0 && player.y >= 0) {
+    actors.push({
+      x: Number.isFinite(playerRender.x) ? playerRender.x : player.x,
+      y: Number.isFinite(playerRender.y) ? playerRender.y : player.y,
+      radius: 0.5,
+      color: [1.0, 0.7, 0.12, 0.96],
+      glow: 1.0
+    });
+  }
+  bots.forEach((bot, index) => {
+    if (!bot || !Number.isFinite(bot.x) || !Number.isFinite(bot.y) || bot.x < 0 || bot.y < 0) {
+      return;
+    }
+    const render = botRenderState.get(botKey(bot, index));
+    actors.push({
+      x: render && Number.isFinite(render.x) ? render.x : bot.x,
+      y: render && Number.isFinite(render.y) ? render.y : bot.y,
+      radius: 0.4,
+      color: [1.0, 0.42, 0.34, 0.82],
+      glow: 0.28
+    });
+  });
+  return actors;
+}
+
 async function initWorldFxRenderer() {
   if (!worldFxCanvas || !window.WorldFxRenderer) return;
   try {
-    worldFxRenderer = await window.WorldFxRenderer.create(worldFxCanvas);
+    worldFxRenderer = await window.WorldFxRenderer.create(worldFxCanvas, miniMap);
   } catch (err) {
     worldFxRenderer = null;
   }
@@ -301,6 +343,8 @@ function renderWorldFx(ts = performance.now()) {
   if (!worldFxRenderer || !worldFxRenderer.ready) return;
   worldFxRenderer.render({
     nowMs: ts,
+    tiles,
+    highways,
     tileSize,
     viewX,
     viewY,
@@ -308,7 +352,13 @@ function renderWorldFx(ts = performance.now()) {
     viewHeight,
     worldWidth: width,
     worldHeight: height,
-    proposals: buildRendererProposals()
+    transitions: tileTransitions,
+    proposals: buildRendererProposals(),
+    actors: buildRendererActors(),
+    player: Number.isFinite(playerRender.x) && Number.isFinite(playerRender.y) ? playerRender : player,
+    miniTarget,
+    pendingChange,
+    pendingRoutes
   });
 }
 
@@ -530,87 +580,6 @@ function syncBotRenderState(nextBots) {
 function draw(ts = performance.now()) {
   if (!tiles.length) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  const startX = viewX;
-  const startY = viewY;
-  const endX = Math.min(width, viewX + viewWidth);
-  const endY = Math.min(height, viewY + viewHeight);
-  for (let y = startY; y < endY; y++) {
-    for (let x = startX; x < endX; x++) {
-      const transition = tileTransitions.get(tileTransitionKey(x, y));
-      if (transition) {
-        const progress = Math.max(0, Math.min(1, (ts - transition.startTs) / (transition.durationMs || TILE_TRANSITION_MS)));
-        drawTerrainCell(x, y, transition.prevTile, transition.prevHighway, 1 - progress);
-        drawTerrainCell(x, y, transition.nextTile, transition.nextHighway, progress);
-        continue;
-      }
-      drawTerrainCell(x, y, tiles[y][x], highways[y] && highways[y][x]);
-    }
-  }
-
-  const playerRadius = Math.max(4, Math.floor(tileSize * 0.9));
-  const botRadius = Math.max(3, Math.floor(tileSize * 0.7));
-
-  participants.forEach(p => {
-    if (p.x === undefined || p.y === undefined || p.x < 0 || p.y < 0) return;
-    const isSelf = p.id === participantId;
-    const px = isSelf && Number.isFinite(playerRender.x) ? playerRender.x : p.x;
-    const py = isSelf && Number.isFinite(playerRender.y) ? playerRender.y : p.y;
-    if (px < startX || px >= endX || py < startY || py >= endY) return;
-    const cx = (px - viewX) * tileSize + tileSize / 2;
-    const cy = (py - viewY) * tileSize + tileSize / 2;
-    ctx.fillStyle = isSelf ? '#ffb300' : '#ffd180';
-    ctx.beginPath();
-    ctx.arc(cx, cy, playerRadius, 0, Math.PI * 2);
-    ctx.fill();
-    if (isSelf) {
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.arc(cx, cy, playerRadius + 2, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  });
-
-  if (!participants.length && player.x >= 0 && player.y >= 0) {
-    const px = Number.isFinite(playerRender.x) ? playerRender.x : player.x;
-    const py = Number.isFinite(playerRender.y) ? playerRender.y : player.y;
-    if (px >= startX && px < endX && py >= startY && py < endY) {
-    const cx = px * tileSize + tileSize / 2;
-    const cy = py * tileSize + tileSize / 2;
-    ctx.fillStyle = '#ffb300';
-    ctx.beginPath();
-    ctx.arc(cx, cy, playerRadius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(cx, cy, playerRadius + 2, 0, Math.PI * 2);
-    ctx.stroke();
-    }
-  }
-
-  bots.forEach((b, index) => {
-    if (b.x === undefined || b.y === undefined || b.x < 0 || b.y < 0) return;
-    const render = botRenderState.get(botKey(b, index));
-    const bx = render && Number.isFinite(render.x) ? render.x : b.x;
-    const by = render && Number.isFinite(render.y) ? render.y : b.y;
-    if (bx < startX || bx >= endX || by < startY || by >= endY) return;
-    ctx.fillStyle = '#ff6f61';
-    ctx.beginPath();
-    ctx.arc((bx - viewX) * tileSize + tileSize / 2, (by - viewY) * tileSize + tileSize / 2, botRadius, 0, Math.PI * 2);
-    ctx.fill();
-  });
-
-  if (pendingChange) {
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)';
-    ctx.lineWidth = 2;
-    if (pendingChange.x >= startX && pendingChange.x < endX && pendingChange.y >= startY && pendingChange.y < endY) {
-      ctx.strokeRect((pendingChange.x - viewX) * tileSize, (pendingChange.y - viewY) * tileSize, tileSize, tileSize);
-    }
-  }
-
-  drawAxisLabels();
-  drawMiniMap();
   renderPollOverlay();
   renderWorldFx(ts);
 }
@@ -660,6 +629,9 @@ function resizeViewport() {
   if (worldFxCanvas) {
     worldFxCanvas.width = canvas.width;
     worldFxCanvas.height = canvas.height;
+  }
+  if (worldFxRenderer && typeof worldFxRenderer.resize === 'function') {
+    worldFxRenderer.resize();
   }
   updateViewCenter();
 }
@@ -2117,7 +2089,7 @@ window.addEventListener('resize', () => {
 init();
 
 setInterval(() => {
-  if (roomState && miniCtx && miniMap && tiles.length) {
-    drawMiniMap();
+  if (roomState && worldFxRenderer && miniMap && tiles.length) {
+    renderWorldFx();
   }
 }, 2000);
