@@ -155,6 +155,14 @@ cargo run
   - `src\main\resources\static\js\world-fx.js` now owns full scene rendering in the browser: terrain, bots/players, proposal fields, transitions, particles, and the minimap all render through WebGPU while `RoomUpdateBroadcaster` streams proposal and tile-transition deltas over websocket.
   - Bot movement memory now lives in both runtimes: `RoomBot.stateJson` persists CPU-side anti-oscillation state, and the GPU engine reuses the protobuf `BotState.state` bytes field for the same purpose.
   - Highway state is now separated from ordinary terrain mutation. `RoomState.roadPressureJson` persists bot-driven road demand, maintenance promotes and decays highway overlay cells from that pressure, and non-highway proposals preserve existing highway flags instead of clearing them.
+  - Constitutional/government phase 1 now lives in:
+    - `src\main\java\com\emergentterrain\government\GovernmentSimulationService.java`
+    - `src\main\java\com\emergentterrain\government\GovernmentState.java`
+    - `src\main\java\com\emergentterrain\government\BotCivicState.java`
+    - `src\main\resources\government\constitution-rules.json`
+  - `RoomState.governmentStateJson` persists per-room federal/state party, budget, bill, and election state.
+  - `RoomBot.civicStateJson` persists deterministic household, district, ideology, labor, trust, and voting state for each bot.
+  - Append-only simulation history is written by Spring Boot under `simulation-history\constitution`, `simulation-history\events`, `simulation-history\elections`, `simulation-history\courts`, and `simulation-history\legislation`.
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
     - `app.gpu.world.minCells`
@@ -180,6 +188,7 @@ cargo run
 - Current learning: bot anti-oscillation must be implemented in both movement engines. The browser can smooth positions, but it cannot fix a real back-and-forth movement policy on its own.
 - Current learning: once the browser moves all world rendering onto WebGPU, do not split terrain/actor/minimap drawing back across 2D canvases unless there is a clear compatibility reason. Keep the plain canvas as the click/input layer.
 - Current learning: highways should be treated as emergent infrastructure. Let bot travel demand create and maintain them through a separate overlay/pressure layer; do not let ordinary terrain proposals erase roads directly or the network collapses.
+- Current learning: the constitutional/government feature is too large for one pass. Keep it phased: phase 1 is a deterministic foundation slice with persisted civic/government JSON, machine-readable constitutional rules, maintenance-time ticking, and append-only history; defer court dockets, richer agencies, and GPU civic kernels until the Java-side rules stabilize.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

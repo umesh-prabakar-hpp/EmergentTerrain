@@ -33,6 +33,9 @@ public class RoomState {
     private String roadPressureJson;
 
     @Column(columnDefinition = "text")
+    private String governmentStateJson;
+
+    @Column(columnDefinition = "text")
     private String occupancyJson;
 
     private Instant occupancyUpdatedAt;
@@ -115,6 +118,14 @@ public class RoomState {
 
     public void setRoadPressureJson(String roadPressureJson) {
         this.roadPressureJson = roadPressureJson;
+    }
+
+    public String getGovernmentStateJson() {
+        return governmentStateJson;
+    }
+
+    public void setGovernmentStateJson(String governmentStateJson) {
+        this.governmentStateJson = governmentStateJson;
     }
 
     public String getOccupancyJson() {

@@ -22,6 +22,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
 - The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
 - Highways now emerge from repeated long-distance bot movement and exploration pressure. Ordinary terrain proposals no longer clear them, and unused corridors decay over time so roads do not take over the map.
+- Phase 1 constitutional simulation foundations are now present: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, and append-only records are written under `simulation-history/`
 
 ## Run
 Java 21 required. On this machine, the installed JDK 21 path is:
@@ -173,6 +174,8 @@ See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.highways.emergent.*` for travel-demand highway formation and decay
+- `app.government.*` for deterministic constitutional/government timing
+- `app.simulationHistory.root` for append-only civic history output
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
@@ -186,6 +189,17 @@ See `src/main/resources/application.yml` for app settings:
 - `app.gpu.patch.minArea`
 - `PG_URL`, `PG_USER`, `PG_PASSWORD` for the default app datasource
 - `PG_PERF_URL`, `PG_PERF_USER`, `PG_PERF_PASSWORD` for the perf profile datasource
+
+## Constitutional Terrain
+- Phase 1 implementation notes live in `docs/constitutional-terrain-phase1.md`.
+- Machine-readable constitutional rules live in `src/main/resources/government/constitution-rules.json`.
+- Runtime history output is append-only and written under `simulation-history/` with subfolders for:
+  - `constitution`
+  - `events`
+  - `elections`
+  - `courts`
+  - `legislation`
+- The current phase exposes government summary data and per-bot civic state in the room UI; richer institutions, courts, and GPU civic kernels are deferred.
 
 ## Routes (summary)
 - `GET /register`, `POST /register`

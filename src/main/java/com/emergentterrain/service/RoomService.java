@@ -1,6 +1,9 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.domain.*;
+import com.emergentterrain.government.BotCivicState;
+import com.emergentterrain.government.GovernmentSimulationService;
+import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.gpu.GpuEngineAdapter;
 import com.emergentterrain.gpu.GpuEngineCodec;
 import com.emergentterrain.gpu.v1.BotState;
@@ -59,6 +62,7 @@ public class RoomService {
     private final PayloadService payloadService;
     private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
+    private final GovernmentSimulationService governmentSimulationService;
     private final GpuEngineAdapter gpuEngineAdapter;
     private final ObjectMapper objectMapper;
     private final boolean gpuEnabled;
@@ -162,6 +166,7 @@ public class RoomService {
                        PayloadService payloadService,
                        RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
+                       GovernmentSimulationService governmentSimulationService,
                        GpuEngineAdapter gpuEngineAdapter,
                        ObjectMapper objectMapper,
                        ActivityMetrics metrics,
@@ -235,6 +240,7 @@ public class RoomService {
         this.payloadService = payloadService;
         this.broadcaster = broadcaster;
         this.worldService = worldService;
+        this.governmentSimulationService = governmentSimulationService;
         this.gpuEngineAdapter = gpuEngineAdapter;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -357,6 +363,7 @@ public class RoomService {
         state.setSharedTokensJson(toJson(new SharedTokens(0, 0, 0)));
         state.setSharedQuestsJson(toJson(defaultSharedQuests()));
         state.setMemoryMarkersJson(toJson(new ArrayList<>()));
+        state.setGovernmentStateJson(null);
         state.setStateHash(hashTiles(world.getTiles()));
         TileCounts counts = computeTileCounts(world.getTiles(), world.getHighways());
         state.setTileClearCount(counts.clear);
@@ -370,6 +377,14 @@ public class RoomService {
         updateCacheFromState(room, state);
 
         List<RoomBot> bots = ensureBots(room, world.getTiles(), false);
+        GovernmentSimulationService.GovernmentMutation governmentInitialization =
+            governmentSimulationService.ensureInitialized(room, state, bots, world.getTiles(), this::readBotProfile, Instant.now());
+        state.setGovernmentStateJson(governmentSimulationService.serializeGovernmentState(governmentInitialization.governmentState()));
+        if (!governmentInitialization.dirtyBots().isEmpty()) {
+            botRepository.saveAll(governmentInitialization.dirtyBots());
+        }
+        state = stateRepository.save(state);
+        updateCacheFromState(room, state);
         ensureNearbyBots(room, world.getTiles(), host.getX(), host.getY(), bots);
         if (refreshOccupancySnapshot(room, state, Instant.now())) {
             stateRepository.save(state);
@@ -388,6 +403,7 @@ public class RoomService {
         response.setMemoryMarkers(new ArrayList<>());
         response.setParticipants(buildParticipants(room));
         response.setBots(buildBots(room, cachedState, bots));
+        response.setGovernmentSummary(governmentInitialization.summary());
         response.setProposals(buildProposals(room, host));
         response.setLockUntil(room.getLockUntil());
         response.setNeighborRadius(neighborRadius);
@@ -661,7 +677,17 @@ public class RoomService {
         RoomParticipant participant = ensureParticipant(room, profile);
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        ensureBots(room, getTilesForRoom(room, state), false);
+        List<RoomBot> bots = ensureBots(room, getTilesForRoom(room, state), false);
+        GovernmentSimulationService.GovernmentMutation governmentInitialization =
+            governmentSimulationService.ensureInitialized(room, state, bots, getTilesForRoom(room, state), this::readBotProfile, Instant.now());
+        if (governmentInitialization.governmentChanged()) {
+            state.setGovernmentStateJson(governmentSimulationService.serializeGovernmentState(governmentInitialization.governmentState()));
+            stateRepository.save(state);
+            if (!governmentInitialization.dirtyBots().isEmpty()) {
+                botRepository.saveAll(governmentInitialization.dirtyBots());
+            }
+            updateCacheFromState(room, state);
+        }
         return toRoomStateResponse(room, state, participant);
     }
 
@@ -705,6 +731,7 @@ public class RoomService {
             boolean metadataDirty = false;
             boolean shouldTickBots = state.getLastBotTickAt() == null || state.getLastBotTickAt().isBefore(now.minusSeconds(5));
             AtomicBoolean tickedBots = new AtomicBoolean(false);
+            AtomicReference<List<RoomBot>> maintainedBots = new AtomicReference<>(new ArrayList<>());
             try {
                 botTransactionTemplate.executeWithoutResult(botStatus -> {
                     botWriteLock.lock();
@@ -715,7 +742,8 @@ public class RoomService {
                         }
                         int[][] tiles = getTilesForRoom(room, botState);
                         long botsStart = System.nanoTime();
-                        ensureBots(room, tiles, true);
+                        List<RoomBot> bots = ensureBots(room, tiles, true);
+                        maintainedBots.set(new ArrayList<>(bots));
                         long botsMs = (System.nanoTime() - botsStart) / 1_000_000;
                         log.debug("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
                         if (shouldTickBots) {
@@ -737,6 +765,19 @@ public class RoomService {
                 if (evolveHighwaysFromDemand(room, state)) {
                     metadataDirty = true;
                 }
+            }
+            List<RoomBot> botsForGovernment = maintainedBots.get();
+            if (botsForGovernment == null || botsForGovernment.isEmpty()) {
+                botsForGovernment = botRepository.findByRoom(room);
+            }
+            GovernmentSimulationService.GovernmentMutation governmentMutation =
+                governmentSimulationService.tick(room, state, botsForGovernment, getTilesForRoom(room, state), this::readBotProfile, now);
+            if (governmentMutation.governmentChanged()) {
+                updateGovernmentStateCache(room, state, governmentMutation.governmentState());
+                metadataDirty = true;
+            }
+            if (!governmentMutation.dirtyBots().isEmpty()) {
+                botRepository.saveAll(governmentMutation.dirtyBots());
             }
             if (refreshOccupancySnapshot(room, state, now)) {
                 metadataDirty = true;
@@ -963,6 +1004,7 @@ public class RoomService {
         state.setSharedTokensJson(cached.sharedTokensJson);
         state.setSharedQuestsJson(cached.sharedQuestsJson);
         state.setMemoryMarkersJson(cached.memoryMarkersJson);
+        state.setGovernmentStateJson(cached.governmentStateJson);
         if (cached.occupancy != null) {
             state.setOccupancyJson(toJson(cached.occupancy));
             state.setOccupancyUpdatedAt(cached.occupancyUpdatedAt);
@@ -1589,6 +1631,7 @@ public class RoomService {
             info.setY(bot.getY() == null ? -1 : bot.getY());
             Map<String, Double> profile = readBotProfile(bot);
             info.setProfile(profile);
+            info.setCivicState(governmentSimulationService.readBotCivicState(bot.getCivicStateJson()));
             if (bot.getX() != null && bot.getY() != null && tiles.length > 0) {
                 LocalStats stats = localStats(tiles, highways, bot.getX(), bot.getY());
                 info.setRole(localRole(stats));
@@ -1667,6 +1710,7 @@ public class RoomService {
             response.setMemoryMarkers(readMemoryMarkersJson(cached.memoryMarkersJson));
             response.setStateHash(cached.stateHash);
             response.setPreviousStateHash(cached.previousStateHash);
+            response.setGovernmentSummary(readGovernmentSummaryJson(cached.governmentStateJson));
         } else {
             response.setTiles(fromJsonTiles(state.getTilesJson()));
             response.setHighways(fromJsonHighways(state.getHighwaysJson()));
@@ -1675,6 +1719,7 @@ public class RoomService {
             response.setMemoryMarkers(readMemoryMarkers(state));
             response.setStateHash(state.getStateHash());
             response.setPreviousStateHash(state.getPreviousStateHash());
+            response.setGovernmentSummary(readGovernmentSummaryJson(state.getGovernmentStateJson()));
         }
         response.setParticipants(buildParticipants(room));
         response.setBots(buildBots(room));
@@ -1720,6 +1765,11 @@ public class RoomService {
         } catch (JsonProcessingException e) {
             return new ArrayList<>();
         }
+    }
+
+    private GovernmentSummary readGovernmentSummaryJson(String json) {
+        GovernmentState governmentState = governmentSimulationService.readGovernmentState(json);
+        return governmentSimulationService.buildSummary(governmentState);
     }
 
     private List<QuestItem> defaultSharedQuests() {
@@ -2520,6 +2570,7 @@ public class RoomService {
             state.getSharedTokensJson(),
             state.getSharedQuestsJson(),
             state.getMemoryMarkersJson(),
+            state.getGovernmentStateJson(),
             state.getStateHash(),
             state.getPreviousStateHash(),
             counts,
@@ -2561,6 +2612,7 @@ public class RoomService {
             state.getSharedTokensJson(),
             state.getSharedQuestsJson(),
             state.getMemoryMarkersJson(),
+            state.getGovernmentStateJson(),
             state.getStateHash(),
             state.getPreviousStateHash(),
             counts,
@@ -2576,6 +2628,18 @@ public class RoomService {
 
     private void updateCacheFromState(Room room, RoomState state) {
         updateCacheFromState(room, state, 0);
+    }
+
+    private void updateGovernmentStateCache(Room room, RoomState state, GovernmentState governmentState) {
+        String governmentJson = governmentSimulationService.serializeGovernmentState(governmentState);
+        state.setGovernmentStateJson(governmentJson);
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        if (cached != null) {
+            cached.governmentStateJson = governmentJson;
+            cached.totalChangeCount = (cached.totalChangeCount == null ? 0 : cached.totalChangeCount) + 1;
+            cached.changesSinceFlush = (cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush) + 1;
+            cached.dirty = true;
+        }
     }
 
     private TileCounts computeTileCounts(int[][] tiles, boolean[][] highways) {
@@ -2695,6 +2759,7 @@ public class RoomService {
         String sharedTokensJson;
         String sharedQuestsJson;
         String memoryMarkersJson;
+        String governmentStateJson;
         String stateHash;
         String previousStateHash;
         int tileClearCount;
@@ -2715,6 +2780,7 @@ public class RoomService {
                         String sharedTokensJson,
                         String sharedQuestsJson,
                         String memoryMarkersJson,
+                        String governmentStateJson,
                         String stateHash,
                         String previousStateHash,
                         TileCounts counts,
@@ -2728,6 +2794,7 @@ public class RoomService {
             this.sharedTokensJson = sharedTokensJson;
             this.sharedQuestsJson = sharedQuestsJson;
             this.memoryMarkersJson = memoryMarkersJson;
+            this.governmentStateJson = governmentStateJson;
             this.stateHash = stateHash;
             this.previousStateHash = previousStateHash;
             this.tileClearCount = counts.clear;

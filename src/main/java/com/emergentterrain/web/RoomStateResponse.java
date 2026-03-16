@@ -24,6 +24,7 @@ public class RoomStateResponse {
     private int densityAreaSize;
     private int maxOccupants;
     private List<String> dismissedPollIds;
+    private GovernmentSummary governmentSummary;
 
     public String getRoomId() {
         return roomId;
@@ -183,5 +184,13 @@ public class RoomStateResponse {
 
     public void setDismissedPollIds(List<String> dismissedPollIds) {
         this.dismissedPollIds = dismissedPollIds;
+    }
+
+    public GovernmentSummary getGovernmentSummary() {
+        return governmentSummary;
+    }
+
+    public void setGovernmentSummary(GovernmentSummary governmentSummary) {
+        this.governmentSummary = governmentSummary;
     }
 }

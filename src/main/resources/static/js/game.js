@@ -37,6 +37,9 @@ const localProposalsList = document.getElementById('localProposalsList');
 const pollDetails = document.getElementById('pollDetails');
 const lockStatusEl = document.getElementById('lockStatus');
 const missedVotesEl = document.getElementById('missedVotes');
+const governmentSummaryEl = document.getElementById('governmentSummary');
+const governmentBillsEl = document.getElementById('governmentBills');
+const governmentPartiesEl = document.getElementById('governmentParties');
 const pollResultsList = document.getElementById('pollResultsList');
 const togglePollResultsBtn = document.getElementById('togglePollResults');
 const routeChoicesEl = document.getElementById('routeChoices');
@@ -1039,6 +1042,7 @@ function renderRoomState() {
   renderNeighborStats();
   renderParticipants();
   renderBotProfiles();
+  renderGovernmentSummary();
   renderLocalProposals();
   renderLockStatus();
   renderPollResults();
@@ -1106,6 +1110,69 @@ function renderParticipants() {
   });
 }
 
+function renderGovernmentSummary() {
+  if (!roomState || !governmentSummaryEl || !governmentBillsEl || !governmentPartiesEl) return;
+  governmentSummaryEl.innerHTML = '';
+  governmentBillsEl.innerHTML = '';
+  governmentPartiesEl.innerHTML = '';
+  const summary = roomState.governmentSummary;
+  if (!summary || !summary.constitutionVersion) {
+    const empty = document.createElement('div');
+    empty.className = 'list-item';
+    empty.textContent = 'Government model not initialized yet.';
+    governmentSummaryEl.appendChild(empty);
+    return;
+  }
+
+  const summaryItems = [
+    `Constitution: ${summary.constitutionVersion}`,
+    `Tick: ${summary.tick || 0}`,
+    `Federal executive: ${summary.federalExecutiveParty || 'None'}`,
+    `Lower / upper: ${summary.federalLowerParty || 'None'} / ${summary.federalUpperParty || 'None'}`,
+    `Chief justice bloc: ${summary.federalChiefJusticeParty || 'None'}`,
+    `Trust: ${formatScore(summary.federalTrust)}`,
+    `Revenue / infrastructure: ${summary.federalRevenue || 0} / ${summary.federalInfrastructureBudget || 0}`,
+    `States: ${summary.stateCount || 0}`,
+    `Next election: ${summary.nextElectionAt ? new Date(summary.nextElectionAt).toLocaleTimeString() : 'pending'}`
+  ];
+  summaryItems.forEach((text) => {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.textContent = text;
+    governmentSummaryEl.appendChild(row);
+  });
+
+  const activeBills = summary.activeBills || [];
+  if (!activeBills.length) {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.textContent = 'No active federal bills.';
+    governmentBillsEl.appendChild(row);
+  } else {
+    activeBills.forEach((bill) => {
+      const row = document.createElement('div');
+      row.className = 'list-item';
+      row.textContent = bill;
+      governmentBillsEl.appendChild(row);
+    });
+  }
+
+  const partySummaries = summary.partySummaries || [];
+  if (!partySummaries.length) {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.textContent = 'No parties tracked.';
+    governmentPartiesEl.appendChild(row);
+  } else {
+    partySummaries.forEach((party) => {
+      const row = document.createElement('div');
+      row.className = 'list-item';
+      row.textContent = party;
+      governmentPartiesEl.appendChild(row);
+    });
+  }
+}
+
 function renderBotProfiles() {
   if (!botProfilesList || !roomState) return;
   botProfilesList.innerHTML = '';
@@ -1130,7 +1197,31 @@ function renderBotProfiles() {
     roleBadge.className = 'profile-badge';
     roleBadge.textContent = bot.role ? `Role: ${bot.role}` : 'Role: unknown';
     badges.appendChild(roleBadge);
+    const civicState = bot.civicState || {};
+    if (civicState.partyId) {
+      const partyBadge = document.createElement('div');
+      partyBadge.className = 'profile-badge';
+      partyBadge.textContent = `Party: ${civicState.partyId.replace('party-', '')}`;
+      badges.appendChild(partyBadge);
+    }
+    if (civicState.employmentStatus) {
+      const workBadge = document.createElement('div');
+      workBadge.className = 'profile-badge';
+      workBadge.textContent = `${civicState.employmentStatus} / ${civicState.occupationSector || 'general'}`;
+      badges.appendChild(workBadge);
+    }
     card.appendChild(badges);
+
+    if (civicState.stateId || civicState.districtId) {
+      const civicMeta = document.createElement('div');
+      civicMeta.className = 'bot-civic-meta';
+      const civicBits = [];
+      if (civicState.stateId) civicBits.push(civicState.stateId);
+      if (civicState.districtId) civicBits.push(civicState.districtId);
+      if (civicState.householdId) civicBits.push(civicState.householdId);
+      civicMeta.textContent = civicBits.join(' · ');
+      card.appendChild(civicMeta);
+    }
 
     const bars = document.createElement('div');
     bars.className = 'profile-bars';
@@ -1168,6 +1259,38 @@ function renderBotProfiles() {
       row.appendChild(value);
       bars.appendChild(row);
     });
+
+    if (civicState) {
+      [
+        { label: 'Trust', value: civicState.institutionalTrust, color: '#1f6f8b' },
+        { label: 'Rights', value: civicState.rightsSatisfaction, color: '#2a7f62' },
+        { label: 'Services', value: civicState.serviceAccess, color: '#7f5539' },
+        { label: 'Participation', value: civicState.civicParticipation, color: '#8b5cf6' }
+      ].forEach((metric) => {
+        if (metric.value === undefined || metric.value === null) return;
+        const row = document.createElement('div');
+        row.className = 'profile-bar';
+
+        const label = document.createElement('div');
+        label.textContent = metric.label;
+
+        const track = document.createElement('div');
+        track.className = 'bar-track';
+        const fill = document.createElement('div');
+        fill.className = 'bar-fill';
+        fill.style.width = `${Math.max(0, Math.min(1, metric.value || 0)) * 100}%`;
+        fill.style.background = metric.color;
+        track.appendChild(fill);
+
+        const value = document.createElement('div');
+        value.textContent = formatScore(metric.value);
+
+        row.appendChild(label);
+        row.appendChild(track);
+        row.appendChild(value);
+        bars.appendChild(row);
+      });
+    }
 
     card.appendChild(bars);
     botProfilesList.appendChild(card);
