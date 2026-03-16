@@ -93,7 +93,10 @@ Current caveat: the supported local path is the native Windows one, and it is GP
 Current learning: the supported local end-to-end path is the native Windows run of `scripts/run-real-gpu-e2e.ps1`.
 Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 Current learning: the Windows E2E path now proves `RebuildPatch` against the live engine rather than only world generation and bot simulation.
-Current learning: local CPU-vs-GPU performance comparisons should use `scripts\compare-cpu-vs-gpu-performance.ps1`, which runs the Java jar plus the Rust `release` binary instead of `spring-boot:run` / `cargo run`.
+Current learning: local CPU-vs-GPU performance comparisons should use `scripts\compare-cpu-vs-gpu-performance.ps1`, which runs the Java jar plus the Rust `release` binary directly instead of `spring-boot:run` / `cargo run`.
+Current learning: that compare script also clears the inherited `DEBUG` environment variable before launching both processes, because Spring Boot startup timings on this machine are otherwise distorted.
+Current learning: repeated `world_id` bot-simulation requests now reuse cached GPU world buffers inside the engine. That change is what made the heavy-session GPU benchmark materially faster than CPU-only.
+Current learning: `BotState.state` is no longer legacy filler on the hot path. The engine now uses it to carry bot anti-oscillation memory such as the previous tile, heading bias, reverse cooldown, and short movement plan across GPU simulation ticks.
 
 If engine behavior changes, update those scripts and this README note in the same change.
 
@@ -103,5 +106,5 @@ The contract lives at `proto/terrain_gpu.proto` and is compiled by `build.rs` (t
 ## Simulation Notes
 - `SimulateBotsRequest` supports world caching via `world_id` (send `tiles`/`highways` once, then only diffs via `tile_edits`).
 - Use `steps` to batch multiple simulation ticks per RPC.
-- `BotState` includes numeric preference fields (`forest`, `water`, `industry`, `clear`, `mobility`); `state` bytes remain legacy.
+- `BotState` includes numeric preference fields (`forest`, `water`, `industry`, `clear`, `mobility`); `state` bytes are now used for bot movement memory shared with the Java app.
 - `BoolGrid` payloads now support packed booleans in addition to the legacy byte-per-cell format, which reduces highway payload size on the Java/Rust boundary.
