@@ -228,6 +228,8 @@ struct CachedWorld {
     height: u32,
     tiles: Vec<u8>,
     highways: Vec<u8>,
+    gpu_tiles: Arc<wgpu::Buffer>,
+    gpu_highways: Arc<wgpu::Buffer>,
 }
 
 impl GpuComputeEngine {
@@ -350,6 +352,20 @@ impl GpuComputeEngine {
         })
     }
 
+    fn create_world_buffers(&self, tiles: &[u8], highways: &[u8]) -> (Arc<wgpu::Buffer>, Arc<wgpu::Buffer>) {
+        (
+            Arc::new(create_initialized_storage_buffer(&self.device, &self.queue, "cached-world-tiles", &u8_to_u32(tiles))),
+            Arc::new(create_initialized_storage_buffer(&self.device, &self.queue, "cached-world-highways", &u8_to_u32(highways))),
+        )
+    }
+
+    fn rewrite_world_buffers(&self, world: &CachedWorld) {
+        let tile_values = u8_to_u32(&world.tiles);
+        let highway_values = u8_to_u32(&world.highways);
+        self.queue.write_buffer(&world.gpu_tiles, 0, bytemuck::cast_slice(&tile_values));
+        self.queue.write_buffer(&world.gpu_highways, 0, bytemuck::cast_slice(&highway_values));
+    }
+
     fn rebuild_patch(&self, width: u32, height: u32, source_tiles: &[u8], source_highways: &[u8], patch: &gpu::Rect) -> Result<GeneratedPatch, Status> {
         let source_size = grid_size(width, height)?;
         if source_tiles.len() != source_size || source_highways.len() != source_size {
@@ -409,11 +425,24 @@ impl GpuComputeEngine {
         })
     }
 
-    fn simulate_bots(&self, width: u32, height: u32, tiles: &[u8], highways: &[u8], bots: &[BotState], steps: u32) -> Result<SimulatedBots, Status> {
-        let world_size = grid_size(width, height)?;
-        if tiles.len() != world_size || highways.len() != world_size {
-            return Err(Status::invalid_argument("world buffer size mismatch"));
-        }
+    fn simulate_bots_cached(&self, world: &CachedWorld, bots: &[BotState], steps: u32) -> Result<SimulatedBots, Status> {
+        self.simulate_bots_with_buffers(
+            world.width,
+            world.height,
+            world.gpu_tiles.as_ref(),
+            world.gpu_highways.as_ref(),
+            bots,
+            steps,
+        )
+    }
+
+    fn simulate_bots_with_buffers(&self,
+                                  width: u32,
+                                  height: u32,
+                                  tiles_buffer: &wgpu::Buffer,
+                                  highways_buffer: &wgpu::Buffer,
+                                  bots: &[BotState],
+                                  steps: u32) -> Result<SimulatedBots, Status> {
         if bots.is_empty() {
             return Ok(SimulatedBots {
                 bots: Vec::new(),
@@ -426,8 +455,6 @@ impl GpuComputeEngine {
             });
         }
 
-        let tiles_buffer = create_initialized_storage_buffer(&self.device, &self.queue, "bot-tiles", &u8_to_u32(tiles));
-        let highways_buffer = create_initialized_storage_buffer(&self.device, &self.queue, "bot-highways", &u8_to_u32(highways));
         let bot_a = create_initialized_storage_buffer(&self.device, &self.queue, "bot-a", &bots_to_gpu(bots));
         let bot_b = create_storage_buffer(&self.device, "bot-b", (bots.len() * std::mem::size_of::<GpuBotState>()) as u64);
         let uniform_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -445,7 +472,7 @@ impl GpuComputeEngine {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("bot-bind-group"),
                 layout: &self.bot_layout,
-                entries: &[bind_entry(0, &tiles_buffer), bind_entry(1, &highways_buffer), bind_entry(2, current_in), bind_entry(3, current_out), bind_entry(4, &uniform_buffer)],
+                entries: &[bind_entry(0, tiles_buffer), bind_entry(1, highways_buffer), bind_entry(2, current_in), bind_entry(3, current_out), bind_entry(4, &uniform_buffer)],
             });
             let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("bot-encoder") });
             {
@@ -507,7 +534,7 @@ impl GpuTerrainService for GpuEngineService {
         let highway_grid = req.highways.as_ref().ok_or_else(|| Status::invalid_argument("highways required"))?;
         let (width, height, tiles) = decode_tile_grid(tile_grid)?;
         let highways = decode_bool_grid(highway_grid, width, height)?;
-        let mut world = CachedWorld { width, height, tiles, highways };
+        let mut world = CachedWorld::new(self.gpu.as_ref(), width, height, tiles, highways);
         if !req.applied_edits.is_empty() {
             apply_tile_edits(&mut world, &req.applied_edits);
         }
@@ -525,8 +552,8 @@ impl GpuTerrainService for GpuEngineService {
     async fn simulate_bots(&self, request: Request<SimulateBotsRequest>) -> Result<Response<SimulateBotsResponse>, Status> {
         let req = request.into_inner();
         let steps = req.steps.max(1);
-        let (width, height, tiles, highways) = resolve_world_for_bot_request(&self.worlds, &req).await?;
-        let simulated = self.gpu.simulate_bots(width, height, &tiles, &highways, &req.bots, steps)?;
+        let world = self.resolve_world_for_bot_request(&req).await?;
+        let simulated = self.gpu.simulate_bots_cached(&world, &req.bots, steps)?;
         println!("simulate_bots request_id={} bots={} steps={} cached_world={} adapter={} debug={}", req.request_id, req.bots.len(), steps, !req.world_id.is_empty(), self.gpu.adapter_summary(), simulated.debug_json);
         Ok(Response::new(SimulateBotsResponse {
             request_id: req.request_id,
@@ -537,38 +564,56 @@ impl GpuTerrainService for GpuEngineService {
     }
 }
 
-async fn resolve_world_for_bot_request(worlds: &Arc<RwLock<HashMap<String, CachedWorld>>>, req: &SimulateBotsRequest) -> Result<(u32, u32, Vec<u8>, Vec<u8>), Status> {
-    if !req.world_id.is_empty() {
-        if let (Some(tile_grid), Some(highway_grid)) = (req.tiles.as_ref(), req.highways.as_ref()) {
-            let (w, h, tiles) = decode_tile_grid(tile_grid)?;
-            let highways = decode_bool_grid(highway_grid, w, h)?;
-            let mut world = CachedWorld { width: w, height: h, tiles, highways };
-            if !req.tile_edits.is_empty() {
-                apply_tile_edits(&mut world, &req.tile_edits);
+impl GpuEngineService {
+    async fn resolve_world_for_bot_request(&self, req: &SimulateBotsRequest) -> Result<CachedWorld, Status> {
+        if !req.world_id.is_empty() {
+            if let (Some(tile_grid), Some(highway_grid)) = (req.tiles.as_ref(), req.highways.as_ref()) {
+                let (w, h, tiles) = decode_tile_grid(tile_grid)?;
+                let highways = decode_bool_grid(highway_grid, w, h)?;
+                let mut world = CachedWorld::new(self.gpu.as_ref(), w, h, tiles, highways);
+                if !req.tile_edits.is_empty() {
+                    apply_tile_edits(&mut world, &req.tile_edits);
+                    self.gpu.rewrite_world_buffers(&world);
+                }
+                self.worlds.write().await.insert(req.world_id.clone(), world.clone());
             }
-            worlds.write().await.insert(req.world_id.clone(), world);
+            if !req.tile_edits.is_empty() && req.tiles.is_none() {
+                let mut guard = self.worlds.write().await;
+                let world = guard.get_mut(&req.world_id).ok_or_else(|| Status::not_found("world_id not found"))?;
+                apply_tile_edits(world, &req.tile_edits);
+                self.gpu.rewrite_world_buffers(world);
+                return Ok(world.clone());
+            }
+            let guard = self.worlds.read().await;
+            let world = guard.get(&req.world_id).ok_or_else(|| Status::not_found("world_id not found"))?;
+            return Ok(world.clone());
         }
-        if !req.tile_edits.is_empty() && req.tiles.is_none() {
-            let mut guard = worlds.write().await;
-            let world = guard.get_mut(&req.world_id).ok_or_else(|| Status::not_found("world_id not found"))?;
-            apply_tile_edits(world, &req.tile_edits);
-        }
-        let guard = worlds.read().await;
-        let world = guard.get(&req.world_id).ok_or_else(|| Status::not_found("world_id not found"))?;
-        return Ok((world.width, world.height, world.tiles.clone(), world.highways.clone()));
-    }
 
-    let tile_grid = req.tiles.as_ref().ok_or_else(|| Status::invalid_argument("tiles required when world_id is empty"))?;
-    let highway_grid = req.highways.as_ref().ok_or_else(|| Status::invalid_argument("highways required when world_id is empty"))?;
-    let (w, h, mut tiles) = decode_tile_grid(tile_grid)?;
-    let mut highways = decode_bool_grid(highway_grid, w, h)?;
-    if !req.tile_edits.is_empty() {
-        let mut world = CachedWorld { width: w, height: h, tiles, highways };
-        apply_tile_edits(&mut world, &req.tile_edits);
-        tiles = world.tiles;
-        highways = world.highways;
+        let tile_grid = req.tiles.as_ref().ok_or_else(|| Status::invalid_argument("tiles required when world_id is empty"))?;
+        let highway_grid = req.highways.as_ref().ok_or_else(|| Status::invalid_argument("highways required when world_id is empty"))?;
+        let (w, h, tiles) = decode_tile_grid(tile_grid)?;
+        let highways = decode_bool_grid(highway_grid, w, h)?;
+        let mut world = CachedWorld::new(self.gpu.as_ref(), w, h, tiles, highways);
+        if !req.tile_edits.is_empty() {
+            apply_tile_edits(&mut world, &req.tile_edits);
+            self.gpu.rewrite_world_buffers(&world);
+        }
+        Ok(world)
     }
-    Ok((w, h, tiles, highways))
+}
+
+impl CachedWorld {
+    fn new(gpu: &GpuComputeEngine, width: u32, height: u32, tiles: Vec<u8>, highways: Vec<u8>) -> Self {
+        let (gpu_tiles, gpu_highways) = gpu.create_world_buffers(&tiles, &highways);
+        Self {
+            width,
+            height,
+            tiles,
+            highways,
+            gpu_tiles,
+            gpu_highways,
+        }
+    }
 }
 
 fn create_bind_group_layout(device: &wgpu::Device, label: &str, entries: &[wgpu::BindGroupLayoutEntry]) -> wgpu::BindGroupLayout {
