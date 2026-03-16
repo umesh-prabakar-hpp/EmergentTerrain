@@ -30,6 +30,9 @@ public class RoomBot {
     @Column(columnDefinition = "text")
     private String profileJson;
 
+    @Column(columnDefinition = "text")
+    private String stateJson;
+
     public UUID getId() {
         return id;
     }
@@ -96,5 +99,13 @@ public class RoomBot {
 
     public void setProfileJson(String profileJson) {
         this.profileJson = profileJson;
+    }
+
+    public String getStateJson() {
+        return stateJson;
+    }
+
+    public void setStateJson(String stateJson) {
+        this.stateJson = stateJson;
     }
 }

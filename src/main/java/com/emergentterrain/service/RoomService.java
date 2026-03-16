@@ -13,6 +13,7 @@ import com.emergentterrain.gpu.v1.SimulateBotsResponse;
 import com.emergentterrain.gpu.v1.TileEdit;
 import com.emergentterrain.repo.*;
 import com.emergentterrain.web.*;
+import com.google.protobuf.ByteString;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,6 +29,8 @@ import org.slf4j.LoggerFactory;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.*;
@@ -90,6 +93,10 @@ public class RoomService {
     private final int maxBotsPerRoom;
     private final int initialRoomCreateTarget;
     private final int maxBotsTickedPerMaintenance;
+    private final double botReversePenalty;
+    private final double botHeadingBias;
+    private final int botPlanLength;
+    private final int botReverseCooldownTicks;
     private final int flushMinChanges;
     private final long flushMaxIntervalMs;
     private final long flushOverdueLockTimeoutMs;
@@ -119,6 +126,17 @@ public class RoomService {
     private final TransactionTemplate botTransactionTemplate;
     private final ReentrantLock botWriteLock = new ReentrantLock();
     private final AtomicReference<UUID> defaultRoomId = new AtomicReference<>();
+    private volatile CachedSystemToken cachedSystemToken;
+
+    public record PerfBotSimulationResult(
+        int iterations,
+        int botCount,
+        long totalMs,
+        double averageMs,
+        long minMs,
+        long maxMs
+    ) {
+    }
 
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
@@ -166,6 +184,10 @@ public class RoomService {
                        @Value("${app.bots.maxPerRoom:200}") int maxBotsPerRoom,
                        @Value("${app.bots.initialRoomCreateTarget:200}") int initialRoomCreateTarget,
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
+                       @Value("${app.bots.reversePenalty:0.6}") double botReversePenalty,
+                       @Value("${app.bots.headingBias:0.18}") double botHeadingBias,
+                       @Value("${app.bots.planLength:3}") int botPlanLength,
+                       @Value("${app.bots.reverseCooldownTicks:2}") int botReverseCooldownTicks,
                        @Value("${app.world.flushMinChanges:1}") int flushMinChanges,
                        @Value("${app.world.flushMaxIntervalMs:30000}") long flushMaxIntervalMs,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
@@ -225,6 +247,10 @@ public class RoomService {
         this.maxBotsPerRoom = Math.max(1, maxBotsPerRoom);
         this.initialRoomCreateTarget = Math.max(minNeighbors, initialRoomCreateTarget);
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
+        this.botReversePenalty = Math.max(0d, botReversePenalty);
+        this.botHeadingBias = Math.max(0d, botHeadingBias);
+        this.botPlanLength = Math.max(1, botPlanLength);
+        this.botReverseCooldownTicks = Math.max(0, botReverseCooldownTicks);
         this.flushMinChanges = Math.max(1, flushMinChanges);
         this.flushMaxIntervalMs = Math.max(250, flushMaxIntervalMs);
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
@@ -404,6 +430,60 @@ public class RoomService {
         return response;
     }
 
+    public int populateRoomForPerf(UUID roomId) {
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        return transactionTemplate.execute(status -> {
+            RoomState state = stateRepository.findByRoom(room)
+                .orElseThrow(() -> new IllegalStateException("Room state missing"));
+            int[][] tiles = getTilesForRoom(room, state);
+            List<RoomBot> bots = ensureBots(room, tiles, true);
+            if (refreshOccupancySnapshot(room, state, Instant.now())) {
+                stateRepository.save(state);
+                updateCacheFromState(room, state);
+            }
+            return bots.size();
+        });
+    }
+
+    public PerfBotSimulationResult runBotSimulationForPerf(UUID roomId, int iterations, boolean clearGpuWorldCache) {
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        int safeIterations = Math.max(1, iterations);
+        if (clearGpuWorldCache) {
+            gpuWorldCache.remove(roomId);
+        }
+        List<Long> runTimes = new ArrayList<>(safeIterations);
+        for (int i = 0; i < safeIterations; i++) {
+            long start = System.nanoTime();
+            transactionTemplate.executeWithoutResult(status -> {
+                RoomState state = stateRepository.findByRoom(room)
+                    .orElseThrow(() -> new IllegalStateException("Room state missing"));
+                int[][] tiles = getTilesForRoom(room, state);
+                ensureBots(room, tiles, true);
+                tickBots(room, state);
+            });
+            runTimes.add((System.nanoTime() - start) / 1_000_000);
+        }
+        List<RoomBot> bots = botRepository.findByRoom(room);
+        long totalMs = 0L;
+        long minMs = Long.MAX_VALUE;
+        long maxMs = Long.MIN_VALUE;
+        for (Long runTime : runTimes) {
+            totalMs += runTime;
+            minMs = Math.min(minMs, runTime);
+            maxMs = Math.max(maxMs, runTime);
+        }
+        return new PerfBotSimulationResult(
+            safeIterations,
+            bots.size(),
+            totalMs,
+            (double) totalMs / (double) safeIterations,
+            runTimes.isEmpty() ? 0L : minMs,
+            runTimes.isEmpty() ? 0L : maxMs
+        );
+    }
+
     private UUID ensureDefaultRoom() {
         UUID existing = resolveDefaultRoomId();
         if (existing != null) {
@@ -454,8 +534,14 @@ public class RoomService {
     }
 
     public String buildSystemToken() {
+        CachedSystemToken cached = cachedSystemToken;
+        if (cached != null) {
+            return cached.token;
+        }
         Payload payload = buildSystemPayload();
-        return payloadService.buildToken(payload);
+        String token = payloadService.buildToken(payload);
+        cachedSystemToken = new CachedSystemToken(token);
+        return token;
     }
 
     private Profile ensureSystemProfile() {
@@ -639,7 +725,7 @@ public class RoomService {
                 if (metadataDirty && !flushed) {
                     stateRepository.save(state);
                 }
-                maybeBroadcast(room.getId());
+                maybeBroadcast(room, state);
                 long roomMs = (System.nanoTime() - roomStart) / 1_000_000;
                 log.debug("maintenance roomId={} roomMs={}", room.getId(), roomMs);
             } catch (Exception e) {
@@ -671,16 +757,17 @@ public class RoomService {
         return true;
     }
 
-    private void maybeBroadcast(UUID roomId) {
+    private void maybeBroadcast(Room room, RoomState state) {
+        UUID roomId = room.getId();
         if (broadcastMinIntervalMs <= 0) {
-            broadcaster.broadcastRoom(roomId);
+            broadcaster.broadcastRoom(toRoomVisualState(room, state));
             return;
         }
         long nowMs = System.currentTimeMillis();
         Long last = lastBroadcastAtMs.get(roomId);
         if (last == null || nowMs - last >= broadcastMinIntervalMs) {
             lastBroadcastAtMs.put(roomId, nowMs);
-            broadcaster.broadcastRoom(roomId);
+            broadcaster.broadcastRoom(toRoomVisualState(room, state));
         }
     }
 
@@ -868,7 +955,7 @@ public class RoomService {
         long t9 = System.nanoTime();
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
         long t10 = System.nanoTime();
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         long t11 = System.nanoTime();
 
         Map<String, Double> timings = new LinkedHashMap<>();
@@ -981,8 +1068,12 @@ public class RoomService {
             if ("PENDING".equals(proposal.getStatus())) {
                 proposalRepository.save(proposal);
             }
-            RoomStateResponse response = toRoomStateResponse(room, state, participant);
-            maybeBroadcast(room.getId());
+            RoomState latestState = state;
+            if (!"PENDING".equals(proposal.getStatus())) {
+                latestState = stateRepository.findByRoom(room).orElse(state);
+            }
+            RoomStateResponse response = toRoomStateResponse(room, latestState, participant);
+            maybeBroadcast(room, latestState);
             return response;
         } finally {
             lock.unlock();
@@ -1028,7 +1119,7 @@ public class RoomService {
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
             RoomStateResponse response = toRoomStateResponse(room, state, participant);
-            maybeBroadcast(room.getId());
+            maybeBroadcast(room, state);
             return response;
         } finally {
             lock.unlock();
@@ -1059,7 +1150,7 @@ public class RoomService {
         state.setMemoryMarkersJson(toJson(markers));
         stateRepository.save(state);
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         return response;
     }
 
@@ -1105,7 +1196,7 @@ public class RoomService {
         participant.setDismissedPollsJson(toJson(dismissed));
         participantRepository.save(participant);
         RoomStateResponse response = toRoomStateResponse(room, state, participant);
-        maybeBroadcast(room.getId());
+        maybeBroadcast(room, state);
         return response;
     }
 
@@ -1483,6 +1574,25 @@ public class RoomService {
             response.setDismissedPollIds(readDismissedPollIds(participant));
         }
         return response;
+    }
+
+    private RoomVisualState toRoomVisualState(Room room, RoomState state) {
+        CachedRoomState cached = roomStateCache.get(room.getId());
+        RoomVisualState visual = new RoomVisualState();
+        visual.setRoomId(room.getId());
+        if (cached != null) {
+            visual.setTiles(copyTiles(cached.tiles));
+            visual.setHighways(copyHighways(cached.highways));
+            visual.setStateHash(cached.stateHash);
+            visual.setPreviousStateHash(cached.previousStateHash);
+        } else {
+            visual.setTiles(fromJsonTiles(state.getTilesJson()));
+            visual.setHighways(fromJsonHighways(state.getHighwaysJson()));
+            visual.setStateHash(state.getStateHash());
+            visual.setPreviousStateHash(state.getPreviousStateHash());
+        }
+        visual.setProposals(buildProposals(room, null));
+        return visual;
     }
 
     private List<String> readDismissedPollIds(RoomParticipant participant) {
@@ -2060,6 +2170,82 @@ public class RoomService {
         }
     }
 
+    private BotMotionState readBotMotionState(RoomBot bot) {
+        BotMotionState state = new BotMotionState();
+        state.currentX = bot.getX();
+        state.currentY = bot.getY();
+        if (bot.getStateJson() == null || bot.getStateJson().isBlank()) {
+            return state;
+        }
+        try {
+            BotMotionState parsed = objectMapper.readValue(bot.getStateJson(), BotMotionState.class);
+            parsed.currentX = bot.getX();
+            parsed.currentY = bot.getY();
+            parsed.normalize();
+            return parsed;
+        } catch (Exception ignored) {
+            return state;
+        }
+    }
+
+    private void writeBotMotionState(RoomBot bot, BotMotionState state) {
+        try {
+            state.normalize();
+            bot.setStateJson(objectMapper.writeValueAsString(state));
+        } catch (Exception ignored) {
+        }
+    }
+
+    private byte[] encodeBotMotionStateBytes(BotMotionState state) {
+        state.normalize();
+        ByteBuffer buffer = ByteBuffer.allocate(40).order(ByteOrder.LITTLE_ENDIAN);
+        buffer.putInt(state.lastX == null ? Integer.MIN_VALUE : state.lastX);
+        buffer.putInt(state.lastY == null ? Integer.MIN_VALUE : state.lastY);
+        buffer.putInt(state.headingX);
+        buffer.putInt(state.headingY);
+        buffer.putInt(state.reverseCooldownTicks);
+        buffer.putInt(state.plannedSteps.size());
+        for (int i = 0; i < 2; i++) {
+            if (i < state.plannedSteps.size()) {
+                int[] step = state.plannedSteps.get(i);
+                buffer.putInt(step[0]);
+                buffer.putInt(step[1]);
+            } else {
+                buffer.putInt(Integer.MIN_VALUE);
+                buffer.putInt(Integer.MIN_VALUE);
+            }
+        }
+        return buffer.array();
+    }
+
+    private BotMotionState decodeBotMotionStateBytes(byte[] bytes, RoomBot bot) {
+        BotMotionState state = readBotMotionState(bot);
+        if (bytes == null || bytes.length < 40) {
+            return state;
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN);
+        int lastX = buffer.getInt();
+        int lastY = buffer.getInt();
+        state.lastX = lastX == Integer.MIN_VALUE ? null : lastX;
+        state.lastY = lastY == Integer.MIN_VALUE ? null : lastY;
+        state.headingX = buffer.getInt();
+        state.headingY = buffer.getInt();
+        state.reverseCooldownTicks = Math.max(0, buffer.getInt());
+        int planSize = Math.max(0, Math.min(2, buffer.getInt()));
+        state.plannedSteps.clear();
+        for (int i = 0; i < 2; i++) {
+            int x = buffer.getInt();
+            int y = buffer.getInt();
+            if (i < planSize && x != Integer.MIN_VALUE && y != Integer.MIN_VALUE) {
+                state.plannedSteps.add(new int[] { x, y });
+            }
+        }
+        state.currentX = bot.getX();
+        state.currentY = bot.getY();
+        state.normalize();
+        return state;
+    }
+
     private void maybeDriftProfile(RoomBot bot, Map<String, Double> profile, LocalStats stats) {
         double drift = profile.getOrDefault("drift", 0.002);
         if (Math.random() > 0.2) {
@@ -2544,28 +2730,37 @@ public class RoomService {
             }
             for (RoomBot bot : bots) {
                 Map<String, Double> profile = readBotProfile(bot);
+                BotMotionState motion = readBotMotionState(bot);
+                motion.tick();
                 if (bot.getX() == null || bot.getY() == null) {
                     assignBotSpawn(bot, tiles);
+                    motion.resetAt(bot.getX(), bot.getY());
+                    writeBotMotionState(bot, motion);
                     moved.add(bot);
                     continue;
                 }
                 if (shouldRelocate(bot, room, tiles, highways, recentProposals)) {
-                    int[] step = stepTowardProfileTarget(bot, tiles, highways, cached);
+                    int[] step = stepTowardProfileTarget(bot, tiles, highways, cached, motion, profile);
                     if (step != null && canOccupy(room, step[0], step[1], bot.getId().toString())) {
-                        bot.setX(step[0]);
-                        bot.setY(step[1]);
+                        applyBotMove(bot, motion, step[0], step[1]);
                         moved.add(bot);
+                    } else {
+                        motion.clearPlan();
+                        writeBotMotionState(bot, motion);
                     }
                     continue;
                 }
                 if (Math.random() > profile.getOrDefault("mobility", 0.5)) {
+                    writeBotMotionState(bot, motion);
                     continue;
                 }
-                int[] next = pickBotStep(bot.getX(), bot.getY(), tiles, highways, profile);
+                int[] next = pickBotStep(bot, tiles, highways, profile, motion);
                 if (next != null && canOccupy(room, next[0], next[1], bot.getId().toString())) {
-                    bot.setX(next[0]);
-                    bot.setY(next[1]);
+                    applyBotMove(bot, motion, next[0], next[1]);
                     moved.add(bot);
+                } else {
+                    motion.clearPlan();
+                    writeBotMotionState(bot, motion);
                 }
             }
             if (!moved.isEmpty()) {
@@ -2576,27 +2771,21 @@ public class RoomService {
         }
     }
 
-    private int[] pickBotStep(int x, int y, int[][] tiles, boolean[][] highways, Map<String, Double> profile) {
-        int[][] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        double best = -Double.MAX_VALUE;
-        int[] bestPos = null;
-        for (int[] d : dirs) {
-            int nx = x + d[0];
-            int ny = y + d[1];
-            if (ny < 0 || ny >= tiles.length || nx < 0 || nx >= tiles[0].length) {
-                continue;
+    private int[] pickBotStep(RoomBot bot,
+                              int[][] tiles,
+                              boolean[][] highways,
+                              Map<String, Double> profile,
+                              BotMotionState motion) {
+        if (motion.hasPlannedStep()) {
+            int[] planned = motion.peekPlannedStep();
+            if (isInBounds(planned[0], planned[1], tiles)) {
+                return planned;
             }
-            int type = tiles[ny][nx];
-            double score = tilePreferenceScore(type, profile);
-            if ((highways.length > 0 && highways[ny][nx]) || type == 4) {
-                score += 0.2;
-            }
-            if (score > best) {
-                best = score;
-                bestPos = new int[] { nx, ny };
-            }
+            motion.clearPlan();
         }
-        return bestPos;
+        List<int[]> plannedPath = planBotPath(bot.getX(), bot.getY(), tiles, highways, profile, motion, botPlanLength);
+        motion.setPlan(plannedPath);
+        return motion.peekPlannedStep();
     }
 
     private boolean shouldRelocate(RoomBot bot, Room room, int[][] tiles, List<RoomProposal> recent) {
@@ -2658,7 +2847,12 @@ public class RoomService {
         return false;
     }
 
-    private int[] stepTowardProfileTarget(RoomBot bot, int[][] tiles, boolean[][] highways, CachedMap cached) {
+    private int[] stepTowardProfileTarget(RoomBot bot,
+                                          int[][] tiles,
+                                          boolean[][] highways,
+                                          CachedMap cached,
+                                          BotMotionState motion,
+                                          Map<String, Double> profile) {
         int[] best = findBestProfileLocation(bot, tiles, highways, cached);
         if (best == null) {
             return null;
@@ -2678,16 +2872,19 @@ public class RoomService {
             candidates.add(new int[] { bot.getX(), bot.getY() + Integer.signum(dy) });
         }
         int[] bestStep = null;
+        double bestScore = -Double.MAX_VALUE;
         for (int[] c : candidates) {
             if (c[0] < 0 || c[0] >= tiles[0].length || c[1] < 0 || c[1] >= tiles.length) {
                 continue;
             }
-            if (bestStep == null) {
-                bestStep = c;
-            }
+            double score = tilePreferenceScore(tiles[c[1]][c[0]], profile);
+            score += antiOscillationAdjustment(c[0], c[1], tiles, highways, motion);
             if ((highways.length > 0 && highways[c[1]][c[0]]) || tiles[c[1]][c[0]] == 4) {
+                score += 0.25;
+            }
+            if (score > bestScore) {
+                bestScore = score;
                 bestStep = c;
-                break;
             }
         }
         if (bestStep != null) {
@@ -2695,6 +2892,97 @@ public class RoomService {
             stepY = bestStep[1];
         }
         return new int[] { stepX, stepY };
+    }
+
+    private List<int[]> planBotPath(int startX,
+                                    int startY,
+                                    int[][] tiles,
+                                    boolean[][] highways,
+                                    Map<String, Double> profile,
+                                    BotMotionState motion,
+                                    int maxSteps) {
+        List<int[]> path = new ArrayList<>();
+        int currentX = startX;
+        int currentY = startY;
+        BotMotionState scratch = motion.copy();
+        for (int i = 0; i < maxSteps; i++) {
+            int[] next = chooseBestBotNeighbor(currentX, currentY, tiles, highways, profile, scratch);
+            if (next == null || (next[0] == currentX && next[1] == currentY)) {
+                break;
+            }
+            path.add(next);
+            scratch.recordMove(currentX, currentY, next[0], next[1], botReverseCooldownTicks);
+            currentX = next[0];
+            currentY = next[1];
+        }
+        return path;
+    }
+
+    private int[] chooseBestBotNeighbor(int x,
+                                        int y,
+                                        int[][] tiles,
+                                        boolean[][] highways,
+                                        Map<String, Double> profile,
+                                        BotMotionState motion) {
+        int[][] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        double best = -Double.MAX_VALUE;
+        int[] bestPos = null;
+        for (int[] d : dirs) {
+            int nx = x + d[0];
+            int ny = y + d[1];
+            if (!isInBounds(nx, ny, tiles)) {
+                continue;
+            }
+            int type = tiles[ny][nx];
+            double score = tilePreferenceScore(type, profile);
+            if ((highways.length > 0 && highways[ny][nx]) || type == 4) {
+                score += 0.2;
+            }
+            score += antiOscillationAdjustment(nx, ny, tiles, highways, motion);
+            if (score > best) {
+                best = score;
+                bestPos = new int[] { nx, ny };
+            }
+        }
+        return bestPos;
+    }
+
+    private double antiOscillationAdjustment(int nx,
+                                             int ny,
+                                             int[][] tiles,
+                                             boolean[][] highways,
+                                             BotMotionState motion) {
+        double score = 0d;
+        if (motion.lastX != null && motion.lastY != null && motion.lastX == nx && motion.lastY == ny) {
+            score -= botReversePenalty;
+            if (motion.reverseCooldownTicks > 0) {
+                score -= botReversePenalty;
+            }
+        }
+        if (motion.headingX != 0 || motion.headingY != 0) {
+            int dx = nx - motion.currentX;
+            int dy = ny - motion.currentY;
+            if (dx == motion.headingX && dy == motion.headingY) {
+                score += botHeadingBias;
+            } else if (dx == -motion.headingX && dy == -motion.headingY) {
+                score -= botHeadingBias;
+            }
+        }
+        return score;
+    }
+
+    private boolean isInBounds(int x, int y, int[][] tiles) {
+        return y >= 0 && y < tiles.length && x >= 0 && x < tiles[0].length;
+    }
+
+    private void applyBotMove(RoomBot bot, BotMotionState motion, int nextX, int nextY) {
+        int currentX = bot.getX() == null ? nextX : bot.getX();
+        int currentY = bot.getY() == null ? nextY : bot.getY();
+        bot.setX(nextX);
+        bot.setY(nextY);
+        motion.consumePlannedStep();
+        motion.recordMove(currentX, currentY, nextX, nextY, botReverseCooldownTicks);
+        writeBotMotionState(bot, motion);
     }
 
     private double tilePreferenceScore(int type, Map<String, Double> profile) {
@@ -3614,10 +3902,12 @@ public class RoomService {
                 if (bot.getId() == null || bot.getX() == null || bot.getY() == null) {
                     continue;
                 }
+                BotMotionState motion = readBotMotionState(bot);
                 BotState.Builder botState = BotState.newBuilder()
                     .setId(bot.getId().toString())
                     .setX(bot.getX())
-                    .setY(bot.getY());
+                    .setY(bot.getY())
+                    .setState(ByteString.copyFrom(encodeBotMotionStateBytes(motion)));
                 Map<String, Double> profile = readBotProfile(bot);
                 applyGpuBotProfile(botState, profile);
                 builder.addBots(botState);
@@ -3636,12 +3926,16 @@ public class RoomService {
                 if (bot == null) {
                     continue;
                 }
+                BotMotionState motion = decodeBotMotionStateBytes(botState.getState().toByteArray(), bot);
                 if (bot.getX() == null || bot.getY() == null
                     || bot.getX() != botState.getX() || bot.getY() != botState.getY()) {
                     bot.setX(botState.getX());
                     bot.setY(botState.getY());
-                    moved.add(bot);
                 }
+                motion.currentX = bot.getX();
+                motion.currentY = bot.getY();
+                writeBotMotionState(bot, motion);
+                moved.add(bot);
             }
             if (!moved.isEmpty()) {
                 botRepository.saveAll(moved);
@@ -3833,6 +4127,100 @@ public class RoomService {
         if (participant.getLockedUntil() != null && participant.getLockedUntil().isAfter(Instant.now())) {
             throw new IllegalStateException("You are locked from play for a short time.");
         }
+    }
+
+    private static class BotMotionState {
+        public Integer currentX;
+        public Integer currentY;
+        public Integer lastX;
+        public Integer lastY;
+        public int headingX;
+        public int headingY;
+        public int reverseCooldownTicks;
+        public List<int[]> plannedSteps = new ArrayList<>();
+
+        void tick() {
+            if (reverseCooldownTicks > 0) {
+                reverseCooldownTicks--;
+            }
+        }
+
+        void normalize() {
+            if (plannedSteps == null) {
+                plannedSteps = new ArrayList<>();
+            }
+            if (plannedSteps.size() > 2) {
+                plannedSteps = new ArrayList<>(plannedSteps.subList(0, 2));
+            }
+        }
+
+        void resetAt(Integer x, Integer y) {
+            currentX = x;
+            currentY = y;
+            lastX = null;
+            lastY = null;
+            headingX = 0;
+            headingY = 0;
+            reverseCooldownTicks = 0;
+            clearPlan();
+        }
+
+        void recordMove(int fromX, int fromY, int toX, int toY, int cooldownTicks) {
+            lastX = fromX;
+            lastY = fromY;
+            currentX = toX;
+            currentY = toY;
+            headingX = Integer.compare(toX, fromX);
+            headingY = Integer.compare(toY, fromY);
+            reverseCooldownTicks = cooldownTicks;
+        }
+
+        void setPlan(List<int[]> nextSteps) {
+            plannedSteps = new ArrayList<>();
+            if (nextSteps == null) {
+                return;
+            }
+            for (int i = 0; i < Math.min(2, nextSteps.size()); i++) {
+                int[] step = nextSteps.get(i);
+                if (step != null && step.length >= 2) {
+                    plannedSteps.add(new int[] { step[0], step[1] });
+                }
+            }
+        }
+
+        boolean hasPlannedStep() {
+            return plannedSteps != null && !plannedSteps.isEmpty();
+        }
+
+        int[] peekPlannedStep() {
+            return hasPlannedStep() ? plannedSteps.get(0) : null;
+        }
+
+        void consumePlannedStep() {
+            if (hasPlannedStep()) {
+                plannedSteps.remove(0);
+            }
+        }
+
+        void clearPlan() {
+            plannedSteps = new ArrayList<>();
+        }
+
+        BotMotionState copy() {
+            BotMotionState copy = new BotMotionState();
+            copy.currentX = currentX;
+            copy.currentY = currentY;
+            copy.lastX = lastX;
+            copy.lastY = lastY;
+            copy.headingX = headingX;
+            copy.headingY = headingY;
+            copy.reverseCooldownTicks = reverseCooldownTicks;
+            copy.setPlan(plannedSteps);
+            return copy;
+        }
+    }
+
+    private record CachedSystemToken(String token) {
     }
 
     private String toJson(Object value) {

@@ -1,9 +1,9 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/emergentterrain
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/emergentterrain}
     driverClassName: org.postgresql.Driver
-    username: postgres
-    password: NewStrongPasswordHere
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:NewStrongPasswordHere}
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
@@ -16,10 +16,6 @@ spring:
             non_contextual_creation: true
   thymeleaf:
     cache: false
-  h2:
-    console:
-      enabled: false
-      path: /h2
   task:
     scheduling:
       pool:
@@ -33,15 +29,15 @@ app:
     enabled: true 
     world:
       enabled: true 
-      minCells: 30000
+      minCells: 20000
     bots:
       enabled: true 
       applyEdits: true 
       cacheWorld: true
-      steps: 5
-      diffMaxEdits: 2000
-      minBotCount: 512
-      minWorkItems: 2000
+      steps: 1
+      diffMaxEdits: 4000
+      minBotCount: 128
+      minWorkItems: 256
     patch:
       minArea: 4
   qr:
@@ -57,21 +53,21 @@ app:
     width: 40
     height: 30
     maxTiles: 120000
-    cacheTtlMs: 5000
-    cacheMaxEntries: 32
+    cacheTtlMs: 60000
+    cacheMaxEntries: 64
     aspectRatio: 1.3333
     highwayRatio: 0.02
-    flushIntervalMs: 2000
-    flushMinChanges: 200
+    flushIntervalMs: 750
+    flushMinChanges: 80
     flushMaxIntervalMs: 15000
     flushOverdueLockTimeoutMs: 10
   consensus:
     neighborRadius: 24
     voteWindowSeconds: 6
     minProposalLiveSeconds: 1
-    maintenanceIntervalMs: 250
+    maintenanceIntervalMs: 150
     maintenanceWorkers: 4
-    broadcastMinIntervalMs: 100
+    broadcastMinIntervalMs: 40
     botVoteRetentionSeconds: 0
     minVotesToResolve: 2
     quorumCap: 4
@@ -86,14 +82,18 @@ app:
   density:
     areaSize: 20
     maxOccupants: 15
-    occupancyRefreshMs: 1000
+    occupancyRefreshMs: 250
   move:
     maxSteps: 6
   bots:
     populationFraction: 0.8
     maxPerRoom: 1000
     initialRoomCreateTarget: 200
-    maxTickPerMaintenance: 400
+    maxTickPerMaintenance: 0
+    reversePenalty: 0.6
+    headingBias: 0.18
+    planLength: 3
+    reverseCooldownTicks: 2
   activityLog:
     intervalMs: 30000
 

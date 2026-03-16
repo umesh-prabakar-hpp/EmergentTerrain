@@ -29,6 +29,7 @@
         <div class="game-panel">
           <div class="canvas-wrap">
             <canvas id="world" width="900" height="620"></canvas>
+            <canvas id="worldFx" width="900" height="620"></canvas>
             <div id="miniMapContainer" class="mini-map-container">
               <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
             </div>
@@ -185,6 +186,7 @@
     window.APP_TOKEN = "[[${token}]]";
     window.SNAPSHOT_ID = "[[${snapshotId}]]";
   </script>
+  <script src="/js/world-fx.js"></script>
   <script src="/js/game.js"></script>
   <script defer src="/js/theme.js"></script>
 </body>

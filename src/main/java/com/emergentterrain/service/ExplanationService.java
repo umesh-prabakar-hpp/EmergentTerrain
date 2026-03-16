@@ -1,11 +1,13 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.web.GameDelta;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
 
 @Service
+@Profile("!perf")
 public class ExplanationService {
     public String explain(GameDelta delta, Map<String, Boolean> answers) {
         if (delta == null || answers == null) {

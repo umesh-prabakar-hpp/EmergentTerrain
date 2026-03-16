@@ -1,20 +1,71 @@
 spring:
+  application:
+    admin:
+      enabled: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
+      - org.springframework.boot.autoconfigure.thymeleaf.ThymeleafAutoConfiguration
+      - org.springframework.boot.autoconfigure.websocket.servlet.WebSocketServletAutoConfiguration
   main:
     banner-mode: "off"
+    lazy-initialization: true
+    log-startup-info: false
+  datasource:
+    url: ${PG_PERF_URL:jdbc:postgresql://localhost:5432/emergentterrain_perf}
+    driverClassName: org.postgresql.Driver
+    username: ${PG_PERF_USER:${PG_USER:postgres}}
+    password: ${PG_PERF_PASSWORD:${PG_PASSWORD:NewStrongPasswordHere}}
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: false
+  thymeleaf:
+    cache: true
 
 app:
+  room:
+    defaultAutoCreate: false
+    defaultUseWhenAvailable: false
+  world:
+    maxTiles: 20000
+    cacheTtlMs: 60000
+    cacheMaxEntries: 64
   gpu:
+    world:
+      minCells: 1
     bots:
       cacheWorld: true
-      steps: 10
+      steps: 1
       diffMaxEdits: 4000
-  world:
-    cacheTtlMs: 15000
+      minBotCount: 128
+      minWorkItems: 128
+    patch:
+      minArea: 1
+  consensus:
+    maintenanceIntervalMs: 5000
+    maxBotProposalsPerMaintenance: 8
+    maxBotsInspectedPerMaintenance: 32
+    maintenanceWorkers: 1
+    broadcastMinIntervalMs: 250
+  bots:
+    populationFraction: 1.0
+    maxPerRoom: 1024
+    initialRoomCreateTarget: 16
+    maxTickPerMaintenance: 0
 
 logging:
   level:
-    root: WARN
-    org.hibernate.SQL: WARN
-    org.hibernate.orm.jdbc.bind: WARN
-    org.springframework.boot.context.config: WARN
-    com.emergentterrain.service.RoomService: WARN
+    root: ERROR
+    org.hibernate.SQL: ERROR
+    org.hibernate.orm.jdbc.bind: ERROR
+    org.springframework.boot.autoconfigure.logging.ConditionEvaluationReportLogger: ERROR
+    org.springframework.boot.context.config: ERROR
+    org.springframework.security: ERROR
+    com.emergentterrain.service.RoomService: ERROR
+
+debug: false

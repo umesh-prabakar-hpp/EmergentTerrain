@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
+@org.springframework.context.annotation.Profile("!perf")
 public class ProfileService {
     private final ProfileRepository profileRepository;
     private final ObjectMapper objectMapper;

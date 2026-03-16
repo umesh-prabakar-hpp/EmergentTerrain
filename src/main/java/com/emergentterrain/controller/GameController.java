@@ -39,7 +39,10 @@ import com.emergentterrain.web.StateHashResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 
+import java.util.Map;
+
 @Controller
+@org.springframework.context.annotation.Profile("!perf")
 public class GameController {
     private final PayloadService payloadService;
     private final WorldService worldService;
@@ -101,6 +104,16 @@ public class GameController {
         model.addAttribute("token", token);
         model.addAttribute("snapshotId", snapshot == null ? "" : snapshot);
         return "game";
+    }
+
+    @GetMapping("/game/test-token")
+    @ResponseBody
+    public ResponseEntity<Map<String, String>> gameTestToken() {
+        if (!e2eEnabled) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND);
+        }
+        metrics.increment("game.test.token");
+        return ResponseEntity.ok(Map.of("token", roomService.buildSystemToken()));
     }
 
     @PostMapping("/game/state")

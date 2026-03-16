@@ -11,14 +11,19 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Base64;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.GZIPInputStream;
 import java.util.zip.GZIPOutputStream;
 
 @Service
 public class PayloadService {
+    private static final int TOKEN_CACHE_MAX_ENTRIES = 512;
+    private static final long TOKEN_CACHE_TTL_MS = 60_000;
     private final ObjectMapper objectMapper;
     private final byte[] secret;
+    private final ConcurrentHashMap<String, CachedPayload> parsedTokenCache = new ConcurrentHashMap<>();
 
     public PayloadService(ObjectMapper objectMapper, @Value("${app.qr.hmacSecret}") String secret) {
         this.objectMapper = objectMapper;
@@ -38,6 +43,11 @@ public class PayloadService {
     }
 
     public Payload parseToken(String token) {
+        CachedPayload cached = parsedTokenCache.get(token);
+        long now = System.currentTimeMillis();
+        if (cached != null && (now - cached.createdAtMs) <= TOKEN_CACHE_TTL_MS) {
+            return cached.payload;
+        }
         try {
             String[] parts = token.split("\\.");
             if (parts.length != 2) {
@@ -50,7 +60,9 @@ public class PayloadService {
                 throw new IllegalArgumentException("Invalid token signature");
             }
             byte[] json = gunzip(payloadBytes);
-            return objectMapper.readValue(json, Payload.class);
+            Payload payload = objectMapper.readValue(json, Payload.class);
+            cacheParsedToken(token, payload, now);
+            return payload;
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid token", e);
         }
@@ -106,5 +118,32 @@ public class PayloadService {
         try (GZIPInputStream gis = new GZIPInputStream(new ByteArrayInputStream(input))) {
             return gis.readAllBytes();
         }
+    }
+
+    private void cacheParsedToken(String token, Payload payload, long now) {
+        if (parsedTokenCache.size() >= TOKEN_CACHE_MAX_ENTRIES) {
+            pruneParsedTokenCache(now);
+            if (parsedTokenCache.size() >= TOKEN_CACHE_MAX_ENTRIES) {
+                String oldestKey = null;
+                long oldestAt = Long.MAX_VALUE;
+                for (Map.Entry<String, CachedPayload> entry : parsedTokenCache.entrySet()) {
+                    if (entry.getValue().createdAtMs < oldestAt) {
+                        oldestAt = entry.getValue().createdAtMs;
+                        oldestKey = entry.getKey();
+                    }
+                }
+                if (oldestKey != null) {
+                    parsedTokenCache.remove(oldestKey);
+                }
+            }
+        }
+        parsedTokenCache.put(token, new CachedPayload(payload, now));
+    }
+
+    private void pruneParsedTokenCache(long now) {
+        parsedTokenCache.entrySet().removeIf(entry -> (now - entry.getValue().createdAtMs) > TOKEN_CACHE_TTL_MS);
+    }
+
+    private record CachedPayload(Payload payload, long createdAtMs) {
     }
 }
