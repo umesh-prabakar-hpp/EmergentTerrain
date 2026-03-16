@@ -93,7 +93,8 @@ Current caveat: the supported local path is the native Windows one, and it is GP
 Current learning: the supported local end-to-end path is the native Windows run of `scripts/run-real-gpu-e2e.ps1`.
 Current learning: the verified native Windows adapter on this machine is `Radeon RX 580 Series via Vulkan`.
 Current learning: the Windows E2E path now proves `RebuildPatch` against the live engine rather than only world generation and bot simulation.
-Current learning: local CPU-vs-GPU performance comparisons should use `scripts\compare-cpu-vs-gpu-performance.ps1`, which runs the Java jar plus the Rust `release` binary instead of `spring-boot:run` / `cargo run`.
+Current learning: local CPU-vs-GPU performance comparisons should use `scripts\compare-cpu-vs-gpu-performance.ps1`, which runs the Java jar plus the Rust `release` binary directly instead of `spring-boot:run` / `cargo run`.
+Current learning: that compare script also clears the inherited `DEBUG` environment variable before launching both processes, because Spring Boot startup timings on this machine are otherwise distorted.
 
 If engine behavior changes, update those scripts and this README note in the same change.
 
