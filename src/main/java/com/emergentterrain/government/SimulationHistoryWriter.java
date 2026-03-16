@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 @Service
 public class SimulationHistoryWriter {
@@ -54,5 +55,10 @@ public class SimulationHistoryWriter {
     @PreDestroy
     public void shutdown() {
         writer.shutdown();
+        try {
+            writer.awaitTermination(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 }

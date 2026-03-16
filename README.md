@@ -22,7 +22,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
 - The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
 - Highways now emerge from repeated long-distance bot movement and exploration pressure. Ordinary terrain proposals no longer clear them, and unused corridors decay over time so roads do not take over the map.
-- Phase 1 constitutional simulation foundations are now present: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, and append-only records are written under `simulation-history/`
+- Constitutional simulation now spans the first three runtime slices: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, executive orders and court review can intervene, office roles are assigned to bots, and append-only records are written under `simulation-history/`
 
 ## Run
 Java 21 required. On this machine, the installed JDK 21 path is:
@@ -93,6 +93,11 @@ GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` 
 Focused patch benchmark:
 ```powershell
 java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
+```
+
+Focused government benchmark:
+```powershell
+java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSimulationBenchmark.*" -f 1
 ```
 
 ## GPU Engine Integration
@@ -191,7 +196,7 @@ See `src/main/resources/application.yml` for app settings:
 - `PG_PERF_URL`, `PG_PERF_USER`, `PG_PERF_PASSWORD` for the perf profile datasource
 
 ## Constitutional Terrain
-- Phase 1 implementation notes live in `docs/constitutional-terrain-phase1.md`.
+- Current implementation notes live in `docs/constitutional-terrain-phase1.md`.
 - Machine-readable constitutional rules live in `src/main/resources/government/constitution-rules.json`.
 - Runtime history output is append-only and written under `simulation-history/` with subfolders for:
   - `constitution`
@@ -199,7 +204,14 @@ See `src/main/resources/application.yml` for app settings:
   - `elections`
   - `courts`
   - `legislation`
-- The current phase exposes government summary data and per-bot civic state in the room UI; richer institutions, courts, and GPU civic kernels are deferred.
+- The current runtime slice now includes:
+  - deterministic federal and state party / budget / election / bill simulation
+  - executive order issuance when services or trust degrade
+  - court review that can block rights-process actions
+  - office-role assignment back onto bots for federal and state branches
+  - focused unit coverage in `GovernmentSimulationServiceTest`
+  - focused JMH coverage in `GovernmentSimulationBenchmark`
+- Richer agencies, amendment gameplay, and GPU civic kernels are still deferred.
 
 ## Routes (summary)
 - `GET /register`, `POST /register`

@@ -17,7 +17,11 @@ public class GovernmentSummary {
     private long federalInfrastructureBudget;
     private int stateCount;
     private int activeBillCount;
+    private int activeExecutiveOrderCount;
+    private int activeCourtCaseCount;
     private List<String> activeBills = new ArrayList<>();
+    private List<String> executiveOrders = new ArrayList<>();
+    private List<String> courtCases = new ArrayList<>();
     private List<String> partySummaries = new ArrayList<>();
 
     public String getConstitutionVersion() {
@@ -116,12 +120,44 @@ public class GovernmentSummary {
         this.activeBillCount = activeBillCount;
     }
 
+    public int getActiveExecutiveOrderCount() {
+        return activeExecutiveOrderCount;
+    }
+
+    public void setActiveExecutiveOrderCount(int activeExecutiveOrderCount) {
+        this.activeExecutiveOrderCount = activeExecutiveOrderCount;
+    }
+
+    public int getActiveCourtCaseCount() {
+        return activeCourtCaseCount;
+    }
+
+    public void setActiveCourtCaseCount(int activeCourtCaseCount) {
+        this.activeCourtCaseCount = activeCourtCaseCount;
+    }
+
     public List<String> getActiveBills() {
         return activeBills;
     }
 
     public void setActiveBills(List<String> activeBills) {
         this.activeBills = activeBills;
+    }
+
+    public List<String> getExecutiveOrders() {
+        return executiveOrders;
+    }
+
+    public void setExecutiveOrders(List<String> executiveOrders) {
+        this.executiveOrders = executiveOrders;
+    }
+
+    public List<String> getCourtCases() {
+        return courtCases;
+    }
+
+    public void setCourtCases(List<String> courtCases) {
+        this.courtCases = courtCases;
     }
 
     public List<String> getPartySummaries() {

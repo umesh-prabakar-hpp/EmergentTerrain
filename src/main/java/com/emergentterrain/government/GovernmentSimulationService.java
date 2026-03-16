@@ -102,16 +102,23 @@ public class GovernmentSimulationService {
         governmentState.setTick(governmentState.getTick() + 1);
         governmentState.setLastTickAt(now);
         changed = true;
+        refreshGovernmentAggregates(governmentState, bots);
 
         for (RoomBot bot : bots) {
             BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
             if (civicState == null) {
                 continue;
             }
-            double serviceDelta = terrainServiceSignal(bot, tiles);
+            GovernmentState.GovernmentNode stateNode = resolveStateNode(governmentState, civicState.getStateId());
+            double serviceDelta = terrainServiceSignal(bot, tiles)
+                + budgetServiceBonus(governmentState.getFederal().getBudget())
+                + budgetServiceBonus(stateNode.getBudget());
             double pressureDelta = economicPressure(civicState);
-            civicState.setServiceAccess(clamp01(civicState.getServiceAccess() * 0.75d + serviceDelta * 0.25d));
-            civicState.setRightsSatisfaction(clamp01(civicState.getRightsSatisfaction() - pressureDelta * 0.03d + 0.012d));
+            updateEconomicState(civicState, governmentState, stateNode, serviceDelta, pressureDelta);
+            civicState.setRightsSatisfaction(clamp01(civicState.getRightsSatisfaction()
+                - pressureDelta * 0.03d
+                + 0.012d
+                + (stateNode.getPublicTrust() - 0.5d) * 0.02d));
             civicState.setInstitutionalTrust(clamp01(civicState.getInstitutionalTrust()
                 + (civicState.getServiceAccess() - 0.5d) * 0.05d
                 + (civicState.getRightsSatisfaction() - 0.5d) * 0.04d));
@@ -128,8 +135,11 @@ public class GovernmentSimulationService {
 
         refreshGovernmentAggregates(governmentState, bots);
         boolean billChanged = advanceBills(governmentState, bots, now);
+        boolean orderChanged = maybeIssueExecutiveOrders(governmentState, bots, now);
+        boolean courtChanged = maybeReviewByCourts(governmentState, now);
         boolean electionChanged = maybeRunElection(governmentState, bots, now);
-        changed = changed || billChanged || electionChanged;
+        assignOfficeRoles(governmentState, bots);
+        changed = changed || billChanged || orderChanged || courtChanged || electionChanged;
         GovernmentSummary summary = buildSummary(governmentState);
         return new GovernmentMutation(governmentState, summary, changed, dirtyBots);
     }
@@ -159,6 +169,23 @@ public class GovernmentSimulationService {
         }
         summary.setActiveBills(activeBills);
         summary.setActiveBillCount(activeBills.size());
+        List<String> executiveOrders = new ArrayList<>();
+        for (GovernmentState.ExecutiveOrder order : governmentState.getExecutiveOrders()) {
+            if (!"SUPERSEDED".equalsIgnoreCase(order.getStatus()) && !"BLOCKED".equalsIgnoreCase(order.getStatus())) {
+                executiveOrders.add(String.format(Locale.ROOT, "%s: %s (%s)",
+                    order.getOrderId(),
+                    order.getSummary(),
+                    order.getScope()));
+            }
+        }
+        summary.setExecutiveOrders(executiveOrders);
+        summary.setActiveExecutiveOrderCount(executiveOrders.size());
+        List<String> courtCases = new ArrayList<>();
+        for (GovernmentState.CourtCase courtCase : governmentState.getCourtCases()) {
+            courtCases.add(String.format(Locale.ROOT, "%s: %s", courtCase.getCaseId(), courtCase.getDecision()));
+        }
+        summary.setCourtCases(courtCases);
+        summary.setActiveCourtCaseCount(courtCases.size());
         List<String> partySummaries = new ArrayList<>();
         for (GovernmentState.PoliticalParty party : governmentState.getParties()) {
             partySummaries.add(String.format(Locale.ROOT,
@@ -215,6 +242,8 @@ public class GovernmentSimulationService {
         state.setNextBillSequence(1);
         state.setNextElectionSequence(1);
         state.setNextEventSequence(1);
+        state.setNextOrderSequence(1);
+        state.setNextCourtSequence(1);
         state.setConstitutionalRules(copyRules());
         state.setParties(defaultParties());
         state.setFederal(defaultFederalNode());
@@ -339,6 +368,12 @@ public class GovernmentSimulationService {
         if (governmentState.getNextElectionAt() == null) {
             governmentState.setNextElectionAt(now.plusMillis(electionIntervalMs));
         }
+        if (governmentState.getExecutiveOrders() == null) {
+            governmentState.setExecutiveOrders(new ArrayList<>());
+        }
+        if (governmentState.getCourtCases() == null) {
+            governmentState.setCourtCases(new ArrayList<>());
+        }
     }
 
     private void refreshGovernmentAggregates(GovernmentState governmentState, List<RoomBot> bots) {
@@ -396,10 +431,15 @@ public class GovernmentSimulationService {
             GovernmentState.GovernmentBill bill = new GovernmentState.GovernmentBill();
             bill.setBillId(String.format(Locale.ROOT, "bill-%05d", governmentState.getNextBillSequence()));
             governmentState.setNextBillSequence(governmentState.getNextBillSequence() + 1);
-            bill.setTitle(nextBillTitle(governmentState, bots));
-            bill.setScope("federal");
-            bill.setSponsorPartyId(governmentState.getFederal().getLowerChamberPartyId());
-            bill.setPolicyDomain(nextPolicyDomain(governmentState, bots));
+            boolean stateScoped = governmentState.getNextBillSequence() % 2 == 0 && !governmentState.getStates().isEmpty();
+            GovernmentState.GovernmentNode sponsorNode = stateScoped
+                ? weakestStateNode(governmentState)
+                : governmentState.getFederal();
+            bill.setScope(stateScoped ? "state" : "federal");
+            bill.setStateId(stateScoped ? sponsorNode.getNodeId() : null);
+            bill.setTitle(nextBillTitle(governmentState, bots, bill.getScope(), bill.getStateId()));
+            bill.setSponsorPartyId(sponsorNode.getLowerChamberPartyId());
+            bill.setPolicyDomain(nextPolicyDomain(governmentState, bots, bill.getScope(), bill.getStateId()));
             bill.setStage("DraftBill");
             bill.setLawStatus("IN_PROGRESS");
             bill.setConstitutionalBasis("Article I; Amendments 1, 5, 14");
@@ -437,15 +477,15 @@ public class GovernmentSimulationService {
             case "CommitteeReview" -> activeBill.setStage("DebateWindow");
             case "DebateWindow" -> {
                 activeBill.setStage("ChamberVoteLower");
-                activeBill.setLowerVotes(projectVotes(governmentState.getFederal().getLowerChamberPartyId(), governmentState.getParties(), bots));
+                activeBill.setLowerVotes(projectVotes(chamberPartyId(governmentState, activeBill, true), governmentState.getParties(), bots));
             }
             case "ChamberVoteLower" -> {
                 activeBill.setStage("ChamberVoteUpper");
-                activeBill.setUpperVotes(projectVotes(governmentState.getFederal().getUpperChamberPartyId(), governmentState.getParties(), bots));
+                activeBill.setUpperVotes(projectVotes(chamberPartyId(governmentState, activeBill, false), governmentState.getParties(), bots));
             }
             case "ChamberVoteUpper" -> {
                 activeBill.setStage("ExecutiveDecision");
-                if (!Objects.equals(activeBill.getSponsorPartyId(), governmentState.getFederal().getExecutivePartyId())
+                if (!Objects.equals(activeBill.getSponsorPartyId(), executivePartyId(governmentState, activeBill))
                     && activeBill.getPolicyDomain().startsWith("rights")) {
                     activeBill.setVetoed(true);
                 }
@@ -564,6 +604,144 @@ public class GovernmentSimulationService {
         return true;
     }
 
+    private boolean maybeIssueExecutiveOrders(GovernmentState governmentState, List<RoomBot> bots, Instant now) {
+        double avgService = averageServiceAccess(bots);
+        double avgTrust = averageTrust(bots);
+        if (avgService >= 0.44d && avgTrust >= 0.40d) {
+            return false;
+        }
+        GovernmentState.ExecutiveOrder existing = governmentState.getExecutiveOrders().stream()
+            .filter(order -> "ACTIVE".equalsIgnoreCase(order.getStatus()))
+            .findFirst()
+            .orElse(null);
+        if (existing != null) {
+            return false;
+        }
+        GovernmentState.GovernmentNode targetNode = avgService < 0.38d && !governmentState.getStates().isEmpty()
+            ? weakestStateNode(governmentState)
+            : governmentState.getFederal();
+        String policyDomain = avgService < 0.38d ? "services" : "rights-process";
+        GovernmentState.ExecutiveOrder order = new GovernmentState.ExecutiveOrder();
+        order.setOrderId(String.format(Locale.ROOT, "order-%05d", governmentState.getNextOrderSequence()));
+        governmentState.setNextOrderSequence(governmentState.getNextOrderSequence() + 1);
+        order.setScope("federal".equals(targetNode.getLevel()) ? "federal" : "state");
+        order.setJurisdictionId(targetNode.getNodeId());
+        order.setIssuedByPartyId(targetNode.getExecutivePartyId());
+        order.setPolicyDomain(policyDomain);
+        order.setSummary(policyDomain.equals("services")
+            ? "Emergency services continuity order"
+            : "Rights process safeguard order");
+        order.setStatus("ACTIVE");
+        order.setIssuedAt(now);
+        order.setAffectedSystems(defaultWorldEffectsFor(policyDomain));
+        governmentState.getExecutiveOrders().add(0, order);
+        if (governmentState.getExecutiveOrders().size() > 8) {
+            governmentState.getExecutiveOrders().remove(governmentState.getExecutiveOrders().size() - 1);
+        }
+        applyExecutiveOrderEffects(governmentState, order);
+        historyWriter.writeImmutableJson(
+            String.format(Locale.ROOT, "events/event-%05d.json", governmentState.getNextEventSequence()),
+            Map.of(
+                "event_id", governmentState.getNextEventSequence(),
+                "timestamp", now,
+                "event_type", "executive_order",
+                "location_scope", order.getScope(),
+                "summary", order.getSummary(),
+                "triggering_action", order.getOrderId(),
+                "affected_entities", order.getAffectedSystems(),
+                "resulting_world_changes", order.getAffectedSystems()
+            )
+        );
+        governmentState.setNextEventSequence(governmentState.getNextEventSequence() + 1);
+        return true;
+    }
+
+    private boolean maybeReviewByCourts(GovernmentState governmentState, Instant now) {
+        GovernmentState.GovernmentBill billToReview = governmentState.getBills().stream()
+            .filter(bill -> ("JudicialReviewOptional".equalsIgnoreCase(bill.getStage())
+                || "LawActivation".equalsIgnoreCase(bill.getStage()))
+                && !"BLOCKED".equalsIgnoreCase(bill.getLawStatus()))
+            .findFirst()
+            .orElse(null);
+        GovernmentState.ExecutiveOrder orderToReview = governmentState.getExecutiveOrders().stream()
+            .filter(order -> "ACTIVE".equalsIgnoreCase(order.getStatus()) && "rights-process".equalsIgnoreCase(order.getPolicyDomain()))
+            .findFirst()
+            .orElse(null);
+        if (billToReview == null && orderToReview == null) {
+            return false;
+        }
+        GovernmentState.CourtCase courtCase = new GovernmentState.CourtCase();
+        courtCase.setCaseId(String.format(Locale.ROOT, "case-%05d", governmentState.getNextCourtSequence()));
+        governmentState.setNextCourtSequence(governmentState.getNextCourtSequence() + 1);
+        courtCase.setCourtLevel(orderToReview != null || (billToReview != null && "federal".equalsIgnoreCase(billToReview.getScope()))
+            ? "SUPREME"
+            : "STATE_SUPREME");
+        courtCase.setPlaintiff("civic-population");
+        courtCase.setDefendant(billToReview != null ? billToReview.getBillId() : orderToReview.getOrderId());
+        courtCase.setLegalBasis("rights review");
+        courtCase.setConstitutionalBasis("Amendments I, V, XIV");
+        courtCase.setDecidedAt(now);
+        boolean blocked = false;
+        if (billToReview != null && "state".equalsIgnoreCase(billToReview.getScope())
+            && "rights-process".equalsIgnoreCase(billToReview.getPolicyDomain())) {
+            billToReview.setLawStatus("BLOCKED");
+            billToReview.setStage("WorldEffectApplication");
+            blocked = true;
+        }
+        if (orderToReview != null) {
+            orderToReview.setStatus("BLOCKED");
+            blocked = true;
+        }
+        courtCase.setBlockedAction(blocked);
+        courtCase.setDecision(blocked ? "State action blocked under constitutional review" : "Action upheld");
+        List<String> affected = new ArrayList<>();
+        if (billToReview != null) {
+            affected.add(billToReview.getBillId());
+        }
+        if (orderToReview != null) {
+            affected.add(orderToReview.getOrderId());
+        }
+        courtCase.setAffectedLaws(affected);
+        governmentState.getCourtCases().add(0, courtCase);
+        if (governmentState.getCourtCases().size() > 12) {
+            governmentState.getCourtCases().remove(governmentState.getCourtCases().size() - 1);
+        }
+        historyWriter.writeImmutableJson(
+            String.format(Locale.ROOT, "courts/%s.json", courtCase.getCaseId()),
+            Map.of(
+                "case_id", courtCase.getCaseId(),
+                "court_level", courtCase.getCourtLevel(),
+                "plaintiff", courtCase.getPlaintiff(),
+                "defendant", courtCase.getDefendant(),
+                "legal_basis", courtCase.getLegalBasis(),
+                "decision", courtCase.getDecision(),
+                "constitutional_basis", courtCase.getConstitutionalBasis(),
+                "affected_laws", courtCase.getAffectedLaws()
+            )
+        );
+        return true;
+    }
+
+    private void assignOfficeRoles(GovernmentState governmentState, List<RoomBot> bots) {
+        for (RoomBot bot : bots) {
+            BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
+            if (civicState == null) {
+                continue;
+            }
+            civicState.setOfficeRole("CITIZEN");
+            civicState.setTermState("NONE");
+            bot.setCivicStateJson(writeJson(civicState));
+        }
+        assignRole(governmentState.getFederal().getExecutivePartyId(), "FEDERAL_EXECUTIVE", bots, null);
+        assignRole(governmentState.getFederal().getLowerChamberPartyId(), "FEDERAL_LEGISLATOR", bots, null);
+        assignRole(governmentState.getFederal().getChiefJusticePartyId(), "FEDERAL_JUDGE", bots, null);
+        for (GovernmentState.GovernmentNode stateNode : governmentState.getStates()) {
+            assignRole(stateNode.getExecutivePartyId(), "STATE_EXECUTIVE", bots, stateNode.getNodeId());
+            assignRole(stateNode.getLowerChamberPartyId(), "STATE_LEGISLATOR", bots, stateNode.getNodeId());
+            assignRole(stateNode.getChiefJusticePartyId(), "STATE_JUDGE", bots, stateNode.getNodeId());
+        }
+    }
+
     private void writeBillEvent(GovernmentState governmentState, GovernmentState.GovernmentBill bill, Instant now) {
         if (!"ENACTED".equalsIgnoreCase(bill.getLawStatus())) {
             return;
@@ -598,7 +776,10 @@ public class GovernmentSimulationService {
     }
 
     private void applyBudgetEffects(GovernmentState governmentState, GovernmentState.GovernmentBill bill) {
-        GovernmentState.BudgetState federalBudget = governmentState.getFederal().getBudget();
+        GovernmentState.GovernmentNode targetNode = "state".equalsIgnoreCase(bill.getScope())
+            ? resolveStateNode(governmentState, bill.getStateId())
+            : governmentState.getFederal();
+        GovernmentState.BudgetState federalBudget = targetNode.getBudget();
         if ("infrastructure".equalsIgnoreCase(bill.getPolicyDomain())) {
             federalBudget.setInfrastructure(federalBudget.getInfrastructure() + 35);
         } else if ("housing".equalsIgnoreCase(bill.getPolicyDomain())) {
@@ -611,17 +792,25 @@ public class GovernmentSimulationService {
         }
     }
 
-    private String nextBillTitle(GovernmentState governmentState, List<RoomBot> bots) {
-        String domain = nextPolicyDomain(governmentState, bots);
+    private String nextBillTitle(GovernmentState governmentState, List<RoomBot> bots, String scope, String stateId) {
+        String domain = nextPolicyDomain(governmentState, bots, scope, stateId);
         return switch (domain) {
-            case "infrastructure" -> "National Mobility and Corridor Act";
-            case "housing" -> "Housing Burden Stabilization Act";
-            case "services" -> "Public Services Access Act";
-            default -> "Rights and Procedure Integrity Act";
+            case "infrastructure" -> "federal".equalsIgnoreCase(scope)
+                ? "National Mobility and Corridor Act"
+                : "State Infrastructure Acceleration Act";
+            case "housing" -> "federal".equalsIgnoreCase(scope)
+                ? "Housing Burden Stabilization Act"
+                : "State Housing Relief Act";
+            case "services" -> "federal".equalsIgnoreCase(scope)
+                ? "Public Services Access Act"
+                : "State Services Continuity Act";
+            default -> "federal".equalsIgnoreCase(scope)
+                ? "Rights and Procedure Integrity Act"
+                : "State Due Process Safeguard Act";
         };
     }
 
-    private String nextPolicyDomain(GovernmentState governmentState, List<RoomBot> bots) {
+    private String nextPolicyDomain(GovernmentState governmentState, List<RoomBot> bots, String scope, String stateId) {
         double service = 0d;
         double trust = 0d;
         double burden = 0d;
@@ -629,6 +818,9 @@ public class GovernmentSimulationService {
         for (RoomBot bot : bots) {
             BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
             if (civicState == null) {
+                continue;
+            }
+            if ("state".equalsIgnoreCase(scope) && stateId != null && !Objects.equals(stateId, civicState.getStateId())) {
                 continue;
             }
             count++;
@@ -652,6 +844,141 @@ public class GovernmentSimulationService {
             return "rights-process";
         }
         return "infrastructure";
+    }
+
+    private GovernmentState.GovernmentNode weakestStateNode(GovernmentState governmentState) {
+        return governmentState.getStates().stream()
+            .min(Comparator.comparingDouble(GovernmentState.GovernmentNode::getPublicTrust)
+                .thenComparingDouble(GovernmentState.GovernmentNode::getServiceAccess))
+            .orElse(governmentState.getFederal());
+    }
+
+    private GovernmentState.GovernmentNode resolveStateNode(GovernmentState governmentState, String stateId) {
+        if (stateId == null || stateId.isBlank()) {
+            return governmentState.getFederal();
+        }
+        return governmentState.getStates().stream()
+            .filter(state -> Objects.equals(state.getNodeId(), stateId))
+            .findFirst()
+            .orElse(governmentState.getFederal());
+    }
+
+    private String chamberPartyId(GovernmentState governmentState, GovernmentState.GovernmentBill bill, boolean lower) {
+        GovernmentState.GovernmentNode node = "state".equalsIgnoreCase(bill.getScope())
+            ? resolveStateNode(governmentState, bill.getStateId())
+            : governmentState.getFederal();
+        return lower ? node.getLowerChamberPartyId() : node.getUpperChamberPartyId();
+    }
+
+    private String executivePartyId(GovernmentState governmentState, GovernmentState.GovernmentBill bill) {
+        GovernmentState.GovernmentNode node = "state".equalsIgnoreCase(bill.getScope())
+            ? resolveStateNode(governmentState, bill.getStateId())
+            : governmentState.getFederal();
+        return node.getExecutivePartyId();
+    }
+
+    private double budgetServiceBonus(GovernmentState.BudgetState budget) {
+        double total = budget.getEducation() + budget.getHealth() + budget.getInfrastructure() + budget.getWelfare();
+        return Math.min(0.18d, total / 10_000d);
+    }
+
+    private void updateEconomicState(BotCivicState civicState,
+                                     GovernmentState governmentState,
+                                     GovernmentState.GovernmentNode stateNode,
+                                     double serviceDelta,
+                                     double pressureDelta) {
+        civicState.setServiceAccess(clamp01(civicState.getServiceAccess() * 0.65d + serviceDelta * 0.35d));
+        if ("SEEKING".equals(civicState.getEmploymentStatus())
+            && (stateNode.getBudget().getPayroll() > 12 || governmentState.getFederal().getBudget().getInfrastructure() > 18)) {
+            civicState.setEmploymentStatus("PUBLIC_SERVICE");
+            civicState.setOccupationSector("CIVIC");
+            civicState.setWageBand(Math.min(5, civicState.getWageBand() + 1));
+        } else if (pressureDelta > 0.55d && civicState.getWageBand() <= 1) {
+            civicState.setEmploymentStatus("SEEKING");
+        } else if (civicState.getServiceAccess() > 0.62d && "SEEKING".equals(civicState.getEmploymentStatus())) {
+            civicState.setEmploymentStatus("EMPLOYED");
+            civicState.setOccupationSector("SERVICE");
+        }
+        if (civicState.getServiceAccess() < 0.35d) {
+            civicState.setCostBurdenBand(Math.min(5, civicState.getCostBurdenBand() + 1));
+            civicState.setDebtPressureBand(Math.min(5, civicState.getDebtPressureBand() + 1));
+        } else {
+            civicState.setSavingsPressureBand(Math.max(0, civicState.getSavingsPressureBand() - 1));
+            civicState.setDebtPressureBand(Math.max(0, civicState.getDebtPressureBand() - 1));
+        }
+        if (pressureDelta > 0.65d) {
+            civicState.setProceduralState("PETITIONING");
+        } else if (!"NONE".equals(civicState.getSanctionState())) {
+            civicState.setProceduralState("REVIEW");
+        } else {
+            civicState.setProceduralState("CLEAR");
+        }
+    }
+
+    private double averageServiceAccess(List<RoomBot> bots) {
+        double total = 0d;
+        int count = 0;
+        for (RoomBot bot : bots) {
+            BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
+            if (civicState == null) {
+                continue;
+            }
+            total += civicState.getServiceAccess();
+            count++;
+        }
+        return count == 0 ? 0.5d : total / count;
+    }
+
+    private double averageTrust(List<RoomBot> bots) {
+        double total = 0d;
+        int count = 0;
+        for (RoomBot bot : bots) {
+            BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
+            if (civicState == null) {
+                continue;
+            }
+            total += civicState.getInstitutionalTrust();
+            count++;
+        }
+        return count == 0 ? 0.5d : total / count;
+    }
+
+    private void applyExecutiveOrderEffects(GovernmentState governmentState, GovernmentState.ExecutiveOrder order) {
+        GovernmentState.GovernmentNode target = "state".equalsIgnoreCase(order.getScope())
+            ? resolveStateNode(governmentState, order.getJurisdictionId())
+            : governmentState.getFederal();
+        GovernmentState.BudgetState budget = target.getBudget();
+        if ("services".equalsIgnoreCase(order.getPolicyDomain())) {
+            budget.setHealth(budget.getHealth() + 12);
+            budget.setEducation(budget.getEducation() + 12);
+        } else {
+            budget.setJustice(budget.getJustice() + 8);
+        }
+    }
+
+    private void assignRole(String partyId, String role, List<RoomBot> bots, String stateId) {
+        RoomBot winner = bots.stream()
+            .filter(bot -> {
+                BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
+                return civicState != null
+                    && Objects.equals(civicState.getPartyId(), partyId)
+                    && (stateId == null || Objects.equals(civicState.getStateId(), stateId));
+            })
+            .max(Comparator.comparingDouble(bot -> {
+                BotCivicState civicState = readBotCivicState(bot.getCivicStateJson());
+                return civicState == null ? 0d : civicState.getCivicParticipation() + civicState.getInstitutionalTrust();
+            }))
+            .orElse(null);
+        if (winner == null) {
+            return;
+        }
+        BotCivicState civicState = readBotCivicState(winner.getCivicStateJson());
+        if (civicState == null) {
+            return;
+        }
+        civicState.setOfficeRole(role);
+        civicState.setTermState("ACTIVE");
+        winner.setCivicStateJson(writeJson(civicState));
     }
 
     private int projectVotes(String partyId, List<GovernmentState.PoliticalParty> parties, List<RoomBot> bots) {

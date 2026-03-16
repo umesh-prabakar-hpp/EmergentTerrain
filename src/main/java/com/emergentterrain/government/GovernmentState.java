@@ -13,12 +13,16 @@ public class GovernmentState {
     private int nextBillSequence;
     private int nextElectionSequence;
     private int nextEventSequence;
+    private int nextOrderSequence;
+    private int nextCourtSequence;
     private List<ConstitutionRule> constitutionalRules = new ArrayList<>();
     private GovernmentNode federal = new GovernmentNode();
     private List<GovernmentNode> states = new ArrayList<>();
     private List<PoliticalParty> parties = new ArrayList<>();
     private List<GovernmentBill> bills = new ArrayList<>();
     private List<ElectionRecord> elections = new ArrayList<>();
+    private List<ExecutiveOrder> executiveOrders = new ArrayList<>();
+    private List<CourtCase> courtCases = new ArrayList<>();
 
     public String getConstitutionVersion() {
         return constitutionVersion;
@@ -84,6 +88,22 @@ public class GovernmentState {
         this.nextEventSequence = nextEventSequence;
     }
 
+    public int getNextOrderSequence() {
+        return nextOrderSequence;
+    }
+
+    public void setNextOrderSequence(int nextOrderSequence) {
+        this.nextOrderSequence = nextOrderSequence;
+    }
+
+    public int getNextCourtSequence() {
+        return nextCourtSequence;
+    }
+
+    public void setNextCourtSequence(int nextCourtSequence) {
+        this.nextCourtSequence = nextCourtSequence;
+    }
+
     public List<ConstitutionRule> getConstitutionalRules() {
         return constitutionalRules;
     }
@@ -130,6 +150,22 @@ public class GovernmentState {
 
     public void setElections(List<ElectionRecord> elections) {
         this.elections = elections;
+    }
+
+    public List<ExecutiveOrder> getExecutiveOrders() {
+        return executiveOrders;
+    }
+
+    public void setExecutiveOrders(List<ExecutiveOrder> executiveOrders) {
+        this.executiveOrders = executiveOrders;
+    }
+
+    public List<CourtCase> getCourtCases() {
+        return courtCases;
+    }
+
+    public void setCourtCases(List<CourtCase> courtCases) {
+        this.courtCases = courtCases;
     }
 
     public static class ConstitutionRule {
@@ -705,6 +741,183 @@ public class GovernmentState {
 
         public void setSummary(String summary) {
             this.summary = summary;
+        }
+    }
+
+    public static class ExecutiveOrder {
+        private String orderId;
+        private String scope;
+        private String jurisdictionId;
+        private String issuedByPartyId;
+        private String policyDomain;
+        private String summary;
+        private String status;
+        private Instant issuedAt;
+        private List<String> affectedSystems = new ArrayList<>();
+
+        public String getOrderId() {
+            return orderId;
+        }
+
+        public void setOrderId(String orderId) {
+            this.orderId = orderId;
+        }
+
+        public String getScope() {
+            return scope;
+        }
+
+        public void setScope(String scope) {
+            this.scope = scope;
+        }
+
+        public String getJurisdictionId() {
+            return jurisdictionId;
+        }
+
+        public void setJurisdictionId(String jurisdictionId) {
+            this.jurisdictionId = jurisdictionId;
+        }
+
+        public String getIssuedByPartyId() {
+            return issuedByPartyId;
+        }
+
+        public void setIssuedByPartyId(String issuedByPartyId) {
+            this.issuedByPartyId = issuedByPartyId;
+        }
+
+        public String getPolicyDomain() {
+            return policyDomain;
+        }
+
+        public void setPolicyDomain(String policyDomain) {
+            this.policyDomain = policyDomain;
+        }
+
+        public String getSummary() {
+            return summary;
+        }
+
+        public void setSummary(String summary) {
+            this.summary = summary;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public Instant getIssuedAt() {
+            return issuedAt;
+        }
+
+        public void setIssuedAt(Instant issuedAt) {
+            this.issuedAt = issuedAt;
+        }
+
+        public List<String> getAffectedSystems() {
+            return affectedSystems;
+        }
+
+        public void setAffectedSystems(List<String> affectedSystems) {
+            this.affectedSystems = affectedSystems;
+        }
+    }
+
+    public static class CourtCase {
+        private String caseId;
+        private String courtLevel;
+        private String plaintiff;
+        private String defendant;
+        private String legalBasis;
+        private String decision;
+        private String constitutionalBasis;
+        private Instant decidedAt;
+        private boolean blockedAction;
+        private List<String> affectedLaws = new ArrayList<>();
+
+        public String getCaseId() {
+            return caseId;
+        }
+
+        public void setCaseId(String caseId) {
+            this.caseId = caseId;
+        }
+
+        public String getCourtLevel() {
+            return courtLevel;
+        }
+
+        public void setCourtLevel(String courtLevel) {
+            this.courtLevel = courtLevel;
+        }
+
+        public String getPlaintiff() {
+            return plaintiff;
+        }
+
+        public void setPlaintiff(String plaintiff) {
+            this.plaintiff = plaintiff;
+        }
+
+        public String getDefendant() {
+            return defendant;
+        }
+
+        public void setDefendant(String defendant) {
+            this.defendant = defendant;
+        }
+
+        public String getLegalBasis() {
+            return legalBasis;
+        }
+
+        public void setLegalBasis(String legalBasis) {
+            this.legalBasis = legalBasis;
+        }
+
+        public String getDecision() {
+            return decision;
+        }
+
+        public void setDecision(String decision) {
+            this.decision = decision;
+        }
+
+        public String getConstitutionalBasis() {
+            return constitutionalBasis;
+        }
+
+        public void setConstitutionalBasis(String constitutionalBasis) {
+            this.constitutionalBasis = constitutionalBasis;
+        }
+
+        public Instant getDecidedAt() {
+            return decidedAt;
+        }
+
+        public void setDecidedAt(Instant decidedAt) {
+            this.decidedAt = decidedAt;
+        }
+
+        public boolean isBlockedAction() {
+            return blockedAction;
+        }
+
+        public void setBlockedAction(boolean blockedAction) {
+            this.blockedAction = blockedAction;
+        }
+
+        public List<String> getAffectedLaws() {
+            return affectedLaws;
+        }
+
+        public void setAffectedLaws(List<String> affectedLaws) {
+            this.affectedLaws = affectedLaws;
         }
     }
 }

@@ -1133,6 +1133,7 @@ function renderGovernmentSummary() {
     `Trust: ${formatScore(summary.federalTrust)}`,
     `Revenue / infrastructure: ${summary.federalRevenue || 0} / ${summary.federalInfrastructureBudget || 0}`,
     `States: ${summary.stateCount || 0}`,
+    `Orders / cases: ${summary.activeExecutiveOrderCount || 0} / ${summary.activeCourtCaseCount || 0}`,
     `Next election: ${summary.nextElectionAt ? new Date(summary.nextElectionAt).toLocaleTimeString() : 'pending'}`
   ];
   summaryItems.forEach((text) => {
@@ -1142,14 +1143,18 @@ function renderGovernmentSummary() {
     governmentSummaryEl.appendChild(row);
   });
 
-  const activeBills = summary.activeBills || [];
-  if (!activeBills.length) {
+  const combinedGovernmentActions = [
+    ...(summary.activeBills || []),
+    ...((summary.executiveOrders || []).map((item) => `Order: ${item}`)),
+    ...((summary.courtCases || []).map((item) => `Court: ${item}`))
+  ];
+  if (!combinedGovernmentActions.length) {
     const row = document.createElement('div');
     row.className = 'list-item';
-    row.textContent = 'No active federal bills.';
+    row.textContent = 'No active government actions.';
     governmentBillsEl.appendChild(row);
   } else {
-    activeBills.forEach((bill) => {
+    combinedGovernmentActions.forEach((bill) => {
       const row = document.createElement('div');
       row.className = 'list-item';
       row.textContent = bill;
