@@ -2,6 +2,7 @@ package com.emergentterrain.controller;
 
 import com.emergentterrain.repo.UserRepository;
 import com.emergentterrain.service.UserService;
+import org.springframework.context.annotation.Profile;
 import com.emergentterrain.web.RegisterForm;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
@@ -10,6 +11,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
 
 @Controller
+@Profile("!perf")
 public class AuthController {
     private final UserService userService;
     private final UserRepository userRepository;

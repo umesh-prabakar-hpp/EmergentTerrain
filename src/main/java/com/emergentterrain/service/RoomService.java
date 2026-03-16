@@ -119,6 +119,7 @@ public class RoomService {
     private final TransactionTemplate botTransactionTemplate;
     private final ReentrantLock botWriteLock = new ReentrantLock();
     private final AtomicReference<UUID> defaultRoomId = new AtomicReference<>();
+    private volatile CachedSystemToken cachedSystemToken;
 
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
@@ -454,8 +455,14 @@ public class RoomService {
     }
 
     public String buildSystemToken() {
+        CachedSystemToken cached = cachedSystemToken;
+        if (cached != null) {
+            return cached.token;
+        }
         Payload payload = buildSystemPayload();
-        return payloadService.buildToken(payload);
+        String token = payloadService.buildToken(payload);
+        cachedSystemToken = new CachedSystemToken(token);
+        return token;
     }
 
     private Profile ensureSystemProfile() {
@@ -981,7 +988,11 @@ public class RoomService {
             if ("PENDING".equals(proposal.getStatus())) {
                 proposalRepository.save(proposal);
             }
-            RoomStateResponse response = toRoomStateResponse(room, state, participant);
+            RoomState latestState = state;
+            if (!"PENDING".equals(proposal.getStatus())) {
+                latestState = stateRepository.findByRoom(room).orElse(state);
+            }
+            RoomStateResponse response = toRoomStateResponse(room, latestState, participant);
             maybeBroadcast(room.getId());
             return response;
         } finally {
@@ -3833,6 +3844,9 @@ public class RoomService {
         if (participant.getLockedUntil() != null && participant.getLockedUntil().isAfter(Instant.now())) {
             throw new IllegalStateException("You are locked from play for a short time.");
         }
+    }
+
+    private record CachedSystemToken(String token) {
     }
 
     private String toJson(Object value) {

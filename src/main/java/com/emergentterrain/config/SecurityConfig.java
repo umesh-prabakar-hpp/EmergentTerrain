@@ -3,12 +3,10 @@ package com.emergentterrain.config;
 import com.emergentterrain.service.UserService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
-import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -18,6 +16,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@Profile("!perf")
 public class SecurityConfig {
 
     @Value("${app.e2e.enabled:false}")
@@ -44,11 +43,11 @@ public class SecurityConfig {
             "/game/quest/save",
             "/room/**",
             "/diag/**",
-            "/h2/**",
             "/ws/**"
         ));
         if (e2eEnabled) {
             openEndpoints.add("/game/test");
+            openEndpoints.add("/game/test-token");
         }
         http
             .authorizeHttpRequests(auth -> auth
@@ -68,12 +67,8 @@ public class SecurityConfig {
     }
 
     @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
-
-    @Bean
-    public DaoAuthenticationProvider authProvider(UserService userService, PasswordEncoder passwordEncoder) {
+    public DaoAuthenticationProvider authProvider(UserService userService,
+                                                  org.springframework.security.crypto.password.PasswordEncoder passwordEncoder) {
         DaoAuthenticationProvider provider = new DaoAuthenticationProvider();
         provider.setUserDetailsService(userService);
         provider.setPasswordEncoder(passwordEncoder);

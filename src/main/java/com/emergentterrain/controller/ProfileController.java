@@ -7,6 +7,7 @@ import com.emergentterrain.service.ProfileService;
 import com.emergentterrain.web.ProfileForm;
 import com.emergentterrain.web.QuestionItem;
 import com.emergentterrain.web.ProfileSelectItem;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +18,7 @@ import java.security.Principal;
 import java.util.List;
 
 @Controller
+@Profile("!perf")
 public class ProfileController {
     private final ProfileService profileService;
     private final UserRepository userRepository;

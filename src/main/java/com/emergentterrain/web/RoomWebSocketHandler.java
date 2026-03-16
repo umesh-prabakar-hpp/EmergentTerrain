@@ -2,6 +2,7 @@ package com.emergentterrain.web;
 
 import com.emergentterrain.service.RoomUpdateBroadcaster;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -12,6 +13,7 @@ import java.util.Map;
 import java.util.UUID;
 
 @Component
+@Profile("!perf")
 public class RoomWebSocketHandler extends TextWebSocketHandler {
     private final RoomUpdateBroadcaster broadcaster;
     private final ObjectMapper objectMapper;

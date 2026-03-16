@@ -2,6 +2,7 @@ package com.emergentterrain.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
 
 import javax.crypto.Mac;
@@ -11,6 +12,7 @@ import java.security.MessageDigest;
 import java.util.Base64;
 
 @Service
+@Profile("!perf")
 public class SnapshotTokenService {
     private final ObjectMapper objectMapper;
     private final byte[] secret;

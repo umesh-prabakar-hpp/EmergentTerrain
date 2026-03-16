@@ -70,6 +70,7 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 ```
 
 That script is the supported local performance path. It uses the packaged Spring Boot jar, the Rust `release` binary, and the `perf` Spring profile instead of `spring-boot:run` / `cargo run`.
+It also launches both binaries directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags so startup comparisons are not skewed by wrapper-shell overhead.
 
 ### Benchmarks (JMH)
 ```powershell
@@ -163,6 +164,8 @@ cargo run
 - Current learning: persisted proposal JSON is not a reliable source of anchors by itself; use the stored `anchorX` / `anchorY` fields so GPU patch rebuilds are exercised consistently.
 - Current learning: adaptive GPU thresholds are now the default runtime behavior. Small worlds, 1x1 proposal patches, and low-work bot ticks should stay on CPU unless a proof script intentionally lowers the thresholds.
 - Current learning: use `scripts\compare-cpu-vs-gpu-performance.ps1` for meaningful local CPU-vs-GPU timings because it uses the packaged jar, the Rust `release` binary, and the `perf` profile.
+- Current learning: the `perf` profile is PostgreSQL-only and targets `emergentterrain_perf` by default through `PG_PERF_URL` / `PG_PERF_USER` / `PG_PERF_PASSWORD`.
+- Current learning: on this machine the inherited `DEBUG` environment variable can accidentally enable Spring Boot debug startup. Clear it for perf runs; the compare script does this explicitly now.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

@@ -1,9 +1,9 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/emergentterrain
+    url: ${PG_URL:jdbc:postgresql://localhost:5432/emergentterrain}
     driverClassName: org.postgresql.Driver
-    username: postgres
-    password: NewStrongPasswordHere
+    username: ${PG_USER:postgres}
+    password: ${PG_PASSWORD:NewStrongPasswordHere}
   jpa:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
@@ -16,10 +16,6 @@ spring:
             non_contextual_creation: true
   thymeleaf:
     cache: false
-  h2:
-    console:
-      enabled: false
-      path: /h2
   task:
     scheduling:
       pool:

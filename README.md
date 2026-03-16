@@ -4,7 +4,7 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 
 ## Stack
 - Java 21, Spring Boot 3.x, Spring Security, Spring Data JPA (Hibernate)
-- PostgreSQL (dev)
+- PostgreSQL
 - Thymeleaf + Material Web (M3) components + minimal JS
 - ZXing (QR generation)
 
@@ -131,6 +131,11 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 
 It packages the Spring app to `target\emergent-terrain-0.0.1-SNAPSHOT.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
 
+Perf profile notes:
+- `application-perf.yml` stays on PostgreSQL and targets `emergentterrain_perf` by default.
+- Override perf DB settings with `PG_PERF_URL`, `PG_PERF_USER`, and `PG_PERF_PASSWORD` when needed.
+- The compare script now launches `java.exe` and the Rust `release` binary directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags. That is the supported way to measure startup on this machine.
+
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
 
@@ -163,6 +168,8 @@ See `src/main/resources/application.yml` for app settings:
 - `app.gpu.world.minCells`
 - `app.gpu.bots.cacheWorld`, `app.gpu.bots.steps`, `app.gpu.bots.diffMaxEdits`, `app.gpu.bots.minBotCount`, `app.gpu.bots.minWorkItems`
 - `app.gpu.patch.minArea`
+- `PG_URL`, `PG_USER`, `PG_PASSWORD` for the default app datasource
+- `PG_PERF_URL`, `PG_PERF_USER`, `PG_PERF_PASSWORD` for the perf profile datasource
 
 ## Routes (summary)
 - `GET /register`, `POST /register`
@@ -208,3 +215,5 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: proposal patch application now uses the persisted proposal anchor fields for GPU patch rebuilds, so `rebuild_patch` is exercised cleanly in the native Windows E2E run.
 - Current learning: adaptive GPU thresholds matter more than raw GPU enablement on this workload. Small worlds, 1x1 proposal patches, and low-work bot ticks should stay on CPU by default, while the proof script lowers those thresholds explicitly when it needs to prove the live GPU RPCs.
 - Current learning: release-binary comparisons now live in `scripts/compare-cpu-vs-gpu-performance.ps1`; use that path with the `perf` profile for meaningful CPU-vs-GPU numbers.
+- Current learning: local perf runs on this machine must clear the inherited `DEBUG` environment variable. The compare script does that now, because otherwise Spring Boot starts in debug mode and startup timings are distorted.
+- Current learning: the perf profile is PostgreSQL-only and intentionally strips UI/login/websocket beans so startup and request timings reflect the game/room APIs rather than the full interactive UI stack.

@@ -41,19 +41,18 @@ function Wait-TcpPort {
   throw "$Label did not open $Address`:$Port within $TimeoutSeconds seconds."
 }
 
-function Wait-HttpToken {
-  param([string]$Url, [int]$TimeoutSeconds)
+function Get-TestToken {
+  param([string]$BaseUrl, [int]$TimeoutSeconds)
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   while ((Get-Date) -lt $deadline) {
     try {
-      $response = Invoke-WebRequest -Uri $Url -UseBasicParsing
-      $match = [regex]::Match($response.Content, 'window\.APP_TOKEN = "([^"]+)"')
-      if ($match.Success) { return $match.Groups[1].Value }
+      $response = Invoke-RestMethod -Uri "$BaseUrl/game/test-token" -UseBasicParsing
+      if ($response.token) { return $response.token }
     } catch {
     }
     Start-Sleep -Milliseconds 250
   }
-  throw "Could not obtain a token from $Url within $TimeoutSeconds seconds."
+  throw "Could not obtain a token from $BaseUrl within $TimeoutSeconds seconds."
 }
 
 function Get-BotPositions {
@@ -175,6 +174,51 @@ function Stop-ProcessTree {
   }
 }
 
+function Start-DirectProcess {
+  param(
+    [string]$FilePath,
+    [string[]]$ArgumentList,
+    [string]$WorkingDirectory,
+    [string]$StdoutPath,
+    [string]$StderrPath,
+    [hashtable]$EnvironmentOverrides = @{},
+    [string[]]$EnvironmentRemovals = @()
+  )
+
+  $savedValues = @{}
+  foreach ($name in $EnvironmentRemovals) {
+    $savedValues[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    Remove-Item "Env:$name" -ErrorAction SilentlyContinue
+  }
+  foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
+    $savedValues[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, "Process")
+    [Environment]::SetEnvironmentVariable($entry.Key, [string]$entry.Value, "Process")
+  }
+
+  try {
+    if ($ArgumentList -and $ArgumentList.Count -gt 0) {
+      return Start-Process -FilePath $FilePath `
+        -ArgumentList $ArgumentList `
+        -WorkingDirectory $WorkingDirectory `
+        -RedirectStandardOutput $StdoutPath `
+        -RedirectStandardError $StderrPath `
+        -PassThru
+    }
+    return Start-Process -FilePath $FilePath `
+      -WorkingDirectory $WorkingDirectory `
+      -RedirectStandardOutput $StdoutPath `
+      -RedirectStandardError $StderrPath `
+      -PassThru
+  } finally {
+    foreach ($name in $EnvironmentRemovals) {
+      [Environment]::SetEnvironmentVariable($name, $savedValues[$name], "Process")
+    }
+    foreach ($entry in $EnvironmentOverrides.GetEnumerator()) {
+      [Environment]::SetEnvironmentVariable($entry.Key, $savedValues[$entry.Key], "Process")
+    }
+  }
+}
+
 function Build-Artifacts {
   $needsBootJar = $true
   if (Test-Path $jarPath) {
@@ -215,29 +259,32 @@ function Run-Scenario {
   try {
     $startupTimer = [System.Diagnostics.Stopwatch]::StartNew()
     if ($Mode -eq "gpu") {
-      $gpuCommand = @"
-`$env:GPU_ENGINE_ADDR = '127.0.0.1:$gpuPort'
-Set-Location '$GpuRepo'
-& '$gpuExe'
-"@
-      $gpuProcess = Start-Process -FilePath "powershell.exe" `
-        -ArgumentList @("-NoProfile", "-Command", $gpuCommand) `
+      $gpuProcess = Start-DirectProcess `
+        -FilePath $gpuExe `
+        -ArgumentList @() `
         -WorkingDirectory $GpuRepo `
-        -RedirectStandardOutput $gpuLog `
-        -RedirectStandardError $gpuErrLog `
-        -PassThru
+        -StdoutPath $gpuLog `
+        -StderrPath $gpuErrLog `
+        -EnvironmentOverrides @{ GPU_ENGINE_ADDR = "127.0.0.1:$gpuPort" } `
+        -EnvironmentRemovals @("DEBUG")
       Wait-TcpPort -Address "127.0.0.1" -Port $gpuPort -TimeoutSeconds 120 -Label "GPU engine"
     }
     $gpuReadyMs = $startupTimer.ElapsedMilliseconds
 
     $javaArgs = @(
+      "-XX:TieredStopAtLevel=1",
+      "-XX:CICompilerCount=2",
+      "-Xshare:auto",
+      "-Xms256m",
+      "-Xmx512m",
+      "-Djava.awt.headless=true",
+      "-jar",
+      $jarPath,
       "--spring.profiles.active=perf",
       "--app.e2e.enabled=true",
-      "--app.consensus.maintenanceIntervalMs=500",
       "--app.consensus.minVotesToResolve=1",
       "--app.consensus.minNeighbors=1",
-      "--app.consensus.quorumCap=1",
-      "--app.bots.maxTickPerMaintenance=1000"
+      "--app.consensus.quorumCap=1"
     )
     if ($Mode -eq "gpu") {
       $javaArgs += @(
@@ -258,28 +305,22 @@ Set-Location '$GpuRepo'
         "--app.gpu.bots.applyEdits=false"
       )
     }
-    $javaArgLine = $javaArgs -join " "
-    $appCommand = @"
-Set-Location '$JavaRepo'
-& '$JavaHome\bin\java.exe' -jar '$jarPath' $javaArgLine
-"@
-    $appProcess = Start-Process -FilePath "powershell.exe" `
-      -ArgumentList @("-NoProfile", "-Command", $appCommand) `
+    $appProcess = Start-DirectProcess `
+      -FilePath "$JavaHome\bin\java.exe" `
+      -ArgumentList $javaArgs `
       -WorkingDirectory $JavaRepo `
-      -RedirectStandardOutput $appLog `
-      -RedirectStandardError $appErrLog `
-      -PassThru
+      -StdoutPath $appLog `
+      -StderrPath $appErrLog `
+      -EnvironmentRemovals @("DEBUG")
     Wait-TcpPort -Address "127.0.0.1" -Port $appPort -TimeoutSeconds 180 -Label "Java app"
     $appReadyMs = $startupTimer.ElapsedMilliseconds
 
     $baseUrl = "http://127.0.0.1:$appPort"
-    $warmToken = Wait-HttpToken -Url "$baseUrl/game/test" -TimeoutSeconds 60
-    if ($Mode -eq "gpu") {
-      Invoke-RestMethod -Uri "$baseUrl/game/state" -Method Post -ContentType "application/json" -Body (@{ token = $warmToken } | ConvertTo-Json) | Out-Null
-    }
+    $warmToken = Get-TestToken -BaseUrl $baseUrl -TimeoutSeconds 60
+    Invoke-RestMethod -Uri "$baseUrl/game/state" -Method Post -ContentType "application/json" -Body (@{ token = $warmToken } | ConvertTo-Json) | Out-Null
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
-    $token = Wait-HttpToken -Url "$baseUrl/game/test" -TimeoutSeconds 60
+    $token = Get-TestToken -BaseUrl $baseUrl -TimeoutSeconds 60
     $tokenMs = $sw.ElapsedMilliseconds
 
     $sw.Restart()
@@ -299,7 +340,7 @@ Set-Location '$JavaRepo'
     $sw.Restart()
     $deadline = (Get-Date).AddSeconds($observeSeconds)
     while ((Get-Date) -lt $deadline) {
-      Start-Sleep -Milliseconds 1000
+      Start-Sleep -Milliseconds 250
       $state = Invoke-RestMethod -Uri "$baseUrl/room/$roomId/state" -Method Post -ContentType "application/json" -Body (@{ token = $token; roomId = $roomId } | ConvertTo-Json)
       if (Test-AnyBotMoved -Initial $initialBots -Current (Get-BotPositions -Bots $state.bots)) {
         $botMoveObserved = $true
@@ -308,7 +349,7 @@ Set-Location '$JavaRepo'
       }
     }
 
-    $proposalState = Invoke-RestMethod -Uri "$baseUrl/room/$roomId/state" -Method Post -ContentType "application/json" -Body (@{ token = $token; roomId = $roomId } | ConvertTo-Json)
+    $proposalState = $roomCreate
     $proposalCandidates = Get-ProposalCandidates -RoomState $proposalState -ParticipantId $roomCreate.participantId
 
     $proposalApplied = $false
@@ -318,15 +359,21 @@ Set-Location '$JavaRepo'
       $proposedTiles = Copy-TileGrid -Tiles $proposalState.tiles
       $proposedTiles[$candidate.y][$candidate.x] = $candidate.type
       $sw.Restart()
-      Invoke-RestMethod -Uri "$baseUrl/room/$roomId/propose" -Method Post -ContentType "application/json" -Body (@{
+      $proposalResponse = Invoke-RestMethod -Uri "$baseUrl/room/$roomId/propose" -Method Post -ContentType "application/json" -Body (@{
           token = $token
           tiles = $proposedTiles
           delta = @{ x = $candidate.x; y = $candidate.y; type = $candidate.type }
           note = "perf-release-$tag-$($candidate.x)-$($candidate.y)-$($candidate.type)"
-        } | ConvertTo-Json -Depth 100) | Out-Null
+        } | ConvertTo-Json -Depth 100)
+      if (Test-ProposalApplied -RoomState $proposalResponse -X $candidate.x -Y $candidate.y -ExpectedTile $candidate.expectedTile -ExpectedHighway $candidate.expectedHighway) {
+        $proposalApplied = $true
+        $proposalMs = $sw.ElapsedMilliseconds
+        $proposalType = $candidate.type
+        break
+      }
       $proposalDeadline = (Get-Date).AddSeconds(10)
       while ((Get-Date) -lt $proposalDeadline) {
-        Start-Sleep -Milliseconds 1000
+        Start-Sleep -Milliseconds 100
         $proposalState = Invoke-RestMethod -Uri "$baseUrl/room/$roomId/state" -Method Post -ContentType "application/json" -Body (@{ token = $token; roomId = $roomId } | ConvertTo-Json)
         if (Test-ProposalApplied -RoomState $proposalState -X $candidate.x -Y $candidate.y -ExpectedTile $candidate.expectedTile -ExpectedHighway $candidate.expectedHighway) {
           $proposalApplied = $true
