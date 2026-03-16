@@ -71,6 +71,7 @@ cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
 
 That script is the supported local performance path. It uses the packaged Spring Boot jar, the Rust `release` binary, and the `perf` Spring profile instead of `spring-boot:run` / `cargo run`.
 It also launches both binaries directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags so startup comparisons are not skewed by wrapper-shell overhead.
+It now measures a heavy GPU-oriented session: room create, live proposal apply, full room bot population, and repeated `/perf/room/{roomId}/bot-simulation` iterations through the live app. Default `-BotSimulationIterations` is `10`.
 
 ### Benchmarks (JMH)
 ```powershell
@@ -166,6 +167,7 @@ cargo run
 - Current learning: use `scripts\compare-cpu-vs-gpu-performance.ps1` for meaningful local CPU-vs-GPU timings because it uses the packaged jar, the Rust `release` binary, and the `perf` profile.
 - Current learning: the `perf` profile is PostgreSQL-only and targets `emergentterrain_perf` by default through `PG_PERF_URL` / `PG_PERF_USER` / `PG_PERF_PASSWORD`.
 - Current learning: on this machine the inherited `DEBUG` environment variable can accidentally enable Spring Boot debug startup. Clear it for perf runs; the compare script does this explicitly now.
+- Current learning: the current CPU-vs-GPU compare harness is intentionally bot-simulation-heavy. That was necessary because cold-start and tiny request flows were dominated by startup/DB overhead and did not show the GPU advantage.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

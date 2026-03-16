@@ -40,10 +40,10 @@ app:
       minCells: 1
     bots:
       cacheWorld: true
-      steps: 16
+      steps: 1
       diffMaxEdits: 4000
-      minBotCount: 1
-      minWorkItems: 1
+      minBotCount: 128
+      minWorkItems: 128
     patch:
       minArea: 1
   consensus:
@@ -53,10 +53,10 @@ app:
     maintenanceWorkers: 1
     broadcastMinIntervalMs: 250
   bots:
-    populationFraction: 0.10
-    maxPerRoom: 64
+    populationFraction: 1.0
+    maxPerRoom: 1024
     initialRoomCreateTarget: 16
-    maxTickPerMaintenance: 64
+    maxTickPerMaintenance: 0
 
 logging:
   level:

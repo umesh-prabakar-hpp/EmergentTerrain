@@ -1,5 +1,6 @@
 param(
   [int]$Iterations = 2,
+  [int]$BotSimulationIterations = 10,
   [string]$JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7",
   [string]$MavenCmd = "C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd",
   [string]$JavaRepo = "C:\dev\ide\eclipse\workspace-web\EmergentTerrain",
@@ -293,7 +294,7 @@ function Run-Scenario {
         "--app.gpu.bots.enabled=true",
         "--app.gpu.bots.applyEdits=true",
         "--app.gpu.bots.cacheWorld=true",
-        "--app.gpu.bots.steps=10",
+        "--app.gpu.bots.steps=1",
         "--app.gpu.host=127.0.0.1",
         "--app.gpu.port=$gpuPort"
       )
@@ -333,22 +334,6 @@ function Run-Scenario {
     $roomCreateMs = $sw.ElapsedMilliseconds
     $roomId = $roomCreate.roomId
 
-    $initialBots = Get-BotPositions -Bots $roomCreate.bots
-    $botMoveObserved = $false
-    $botMoveMs = $null
-    $observeSeconds = if ($Mode -eq "gpu") { 20 } else { 60 }
-    $sw.Restart()
-    $deadline = (Get-Date).AddSeconds($observeSeconds)
-    while ((Get-Date) -lt $deadline) {
-      Start-Sleep -Milliseconds 250
-      $state = Invoke-RestMethod -Uri "$baseUrl/room/$roomId/state" -Method Post -ContentType "application/json" -Body (@{ token = $token; roomId = $roomId } | ConvertTo-Json)
-      if (Test-AnyBotMoved -Initial $initialBots -Current (Get-BotPositions -Bots $state.bots)) {
-        $botMoveObserved = $true
-        $botMoveMs = $sw.ElapsedMilliseconds
-        break
-      }
-    }
-
     $proposalState = $roomCreate
     $proposalCandidates = Get-ProposalCandidates -RoomState $proposalState -ParticipantId $roomCreate.participantId
 
@@ -386,6 +371,17 @@ function Run-Scenario {
     }
     if (-not $proposalApplied) { throw "No proposal applied in $Mode mode." }
 
+    $sw.Restart()
+    $populateResponse = Invoke-RestMethod -Uri "$baseUrl/perf/room/$roomId/populate" -Method Post -ContentType "application/json" -Body "{}"
+    $populateMs = $sw.ElapsedMilliseconds
+
+    $sw.Restart()
+    $botSimulationResponse = Invoke-RestMethod -Uri "$baseUrl/perf/room/$roomId/bot-simulation" -Method Post -ContentType "application/json" -Body (@{
+        iterations = $BotSimulationIterations
+        clearGpuWorldCache = $true
+      } | ConvertTo-Json)
+    $botSimulationClientMs = $sw.ElapsedMilliseconds
+
     $gpuPatchObserved = $false
     if ($Mode -eq "gpu") {
       $gpuPatchObserved = (Select-String -Path $gpuLog -Pattern "rebuild_patch request_id=" -Quiet) -and
@@ -401,14 +397,17 @@ function Run-Scenario {
       world_ms = $worldMs
       room_create_ms = $roomCreateMs
       proposal_apply_ms = $proposalMs
-      request_flow_ms = ($tokenMs + $worldMs + $roomCreateMs + $proposalMs)
-      total_ms = ($appReadyMs + $tokenMs + $worldMs + $roomCreateMs + $proposalMs)
-      bot_move_observed = $botMoveObserved
-      bot_move_ms = $botMoveMs
+      populate_ms = $populateMs
+      bot_sim_client_ms = $botSimulationClientMs
+      bot_sim_server_total_ms = [long]$botSimulationResponse.totalMs
+      bot_sim_server_avg_ms = [double]$botSimulationResponse.averageMs
+      request_flow_ms = ($tokenMs + $worldMs + $roomCreateMs + $proposalMs + $populateMs + $botSimulationClientMs)
+      total_ms = ($appReadyMs + $tokenMs + $worldMs + $roomCreateMs + $proposalMs + $populateMs + $botSimulationClientMs)
       gpu_patch_observed = $gpuPatchObserved
       world_non_zero_tiles = $worldStats.NonZeroTileCount
       world_highway_count = $worldStats.HighwayCount
-      initial_bot_count = $initialBots.Count
+      initial_bot_count = (@($roomCreate.bots)).Count
+      populated_bot_count = [int]$populateResponse.botCount
       proposal_type = $proposalType
       output_dir = $outputDir
     }
@@ -445,18 +444,17 @@ $summary = foreach ($mode in @("cpu", "gpu")) {
     world_ms_avg = [math]::Round((($items | Measure-Object world_ms -Average).Average), 2)
     room_create_ms_avg = [math]::Round((($items | Measure-Object room_create_ms -Average).Average), 2)
     proposal_apply_ms_avg = [math]::Round((($items | Measure-Object proposal_apply_ms -Average).Average), 2)
+    populate_ms_avg = [math]::Round((($items | Measure-Object populate_ms -Average).Average), 2)
+    bot_sim_client_ms_avg = [math]::Round((($items | Measure-Object bot_sim_client_ms -Average).Average), 2)
+    bot_sim_server_total_ms_avg = [math]::Round((($items | Measure-Object bot_sim_server_total_ms -Average).Average), 2)
+    bot_sim_server_avg_ms_avg = [math]::Round((($items | Measure-Object bot_sim_server_avg_ms -Average).Average), 2)
     request_flow_ms_avg = [math]::Round((($items | Measure-Object request_flow_ms -Average).Average), 2)
     total_ms_avg = [math]::Round((($items | Measure-Object total_ms -Average).Average), 2)
-    bot_move_observed_count = (@($items | Where-Object { $_.bot_move_observed }).Count)
-    bot_move_ms_avg = if ((@($items | Where-Object { $_.bot_move_ms -ne $null }).Count) -gt 0) {
-      [math]::Round(((@($items | Where-Object { $_.bot_move_ms -ne $null }) | Measure-Object bot_move_ms -Average).Average), 2)
-    } else {
-      $null
-    }
     gpu_patch_observed_count = (@($items | Where-Object { $_.gpu_patch_observed }).Count)
     world_non_zero_tiles_avg = [math]::Round((($items | Measure-Object world_non_zero_tiles -Average).Average), 2)
     world_highway_count_avg = [math]::Round((($items | Measure-Object world_highway_count -Average).Average), 2)
     initial_bot_count_avg = [math]::Round((($items | Measure-Object initial_bot_count -Average).Average), 2)
+    populated_bot_count_avg = [math]::Round((($items | Measure-Object populated_bot_count -Average).Average), 2)
   }
 }
 
@@ -467,11 +465,17 @@ $diff = [pscustomobject]@{
   world_ms_delta = [math]::Round(($gpu.world_ms_avg - $cpu.world_ms_avg), 2)
   room_create_ms_delta = [math]::Round(($gpu.room_create_ms_avg - $cpu.room_create_ms_avg), 2)
   proposal_apply_ms_delta = [math]::Round(($gpu.proposal_apply_ms_avg - $cpu.proposal_apply_ms_avg), 2)
+  populate_ms_delta = [math]::Round(($gpu.populate_ms_avg - $cpu.populate_ms_avg), 2)
+  bot_sim_client_ms_delta = [math]::Round(($gpu.bot_sim_client_ms_avg - $cpu.bot_sim_client_ms_avg), 2)
+  bot_sim_server_total_ms_delta = [math]::Round(($gpu.bot_sim_server_total_ms_avg - $cpu.bot_sim_server_total_ms_avg), 2)
   request_flow_ms_delta = [math]::Round(($gpu.request_flow_ms_avg - $cpu.request_flow_ms_avg), 2)
   total_ms_delta = [math]::Round(($gpu.total_ms_avg - $cpu.total_ms_avg), 2)
   world_ms_pct = if ($cpu.world_ms_avg -ne 0) { [math]::Round((($gpu.world_ms_avg - $cpu.world_ms_avg) / $cpu.world_ms_avg) * 100, 2) } else { $null }
   room_create_ms_pct = if ($cpu.room_create_ms_avg -ne 0) { [math]::Round((($gpu.room_create_ms_avg - $cpu.room_create_ms_avg) / $cpu.room_create_ms_avg) * 100, 2) } else { $null }
   proposal_apply_ms_pct = if ($cpu.proposal_apply_ms_avg -ne 0) { [math]::Round((($gpu.proposal_apply_ms_avg - $cpu.proposal_apply_ms_avg) / $cpu.proposal_apply_ms_avg) * 100, 2) } else { $null }
+  populate_ms_pct = if ($cpu.populate_ms_avg -ne 0) { [math]::Round((($gpu.populate_ms_avg - $cpu.populate_ms_avg) / $cpu.populate_ms_avg) * 100, 2) } else { $null }
+  bot_sim_client_ms_pct = if ($cpu.bot_sim_client_ms_avg -ne 0) { [math]::Round((($gpu.bot_sim_client_ms_avg - $cpu.bot_sim_client_ms_avg) / $cpu.bot_sim_client_ms_avg) * 100, 2) } else { $null }
+  bot_sim_server_total_ms_pct = if ($cpu.bot_sim_server_total_ms_avg -ne 0) { [math]::Round((($gpu.bot_sim_server_total_ms_avg - $cpu.bot_sim_server_total_ms_avg) / $cpu.bot_sim_server_total_ms_avg) * 100, 2) } else { $null }
   request_flow_ms_pct = if ($cpu.request_flow_ms_avg -ne 0) { [math]::Round((($gpu.request_flow_ms_avg - $cpu.request_flow_ms_avg) / $cpu.request_flow_ms_avg) * 100, 2) } else { $null }
   total_ms_pct = if ($cpu.total_ms_avg -ne 0) { [math]::Round((($gpu.total_ms_avg - $cpu.total_ms_avg) / $cpu.total_ms_avg) * 100, 2) } else { $null }
 }

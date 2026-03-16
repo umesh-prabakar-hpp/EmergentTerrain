@@ -121,6 +121,16 @@ public class RoomService {
     private final AtomicReference<UUID> defaultRoomId = new AtomicReference<>();
     private volatile CachedSystemToken cachedSystemToken;
 
+    public record PerfBotSimulationResult(
+        int iterations,
+        int botCount,
+        long totalMs,
+        double averageMs,
+        long minMs,
+        long maxMs
+    ) {
+    }
+
     public RoomService(RoomRepository roomRepository,
                        RoomParticipantRepository participantRepository,
                        RoomStateRepository stateRepository,
@@ -403,6 +413,60 @@ public class RoomService {
         response.setRoomName(created.getRoomName());
         response.setParticipantId(created.getParticipantId());
         return response;
+    }
+
+    public int populateRoomForPerf(UUID roomId) {
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        return transactionTemplate.execute(status -> {
+            RoomState state = stateRepository.findByRoom(room)
+                .orElseThrow(() -> new IllegalStateException("Room state missing"));
+            int[][] tiles = getTilesForRoom(room, state);
+            List<RoomBot> bots = ensureBots(room, tiles, true);
+            if (refreshOccupancySnapshot(room, state, Instant.now())) {
+                stateRepository.save(state);
+                updateCacheFromState(room, state);
+            }
+            return bots.size();
+        });
+    }
+
+    public PerfBotSimulationResult runBotSimulationForPerf(UUID roomId, int iterations, boolean clearGpuWorldCache) {
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        int safeIterations = Math.max(1, iterations);
+        if (clearGpuWorldCache) {
+            gpuWorldCache.remove(roomId);
+        }
+        List<Long> runTimes = new ArrayList<>(safeIterations);
+        for (int i = 0; i < safeIterations; i++) {
+            long start = System.nanoTime();
+            transactionTemplate.executeWithoutResult(status -> {
+                RoomState state = stateRepository.findByRoom(room)
+                    .orElseThrow(() -> new IllegalStateException("Room state missing"));
+                int[][] tiles = getTilesForRoom(room, state);
+                ensureBots(room, tiles, true);
+                tickBots(room, state);
+            });
+            runTimes.add((System.nanoTime() - start) / 1_000_000);
+        }
+        List<RoomBot> bots = botRepository.findByRoom(room);
+        long totalMs = 0L;
+        long minMs = Long.MAX_VALUE;
+        long maxMs = Long.MIN_VALUE;
+        for (Long runTime : runTimes) {
+            totalMs += runTime;
+            minMs = Math.min(minMs, runTime);
+            maxMs = Math.max(maxMs, runTime);
+        }
+        return new PerfBotSimulationResult(
+            safeIterations,
+            bots.size(),
+            totalMs,
+            (double) totalMs / (double) safeIterations,
+            runTimes.isEmpty() ? 0L : minMs,
+            runTimes.isEmpty() ? 0L : maxMs
+        );
     }
 
     private UUID ensureDefaultRoom() {

@@ -135,6 +135,12 @@ Perf profile notes:
 - `application-perf.yml` stays on PostgreSQL and targets `emergentterrain_perf` by default.
 - Override perf DB settings with `PG_PERF_URL`, `PG_PERF_USER`, and `PG_PERF_PASSWORD` when needed.
 - The compare script now launches `java.exe` and the Rust `release` binary directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags. That is the supported way to measure startup on this machine.
+- The compare script now measures a GPU-relevant heavy session:
+  - create a room
+  - apply one live proposal
+  - fully populate the room to the perf-profile bot target
+  - run repeated `/perf/room/{roomId}/bot-simulation` iterations through the live app
+- Default bot-simulation iterations in the compare harness are `10`. Override with `-BotSimulationIterations N` for longer runs.
 
 ## Reset Postgres Password (Windows)
 If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
@@ -217,3 +223,4 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: release-binary comparisons now live in `scripts/compare-cpu-vs-gpu-performance.ps1`; use that path with the `perf` profile for meaningful CPU-vs-GPU numbers.
 - Current learning: local perf runs on this machine must clear the inherited `DEBUG` environment variable. The compare script does that now, because otherwise Spring Boot starts in debug mode and startup timings are distorted.
 - Current learning: the perf profile is PostgreSQL-only and intentionally strips UI/login/websocket beans so startup and request timings reflect the game/room APIs rather than the full interactive UI stack.
+- Current learning: GPU only showed a decisive win once the benchmark shifted to repeated heavy bot simulation instead of mostly startup and a single small request. The current compare harness is intentionally bot-simulation-heavy for that reason.
