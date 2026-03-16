@@ -154,6 +154,7 @@ cargo run
   - `src\main\resources\static\js\game.js` now treats the plain `#world` canvas primarily as the interaction surface. The visible world scene is rendered through WebGPU.
   - `src\main\resources\static\js\world-fx.js` now owns full scene rendering in the browser: terrain, bots/players, proposal fields, transitions, particles, and the minimap all render through WebGPU while `RoomUpdateBroadcaster` streams proposal and tile-transition deltas over websocket.
   - Bot movement memory now lives in both runtimes: `RoomBot.stateJson` persists CPU-side anti-oscillation state, and the GPU engine reuses the protobuf `BotState.state` bytes field for the same purpose.
+  - Highway state is now separated from ordinary terrain mutation. `RoomState.roadPressureJson` persists bot-driven road demand, maintenance promotes and decays highway overlay cells from that pressure, and non-highway proposals preserve existing highway flags instead of clearing them.
   - GPU config flags in `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`:
     - `app.gpu.enabled`, `app.gpu.world.enabled`, `app.gpu.bots.enabled`, `app.gpu.bots.applyEdits`
     - `app.gpu.world.minCells`
@@ -178,6 +179,7 @@ cargo run
 - Current learning: for proposal pressure and staged tile commitment, browser WebGPU is the right rendering layer. Keep the websocket event stream authoritative and the per-frame visuals client-side.
 - Current learning: bot anti-oscillation must be implemented in both movement engines. The browser can smooth positions, but it cannot fix a real back-and-forth movement policy on its own.
 - Current learning: once the browser moves all world rendering onto WebGPU, do not split terrain/actor/minimap drawing back across 2D canvases unless there is a clear compatibility reason. Keep the plain canvas as the click/input layer.
+- Current learning: highways should be treated as emergent infrastructure. Let bot travel demand create and maintain them through a separate overlay/pressure layer; do not let ordinary terrain proposals erase roads directly or the network collapses.
 
 ## Primary config files
 - Java app config: `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\main\resources\application.yml`

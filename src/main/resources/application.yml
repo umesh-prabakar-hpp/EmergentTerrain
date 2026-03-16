@@ -94,6 +94,20 @@ app:
     headingBias: 0.18
     planLength: 3
     reverseCooldownTicks: 2
+  highways:
+    emergent:
+      enabled: true
+      longTripMinDistance: 12
+      travelPressure: 0.35
+      explorationPressure: 0.08
+      decayPerMaintenance: 0.002
+      promoteThreshold: 1.0
+      preserveThreshold: 0.35
+      removeThreshold: 0.12
+      maxCoverageRatio: 0.08
+      localDensityCap: 0.4
+      localDensityRadius: 3
+      seedPressure: 0.65
   activityLog:
     intervalMs: 30000
 

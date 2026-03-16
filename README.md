@@ -16,11 +16,12 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Negotiation-first multiplayer terrain (no solo mode)
 - Neighbor-based consensus voting for 2x2 terrain changes
 - Bots with persistent profiles and visible positions
-- High-speed highway corridors (precomputed)
+- Highway corridors now persist as a separate overlay and are maintained by bot travel demand instead of being erased by normal terrain changes
 - Bot map changes applied in-memory with periodic room state snapshot flushes
 - Normal runtime now eases bot movement in the browser and crossfades terrain refreshes so the room feels less snap-based
 - Pending votes now render as a live WebGPU influence field with staged pressure, propagation waves, and server-sent proposal / tile-transition deltas
 - The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
+- Highways now emerge from repeated long-distance bot movement and exploration pressure. Ordinary terrain proposals no longer clear them, and unused corridors decay over time so roads do not take over the map.
 
 ## Run
 Java 21 required. On this machine, the installed JDK 21 path is:
@@ -107,6 +108,7 @@ java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild
 - The default runtime on `radical-changes` also uses a tighter live-update cadence than `main`: `maintenanceIntervalMs=150`, `broadcastMinIntervalMs=40`, `occupancyRefreshMs=250`, `flushIntervalMs=750`, and `flushMinChanges=80`.
 - The browser now uses WebGPU for the full world scene, not just an overlay: `#worldFx` renders terrain, actors, proposal fields, transitions, and particles, while the minimap is also rendered through WebGPU. The base `#world` canvas remains in place as the interaction/input surface.
 - Bot movement now carries short-term motion memory in both the Java CPU path and the Rust GPU path: reverse moves are penalized, heading continuity is preferred, bots keep a short plan, and immediate reversals are cooled down for a few ticks.
+- Highway state now uses a dedicated persisted road-pressure layer in room state. Bot movement adds pressure during long relocation and exploration moves, maintenance promotes/decays highway overlay cells, and normal non-highway tile changes preserve existing roads instead of clearing them.
 - Defaults are off.
 
 ### Two-app integration check
@@ -170,6 +172,7 @@ Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
+- `app.highways.emergent.*` for travel-demand highway formation and decay
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
 - `app.consensus.neighborRadius`, `app.consensus.voteWindowSeconds`, `app.consensus.minNeighbors`
@@ -206,6 +209,7 @@ See `src/main/resources/application.yml` for app settings:
 ## Controls
 - Move: `WASD` or arrow keys
 - Highways: moving while on a highway tile jumps 4 tiles per keypress
+- Highways now act as an overlay rather than a destructive terrain replacement. A tile can keep its forest/water/industry identity while still carrying a road corridor.
 - Propose change: click a tile to mark a 2x2 area, choose a tool, then press `Apply Changes`
 - Vote: select a proposal then use `Approve` or `Reject`
 - Bots: open the Companions panel and select a bot to get a prompt
