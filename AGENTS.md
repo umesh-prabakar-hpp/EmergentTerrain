@@ -41,7 +41,7 @@ mvn test -DtrimStackTrace=false
 Real two-process GPU smoke check:
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-pwsh ./scripts/run-real-gpu-e2e.ps1
+./scripts/run-real-gpu-e2e.sh
 ```
 
 What it proves:

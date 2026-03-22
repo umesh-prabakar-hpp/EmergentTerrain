@@ -303,7 +303,22 @@ function Test-ProposalApplied {
 function Get-ChildProcessIds {
   param([int]$ParentId)
 
-  $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ParentId" -ErrorAction SilentlyContinue)
+  if ($IsWindows) {
+    $children = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $ParentId" -ErrorAction SilentlyContinue)
+  } else {
+    $children = @()
+    try {
+      $psChildren = & ps -o pid= --ppid $ParentId 2>$null
+      foreach ($child in @($psChildren)) {
+        $trimmed = "$child".Trim()
+        if (-not [string]::IsNullOrWhiteSpace($trimmed)) {
+          $children += [pscustomobject]@{ ProcessId = [int]$trimmed }
+        }
+      }
+    } catch {
+      $children = @()
+    }
+  }
   $ids = New-Object System.Collections.Generic.List[int]
   foreach ($child in $children) {
     $ids.Add([int]$child.ProcessId)
@@ -324,8 +339,18 @@ function Stop-ProcessTree {
   $allIds.Add($RootProcessId)
 
   foreach ($id in ($allIds | Select-Object -Unique | Sort-Object -Descending)) {
+    if ($IsWindows) {
+      try {
+        Stop-Process -Id $id -Force -ErrorAction Stop
+      } catch {
+      }
+      continue
+    }
+
     try {
-      Stop-Process -Id $id -Force -ErrorAction Stop
+      if (Get-Process -Id $id -ErrorAction SilentlyContinue) {
+        & kill -KILL $id 2>$null
+      }
     } catch {
     }
   }
