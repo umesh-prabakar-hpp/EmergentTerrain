@@ -12,6 +12,7 @@ Options:
   --maven-cmd CMD                   Maven command. Defaults to $MAVEN_CMD or mvn
   --java-repo PATH                  Java repo path. Default: /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
   --gpu-repo PATH                   GPU repo path. Default: /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine
+  --report-dir PATH                 Report output directory. Defaults to sample-output/perf-report-<timestamp>
   --build-artifacts                 Force rebuild of the Spring Boot jar and Rust release binary
   -h, --help                        Show this help
 EOF
@@ -40,6 +41,7 @@ maven_cmd="${MAVEN_CMD:-mvn}"
 java_repo="${JAVA_REPO:-$java_repo_default}"
 gpu_repo="${GPU_REPO:-/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine}"
 build_artifacts=0
+report_dir=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -73,6 +75,11 @@ while [[ $# -gt 0 ]]; do
       gpu_repo="$2"
       shift 2
       ;;
+    --report-dir)
+      [[ $# -ge 2 ]] || fail "--report-dir requires a value"
+      report_dir="$2"
+      shift 2
+      ;;
     --build-artifacts)
       build_artifacts=1
       shift
@@ -104,6 +111,10 @@ jar_path="$java_repo/target/emergent-terrain-0.0.1-SNAPSHOT.jar"
 gpu_exe="$gpu_repo/target/release/emergent_terrain_gpu_engine"
 output_root="$java_repo/sample-output"
 mkdir -p "$output_root"
+if [[ -z "$report_dir" ]]; then
+  report_dir="$output_root/perf-report-$(date +%Y%m%d-%H%M%S)"
+fi
+mkdir -p "$report_dir"
 
 read -r -a maven_cmd_parts <<<"$maven_cmd"
 ((${#maven_cmd_parts[@]} > 0)) || fail "Maven command cannot be empty"
@@ -547,6 +558,25 @@ for mode in cpu gpu; do
   done
 done
 
+metrics_json='[
+  {"key":"app_ready_ms_avg","label":"App ready","unit":"ms"},
+  {"key":"gpu_start_ms_avg","label":"GPU start","unit":"ms"},
+  {"key":"token_ms_avg","label":"Token request","unit":"ms"},
+  {"key":"world_ms_avg","label":"World state","unit":"ms"},
+  {"key":"room_create_ms_avg","label":"Room create","unit":"ms"},
+  {"key":"proposal_apply_ms_avg","label":"Proposal apply","unit":"ms"},
+  {"key":"populate_ms_avg","label":"Populate room","unit":"ms"},
+  {"key":"bot_sim_client_ms_avg","label":"Bot sim client total","unit":"ms"},
+  {"key":"bot_sim_server_total_ms_avg","label":"Bot sim server total","unit":"ms"},
+  {"key":"bot_sim_server_avg_ms_avg","label":"Bot sim server avg","unit":"ms"},
+  {"key":"request_flow_ms_avg","label":"Request flow total","unit":"ms"},
+  {"key":"total_ms_avg","label":"Total scenario","unit":"ms"},
+  {"key":"world_non_zero_tiles_avg","label":"Non-zero tiles","unit":"count"},
+  {"key":"world_highway_count_avg","label":"Highway cells","unit":"count"},
+  {"key":"initial_bot_count_avg","label":"Initial bots","unit":"count"},
+  {"key":"populated_bot_count_avg","label":"Populated bots","unit":"count"}
+]'
+
 summary_json="$(jq -cn --argjson runs "$runs_json" '
   ["cpu","gpu"]
   | map(
@@ -604,8 +634,453 @@ diff_json="$(jq -n \
   }'
 )"
 
-jq -n \
+metric_comparison_json="$(jq -n \
+  --argjson metrics "$metrics_json" \
+  --argjson cpu "$cpu_summary" \
+  --argjson gpu "$gpu_summary" '
+  $metrics
+  | map(
+      . as $metric
+      | ($cpu[$metric.key]) as $cpuValue
+      | ($gpu[$metric.key]) as $gpuValue
+      | ($gpuValue - $cpuValue) as $delta
+      | {
+          key: $metric.key,
+          label: $metric.label,
+          unit: $metric.unit,
+          cpu: $cpuValue,
+          gpu: $gpuValue,
+          delta: (($delta * 100 | round) / 100),
+          delta_pct: (if ($cpuValue != 0) then (((($delta / $cpuValue) * 100) * 100 | round) / 100) else null end),
+          speedup_ratio: (
+            if ($metric.unit == "ms" and $gpuValue != 0) then ((($cpuValue / $gpuValue) * 100 | round) / 100)
+            elif ($metric.unit == "count" and $cpuValue != 0) then ((($gpuValue / $cpuValue) * 100 | round) / 100)
+            else null
+            end
+          ),
+          faster: (
+            if $metric.unit == "ms" then
+              (if $gpuValue < $cpuValue then "gpu" elif $gpuValue > $cpuValue then "cpu" else "tie" end)
+            else
+              (if $gpuValue > $cpuValue then "gpu" elif $gpuValue < $cpuValue then "cpu" else "tie" end)
+            end
+          )
+        }
+    )'
+)"
+
+report_json="$(jq -n \
+  --arg generated_at "$(date -Iseconds)" \
+  --arg report_dir "$report_dir" \
+  --arg java_repo "$java_repo" \
+  --arg gpu_repo "$gpu_repo" \
+  --arg java_home "$java_home" \
+  --arg maven_cmd "$maven_cmd" \
+  --argjson iterations "$iterations" \
+  --argjson bot_simulation_iterations "$bot_simulation_iterations" \
   --argjson runs "$runs_json" \
   --argjson summary "$summary_json" \
   --argjson diff "$diff_json" \
-  '{runs:$runs, summary:$summary, diff:$diff}'
+  --argjson metric_comparison "$metric_comparison_json" \
+  '{
+    metadata: {
+      generated_at: $generated_at,
+      report_dir: $report_dir,
+      java_repo: $java_repo,
+      gpu_repo: $gpu_repo,
+      java_home: $java_home,
+      maven_cmd: $maven_cmd,
+      iterations: $iterations,
+      bot_simulation_iterations: $bot_simulation_iterations
+    },
+    runs: $runs,
+    summary: $summary,
+    diff: $diff,
+    metric_comparison: $metric_comparison
+  }'
+)"
+
+printf '%s\n' "$report_json" > "$report_dir/report.json"
+
+jq -r '
+  (["mode","iteration","gpu_start_ms","app_ready_ms","token_ms","world_ms","room_create_ms","proposal_apply_ms","populate_ms","bot_sim_client_ms","bot_sim_server_total_ms","bot_sim_server_avg_ms","request_flow_ms","total_ms","gpu_patch_observed","world_non_zero_tiles","world_highway_count","initial_bot_count","populated_bot_count","proposal_type","output_dir"] | @csv),
+  (.runs[] | [.mode,.iteration,.gpu_start_ms,.app_ready_ms,.token_ms,.world_ms,.room_create_ms,.proposal_apply_ms,.populate_ms,.bot_sim_client_ms,.bot_sim_server_total_ms,.bot_sim_server_avg_ms,.request_flow_ms,.total_ms,.gpu_patch_observed,.world_non_zero_tiles,.world_highway_count,.initial_bot_count,.populated_bot_count,.proposal_type,.output_dir] | @csv)
+' <<<"$report_json" > "$report_dir/runs.csv"
+
+jq -r '
+  (["metric","unit","cpu","gpu","delta","delta_pct","speedup_ratio","faster"] | @csv),
+  (.metric_comparison[] | [.label,.unit,.cpu,.gpu,.delta,.delta_pct,.speedup_ratio,.faster] | @csv)
+' <<<"$report_json" > "$report_dir/metric-comparison.csv"
+
+REPORT_JSON="$report_json" python3 - "$report_dir" <<'PY'
+import json
+import os
+import pathlib
+import sys
+import html
+
+report_dir = pathlib.Path(sys.argv[1])
+report = json.loads(os.environ["REPORT_JSON"])
+summary = {item["mode"]: item for item in report["summary"]}
+cpu = summary["cpu"]
+gpu = summary["gpu"]
+metric_rows = report["metric_comparison"]
+runs = report["runs"]
+
+lines = []
+lines.append("# Performance Report")
+lines.append("")
+lines.append(f"Generated: `{report['metadata']['generated_at']}`")
+lines.append("")
+lines.append("## Configuration")
+lines.append("")
+lines.append(f"- Iterations per mode: `{report['metadata']['iterations']}`")
+lines.append(f"- Bot simulation iterations: `{report['metadata']['bot_simulation_iterations']}`")
+lines.append(f"- Java repo: `{report['metadata']['java_repo']}`")
+lines.append(f"- GPU repo: `{report['metadata']['gpu_repo']}`")
+lines.append(f"- Java home: `{report['metadata']['java_home']}`")
+lines.append("")
+lines.append("## Headline")
+lines.append("")
+lines.append(f"- CPU total avg: `{cpu['total_ms_avg']}` ms")
+lines.append(f"- GPU total avg: `{gpu['total_ms_avg']}` ms")
+lines.append(f"- Total delta: `{report['diff']['total_ms_delta']}` ms (`{report['diff']['total_ms_pct']}%`)")
+lines.append(f"- CPU bot sim server total avg: `{cpu['bot_sim_server_total_ms_avg']}` ms")
+lines.append(f"- GPU bot sim server total avg: `{gpu['bot_sim_server_total_ms_avg']}` ms")
+lines.append(f"- GPU patch observed count: `{gpu['gpu_patch_observed_count']}`")
+lines.append("")
+lines.append("## Metric Comparison")
+lines.append("")
+lines.append("| Metric | Unit | CPU | GPU | Delta | Delta % | Speedup | Faster |")
+lines.append("| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |")
+for row in metric_rows:
+    delta_pct = "" if row["delta_pct"] is None else row["delta_pct"]
+    speedup = "" if row["speedup_ratio"] is None else row["speedup_ratio"]
+    lines.append(
+        f"| {row['label']} | {row['unit']} | {row['cpu']} | {row['gpu']} | {row['delta']} | {delta_pct} | {speedup} | {row['faster']} |"
+    )
+lines.append("")
+lines.append("## Per-Run Breakdown")
+lines.append("")
+lines.append("| Mode | Iteration | App Ready | World | Room Create | Proposal | Populate | Bot Sim Client | Bot Sim Server | Total | Output Dir |")
+lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |")
+for run in runs:
+    lines.append(
+        f"| {run['mode']} | {run['iteration']} | {run['app_ready_ms']} | {run['world_ms']} | {run['room_create_ms']} | {run['proposal_apply_ms']} | {run['populate_ms']} | {run['bot_sim_client_ms']} | {run['bot_sim_server_total_ms']} | {run['total_ms']} | `{run['output_dir']}` |"
+    )
+lines.append("")
+lines.append("## Files")
+lines.append("")
+lines.append(f"- JSON: `{report_dir / 'report.json'}`")
+lines.append(f"- Runs CSV: `{report_dir / 'runs.csv'}`")
+lines.append(f"- Metric CSV: `{report_dir / 'metric-comparison.csv'}`")
+lines.append("")
+
+(report_dir / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+def fmt(value):
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.2f}"
+    return str(value)
+
+def pct_text(value):
+    if value is None:
+        return ""
+    return f"{value:.2f}%"
+
+def speedup_text(row):
+    speedup = row.get("speedup_ratio")
+    if speedup is None:
+        return ""
+    if row["unit"] == "ms":
+        return f"{speedup:.2f}x faster"
+    return f"{speedup:.2f}x"
+
+def metric_bar(row):
+    cpu_value = row["cpu"] or 0
+    gpu_value = row["gpu"] or 0
+    max_value = max(cpu_value, gpu_value, 1)
+    cpu_width = (cpu_value / max_value) * 100
+    gpu_width = (gpu_value / max_value) * 100
+    return f"""
+      <div class="metric-bars">
+        <div class="bar-row"><span class="bar-label">CPU</span><span class="bar cpu" style="width:{cpu_width:.2f}%"></span><span class="bar-value">{html.escape(fmt(row["cpu"]))}</span></div>
+        <div class="bar-row"><span class="bar-label">GPU</span><span class="bar gpu" style="width:{gpu_width:.2f}%"></span><span class="bar-value">{html.escape(fmt(row["gpu"]))}</span></div>
+      </div>
+    """
+
+headline_cards = [
+    ("CPU total avg", f"{fmt(cpu['total_ms_avg'])} ms"),
+    ("GPU total avg", f"{fmt(gpu['total_ms_avg'])} ms"),
+    ("Total delta", f"{fmt(report['diff']['total_ms_delta'])} ms ({pct_text(report['diff']['total_ms_pct'])})"),
+    ("CPU bot sim server avg", f"{fmt(cpu['bot_sim_server_total_ms_avg'])} ms"),
+    ("GPU bot sim server avg", f"{fmt(gpu['bot_sim_server_total_ms_avg'])} ms"),
+    ("GPU patch observed count", fmt(gpu['gpu_patch_observed_count'])),
+]
+
+metric_cards = []
+for row in metric_rows:
+    faster = row["faster"]
+    delta_pct = pct_text(row.get("delta_pct"))
+    speedup = speedup_text(row)
+    metric_cards.append(f"""
+      <section class="metric-card metric-{html.escape(faster)}">
+        <div class="metric-header">
+          <h3>{html.escape(row["label"])}</h3>
+          <span class="metric-unit">{html.escape(row["unit"])}</span>
+        </div>
+        <div class="metric-summary">
+          <span>Delta: <strong>{html.escape(fmt(row["delta"]))}</strong></span>
+          <span>Delta %: <strong>{html.escape(delta_pct)}</strong></span>
+          <span>Winner: <strong>{html.escape(faster.upper())}</strong></span>
+          <span>{html.escape(speedup)}</span>
+        </div>
+        {metric_bar(row)}
+      </section>
+    """)
+
+run_rows = []
+for run in runs:
+    run_rows.append(f"""
+      <tr>
+        <td>{html.escape(run['mode'])}</td>
+        <td>{html.escape(fmt(run['iteration']))}</td>
+        <td>{html.escape(fmt(run['app_ready_ms']))}</td>
+        <td>{html.escape(fmt(run['world_ms']))}</td>
+        <td>{html.escape(fmt(run['room_create_ms']))}</td>
+        <td>{html.escape(fmt(run['proposal_apply_ms']))}</td>
+        <td>{html.escape(fmt(run['populate_ms']))}</td>
+        <td>{html.escape(fmt(run['bot_sim_client_ms']))}</td>
+        <td>{html.escape(fmt(run['bot_sim_server_total_ms']))}</td>
+        <td>{html.escape(fmt(run['total_ms']))}</td>
+        <td><code>{html.escape(run['output_dir'])}</code></td>
+      </tr>
+    """)
+
+html_lines = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>EmergentTerrain Performance Report</title>
+  <style>
+    :root {{
+      --bg: #f5f1e8;
+      --surface: #fffdf8;
+      --ink: #1f2933;
+      --muted: #66788a;
+      --cpu: #c96b2c;
+      --gpu: #1e7f5c;
+      --border: #d6d1c4;
+      --gpu-soft: #d8f0e6;
+      --cpu-soft: #f6dfcf;
+      --tie-soft: #ece7dc;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(201,107,44,0.14), transparent 22rem),
+        radial-gradient(circle at top right, rgba(30,127,92,0.16), transparent 24rem),
+        var(--bg);
+      color: var(--ink);
+    }}
+    main {{
+      width: min(1200px, calc(100% - 2rem));
+      margin: 2rem auto 3rem;
+    }}
+    h1, h2, h3 {{ margin: 0; }}
+    p, li {{ line-height: 1.5; }}
+    .hero {{
+      background: linear-gradient(135deg, rgba(255,253,248,0.96), rgba(245,241,232,0.96));
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 1.5rem;
+      box-shadow: 0 18px 50px rgba(63, 53, 37, 0.08);
+    }}
+    .hero p {{ color: var(--muted); margin-top: 0.75rem; }}
+    .config {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 0.75rem;
+      margin-top: 1rem;
+    }}
+    .config-item, .headline-card {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 0.9rem 1rem;
+    }}
+    .headline {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 0.9rem;
+      margin: 1.5rem 0;
+    }}
+    .headline-card strong {{
+      display: block;
+      margin-top: 0.4rem;
+      font-size: 1.35rem;
+    }}
+    .section-title {{
+      margin: 1.5rem 0 0.9rem;
+      font-size: 1.15rem;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }}
+    .metric-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1rem;
+    }}
+    .metric-card {{
+      border-radius: 18px;
+      padding: 1rem;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: 0 14px 28px rgba(63, 53, 37, 0.05);
+    }}
+    .metric-gpu {{ background: linear-gradient(180deg, var(--gpu-soft), var(--surface)); }}
+    .metric-cpu {{ background: linear-gradient(180deg, var(--cpu-soft), var(--surface)); }}
+    .metric-tie {{ background: linear-gradient(180deg, var(--tie-soft), var(--surface)); }}
+    .metric-header {{
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+    }}
+    .metric-unit {{ color: var(--muted); font-size: 0.9rem; }}
+    .metric-summary {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem 1rem;
+      margin: 0.8rem 0 1rem;
+      color: var(--muted);
+    }}
+    .metric-bars {{
+      display: grid;
+      gap: 0.55rem;
+    }}
+    .bar-row {{
+      display: grid;
+      grid-template-columns: 3rem 1fr auto;
+      gap: 0.6rem;
+      align-items: center;
+    }}
+    .bar-label {{ font-weight: 600; }}
+    .bar {{
+      display: inline-block;
+      height: 0.95rem;
+      border-radius: 999px;
+    }}
+    .bar.cpu {{ background: linear-gradient(90deg, #ab5720, var(--cpu)); }}
+    .bar.gpu {{ background: linear-gradient(90deg, #14533c, var(--gpu)); }}
+    .bar-value {{ font-variant-numeric: tabular-nums; }}
+    table {{
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 14px 28px rgba(63, 53, 37, 0.05);
+    }}
+    th, td {{
+      padding: 0.7rem 0.85rem;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      vertical-align: top;
+      font-variant-numeric: tabular-nums;
+    }}
+    th {{
+      background: #f0eadf;
+      font-size: 0.92rem;
+      text-transform: uppercase;
+      letter-spacing: 0.02em;
+    }}
+    tr:last-child td {{ border-bottom: 0; }}
+    code {{
+      font-family: "IBM Plex Mono", "SFMono-Regular", monospace;
+      font-size: 0.88rem;
+      word-break: break-all;
+    }}
+    .files {{
+      margin-top: 1rem;
+      color: var(--muted);
+    }}
+    .files li + li {{ margin-top: 0.35rem; }}
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <h1>EmergentTerrain Performance Report</h1>
+      <p>Generated at {html.escape(report["metadata"]["generated_at"])}. This report compares CPU and GPU execution across the same end-to-end perf scenario and preserves per-run artifacts for follow-up debugging.</p>
+      <div class="config">
+        <div class="config-item"><strong>Iterations</strong><br>{html.escape(fmt(report["metadata"]["iterations"]))}</div>
+        <div class="config-item"><strong>Bot Simulation Iterations</strong><br>{html.escape(fmt(report["metadata"]["bot_simulation_iterations"]))}</div>
+        <div class="config-item"><strong>Java Repo</strong><br><code>{html.escape(report["metadata"]["java_repo"])}</code></div>
+        <div class="config-item"><strong>GPU Repo</strong><br><code>{html.escape(report["metadata"]["gpu_repo"])}</code></div>
+        <div class="config-item"><strong>Java Home</strong><br><code>{html.escape(report["metadata"]["java_home"])}</code></div>
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Headline</h2>
+      <div class="headline">
+        {"".join(f"<article class=\"headline-card\"><span>{html.escape(label)}</span><strong>{html.escape(value)}</strong></article>" for label, value in headline_cards)}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Detailed Metric Comparison</h2>
+      <div class="metric-grid">
+        {"".join(metric_cards)}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="section-title">Per-Run Breakdown</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th>Iteration</th>
+            <th>App Ready</th>
+            <th>World</th>
+            <th>Room Create</th>
+            <th>Proposal</th>
+            <th>Populate</th>
+            <th>Bot Sim Client</th>
+            <th>Bot Sim Server</th>
+            <th>Total</th>
+            <th>Output Dir</th>
+          </tr>
+        </thead>
+        <tbody>
+          {"".join(run_rows)}
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2 class="section-title">Artifact Files</h2>
+      <ul class="files">
+        <li><code>{html.escape(str(report_dir / "report.json"))}</code></li>
+        <li><code>{html.escape(str(report_dir / "report.md"))}</code></li>
+        <li><code>{html.escape(str(report_dir / "report.html"))}</code></li>
+        <li><code>{html.escape(str(report_dir / "runs.csv"))}</code></li>
+        <li><code>{html.escape(str(report_dir / "metric-comparison.csv"))}</code></li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+(report_dir / "report.html").write_text(html_lines, encoding="utf-8")
+PY
+
+printf '%s\n' "$report_json"

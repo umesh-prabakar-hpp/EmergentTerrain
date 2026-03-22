@@ -118,6 +118,7 @@ public class RoomService {
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
     private final int maintenanceWorkers;
+    private final boolean backgroundMaintenanceEnabled;
     private final String defaultRoomName;
     private final boolean defaultRoomAutoCreate;
     private final boolean defaultRoomUseWhenAvailable;
@@ -222,6 +223,7 @@ public class RoomService {
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
                        @Value("${app.consensus.maintenanceWorkers:1}") int maintenanceWorkers,
+                       @Value("${app.perf.backgroundMaintenanceEnabled:true}") boolean backgroundMaintenanceEnabled,
                        @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds,
                        @Value("${app.room.defaultName:}") String defaultRoomName,
                        @Value("${app.room.defaultAutoCreate:false}") boolean defaultRoomAutoCreate,
@@ -299,6 +301,7 @@ public class RoomService {
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
         this.maintenanceWorkers = Math.max(1, maintenanceWorkers);
         this.maintenanceExecutor = Executors.newFixedThreadPool(this.maintenanceWorkers);
+        this.backgroundMaintenanceEnabled = backgroundMaintenanceEnabled;
         this.noParticipationLockSeconds = noParticipationLockSeconds;
         this.defaultRoomName = defaultRoomName == null ? "" : defaultRoomName.trim();
         this.defaultRoomAutoCreate = defaultRoomAutoCreate;
@@ -694,6 +697,9 @@ public class RoomService {
     @Scheduled(fixedDelayString = "${app.consensus.maintenanceIntervalMs:5000}")
     @Transactional
     public void scheduledRoomMaintenance() {
+        if (!backgroundMaintenanceEnabled) {
+            return;
+        }
         metrics.increment("room.maintenance");
         long start = System.nanoTime();
         List<Room> rooms = new ArrayList<>(roomRepository.findAll());
@@ -930,6 +936,9 @@ public class RoomService {
     @Scheduled(fixedDelayString = "${app.world.flushIntervalMs:30000}")
     @Transactional
     public void flushRoomStateCache() {
+        if (!backgroundMaintenanceEnabled) {
+            return;
+        }
         Instant now = Instant.now();
         for (Map.Entry<UUID, CachedRoomState> entry : roomStateCache.entrySet()) {
             UUID roomId = entry.getKey();
