@@ -56,10 +56,10 @@ Logs are written under `sample-output/gpu-e2e-*`.
 Release-binary perf comparison:
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-pwsh ./scripts/compare-cpu-vs-gpu-performance.ps1 -Iterations 2 -BuildArtifacts
+./scripts/compare-cpu-vs-gpu-performance.sh --iterations 2 --build-artifacts
 ```
 
-That script is the supported local performance path. It uses the packaged Spring Boot jar, the Rust `release` binary, and the `perf` Spring profile instead of `spring-boot:run` / `cargo run`.
+That script is the supported Fedora performance path. It uses the packaged Spring Boot jar, the Rust `release` binary, and the `perf` Spring profile instead of `spring-boot:run` / `cargo run`.
 
 ## Benchmarks
 ```bash
