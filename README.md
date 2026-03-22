@@ -25,19 +25,15 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Constitutional simulation now spans the first three runtime slices: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, executive orders and court review can intervene, office roles are assigned to bots, and append-only records are written under `simulation-history/`
 
 ## Run
-Java 21 required. On this machine, the installed JDK 21 path is:
-`C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7`
+Java 21 required.
 
-Example (current shell):
-```powershell
-$env:JAVA_HOME = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
-$env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
-```
+Fedora / Linux example:
+```bash
+export JAVA_HOME=/usr/lib/jvm/java-21-openjdk
+export PATH="$JAVA_HOME/bin:$PATH"
 
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd spring-boot:run
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+mvn spring-boot:run
 ```
 Open `http://localhost:8080/`
 
@@ -51,53 +47,50 @@ Open `http://localhost:8080/`
 ## Tests (summary)
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
-- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app from the native Windows repos, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Expected time: ~30-60s after startup.
+- `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Run it with `pwsh` on Fedora. Expected time: ~30-60s after startup.
 - `scripts/compare-cpu-vs-gpu-performance.ps1` runs release-binary CPU-vs-GPU comparisons with the `perf` profile and prints JSON with per-run timings, averages, and GPU-minus-CPU deltas.
 - `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
 
 ## Benchmarks (JMH)
-Benchmarks live under `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\src\jmh\java\com\emergentterrain\bench`.
+Benchmarks live under `src/jmh/java/com/emergentterrain/bench`.
 
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd -DskipTests -Pbench package
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+mvn -DskipTests -Pbench package
 ```
 
 Standalone (forked, recommended for real numbers):
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target\\jmh-result.json
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar -f 1 -rf json -rff target/jmh-result.json
 ```
 
 Profiles:
-```powershell
+```bash
 # RPC overhead (small sizes)
-java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=RPC -f 1
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=RPC -f 1
 
 # Compute-heavy (larger sizes)
-java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=HEAVY -f 1
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GpuVsCpu.*" -p profile=HEAVY -f 1
 ```
 
 In-process (no fork, quick sanity):
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd --% -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target\\jmh-result.json"
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+mvn -DskipTests -Pbench exec:java -Dexec.args=".*GpuVsCpu.* -f 0 -rf json -rff target/jmh-result.json"
 ```
 
 GPU benchmarks require the Rust GPU engine to be running. Use `GPU_ENGINE_HOST` / `GPU_ENGINE_PORT` or `-Dgpu.host` / `-Dgpu.port` if needed.
 
 Focused patch benchmark:
-```powershell
-java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
+```bash
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*PatchRebuild.*" -f 1
 ```
 
 Focused government benchmark:
-```powershell
-java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSimulationBenchmark.*" -f 1
+```bash
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSimulationBenchmark.*" -f 1
 ```
 
 ## GPU Engine Integration
@@ -118,38 +111,35 @@ java -jar target\\emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSi
 - Defaults are off.
 
 ### Two-app integration check
-A real Java app + Rust GPU engine smoke check was verified on this Windows machine:
+A real Java app + Rust GPU engine smoke check is expected to run from Fedora with the repos living under `/opt/apps/ide/eclipse/workspace-web/`:
 - Start the Rust engine on `127.0.0.1:50051`
 - Start the Java app on `127.0.0.1:8080`
 - Call `GET /game/test` to obtain a token
 - Call `POST /game/state`
 
-With the native Windows GPU path, a successful GPU-backed engine call now returns a non-stub `220x165` world with non-zero tiles and highways, and live bot simulation RPCs are also handled by the GPU engine. The current Windows-native verification on this machine used `Radeon RX 580 Series via Vulkan` for both `GenerateRegion` and `SimulateBots`.
+A successful GPU-backed engine call returns a non-stub `220x165` world with non-zero tiles and highways, and live bot simulation RPCs are also handled by the GPU engine. The last verified adapter on this machine was `Radeon RX 580 Series via Vulkan`.
 
-Windows shortcut for a full two-process check:
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-.\scripts\run-real-gpu-e2e.ps1
+Fedora shortcut for a full two-process check:
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+pwsh ./scripts/run-real-gpu-e2e.ps1
 ```
 
-The script starts the real Rust engine from `C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output\gpu-e2e-*`.
-Important caveat: the supported local workflow is now the native Windows path. `GenerateRegion`, `RebuildPatch`, and `SimulateBots` are GPU-backed there.
+The script starts the real Rust engine from `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine` by default, starts the Java app with GPU world/bot flags forced on, temporarily lowers the adaptive bot and patch thresholds for proof, verifies non-stub world output, creates a room, polls until at least one bot position changes, submits a proposal near the active participant, and waits for the patch to apply. It checks the engine log to prove `generate_region`, `rebuild_patch`, and `simulate_bots` were handled by the live engine. Logs go under `sample-output/gpu-e2e-*`.
 
 ### Release perf comparison
 Use the release-binary comparison harness for CPU-vs-GPU timings:
-```powershell
-cd C:\dev\ide\eclipse\workspace-web\EmergentTerrain
-
-.\scripts\compare-cpu-vs-gpu-performance.ps1 -Iterations 2 -BuildArtifacts
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+pwsh ./scripts/compare-cpu-vs-gpu-performance.ps1 -Iterations 2 -BuildArtifacts
 ```
 
-It packages the Spring app to `target\emergent-terrain-0.0.1-SNAPSHOT.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
+It packages the Spring app to `target/emergent-terrain-0.0.1-SNAPSHOT.jar`, builds the Rust engine in `release`, runs the app with `--spring.profiles.active=perf`, and prints JSON with run-by-run timings plus GPU-minus-CPU deltas. This is the supported local performance path; do not use `mvn spring-boot:run` or `cargo run` for comparisons.
 
 Perf profile notes:
 - `application-perf.yml` stays on PostgreSQL and targets `emergentterrain_perf` by default.
 - Override perf DB settings with `PG_PERF_URL`, `PG_PERF_USER`, and `PG_PERF_PASSWORD` when needed.
-- The compare script now launches `java.exe` and the Rust `release` binary directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags. That is the supported way to measure startup on this machine.
+- The compare script now launches the Java runtime and the Rust `release` binary directly, clears the inherited `DEBUG` environment variable, and uses startup-oriented JVM flags. That is the supported way to measure startup on this machine.
 - The compare script now measures a GPU-relevant heavy session:
   - create a room
   - apply one live proposal
@@ -157,19 +147,20 @@ Perf profile notes:
   - run repeated `/perf/room/{roomId}/bot-simulation` iterations through the live app
 - Default bot-simulation iterations in the compare harness are `10`. Override with `-BotSimulationIterations N` for longer runs.
 
-## Reset Postgres Password (Windows)
-If you need to reset the local `postgres` superuser password to `NewStrongPasswordHere` (PostgreSQL 18), use these manual steps:
+## PostgreSQL on Fedora
+PostgreSQL is required for normal app and perf-profile runs, but it is not bundled with Fedora by default.
 
-1. Open **Services** (`services.msc`) as Administrator and stop the service `postgresql-x64-18`.
-2. Open `C:\Program Files\PostgreSQL\18\data\pg_hba.conf` in a text editor running as Administrator.
-3. Find the localhost entries and change the auth method to `trust`:
-   - `host    all    all    127.0.0.1/32    scram-sha-256` → `trust`
-   - `host    all    all    ::1/128         scram-sha-256` → `trust`
-4. Save the file, then start the `postgresql-x64-18` service.
-5. Open PowerShell and run:
-   - `& "C:\Program Files\PostgreSQL\18\bin\psql.exe" -U postgres -h localhost -p 5432 -d postgres -c "ALTER USER postgres WITH PASSWORD 'NewStrongPasswordHere';"`
-6. Re-open `pg_hba.conf` and revert both localhost lines back to `scram-sha-256`.
-7. Restart the `postgresql-x64-18` service.
+Install and initialize it with:
+```bash
+sudo dnf install -y postgresql-server postgresql
+sudo postgresql-setup --initdb
+sudo systemctl enable --now postgresql
+```
+
+If you need to reset the local `postgres` password:
+```bash
+sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'NewStrongPasswordHere';"
+```
 
 ## UI Assets
 Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
@@ -251,7 +242,7 @@ See `src/main/resources/application.yml` for app settings:
 - The QR payload is signed (tamper detection) but not encrypted.
 - Bot-generated changes are applied in memory and flushed as room state snapshots; bot proposals are not persisted.
 - Dev note: `GpuEngineClient` is wired via a Spring constructor; if adding constructors, keep the `@Autowired` config-based one.
-- Docs policy: when behavior, setup, or performance workflows change, update both `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\README.md` and `C:\dev\ide\eclipse\workspace-web\EmergentTerrain\AGENTS.md`.
+- Docs policy: when behavior, setup, or performance workflows change, update both `README.md` and `AGENTS.md`.
 - Any new learnings from setup, debugging, performance work, or integration checks should be added to markdown in the same change.
 - Current learning: `scripts/run-real-gpu-e2e.ps1` is the supported local end-to-end path for both the Java app and Rust engine.
 - Current learning: native Windows end-to-end verification now hits real GPU-backed world generation and bot simulation. On this machine the verified adapter was `Radeon RX 580 Series via Vulkan`.

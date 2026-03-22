@@ -1,7 +1,7 @@
 param(
-  [string]$JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7",
+  [string]$JavaHome = "",
   [string]$MavenCmd = "",
-  [string]$WindowsGpuRepo = "C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine",
+  [Alias("WindowsGpuRepo")][string]$GpuRepo = "",
   [int]$AppPort = 8080,
   [int]$GpuPort = 50051,
   [int]$StartupTimeoutSeconds = 180,
@@ -13,17 +13,31 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$pathSeparator = [System.IO.Path]::PathSeparator
+$shellCmd = if ($IsWindows) { "powershell.exe" } else { "pwsh" }
 
 if ([string]::IsNullOrWhiteSpace($MavenCmd)) {
   $MavenCmd = $env:MAVEN_CMD
 }
 if ([string]::IsNullOrWhiteSpace($MavenCmd)) {
-  $MavenCmd = "C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd"
+  $MavenCmd = if ($IsWindows) { "mvn.cmd" } else { "mvn" }
+}
+if ([string]::IsNullOrWhiteSpace($JavaHome)) {
+  if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+    $JavaHome = $env:JAVA_HOME
+  } elseif ($IsWindows) {
+    $JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
+  } else {
+    $JavaHome = "/usr/lib/jvm/java-21-openjdk"
+  }
+}
+if ([string]::IsNullOrWhiteSpace($GpuRepo)) {
+  $GpuRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrainGPUEngine" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine" }
 }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$outputDir = Join-Path $repoRoot "sample-output\gpu-e2e-$timestamp"
+$outputDir = Join-Path $repoRoot "sample-output/gpu-e2e-$timestamp"
 New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
 $gpuLog = Join-Path $outputDir "gpu-engine.log"
 $gpuErrLog = Join-Path $outputDir "gpu-engine.err.log"
@@ -326,19 +340,20 @@ try {
   }
 
   if (-not $ReuseExistingGpuEngine) {
-    if (-not (Test-Path $WindowsGpuRepo)) {
-      throw "Windows GPU repo path not found: $WindowsGpuRepo"
+    if (-not (Test-Path $GpuRepo)) {
+      throw "GPU repo path not found: $GpuRepo"
     }
 
+    $cargoBinDir = if ($IsWindows) { Join-Path $env:USERPROFILE ".cargo\bin" } else { Join-Path $env:HOME ".cargo/bin" }
     $gpuCommand = @"
-`$env:PATH = '`$env:USERPROFILE\.cargo\bin;' + `$env:PATH
+`$env:PATH = '$cargoBinDir$pathSeparator' + `$env:PATH
 `$env:GPU_ENGINE_ADDR = '127.0.0.1:$GpuPort'
-Set-Location '$WindowsGpuRepo'
+Set-Location '$GpuRepo'
 & cargo run
 "@
-    $gpuProcess = Start-Process -FilePath "powershell.exe" `
+    $gpuProcess = Start-Process -FilePath $shellCmd `
       -ArgumentList @("-NoProfile", "-Command", $gpuCommand) `
-      -WorkingDirectory $WindowsGpuRepo `
+      -WorkingDirectory $GpuRepo `
       -RedirectStandardOutput $gpuLog `
       -RedirectStandardError $gpuErrLog `
       -PassThru
@@ -348,9 +363,10 @@ Set-Location '$WindowsGpuRepo'
   Wait-TcpPort -Address "127.0.0.1" -Port $GpuPort -TimeoutSeconds $StartupTimeoutSeconds -Label "GPU engine"
 
   if (-not $ReuseExistingApp) {
+    $javaBinDir = Join-Path $JavaHome "bin"
     $javaCommand = @"
 `$env:JAVA_HOME = '$JavaHome'
-`$env:PATH = '$JavaHome\bin;' + `$env:PATH
+`$env:PATH = '$javaBinDir$pathSeparator' + `$env:PATH
 `$env:APP_E2E_ENABLED = 'true'
 `$env:APP_GPU_ENABLED = 'true'
 `$env:APP_GPU_WORLD_ENABLED = 'true'
@@ -370,7 +386,7 @@ Set-Location '$WindowsGpuRepo'
 `$env:APP_CONSENSUS_QUORUMCAP = '1'
 & '$MavenCmd' spring-boot:run
 "@
-    $appProcess = Start-Process -FilePath "powershell.exe" `
+    $appProcess = Start-Process -FilePath $shellCmd `
       -ArgumentList @("-NoProfile", "-Command", $javaCommand) `
       -WorkingDirectory $repoRoot `
       -RedirectStandardOutput $appLog `

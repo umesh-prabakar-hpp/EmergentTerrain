@@ -1,19 +1,53 @@
 param(
   [int]$Iterations = 2,
   [int]$BotSimulationIterations = 10,
-  [string]$JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7",
-  [string]$MavenCmd = "C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd",
-  [string]$JavaRepo = "C:\dev\ide\eclipse\workspace-web\EmergentTerrain",
-  [string]$GpuRepo = "C:\dev\ide\vscode\EmergentTerrain\EmergentTerrainGPUEngine",
+  [string]$JavaHome = "",
+  [string]$MavenCmd = "",
+  [string]$JavaRepo = "",
+  [string]$GpuRepo = "",
   [switch]$BuildArtifacts
 )
 
 $ErrorActionPreference = "Stop"
-$env:JAVA_HOME = $JavaHome
-$env:PATH = "$JavaHome\bin;$env:PATH"
+$pathSeparator = [System.IO.Path]::PathSeparator
 
-$jarPath = Join-Path $JavaRepo "target\emergent-terrain-0.0.1-SNAPSHOT.jar"
-$gpuExe = Join-Path $GpuRepo "target\release\emergent_terrain_gpu_engine.exe"
+if ([string]::IsNullOrWhiteSpace($JavaHome)) {
+  if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+    $JavaHome = $env:JAVA_HOME
+  } elseif ($IsWindows) {
+    $JavaHome = "C:\dev\lang\java\amazon-corretto-21.0.6.7.1-windows-x64-jdk\jdk21.0.6_7"
+  } else {
+    $JavaHome = "/usr/lib/jvm/java-21-openjdk"
+  }
+}
+if ([string]::IsNullOrWhiteSpace($MavenCmd)) {
+  if (-not [string]::IsNullOrWhiteSpace($env:MAVEN_CMD)) {
+    $MavenCmd = $env:MAVEN_CMD
+  } elseif ($IsWindows) {
+    $MavenCmd = "mvn.cmd"
+  } else {
+    $MavenCmd = "mvn"
+  }
+}
+if ([string]::IsNullOrWhiteSpace($JavaRepo)) {
+  $JavaRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrain" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrain" }
+}
+if ([string]::IsNullOrWhiteSpace($GpuRepo)) {
+  $GpuRepo = if ($IsWindows) { "C:\dev\ide\eclipse\workspace-web\EmergentTerrainGPUEngine" } else { "/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine" }
+}
+
+$javaBinDir = Join-Path $JavaHome "bin"
+$javaExeName = if ($IsWindows) { "java.exe" } else { "java" }
+$jarExeName = if ($IsWindows) { "jar.exe" } else { "jar" }
+$javaCmd = Join-Path $javaBinDir $javaExeName
+$jarCmd = Join-Path $javaBinDir $jarExeName
+$gpuBinary = if ($IsWindows) { "emergent_terrain_gpu_engine.exe" } else { "emergent_terrain_gpu_engine" }
+
+$env:JAVA_HOME = $JavaHome
+$env:PATH = "$javaBinDir$pathSeparator$env:PATH"
+
+$jarPath = Join-Path $JavaRepo "target/emergent-terrain-0.0.1-SNAPSHOT.jar"
+$gpuExe = Join-Path $GpuRepo "target/release/$gpuBinary"
 $outputRoot = Join-Path $JavaRepo "sample-output"
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
@@ -223,7 +257,7 @@ function Start-DirectProcess {
 function Build-Artifacts {
   $needsBootJar = $true
   if (Test-Path $jarPath) {
-    $jarEntries = & "$JavaHome\bin\jar.exe" tf $jarPath 2>$null
+    $jarEntries = & $jarCmd tf $jarPath 2>$null
     if ($LASTEXITCODE -eq 0 -and ($jarEntries | Select-String -Pattern '^BOOT-INF/' -Quiet)) {
       $needsBootJar = $false
     }
@@ -307,7 +341,7 @@ function Run-Scenario {
       )
     }
     $appProcess = Start-DirectProcess `
-      -FilePath "$JavaHome\bin\java.exe" `
+      -FilePath $javaCmd `
       -ArgumentList $javaArgs `
       -WorkingDirectory $JavaRepo `
       -StdoutPath $appLog `

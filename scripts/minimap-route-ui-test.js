@@ -22,7 +22,7 @@ const START_APP = String(process.env.START_APP || '').toLowerCase() === 'true'
 const APP_READY_URL = process.env.APP_READY_URL || BASE_URL;
 const APP_START_TIMEOUT_MS = Number(process.env.APP_START_TIMEOUT_MS || 90000);
 const WATCHDOG_MS = Number(process.env.WATCHDOG_MS || (START_APP ? APP_START_TIMEOUT_MS + 30000 : 30000));
-const MAVEN_CMD = process.env.MAVEN_CMD || 'C:\\dev\\build\\maven\\apache-maven-3.8.6\\bin\\mvn.cmd';
+const MAVEN_CMD = process.env.MAVEN_CMD || 'mvn';
 const MAVEN_ARGS = (process.env.MAVEN_ARGS || 'spring-boot:run').split(' ');
 
 function diffPixels(a, b, threshold) {

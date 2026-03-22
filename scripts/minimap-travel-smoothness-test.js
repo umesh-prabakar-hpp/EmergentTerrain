@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 // UI test: measure minimap travel smoothness (movement update rate + move latency).
 // Usage:
-//   $env:START_APP="true"; node scripts\minimap-travel-smoothness-test.js
+//   START_APP=true node scripts/minimap-travel-smoothness-test.js
 //
 // Optional:
 //   BASE_URL=http://localhost:8080/game/test?debugMinimap=1
@@ -29,7 +29,7 @@ const STEP_TIMEOUT_MS = 15000;
 const WATCHDOG_MS = Number(process.env.WATCHDOG_MS || (START_APP ? APP_START_TIMEOUT_MS + 30000 : 30000));
 const SAMPLE_WINDOW_MS = Number(process.env.SAMPLE_WINDOW_MS || 8000);
 const SAMPLE_INTERVAL_MS = Number(process.env.SAMPLE_INTERVAL_MS || 200);
-const MAVEN_CMD = process.env.MAVEN_CMD || 'C:\\dev\\build\\maven\\apache-maven-3.8.6\\bin\\mvn.cmd';
+const MAVEN_CMD = process.env.MAVEN_CMD || 'mvn';
 const MAVEN_ARGS = (process.env.MAVEN_ARGS || 'spring-boot:run').split(' ');
 
 const MINI_MAP_SELECTOR = '#miniMap';

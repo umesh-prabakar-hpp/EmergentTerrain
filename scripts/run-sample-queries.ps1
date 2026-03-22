@@ -8,7 +8,7 @@ param(
 
 $mvn = $env:MAVEN_CMD
 if ([string]::IsNullOrWhiteSpace($mvn)) {
-  $mvn = "C:\dev\build\maven\apache-maven-3.8.6\bin\mvn.cmd"
+  $mvn = "mvn"
 }
 
 $props = @(
