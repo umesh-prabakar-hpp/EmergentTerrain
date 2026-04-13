@@ -15,6 +15,14 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 - Vulkan userspace stack for the GPU engine
 - PowerShell (`pwsh`) if you want to run the existing `.ps1` helper scripts on Fedora
 
+Fedora bootstrap helper:
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+bash ./scripts/setup-fedora-prereqs.sh
+```
+
+That script installs the local Fedora prerequisites for both repos, initializes PostgreSQL, creates `emergentterrain` and `emergentterrain_perf`, and installs the optional Playwright browser dependency unless told to skip it.
+
 ## Run the app
 ```bash
 export JAVA_HOME=/usr/lib/jvm/java-21-openjdk

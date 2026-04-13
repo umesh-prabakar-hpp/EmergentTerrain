@@ -37,6 +37,34 @@ mvn spring-boot:run
 ```
 Open `http://localhost:8080/`
 
+## Fedora Bootstrap
+If you want one native Fedora setup path for both repos, use:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+bash ./scripts/setup-fedora-prereqs.sh
+```
+
+What it does:
+- installs the Java, Maven, PostgreSQL, Rust, protobuf, Vulkan, Node, `jq`, `curl`, and PowerShell packages used by the app and GPU engine
+- initializes and starts PostgreSQL
+- sets the local `postgres` password to `NewStrongPasswordHere` by default so it matches `application.yml`
+- creates `emergentterrain` and `emergentterrain_perf`
+- installs the local npm dependency and Playwright Chromium for the UI scripts
+
+Useful flags:
+- `--postgres-password YourOwnPassword`
+- `--skip-playwright`
+- `--skip-node-deps`
+- `--skip-packages`
+- `--skip-postgres`
+
+Smoke test for the helper:
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+bash ./scripts/test-setup-fedora-prereqs.sh
+```
+
 ## Line Endings
 - The repo now uses `.gitattributes` to normalize text files to `LF`.
 - `*.bat` and `*.cmd` are kept as `CRLF`.
@@ -49,6 +77,7 @@ Open `http://localhost:8080/`
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
 - `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Use `scripts/run-real-gpu-e2e.sh` on Fedora and `pwsh ./scripts/run-real-gpu-e2e.ps1` on Windows. Expected time: ~30-60s after startup.
 - `scripts/compare-cpu-vs-gpu-performance.ps1` runs release-binary CPU-vs-GPU comparisons with the `perf` profile and prints JSON with per-run timings, averages, and GPU-minus-CPU deltas. Use `scripts/compare-cpu-vs-gpu-performance.sh` on Fedora and `pwsh ./scripts/compare-cpu-vs-gpu-performance.ps1` on Windows.
+- `scripts/test-setup-fedora-prereqs.sh` smoke-tests the Fedora bootstrap helper in a no-op mode so setup docs and argument parsing can be verified without reinstalling packages or touching PostgreSQL. Expected time: a few seconds.
 - `scripts/minimap-route-ui-test.js` (Playwright) clicks the minimap, waits for route choices, and verifies the minimap canvas updates. Expected time: ~50s.
 - `scripts/minimap-travel-smoothness-test.js` (Playwright) auto-navigates via minimap, samples render/logic positions, and reports movement update cadence and move request latency. Expected time: ~20s.
 
@@ -160,6 +189,12 @@ sudo systemctl enable --now postgresql
 If you need to reset the local `postgres` password:
 ```bash
 sudo -u postgres psql -c "ALTER USER postgres WITH PASSWORD 'NewStrongPasswordHere';"
+```
+
+Or use the native helper from this repo:
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+bash ./scripts/setup-fedora-prereqs.sh
 ```
 
 ## UI Assets
