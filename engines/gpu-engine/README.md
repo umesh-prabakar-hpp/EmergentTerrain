@@ -6,6 +6,14 @@ Rust gRPC service (tonic) that hosts the Vulkan compute engine.
 - Linux path: `/opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine`
 
 ## Fedora Setup
+The supported one-command Fedora bootstrap now lives in the Java repo:
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+bash ./scripts/setup-fedora-prereqs.sh
+```
+
+It installs the shared Java/Rust/PostgreSQL/Vulkan prerequisites for both repos, initializes PostgreSQL, creates the app databases, and installs the optional Playwright browser dependency used by the Java repo UI scripts.
+
 Install the base toolchain and Vulkan/protobuf dependencies:
 ```bash
 sudo dnf install -y rust cargo protobuf-compiler vulkan-loader vulkan-tools mesa-vulkan-drivers clang
