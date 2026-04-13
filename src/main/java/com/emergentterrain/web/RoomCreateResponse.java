@@ -22,6 +22,7 @@ public class RoomCreateResponse {
     private int minNeighbors;
     private int densityAreaSize;
     private int maxOccupants;
+    private GovernmentSummary governmentSummary;
 
     public String getRoomId() {
         return roomId;
@@ -165,5 +166,13 @@ public class RoomCreateResponse {
 
     public void setMaxOccupants(int maxOccupants) {
         this.maxOccupants = maxOccupants;
+    }
+
+    public GovernmentSummary getGovernmentSummary() {
+        return governmentSummary;
+    }
+
+    public void setGovernmentSummary(GovernmentSummary governmentSummary) {
+        this.governmentSummary = governmentSummary;
     }
 }

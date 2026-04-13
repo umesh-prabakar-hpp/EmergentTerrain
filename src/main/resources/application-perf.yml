@@ -28,6 +28,8 @@ spring:
     cache: true
 
 app:
+  perf:
+    backgroundMaintenanceEnabled: false
   room:
     defaultAutoCreate: false
     defaultUseWhenAvailable: false

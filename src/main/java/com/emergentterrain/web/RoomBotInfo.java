@@ -1,5 +1,7 @@
 package com.emergentterrain.web;
 
+import com.emergentterrain.government.BotCivicState;
+
 public class RoomBotInfo {
     private String id;
     private String type;
@@ -8,6 +10,7 @@ public class RoomBotInfo {
     private int y;
     private java.util.Map<String, Double> profile;
     private String role;
+    private BotCivicState civicState;
 
     public String getId() {
         return id;
@@ -63,5 +66,13 @@ public class RoomBotInfo {
 
     public void setRole(String role) {
         this.role = role;
+    }
+
+    public BotCivicState getCivicState() {
+        return civicState;
+    }
+
+    public void setCivicState(BotCivicState civicState) {
+        this.civicState = civicState;
     }
 }

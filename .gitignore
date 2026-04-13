@@ -34,6 +34,9 @@ Thumbs.db
 # Local env
 .env
 /sample-output/
+/simulation-history/**
+!/simulation-history/**/
+!/simulation-history/**/.gitkeep
 scratch.txt
 
 # Maven Shade
