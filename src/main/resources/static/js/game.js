@@ -731,9 +731,16 @@ function resizeViewport() {
   viewWidth = Math.max(12, Math.min(width || 48, Math.floor(w / desired)));
   viewHeight = Math.max(10, Math.min(height || 36, Math.floor(h / desired)));
   tileSize = Math.max(4, Math.floor(Math.min(w / viewWidth, h / viewHeight)));
-  canvas.width = viewWidth * tileSize;
-  canvas.height = viewHeight * tileSize;
+  const logicalWidth = viewWidth * tileSize;
+  const logicalHeight = viewHeight * tileSize;
+  const dpr = Math.max(1, window.devicePixelRatio || 1);
+  canvas.style.width = `${logicalWidth}px`;
+  canvas.style.height = `${logicalHeight}px`;
+  canvas.width = Math.max(1, Math.round(logicalWidth * dpr));
+  canvas.height = Math.max(1, Math.round(logicalHeight * dpr));
   if (worldFxCanvas) {
+    worldFxCanvas.style.width = `${logicalWidth}px`;
+    worldFxCanvas.style.height = `${logicalHeight}px`;
     worldFxCanvas.width = canvas.width;
     worldFxCanvas.height = canvas.height;
   }
@@ -2317,6 +2324,12 @@ async function init() {
 window.addEventListener('resize', () => {
   resizeViewport();
   draw();
+});
+
+window.addEventListener('pagehide', () => {
+  if (worldFxRenderer && typeof worldFxRenderer.destroy === 'function') {
+    worldFxRenderer.destroy();
+  }
 });
 
 init();

@@ -297,6 +297,44 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 `;
 
   class WorldFxRenderer {
+    static browserHint() {
+      const ua = navigator.userAgent || '';
+      if (/Firefox\//i.test(ua)) {
+        return 'Firefox exposed navigator.gpu but did not return an adapter. This usually means WebGPU is gated by browser graphics policy, WebRender/Vulkan is not fully active for this session, or hardware acceleration is blocked.';
+      }
+      if (/Chrome\//i.test(ua) || /Chromium\//i.test(ua) || /Edg\//i.test(ua)) {
+        return 'The browser exposed navigator.gpu but did not return an adapter. Hardware acceleration or the browser WebGPU backend may be unavailable for this session.';
+      }
+      return 'The browser exposed navigator.gpu but did not return an adapter. WebGPU is present at the API level, but no usable graphics backend was made available to the page.';
+    }
+
+    static async requestAdapterWithPreferences(options) {
+      const attempts = [
+        { powerPreference: 'high-performance', label: 'high-performance' },
+        { powerPreference: 'low-power', label: 'low-power' },
+        { powerPreference: undefined, label: 'default' }
+      ];
+      for (const attempt of attempts) {
+        try {
+          const adapter = attempt.powerPreference
+            ? await navigator.gpu.requestAdapter({ powerPreference: attempt.powerPreference })
+            : await navigator.gpu.requestAdapter();
+          if (adapter) {
+            WorldFxRenderer.emitStatus(options, {
+              code: 'adapter_selected',
+              level: 'warn',
+              message: `Selected WebGPU adapter with ${attempt.label} preference.`,
+              detail: `Chrome can expose multiple adapters on Linux. The renderer is trying ${attempt.label} first to avoid backend-specific failures on the default adapter.`
+            });
+            return adapter;
+          }
+        } catch (error) {
+          console.warn(`WebGPU adapter request failed for ${attempt.label}:`, error);
+        }
+      }
+      return null;
+    }
+
     static emitStatus(options, status) {
       if (options && typeof options.onStatus === 'function') {
         options.onStatus(status);
@@ -314,9 +352,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         });
         throw error;
       }
-      const adapter = await navigator.gpu.requestAdapter();
+      const adapter = await WorldFxRenderer.requestAdapterWithPreferences(options);
       if (!adapter) {
-        const error = new Error('navigator.gpu.requestAdapter() returned no adapter.');
+        const error = new Error(WorldFxRenderer.browserHint());
         WorldFxRenderer.emitStatus(options, {
           code: 'no_adapter',
           level: 'error',
@@ -359,6 +397,11 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.transitionData = new Float32Array(4);
       this.transitionDefaults = new Float32Array(4);
       this.lastTransitionIndices = [];
+      this.disabledPasses = new Set();
+      this.renderInFlight = false;
+      this.pendingRenderData = null;
+      this.surfaceGeneration = 0;
+      this.destroyed = false;
       this.diagnostics = {
         code: 'initializing',
         level: 'warn',
@@ -379,6 +422,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     installDeviceDiagnostics() {
       this.device.lost.then((info) => {
+        if (this.destroyed) {
+          return;
+        }
         this.ready = false;
         const detail = info && info.message
           ? info.message
@@ -392,6 +438,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }, true);
       });
       this.device.addEventListener('uncapturederror', (event) => {
+        if (this.destroyed) {
+          return;
+        }
         const detail = event && event.error && event.error.message
           ? event.error.message
           : 'Unknown uncaptured WebGPU error.';
@@ -453,7 +502,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.mainContext.configure({
         device: this.device,
         format: this.format,
-        alphaMode: 'premultiplied'
+        alphaMode: 'opaque'
       });
       if (this.miniCanvas) {
         this.miniContext = this.miniCanvas.getContext('webgpu');
@@ -461,7 +510,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
           this.miniContext.configure({
             device: this.device,
             format: this.format,
-            alphaMode: 'premultiplied'
+            alphaMode: 'opaque'
           });
         }
       }
@@ -527,20 +576,34 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     resize() {
+      if (this.destroyed) {
+        return;
+      }
+      this.surfaceGeneration += 1;
       if (this.mainContext) {
         this.mainContext.configure({
           device: this.device,
           format: this.format,
-          alphaMode: 'premultiplied'
+          alphaMode: 'opaque'
         });
       }
       if (this.miniContext) {
         this.miniContext.configure({
           device: this.device,
           format: this.format,
-          alphaMode: 'premultiplied'
+          alphaMode: 'opaque'
         });
       }
+      this.disabledPasses.clear();
+    }
+
+    destroy() {
+      this.destroyed = true;
+      this.ready = false;
+      this.pendingRenderData = null;
+      this.renderInFlight = false;
+      this.surfaceGeneration += 1;
+      this.disabledPasses.clear();
     }
 
     ensureBuffer(existing, size, usage) {
@@ -742,32 +805,130 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.device.queue.writeBuffer(this.uniformBuffer, 0, values);
     }
 
-    drawPass(context, targetCanvas, data, isMini) {
+    describeCanvas(targetCanvas, label) {
+      return `${label} ${targetCanvas.width || 0}x${targetCanvas.height || 0}`;
+    }
+
+    async drawPass(context, targetCanvas, data, isMini, label, allowReconfigure = true) {
+      if (this.destroyed) {
+        return false;
+      }
       if (!context) {
-        return;
+        return false;
       }
-      this.writeUniforms(targetCanvas, data, isMini);
-      const encoder = this.device.createCommandEncoder();
-      const pass = encoder.beginRenderPass({
-        colorAttachments: [{
-          view: context.getCurrentTexture().createView(),
-          clearValue: { r: 0, g: 0, b: 0, a: isMini ? 0.92 : 0 },
-          loadOp: 'clear',
-          storeOp: 'store'
-        }]
-      });
-      pass.setBindGroup(0, this.bindGroup);
-      pass.setPipeline(this.terrainPipeline);
-      pass.draw(3);
-      if (!isMini && data.actors && data.actors.length) {
-        pass.setPipeline(this.actorPipeline);
-        pass.draw(6, data.actors.length);
+      if ((targetCanvas.width || 0) < 1 || (targetCanvas.height || 0) < 1) {
+        this.publishStatus({
+          code: 'canvas_zero_sized',
+          level: 'warn',
+          message: `Skipping ${label} pass because its canvas has no drawable size.`,
+          detail: this.describeCanvas(targetCanvas, label)
+        }, true);
+        return false;
       }
-      pass.end();
-      this.device.queue.submit([encoder.finish()]);
+      try {
+        const generation = this.surfaceGeneration;
+        this.device.pushErrorScope('validation');
+        if (this.destroyed || generation !== this.surfaceGeneration) {
+          await this.device.popErrorScope();
+          return false;
+        }
+        this.writeUniforms(targetCanvas, data, isMini);
+        const texture = context.getCurrentTexture();
+        const view = texture.createView();
+        const encoder = this.device.createCommandEncoder();
+        const pass = encoder.beginRenderPass({
+          colorAttachments: [{
+            view,
+            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            loadOp: 'clear',
+            storeOp: 'store'
+          }]
+        });
+        pass.setBindGroup(0, this.bindGroup);
+        pass.setPipeline(this.terrainPipeline);
+        pass.draw(3);
+        if (!isMini && data.actors && data.actors.length) {
+          pass.setPipeline(this.actorPipeline);
+          pass.draw(6, data.actors.length);
+        }
+        pass.end();
+        const commandBuffer = encoder.finish();
+        if (this.destroyed || generation !== this.surfaceGeneration) {
+          await this.device.popErrorScope();
+          return false;
+        }
+        this.device.queue.submit([commandBuffer]);
+        const validationError = await this.device.popErrorScope();
+        if (this.destroyed || generation !== this.surfaceGeneration) {
+          return false;
+        }
+        if (validationError) {
+          throw validationError;
+        }
+        return true;
+      } catch (error) {
+        const detail = `${error && error.message ? error.message : String(error)} | ${this.describeCanvas(targetCanvas, label)}`;
+        console.error(`WebGPU draw pass failed for ${label}:`, error);
+        try {
+          await this.device.popErrorScope();
+        } catch (_) {
+          // The scope may already be resolved if submission reached validation.
+        }
+        if (allowReconfigure) {
+          try {
+            this.resize();
+            this.publishStatus({
+              code: 'render_pass_reconfigure',
+              level: 'warn',
+              message: `Retrying ${label} pass after canvas reconfigure.`,
+              detail
+            }, true);
+          } catch (resizeError) {
+            console.error(`WebGPU reconfigure failed for ${label}:`, resizeError);
+          }
+          return this.drawPass(context, targetCanvas, data, isMini, label, false);
+        }
+        this.publishStatus({
+          code: 'draw_pass_failed',
+          level: 'error',
+          message: `WebGPU render pass failed (${label}).`,
+          detail
+        }, true);
+        if (isMini) {
+          this.disabledPasses.add(label);
+        }
+        return false;
+      }
     }
 
     render(data) {
+      if (this.destroyed) {
+        return;
+      }
+      this.pendingRenderData = data;
+      if (this.renderInFlight) {
+        return;
+      }
+      this.renderInFlight = true;
+      void this.renderQueued();
+    }
+
+    async renderQueued() {
+      while (this.pendingRenderData) {
+        if (this.destroyed) {
+          break;
+        }
+        const data = this.pendingRenderData;
+        this.pendingRenderData = null;
+        await this.renderNow(data);
+      }
+      this.renderInFlight = false;
+    }
+
+    async renderNow(data) {
+      if (this.destroyed) {
+        return;
+      }
       if (!this.ready) {
         this.publishStatus({
           code: 'renderer_not_ready',
@@ -839,9 +1000,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.flattenWorld(data);
       this.updateTransitions(data.nowMs || performance.now(), data.transitions);
       this.updateDynamicBuffers(data);
-      this.drawPass(this.mainContext, this.mainCanvas, data, false);
-      if (this.miniContext && this.miniCanvas) {
-        this.drawPass(this.miniContext, this.miniCanvas, data, true);
+      const mainOk = await this.drawPass(this.mainContext, this.mainCanvas, data, false, 'main');
+      if (!mainOk) {
+        return;
+      }
+      if (this.miniContext && this.miniCanvas && !this.disabledPasses.has('mini')) {
+        await this.drawPass(this.miniContext, this.miniCanvas, data, true, 'mini');
       }
       this.publishStatus({
         code: 'ready',
