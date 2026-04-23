@@ -297,24 +297,45 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 `;
 
   class WorldFxRenderer {
-    static async create(mainCanvas, miniCanvas) {
+    static emitStatus(options, status) {
+      if (options && typeof options.onStatus === 'function') {
+        options.onStatus(status);
+      }
+    }
+
+    static async create(mainCanvas, miniCanvas, options = {}) {
       if (!navigator.gpu) {
-        throw new Error('WebGPU is not available in this browser');
+        const error = new Error('navigator.gpu is unavailable in this browser.');
+        WorldFxRenderer.emitStatus(options, {
+          code: 'no_webgpu',
+          level: 'error',
+          message: 'WebGPU is unavailable in this browser.',
+          detail: error.message
+        });
+        throw error;
       }
       const adapter = await navigator.gpu.requestAdapter();
       if (!adapter) {
-        throw new Error('No WebGPU adapter found');
+        const error = new Error('navigator.gpu.requestAdapter() returned no adapter.');
+        WorldFxRenderer.emitStatus(options, {
+          code: 'no_adapter',
+          level: 'error',
+          message: 'No WebGPU adapter was found.',
+          detail: error.message
+        });
+        throw error;
       }
       const device = await adapter.requestDevice();
-      const renderer = new WorldFxRenderer(device, mainCanvas, miniCanvas);
+      const renderer = new WorldFxRenderer(device, mainCanvas, miniCanvas, options);
       await renderer.init();
       return renderer;
     }
 
-    constructor(device, mainCanvas, miniCanvas) {
+    constructor(device, mainCanvas, miniCanvas, options = {}) {
       this.device = device;
       this.mainCanvas = mainCanvas;
       this.miniCanvas = miniCanvas || null;
+      this.onStatus = typeof options.onStatus === 'function' ? options.onStatus : null;
       this.ready = false;
       this.format = navigator.gpu.getPreferredCanvasFormat();
       this.mainContext = null;
@@ -338,12 +359,96 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.transitionData = new Float32Array(4);
       this.transitionDefaults = new Float32Array(4);
       this.lastTransitionIndices = [];
+      this.diagnostics = {
+        code: 'initializing',
+        level: 'warn',
+        message: 'Starting WebGPU renderer...',
+        detail: 'Preparing GPU device and canvases.',
+        worldWidth: 0,
+        worldHeight: 0,
+        tileCount: 0,
+        proposalCount: 0,
+        actorCount: 0,
+        frameCount: 0,
+        lastFrameAt: 0
+      };
+      this.lastPublishedSignature = '';
+      this.lastPublishedAt = 0;
+      this.installDeviceDiagnostics();
+    }
+
+    installDeviceDiagnostics() {
+      this.device.lost.then((info) => {
+        this.ready = false;
+        const detail = info && info.message
+          ? info.message
+          : `Device lost${info && info.reason ? ` (${info.reason})` : ''}.`;
+        console.error('WebGPU device lost:', info);
+        this.publishStatus({
+          code: 'device_lost',
+          level: 'error',
+          message: 'WebGPU device lost.',
+          detail
+        }, true);
+      });
+      this.device.addEventListener('uncapturederror', (event) => {
+        const detail = event && event.error && event.error.message
+          ? event.error.message
+          : 'Unknown uncaptured WebGPU error.';
+        console.error('Uncaptured WebGPU error:', event.error || event);
+        this.publishStatus({
+          code: 'uncaptured_error',
+          level: 'error',
+          message: 'WebGPU reported an uncaptured error.',
+          detail
+        }, true);
+      });
+    }
+
+    publishStatus(status, force = false) {
+      this.diagnostics = {
+        ...this.diagnostics,
+        ...status
+      };
+      if (!this.onStatus) {
+        return;
+      }
+      const signature = JSON.stringify([
+        this.diagnostics.code,
+        this.diagnostics.level,
+        this.diagnostics.message,
+        this.diagnostics.detail,
+        this.diagnostics.worldWidth,
+        this.diagnostics.worldHeight,
+        this.diagnostics.tileCount,
+        this.diagnostics.actorCount,
+        this.diagnostics.proposalCount,
+        this.diagnostics.frameCount
+      ]);
+      const now = Date.now();
+      if (!force && signature === this.lastPublishedSignature && (now - this.lastPublishedAt) < 1000) {
+        return;
+      }
+      this.lastPublishedSignature = signature;
+      this.lastPublishedAt = now;
+      this.onStatus({ ...this.diagnostics });
+    }
+
+    getDiagnostics() {
+      return { ...this.diagnostics };
     }
 
     async init() {
       this.mainContext = this.mainCanvas.getContext('webgpu');
       if (!this.mainContext) {
-        throw new Error('Unable to get WebGPU context for world canvas');
+        const error = new Error('Unable to get a WebGPU context for #worldFx.');
+        this.publishStatus({
+          code: 'main_context_failed',
+          level: 'error',
+          message: 'WebGPU canvas context creation failed.',
+          detail: error.message
+        }, true);
+        throw error;
       }
       this.mainContext.configure({
         device: this.device,
@@ -413,6 +518,12 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
       this.ensureStorageBuffers(1, 1);
       this.ready = true;
+      this.publishStatus({
+        code: 'waiting_for_world',
+        level: 'warn',
+        message: 'WebGPU ready, waiting for room state.',
+        detail: 'The GPU pipeline initialized successfully but no world frame has been submitted yet.'
+      }, true);
     }
 
     resize() {
@@ -657,7 +768,72 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     render(data) {
-      if (!this.ready || !data || !data.tiles || !data.tiles.length || !data.worldWidth || !data.worldHeight) {
+      if (!this.ready) {
+        this.publishStatus({
+          code: 'renderer_not_ready',
+          level: this.diagnostics.level === 'error' ? 'error' : 'warn',
+          message: 'WebGPU renderer is not ready.',
+          detail: this.diagnostics.detail || 'The renderer cannot submit frames yet.'
+        });
+        return;
+      }
+      if (!data || !data.tiles || !data.tiles.length || !data.worldWidth || !data.worldHeight) {
+        this.publishStatus({
+          code: 'waiting_for_world',
+          level: 'warn',
+          message: 'Waiting for world data.',
+          detail: 'No tile payload is available for the GPU renderer yet.',
+          worldWidth: data && data.worldWidth ? data.worldWidth : 0,
+          worldHeight: data && data.worldHeight ? data.worldHeight : 0,
+          tileCount: 0,
+          proposalCount: data && data.proposals ? data.proposals.length : 0,
+          actorCount: data && data.actors ? data.actors.length : 0
+        });
+        return;
+      }
+      const tileRows = data.tiles.length;
+      const tileCols = data.tiles[0] ? data.tiles[0].length : 0;
+      if (tileRows !== data.worldHeight || tileCols !== data.worldWidth) {
+        const detail = `World payload mismatch: data.world=${data.worldWidth}x${data.worldHeight}, tiles=${tileCols}x${tileRows}.`;
+        console.error(detail, data);
+        this.publishStatus({
+          code: 'invalid_world_dimensions',
+          level: 'error',
+          message: 'Renderer rejected the world payload.',
+          detail,
+          worldWidth: data.worldWidth,
+          worldHeight: data.worldHeight,
+          tileCount: tileRows * tileCols,
+          proposalCount: data.proposals ? data.proposals.length : 0,
+          actorCount: data.actors ? data.actors.length : 0
+        }, true);
+        return;
+      }
+      const highwayRows = data.highways && data.highways.length ? data.highways.length : 0;
+      const highwayCols = highwayRows && data.highways[0] ? data.highways[0].length : 0;
+      if (highwayRows && (highwayRows !== data.worldHeight || highwayCols !== data.worldWidth)) {
+        const detail = `Highway payload mismatch: expected ${data.worldWidth}x${data.worldHeight}, got ${highwayCols}x${highwayRows}.`;
+        console.error(detail, data.highways);
+        this.publishStatus({
+          code: 'invalid_highway_dimensions',
+          level: 'error',
+          message: 'Renderer rejected the highway payload.',
+          detail,
+          worldWidth: data.worldWidth,
+          worldHeight: data.worldHeight,
+          tileCount: tileRows * tileCols,
+          proposalCount: data.proposals ? data.proposals.length : 0,
+          actorCount: data.actors ? data.actors.length : 0
+        }, true);
+        return;
+      }
+      if (!this.bindGroup || !this.terrainPipeline || !this.actorPipeline) {
+        this.publishStatus({
+          code: 'pipeline_unavailable',
+          level: 'error',
+          message: 'WebGPU pipelines are unavailable.',
+          detail: 'The renderer cannot submit frames because its bind group or pipelines are missing.'
+        }, true);
         return;
       }
       this.flattenWorld(data);
@@ -667,6 +843,19 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       if (this.miniContext && this.miniCanvas) {
         this.drawPass(this.miniContext, this.miniCanvas, data, true);
       }
+      this.publishStatus({
+        code: 'ready',
+        level: 'ready',
+        message: 'WebGPU renderer active.',
+        detail: 'Frames are being submitted successfully.',
+        worldWidth: data.worldWidth,
+        worldHeight: data.worldHeight,
+        tileCount: data.worldWidth * data.worldHeight,
+        proposalCount: data.proposals ? data.proposals.length : 0,
+        actorCount: data.actors ? data.actors.length : 0,
+        frameCount: (this.diagnostics.frameCount || 0) + 1,
+        lastFrameAt: Date.now()
+      });
     }
   }
 

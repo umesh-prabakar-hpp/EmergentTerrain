@@ -30,6 +30,12 @@
           <div class="canvas-wrap">
             <canvas id="world" width="900" height="620"></canvas>
             <canvas id="worldFx" width="900" height="620"></canvas>
+            <div id="rendererStatus" class="renderer-status" aria-live="polite">
+              <div class="renderer-status-label">Renderer</div>
+              <div id="rendererStatusTitle" class="renderer-status-title">Starting WebGPU renderer...</div>
+              <div id="rendererStatusDetail" class="renderer-status-detail">Waiting for adapter and world data.</div>
+              <div id="rendererStatusMeta" class="renderer-status-meta"></div>
+            </div>
             <div id="miniMapContainer" class="mini-map-container">
               <canvas id="miniMap" width="180" height="180" title="World map"></canvas>
             </div>

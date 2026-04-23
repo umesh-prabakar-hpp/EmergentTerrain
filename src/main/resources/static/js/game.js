@@ -2,6 +2,10 @@ const token = window.APP_TOKEN;
 const canvas = document.getElementById('world');
 const ctx = canvas.getContext('2d');
 const worldFxCanvas = document.getElementById('worldFx');
+const rendererStatusEl = document.getElementById('rendererStatus');
+const rendererStatusTitleEl = document.getElementById('rendererStatusTitle');
+const rendererStatusDetailEl = document.getElementById('rendererStatusDetail');
+const rendererStatusMetaEl = document.getElementById('rendererStatusMeta');
 const miniMap = document.getElementById('miniMap');
 const miniMapContainer = document.getElementById('miniMapContainer');
 const miniCtx = null;
@@ -96,6 +100,19 @@ let resolvedProposalBursts = [];
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
+let rendererStatus = {
+  code: 'booting',
+  level: 'warn',
+  message: 'Starting WebGPU renderer...',
+  detail: 'Waiting for adapter and world data.',
+  worldWidth: 0,
+  worldHeight: 0,
+  tileCount: 0,
+  proposalCount: 0,
+  actorCount: 0,
+  frameCount: 0,
+  lastFrameAt: 0
+};
 let ws = null;
 let wsRoomId = null;
 let wsReconnectTimer = null;
@@ -111,6 +128,54 @@ const PLAYER_INTERPOLATION_MS = 120;
 const BOT_INTERPOLATION_MS = 150;
 const TILE_TRANSITION_MS = 180;
 const PROPOSAL_BURST_RETENTION_MS = 1400;
+
+function formatRendererMeta(status) {
+  const parts = [];
+  if (status.worldWidth && status.worldHeight) {
+    parts.push(`${status.worldWidth}x${status.worldHeight}`);
+  }
+  if (status.tileCount) {
+    parts.push(`${status.tileCount} cells`);
+  }
+  if (status.actorCount || status.actorCount === 0) {
+    parts.push(`${status.actorCount} actors`);
+  }
+  if (status.proposalCount || status.proposalCount === 0) {
+    parts.push(`${status.proposalCount} proposals`);
+  }
+  if (status.frameCount) {
+    parts.push(`${status.frameCount} frames`);
+  }
+  if (status.lastFrameAt) {
+    parts.push(`last ${Math.max(0, Math.round((Date.now() - status.lastFrameAt) / 1000))}s ago`);
+  }
+  return parts.join(' · ');
+}
+
+function renderRendererStatus() {
+  if (!rendererStatusEl) return;
+  const level = rendererStatus.level || 'warn';
+  rendererStatusEl.classList.remove('is-ready', 'is-warn', 'is-error');
+  rendererStatusEl.classList.add(level === 'error' ? 'is-error' : level === 'ready' ? 'is-ready' : 'is-warn');
+  if (rendererStatusTitleEl) {
+    rendererStatusTitleEl.textContent = rendererStatus.message || 'WebGPU renderer status unknown.';
+  }
+  if (rendererStatusDetailEl) {
+    rendererStatusDetailEl.textContent = rendererStatus.detail || 'No renderer details available.';
+  }
+  if (rendererStatusMetaEl) {
+    rendererStatusMetaEl.textContent = formatRendererMeta(rendererStatus);
+  }
+}
+
+function updateRendererStatus(next) {
+  if (!next) return;
+  rendererStatus = {
+    ...rendererStatus,
+    ...next
+  };
+  renderRendererStatus();
+}
 
 const panelMap = {
   tokens: tokensPanel,
@@ -335,15 +400,51 @@ function buildRendererActors() {
 
 async function initWorldFxRenderer() {
   if (!worldFxCanvas || !window.WorldFxRenderer) return;
+  updateRendererStatus({
+    code: 'initializing',
+    level: 'warn',
+    message: 'Starting WebGPU renderer...',
+    detail: 'Requesting adapter and configuring GPU canvases.'
+  });
   try {
-    worldFxRenderer = await window.WorldFxRenderer.create(worldFxCanvas, miniMap);
+    worldFxRenderer = await window.WorldFxRenderer.create(worldFxCanvas, miniMap, {
+      onStatus: updateRendererStatus
+    });
   } catch (err) {
     worldFxRenderer = null;
+    const detail = err && err.message ? err.message : String(err);
+    console.error('WebGPU renderer failed to start:', err);
+    updateRendererStatus({
+      code: 'init_failed',
+      level: 'error',
+      message: 'WebGPU renderer failed to start.',
+      detail
+    });
+    if (roomStatus) {
+      roomStatus.textContent = `Renderer error: ${detail}`;
+    }
   }
 }
 
 function renderWorldFx(ts = performance.now()) {
-  if (!worldFxRenderer || !worldFxRenderer.ready) return;
+  if (!worldFxRenderer) {
+    updateRendererStatus({
+      code: 'renderer_missing',
+      level: 'error',
+      message: 'WebGPU renderer unavailable.',
+      detail: 'The renderer was not created, so no world frame can be drawn.'
+    });
+    return;
+  }
+  if (!worldFxRenderer.ready) {
+    updateRendererStatus({
+      code: 'renderer_not_ready',
+      level: rendererStatus.level === 'error' ? 'error' : 'warn',
+      message: 'WebGPU renderer is not ready yet.',
+      detail: rendererStatus.detail || 'Waiting for WebGPU initialization to complete.'
+    });
+    return;
+  }
   worldFxRenderer.render({
     nowMs: ts,
     tiles,
@@ -363,6 +464,9 @@ function renderWorldFx(ts = performance.now()) {
     pendingChange,
     pendingRoutes
   });
+  if (typeof worldFxRenderer.getDiagnostics === 'function') {
+    updateRendererStatus(worldFxRenderer.getDiagnostics());
+  }
 }
 
 function copyTiles(src) {
@@ -2182,6 +2286,7 @@ function initBots() {
 }
 
 async function init() {
+  renderRendererStatus();
   await initWorldFxRenderer();
   const res = await fetch('/room/last', {
     method: 'POST',
