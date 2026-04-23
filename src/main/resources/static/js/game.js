@@ -2326,12 +2326,6 @@ window.addEventListener('resize', () => {
   draw();
 });
 
-window.addEventListener('pagehide', () => {
-  if (worldFxRenderer && typeof worldFxRenderer.destroy === 'function') {
-    worldFxRenderer.destroy();
-  }
-});
-
 init();
 
 setInterval(() => {

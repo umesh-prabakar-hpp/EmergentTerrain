@@ -400,8 +400,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.disabledPasses = new Set();
       this.renderInFlight = false;
       this.pendingRenderData = null;
-      this.surfaceGeneration = 0;
-      this.destroyed = false;
       this.diagnostics = {
         code: 'initializing',
         level: 'warn',
@@ -422,9 +420,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     installDeviceDiagnostics() {
       this.device.lost.then((info) => {
-        if (this.destroyed) {
-          return;
-        }
         this.ready = false;
         const detail = info && info.message
           ? info.message
@@ -438,9 +433,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }, true);
       });
       this.device.addEventListener('uncapturederror', (event) => {
-        if (this.destroyed) {
-          return;
-        }
         const detail = event && event.error && event.error.message
           ? event.error.message
           : 'Unknown uncaptured WebGPU error.';
@@ -502,7 +494,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
       this.mainContext.configure({
         device: this.device,
         format: this.format,
-        alphaMode: 'opaque'
+        alphaMode: 'premultiplied'
       });
       if (this.miniCanvas) {
         this.miniContext = this.miniCanvas.getContext('webgpu');
@@ -510,7 +502,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
           this.miniContext.configure({
             device: this.device,
             format: this.format,
-            alphaMode: 'opaque'
+            alphaMode: 'premultiplied'
           });
         }
       }
@@ -576,33 +568,20 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     resize() {
-      if (this.destroyed) {
-        return;
-      }
-      this.surfaceGeneration += 1;
       if (this.mainContext) {
         this.mainContext.configure({
           device: this.device,
           format: this.format,
-          alphaMode: 'opaque'
+          alphaMode: 'premultiplied'
         });
       }
       if (this.miniContext) {
         this.miniContext.configure({
           device: this.device,
           format: this.format,
-          alphaMode: 'opaque'
+          alphaMode: 'premultiplied'
         });
       }
-      this.disabledPasses.clear();
-    }
-
-    destroy() {
-      this.destroyed = true;
-      this.ready = false;
-      this.pendingRenderData = null;
-      this.renderInFlight = false;
-      this.surfaceGeneration += 1;
       this.disabledPasses.clear();
     }
 
@@ -810,9 +789,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     async drawPass(context, targetCanvas, data, isMini, label, allowReconfigure = true) {
-      if (this.destroyed) {
-        return false;
-      }
       if (!context) {
         return false;
       }
@@ -826,12 +802,8 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         return false;
       }
       try {
-        const generation = this.surfaceGeneration;
+        let scopeResolved = false;
         this.device.pushErrorScope('validation');
-        if (this.destroyed || generation !== this.surfaceGeneration) {
-          await this.device.popErrorScope();
-          return false;
-        }
         this.writeUniforms(targetCanvas, data, isMini);
         const texture = context.getCurrentTexture();
         const view = texture.createView();
@@ -839,7 +811,7 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         const pass = encoder.beginRenderPass({
           colorAttachments: [{
             view,
-            clearValue: { r: 0, g: 0, b: 0, a: 1 },
+            clearValue: { r: 0, g: 0, b: 0, a: isMini ? 0.92 : 0 },
             loadOp: 'clear',
             storeOp: 'store'
           }]
@@ -853,15 +825,9 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
         }
         pass.end();
         const commandBuffer = encoder.finish();
-        if (this.destroyed || generation !== this.surfaceGeneration) {
-          await this.device.popErrorScope();
-          return false;
-        }
         this.device.queue.submit([commandBuffer]);
         const validationError = await this.device.popErrorScope();
-        if (this.destroyed || generation !== this.surfaceGeneration) {
-          return false;
-        }
+        scopeResolved = true;
         if (validationError) {
           throw validationError;
         }
@@ -902,9 +868,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     render(data) {
-      if (this.destroyed) {
-        return;
-      }
       this.pendingRenderData = data;
       if (this.renderInFlight) {
         return;
@@ -915,9 +878,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
 
     async renderQueued() {
       while (this.pendingRenderData) {
-        if (this.destroyed) {
-          break;
-        }
         const data = this.pendingRenderData;
         this.pendingRenderData = null;
         await this.renderNow(data);
@@ -926,9 +886,6 @@ fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
     }
 
     async renderNow(data) {
-      if (this.destroyed) {
-        return;
-      }
       if (!this.ready) {
         this.publishStatus({
           code: 'renderer_not_ready',

@@ -292,3 +292,18 @@ See `src/main/resources/application.yml` for app settings:
 - Current learning: for voting visuals, browser GPU is the right first hop. The server now streams proposal and tile-transition deltas over websocket, and the browser turns them into continuous WebGPU overlays without round-tripping every animation frame.
 - Current learning: once terrain, actors, and minimap all move onto WebGPU, the plain canvas should be treated as an input layer and DOM anchor, not as a competing renderer.
 - Current learning: the visible two-tile bot bounce was real simulation behavior, not just a rendering artifact. Fix it in both the Java fallback path and the Rust GPU path, otherwise faster rendering just makes the oscillation easier to notice.
+
+
+
+DRI_PRIME=1 google-chrome-stable \
+  --user-data-dir=/tmp/chrome-amd-x11-webgpu2 \
+  --ozone-platform=x11 \
+  --enable-features=Vulkan \
+  --enable-unsafe-webgpu \
+  --render-node-override=/dev/dri/renderD129
+
+check chrome://gpu again. What we want to see is:
+*ACTIVE* on AMD
+GL_RENDERER showing AMD, not Intel
+
+http://localhost:8080/game?token=H4sIAAAAAAAA_12QPW_CMBCG_4vnBPnu_JFkY-hQqd06dUFRclCrwYkcpxQh_nsPSivB-rwffn0n9aUaKNSUxm0Y-LlXjTIdIfralB2BK03fdWXde18CtQRkXQeVV4Vqd6wapELN_C2p1_XLk9Bh7NocxigEkIy9GON84DSr5qSG8MnzZjsmnrOAnBYubvDQZk73aD8uMbchPjjHieNmG3joHys4b7oh7KXpXpiXGI-_6Fyoj9D3HC9zJtkxL0nceuVMLd8FRzU5AO8LlXk_cWrzn8FZcsbKZZwx1lVStOxDH_Lxqnprna-stQbQk8TljflfBE-EBAat04CF4shpd9OwsoCmqiWNQBctp3G6il57740TA9S6rlHWB1nM_TrLgVGjK7Upkd40NbZqNK5IO0CsyLyr8w9HIxDa3QEAAA.UmexeTlCrv7ZwkuC-BOahRRxp4p8Wale_ADoPWcmwHo
