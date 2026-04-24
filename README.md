@@ -300,7 +300,10 @@ DRI_PRIME=1 google-chrome-stable \
   --ozone-platform=x11 \
   --enable-features=Vulkan \
   --enable-unsafe-webgpu \
-  --render-node-override=/dev/dri/renderD129
+  --render-node-override=/dev/dri/renderD129 \
+  --no-first-run \
+  --no-default-browser-check
+
 
 check chrome://gpu again. What we want to see is:
 *ACTIVE* on AMD
