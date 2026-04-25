@@ -58,6 +58,9 @@ const memoryLabelInput = document.getElementById('memoryLabel');
 const dropMemoryBtn = document.getElementById('dropMemoryBtn');
 const memoryList = document.getElementById('memoryList');
 const botProfilesList = document.getElementById('botProfilesList');
+const civicOverlay = document.getElementById('civicOverlay');
+const civicInspectorEl = document.getElementById('civicInspector');
+const toggleCivicMapBtn = document.getElementById('toggleCivicMap');
 
 let tiles = [];
 let highways = [];
@@ -100,6 +103,7 @@ let resolvedProposalBursts = [];
 let playerLockedUntil = 0;
 let selectedProposalId = '';
 const dismissedPolls = new Set();
+let civicMapVisible = true;
 let rendererStatus = {
   code: 'booting',
   level: 'warn',
@@ -952,6 +956,22 @@ if (miniMapToggle && miniMap) {
   });
 }
 
+if (toggleCivicMapBtn) {
+  toggleCivicMapBtn.addEventListener('click', () => {
+    civicMapVisible = !civicMapVisible;
+    if (civicOverlay) civicOverlay.classList.toggle('civic-map-hidden', !civicMapVisible);
+    if (!civicMapVisible && civicInspectorEl) civicInspectorEl.classList.remove('active');
+    drawCivicOverlay();
+  });
+}
+
+if (miniMapContainer) {
+  miniMapContainer.addEventListener('mousemove', showCivicInspector);
+  miniMapContainer.addEventListener('mouseleave', () => {
+    if (civicInspectorEl) civicInspectorEl.classList.remove('active');
+  });
+}
+
 if (infoToggle && infoPanel) {
   infoToggle.addEventListener('click', () => {
     infoPanel.classList.toggle('open');
@@ -1173,6 +1193,7 @@ function renderRoomState() {
   renderNeighborStats();
   renderParticipants();
   renderBotProfiles();
+  drawCivicOverlay();
   renderGovernmentSummary();
   renderLocalProposals();
   renderLockStatus();
@@ -1276,6 +1297,7 @@ function renderGovernmentSummary() {
       text: `States: ${summary.stateCount || 0}`,
       detail: renderStateSummaryGroup(summary)
     },
+    { text: `Civic legal: ${summary.petitioningBotCount || 0}/${summary.reviewBotCount || 0}/${summary.sanctionedBotCount || 0} petition/review/sanction` },
     { text: `Orders / cases: ${summary.activeExecutiveOrderCount || 0} / ${summary.activeCourtCaseCount || 0}` },
     {
       text: `Next election: ${summary.nextElectionAt ? new Date(summary.nextElectionAt).toLocaleTimeString() : 'pending'}`,
@@ -1319,18 +1341,84 @@ function renderGovernmentSummary() {
   }
 
   const partySummaries = summary.partySummaries || [];
-  if (!partySummaries.length) {
-    const row = document.createElement('div');
-    row.className = 'list-item';
-    row.textContent = 'No parties tracked.';
-    governmentPartiesEl.appendChild(row);
-  } else {
+  const institutionItems = Array.isArray(summary.institutionItems) ? summary.institutionItems : [];
+  const precedentItems = Array.isArray(summary.precedentItems) ? summary.precedentItems : [];
+  const administrativeItems = Array.isArray(summary.administrativeItems) ? summary.administrativeItems : [];
+  const implementationItems = Array.isArray(summary.implementationItems) ? summary.implementationItems : [];
+  const pressureItems = Array.isArray(summary.pressureItems) ? summary.pressureItems : [];
+  const conflictItems = Array.isArray(summary.conflictItems) ? summary.conflictItems : [];
+  const actorItems = Array.isArray(summary.actorItems) ? summary.actorItems : [];
+  const historyItems = Array.isArray(summary.historyItems) ? summary.historyItems : [];
+  const civicLegalItems = Array.isArray(summary.civicLegalItems) ? summary.civicLegalItems : [];
+  if (institutionItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Institutions');
+    institutionItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (administrativeItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Administrative state');
+    administrativeItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (implementationItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Implementation');
+    implementationItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (civicLegalItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Civic legal climate');
+    civicLegalItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (pressureItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Political pressure');
+    pressureItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (conflictItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Federal / state conflicts');
+    conflictItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (precedentItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Precedent memory');
+    precedentItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (actorItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Civic actors');
+    actorItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (historyItems.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Historical memory');
+    historyItems.forEach((item) => {
+      governmentPartiesEl.appendChild(renderGovernmentActionItem(item));
+    });
+  }
+  if (partySummaries.length) {
+    appendGovernmentSection(governmentPartiesEl, 'Parties');
     partySummaries.forEach((party) => {
       const row = document.createElement('div');
       row.className = 'list-item';
       row.textContent = party;
       governmentPartiesEl.appendChild(row);
     });
+  } else if (!institutionItems.length && !precedentItems.length && !administrativeItems.length
+    && !implementationItems.length && !civicLegalItems.length && !pressureItems.length && !conflictItems.length
+    && !actorItems.length && !historyItems.length) {
+    const row = document.createElement('div');
+    row.className = 'list-item';
+    row.textContent = 'No parties tracked.';
+    governmentPartiesEl.appendChild(row);
   }
 }
 
@@ -1356,7 +1444,22 @@ function renderGovernmentActionItem(item) {
     summary.textContent = item.summary;
     row.appendChild(summary);
   }
+
+  const details = item && Array.isArray(item.details) ? item.details : [];
+  details.forEach((detailLine) => {
+    const detail = document.createElement('div');
+    detail.className = 'list-item-detail';
+    detail.textContent = detailLine;
+    row.appendChild(detail);
+  });
   return row;
+}
+
+function appendGovernmentSection(target, label) {
+  const title = document.createElement('div');
+  title.className = 'section-label government-subsection-label';
+  title.textContent = label;
+  target.appendChild(title);
 }
 
 function renderBudgetBreakdownCard(summary) {
@@ -1639,6 +1742,10 @@ function buildGovernmentTrendLegend(trendData) {
     ['Trust', '#0f766e'],
     ['Service', '#2563eb'],
     ['State trust', '#7c3aed'],
+    ['Pressure', '#dc2626'],
+    ['Implementation', '#059669'],
+    ['Petitioning', '#7c2d12'],
+    ['Sanctions', '#be123c'],
     ['Actions', '#f59e0b'],
     ['Budget mix', '#64748b']
   ].forEach(([label, color]) => {
@@ -1657,7 +1764,7 @@ function buildGovernmentTrendLegend(trendData) {
   summary.className = 'government-trend-summary';
   const latest = latestTrendPoint(trendData.points || []);
   if (latest) {
-    summary.textContent = `Latest: trust ${formatScore(latest.federalTrust)} · service ${formatScore(latest.federalServiceAccess)} · bills/orders/cases ${latest.activeBillCount || 0}/${latest.activeExecutiveOrderCount || 0}/${latest.activeCourtCaseCount || 0}`;
+    summary.textContent = `Latest: trust ${formatScore(latest.federalTrust)} · service ${formatScore(latest.federalServiceAccess)} · pressure ${formatScore(latest.pressureIntensity)} · implementation ${formatScore(latest.implementationScore)} · petition/review/sanction ${latest.petitioningBotCount || 0}/${latest.reviewBotCount || 0}/${latest.sanctionedBotCount || 0}`;
   }
   wrap.appendChild(summary);
   return wrap;
@@ -1729,7 +1836,11 @@ function buildGovernmentTrendChart(trendData) {
     return mainBottom - Math.max(0, Math.min(1, normalized)) * (mainBottom - mainTop);
   };
   const actionMax = Math.max(1, ...points.map((point) =>
-    (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0)
+    (point.activeBillCount || 0)
+      + (point.activeExecutiveOrderCount || 0)
+      + (point.activeCourtCaseCount || 0)
+      + (point.activeAdministrativeCount || 0)
+      + (point.activeConflictCount || 0)
   ));
   const budgetTotals = points.map(totalBudgetForPoint);
   const budgetMax = Math.max(1, ...budgetTotals);
@@ -1785,7 +1896,11 @@ function buildGovernmentTrendChart(trendData) {
     const x = xForMs(timestampMs);
     const nextX = index < points.length - 1 ? xForMs(trendTimestampMs(points[index + 1])) : x + Math.max(2, innerWidth / points.length);
     const barWidth = Math.max(2, nextX - x - 1);
-    const actionCount = (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0);
+    const actionCount = (point.activeBillCount || 0)
+      + (point.activeExecutiveOrderCount || 0)
+      + (point.activeCourtCaseCount || 0)
+      + (point.activeAdministrativeCount || 0)
+      + (point.activeConflictCount || 0);
     const actionHeight = (actionCount / actionMax) * 20;
     svg.appendChild(createSvgElement('rect', {
       x,
@@ -1838,6 +1953,10 @@ function buildGovernmentTrendChart(trendData) {
   svg.appendChild(buildLinePath(points, 'federalTrust', xForMs, yForMetric, '#0f766e', 2.3));
   svg.appendChild(buildLinePath(points, 'federalServiceAccess', xForMs, yForMetric, '#2563eb', 2.1));
   svg.appendChild(buildLinePath(points, 'avgStateTrust', xForMs, yForMetric, '#7c3aed', 1.9));
+  svg.appendChild(buildLinePath(points, 'pressureIntensity', xForMs, yForMetric, '#dc2626', 1.8));
+  svg.appendChild(buildLinePath(points, 'implementationScore', xForMs, yForMetric, '#059669', 1.8));
+  svg.appendChild(buildLinePath(points, 'petitioningShare', xForMs, yForMetric, '#7c2d12', 1.8));
+  svg.appendChild(buildLinePath(points, 'sanctionedShare', xForMs, yForMetric, '#be123c', 1.8));
 
   events.forEach((event) => {
     const timestampMs = eventTimestampMs(event, startMs);
@@ -1864,7 +1983,7 @@ function buildGovernmentTrendChart(trendData) {
 function buildTrendMetricScale(points) {
   const values = [];
   points.forEach((point) => {
-    ['federalTrust', 'federalServiceAccess', 'avgStateTrust'].forEach((key) => {
+    ['federalTrust', 'federalServiceAccess', 'avgStateTrust', 'pressureIntensity', 'implementationScore', 'petitioningShare', 'sanctionedShare'].forEach((key) => {
       const value = Number(point[key]);
       if (Number.isFinite(value)) {
         values.push(value);
@@ -1982,6 +2101,16 @@ function downsampleTrendPoints(points, maxPoints) {
       welfare: averageFromGroup(group, 'welfare'),
       justice: averageFromGroup(group, 'justice'),
       payroll: averageFromGroup(group, 'payroll')
+      ,
+      pressureIntensity: averageFromGroup(group, 'pressureIntensity'),
+      implementationScore: averageFromGroup(group, 'implementationScore'),
+      petitioningShare: averageFromGroup(group, 'petitioningShare'),
+      sanctionedShare: averageFromGroup(group, 'sanctionedShare'),
+      petitioningBotCount: averageFromGroup(group, 'petitioningBotCount'),
+      reviewBotCount: averageFromGroup(group, 'reviewBotCount'),
+      sanctionedBotCount: averageFromGroup(group, 'sanctionedBotCount'),
+      activeAdministrativeCount: averageFromGroup(group, 'activeAdministrativeCount'),
+      activeConflictCount: averageFromGroup(group, 'activeConflictCount')
     });
   }
   return compact;
@@ -2032,7 +2161,11 @@ function trendEventLaneY(kind, top, bottom) {
     bill: top,
     order: top + 5,
     court: top + 10,
-    election: bottom - 2
+    election: bottom - 2,
+    administrative: top + 14,
+    pressure: top + 18,
+    conflict: top + 22,
+    implementation: top + 26
   };
   return lanes[kind] || bottom - 4;
 }
@@ -2042,7 +2175,11 @@ function trendEventColor(kind) {
     bill: '#0f766e',
     order: '#ea580c',
     court: '#334155',
-    election: '#7c3aed'
+    election: '#7c3aed',
+    administrative: '#0f766e',
+    pressure: '#dc2626',
+    conflict: '#b45309',
+    implementation: '#059669'
   };
   return colors[kind] || '#475569';
 }
@@ -2083,9 +2220,13 @@ function buildTrendPointLabel(point) {
     `Tick ${point.tick || 0}`,
     `Trust ${formatScore(point.federalTrust)}`,
     `Service ${formatScore(point.federalServiceAccess)}`,
+    `Pressure ${formatScore(point.pressureIntensity)}`,
+    `Implementation ${formatScore(point.implementationScore)}`,
     `Bills ${point.activeBillCount || 0}`,
     `Orders ${point.activeExecutiveOrderCount || 0}`,
-    `Cases ${point.activeCourtCaseCount || 0}`
+    `Cases ${point.activeCourtCaseCount || 0}`,
+    `Admin/conflicts ${point.activeAdministrativeCount || 0}/${point.activeConflictCount || 0}`,
+    `Petition/review/sanction ${Math.round(point.petitioningBotCount || 0)}/${Math.round(point.reviewBotCount || 0)}/${Math.round(point.sanctionedBotCount || 0)}`
   ];
   if (point.sampledAt || point.bucketStartAt) {
     bits.push(formatCompactDateTime(point.sampledAt || point.bucketStartAt));
@@ -2160,6 +2301,143 @@ function humanizeLabel(value) {
   return String(value)
     .replace(/[_-]/g, ' ')
     .replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function drawCivicOverlay() {
+  if (!civicOverlay) return;
+  const octx = civicOverlay.getContext('2d');
+  if (!octx) return;
+  const mw = civicOverlay.width;
+  const mh = civicOverlay.height;
+  octx.clearRect(0, 0, mw, mh);
+  if (!civicMapVisible || !bots.length || !width || !height) return;
+  const scaleX = mw / width;
+  const scaleY = mh / height;
+  const dotR = Math.max(2, Math.min(3.5, Math.min(scaleX, scaleY) * 1.8));
+  for (const bot of bots) {
+    if (!Number.isFinite(bot.x) || !Number.isFinite(bot.y)) continue;
+    const civic = bot.civicState || {};
+    const sanction = civic.sanctionState || 'NONE';
+    const procedural = civic.proceduralState || 'CLEAR';
+    let color, glow;
+    if (sanction === 'ACTIVE_SANCTION') {
+      color = '#ef4444'; glow = 'rgba(239,68,68,0.35)';
+    } else if (sanction === 'UNDER_NOTICE') {
+      color = '#f97316'; glow = 'rgba(249,115,22,0.3)';
+    } else if (sanction === 'STAYED_REVIEW' || procedural === 'REVIEW') {
+      color = '#facc15'; glow = 'rgba(250,204,21,0.3)';
+    } else if (procedural === 'PETITIONING') {
+      color = '#f59e0b'; glow = 'rgba(245,158,11,0.3)';
+    } else if (civic.officeRole) {
+      color = '#a855f7'; glow = 'rgba(168,85,247,0.3)';
+    } else {
+      continue;
+    }
+    const px = bot.x * scaleX;
+    const py = bot.y * scaleY;
+    octx.beginPath();
+    octx.arc(px, py, dotR + 2.5, 0, Math.PI * 2);
+    octx.fillStyle = glow;
+    octx.fill();
+    octx.beginPath();
+    octx.arc(px, py, dotR, 0, Math.PI * 2);
+    octx.fillStyle = color;
+    octx.fill();
+  }
+  const legend = [
+    { color: '#ef4444', label: 'Sanctioned' },
+    { color: '#f97316', label: 'Notice' },
+    { color: '#facc15', label: 'Review' },
+    { color: '#f59e0b', label: 'Petition' },
+    { color: '#a855f7', label: 'Office' }
+  ];
+  octx.font = '8px sans-serif';
+  octx.textBaseline = 'middle';
+  let ly = 6;
+  for (const entry of legend) {
+    octx.beginPath();
+    octx.arc(6, ly, 3, 0, Math.PI * 2);
+    octx.fillStyle = entry.color;
+    octx.fill();
+    octx.fillStyle = 'rgba(0,0,0,0.72)';
+    octx.fillText(entry.label, 13, ly);
+    ly += 13;
+  }
+}
+
+function showCivicInspector(evt) {
+  if (!civicInspectorEl || !miniMapContainer || !width || !height || !bots.length) {
+    if (civicInspectorEl) civicInspectorEl.classList.remove('active');
+    return;
+  }
+  const rect = miniMapContainer.getBoundingClientRect();
+  const tx = Math.round((evt.clientX - rect.left) * (width / rect.width));
+  const ty = Math.round((evt.clientY - rect.top) * (height / rect.height));
+  const radius = Math.max(4, Math.floor(Math.min(width, height) * 0.06));
+  const nearby = bots.filter(bot => {
+    if (!Number.isFinite(bot.x) || !Number.isFinite(bot.y)) return false;
+    const civic = bot.civicState || {};
+    const hasCivicEvent = (civic.sanctionState && civic.sanctionState !== 'NONE') ||
+      (civic.proceduralState && civic.proceduralState !== 'CLEAR') ||
+      civic.officeRole;
+    return hasCivicEvent && Math.abs(bot.x - tx) <= radius && Math.abs(bot.y - ty) <= radius;
+  });
+  if (!nearby.length) {
+    civicInspectorEl.classList.remove('active');
+    return;
+  }
+  civicInspectorEl.innerHTML = '';
+  const header = document.createElement('div');
+  header.className = 'civic-inspector-header';
+  header.textContent = `${nearby.length} bot${nearby.length !== 1 ? 's' : ''} at (${tx},${ty})`;
+  civicInspectorEl.appendChild(header);
+  nearby.slice(0, 6).forEach(bot => {
+    const civic = bot.civicState || {};
+    const row = document.createElement('div');
+    row.className = 'civic-inspector-row';
+    const name = document.createElement('div');
+    name.className = 'civic-inspector-name';
+    name.textContent = bot.displayName || bot.id;
+    row.appendChild(name);
+    const tags = document.createElement('div');
+    tags.className = 'civic-inspector-tags';
+    if (civic.proceduralState && civic.proceduralState !== 'CLEAR') {
+      const tag = document.createElement('span');
+      tag.className = `civic-tag civic-tag-${civic.proceduralState.toLowerCase()}`;
+      tag.textContent = civic.proceduralState;
+      tags.appendChild(tag);
+    }
+    if (civic.sanctionState && civic.sanctionState !== 'NONE') {
+      const tag = document.createElement('span');
+      tag.className = 'civic-tag civic-tag-sanction';
+      tag.textContent = civic.sanctionState.replace(/_/g, ' ');
+      tags.appendChild(tag);
+    }
+    if (civic.officeRole) {
+      const tag = document.createElement('span');
+      tag.className = 'civic-tag civic-tag-office';
+      tag.textContent = civic.officeRole;
+      tags.appendChild(tag);
+    }
+    row.appendChild(tags);
+    const metaParts = [];
+    if (civic.partyId) metaParts.push(civic.partyId.replace('party-', ''));
+    if (civic.institutionalTrust !== undefined) metaParts.push(`trust ${formatScore(civic.institutionalTrust)}`);
+    if (metaParts.length) {
+      const meta = document.createElement('div');
+      meta.className = 'civic-inspector-meta';
+      meta.textContent = metaParts.join(' · ');
+      row.appendChild(meta);
+    }
+    civicInspectorEl.appendChild(row);
+  });
+  if (nearby.length > 6) {
+    const more = document.createElement('div');
+    more.className = 'civic-inspector-meta';
+    more.textContent = `+${nearby.length - 6} more`;
+    civicInspectorEl.appendChild(more);
+  }
+  civicInspectorEl.classList.add('active');
 }
 
 function renderBotProfiles() {

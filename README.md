@@ -26,6 +26,16 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - Government trend history is now stored server-side and fetched on demand through `/room/{roomId}/government-trend`; recent points stay at per-tick resolution for 6 hours, then compact to 1-minute, 5-minute, and 15-minute buckets as they age.
 - The game sidebar now renders that government trend history as an on-demand chart with trust/service/state-trust lines, action load, budget mix, and event markers; it loads only when the government panel is shown and refreshes manually from the UI.
 - The in-game trend card now has an `Open` action that launches `/game/government-trend` in a new tab for a larger interactive chart with hover tooltips, series toggles, and adaptive vertical scaling so small trust/service changes do not disappear into a flat `0..1` baseline.
+- Those trend views now also include the newer government signals end-to-end: pressure, implementation score, administrative/conflict load, and civic legal climate through petitioning/review/sanction counts and shares.
+- Government action cards in the sidebar now include richer detail lines. Court entries show the plaintiff, defendant, legal basis, constitutional basis, and affected laws; bill and executive-order entries also expose jurisdiction, sponsor/issuer, and policy details.
+- Court summaries now also carry the challenged bill/order title plus an issue statement describing what is being argued, and repeated court reviews of the same unchanged posture are suppressed so one bill does not spam near-identical case entries.
+- Government institutions now carry legitimacy/workload/capacity profiles, bills and executive orders carry structured sections/rights/enforcement/funding metadata, and court review runs through a staged lifecycle with doctrine-driven scrutiny, generated plaintiffs, and precedent memory instead of a single hard-coded one-tick decision.
+- The government sidebar now also surfaces institution-pressure cards and recent precedent-memory cards so docket load, legitimacy, and doctrine carry-through are visible without inspecting raw state JSON.
+- The simulation now has first-pass versions of the next realism layers too: committee/amendment/whip/conference bill flow, administrative rulemaking and enforcement actions, named civic actors, political-pressure events, federal/state implementation conflicts, live implementation outcomes, and historical-memory markers that record elections, precedent shifts, conflicts, and policy backfires.
+- Those added layers now feed back into the core simulation as well: pressure can move bill support and executive action, administrative appeals raise judicial risk, conflicts and backfires drag trust/service, and strong implementation improves institutional standing.
+- The main knobs for those newer feedback loops are now config-driven under `app.government.feedback.*` and `app.government.thresholds.*`, so tuning implementation drag, pressure sensitivity, conflict effects, and court block thresholds no longer requires Java edits.
+- Bots now also carry a first-pass individualized legal-exposure layer: enacted laws, active orders, and administrative enforcement can move each bot into `COMPLIANCE_REVIEW`, `UNDER_NOTICE`, `ACTIVE_SANCTION`, `REVIEW`, or `PETITIONING`, and large petitioning cohorts can now feed political-pressure generation instead of government pressure staying purely top-down.
+- The government sidebar now surfaces that individualized layer too through a civic legal climate section, so bot-side legal exposure is no longer hidden behind aggregate trust and service scores.
 
 ## Run
 Java 21 required.
@@ -209,6 +219,7 @@ See `src/main/resources/application.yml` for app settings:
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.highways.emergent.*` for travel-demand highway formation and decay
 - `app.government.*` for deterministic constitutional/government timing
+- `app.government.feedback.*` and `app.government.thresholds.*` for government simulation tuning
 - `app.government.timeline.*` for on-demand government trend storage, retention, and rollup cadence
 - `app.simulationHistory.root` for append-only civic history output
 - `app.world.flushIntervalMs`
@@ -228,6 +239,7 @@ See `src/main/resources/application.yml` for app settings:
 ## Constitutional Terrain
 - Current implementation notes live in `docs/constitutional-terrain-phase1.md`.
 - Machine-readable constitutional rules live in `src/main/resources/government/constitution-rules.json`.
+- That constitution file contains structured content, not just a version string: Articles I-VII plus Amendments I-XXVII each carry a title, category, trigger, enforcement rule, and affected systems used by runtime doctrine and summary generation.
 - Runtime history output is append-only and written under `simulation-history/` with subfolders for:
   - `constitution`
   - `events`

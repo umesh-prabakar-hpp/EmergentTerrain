@@ -29,6 +29,9 @@
       trust: true,
       service: true,
       stateTrust: true,
+      pressure: true,
+      implementation: true,
+      civicLegal: true,
       actions: true,
       budget: true,
       events: true
@@ -137,7 +140,7 @@
       latestEl.textContent = state.error || 'No current trend sample yet.';
       return;
     }
-    latestEl.textContent = `Trust ${formatScore(latest.federalTrust)} · Service ${formatScore(latest.federalServiceAccess)} · State trust ${formatScore(latest.avgStateTrust)} · Bills/orders/cases ${latest.activeBillCount || 0}/${latest.activeExecutiveOrderCount || 0}/${latest.activeCourtCaseCount || 0}`;
+    latestEl.textContent = `Trust ${formatScore(latest.federalTrust)} · Service ${formatScore(latest.federalServiceAccess)} · Pressure ${formatScore(latest.pressureIntensity)} · Implementation ${formatScore(latest.implementationScore)} · Petition/review/sanction ${latest.petitioningBotCount || 0}/${latest.reviewBotCount || 0}/${latest.sanctionedBotCount || 0}`;
   }
 
   function renderEvents() {
@@ -218,7 +221,11 @@
       return mainBottom - Math.max(0, Math.min(1, normalized)) * (mainBottom - mainTop);
     };
     const actionMax = Math.max(1, ...points.map((point) =>
-      (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0)
+      (point.activeBillCount || 0)
+        + (point.activeExecutiveOrderCount || 0)
+        + (point.activeCourtCaseCount || 0)
+        + (point.activeAdministrativeCount || 0)
+        + (point.activeConflictCount || 0)
     ));
     const budgetMax = Math.max(1, ...points.map(totalBudget));
 
@@ -280,7 +287,11 @@
       const x = xForMs(trendTimestampMs(point));
       const nextX = index < points.length - 1 ? xForMs(trendTimestampMs(points[index + 1])) : x + Math.max(3, innerWidth / points.length);
       if (state.series.actions) {
-        const actionCount = (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0);
+        const actionCount = (point.activeBillCount || 0)
+          + (point.activeExecutiveOrderCount || 0)
+          + (point.activeCourtCaseCount || 0)
+          + (point.activeAdministrativeCount || 0)
+          + (point.activeConflictCount || 0);
         const actionHeight = (actionCount / actionMax) * 42;
         svg.appendChild(createSvg('rect', {
           x,
@@ -336,6 +347,16 @@
     if (state.series.stateTrust) {
       svg.appendChild(buildLine(points, 'avgStateTrust', xForMs, yForMetric, '#7c3aed', 2.5));
     }
+    if (state.series.pressure) {
+      svg.appendChild(buildLine(points, 'pressureIntensity', xForMs, yForMetric, '#dc2626', 2.2));
+    }
+    if (state.series.implementation) {
+      svg.appendChild(buildLine(points, 'implementationScore', xForMs, yForMetric, '#059669', 2.2));
+    }
+    if (state.series.civicLegal) {
+      svg.appendChild(buildLine(points, 'petitioningShare', xForMs, yForMetric, '#7c2d12', 2.0));
+      svg.appendChild(buildLine(points, 'sanctionedShare', xForMs, yForMetric, '#be123c', 2.0));
+    }
 
     if (state.series.events) {
       events.forEach((event) => {
@@ -383,7 +404,11 @@
       `Trust ${formatScore(point.federalTrust)}`,
       `Service ${formatScore(point.federalServiceAccess)}`,
       `State trust ${formatScore(point.avgStateTrust)}`,
+      `Pressure ${formatScore(point.pressureIntensity)}`,
+      `Implementation ${formatScore(point.implementationScore)}`,
       `Bills/orders/cases ${point.activeBillCount || 0}/${point.activeExecutiveOrderCount || 0}/${point.activeCourtCaseCount || 0}`,
+      `Admin/conflicts ${point.activeAdministrativeCount || 0}/${point.activeConflictCount || 0}`,
+      `Petition/review/sanction ${Math.round(point.petitioningBotCount || 0)}/${Math.round(point.reviewBotCount || 0)}/${Math.round(point.sanctionedBotCount || 0)}`,
       `Budget ${formatter.format(totalBudget(point))}`
     ].filter(Boolean).forEach((line) => {
       const row = document.createElement('div');
@@ -474,7 +499,7 @@
   function buildMetricScale(points) {
     const values = [];
     points.forEach((point) => {
-      ['federalTrust', 'federalServiceAccess', 'avgStateTrust'].forEach((key) => {
+      ['federalTrust', 'federalServiceAccess', 'avgStateTrust', 'pressureIntensity', 'implementationScore', 'petitioningShare', 'sanctionedShare'].forEach((key) => {
         const value = Number(point[key]);
         if (Number.isFinite(value)) values.push(value);
       });
@@ -531,13 +556,22 @@
         federalServiceAccess: average(group, 'federalServiceAccess'),
         avgStateTrust: average(group, 'avgStateTrust'),
         avgStateServiceAccess: average(group, 'avgStateServiceAccess'),
+        pressureIntensity: average(group, 'pressureIntensity'),
+        implementationScore: average(group, 'implementationScore'),
+        petitioningShare: average(group, 'petitioningShare'),
+        sanctionedShare: average(group, 'sanctionedShare'),
         revenue: average(group, 'revenue'),
         education: average(group, 'education'),
         health: average(group, 'health'),
         infrastructure: average(group, 'infrastructure'),
         welfare: average(group, 'welfare'),
         justice: average(group, 'justice'),
-        payroll: average(group, 'payroll')
+        payroll: average(group, 'payroll'),
+        petitioningBotCount: average(group, 'petitioningBotCount'),
+        reviewBotCount: average(group, 'reviewBotCount'),
+        sanctionedBotCount: average(group, 'sanctionedBotCount'),
+        activeAdministrativeCount: average(group, 'activeAdministrativeCount'),
+        activeConflictCount: average(group, 'activeConflictCount')
       });
     }
     return compact;
@@ -587,7 +621,11 @@
       bill: top,
       order: top + 10,
       court: top + 20,
-      election: bottom - 4
+      election: bottom - 4,
+      administrative: top + 28,
+      pressure: top + 36,
+      conflict: bottom - 12,
+      implementation: bottom - 20
     };
     return lanes[kind] || bottom - 8;
   }
@@ -597,7 +635,11 @@
       bill: '#0f766e',
       order: '#ea580c',
       court: '#334155',
-      election: '#7c3aed'
+      election: '#7c3aed',
+      administrative: '#0f766e',
+      pressure: '#dc2626',
+      conflict: '#b45309',
+      implementation: '#059669'
     }[kind] || '#475569';
   }
 

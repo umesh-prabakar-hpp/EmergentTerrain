@@ -102,9 +102,18 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - `src/main/java/com/emergentterrain/service/WorldService.java` can call the GPU engine when `app.gpu.*` flags are enabled.
 - `src/main/java/com/emergentterrain/government/GovernmentTimelineService.java` stores compact government trend history for on-demand UI fetches and rolls old samples from per-tick to 1-minute, 5-minute, then 15-minute buckets.
 - `src/main/resources/static/js/game.js` now calls `/room/{roomId}/government-trend` on demand and renders the sidebar trend chart in the government section; the chart is manual-refresh and window-switch driven rather than fed by periodic pushes.
-- `src/main/resources/static/js/government-trend.js` powers the dedicated `/game/government-trend` page with hover inspection, series toggles, and adaptive scaling; use it instead of reimplementing another trend client.
+- `src/main/resources/static/js/government-trend.js` powers the dedicated `/game/government-trend` page with hover inspection, series toggles, and adaptive scaling; use it instead of reimplementing another trend client, and keep it in sync with sidebar trend fields when adding new government metrics.
+- Government action items now support multi-line detail payloads through `GovernmentActionSummary.details`; prefer filling those for bills, orders, and court cases rather than cramming all context into one summary sentence.
+- Court-case summaries should prefer challenged titles and issue statements over bare ids, and repeated reviews for the same unchanged posture should be deduped before adding another `CourtCase`.
+- `GovernmentState` now also carries institution profiles, structured bill/order substance, and legal precedents; keep those in sync when extending government simulation rather than adding new one-off strings or hard-coded court outcomes.
+- The sidebar’s government section now renders institution and precedent cards alongside parties, so changes to those payloads should be reflected through `GovernmentSummary` rather than left stranded in state-only fields.
+- Additional first-pass government layers now live in state as civic actors, administrative actions, political pressure events, federal/state conflicts, implementation outcomes, and historical markers; when extending those flows, prefer enriching the shared summary builders instead of creating hidden server-only side channels.
+- Those layers now also feed back into votes, executive-order issuance, court block risk, and trust/service aggregates, so changes to them can have gameplay effects beyond the sidebar.
+- The newer government feedback loops are now tunable through `app.government.feedback.*` and `app.government.thresholds.*`; prefer exposing new weights there instead of baking more constants into `GovernmentSimulationService`.
+- Bot civic state now also participates in the government loop via `proceduralState` and `sanctionState`; when adding more individualized enforcement, prefer updating bot civic state and pressure generation together rather than inventing disconnected side records.
+- Civic legal climate is now surfaced through `GovernmentSummary.civicLegalItems` and trend payload counts/shares, so new individualized government layers should generally wire through those before adding another bespoke panel.
 - `src/main/java/com/emergentterrain/gpu/GpuEngineCodec.java` handles tile and bool-grid encoding.
-- `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, and `app.government.timeline.*` retention settings.
+- `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, government feedback thresholds, and `app.government.timeline.*` retention settings.
 - Append-only simulation history is written under `simulation-history/constitution`, `simulation-history/events`, `simulation-history/elections`, `simulation-history/courts`, and `simulation-history/legislation`.
 
 ## Constraints

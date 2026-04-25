@@ -1,10 +1,14 @@
 package com.emergentterrain.web;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class GovernmentActionSummary {
     private String kind;
     private String title;
     private String meta;
     private String summary;
+    private List<String> details = new ArrayList<>();
 
     public String getKind() {
         return kind;
@@ -36,5 +40,13 @@ public class GovernmentActionSummary {
 
     public void setSummary(String summary) {
         this.summary = summary;
+    }
+
+    public List<String> getDetails() {
+        return details;
+    }
+
+    public void setDetails(List<String> details) {
+        this.details = details == null ? new ArrayList<>() : details;
     }
 }

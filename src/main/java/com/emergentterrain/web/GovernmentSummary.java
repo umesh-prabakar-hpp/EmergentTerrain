@@ -19,10 +19,25 @@ public class GovernmentSummary {
     private int activeBillCount;
     private int activeExecutiveOrderCount;
     private int activeCourtCaseCount;
+    private int activeBotCount;
+    private int petitioningBotCount;
+    private int reviewBotCount;
+    private int sanctionedBotCount;
+    private double petitioningShare;
+    private double sanctionedShare;
     private List<String> activeBills = new ArrayList<>();
     private List<String> executiveOrders = new ArrayList<>();
     private List<String> courtCases = new ArrayList<>();
     private List<GovernmentActionSummary> actionItems = new ArrayList<>();
+    private List<GovernmentActionSummary> institutionItems = new ArrayList<>();
+    private List<GovernmentActionSummary> precedentItems = new ArrayList<>();
+    private List<GovernmentActionSummary> administrativeItems = new ArrayList<>();
+    private List<GovernmentActionSummary> implementationItems = new ArrayList<>();
+    private List<GovernmentActionSummary> pressureItems = new ArrayList<>();
+    private List<GovernmentActionSummary> conflictItems = new ArrayList<>();
+    private List<GovernmentActionSummary> actorItems = new ArrayList<>();
+    private List<GovernmentActionSummary> historyItems = new ArrayList<>();
+    private List<GovernmentActionSummary> civicLegalItems = new ArrayList<>();
     private GovernmentBudgetSummary federalBudget;
     private List<GovernmentStateMiniSummary> stateSummaries = new ArrayList<>();
     private GovernmentElectionSummary electionSummary;
@@ -140,6 +155,54 @@ public class GovernmentSummary {
         this.activeCourtCaseCount = activeCourtCaseCount;
     }
 
+    public int getActiveBotCount() {
+        return activeBotCount;
+    }
+
+    public void setActiveBotCount(int activeBotCount) {
+        this.activeBotCount = activeBotCount;
+    }
+
+    public int getPetitioningBotCount() {
+        return petitioningBotCount;
+    }
+
+    public void setPetitioningBotCount(int petitioningBotCount) {
+        this.petitioningBotCount = petitioningBotCount;
+    }
+
+    public int getReviewBotCount() {
+        return reviewBotCount;
+    }
+
+    public void setReviewBotCount(int reviewBotCount) {
+        this.reviewBotCount = reviewBotCount;
+    }
+
+    public int getSanctionedBotCount() {
+        return sanctionedBotCount;
+    }
+
+    public void setSanctionedBotCount(int sanctionedBotCount) {
+        this.sanctionedBotCount = sanctionedBotCount;
+    }
+
+    public double getPetitioningShare() {
+        return petitioningShare;
+    }
+
+    public void setPetitioningShare(double petitioningShare) {
+        this.petitioningShare = petitioningShare;
+    }
+
+    public double getSanctionedShare() {
+        return sanctionedShare;
+    }
+
+    public void setSanctionedShare(double sanctionedShare) {
+        this.sanctionedShare = sanctionedShare;
+    }
+
     public List<String> getActiveBills() {
         return activeBills;
     }
@@ -170,6 +233,78 @@ public class GovernmentSummary {
 
     public void setActionItems(List<GovernmentActionSummary> actionItems) {
         this.actionItems = actionItems;
+    }
+
+    public List<GovernmentActionSummary> getInstitutionItems() {
+        return institutionItems;
+    }
+
+    public void setInstitutionItems(List<GovernmentActionSummary> institutionItems) {
+        this.institutionItems = institutionItems;
+    }
+
+    public List<GovernmentActionSummary> getPrecedentItems() {
+        return precedentItems;
+    }
+
+    public void setPrecedentItems(List<GovernmentActionSummary> precedentItems) {
+        this.precedentItems = precedentItems;
+    }
+
+    public List<GovernmentActionSummary> getAdministrativeItems() {
+        return administrativeItems;
+    }
+
+    public void setAdministrativeItems(List<GovernmentActionSummary> administrativeItems) {
+        this.administrativeItems = administrativeItems;
+    }
+
+    public List<GovernmentActionSummary> getImplementationItems() {
+        return implementationItems;
+    }
+
+    public void setImplementationItems(List<GovernmentActionSummary> implementationItems) {
+        this.implementationItems = implementationItems;
+    }
+
+    public List<GovernmentActionSummary> getPressureItems() {
+        return pressureItems;
+    }
+
+    public void setPressureItems(List<GovernmentActionSummary> pressureItems) {
+        this.pressureItems = pressureItems;
+    }
+
+    public List<GovernmentActionSummary> getConflictItems() {
+        return conflictItems;
+    }
+
+    public void setConflictItems(List<GovernmentActionSummary> conflictItems) {
+        this.conflictItems = conflictItems;
+    }
+
+    public List<GovernmentActionSummary> getActorItems() {
+        return actorItems;
+    }
+
+    public void setActorItems(List<GovernmentActionSummary> actorItems) {
+        this.actorItems = actorItems;
+    }
+
+    public List<GovernmentActionSummary> getHistoryItems() {
+        return historyItems;
+    }
+
+    public void setHistoryItems(List<GovernmentActionSummary> historyItems) {
+        this.historyItems = historyItems;
+    }
+
+    public List<GovernmentActionSummary> getCivicLegalItems() {
+        return civicLegalItems;
+    }
+
+    public void setCivicLegalItems(List<GovernmentActionSummary> civicLegalItems) {
+        this.civicLegalItems = civicLegalItems;
     }
 
     public GovernmentBudgetSummary getFederalBudget() {

@@ -114,6 +114,30 @@ app:
     electionIntervalMs: 60000
     billIntervalMs: 20000
     stateCount: 4
+    feedback:
+      implementation:
+        successTrustDelta: 0.025
+        successServiceDelta: 0.03
+        stallTrustDelta: -0.015
+        backfireTrustDelta: -0.045
+        backfireServiceDelta: -0.03
+      conflict:
+        activeTrustDelta: -0.02
+        activeServiceDelta: -0.015
+        settledTrustDelta: 0.01
+      pressure:
+        trustPenaltyScale: 0.025
+        trustPenaltyCap: 0.08
+    thresholds:
+      pressure:
+        high: 0.65
+        agendaShock: 0.68
+        executiveTrigger: 0.55
+      implementation:
+        succeed: 0.72
+        stall: 0.46
+      court:
+        blockScore: 0.45
     timeline:
       enabled: true
       fullResolutionHours: 6

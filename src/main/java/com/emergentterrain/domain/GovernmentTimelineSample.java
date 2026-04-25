@@ -79,6 +79,39 @@ public class GovernmentTimelineSample {
     @Column(nullable = false)
     private int activeCourtCaseCount;
 
+    @Column(nullable = false)
+    private int activeAdministrativeCount;
+
+    @Column(nullable = false)
+    private int activeConflictCount;
+
+    @Column(nullable = false)
+    private double pressureIntensity;
+
+    @Column(nullable = false)
+    private double implementationScore;
+
+    @Column(nullable = false)
+    private int implementationBackfireCount;
+
+    @Column(nullable = false)
+    private int activeBotCount;
+
+    @Column(nullable = false)
+    private int petitioningBotCount;
+
+    @Column(nullable = false)
+    private int reviewBotCount;
+
+    @Column(nullable = false)
+    private int sanctionedBotCount;
+
+    @Column(nullable = false)
+    private double petitioningShare;
+
+    @Column(nullable = false)
+    private double sanctionedShare;
+
     @Column(length = 128)
     private String federalExecutiveParty;
 
@@ -245,6 +278,94 @@ public class GovernmentTimelineSample {
 
     public void setActiveCourtCaseCount(int activeCourtCaseCount) {
         this.activeCourtCaseCount = activeCourtCaseCount;
+    }
+
+    public int getActiveAdministrativeCount() {
+        return activeAdministrativeCount;
+    }
+
+    public void setActiveAdministrativeCount(int activeAdministrativeCount) {
+        this.activeAdministrativeCount = activeAdministrativeCount;
+    }
+
+    public int getActiveConflictCount() {
+        return activeConflictCount;
+    }
+
+    public void setActiveConflictCount(int activeConflictCount) {
+        this.activeConflictCount = activeConflictCount;
+    }
+
+    public double getPressureIntensity() {
+        return pressureIntensity;
+    }
+
+    public void setPressureIntensity(double pressureIntensity) {
+        this.pressureIntensity = pressureIntensity;
+    }
+
+    public double getImplementationScore() {
+        return implementationScore;
+    }
+
+    public void setImplementationScore(double implementationScore) {
+        this.implementationScore = implementationScore;
+    }
+
+    public int getImplementationBackfireCount() {
+        return implementationBackfireCount;
+    }
+
+    public void setImplementationBackfireCount(int implementationBackfireCount) {
+        this.implementationBackfireCount = implementationBackfireCount;
+    }
+
+    public int getActiveBotCount() {
+        return activeBotCount;
+    }
+
+    public void setActiveBotCount(int activeBotCount) {
+        this.activeBotCount = activeBotCount;
+    }
+
+    public int getPetitioningBotCount() {
+        return petitioningBotCount;
+    }
+
+    public void setPetitioningBotCount(int petitioningBotCount) {
+        this.petitioningBotCount = petitioningBotCount;
+    }
+
+    public int getReviewBotCount() {
+        return reviewBotCount;
+    }
+
+    public void setReviewBotCount(int reviewBotCount) {
+        this.reviewBotCount = reviewBotCount;
+    }
+
+    public int getSanctionedBotCount() {
+        return sanctionedBotCount;
+    }
+
+    public void setSanctionedBotCount(int sanctionedBotCount) {
+        this.sanctionedBotCount = sanctionedBotCount;
+    }
+
+    public double getPetitioningShare() {
+        return petitioningShare;
+    }
+
+    public void setPetitioningShare(double petitioningShare) {
+        this.petitioningShare = petitioningShare;
+    }
+
+    public double getSanctionedShare() {
+        return sanctionedShare;
+    }
+
+    public void setSanctionedShare(double sanctionedShare) {
+        this.sanctionedShare = sanctionedShare;
     }
 
     public String getFederalExecutiveParty() {

@@ -162,6 +162,17 @@ public class GovernmentTimelineService {
         aggregate.setActiveBillCount(latest.getActiveBillCount());
         aggregate.setActiveExecutiveOrderCount(latest.getActiveExecutiveOrderCount());
         aggregate.setActiveCourtCaseCount(latest.getActiveCourtCaseCount());
+        aggregate.setActiveAdministrativeCount(latest.getActiveAdministrativeCount());
+        aggregate.setActiveConflictCount(latest.getActiveConflictCount());
+        aggregate.setPressureIntensity(averageDouble(group, GovernmentTimelineSample::getPressureIntensity));
+        aggregate.setImplementationScore(averageDouble(group, GovernmentTimelineSample::getImplementationScore));
+        aggregate.setImplementationBackfireCount(latest.getImplementationBackfireCount());
+        aggregate.setActiveBotCount(latest.getActiveBotCount());
+        aggregate.setPetitioningBotCount(latest.getPetitioningBotCount());
+        aggregate.setReviewBotCount(latest.getReviewBotCount());
+        aggregate.setSanctionedBotCount(latest.getSanctionedBotCount());
+        aggregate.setPetitioningShare(averageDouble(group, GovernmentTimelineSample::getPetitioningShare));
+        aggregate.setSanctionedShare(averageDouble(group, GovernmentTimelineSample::getSanctionedShare));
         aggregate.setFederalExecutiveParty(latest.getFederalExecutiveParty());
         aggregate.setFederalLowerParty(latest.getFederalLowerParty());
         aggregate.setFederalUpperParty(latest.getFederalUpperParty());
@@ -188,6 +199,17 @@ public class GovernmentTimelineService {
         sample.setActiveBillCount(summary.getActiveBillCount());
         sample.setActiveExecutiveOrderCount(summary.getActiveExecutiveOrderCount());
         sample.setActiveCourtCaseCount(summary.getActiveCourtCaseCount());
+        sample.setActiveAdministrativeCount(summary.getAdministrativeItems() == null ? 0 : summary.getAdministrativeItems().size());
+        sample.setActiveConflictCount(summary.getConflictItems() == null ? 0 : summary.getConflictItems().size());
+        sample.setPressureIntensity(averagePressureIntensity(governmentState.getPressureEvents()));
+        sample.setImplementationScore(averageImplementationScore(governmentState.getImplementationOutcomes()));
+        sample.setImplementationBackfireCount(countImplementationBackfires(governmentState.getImplementationOutcomes()));
+        sample.setActiveBotCount(governmentState.getActiveBotCount());
+        sample.setPetitioningBotCount(governmentState.getPetitioningBotCount());
+        sample.setReviewBotCount(governmentState.getReviewBotCount());
+        sample.setSanctionedBotCount(governmentState.getSanctionedBotCount());
+        sample.setPetitioningShare(governmentState.getPetitioningShare());
+        sample.setSanctionedShare(governmentState.getSanctionedShare());
         sample.setFederalExecutiveParty(summary.getFederalExecutiveParty());
         sample.setFederalLowerParty(summary.getFederalLowerParty());
         sample.setFederalUpperParty(summary.getFederalUpperParty());
@@ -253,6 +275,62 @@ public class GovernmentTimelineService {
                 election.getSummary(),
                 humanizeToken(election.getScope()),
                 null
+            );
+        }
+        for (GovernmentState.AdministrativeAction action : governmentState.getAdministrativeActions()) {
+            saveEventIfAbsent(
+                room,
+                tick,
+                coalesceInstant(action.getUpdatedAt(), action.getCreatedAt(), defaultOccurredAt),
+                "administrative",
+                action.getActionId(),
+                normalizeToken(action.getStage()),
+                nonBlank(action.getTitle()) ? action.getTitle() : "Administrative action",
+                action.getSummary(),
+                humanizeToken(action.getScope()),
+                action.isAppealed() ? "Administrative appeal" : null
+            );
+        }
+        for (GovernmentState.PoliticalPressure pressure : governmentState.getPressureEvents()) {
+            saveEventIfAbsent(
+                room,
+                tick,
+                coalesceInstant(pressure.getCreatedAt(), defaultOccurredAt),
+                "pressure",
+                pressure.getEventId(),
+                normalizeToken(pressure.getPressureType()),
+                "Pressure event " + pressure.getEventId(),
+                pressure.getSummary(),
+                null,
+                pressure.getEffect()
+            );
+        }
+        for (GovernmentState.FederalStateConflict conflict : governmentState.getConflicts()) {
+            saveEventIfAbsent(
+                room,
+                tick,
+                coalesceInstant(conflict.getResolvedAt(), conflict.getCreatedAt(), defaultOccurredAt),
+                "conflict",
+                conflict.getConflictId(),
+                normalizeToken(conflict.getStatus()),
+                "Conflict " + conflict.getConflictId(),
+                conflict.getSummary(),
+                "State",
+                humanizeToken(conflict.getConflictType())
+            );
+        }
+        for (GovernmentState.ImplementationOutcome outcome : governmentState.getImplementationOutcomes()) {
+            saveEventIfAbsent(
+                room,
+                tick,
+                coalesceInstant(outcome.getMeasuredAt(), defaultOccurredAt),
+                "implementation",
+                outcome.getOutcomeId(),
+                normalizeToken(outcome.getStatus()),
+                nonBlank(outcome.getTitle()) ? outcome.getTitle() : "Implementation outcome",
+                outcome.getSummary(),
+                outcome.getJurisdictionId(),
+                summarizeList("Adverse effects", outcome.getAdverseEffects())
             );
         }
     }
@@ -377,6 +455,17 @@ public class GovernmentTimelineService {
         point.setActiveBillCount(sample.getActiveBillCount());
         point.setActiveExecutiveOrderCount(sample.getActiveExecutiveOrderCount());
         point.setActiveCourtCaseCount(sample.getActiveCourtCaseCount());
+        point.setActiveAdministrativeCount(sample.getActiveAdministrativeCount());
+        point.setActiveConflictCount(sample.getActiveConflictCount());
+        point.setPressureIntensity(sample.getPressureIntensity());
+        point.setImplementationScore(sample.getImplementationScore());
+        point.setImplementationBackfireCount(sample.getImplementationBackfireCount());
+        point.setActiveBotCount(sample.getActiveBotCount());
+        point.setPetitioningBotCount(sample.getPetitioningBotCount());
+        point.setReviewBotCount(sample.getReviewBotCount());
+        point.setSanctionedBotCount(sample.getSanctionedBotCount());
+        point.setPetitioningShare(sample.getPetitioningShare());
+        point.setSanctionedShare(sample.getSanctionedShare());
         point.setFederalExecutiveParty(sample.getFederalExecutiveParty());
         point.setFederalLowerParty(sample.getFederalLowerParty());
         point.setFederalUpperParty(sample.getFederalUpperParty());
@@ -429,6 +518,41 @@ public class GovernmentTimelineService {
             total += state.getServiceAccess();
         }
         return total / (double) states.size();
+    }
+
+    private double averagePressureIntensity(List<GovernmentState.PoliticalPressure> pressureEvents) {
+        if (pressureEvents == null || pressureEvents.isEmpty()) {
+            return 0.0d;
+        }
+        double total = 0.0d;
+        for (GovernmentState.PoliticalPressure pressure : pressureEvents) {
+            total += pressure.getIntensity();
+        }
+        return total / (double) pressureEvents.size();
+    }
+
+    private double averageImplementationScore(List<GovernmentState.ImplementationOutcome> outcomes) {
+        if (outcomes == null || outcomes.isEmpty()) {
+            return 0.0d;
+        }
+        double total = 0.0d;
+        for (GovernmentState.ImplementationOutcome outcome : outcomes) {
+            total += outcome.getOutcomeScore();
+        }
+        return total / (double) outcomes.size();
+    }
+
+    private int countImplementationBackfires(List<GovernmentState.ImplementationOutcome> outcomes) {
+        if (outcomes == null || outcomes.isEmpty()) {
+            return 0;
+        }
+        int total = 0;
+        for (GovernmentState.ImplementationOutcome outcome : outcomes) {
+            if ("BACKFIRE".equalsIgnoreCase(outcome.getStatus())) {
+                total++;
+            }
+        }
+        return total;
     }
 
     private double averageDouble(Collection<GovernmentTimelineSample> samples, DoubleAccessor accessor) {
