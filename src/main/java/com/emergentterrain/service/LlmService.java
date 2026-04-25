@@ -11,12 +11,12 @@ import org.springframework.stereotype.Service;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @ConditionalOnProperty(name = "app.ai.enabled", havingValue = "true", matchIfMissing = false)
@@ -24,9 +24,13 @@ public class LlmService {
 
     private static final Logger log = LoggerFactory.getLogger(LlmService.class);
 
+    private static final int DIGEST_COOLDOWN_MINUTES = 10;
+    private static final int DIGEST_MAX_CASES = 3;
+    private static final int DIGEST_MAX_BILLS = 3;
+
     private final ChatClient chatClient;
     private final RoomUpdateBroadcaster broadcaster;
-    private final ConcurrentHashMap<UUID, Set<String>> generatedIds = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long> lastDigestAt = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore llmSlots = new Semaphore(1);
 
@@ -38,12 +42,20 @@ public class LlmService {
     // --- Public triggers ---
 
     public void generateGovernmentDigestIfAbsent(UUID roomId, GovernmentState state) {
+        // Per-room cooldown: at most one digest every DIGEST_COOLDOWN_MINUTES
+        long now = System.currentTimeMillis();
+        Long last = lastDigestAt.get(roomId);
+        if (last != null && now - last < TimeUnit.MINUTES.toMillis(DIGEST_COOLDOWN_MINUTES)) return;
+
+        // Collect events, cap to most recent N to keep prompt small
         List<GovernmentState.CourtCase> decidedCases = state.getCourtCases().stream()
                 .filter(c -> "DECIDED".equalsIgnoreCase(c.getStatus()))
+                .limit(DIGEST_MAX_CASES)
                 .toList();
         List<GovernmentState.GovernmentBill> enactedBills = state.getBills().stream()
                 .filter(b -> "ENACTED".equalsIgnoreCase(b.getLawStatus())
                           || "BLOCKED".equalsIgnoreCase(b.getLawStatus()))
+                .limit(DIGEST_MAX_BILLS)
                 .toList();
         GovernmentState.ElectionRecord recentElection = state.getElections().stream()
                 .filter(e -> e.getHeldAt() != null)
@@ -52,13 +64,11 @@ public class LlmService {
 
         if (decidedCases.isEmpty() && enactedBills.isEmpty() && recentElection == null) return;
 
-        String key = buildDigestKey(decidedCases, enactedBills, recentElection);
-        if (!markSeen(roomId, "digest:" + key)) return;
-
+        lastDigestAt.put(roomId, now);
         log.info("LLM digest triggered room={} cases={} bills={} election={}",
                 roomId, decidedCases.size(), enactedBills.size(), recentElection != null);
 
-        String streamId = "digest-" + System.currentTimeMillis();
+        String streamId = "digest-" + now;
         generateAndStream(roomId, streamId, "government_digest",
                 buildGovernmentDigestPrompt(decidedCases, enactedBills, recentElection));
     }
@@ -106,15 +116,6 @@ public class LlmService {
 
     // --- Prompt builders ---
 
-    private String buildDigestKey(List<GovernmentState.CourtCase> cases,
-                                  List<GovernmentState.GovernmentBill> bills,
-                                  GovernmentState.ElectionRecord election) {
-        StringBuilder sb = new StringBuilder();
-        cases.stream().map(GovernmentState.CourtCase::getCaseId).sorted().forEach(id -> sb.append('c').append(id));
-        bills.stream().map(GovernmentState.GovernmentBill::getTitle).sorted().forEach(t -> sb.append('b').append(t));
-        if (election != null) sb.append('e').append(election.getElectionId());
-        return Integer.toHexString(sb.toString().hashCode());
-    }
 
     private String buildGovernmentDigestPrompt(List<GovernmentState.CourtCase> cases,
                                                List<GovernmentState.GovernmentBill> bills,
@@ -203,10 +204,6 @@ public class LlmService {
     }
 
     // --- Helpers ---
-
-    private boolean markSeen(UUID roomId, String key) {
-        return generatedIds.computeIfAbsent(roomId, id -> ConcurrentHashMap.newKeySet()).add(key);
-    }
 
     private static String nvl(String value) {
         return value != null ? value : "";
