@@ -1196,7 +1196,8 @@ function getOrCreateCommentaryCard(streamId, kind) {
   card.className = 'commentary-card';
   const header = document.createElement('div');
   header.className = 'commentary-card-header';
-  header.textContent = kind === 'court_opinion' ? 'Court Opinion' : 'Civic Statement';
+  header.textContent = kind === 'government_digest' ? 'Government Bulletin'
+      : kind === 'court_opinion' ? 'Court Opinion' : 'Civic Statement';
   const body = document.createElement('span');
   body.className = 'commentary-card-body';
   card.appendChild(header);
@@ -1210,7 +1211,7 @@ function handleLlmToken(kind, streamId, token) {
   if (kind === 'explanation') {
     if (streamId !== activeExplainStreamId) return;
     if (explanationEl) explanationEl.textContent += token;
-  } else if (kind === 'court_opinion' || kind === 'actor_statement') {
+  } else if (kind === 'court_opinion' || kind === 'actor_statement' || kind === 'government_digest') {
     const body = getOrCreateCommentaryCard(streamId, kind);
     if (body) body.textContent += token;
   } else if (kind === 'advisor') {

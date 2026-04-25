@@ -8,6 +8,7 @@ import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -15,6 +16,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 @Service
 @ConditionalOnProperty(name = "app.ai.enabled", havingValue = "true", matchIfMissing = false)
@@ -26,6 +28,7 @@ public class LlmService {
     private final RoomUpdateBroadcaster broadcaster;
     private final ConcurrentHashMap<UUID, Set<String>> generatedIds = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final Semaphore llmSlots = new Semaphore(1);
 
     public LlmService(ChatClient.Builder chatClientBuilder, RoomUpdateBroadcaster broadcaster) {
         this.chatClient = chatClientBuilder.build();
@@ -34,20 +37,27 @@ public class LlmService {
 
     // --- Public triggers ---
 
-    public void generateCourtOpinionIfAbsent(UUID roomId, GovernmentState.CourtCase courtCase) {
-        if (!markSeen(roomId, "court:" + courtCase.getCaseId())) return;
-        generateAndStream(roomId, courtCase.getCaseId(), "court_opinion",
-                buildCourtOpinionPrompt(courtCase));
-    }
+    public void generateGovernmentDigestIfAbsent(UUID roomId, GovernmentState state) {
+        List<GovernmentState.CourtCase> decidedCases = state.getCourtCases().stream()
+                .filter(c -> "DECIDED".equalsIgnoreCase(c.getStatus()))
+                .toList();
+        List<GovernmentState.GovernmentBill> enactedBills = state.getBills().stream()
+                .filter(b -> "ENACTED".equalsIgnoreCase(b.getLawStatus())
+                          || "BLOCKED".equalsIgnoreCase(b.getLawStatus()))
+                .toList();
+        GovernmentState.ElectionRecord recentElection = state.getElections().stream()
+                .filter(e -> e.getHeldAt() != null)
+                .max(Comparator.comparing(GovernmentState.ElectionRecord::getHeldAt))
+                .orElse(null);
 
-    public void generateActorStatementIfAbsent(UUID roomId, GovernmentState.CivicActor actor,
-                                               String eventKind, String eventTitle,
-                                               String eventSummary) {
-        String key = "actor:" + actor.getActorId() + ":" + eventKind + ":" + eventTitle;
-        if (!markSeen(roomId, key)) return;
-        String streamId = actor.getActorId() + "-" + System.currentTimeMillis();
-        generateAndStream(roomId, streamId, "actor_statement",
-                buildActorStatementPrompt(actor, eventKind, eventTitle, eventSummary));
+        if (decidedCases.isEmpty() && enactedBills.isEmpty() && recentElection == null) return;
+
+        String key = buildDigestKey(decidedCases, enactedBills, recentElection);
+        if (!markSeen(roomId, "digest:" + key)) return;
+
+        String streamId = "digest-" + System.currentTimeMillis();
+        generateAndStream(roomId, streamId, "government_digest",
+                buildGovernmentDigestPrompt(decidedCases, enactedBills, recentElection));
     }
 
     public void generateAdvice(UUID roomId, String streamId, GovernmentSummary summary,
@@ -65,6 +75,11 @@ public class LlmService {
 
     public void generateAndStream(UUID roomId, String streamId, String kind, String prompt) {
         executor.execute(() -> {
+            if (!llmSlots.tryAcquire()) {
+                log.debug("LLM slot busy — shedding room={} kind={}", roomId, kind);
+                broadcaster.broadcastLlmDone(roomId, streamId, kind);
+                return;
+            }
             try {
                 chatClient.prompt()
                         .user(prompt)
@@ -76,61 +91,54 @@ public class LlmService {
             } catch (Exception e) {
                 log.warn("LLM generation failed room={} kind={}: {}", roomId, kind, e.getMessage());
                 broadcaster.broadcastLlmDone(roomId, streamId, kind);
+            } finally {
+                llmSlots.release();
             }
         });
     }
 
     // --- Prompt builders ---
 
-    private String buildCourtOpinionPrompt(GovernmentState.CourtCase c) {
-        String ruling = c.isBlockedAction() ? "BLOCKED — action exceeded constitutional bounds"
-                                            : "UPHELD — action within constitutional bounds";
-        return """
-                You are a supreme court justice writing a brief opinion for a civic simulation game.
-                Write a concise majority opinion (3 short paragraphs, no headers, plain prose, under 180 words).
-
-                Case: %s  Court: %s
-                Plaintiff: %s  Defendant: %s
-                Challenged: %s
-                Doctrine: %s  Scrutiny: %s
-                Constitutional basis: %s
-                Issue: %s
-                Ruling: %s  Remedy: %s
-                %s
-                %s
-
-                Write in formal legal voice. End with the ruling stated plainly."""
-                .formatted(
-                        nvl(c.getCaseId()), nvl(c.getCourtLevel()),
-                        nvl(c.getPlaintiff()), nvl(c.getDefendant()),
-                        nvl(c.getChallengedTitle()),
-                        nvl(c.getDoctrine()), nvl(c.getScrutinyLevel()),
-                        nvl(c.getConstitutionalBasis()),
-                        nvl(c.getIssueSummary()),
-                        ruling, nvl(c.getRemedy()),
-                        c.getDissentSummary() != null ? "Dissent note: " + c.getDissentSummary() : "",
-                        c.getPrecedentIds() != null && !c.getPrecedentIds().isEmpty()
-                                ? "Precedents: " + String.join(", ", c.getPrecedentIds()) : "");
+    private String buildDigestKey(List<GovernmentState.CourtCase> cases,
+                                  List<GovernmentState.GovernmentBill> bills,
+                                  GovernmentState.ElectionRecord election) {
+        StringBuilder sb = new StringBuilder();
+        cases.stream().map(GovernmentState.CourtCase::getCaseId).sorted().forEach(id -> sb.append('c').append(id));
+        bills.stream().map(GovernmentState.GovernmentBill::getTitle).sorted().forEach(t -> sb.append('b').append(t));
+        if (election != null) sb.append('e').append(election.getElectionId());
+        return Integer.toHexString(sb.toString().hashCode());
     }
 
-    private String buildActorStatementPrompt(GovernmentState.CivicActor actor, String eventKind,
-                                             String eventTitle, String eventSummary) {
+    private String buildGovernmentDigestPrompt(List<GovernmentState.CourtCase> cases,
+                                               List<GovernmentState.GovernmentBill> bills,
+                                               GovernmentState.ElectionRecord election) {
+        StringBuilder events = new StringBuilder();
+        for (GovernmentState.CourtCase c : cases) {
+            String ruling = c.isBlockedAction() ? "BLOCKED" : "UPHELD";
+            events.append("- Court (%s): %s — %s [%s]\n"
+                    .formatted(nvl(c.getCourtLevel()), nvl(c.getCaseId()),
+                               nvl(c.getIssueSummary()), ruling));
+        }
+        for (GovernmentState.GovernmentBill b : bills) {
+            events.append("- Bill %s: \"%s\" [%s, domain: %s]\n"
+                    .formatted(nvl(b.getLawStatus()), nvl(b.getTitle()),
+                               nvl(b.getLawStatus()), nvl(b.getPolicyDomain())));
+        }
+        if (election != null) {
+            events.append("- Election %s: winner=%s, turnout=%.0f%%\n"
+                    .formatted(nvl(election.getElectionId()),
+                               nvl(election.getWinningPartyId()),
+                               election.getTurnout() * 100));
+        }
         return """
-                You are a spokesperson for "%s", a %s civic organization in a simulation game.
-                Your organization is aligned with %s and your agenda focuses on: %s.
+                You are a civic news anchor in a simulation game.
+                Write a brief government bulletin (3-5 sentences, plain prose, under 100 words).
+                Cover only the events listed. Be factual and neutral.
 
-                React to this event in 2-3 sentences as a public statement:
-                Event type: %s
-                Event: %s
-                Details: %s
-
-                Speak in first-person plural ("We..."). Be direct, opinionated, and under 60 words."""
-                .formatted(
-                        nvl(actor.getName()),
-                        nvl(actor.getActorType()),
-                        actor.getAlignedPartyId() != null ? actor.getAlignedPartyId() : "no party",
-                        actor.getAgendas() != null ? String.join(", ", actor.getAgendas()) : "general civic affairs",
-                        eventKind, nvl(eventTitle), nvl(eventSummary));
+                Events:
+                %s
+                End with one sentence on what citizens should watch next."""
+                .formatted(events.toString().trim());
     }
 
     private String buildAdvisorPrompt(GovernmentSummary summary, String question) {

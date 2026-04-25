@@ -2694,70 +2694,7 @@ public class RoomService {
 
     private void triggerLlmGovernmentEvents(java.util.UUID roomId,
                                             GovernmentState governmentState) {
-        // Court opinions for decided cases
-        governmentState.getCourtCases().stream()
-                .filter(c -> "DECIDED".equalsIgnoreCase(c.getStatus()))
-                .forEach(c -> llmService.generateCourtOpinionIfAbsent(roomId, c));
-
-        // Actor statements for enacted/blocked bills
-        java.util.List<GovernmentState.CivicActor> actors = governmentState.getActors();
-        if (actors != null && !actors.isEmpty()) {
-            governmentState.getBills().stream()
-                    .filter(b -> "ENACTED".equalsIgnoreCase(b.getLawStatus())
-                              || "BLOCKED".equalsIgnoreCase(b.getLawStatus()))
-                    .forEach(bill -> {
-                        GovernmentState.CivicActor actor = pickActorForDomain(actors,
-                                bill.getPolicyDomain(), bill.getSponsorActorId());
-                        if (actor != null) {
-                            llmService.generateActorStatementIfAbsent(roomId, actor,
-                                    bill.getLawStatus().toLowerCase(),
-                                    bill.getTitle(),
-                                    bill.getLawStatus() + " — " + bill.getPolicyDomain());
-                        }
-                    });
-
-            // Actor statements for recent elections
-            governmentState.getElections().stream()
-                    .filter(e -> e.getHeldAt() != null)
-                    .sorted(java.util.Comparator.comparing(GovernmentState.ElectionRecord::getHeldAt).reversed())
-                    .limit(1)
-                    .forEach(election -> {
-                        GovernmentState.CivicActor actor = actors.stream()
-                                .max(java.util.Comparator.comparingDouble(
-                                        GovernmentState.CivicActor::getInfluence))
-                                .orElse(null);
-                        if (actor != null) {
-                            llmService.generateActorStatementIfAbsent(roomId, actor,
-                                    "election",
-                                    election.getElectionId(),
-                                    "Winner: " + election.getWinningPartyId()
-                                    + ", turnout: " + String.format(java.util.Locale.ROOT,
-                                            "%.0f%%", election.getTurnout() * 100));
-                        }
-                    });
-        }
-    }
-
-    private GovernmentState.CivicActor pickActorForDomain(
-            java.util.List<GovernmentState.CivicActor> actors, String policyDomain,
-            String sponsorActorId) {
-        // Prefer sponsor actor if present
-        if (sponsorActorId != null) {
-            return actors.stream()
-                    .filter(a -> sponsorActorId.equals(a.getActorId()))
-                    .findFirst()
-                    .orElse(null);
-        }
-        // Otherwise pick highest-influence actor whose agenda intersects the domain
-        return actors.stream()
-                .filter(a -> a.getAgendas() != null && policyDomain != null
-                        && a.getAgendas().stream().anyMatch(
-                                ag -> policyDomain.toLowerCase().contains(ag.toLowerCase())
-                                   || ag.toLowerCase().contains(policyDomain.toLowerCase())))
-                .max(java.util.Comparator.comparingDouble(GovernmentState.CivicActor::getInfluence))
-                .orElse(actors.stream()
-                        .max(java.util.Comparator.comparingDouble(GovernmentState.CivicActor::getInfluence))
-                        .orElse(null));
+        llmService.generateGovernmentDigestIfAbsent(roomId, governmentState);
     }
 
     private TileCounts computeTileCounts(int[][] tiles, boolean[][] highways) {
