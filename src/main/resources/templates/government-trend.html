@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+  <meta charset="UTF-8" />
+  <title>Government Trend</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,400,500" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" />
+  <link rel="stylesheet" th:href="@{/css/app.css}" />
+  <script type="module" src="/js/m3.js"></script>
+</head>
+<body class="trend-page">
+  <div class="container wide trend-page-shell">
+    <div class="hero">
+      <div class="hero-row">
+        <div>
+          <div class="chip">Government Trend</div>
+          <h2 class="section-title md-typescale-headline-medium">Full Timeline View</h2>
+        </div>
+        <div class="trend-page-toolbar">
+          <a class="text-button trend-back-link" th:href="@{/game(token=${token})}">Back to game</a>
+        </div>
+      </div>
+    </div>
+    <div class="card trend-page-card">
+      <div class="trend-page-header">
+        <div>
+          <div id="trendPageRoom" class="list-item-title">Loading room…</div>
+          <div id="trendPageMeta" class="list-item-meta">Fetching government history…</div>
+        </div>
+        <div class="trend-page-actions">
+          <div id="trendPageWindowButtons" class="government-trend-controls"></div>
+          <button id="trendPageRefresh" type="button" class="text-button government-trend-button">Refresh</button>
+        </div>
+      </div>
+
+      <div class="trend-page-layout">
+        <div class="trend-page-main">
+          <div class="trend-page-series">
+            <label class="trend-toggle"><input type="checkbox" data-series="trust" checked /> Trust</label>
+            <label class="trend-toggle"><input type="checkbox" data-series="service" checked /> Service</label>
+            <label class="trend-toggle"><input type="checkbox" data-series="stateTrust" checked /> State trust</label>
+            <label class="trend-toggle"><input type="checkbox" data-series="actions" checked /> Actions</label>
+            <label class="trend-toggle"><input type="checkbox" data-series="budget" checked /> Budget mix</label>
+            <label class="trend-toggle"><input type="checkbox" data-series="events" checked /> Event markers</label>
+          </div>
+
+          <div id="trendPageChartCard" class="government-detail-card trend-page-chart-card">
+            <div id="trendPageChart" class="trend-full-chart">Loading chart…</div>
+            <div id="trendPageTooltip" class="trend-tooltip" hidden></div>
+          </div>
+        </div>
+
+        <aside class="trend-page-side">
+          <div class="government-detail-card trend-page-side-card">
+            <div class="list-item-title">Current snapshot</div>
+            <div id="trendPageLatest" class="list-item-summary">Waiting for data…</div>
+          </div>
+          <div class="government-detail-card trend-page-side-card">
+            <div class="list-item-title">Recent markers</div>
+            <div id="trendPageEvents" class="government-trend-events"></div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.GOVERNMENT_TREND_TOKEN = "[[${token}]]";
+    window.GOVERNMENT_TREND_ROOM_ID = "[[${roomId}]]";
+    window.GOVERNMENT_TREND_WINDOW = [[${windowMinutes}]];
+  </script>
+  <script src="/js/government-trend.js"></script>
+</body>
+</html>

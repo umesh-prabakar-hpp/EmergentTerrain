@@ -23,6 +23,9 @@ Spring Boot POC that turns a user profile into a signed QR payload and a determi
 - The browser now uses WebGPU for all world rendering layers: terrain, bots/players, proposal fields, transitions, particles, and the minimap
 - Highways now emerge from repeated long-distance bot movement and exploration pressure. Ordinary terrain proposals no longer clear them, and unused corridors decay over time so roads do not take over the map.
 - Constitutional simulation now spans the first three runtime slices: bots carry civic state, rooms carry government state, deterministic parties/elections/bills/budgets tick in maintenance, executive orders and court review can intervene, office roles are assigned to bots, and append-only records are written under `simulation-history/`
+- Government trend history is now stored server-side and fetched on demand through `/room/{roomId}/government-trend`; recent points stay at per-tick resolution for 6 hours, then compact to 1-minute, 5-minute, and 15-minute buckets as they age.
+- The game sidebar now renders that government trend history as an on-demand chart with trust/service/state-trust lines, action load, budget mix, and event markers; it loads only when the government panel is shown and refreshes manually from the UI.
+- The in-game trend card now has an `Open` action that launches `/game/government-trend` in a new tab for a larger interactive chart with hover tooltips, series toggles, and adaptive vertical scaling so small trust/service changes do not disappear into a flat `0..1` baseline.
 
 ## Run
 Java 21 required.
@@ -206,6 +209,7 @@ See `src/main/resources/application.yml` for app settings:
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.highways.emergent.*` for travel-demand highway formation and decay
 - `app.government.*` for deterministic constitutional/government timing
+- `app.government.timeline.*` for on-demand government trend storage, retention, and rollup cadence
 - `app.simulationHistory.root` for append-only civic history output
 - `app.world.flushIntervalMs`
 - `app.world.cacheTtlMs`, `app.world.cacheMaxEntries`
@@ -245,11 +249,13 @@ See `src/main/resources/application.yml` for app settings:
 - `GET /profile/new`, `POST /profile`
 - `GET /qr?token=...`
 - `GET /game?token=...`
+- `GET /game/government-trend?token=...&roomId=...&window=...`
 - `POST /game/state` (world seed + regions)
 - `POST /room/create`
 - `POST /room/join`
 - `POST /room/last` (join last room or create new)
 - `POST /room/{roomId}/state`
+- `POST /room/{roomId}/government-trend`
 - `POST /room/{roomId}/move`
 - `POST /room/{roomId}/propose`
 - `POST /room/{roomId}/vote`

@@ -58,6 +58,16 @@ public class RoomController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/room/{roomId}/government-trend")
+    public ResponseEntity<GovernmentTrendResponse> governmentTrend(@PathVariable("roomId") String roomId,
+                                                                   @RequestBody GovernmentTrendRequest request) {
+        metrics.increment("room.governmentTrend");
+        Payload payload = payloadService.parseToken(request.getToken());
+        GovernmentTrendResponse response =
+            roomService.getGovernmentTrend(payload, UUID.fromString(roomId), request.getWindowMinutes());
+        return ResponseEntity.ok(response);
+    }
+
     @PostMapping("/room/{roomId}/move")
     public ResponseEntity<?> move(@PathVariable("roomId") String roomId,
                                   @RequestBody RoomMoveRequest request) {

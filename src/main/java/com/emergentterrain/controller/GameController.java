@@ -93,6 +93,18 @@ public class GameController {
         return "game";
     }
 
+    @GetMapping("/game/government-trend")
+    public String governmentTrendPage(@RequestParam("token") String token,
+                                      @RequestParam("roomId") String roomId,
+                                      @RequestParam(value = "window", required = false) Integer windowMinutes,
+                                      Model model) {
+        metrics.increment("game.governmentTrend.page");
+        model.addAttribute("token", token);
+        model.addAttribute("roomId", roomId);
+        model.addAttribute("windowMinutes", windowMinutes == null ? 360 : windowMinutes);
+        return "government-trend";
+    }
+
     @GetMapping("/game/test")
     public String gameTest(@RequestParam(value = "snapshot", required = false) String snapshot,
                            Model model) {

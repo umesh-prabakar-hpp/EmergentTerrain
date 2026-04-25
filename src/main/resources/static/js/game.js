@@ -128,6 +128,22 @@ const PLAYER_INTERPOLATION_MS = 120;
 const BOT_INTERPOLATION_MS = 150;
 const TILE_TRANSITION_MS = 180;
 const PROPOSAL_BURST_RETENTION_MS = 1400;
+const GOVERNMENT_TREND_WINDOWS = [
+  { label: '1h', minutes: 60 },
+  { label: '6h', minutes: 360 },
+  { label: '24h', minutes: 1440 },
+  { label: '7d', minutes: 10080 }
+];
+const GOVERNMENT_TREND_SVG_NS = 'http://www.w3.org/2000/svg';
+const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 });
+const governmentTrendState = {
+  roomId: '',
+  windowMinutes: 60,
+  data: null,
+  loading: false,
+  error: '',
+  lastFetchedAt: 0
+};
 
 function formatRendererMeta(status) {
   const parts = [];
@@ -1039,12 +1055,16 @@ function renderLockStatus() {
 }
 
 function setRoomStateFromResponse(data) {
+  const previousRoomId = roomId;
   roomState = data;
   const nextTiles = data.tiles || null;
   const nextHighways = data.highways || highways || [];
   if (data.roomId) {
     roomId = data.roomId;
     if (roomIdInput) roomIdInput.value = roomId;
+  }
+  if (previousRoomId !== roomId) {
+    resetGovernmentTrendState(roomId);
   }
   ensureWebSocket();
   if (nextTiles) {
@@ -1233,6 +1253,12 @@ function renderGovernmentSummary() {
     empty.textContent = 'Government model not initialized yet.';
     governmentSummaryEl.appendChild(empty);
     return;
+  }
+
+  queueGovernmentTrendFetch(false);
+  const trendCard = renderGovernmentTrendCard();
+  if (trendCard) {
+    governmentSummaryEl.appendChild(trendCard);
   }
 
   const summaryItems = [
@@ -1427,6 +1453,687 @@ function renderElectionSummaryCard(summary) {
   }
 
   return card;
+}
+
+function resetGovernmentTrendState(nextRoomId = '') {
+  governmentTrendState.roomId = nextRoomId || '';
+  governmentTrendState.data = null;
+  governmentTrendState.loading = false;
+  governmentTrendState.error = '';
+  governmentTrendState.lastFetchedAt = 0;
+}
+
+function queueGovernmentTrendFetch(force = false) {
+  if (!roomId || !roomState || !roomState.governmentSummary || !roomState.governmentSummary.constitutionVersion) {
+    return;
+  }
+  if (governmentTrendState.roomId !== roomId) {
+    resetGovernmentTrendState(roomId);
+  }
+  const hasCurrentData = governmentTrendState.data
+    && governmentTrendState.roomId === roomId
+    && governmentTrendState.data.windowMinutes === governmentTrendState.windowMinutes;
+  if (!force && (governmentTrendState.loading || hasCurrentData || governmentTrendState.error)) {
+    return;
+  }
+  governmentTrendState.loading = true;
+  if (force) {
+    governmentTrendState.error = '';
+  }
+  fetch(`/room/${roomId}/government-trend`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      token,
+      windowMinutes: governmentTrendState.windowMinutes
+    })
+  })
+    .then(async (res) => {
+      if (!res.ok) {
+        const message = await res.text();
+        throw new Error(message || 'Government trend request failed.');
+      }
+      return res.json();
+    })
+    .then((data) => {
+      if (governmentTrendState.roomId !== roomId || data.roomId !== roomId) {
+        return;
+      }
+      governmentTrendState.data = data;
+      governmentTrendState.error = '';
+      governmentTrendState.lastFetchedAt = Date.now();
+    })
+    .catch((err) => {
+      governmentTrendState.error = err && err.message ? err.message : 'Government trend request failed.';
+    })
+    .finally(() => {
+      governmentTrendState.loading = false;
+      renderGovernmentSummary();
+    });
+}
+
+function renderGovernmentTrendCard() {
+  if (!roomState || !roomState.governmentSummary || !roomState.governmentSummary.constitutionVersion) {
+    return null;
+  }
+  const card = document.createElement('div');
+  card.className = 'list-item government-detail-card government-trend-card';
+
+  const header = document.createElement('div');
+  header.className = 'government-trend-header';
+  header.appendChild(buildDetailTitle('Government trend'));
+
+  const controls = document.createElement('div');
+  controls.className = 'government-trend-controls';
+  GOVERNMENT_TREND_WINDOWS.forEach((windowOption) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `text-button government-trend-button${governmentTrendState.windowMinutes === windowOption.minutes ? ' is-active' : ''}`;
+    button.textContent = windowOption.label;
+    button.addEventListener('click', () => {
+      if (governmentTrendState.windowMinutes === windowOption.minutes && governmentTrendState.data) {
+        return;
+      }
+      governmentTrendState.windowMinutes = windowOption.minutes;
+      governmentTrendState.error = '';
+      queueGovernmentTrendFetch(true);
+      renderGovernmentSummary();
+    });
+    controls.appendChild(button);
+  });
+  const refreshButton = document.createElement('button');
+  refreshButton.type = 'button';
+  refreshButton.className = 'text-button government-trend-button government-trend-refresh';
+  refreshButton.textContent = governmentTrendState.loading ? 'Loading…' : 'Refresh';
+  refreshButton.disabled = governmentTrendState.loading;
+  refreshButton.addEventListener('click', () => queueGovernmentTrendFetch(true));
+  controls.appendChild(refreshButton);
+  const openButton = document.createElement('button');
+  openButton.type = 'button';
+  openButton.className = 'text-button government-trend-button';
+  openButton.textContent = 'Open';
+  openButton.disabled = !roomId;
+  openButton.addEventListener('click', () => openGovernmentTrendPage());
+  controls.appendChild(openButton);
+  header.appendChild(controls);
+  card.appendChild(header);
+
+  const meta = document.createElement('div');
+  meta.className = 'list-item-meta government-trend-meta';
+  card.appendChild(meta);
+
+  const trendData = governmentTrendState.data
+    && governmentTrendState.roomId === roomId
+    && governmentTrendState.data.windowMinutes === governmentTrendState.windowMinutes
+    ? governmentTrendState.data
+    : null;
+
+  if (!trendData && governmentTrendState.loading) {
+    meta.textContent = `Loading ${formatWindowMinutes(governmentTrendState.windowMinutes)} trend window…`;
+    card.appendChild(buildTrendEmptyState('Collecting government trend history for this room.'));
+    return card;
+  }
+
+  if (!trendData && governmentTrendState.error) {
+    meta.textContent = `Unable to load ${formatWindowMinutes(governmentTrendState.windowMinutes)} trend window.`;
+    card.appendChild(buildTrendEmptyState(governmentTrendState.error));
+    return card;
+  }
+
+  if (!trendData || !Array.isArray(trendData.points) || !trendData.points.length) {
+    meta.textContent = `No stored trend points yet for ${formatWindowMinutes(governmentTrendState.windowMinutes)}.`;
+    card.appendChild(buildTrendEmptyState('Government history appears after the room has advanced through a few maintenance ticks.'));
+    return card;
+  }
+
+  const chart = buildGovernmentTrendChart(trendData);
+  card.appendChild(chart);
+  meta.textContent = buildTrendMetaText(trendData);
+
+  card.appendChild(buildGovernmentTrendLegend(trendData));
+  const recentEvents = buildGovernmentTrendEventList(trendData);
+  if (recentEvents) {
+    card.appendChild(recentEvents);
+  }
+  if (governmentTrendState.loading) {
+    const refreshNotice = document.createElement('div');
+    refreshNotice.className = 'list-item-summary government-trend-note';
+    refreshNotice.textContent = 'Refreshing trend snapshot…';
+    card.appendChild(refreshNotice);
+  } else if (governmentTrendState.error) {
+    const errorNotice = document.createElement('div');
+    errorNotice.className = 'list-item-summary government-trend-note';
+    errorNotice.textContent = governmentTrendState.error;
+    card.appendChild(errorNotice);
+  }
+  return card;
+}
+
+function buildTrendEmptyState(text) {
+  const empty = document.createElement('div');
+  empty.className = 'government-trend-empty';
+  empty.textContent = text;
+  return empty;
+}
+
+function buildTrendMetaText(trendData) {
+  const pointCount = Array.isArray(trendData.points) ? trendData.points.length : 0;
+  const eventCount = Array.isArray(trendData.events) ? trendData.events.length : 0;
+  const parts = [
+    `${formatWindowMinutes(trendData.windowMinutes || governmentTrendState.windowMinutes)} window`,
+    `${numberFormatter.format(pointCount)} points`,
+    `${numberFormatter.format(eventCount)} markers`
+  ];
+  if (trendData.generatedAt) {
+    parts.push(`Updated ${formatCompactDateTime(trendData.generatedAt)}`);
+  } else if (governmentTrendState.lastFetchedAt) {
+    parts.push(`Updated ${formatCompactDateTime(new Date(governmentTrendState.lastFetchedAt).toISOString())}`);
+  }
+  return parts.join(' · ');
+}
+
+function buildGovernmentTrendLegend(trendData) {
+  const wrap = document.createElement('div');
+  wrap.className = 'government-trend-legend';
+  [
+    ['Trust', '#0f766e'],
+    ['Service', '#2563eb'],
+    ['State trust', '#7c3aed'],
+    ['Actions', '#f59e0b'],
+    ['Budget mix', '#64748b']
+  ].forEach(([label, color]) => {
+    const item = document.createElement('div');
+    item.className = 'government-trend-legend-item';
+    const swatch = document.createElement('span');
+    swatch.className = 'government-trend-swatch';
+    swatch.style.background = color;
+    item.appendChild(swatch);
+    const text = document.createElement('span');
+    text.textContent = label;
+    item.appendChild(text);
+    wrap.appendChild(item);
+  });
+  const summary = document.createElement('div');
+  summary.className = 'government-trend-summary';
+  const latest = latestTrendPoint(trendData.points || []);
+  if (latest) {
+    summary.textContent = `Latest: trust ${formatScore(latest.federalTrust)} · service ${formatScore(latest.federalServiceAccess)} · bills/orders/cases ${latest.activeBillCount || 0}/${latest.activeExecutiveOrderCount || 0}/${latest.activeCourtCaseCount || 0}`;
+  }
+  wrap.appendChild(summary);
+  return wrap;
+}
+
+function buildGovernmentTrendEventList(trendData) {
+  const events = selectTrendEvents(Array.isArray(trendData.events) ? trendData.events : [], 3);
+  if (!events.length) {
+    return null;
+  }
+  const wrap = document.createElement('div');
+  wrap.className = 'government-trend-events';
+  const title = document.createElement('div');
+  title.className = 'list-item-meta';
+  title.textContent = 'Recent markers';
+  wrap.appendChild(title);
+  events.forEach((event) => {
+    const row = document.createElement('div');
+    row.className = 'government-trend-event';
+    const label = document.createElement('div');
+    label.className = 'list-item-summary';
+    label.textContent = `${humanizeLabel(event.kind)} · ${event.title || event.referenceId}`;
+    row.appendChild(label);
+    const meta = document.createElement('div');
+    meta.className = 'list-item-meta';
+    const detail = [];
+    if (event.phase) {
+      detail.push(humanizeLabel(event.phase));
+    }
+    if (event.occurredAt) {
+      detail.push(formatCompactDateTime(event.occurredAt));
+    }
+    meta.textContent = detail.join(' · ');
+    row.appendChild(meta);
+    wrap.appendChild(row);
+  });
+  return wrap;
+}
+
+function buildGovernmentTrendChart(trendData) {
+  const chart = document.createElement('div');
+  chart.className = 'government-trend-chart';
+  const points = downsampleTrendPoints(Array.isArray(trendData.points) ? trendData.points : [], 72);
+  const events = selectTrendEvents(Array.isArray(trendData.events) ? trendData.events : [], 18);
+  if (!points.length) {
+    chart.textContent = 'Trend history unavailable.';
+    return chart;
+  }
+
+  const width = 292;
+  const height = 176;
+  const marginLeft = 18;
+  const marginRight = 10;
+  const mainTop = 12;
+  const mainBottom = 98;
+  const budgetTop = 108;
+  const budgetBottom = 130;
+  const eventTop = 144;
+  const eventBottom = 160;
+  const innerWidth = width - marginLeft - marginRight;
+  const startMs = trendTimestampMs(points[0]);
+  const endMs = trendTimestampMs(points[points.length - 1]);
+  const spanMs = Math.max(1, endMs - startMs);
+  const xForMs = (valueMs) => marginLeft + ((valueMs - startMs) / spanMs) * innerWidth;
+  const metricScale = buildTrendMetricScale(points);
+  const yForMetric = (value) => {
+    const safe = Number.isFinite(Number(value)) ? Number(value) : metricScale.min;
+    const normalized = (safe - metricScale.min) / Math.max(metricScale.range, 0.000001);
+    return mainBottom - Math.max(0, Math.min(1, normalized)) * (mainBottom - mainTop);
+  };
+  const actionMax = Math.max(1, ...points.map((point) =>
+    (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0)
+  ));
+  const budgetTotals = points.map(totalBudgetForPoint);
+  const budgetMax = Math.max(1, ...budgetTotals);
+
+  const svg = createSvgElement('svg', {
+    viewBox: `0 0 ${width} ${height}`,
+    role: 'img',
+    'aria-label': 'Government trend chart'
+  });
+
+  svg.appendChild(createSvgElement('rect', {
+    x: 0,
+    y: 0,
+    width,
+    height,
+    rx: 14,
+    fill: 'rgba(255,255,255,0.68)'
+  }));
+
+  metricScale.gridValues.forEach((marker) => {
+    const y = yForMetric(marker);
+    svg.appendChild(createSvgElement('line', {
+      x1: marginLeft,
+      y1: y,
+      x2: width - marginRight,
+      y2: y,
+      stroke: 'rgba(15, 23, 42, 0.10)',
+      'stroke-width': 1
+    }));
+    svg.appendChild(createSvgElement('text', {
+      x: 2,
+      y: y + 3,
+      fill: 'rgba(15, 23, 42, 0.45)',
+      'font-size': 8
+    }, formatScore(marker)));
+  });
+
+  const changeMarkers = extractPartyShiftMarkers(points);
+  changeMarkers.forEach((marker) => {
+    svg.appendChild(createSvgElement('line', {
+      x1: xForMs(marker.timestampMs),
+      y1: mainTop,
+      x2: xForMs(marker.timestampMs),
+      y2: mainBottom,
+      stroke: 'rgba(20, 83, 45, 0.28)',
+      'stroke-width': 1,
+      'stroke-dasharray': '3 3'
+    }, `${marker.label} at ${formatCompactDateTime(marker.iso)}`));
+  });
+
+  points.forEach((point, index) => {
+    const timestampMs = trendTimestampMs(point);
+    const x = xForMs(timestampMs);
+    const nextX = index < points.length - 1 ? xForMs(trendTimestampMs(points[index + 1])) : x + Math.max(2, innerWidth / points.length);
+    const barWidth = Math.max(2, nextX - x - 1);
+    const actionCount = (point.activeBillCount || 0) + (point.activeExecutiveOrderCount || 0) + (point.activeCourtCaseCount || 0);
+    const actionHeight = (actionCount / actionMax) * 20;
+    svg.appendChild(createSvgElement('rect', {
+      x,
+      y: mainBottom - actionHeight,
+      width: barWidth,
+      height: Math.max(1, actionHeight),
+      fill: 'rgba(245, 158, 11, 0.22)'
+    }, buildTrendPointLabel(point)));
+
+    const totalBudget = Math.max(1, totalBudgetForPoint(point));
+    const budgetWidth = Math.max(2, nextX - x);
+    let stackY = budgetBottom;
+    [
+      ['education', '#94a3b8'],
+      ['health', '#60a5fa'],
+      ['infrastructure', '#f59e0b'],
+      ['welfare', '#34d399'],
+      ['justice', '#f97316'],
+      ['payroll', '#a78bfa']
+    ].forEach(([key, color]) => {
+      const raw = Math.max(0, Number(point[key]) || 0);
+      const segmentHeight = Math.max(0, (raw / totalBudget) * (budgetBottom - budgetTop));
+      if (!segmentHeight) {
+        return;
+      }
+      stackY -= segmentHeight;
+      svg.appendChild(createSvgElement('rect', {
+        x,
+        y: stackY,
+        width: budgetWidth,
+        height: segmentHeight,
+        fill: color,
+        opacity: 0.72
+      }));
+    });
+
+    if (budgetMax > 0) {
+      const totalHeight = (totalBudget / budgetMax) * (budgetBottom - budgetTop);
+      svg.appendChild(createSvgElement('line', {
+        x1: x,
+        y1: budgetBottom - totalHeight,
+        x2: x + budgetWidth,
+        y2: budgetBottom - totalHeight,
+        stroke: 'rgba(15, 23, 42, 0.15)',
+        'stroke-width': 1
+      }));
+    }
+  });
+
+  svg.appendChild(buildLinePath(points, 'federalTrust', xForMs, yForMetric, '#0f766e', 2.3));
+  svg.appendChild(buildLinePath(points, 'federalServiceAccess', xForMs, yForMetric, '#2563eb', 2.1));
+  svg.appendChild(buildLinePath(points, 'avgStateTrust', xForMs, yForMetric, '#7c3aed', 1.9));
+
+  events.forEach((event) => {
+    const timestampMs = eventTimestampMs(event, startMs);
+    const x = xForMs(Math.max(startMs, Math.min(endMs, timestampMs)));
+    const laneY = trendEventLaneY(event.kind, eventTop, eventBottom);
+    svg.appendChild(buildTrendEventMarker(x, laneY, event));
+  });
+
+  [startMs, startMs + spanMs / 2, endMs].forEach((valueMs) => {
+    const x = xForMs(valueMs);
+    svg.appendChild(createSvgElement('text', {
+      x,
+      y: height - 4,
+      'text-anchor': valueMs === startMs ? 'start' : valueMs === endMs ? 'end' : 'middle',
+      fill: 'rgba(15, 23, 42, 0.55)',
+      'font-size': 9
+    }, formatAxisTime(valueMs)));
+  });
+
+  chart.appendChild(svg);
+  return chart;
+}
+
+function buildTrendMetricScale(points) {
+  const values = [];
+  points.forEach((point) => {
+    ['federalTrust', 'federalServiceAccess', 'avgStateTrust'].forEach((key) => {
+      const value = Number(point[key]);
+      if (Number.isFinite(value)) {
+        values.push(value);
+      }
+    });
+  });
+  if (!values.length) {
+    return { min: 0, max: 1, range: 1, gridValues: [0, 0.5, 1] };
+  }
+  let min = Math.min(...values);
+  let max = Math.max(...values);
+  const spread = max - min;
+  const padding = Math.max(0.015, spread * 0.22);
+  min = Math.max(0, min - padding);
+  max = Math.min(1, max + padding);
+  if (max - min < 0.05) {
+    const midpoint = (max + min) / 2;
+    min = Math.max(0, midpoint - 0.025);
+    max = Math.min(1, midpoint + 0.025);
+  }
+  const range = Math.max(0.000001, max - min);
+  return {
+    min,
+    max,
+    range,
+    gridValues: [min, min + range / 2, max]
+  };
+}
+
+function createSvgElement(tagName, attrs, titleText) {
+  const element = document.createElementNS(GOVERNMENT_TREND_SVG_NS, tagName);
+  Object.entries(attrs || {}).forEach(([key, value]) => {
+    if (value === undefined || value === null) {
+      return;
+    }
+    element.setAttribute(key, String(value));
+  });
+  if (titleText) {
+    const title = document.createElementNS(GOVERNMENT_TREND_SVG_NS, 'title');
+    title.textContent = titleText;
+    element.appendChild(title);
+  }
+  return element;
+}
+
+function buildLinePath(points, key, xForMs, yForMetric, color, width) {
+  const path = [];
+  points.forEach((point, index) => {
+    const x = xForMs(trendTimestampMs(point));
+    const y = yForMetric(point[key]);
+    path.push(`${index === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`);
+  });
+  return createSvgElement('path', {
+    d: path.join(' '),
+    fill: 'none',
+    stroke: color,
+    'stroke-width': width,
+    'stroke-linejoin': 'round',
+    'stroke-linecap': 'round'
+  });
+}
+
+function buildTrendEventMarker(x, y, event) {
+  const color = trendEventColor(event.kind);
+  const label = `${humanizeLabel(event.kind)} · ${event.title || event.referenceId}${event.phase ? ` · ${humanizeLabel(event.phase)}` : ''}${event.occurredAt ? ` · ${formatCompactDateTime(event.occurredAt)}` : ''}`;
+  if (event.kind === 'court') {
+    return createSvgElement('rect', {
+      x: x - 3.5,
+      y: y - 3.5,
+      width: 7,
+      height: 7,
+      rx: 1.5,
+      fill: color
+    }, label);
+  }
+  if (event.kind === 'order') {
+    return createSvgElement('path', {
+      d: `M ${x} ${y - 4.5} L ${x + 4.5} ${y} L ${x} ${y + 4.5} L ${x - 4.5} ${y} Z`,
+      fill: color
+    }, label);
+  }
+  if (event.kind === 'election') {
+    return createSvgElement('path', {
+      d: `M ${x} ${y - 5} L ${x + 4.5} ${y + 4} L ${x - 4.5} ${y + 4} Z`,
+      fill: color
+    }, label);
+  }
+  return createSvgElement('circle', {
+    cx: x,
+    cy: y,
+    r: 3.5,
+    fill: color
+  }, label);
+}
+
+function downsampleTrendPoints(points, maxPoints) {
+  if (!Array.isArray(points) || points.length <= maxPoints) {
+    return points || [];
+  }
+  const bucketSize = Math.ceil(points.length / maxPoints);
+  const compact = [];
+  for (let index = 0; index < points.length; index += bucketSize) {
+    const group = points.slice(index, index + bucketSize);
+    const latest = group[group.length - 1];
+    compact.push({
+      ...latest,
+      federalTrust: averageFromGroup(group, 'federalTrust'),
+      federalServiceAccess: averageFromGroup(group, 'federalServiceAccess'),
+      avgStateTrust: averageFromGroup(group, 'avgStateTrust'),
+      avgStateServiceAccess: averageFromGroup(group, 'avgStateServiceAccess'),
+      revenue: averageFromGroup(group, 'revenue'),
+      education: averageFromGroup(group, 'education'),
+      health: averageFromGroup(group, 'health'),
+      infrastructure: averageFromGroup(group, 'infrastructure'),
+      welfare: averageFromGroup(group, 'welfare'),
+      justice: averageFromGroup(group, 'justice'),
+      payroll: averageFromGroup(group, 'payroll')
+    });
+  }
+  return compact;
+}
+
+function averageFromGroup(group, key) {
+  if (!group.length) return 0;
+  const total = group.reduce((sum, item) => sum + (Number(item[key]) || 0), 0);
+  return total / group.length;
+}
+
+function selectTrendEvents(events, maxEvents) {
+  if (!Array.isArray(events) || !events.length) return [];
+  if (events.length <= maxEvents) return events.slice();
+  const step = Math.max(1, Math.floor(events.length / maxEvents));
+  const selected = [];
+  for (let index = 0; index < events.length && selected.length < maxEvents; index += step) {
+    selected.push(events[index]);
+  }
+  const latest = events[events.length - 1];
+  if (selected[selected.length - 1] !== latest) {
+    selected[selected.length - 1] = latest;
+  }
+  return selected;
+}
+
+function latestTrendPoint(points) {
+  if (!Array.isArray(points) || !points.length) {
+    return null;
+  }
+  return points[points.length - 1];
+}
+
+function trendTimestampMs(point) {
+  if (!point) return Date.now();
+  const source = point.sampledAt || point.bucketStartAt;
+  const parsed = source ? new Date(source).getTime() : Date.now();
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+function eventTimestampMs(event, fallbackMs) {
+  const parsed = event && event.occurredAt ? new Date(event.occurredAt).getTime() : fallbackMs;
+  return Number.isFinite(parsed) ? parsed : fallbackMs;
+}
+
+function trendEventLaneY(kind, top, bottom) {
+  const lanes = {
+    bill: top,
+    order: top + 5,
+    court: top + 10,
+    election: bottom - 2
+  };
+  return lanes[kind] || bottom - 4;
+}
+
+function trendEventColor(kind) {
+  const colors = {
+    bill: '#0f766e',
+    order: '#ea580c',
+    court: '#334155',
+    election: '#7c3aed'
+  };
+  return colors[kind] || '#475569';
+}
+
+function extractPartyShiftMarkers(points) {
+  const markers = [];
+  let previousKey = '';
+  points.forEach((point, index) => {
+    const controlKey = [
+      point.federalExecutiveParty || '',
+      point.federalLowerParty || '',
+      point.federalUpperParty || '',
+      point.federalChiefJusticeParty || ''
+    ].join('|');
+    if (index > 0 && controlKey !== previousKey) {
+      markers.push({
+        timestampMs: trendTimestampMs(point),
+        iso: point.sampledAt || point.bucketStartAt,
+        label: `Control shift to ${point.federalExecutiveParty || 'None'}`
+      });
+    }
+    previousKey = controlKey;
+  });
+  return markers;
+}
+
+function totalBudgetForPoint(point) {
+  return (Number(point.education) || 0)
+    + (Number(point.health) || 0)
+    + (Number(point.infrastructure) || 0)
+    + (Number(point.welfare) || 0)
+    + (Number(point.justice) || 0)
+    + (Number(point.payroll) || 0);
+}
+
+function buildTrendPointLabel(point) {
+  const bits = [
+    `Tick ${point.tick || 0}`,
+    `Trust ${formatScore(point.federalTrust)}`,
+    `Service ${formatScore(point.federalServiceAccess)}`,
+    `Bills ${point.activeBillCount || 0}`,
+    `Orders ${point.activeExecutiveOrderCount || 0}`,
+    `Cases ${point.activeCourtCaseCount || 0}`
+  ];
+  if (point.sampledAt || point.bucketStartAt) {
+    bits.push(formatCompactDateTime(point.sampledAt || point.bucketStartAt));
+  }
+  return bits.join(' · ');
+}
+
+function formatWindowMinutes(windowMinutes) {
+  const total = Number(windowMinutes) || 0;
+  if (total % 1440 === 0 && total >= 1440) {
+    return `${Math.round(total / 1440)}d`;
+  }
+  if (total % 60 === 0 && total >= 60) {
+    return `${Math.round(total / 60)}h`;
+  }
+  return `${total}m`;
+}
+
+function openGovernmentTrendPage() {
+  if (!roomId) return;
+  const windowMinutes = governmentTrendState.windowMinutes || 360;
+  const url = `/game/government-trend?token=${encodeURIComponent(token)}&roomId=${encodeURIComponent(roomId)}&window=${encodeURIComponent(windowMinutes)}`;
+  window.open(url, '_blank', 'noopener');
+}
+
+function formatCompactDateTime(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(value);
+  if (!Number.isFinite(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleString([], {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit'
+  });
+}
+
+function formatAxisTime(timestampMs) {
+  const date = new Date(timestampMs);
+  if (!Number.isFinite(date.getTime())) {
+    return '';
+  }
+  return date.toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit'
+  });
 }
 
 function buildDetailTitle(text) {

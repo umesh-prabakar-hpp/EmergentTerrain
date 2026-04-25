@@ -114,6 +114,14 @@ app:
     electionIntervalMs: 60000
     billIntervalMs: 20000
     stateCount: 4
+    timeline:
+      enabled: true
+      fullResolutionHours: 6
+      minuteBucketHours: 24
+      fiveMinuteBucketDays: 7
+      defaultWindowMinutes: 360
+      maxWindowMinutes: 21600
+      compactionIntervalMs: 300000
   simulationHistory:
     root: simulation-history
   activityLog:

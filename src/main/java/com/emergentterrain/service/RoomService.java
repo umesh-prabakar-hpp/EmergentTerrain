@@ -4,6 +4,7 @@ import com.emergentterrain.domain.*;
 import com.emergentterrain.government.BotCivicState;
 import com.emergentterrain.government.GovernmentSimulationService;
 import com.emergentterrain.government.GovernmentState;
+import com.emergentterrain.government.GovernmentTimelineService;
 import com.emergentterrain.gpu.GpuEngineAdapter;
 import com.emergentterrain.gpu.GpuEngineCodec;
 import com.emergentterrain.gpu.v1.BotState;
@@ -63,6 +64,7 @@ public class RoomService {
     private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
     private final GovernmentSimulationService governmentSimulationService;
+    private final GovernmentTimelineService governmentTimelineService;
     private final GpuEngineAdapter gpuEngineAdapter;
     private final ObjectMapper objectMapper;
     private final boolean gpuEnabled;
@@ -168,6 +170,7 @@ public class RoomService {
                        RoomUpdateBroadcaster broadcaster,
                        WorldService worldService,
                        GovernmentSimulationService governmentSimulationService,
+                       GovernmentTimelineService governmentTimelineService,
                        GpuEngineAdapter gpuEngineAdapter,
                        ObjectMapper objectMapper,
                        ActivityMetrics metrics,
@@ -243,6 +246,7 @@ public class RoomService {
         this.broadcaster = broadcaster;
         this.worldService = worldService;
         this.governmentSimulationService = governmentSimulationService;
+        this.governmentTimelineService = governmentTimelineService;
         this.gpuEngineAdapter = gpuEngineAdapter;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -388,6 +392,7 @@ public class RoomService {
         }
         state = stateRepository.save(state);
         updateCacheFromState(room, state);
+        governmentTimelineService.capture(room, governmentInitialization.governmentState(), Instant.now());
         ensureNearbyBots(room, world.getTiles(), host.getX(), host.getY(), bots);
         if (refreshOccupancySnapshot(room, state, Instant.now())) {
             stateRepository.save(state);
@@ -694,6 +699,31 @@ public class RoomService {
         return toRoomStateResponse(room, state, participant);
     }
 
+    @Transactional
+    public GovernmentTrendResponse getGovernmentTrend(Payload payload, UUID roomId, Integer windowMinutes) {
+        Profile profile = profileFromPayload(payload);
+        Room room = roomRepository.findById(roomId)
+            .orElseThrow(() -> new IllegalStateException("Room not found"));
+        ensureParticipant(room, profile);
+        RoomState state = stateRepository.findByRoom(room)
+            .orElseThrow(() -> new IllegalStateException("Room state missing"));
+        int[][] tiles = getTilesForRoom(room, state);
+        List<RoomBot> bots = ensureBots(room, tiles, false);
+        Instant now = Instant.now();
+        GovernmentSimulationService.GovernmentMutation governmentInitialization =
+            governmentSimulationService.ensureInitialized(room, state, bots, tiles, this::readBotProfile, now);
+        if (governmentInitialization.governmentChanged()) {
+            state.setGovernmentStateJson(governmentSimulationService.serializeGovernmentState(governmentInitialization.governmentState()));
+            stateRepository.save(state);
+            if (!governmentInitialization.dirtyBots().isEmpty()) {
+                botRepository.saveAll(governmentInitialization.dirtyBots());
+            }
+            updateCacheFromState(room, state);
+        }
+        governmentTimelineService.capture(room, governmentInitialization.governmentState(), now);
+        return governmentTimelineService.getTrend(room, windowMinutes, now);
+    }
+
     @Scheduled(fixedDelayString = "${app.consensus.maintenanceIntervalMs:5000}")
     @Transactional
     public void scheduledRoomMaintenance() {
@@ -780,6 +810,7 @@ public class RoomService {
                 governmentSimulationService.tick(room, state, botsForGovernment, getTilesForRoom(room, state), this::readBotProfile, now);
             if (governmentMutation.governmentChanged()) {
                 updateGovernmentStateCache(room, state, governmentMutation.governmentState());
+                governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
                 metadataDirty = true;
             }
             if (!governmentMutation.dirtyBots().isEmpty()) {

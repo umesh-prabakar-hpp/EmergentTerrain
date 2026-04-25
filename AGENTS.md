@@ -100,8 +100,11 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 ## Architecture notes
 - `src/main/java/com/emergentterrain/service/RoomService.java` is the core gameplay loop.
 - `src/main/java/com/emergentterrain/service/WorldService.java` can call the GPU engine when `app.gpu.*` flags are enabled.
+- `src/main/java/com/emergentterrain/government/GovernmentTimelineService.java` stores compact government trend history for on-demand UI fetches and rolls old samples from per-tick to 1-minute, 5-minute, then 15-minute buckets.
+- `src/main/resources/static/js/game.js` now calls `/room/{roomId}/government-trend` on demand and renders the sidebar trend chart in the government section; the chart is manual-refresh and window-switch driven rather than fed by periodic pushes.
+- `src/main/resources/static/js/government-trend.js` powers the dedicated `/game/government-trend` page with hover inspection, series toggles, and adaptive scaling; use it instead of reimplementing another trend client.
 - `src/main/java/com/emergentterrain/gpu/GpuEngineCodec.java` handles tile and bool-grid encoding.
-- `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, and simulation-history settings.
+- `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, and `app.government.timeline.*` retention settings.
 - Append-only simulation history is written under `simulation-history/constitution`, `simulation-history/events`, `simulation-history/elections`, `simulation-history/courts`, and `simulation-history/legislation`.
 
 ## Constraints
