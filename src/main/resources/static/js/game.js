@@ -2949,7 +2949,7 @@ window.addEventListener('keydown', (evt) => {
   stopAutoNav();
   let nx = player.x;
   let ny = player.y;
-  const onRoad = (highways[player.y] && highways[player.y][player.x]) || tiles[player.y][player.x] === 4;
+  const onRoad = (highways[player.y] && highways[player.y][player.x]) || (tiles[player.y] && tiles[player.y][player.x] === 4);
   const step = onRoad ? 3 : 1;
   if (evt.key === 'ArrowUp' || evt.key === 'w') ny -= step;
   if (evt.key === 'ArrowDown' || evt.key === 's') ny += step;
