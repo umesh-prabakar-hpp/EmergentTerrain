@@ -812,6 +812,7 @@ public class RoomService {
                 if (governmentMutation.governmentChanged()) {
                     updateGovernmentStateCache(room, state, governmentMutation.governmentState());
                     governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
+                    broadcaster.broadcastGovernmentUpdate(room.getId());
                     metadataDirty = true;
                 }
                 if (!governmentMutation.dirtyBots().isEmpty()) {

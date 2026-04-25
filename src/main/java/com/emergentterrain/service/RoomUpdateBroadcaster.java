@@ -71,6 +71,16 @@ public class RoomUpdateBroadcaster {
         ));
     }
 
+    public void broadcastGovernmentUpdate(UUID roomId) {
+        if (roomId == null) return;
+        Set<WebSocketSession> sessions = roomSessions.get(roomId);
+        if (sessions == null || sessions.isEmpty()) return;
+        sendPayload(sessions, Map.of(
+            "type", "government_updated",
+            "roomId", roomId.toString()
+        ));
+    }
+
     private void broadcastProposalEvents(Set<WebSocketSession> sessions,
                                          UUID roomId,
                                          RoomVisualState previous,
