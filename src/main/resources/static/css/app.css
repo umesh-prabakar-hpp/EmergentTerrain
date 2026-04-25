@@ -582,6 +582,57 @@ md-icon {
   font-size: 12px;
 }
 
+.government-action-item {
+  gap: 6px;
+}
+
+.list-item-title {
+  font-weight: 600;
+  color: #19342f;
+}
+
+.list-item-meta {
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  color: rgba(25, 52, 47, 0.72);
+}
+
+.list-item-summary {
+  font-size: 12px;
+  line-height: 1.4;
+  color: rgba(15, 28, 25, 0.9);
+}
+
+.government-detail-card {
+  margin: -4px 0 10px;
+  background: rgba(241, 247, 245, 0.92);
+}
+
+.government-state-group {
+  display: grid;
+  gap: 8px;
+  margin: -4px 0 10px;
+}
+
+.government-state-card {
+  margin: 0;
+}
+
+.metric-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.metric-pill {
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  font-size: 11px;
+  color: rgba(15, 28, 25, 0.9);
+}
+
 .poll-action {
   width: 28px;
   height: 28px;

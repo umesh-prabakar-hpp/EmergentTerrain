@@ -3,6 +3,10 @@ package com.emergentterrain.government;
 import com.emergentterrain.domain.Room;
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.domain.RoomState;
+import com.emergentterrain.web.GovernmentActionSummary;
+import com.emergentterrain.web.GovernmentBudgetSummary;
+import com.emergentterrain.web.GovernmentElectionSummary;
+import com.emergentterrain.web.GovernmentStateMiniSummary;
 import com.emergentterrain.web.GovernmentSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -160,11 +164,16 @@ public class GovernmentSimulationService {
         summary.setFederalTrust(federal.getPublicTrust());
         summary.setFederalRevenue(federal.getBudget().getRevenue());
         summary.setFederalInfrastructureBudget(federal.getBudget().getInfrastructure());
+        summary.setFederalBudget(buildBudgetSummary(federal));
         summary.setStateCount(governmentState.getStates().size());
+        summary.setStateSummaries(buildStateSummaries(governmentState));
+        summary.setElectionSummary(buildElectionSummary(governmentState));
+        List<GovernmentActionSummary> actionItems = new ArrayList<>();
         List<String> activeBills = new ArrayList<>();
         for (GovernmentState.GovernmentBill bill : governmentState.getBills()) {
             if (!"ENACTED".equalsIgnoreCase(bill.getLawStatus()) && !"BLOCKED".equalsIgnoreCase(bill.getLawStatus())) {
                 activeBills.add(String.format(Locale.ROOT, "%s: %s (%s)", bill.getBillId(), bill.getTitle(), bill.getStage()));
+                actionItems.add(buildBillSummary(bill));
             }
         }
         summary.setActiveBills(activeBills);
@@ -176,6 +185,7 @@ public class GovernmentSimulationService {
                     order.getOrderId(),
                     order.getSummary(),
                     order.getScope()));
+                actionItems.add(buildExecutiveOrderSummary(order));
             }
         }
         summary.setExecutiveOrders(executiveOrders);
@@ -183,9 +193,11 @@ public class GovernmentSimulationService {
         List<String> courtCases = new ArrayList<>();
         for (GovernmentState.CourtCase courtCase : governmentState.getCourtCases()) {
             courtCases.add(String.format(Locale.ROOT, "%s: %s", courtCase.getCaseId(), courtCase.getDecision()));
+            actionItems.add(buildCourtCaseSummary(courtCase));
         }
         summary.setCourtCases(courtCases);
         summary.setActiveCourtCaseCount(courtCases.size());
+        summary.setActionItems(actionItems);
         List<String> partySummaries = new ArrayList<>();
         for (GovernmentState.PoliticalParty party : governmentState.getParties()) {
             partySummaries.add(String.format(Locale.ROOT,
@@ -196,6 +208,172 @@ public class GovernmentSimulationService {
         }
         summary.setPartySummaries(partySummaries);
         return summary;
+    }
+
+    private GovernmentBudgetSummary buildBudgetSummary(GovernmentState.GovernmentNode node) {
+        if (node == null || node.getBudget() == null) {
+            return null;
+        }
+        GovernmentBudgetSummary budget = new GovernmentBudgetSummary();
+        budget.setRevenue(node.getBudget().getRevenue());
+        budget.setEducation(node.getBudget().getEducation());
+        budget.setHealth(node.getBudget().getHealth());
+        budget.setInfrastructure(node.getBudget().getInfrastructure());
+        budget.setWelfare(node.getBudget().getWelfare());
+        budget.setJustice(node.getBudget().getJustice());
+        budget.setPayroll(node.getBudget().getPayroll());
+        budget.setServiceAccess(node.getServiceAccess());
+        return budget;
+    }
+
+    private List<GovernmentStateMiniSummary> buildStateSummaries(GovernmentState governmentState) {
+        List<GovernmentStateMiniSummary> items = new ArrayList<>();
+        for (GovernmentState.GovernmentNode stateNode : governmentState.getStates()) {
+            GovernmentStateMiniSummary item = new GovernmentStateMiniSummary();
+            item.setName(stateNode.getDisplayName());
+            item.setDistrictingMode(stateNode.getDistrictingMode());
+            item.setDistrictCount(stateNode.getDistrictCount());
+            item.setExecutiveParty(resolvePartyName(governmentState, stateNode.getExecutivePartyId()));
+            item.setLowerParty(resolvePartyName(governmentState, stateNode.getLowerChamberPartyId()));
+            item.setUpperParty(resolvePartyName(governmentState, stateNode.getUpperChamberPartyId()));
+            item.setChiefJusticeParty(resolvePartyName(governmentState, stateNode.getChiefJusticePartyId()));
+            item.setTrust(stateNode.getPublicTrust());
+            item.setServiceAccess(stateNode.getServiceAccess());
+            if (stateNode.getBudget() != null) {
+                item.setRevenue(stateNode.getBudget().getRevenue());
+                item.setInfrastructure(stateNode.getBudget().getInfrastructure());
+            }
+            items.add(item);
+        }
+        return items;
+    }
+
+    private GovernmentElectionSummary buildElectionSummary(GovernmentState governmentState) {
+        GovernmentElectionSummary item = new GovernmentElectionSummary();
+        item.setNextScope("Federal");
+        item.setNextElectionAt(governmentState.getNextElectionAt());
+        GovernmentState.ElectionRecord latest = governmentState.getElections().isEmpty()
+            ? null
+            : governmentState.getElections().get(0);
+        if (latest != null) {
+            item.setNextScope(humanizeToken(latest.getScope()));
+            item.setLastHeldAt(latest.getHeldAt());
+            item.setLastWinnerParty(resolvePartyName(governmentState, latest.getWinningPartyId()));
+            item.setLastTurnout(latest.getTurnout());
+            item.setLastSummary(latest.getSummary());
+        }
+        return item;
+    }
+
+    private GovernmentActionSummary buildBillSummary(GovernmentState.GovernmentBill bill) {
+        GovernmentActionSummary item = new GovernmentActionSummary();
+        item.setKind("bill");
+        item.setTitle(String.format(Locale.ROOT, "%s: %s", bill.getBillId(), bill.getTitle()));
+        item.setMeta(joinSummaryParts(
+            "Bill",
+            humanizeToken(bill.getScope()),
+            humanizeToken(bill.getStage())
+        ));
+        String summary = bill.getSummary();
+        String effects = summarizeList("Changes", bill.getWorldEffects());
+        item.setSummary(joinSentences(summary, effects));
+        return item;
+    }
+
+    private GovernmentActionSummary buildExecutiveOrderSummary(GovernmentState.ExecutiveOrder order) {
+        GovernmentActionSummary item = new GovernmentActionSummary();
+        item.setKind("order");
+        item.setTitle(String.format(Locale.ROOT, "Order %s", order.getOrderId()));
+        item.setMeta(joinSummaryParts(
+            "Executive Order",
+            humanizeToken(order.getScope()),
+            humanizeToken(order.getPolicyDomain()),
+            humanizeToken(order.getStatus())
+        ));
+        String summary = order.getSummary();
+        String effects = summarizeList("Touches", order.getAffectedSystems());
+        item.setSummary(joinSentences(summary, effects));
+        return item;
+    }
+
+    private GovernmentActionSummary buildCourtCaseSummary(GovernmentState.CourtCase courtCase) {
+        GovernmentActionSummary item = new GovernmentActionSummary();
+        item.setKind("court");
+        item.setTitle(String.format(Locale.ROOT, "Court: %s", courtCase.getCaseId()));
+        item.setMeta(joinSummaryParts(
+            humanizeToken(courtCase.getCourtLevel()),
+            courtCase.isBlockedAction() ? "Blocked action" : "Action upheld"
+        ));
+        String summary = joinSentences(
+            courtCase.getDecision(),
+            courtCase.getDefendant() == null || courtCase.getDefendant().isBlank()
+                ? null
+                : "Reviewed " + courtCase.getDefendant() + ".",
+            summarizeList("Affected", courtCase.getAffectedLaws())
+        );
+        item.setSummary(summary);
+        return item;
+    }
+
+    private String summarizeList(String label, List<String> items) {
+        if (items == null || items.isEmpty()) {
+            return null;
+        }
+        return label + ": " + String.join(", ", items) + ".";
+    }
+
+    private String joinSentences(String... parts) {
+        List<String> cleaned = new ArrayList<>();
+        for (String part : parts) {
+            if (part == null) {
+                continue;
+            }
+            String value = part.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            cleaned.add(value);
+        }
+        return String.join(" ", cleaned);
+    }
+
+    private String joinSummaryParts(String... parts) {
+        List<String> cleaned = new ArrayList<>();
+        for (String part : parts) {
+            if (part == null) {
+                continue;
+            }
+            String value = part.trim();
+            if (value.isEmpty()) {
+                continue;
+            }
+            cleaned.add(value);
+        }
+        return String.join(" · ", cleaned);
+    }
+
+    private String humanizeToken(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        String normalized = value.replace('_', ' ').replace('-', ' ');
+        normalized = normalized.replaceAll("([a-z])([A-Z])", "$1 $2");
+        normalized = normalized.toLowerCase(Locale.ROOT).trim();
+        String[] words = normalized.split("\\s+");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (word.isBlank()) {
+                continue;
+            }
+            if (result.length() > 0) {
+                result.append(' ');
+            }
+            result.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) {
+                result.append(word.substring(1));
+            }
+        }
+        return result.toString();
     }
 
     public BotCivicState readBotCivicState(String json) {

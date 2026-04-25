@@ -135,6 +135,15 @@ class GovernmentSimulationServiceTest {
             assertThat(governmentState.getExecutiveOrders()).isNotEmpty();
             assertThat(governmentState.getElections()).isNotEmpty();
             assertThat(summary.getActiveExecutiveOrderCount()).isGreaterThanOrEqualTo(1);
+            assertThat(summary.getFederalBudget()).isNotNull();
+            assertThat(summary.getStateSummaries()).isNotEmpty();
+            assertThat(summary.getElectionSummary()).isNotNull();
+            assertThat(summary.getActionItems()).isNotEmpty();
+            assertThat(summary.getActionItems())
+                .allSatisfy(item -> {
+                    assertThat(item.getTitle()).isNotBlank();
+                    assertThat(item.getSummary()).isNotBlank();
+                });
             assertThat(summary.getPartySummaries()).isNotEmpty();
             assertThat(bots)
                 .map(bot -> service.readBotCivicState(bot.getCivicStateJson()))

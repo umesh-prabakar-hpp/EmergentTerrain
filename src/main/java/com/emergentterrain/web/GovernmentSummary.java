@@ -22,6 +22,10 @@ public class GovernmentSummary {
     private List<String> activeBills = new ArrayList<>();
     private List<String> executiveOrders = new ArrayList<>();
     private List<String> courtCases = new ArrayList<>();
+    private List<GovernmentActionSummary> actionItems = new ArrayList<>();
+    private GovernmentBudgetSummary federalBudget;
+    private List<GovernmentStateMiniSummary> stateSummaries = new ArrayList<>();
+    private GovernmentElectionSummary electionSummary;
     private List<String> partySummaries = new ArrayList<>();
 
     public String getConstitutionVersion() {
@@ -158,6 +162,38 @@ public class GovernmentSummary {
 
     public void setCourtCases(List<String> courtCases) {
         this.courtCases = courtCases;
+    }
+
+    public List<GovernmentActionSummary> getActionItems() {
+        return actionItems;
+    }
+
+    public void setActionItems(List<GovernmentActionSummary> actionItems) {
+        this.actionItems = actionItems;
+    }
+
+    public GovernmentBudgetSummary getFederalBudget() {
+        return federalBudget;
+    }
+
+    public void setFederalBudget(GovernmentBudgetSummary federalBudget) {
+        this.federalBudget = federalBudget;
+    }
+
+    public List<GovernmentStateMiniSummary> getStateSummaries() {
+        return stateSummaries;
+    }
+
+    public void setStateSummaries(List<GovernmentStateMiniSummary> stateSummaries) {
+        this.stateSummaries = stateSummaries;
+    }
+
+    public GovernmentElectionSummary getElectionSummary() {
+        return electionSummary;
+    }
+
+    public void setElectionSummary(GovernmentElectionSummary electionSummary) {
+        this.electionSummary = electionSummary;
     }
 
     public List<String> getPartySummaries() {

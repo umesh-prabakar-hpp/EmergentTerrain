@@ -1236,40 +1236,59 @@ function renderGovernmentSummary() {
   }
 
   const summaryItems = [
-    `Constitution: ${summary.constitutionVersion}`,
-    `Tick: ${summary.tick || 0}`,
-    `Federal executive: ${summary.federalExecutiveParty || 'None'}`,
-    `Lower / upper: ${summary.federalLowerParty || 'None'} / ${summary.federalUpperParty || 'None'}`,
-    `Chief justice bloc: ${summary.federalChiefJusticeParty || 'None'}`,
-    `Trust: ${formatScore(summary.federalTrust)}`,
-    `Revenue / infrastructure: ${summary.federalRevenue || 0} / ${summary.federalInfrastructureBudget || 0}`,
-    `States: ${summary.stateCount || 0}`,
-    `Orders / cases: ${summary.activeExecutiveOrderCount || 0} / ${summary.activeCourtCaseCount || 0}`,
-    `Next election: ${summary.nextElectionAt ? new Date(summary.nextElectionAt).toLocaleTimeString() : 'pending'}`
+    { text: `Constitution: ${summary.constitutionVersion}` },
+    { text: `Tick: ${summary.tick || 0}` },
+    { text: `Federal executive: ${summary.federalExecutiveParty || 'None'}` },
+    { text: `Lower / upper: ${summary.federalLowerParty || 'None'} / ${summary.federalUpperParty || 'None'}` },
+    { text: `Chief justice bloc: ${summary.federalChiefJusticeParty || 'None'}` },
+    { text: `Trust: ${formatScore(summary.federalTrust)}` },
+    {
+      text: `Revenue / infrastructure: ${summary.federalRevenue || 0} / ${summary.federalInfrastructureBudget || 0}`,
+      detail: renderBudgetBreakdownCard(summary)
+    },
+    {
+      text: `States: ${summary.stateCount || 0}`,
+      detail: renderStateSummaryGroup(summary)
+    },
+    { text: `Orders / cases: ${summary.activeExecutiveOrderCount || 0} / ${summary.activeCourtCaseCount || 0}` },
+    {
+      text: `Next election: ${summary.nextElectionAt ? new Date(summary.nextElectionAt).toLocaleTimeString() : 'pending'}`,
+      detail: renderElectionSummaryCard(summary)
+    }
   ];
-  summaryItems.forEach((text) => {
+  summaryItems.forEach((item) => {
     const row = document.createElement('div');
     row.className = 'list-item';
-    row.textContent = text;
+    row.textContent = item.text;
     governmentSummaryEl.appendChild(row);
+    if (item.detail) {
+      governmentSummaryEl.appendChild(item.detail);
+    }
   });
 
-  const combinedGovernmentActions = [
-    ...(summary.activeBills || []),
-    ...((summary.executiveOrders || []).map((item) => `Order: ${item}`)),
-    ...((summary.courtCases || []).map((item) => `Court: ${item}`))
-  ];
-  if (!combinedGovernmentActions.length) {
-    const row = document.createElement('div');
-    row.className = 'list-item';
-    row.textContent = 'No active government actions.';
-    governmentBillsEl.appendChild(row);
-  } else {
-    combinedGovernmentActions.forEach((bill) => {
+  const actionItems = Array.isArray(summary.actionItems) ? summary.actionItems : [];
+  if (!actionItems.length) {
+    const combinedGovernmentActions = [
+      ...(summary.activeBills || []),
+      ...((summary.executiveOrders || []).map((item) => `Order: ${item}`)),
+      ...((summary.courtCases || []).map((item) => `Court: ${item}`))
+    ];
+    if (!combinedGovernmentActions.length) {
       const row = document.createElement('div');
       row.className = 'list-item';
-      row.textContent = bill;
+      row.textContent = 'No active government actions.';
       governmentBillsEl.appendChild(row);
+    } else {
+      combinedGovernmentActions.forEach((bill) => {
+        const row = document.createElement('div');
+        row.className = 'list-item';
+        row.textContent = bill;
+        governmentBillsEl.appendChild(row);
+      });
+    }
+  } else {
+    actionItems.forEach((item) => {
+      governmentBillsEl.appendChild(renderGovernmentActionItem(item));
     });
   }
 
@@ -1287,6 +1306,153 @@ function renderGovernmentSummary() {
       governmentPartiesEl.appendChild(row);
     });
   }
+}
+
+function renderGovernmentActionItem(item) {
+  const row = document.createElement('div');
+  row.className = 'list-item government-action-item';
+
+  const title = document.createElement('div');
+  title.className = 'list-item-title';
+  title.textContent = item && item.title ? item.title : 'Government action';
+  row.appendChild(title);
+
+  if (item && item.meta) {
+    const meta = document.createElement('div');
+    meta.className = 'list-item-meta';
+    meta.textContent = item.meta;
+    row.appendChild(meta);
+  }
+
+  if (item && item.summary) {
+    const summary = document.createElement('div');
+    summary.className = 'list-item-summary';
+    summary.textContent = item.summary;
+    row.appendChild(summary);
+  }
+  return row;
+}
+
+function renderBudgetBreakdownCard(summary) {
+  const budget = summary && summary.federalBudget;
+  if (!budget) return null;
+  const card = document.createElement('div');
+  card.className = 'list-item government-detail-card';
+  card.appendChild(buildDetailTitle('Federal budget breakdown'));
+  card.appendChild(buildMetricGrid([
+    ['Education', budget.education || 0],
+    ['Health', budget.health || 0],
+    ['Infrastructure', budget.infrastructure || 0],
+    ['Welfare', budget.welfare || 0],
+    ['Justice', budget.justice || 0],
+    ['Payroll', budget.payroll || 0]
+  ]));
+  const foot = document.createElement('div');
+  foot.className = 'list-item-summary';
+  foot.textContent = `Service access: ${formatScore(budget.serviceAccess)} · Revenue: ${budget.revenue || 0}`;
+  card.appendChild(foot);
+  return card;
+}
+
+function renderStateSummaryGroup(summary) {
+  const states = Array.isArray(summary && summary.stateSummaries) ? summary.stateSummaries : [];
+  if (!states.length) return null;
+  const wrap = document.createElement('div');
+  wrap.className = 'government-state-group';
+  states.forEach((state) => {
+    const card = document.createElement('div');
+    card.className = 'list-item government-detail-card government-state-card';
+    card.appendChild(buildDetailTitle(state.name || 'State'));
+
+    const meta = document.createElement('div');
+    meta.className = 'list-item-meta';
+    meta.textContent = `${state.districtCount || 0} districts · ${humanizeLabel(state.districtingMode || 'regional')} map`;
+    card.appendChild(meta);
+
+    const control = document.createElement('div');
+    control.className = 'list-item-summary';
+    control.textContent = `Executive: ${state.executiveParty || 'None'} · Lower/upper: ${state.lowerParty || 'None'} / ${state.upperParty || 'None'}`;
+    card.appendChild(control);
+
+    const court = document.createElement('div');
+    court.className = 'list-item-summary';
+    court.textContent = `Court bloc: ${state.chiefJusticeParty || 'None'} · Trust: ${formatScore(state.trust)} · Service: ${formatScore(state.serviceAccess)}`;
+    card.appendChild(court);
+
+    card.appendChild(buildMetricGrid([
+      ['Revenue', state.revenue || 0],
+      ['Infra', state.infrastructure || 0]
+    ]));
+    wrap.appendChild(card);
+  });
+  return wrap;
+}
+
+function renderElectionSummaryCard(summary) {
+  const election = summary && summary.electionSummary;
+  if (!election) return null;
+  const card = document.createElement('div');
+  card.className = 'list-item government-detail-card';
+  card.appendChild(buildDetailTitle(`${election.nextScope || 'Federal'} election`));
+
+  const meta = document.createElement('div');
+  meta.className = 'list-item-meta';
+  meta.textContent = election.nextElectionAt
+    ? `Scheduled ${new Date(election.nextElectionAt).toLocaleString()}`
+    : 'Schedule pending';
+  card.appendChild(meta);
+
+  if (election.lastSummary || election.lastWinnerParty) {
+    const summaryLine = document.createElement('div');
+    summaryLine.className = 'list-item-summary';
+    summaryLine.textContent = election.lastSummary || `Last winner: ${election.lastWinnerParty}`;
+    card.appendChild(summaryLine);
+  }
+
+  if (election.lastHeldAt || election.lastWinnerParty) {
+    const result = document.createElement('div');
+    result.className = 'list-item-summary';
+    const parts = [];
+    if (election.lastHeldAt) {
+      parts.push(`Last held ${new Date(election.lastHeldAt).toLocaleString()}`);
+    }
+    if (election.lastWinnerParty) {
+      parts.push(`Winner: ${election.lastWinnerParty}`);
+    }
+    if (election.lastTurnout || election.lastTurnout === 0) {
+      parts.push(`Turnout: ${formatPercent(election.lastTurnout)}`);
+    }
+    result.textContent = parts.join(' · ');
+    card.appendChild(result);
+  }
+
+  return card;
+}
+
+function buildDetailTitle(text) {
+  const title = document.createElement('div');
+  title.className = 'list-item-title';
+  title.textContent = text;
+  return title;
+}
+
+function buildMetricGrid(items) {
+  const grid = document.createElement('div');
+  grid.className = 'metric-grid';
+  items.forEach(([label, value]) => {
+    const pill = document.createElement('div');
+    pill.className = 'metric-pill';
+    pill.textContent = `${label}: ${value}`;
+    grid.appendChild(pill);
+  });
+  return grid;
+}
+
+function humanizeLabel(value) {
+  if (!value) return '';
+  return String(value)
+    .replace(/[_-]/g, ' ')
+    .replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
 function renderBotProfiles() {
@@ -1422,6 +1588,11 @@ function renderBotProfiles() {
 function formatScore(value) {
   if (value === undefined || value === null) return '0.00';
   return Number(value).toFixed(2);
+}
+
+function formatPercent(value) {
+  if (value === undefined || value === null) return '0%';
+  return `${Math.round(Number(value) * 100)}%`;
 }
 
 function dominantTrait(profile) {
