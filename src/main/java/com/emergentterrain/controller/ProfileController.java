@@ -6,15 +6,16 @@ import com.emergentterrain.service.ProfileResult;
 import com.emergentterrain.service.ProfileService;
 import com.emergentterrain.web.ProfileForm;
 import com.emergentterrain.web.QuestionItem;
-import com.emergentterrain.web.ProfileSelectItem;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.util.UriUtils;
 
 import java.security.Principal;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @Controller
@@ -30,6 +31,10 @@ public class ProfileController {
 
     @GetMapping("/profile/new")
     public String profileForm(Model model) {
+        java.util.Optional<com.emergentterrain.domain.Profile> existing = profileService.getSingletonProfile();
+        if (existing.isPresent()) {
+            return redirectToGame(profileService.buildTokenForProfile(existing.get()));
+        }
         model.addAttribute("form", new ProfileForm());
         model.addAttribute("questions", questions());
         return "profile_form";
@@ -37,24 +42,22 @@ public class ProfileController {
 
     @GetMapping("/profile/select")
     public String selectProfile(Principal principal, Model model) {
-        User user = userRepository.findByEmail(principal.getName().toLowerCase()).orElseThrow();
-        List<ProfileSelectItem> items = profileService.getProfilesForUser(user).stream()
-            .map(profile -> new ProfileSelectItem(
-                profile.getId().toString(),
-                profileService.buildTokenForProfile(profile),
-                profile.getCreatedAt()
-            )).toList();
-        model.addAttribute("profiles", items);
-        return "profile_select";
+        java.util.Optional<com.emergentterrain.domain.Profile> existing = profileService.getSingletonProfile();
+        if (existing.isEmpty()) {
+            return "redirect:/profile/new";
+        }
+        return redirectToGame(profileService.buildTokenForProfile(existing.get()));
     }
 
     @PostMapping("/profile")
     public String createProfile(@ModelAttribute("form") ProfileForm form, Principal principal, Model model) {
         User user = userRepository.findByEmail(principal.getName().toLowerCase()).orElseThrow();
         ProfileResult result = profileService.createProfile(user, form);
-        model.addAttribute("token", result.token());
-        model.addAttribute("profileId", result.profile().getId().toString());
-        return "profile_success";
+        return redirectToGame(result.token());
+    }
+
+    private String redirectToGame(String token) {
+        return "redirect:/game?token=" + UriUtils.encodeQueryParam(token, StandardCharsets.UTF_8);
     }
 
     private List<QuestionItem> questions() {

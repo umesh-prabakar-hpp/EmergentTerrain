@@ -52,7 +52,7 @@
               <md-icon-button id="toggleSnapshots" title="Snapshots"><md-icon>layers</md-icon></md-icon-button>
               <md-icon-button id="toggleResonance" title="Resonance Overlay"><md-icon>blur_on</md-icon></md-icon-button>
               <md-icon-button id="toggleMirror" title="Mirror Walk"><md-icon>visibility_off</md-icon></md-icon-button>
-              <md-icon-button id="toggleMultiplayer" title="Multiplayer"><md-icon>groups</md-icon></md-icon-button>
+              <md-icon-button id="toggleMultiplayer" title="Room"><md-icon>meeting_room</md-icon></md-icon-button>
               <md-icon-button id="toggleBots" title="Companions"><md-icon>smart_toy</md-icon></md-icon-button>
               <md-icon-button id="toggleMiniMap" title="Toggle Map"><md-icon>map</md-icon></md-icon-button>
               <md-icon-button id="toggleCivicMap" title="Civic Map"><md-icon>gavel</md-icon></md-icon-button>
@@ -93,19 +93,11 @@
               <md-outlined-button class="panel-close" data-close="snapshotsPanel">Close</md-outlined-button>
             </div>
             <div class="overlay-panel" id="multiplayerPanel">
-              <div class="chip">Multiplayer</div>
-              <div class="multiplayer-form">
-                <md-outlined-text-field id="roomName" label="Room name"></md-outlined-text-field>
-                <md-filled-button id="createRoomBtn">Create Room</md-filled-button>
-              </div>
-              <div class="multiplayer-form">
-                <md-outlined-text-field id="roomIdInput" label="Room ID"></md-outlined-text-field>
-                <md-outlined-button id="joinRoomBtn">Join Room</md-outlined-button>
-              </div>
+              <div class="chip">Room</div>
               <div id="roomStatus" class="md-typescale-body-medium"></div>
               <div class="chip">Neighborhood</div>
               <div id="neighborStats" class="list md-typescale-body-medium"></div>
-              <div class="chip">Participants</div>
+              <div class="chip">Player</div>
               <div id="participantsList" class="list md-typescale-body-medium"></div>
               <div class="chip">Bot Profiles</div>
               <div id="botProfilesList" class="list md-typescale-body-medium"></div>

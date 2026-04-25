@@ -216,7 +216,8 @@ Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 ## Configuration
 See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
-- `app.room.multipleRoomsEnabled` to allow or disable creating separate rooms
+- `app.room.multipleRoomsEnabled` defaults to false for the single-room player experience
+- `app.ai.digestCooldownMinutes`, `app.ai.advisorCooldownSeconds`, and `app.ai.explanationCooldownMs` for LLM request pacing
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.highways.emergent.*` for travel-demand highway formation and decay
 - `app.government.*` for deterministic constitutional/government timing
@@ -259,14 +260,14 @@ See `src/main/resources/application.yml` for app settings:
 ## Routes (summary)
 - `GET /register`, `POST /register`
 - `GET /login`, `POST /login`
-- `GET /profile/new`, `POST /profile`
+- `GET /profile/new`, `POST /profile` (first player profile only)
 - `GET /qr?token=...`
 - `GET /game?token=...`
 - `GET /game/government-trend?token=...&roomId=...&window=...`
 - `POST /game/state` (world seed + regions)
-- `POST /room/create`
-- `POST /room/join`
-- `POST /room/last` (join last room or create new)
+- `POST /room/create` (resolves to the singleton room)
+- `POST /room/join` (resolves to the singleton room)
+- `POST /room/last` (join or create the singleton room)
 - `POST /room/{roomId}/state`
 - `POST /room/{roomId}/government-trend`
 - `POST /room/{roomId}/move`
@@ -329,4 +330,3 @@ check chrome://gpu again. What we want to see is:
 GL_RENDERER showing AMD, not Intel
 
 http://localhost:8080/game?token=H4sIAAAAAAAA_12Qu07EMBBF_8V1gsbjsSdJtwUFEnRUNKvsZrJYJE5kOzyE-He8vCS2Pef6-mre1bPqdKXWuIx-kptBdQpYGMlJrQ_jWNOg27plc6gPDSCQPTjHR1Wp_iSqI1upJK_l1d3u9rrQaTn22S-hEI2G7DkY0ovEpLp3NfknSftxiZJyATluUv3Alz5L_I_mZQu59-EiuawS9qOXabiskLw_Tn4uTf9F2kJ4-0YflXr0wyDhPGctO9IWSxqunCOtW0IHbAyiqVSWeZXY598AozOWCHTjNDguRdvsB5_fvmyDjMhNqQFoLVWq_JH-pANitmA1NC2We0uQePpxAIZZO83aEpizy3FZv2RBgGhbptYyWVfW-7JYhl0uB0ZAVwPVSPcaO910qK_AEFhg5Af18Qnf8fjq3QEAAA.S1tFI2UguURHEgpKvpD5muTneP4niJA2tSZ2sRolrW4
-

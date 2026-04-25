@@ -16,7 +16,7 @@
       <div class="hero-row">
         <div>
           <div class="chip">Emergent Terrain</div>
-          <h2 class="section-title md-typescale-headline-medium">Select a Profile</h2>
+          <h2 class="section-title md-typescale-headline-medium">Player Profile</h2>
         </div>
         <md-outlined-button id="themeToggle" type="button" class="theme-toggle m3-only">
           <md-icon id="themeIcon">dark_mode</md-icon>
@@ -26,14 +26,11 @@
     </div>
     <div class="card">
       <div class="snapshot-list">
-        <div th:if="${#lists.isEmpty(profiles)}">No profiles yet. Create one.</div>
+        <div th:if="${#lists.isEmpty(profiles)}">No player profile yet.</div>
         <div th:each="p : ${profiles}" class="snapshot-item">
           <div th:text="${#dates.format(p.createdAt, 'yyyy-MM-dd HH:mm')}"></div>
           <a th:href="@{/game(token=${p.token})}">Resume</a>
         </div>
-      </div>
-      <div class="tools">
-        <a th:href="@{/profile/new}">Create New Profile</a>
       </div>
     </div>
   </div>

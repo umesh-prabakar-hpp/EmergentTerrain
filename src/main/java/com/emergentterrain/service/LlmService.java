@@ -2,12 +2,15 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.web.GovernmentSummary;
+import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -24,37 +27,51 @@ public class LlmService {
 
     private static final Logger log = LoggerFactory.getLogger(LlmService.class);
 
-    private static final int DIGEST_COOLDOWN_MINUTES = 10;
     private static final int DIGEST_MAX_CASES = 3;
     private static final int DIGEST_MAX_BILLS = 3;
 
     private final ChatClient chatClient;
     private final RoomUpdateBroadcaster broadcaster;
-    private final ConcurrentHashMap<UUID, Long> lastDigestAt = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Long> lastAcceptedAt = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, String> lastDigestFingerprint = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore llmSlots = new Semaphore(1);
+    private final long digestCooldownMs;
+    private final long advisorCooldownMs;
+    private final long explanationCooldownMs;
 
-    public LlmService(ChatClient.Builder chatClientBuilder, RoomUpdateBroadcaster broadcaster) {
+    public LlmService(ChatClient.Builder chatClientBuilder,
+                      RoomUpdateBroadcaster broadcaster,
+                      @Value("${app.ai.digestCooldownMinutes:10}") long digestCooldownMinutes,
+                      @Value("${app.ai.advisorCooldownSeconds:15}") long advisorCooldownSeconds,
+                      @Value("${app.ai.explanationCooldownMs:2500}") long explanationCooldownMs) {
         this.chatClient = chatClientBuilder.build();
         this.broadcaster = broadcaster;
+        this.digestCooldownMs = TimeUnit.MINUTES.toMillis(Math.max(0L, digestCooldownMinutes));
+        this.advisorCooldownMs = TimeUnit.SECONDS.toMillis(Math.max(0L, advisorCooldownSeconds));
+        this.explanationCooldownMs = Math.max(0L, explanationCooldownMs);
     }
 
     // --- Public triggers ---
 
     public void generateGovernmentDigestIfAbsent(UUID roomId, GovernmentState state) {
-        // Per-room cooldown: at most one digest every DIGEST_COOLDOWN_MINUTES
         long now = System.currentTimeMillis();
-        Long last = lastDigestAt.get(roomId);
-        if (last != null && now - last < TimeUnit.MINUTES.toMillis(DIGEST_COOLDOWN_MINUTES)) return;
+        String kind = "government_digest";
+        String cooldownKey = cooldownKey(roomId, kind);
+        if (isOnCooldown(cooldownKey, now, digestCooldownMs)) {
+            return;
+        }
 
         // Collect events, cap to most recent N to keep prompt small
         List<GovernmentState.CourtCase> decidedCases = state.getCourtCases().stream()
                 .filter(c -> "DECIDED".equalsIgnoreCase(c.getStatus()))
+                .sorted(Comparator.comparing(this::courtCaseEventAt).reversed())
                 .limit(DIGEST_MAX_CASES)
                 .toList();
         List<GovernmentState.GovernmentBill> enactedBills = state.getBills().stream()
                 .filter(b -> "ENACTED".equalsIgnoreCase(b.getLawStatus())
                           || "BLOCKED".equalsIgnoreCase(b.getLawStatus()))
+                .sorted(Comparator.comparing(this::billEventAt).reversed())
                 .limit(DIGEST_MAX_BILLS)
                 .toList();
         GovernmentState.ElectionRecord recentElection = state.getElections().stream()
@@ -64,54 +81,133 @@ public class LlmService {
 
         if (decidedCases.isEmpty() && enactedBills.isEmpty() && recentElection == null) return;
 
-        lastDigestAt.put(roomId, now);
-        log.info("LLM digest triggered room={} cases={} bills={} election={}",
-                roomId, decidedCases.size(), enactedBills.size(), recentElection != null);
+        String fingerprint = digestFingerprint(decidedCases, enactedBills, recentElection);
+        if (fingerprint.equals(lastDigestFingerprint.get(roomId))) {
+            return;
+        }
 
         String streamId = "digest-" + now;
-        generateAndStream(roomId, streamId, "government_digest",
-                buildGovernmentDigestPrompt(decidedCases, enactedBills, recentElection));
+        if (generateAndStream(roomId, streamId, kind,
+                buildGovernmentDigestPrompt(decidedCases, enactedBills, recentElection))) {
+            markAccepted(cooldownKey, now);
+            lastDigestFingerprint.put(roomId, fingerprint);
+            log.info("LLM digest accepted room={} cases={} bills={} election={}",
+                    roomId, decidedCases.size(), enactedBills.size(), recentElection != null);
+        }
     }
 
     public void generateAdvice(UUID roomId, String streamId, GovernmentSummary summary,
                                String question) {
-        log.info("LLM advisor triggered room={} streamId={}", roomId, streamId);
-        generateAndStream(roomId, streamId, "advisor", buildAdvisorPrompt(summary, question));
+        String kind = "advisor";
+        long now = System.currentTimeMillis();
+        String cooldownKey = cooldownKey(roomId, kind);
+        if (isOnCooldown(cooldownKey, now, advisorCooldownMs)) {
+            logCooldownSkip(roomId, streamId, kind, cooldownKey, now, advisorCooldownMs);
+            return;
+        }
+        if (generateAndStream(roomId, streamId, kind, buildAdvisorPrompt(summary, question))) {
+            markAccepted(cooldownKey, now);
+            log.info("LLM advisor accepted room={} streamId={}", roomId, streamId);
+        }
     }
 
     public void generateExplanation(UUID roomId, String streamId, int x, int y, String tileType,
                                     Map<String, Boolean> answers) {
-        generateAndStream(roomId, streamId, "explanation",
-                buildExplanationPrompt(x, y, tileType, answers));
+        String kind = "explanation";
+        long now = System.currentTimeMillis();
+        String cooldownKey = cooldownKey(roomId, kind);
+        if (isOnCooldown(cooldownKey, now, explanationCooldownMs)) {
+            logCooldownSkip(roomId, streamId, kind, cooldownKey, now, explanationCooldownMs);
+            return;
+        }
+        if (generateAndStream(roomId, streamId, kind, buildExplanationPrompt(x, y, tileType, answers))) {
+            markAccepted(cooldownKey, now);
+        }
     }
 
     // --- Core streaming ---
 
-    public void generateAndStream(UUID roomId, String streamId, String kind, String prompt) {
-        executor.execute(() -> {
-            if (!llmSlots.tryAcquire()) {
-                log.info("LLM slot busy — shedding room={} kind={}", roomId, kind);
-                broadcaster.broadcastLlmDone(roomId, streamId, kind);
-                return;
-            }
-            long start = System.currentTimeMillis();
-            try {
-                chatClient.prompt()
-                        .user(prompt)
-                        .stream()
-                        .content()
-                        .toStream()
-                        .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
-                log.info("LLM done room={} kind={} ms={}", roomId, kind, System.currentTimeMillis() - start);
-                broadcaster.broadcastLlmDone(roomId, streamId, kind);
-            } catch (Exception e) {
-                log.warn("LLM failed room={} kind={} ms={}: {}", roomId, kind,
-                        System.currentTimeMillis() - start, e.getMessage());
-                broadcaster.broadcastLlmDone(roomId, streamId, kind);
-            } finally {
-                llmSlots.release();
-            }
-        });
+    public boolean generateAndStream(UUID roomId, String streamId, String kind, String prompt) {
+        if (!llmSlots.tryAcquire()) {
+            log.info("LLM slot busy - shedding room={} kind={}", roomId, kind);
+            broadcaster.broadcastLlmDone(roomId, streamId, kind);
+            return false;
+        }
+        try {
+            executor.execute(() -> {
+                long start = System.currentTimeMillis();
+                try {
+                    chatClient.prompt()
+                            .user(prompt)
+                            .stream()
+                            .content()
+                            .toStream()
+                            .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
+                    log.info("LLM done room={} kind={} ms={}", roomId, kind, System.currentTimeMillis() - start);
+                    broadcaster.broadcastLlmDone(roomId, streamId, kind);
+                } catch (Exception e) {
+                    log.warn("LLM failed room={} kind={} ms={}: {}", roomId, kind,
+                            System.currentTimeMillis() - start, e.getMessage());
+                    broadcaster.broadcastLlmDone(roomId, streamId, kind);
+                } finally {
+                    llmSlots.release();
+                }
+            });
+            return true;
+        } catch (RuntimeException e) {
+            llmSlots.release();
+            throw e;
+        }
+    }
+
+    private String cooldownKey(UUID roomId, String kind) {
+        return roomId + ":" + kind;
+    }
+
+    private boolean isOnCooldown(String cooldownKey, long now, long cooldownMs) {
+        if (cooldownMs <= 0) {
+            return false;
+        }
+        Long last = lastAcceptedAt.get(cooldownKey);
+        return last != null && now - last < cooldownMs;
+    }
+
+    private void markAccepted(String cooldownKey, long now) {
+        lastAcceptedAt.put(cooldownKey, now);
+    }
+
+    private void logCooldownSkip(UUID roomId, String streamId, String kind, String cooldownKey, long now, long cooldownMs) {
+        Long last = lastAcceptedAt.get(cooldownKey);
+        long remainingMs = last == null ? cooldownMs : Math.max(0L, cooldownMs - (now - last));
+        log.info("LLM cooldown skip room={} kind={} remainingMs={}", roomId, kind, remainingMs);
+        broadcaster.broadcastLlmDone(roomId, streamId, kind);
+    }
+
+    private String digestFingerprint(List<GovernmentState.CourtCase> cases,
+                                     List<GovernmentState.GovernmentBill> bills,
+                                     GovernmentState.ElectionRecord election) {
+        List<String> parts = new ArrayList<>();
+        for (GovernmentState.CourtCase c : cases) {
+            parts.add("case:" + nvl(c.getCaseId()) + ":" + courtCaseEventAt(c));
+        }
+        for (GovernmentState.GovernmentBill b : bills) {
+            parts.add("bill:" + nvl(b.getBillId()) + ":" + nvl(b.getLawStatus()) + ":" + billEventAt(b));
+        }
+        if (election != null) {
+            parts.add("election:" + nvl(election.getElectionId()) + ":" + election.getHeldAt());
+        }
+        return String.join("|", parts);
+    }
+
+    private Instant courtCaseEventAt(GovernmentState.CourtCase courtCase) {
+        return courtCase.getDecidedAt() == null ? Instant.EPOCH : courtCase.getDecidedAt();
+    }
+
+    private Instant billEventAt(GovernmentState.GovernmentBill bill) {
+        if (bill.getUpdatedAt() != null) {
+            return bill.getUpdatedAt();
+        }
+        return bill.getCreatedAt() == null ? Instant.EPOCH : bill.getCreatedAt();
     }
 
     // --- Prompt builders ---

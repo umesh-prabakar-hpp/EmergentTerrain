@@ -30,10 +30,6 @@ const snapshotsPanel = document.getElementById('snapshotsPanel');
 const multiplayerPanel = document.getElementById('multiplayerPanel');
 const botsPanel = document.getElementById('botsPanel');
 const botPromptEl = document.getElementById('botPrompt');
-const roomNameInput = document.getElementById('roomName');
-const roomIdInput = document.getElementById('roomIdInput');
-const createRoomBtn = document.getElementById('createRoomBtn');
-const joinRoomBtn = document.getElementById('joinRoomBtn');
 const roomStatus = document.getElementById('roomStatus');
 const participantsList = document.getElementById('participantsList');
 const proposalsList = document.getElementById('proposalsList');
@@ -3051,47 +3047,6 @@ window.addEventListener('keydown', (evt) => {
 });
 
 function initMultiplayer() {
-  if (createRoomBtn) {
-    createRoomBtn.addEventListener('click', async () => {
-      const name = roomNameInput ? roomNameInput.value : '';
-      const res = await fetch('/room/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, name })
-      });
-      if (!res.ok) {
-        roomStatus.textContent = 'Failed to create room.';
-        return;
-      }
-      const data = await res.json();
-      roomId = data.roomId;
-      participantId = data.participantId;
-      setRoomStateFromResponse(data);
-      roomStatus.textContent = `Room created: ${data.roomName}`;
-    });
-  }
-
-  if (joinRoomBtn) {
-    joinRoomBtn.addEventListener('click', async () => {
-      const id = roomIdInput ? roomIdInput.value.trim() : '';
-      if (!id) return;
-      const res = await fetch('/room/join', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, roomId: id })
-      });
-      if (!res.ok) {
-        roomStatus.textContent = 'Failed to join room.';
-        return;
-      }
-      const data = await res.json();
-      roomId = data.roomId;
-      participantId = data.participantId;
-      roomStatus.textContent = `Joined room: ${data.roomName}`;
-      await refreshRoomState();
-    });
-  }
-
   if (proposeRoomBtn) {
     proposeRoomBtn.addEventListener('click', async () => {
       await proposeToRoom();
@@ -3533,7 +3488,7 @@ function initBots() {
   botsPanel.querySelectorAll('[data-bot]').forEach(btn => {
     btn.addEventListener('click', async () => {
       if (!roomId) {
-        botPromptEl.textContent = 'Join a room to engage companions.';
+        botPromptEl.textContent = 'Open the room to engage companions.';
         return;
       }
       const type = btn.getAttribute('data-bot');
@@ -3567,7 +3522,7 @@ async function init() {
   const data = await res.json();
   roomId = data.roomId;
   participantId = data.participantId;
-  roomStatus.textContent = `Joined room: ${data.roomName}`;
+  roomStatus.textContent = `Room ready: ${data.roomName}`;
   await refreshRoomState();
   if (infoPanel) {
     document.body.classList.toggle('drawer-open', infoPanel.classList.contains('open'));

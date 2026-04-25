@@ -27,7 +27,6 @@ public class SecurityConfig {
         List<String> openEndpoints = new ArrayList<>(Arrays.asList(
             "/register",
             "/login",
-            "/profile/select",
             "/css/**",
             "/js/**",
             "/qr",

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 @Service
 @org.springframework.context.annotation.Profile("!perf")
@@ -23,7 +24,12 @@ public class ProfileService {
         this.payloadService = payloadService;
     }
 
-    public ProfileResult createProfile(User user, ProfileForm form) {
+    public synchronized ProfileResult createProfile(User user, ProfileForm form) {
+        Optional<Profile> existing = getSingletonProfile();
+        if (existing.isPresent()) {
+            return buildResultForProfile(existing.get());
+        }
+
         Map<String, Boolean> answers = new LinkedHashMap<>();
         answers.put("likes_forests", form.isLikesForests());
         answers.put("likes_water", form.isLikesWater());
@@ -75,15 +81,34 @@ public class ProfileService {
     }
 
     public java.util.List<com.emergentterrain.domain.Profile> getProfilesForUser(User user) {
-        return profileRepository.findByUser(user);
+        return getSingletonProfile()
+            .map(java.util.List::of)
+            .orElseGet(java.util.List::of);
+    }
+
+    public Optional<Profile> getSingletonProfile() {
+        return profileRepository.findTopByUser_RoleNotOrderByCreatedAtAsc("SYSTEM");
+    }
+
+    public ProfileResult buildResultForProfile(Profile profile) {
+        Payload payload = buildPayloadForProfile(profile);
+        return new ProfileResult(profile, payloadService.buildToken(payload), payload);
     }
 
     public String buildTokenForProfile(Profile profile) {
         try {
+            return payloadService.buildToken(buildPayloadForProfile(profile));
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to build token for profile", e);
+        }
+    }
+
+    private Payload buildPayloadForProfile(Profile profile) {
+        try {
             @SuppressWarnings("unchecked")
             Map<String, Boolean> answers = objectMapper.readValue(profile.getAnswersJson(), Map.class);
             HiddenProperties hidden = objectMapper.readValue(profile.getHiddenPropsJson(), HiddenProperties.class);
-            Payload payload = new Payload(
+            return new Payload(
                 1,
                 profile.getId().toString(),
                 profile.getAge(),
@@ -93,9 +118,8 @@ public class ProfileService {
                 hidden,
                 payloadService.issuedAtNow()
             );
-            return payloadService.buildToken(payload);
         } catch (Exception e) {
-            throw new IllegalStateException("Failed to build token for profile", e);
+            throw new IllegalStateException("Failed to build payload for profile", e);
         }
     }
 

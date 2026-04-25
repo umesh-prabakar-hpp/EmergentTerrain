@@ -16,7 +16,7 @@
       <div class="hero-row">
         <div>
           <div class="chip">Emergent Terrain</div>
-          <h2 class="section-title md-typescale-headline-medium">Create your account</h2>
+          <h2 class="section-title md-typescale-headline-medium">Create the player account</h2>
         </div>
         <md-outlined-button id="themeToggle" type="button" class="theme-toggle m3-only">
           <md-icon id="themeIcon">dark_mode</md-icon>
@@ -29,7 +29,7 @@
         <md-filled-text-field label="Email" type="email" name="email" required
           th:attr="value=${form.email}"></md-filled-text-field>
         <md-filled-text-field label="Password" type="password" name="password" required></md-filled-text-field>
-        <md-filled-button type="submit">Create Account</md-filled-button>
+        <md-filled-button type="submit">Create Player</md-filled-button>
       </form>
       <p class="error" th:text="${error}"></p>
       <p class="md-typescale-body-medium">Already have an account? <a th:href="@{/login}">Login</a></p>

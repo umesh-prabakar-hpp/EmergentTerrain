@@ -443,6 +443,9 @@ public class RoomService {
 
     public RoomJoinResponse joinRoom(Payload payload, UUID roomId) {
         Profile profile = profileFromPayload(payload);
+        if (!multipleRoomsEnabled) {
+            roomId = ensureSingleRoom(payload, defaultRoomName);
+        }
         Room room = roomRepository.findById(roomId)
             .orElseThrow(() -> new IllegalStateException("Room not found"));
         RoomParticipant participant = participantRepository.findByRoomAndProfile(room, profile)

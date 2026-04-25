@@ -12,6 +12,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 @Profile("!perf")
@@ -24,7 +25,10 @@ public class UserService implements UserDetailsService {
         this.passwordEncoder = passwordEncoder;
     }
 
-    public User register(String email, String rawPassword) {
+    public synchronized User register(String email, String rawPassword) {
+        if (userRepository.countByRoleNot("SYSTEM") > 0) {
+            throw new IllegalStateException("Player account already exists");
+        }
         User user = new User();
         user.setEmail(email.toLowerCase());
         user.setPasswordHash(passwordEncoder.encode(rawPassword));
@@ -36,6 +40,12 @@ public class UserService implements UserDetailsService {
     public UserDetails loadUserByUsername(String username) throws UsernameNotFoundException {
         User user = userRepository.findByEmail(username.toLowerCase())
             .orElseThrow(() -> new UsernameNotFoundException("User not found"));
+        if (!"SYSTEM".equals(user.getRole())) {
+            Optional<User> singleton = userRepository.findTopByRoleNotOrderByCreatedAtAsc("SYSTEM");
+            if (singleton.isPresent() && !singleton.get().getId().equals(user.getId())) {
+                throw new UsernameNotFoundException("Player account disabled");
+            }
+        }
         List<GrantedAuthority> authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()));
         return new org.springframework.security.core.userdetails.User(user.getEmail(), user.getPasswordHash(), authorities);
     }

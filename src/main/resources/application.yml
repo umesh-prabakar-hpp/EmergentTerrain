@@ -161,6 +161,9 @@ app:
     intervalMs: 30000
   ai:
     enabled: true
+    digestCooldownMinutes: 10
+    advisorCooldownSeconds: 15
+    explanationCooldownMs: 2500
 
 logging:
   file:

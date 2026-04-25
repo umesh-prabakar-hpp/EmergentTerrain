@@ -25,14 +25,14 @@
       </div>
     </div>
     <div class="card">
-      <p class="md-typescale-body-medium">Your QR code encodes your profile and hidden properties.</p>
+      <p class="md-typescale-body-medium">Your QR code encodes the single player profile and hidden properties.</p>
       <div class="qr">
         <a th:href="@{/game(token=${token})}">
           <img th:src="@{/qr(token=${token})}" alt="QR Code" />
         </a>
       </div>
       <p class="md-typescale-body-medium">Click the QR code to open the game.</p>
-      <p class="md-typescale-body-medium">This QR captures your baseline. As you evolve the terrain, a living QR will update in the game.</p>
+      <p class="md-typescale-body-medium">This QR captures the player baseline. As the terrain evolves, a living QR will update in the game.</p>
       <md-filled-tonal-button th:href="@{/game(token=${token})}">Open Game</md-filled-tonal-button>
     </div>
   </div>

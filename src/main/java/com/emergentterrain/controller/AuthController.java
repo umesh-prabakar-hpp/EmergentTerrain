@@ -23,12 +23,19 @@ public class AuthController {
 
     @GetMapping("/register")
     public String registerForm(Model model) {
+        if (userRepository.countByRoleNot("SYSTEM") > 0) {
+            return "redirect:/login";
+        }
         model.addAttribute("form", new RegisterForm());
         return "register";
     }
 
     @PostMapping("/register")
     public String register(@ModelAttribute("form") RegisterForm form, Model model) {
+        if (userRepository.countByRoleNot("SYSTEM") > 0) {
+            model.addAttribute("error", "This installation already has its player account.");
+            return "login";
+        }
         if (form.getEmail() == null || form.getEmail().isBlank() || form.getPassword() == null || form.getPassword().isBlank()) {
             model.addAttribute("error", "Email and password are required.");
             return "register";
