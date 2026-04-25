@@ -20,6 +20,14 @@ spring:
     scheduling:
       pool:
         size: 12
+  ai:
+    ollama:
+      base-url: ${OLLAMA_URL:http://localhost:11434}
+      chat:
+        model: ${OLLAMA_MODEL:gemma2:2b}
+        options:
+          temperature: 0.7
+          num-predict: 200
 server:
   port: 8080
 app:
@@ -152,16 +160,6 @@ app:
     intervalMs: 30000
   ai:
     enabled: true
-
-spring:
-  ai:
-    ollama:
-      base-url: ${OLLAMA_URL:http://localhost:11434}
-      chat:
-        model: ${OLLAMA_MODEL:gemma2:2b}
-        options:
-          temperature: 0.7
-          num-predict: 200
 
 logging:
   file:
