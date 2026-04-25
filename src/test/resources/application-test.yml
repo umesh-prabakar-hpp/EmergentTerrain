@@ -21,6 +21,7 @@ app:
     hmacSecret: test-secret
   room:
     defaultAutoCreate: false
+    multipleRoomsEnabled: true
     defaultUseWhenAvailable: false
   world:
     auto: false

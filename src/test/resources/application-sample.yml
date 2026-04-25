@@ -15,4 +15,5 @@ spring:
 app:
   room:
     defaultAutoCreate: false
+    multipleRoomsEnabled: true
     defaultUseWhenAvailable: false

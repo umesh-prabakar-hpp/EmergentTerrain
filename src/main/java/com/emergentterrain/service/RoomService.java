@@ -125,6 +125,7 @@ public class RoomService {
     private final boolean backgroundMaintenanceEnabled;
     private final String defaultRoomName;
     private final boolean defaultRoomAutoCreate;
+    private final boolean multipleRoomsEnabled;
     private final boolean defaultRoomUseWhenAvailable;
     private final String defaultRoomSystemEmail;
     private final String defaultRoomSystemPasswordHash;
@@ -145,6 +146,7 @@ public class RoomService {
     private final ExecutorService maintenanceExecutor;
     private final TransactionTemplate transactionTemplate;
     private final TransactionTemplate botTransactionTemplate;
+    private final ReentrantLock defaultRoomCreationLock = new ReentrantLock();
     private final ReentrantLock botWriteLock = new ReentrantLock();
     private final AtomicReference<UUID> defaultRoomId = new AtomicReference<>();
     private volatile CachedSystemToken cachedSystemToken;
@@ -232,6 +234,7 @@ public class RoomService {
                        @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds,
                        @Value("${app.room.defaultName:}") String defaultRoomName,
                        @Value("${app.room.defaultAutoCreate:false}") boolean defaultRoomAutoCreate,
+                       @Value("${app.room.multipleRoomsEnabled:true}") boolean multipleRoomsEnabled,
                        @Value("${app.room.defaultUseWhenAvailable:false}") boolean defaultRoomUseWhenAvailable,
                        @Value("${app.room.defaultSystemEmail:system@emergentterrain.local}") String defaultRoomSystemEmail,
                        @Value("${app.room.defaultSystemPasswordHash:system-hash}") String defaultRoomSystemPasswordHash) {
@@ -311,6 +314,7 @@ public class RoomService {
         this.noParticipationLockSeconds = noParticipationLockSeconds;
         this.defaultRoomName = defaultRoomName == null ? "" : defaultRoomName.trim();
         this.defaultRoomAutoCreate = defaultRoomAutoCreate;
+        this.multipleRoomsEnabled = multipleRoomsEnabled;
         this.defaultRoomUseWhenAvailable = defaultRoomUseWhenAvailable;
         this.defaultRoomSystemEmail = (defaultRoomSystemEmail == null || defaultRoomSystemEmail.isBlank())
             ? "system@emergentterrain.local"
@@ -338,20 +342,23 @@ public class RoomService {
     }
 
     public RoomCreateResponse createRoom(Payload payload, String name) {
-        Profile profile = profileFromPayload(payload);
-        if (profile == null) {
-            throw new IllegalStateException("Profile not found");
+        if (!multipleRoomsEnabled) {
+            UUID roomId = ensureSingleRoom(payload, name);
+            return joinRoomAsCreateResponse(payload, roomId);
         }
         if (defaultRoomUseWhenAvailable) {
             UUID defaultId = ensureDefaultRoom();
             if (defaultId != null) {
-                RoomJoinResponse joined = joinRoom(payload, defaultId);
-                RoomCreateResponse redirect = new RoomCreateResponse();
-                redirect.setRoomId(joined.getRoomId());
-                redirect.setRoomName(joined.getRoomName());
-                redirect.setParticipantId(joined.getParticipantId());
-                return redirect;
+                return joinRoomAsCreateResponse(payload, defaultId);
             }
+        }
+        return createNewRoom(payload, name);
+    }
+
+    private RoomCreateResponse createNewRoom(Payload payload, String name) {
+        Profile profile = profileFromPayload(payload);
+        if (profile == null) {
+            throw new IllegalStateException("Profile not found");
         }
         String safeName = (name == null || name.isBlank()) ? "Reflection Room" : name.trim();
         long seed = payloadService.seedFromPayload(payload);
@@ -483,6 +490,9 @@ public class RoomService {
         if (profile == null) {
             throw new IllegalStateException("Profile not found");
         }
+        if (!multipleRoomsEnabled) {
+            return joinRoom(payload, ensureSingleRoom(payload, name));
+        }
         if (defaultRoomUseWhenAvailable) {
             UUID defaultId = ensureDefaultRoom();
             if (defaultId != null) {
@@ -566,15 +576,88 @@ public class RoomService {
         if (!defaultRoomAutoCreate || defaultRoomName.isBlank()) {
             return null;
         }
-        if (roomRepository.count() > 0) {
-            return null;
+        defaultRoomCreationLock.lock();
+        try {
+            existing = resolveDefaultRoomId();
+            if (existing != null) {
+                return existing;
+            }
+            if (roomRepository.count() > 0) {
+                return null;
+            }
+            Payload payload = buildSystemPayload();
+            RoomCreateResponse created = createNewRoom(payload, defaultRoomName);
+            UUID createdId = UUID.fromString(created.getRoomId());
+            defaultRoomId.set(createdId);
+            log.info("default room created id={} name={}", createdId, defaultRoomName);
+            return createdId;
+        } finally {
+            defaultRoomCreationLock.unlock();
         }
-        Payload payload = buildSystemPayload();
-        RoomCreateResponse created = createRoom(payload, defaultRoomName);
-        UUID createdId = UUID.fromString(created.getRoomId());
-        defaultRoomId.set(createdId);
-        log.info("default room created id={} name={}", createdId, defaultRoomName);
-        return createdId;
+    }
+
+    private UUID ensureSingleRoom(Payload payload, String requestedName) {
+        UUID existing = resolveSingleRoomId();
+        if (existing != null) {
+            return existing;
+        }
+        defaultRoomCreationLock.lock();
+        try {
+            existing = resolveSingleRoomId();
+            if (existing != null) {
+                return existing;
+            }
+            RoomCreateResponse created = createNewRoom(payload, singleRoomCreateName(requestedName));
+            UUID createdId = UUID.fromString(created.getRoomId());
+            defaultRoomId.set(createdId);
+            log.info("single room created id={} name={}", createdId, created.getRoomName());
+            return createdId;
+        } finally {
+            defaultRoomCreationLock.unlock();
+        }
+    }
+
+    private UUID resolveSingleRoomId() {
+        UUID defaultId = resolveDefaultRoomId();
+        if (defaultId != null) {
+            return defaultId;
+        }
+        return roomRepository.findTopByOrderByCreatedAtAsc()
+            .map(Room::getId)
+            .orElse(null);
+    }
+
+    private String singleRoomCreateName(String requestedName) {
+        if (!defaultRoomName.isBlank()) {
+            return defaultRoomName;
+        }
+        return requestedName;
+    }
+
+    private RoomCreateResponse joinRoomAsCreateResponse(Payload payload, UUID roomId) {
+        RoomJoinResponse joined = joinRoom(payload, roomId);
+        RoomStateResponse state = getRoomState(payload, roomId);
+        RoomCreateResponse response = new RoomCreateResponse();
+        response.setRoomId(state.getRoomId());
+        response.setRoomName(state.getRoomName());
+        response.setParticipantId(joined.getParticipantId());
+        response.setTiles(state.getTiles());
+        response.setHighways(state.getHighways());
+        response.setSharedTokens(state.getSharedTokens());
+        response.setSharedQuests(state.getSharedQuests());
+        response.setMemoryMarkers(state.getMemoryMarkers());
+        response.setParticipants(state.getParticipants());
+        response.setBots(state.getBots());
+        response.setProposals(state.getProposals());
+        response.setTurnOwnerParticipantId(state.getTurnOwnerParticipantId());
+        response.setTurnExpiresAt(state.getTurnExpiresAt());
+        response.setLockUntil(state.getLockUntil());
+        response.setNeighborRadius(state.getNeighborRadius());
+        response.setMinNeighbors(state.getMinNeighbors());
+        response.setDensityAreaSize(state.getDensityAreaSize());
+        response.setMaxOccupants(state.getMaxOccupants());
+        response.setGovernmentSummary(state.getGovernmentSummary());
+        return response;
     }
 
     private UUID resolveDefaultRoomId() {

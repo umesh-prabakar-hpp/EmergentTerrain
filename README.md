@@ -216,6 +216,7 @@ Material Web, Roboto, and Material Symbols are loaded from CDN in the templates.
 ## Configuration
 See `src/main/resources/application.yml` for app settings:
 - `app.qr.hmacSecret`
+- `app.room.multipleRoomsEnabled` to allow or disable creating separate rooms
 - `app.world.auto`, `app.world.maxTiles`, `app.world.aspectRatio`, `app.world.highwayRatio`
 - `app.highways.emergent.*` for travel-demand highway formation and decay
 - `app.government.*` for deterministic constitutional/government timing

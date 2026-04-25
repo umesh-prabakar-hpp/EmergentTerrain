@@ -53,6 +53,7 @@ app:
   room:
     defaultName: "Consensus Field"
     defaultAutoCreate: true
+    multipleRoomsEnabled: false
     defaultUseWhenAvailable: true
     defaultSystemEmail: "system@emergentterrain.local"
     defaultSystemPasswordHash: "system-hash"
