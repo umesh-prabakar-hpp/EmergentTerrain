@@ -342,6 +342,17 @@ public class RoomService {
         if (profile == null) {
             throw new IllegalStateException("Profile not found");
         }
+        if (defaultRoomUseWhenAvailable) {
+            UUID defaultId = ensureDefaultRoom();
+            if (defaultId != null) {
+                RoomJoinResponse joined = joinRoom(payload, defaultId);
+                RoomCreateResponse redirect = new RoomCreateResponse();
+                redirect.setRoomId(joined.getRoomId());
+                redirect.setRoomName(joined.getRoomName());
+                redirect.setParticipantId(joined.getParticipantId());
+                return redirect;
+            }
+        }
         String safeName = (name == null || name.isBlank()) ? "Reflection Room" : name.trim();
         long seed = payloadService.seedFromPayload(payload);
         GameStateResponse world = worldService.generateWorld(payload, seed);
