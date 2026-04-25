@@ -55,6 +55,9 @@ public class LlmService {
         String key = buildDigestKey(decidedCases, enactedBills, recentElection);
         if (!markSeen(roomId, "digest:" + key)) return;
 
+        log.info("LLM digest triggered room={} cases={} bills={} election={}",
+                roomId, decidedCases.size(), enactedBills.size(), recentElection != null);
+
         String streamId = "digest-" + System.currentTimeMillis();
         generateAndStream(roomId, streamId, "government_digest",
                 buildGovernmentDigestPrompt(decidedCases, enactedBills, recentElection));
@@ -62,6 +65,7 @@ public class LlmService {
 
     public void generateAdvice(UUID roomId, String streamId, GovernmentSummary summary,
                                String question) {
+        log.info("LLM advisor triggered room={} streamId={}", roomId, streamId);
         generateAndStream(roomId, streamId, "advisor", buildAdvisorPrompt(summary, question));
     }
 
@@ -76,10 +80,11 @@ public class LlmService {
     public void generateAndStream(UUID roomId, String streamId, String kind, String prompt) {
         executor.execute(() -> {
             if (!llmSlots.tryAcquire()) {
-                log.debug("LLM slot busy — shedding room={} kind={}", roomId, kind);
+                log.info("LLM slot busy — shedding room={} kind={}", roomId, kind);
                 broadcaster.broadcastLlmDone(roomId, streamId, kind);
                 return;
             }
+            long start = System.currentTimeMillis();
             try {
                 chatClient.prompt()
                         .user(prompt)
@@ -87,9 +92,11 @@ public class LlmService {
                         .content()
                         .toStream()
                         .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
+                log.info("LLM done room={} kind={} ms={}", roomId, kind, System.currentTimeMillis() - start);
                 broadcaster.broadcastLlmDone(roomId, streamId, kind);
             } catch (Exception e) {
-                log.warn("LLM generation failed room={} kind={}: {}", roomId, kind, e.getMessage());
+                log.warn("LLM failed room={} kind={} ms={}: {}", roomId, kind,
+                        System.currentTimeMillis() - start, e.getMessage());
                 broadcaster.broadcastLlmDone(roomId, streamId, kind);
             } finally {
                 llmSlots.release();

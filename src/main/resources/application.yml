@@ -167,3 +167,4 @@ logging:
   level:
     org.springframework.boot.context.config: DEBUG
     com.emergentterrain.service.RoomService: INFO
+    com.emergentterrain.service.LlmService: INFO
