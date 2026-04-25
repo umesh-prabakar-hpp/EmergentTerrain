@@ -71,6 +71,31 @@ public class RoomUpdateBroadcaster {
         ));
     }
 
+    public void broadcastLlmToken(UUID roomId, String streamId, String kind, String token) {
+        if (roomId == null) return;
+        Set<WebSocketSession> sessions = roomSessions.get(roomId);
+        if (sessions == null || sessions.isEmpty()) return;
+        sendPayload(sessions, Map.of(
+            "type", "llm_token",
+            "roomId", roomId.toString(),
+            "streamId", streamId,
+            "kind", kind,
+            "token", token
+        ));
+    }
+
+    public void broadcastLlmDone(UUID roomId, String streamId, String kind) {
+        if (roomId == null) return;
+        Set<WebSocketSession> sessions = roomSessions.get(roomId);
+        if (sessions == null || sessions.isEmpty()) return;
+        sendPayload(sessions, Map.of(
+            "type", "llm_done",
+            "roomId", roomId.toString(),
+            "streamId", streamId,
+            "kind", kind
+        ));
+    }
+
     public void broadcastGovernmentUpdate(UUID roomId) {
         if (roomId == null) return;
         Set<WebSocketSession> sessions = roomSessions.get(roomId);

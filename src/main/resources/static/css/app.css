@@ -184,6 +184,21 @@ body.trend-page {
   margin: 0;
 }
 
+.government-commentary {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-left: 2px solid rgba(15, 23, 42, 0.15);
+  font-size: 12px;
+  line-height: 1.55;
+  color: rgba(15, 28, 25, 0.78);
+  white-space: pre-wrap;
+  min-height: 0;
+}
+
+.government-commentary:empty {
+  display: none;
+}
+
 .trend-page-meta-row {
   display: flex;
   align-items: center;

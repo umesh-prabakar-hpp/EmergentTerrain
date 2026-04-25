@@ -63,6 +63,8 @@ public class RoomService {
     private final PayloadService payloadService;
     private final RoomUpdateBroadcaster broadcaster;
     private final WorldService worldService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LlmService llmService;
     private final GovernmentSimulationService governmentSimulationService;
     private final GovernmentTimelineService governmentTimelineService;
     private final GpuEngineAdapter gpuEngineAdapter;
@@ -813,6 +815,11 @@ public class RoomService {
                     updateGovernmentStateCache(room, state, governmentMutation.governmentState());
                     governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
                     broadcaster.broadcastGovernmentUpdate(room.getId());
+                    if (llmService != null) {
+                        governmentMutation.governmentState().getCourtCases().stream()
+                            .filter(c -> "DECIDED".equalsIgnoreCase(c.getStatus()))
+                            .forEach(c -> llmService.generateCourtOpinionIfAbsent(room.getId(), c));
+                    }
                     metadataDirty = true;
                 }
                 if (!governmentMutation.dirtyBots().isEmpty()) {

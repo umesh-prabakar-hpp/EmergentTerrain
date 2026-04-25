@@ -726,6 +726,7 @@ function setPendingChange(x, y, selectedTool) {
   const nextTool = selectedTool || tool;
   pendingChange = { x: x0, y: y0, type: nextTool };
   explanationEl.textContent = `Propose 1x1 ${nextTool} tile at (${x0}, ${y0}).`;
+  fetchExplanation(x0, y0, nextTool);
   if (pollDetails) {
     pollDetails.textContent = `Poll ready: 1x1 ${nextTool} tile at (${x0}, ${y0}).`;
   }
@@ -1160,6 +1161,15 @@ function ensureWebSocket() {
       }
       if (msg.type === 'refresh') {
         queueRoomRefresh();
+        return;
+      }
+      if (msg.type === 'llm_token') {
+        handleLlmToken(msg.kind, msg.streamId, msg.token);
+        return;
+      }
+      if (msg.type === 'llm_done') {
+        handleLlmDone(msg.kind, msg.streamId);
+        return;
       }
     } catch (e) {
       // ignore bad messages
@@ -1172,6 +1182,44 @@ function ensureWebSocket() {
       ensureWebSocket();
     }, 2000);
   };
+}
+
+let activeExplainStreamId = null;
+let activeCommentaryStreamId = null;
+
+function handleLlmToken(kind, streamId, token) {
+  if (kind === 'explanation') {
+    if (streamId !== activeExplainStreamId) return;
+    if (explanationEl) explanationEl.textContent += token;
+  } else if (kind === 'court_opinion') {
+    const el = document.getElementById('governmentCommentary');
+    if (!el) return;
+    if (streamId !== activeCommentaryStreamId) {
+      activeCommentaryStreamId = streamId;
+      el.textContent = '';
+    }
+    el.textContent += token;
+  }
+}
+
+function handleLlmDone(kind, streamId) {
+  if (kind === 'explanation' && streamId === activeExplainStreamId) {
+    activeExplainStreamId = null;
+  }
+}
+
+async function fetchExplanation(x, y, tileType) {
+  if (!roomId || !token) return;
+  const streamId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  activeExplainStreamId = streamId;
+  if (explanationEl) explanationEl.textContent = '';
+  try {
+    await fetch(`/room/${roomId}/explain`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, streamId, x, y, tileType })
+    });
+  } catch (_) { /* silent — game still works without LLM */ }
 }
 
 function queueRoomRefresh() {
