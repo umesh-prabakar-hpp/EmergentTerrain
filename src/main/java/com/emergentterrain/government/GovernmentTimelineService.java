@@ -132,7 +132,10 @@ public class GovernmentTimelineService {
             GovernmentTimelineSample aggregated = aggregateGroup(group, targetBucketMinutes);
             sampleRepository.save(aggregated);
         }
-        sampleRepository.deleteAllInBatch(sourceSamples);
+        int batchSize = 200;
+        for (int i = 0; i < sourceSamples.size(); i += batchSize) {
+            sampleRepository.deleteAllInBatch(sourceSamples.subList(i, Math.min(i + batchSize, sourceSamples.size())));
+        }
     }
 
     private GovernmentTimelineSample aggregateGroup(List<GovernmentTimelineSample> group, int targetBucketMinutes) {

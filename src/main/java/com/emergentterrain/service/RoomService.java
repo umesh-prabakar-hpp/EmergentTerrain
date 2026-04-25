@@ -793,7 +793,7 @@ public class RoomService {
                     }
                 });
             } catch (Exception e) {
-                log.warn("maintenance bots error roomId={} msg={}", room.getId(), e.getMessage());
+                log.error("maintenance bots error roomId={}", room.getId(), e);
             }
             if (tickedBots.get()) {
                 state.setLastBotTickAt(now);
@@ -806,15 +806,19 @@ public class RoomService {
             if (botsForGovernment == null || botsForGovernment.isEmpty()) {
                 botsForGovernment = botRepository.findByRoom(room);
             }
-            GovernmentSimulationService.GovernmentMutation governmentMutation =
-                governmentSimulationService.tick(room, state, botsForGovernment, getTilesForRoom(room, state), this::readBotProfile, now);
-            if (governmentMutation.governmentChanged()) {
-                updateGovernmentStateCache(room, state, governmentMutation.governmentState());
-                governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
-                metadataDirty = true;
-            }
-            if (!governmentMutation.dirtyBots().isEmpty()) {
-                botRepository.saveAll(governmentMutation.dirtyBots());
+            try {
+                GovernmentSimulationService.GovernmentMutation governmentMutation =
+                    governmentSimulationService.tick(room, state, botsForGovernment, getTilesForRoom(room, state), this::readBotProfile, now);
+                if (governmentMutation.governmentChanged()) {
+                    updateGovernmentStateCache(room, state, governmentMutation.governmentState());
+                    governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
+                    metadataDirty = true;
+                }
+                if (!governmentMutation.dirtyBots().isEmpty()) {
+                    botRepository.saveAll(governmentMutation.dirtyBots());
+                }
+            } catch (Throwable t) {
+                log.error("maintenance government tick error roomId={}", room.getId(), t);
             }
             if (refreshOccupancySnapshot(room, state, now)) {
                 metadataDirty = true;
@@ -847,7 +851,7 @@ public class RoomService {
                 long roomMs = (System.nanoTime() - roomStart) / 1_000_000;
                 log.debug("maintenance roomId={} roomMs={}", room.getId(), roomMs);
             } catch (Exception e) {
-                log.warn("maintenance error roomId={} msg={}", room.getId(), e.getMessage());
+                log.error("maintenance error roomId={}", room.getId(), e);
             } finally {
                 lock.unlock();
             }

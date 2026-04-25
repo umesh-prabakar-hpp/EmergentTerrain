@@ -79,37 +79,37 @@ public class GovernmentTimelineSample {
     @Column(nullable = false)
     private int activeCourtCaseCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int activeAdministrativeCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int activeConflictCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "double precision default 0.0")
     private double pressureIntensity;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "double precision default 0.0")
     private double implementationScore;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int implementationBackfireCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int activeBotCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int petitioningBotCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int reviewBotCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "integer default 0")
     private int sanctionedBotCount;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "double precision default 0.0")
     private double petitioningShare;
 
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "double precision default 0.0")
     private double sanctionedShare;
 
     @Column(length = 128)

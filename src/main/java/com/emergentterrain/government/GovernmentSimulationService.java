@@ -11,6 +11,7 @@ import com.emergentterrain.web.GovernmentSummary;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Service;
@@ -58,6 +59,7 @@ public class GovernmentSimulationService {
     private final double implementationStallThreshold;
     private final double courtBlockThreshold;
 
+    @Autowired
     public GovernmentSimulationService(ObjectMapper objectMapper,
                                        SimulationHistoryWriter historyWriter,
                                        @Value("${app.government.enabled:true}") boolean enabled,
@@ -2117,17 +2119,17 @@ public class GovernmentSimulationService {
                 governmentState.getBills().remove(governmentState.getBills().size() - 1);
             }
             governmentState.setLastBillAt(now);
+            Map<String, Object> billRecord = new LinkedHashMap<>();
+            billRecord.put("bill_id", bill.getBillId());
+            billRecord.put("title", bill.getTitle());
+            billRecord.put("sponsor", bill.getSponsorPartyId());
+            billRecord.put("party_affiliation", bill.getSponsorPartyId());
+            billRecord.put("vote_results", Map.of("lower", 0, "upper", 0));
+            billRecord.put("executive_action", "pending");
+            billRecord.put("law_status", bill.getLawStatus());
             historyWriter.writeImmutableJson(
                 String.format(Locale.ROOT, "legislation/%s.json", bill.getBillId()),
-                Map.of(
-                    "bill_id", bill.getBillId(),
-                    "title", bill.getTitle(),
-                    "sponsor", bill.getSponsorPartyId(),
-                    "party_affiliation", bill.getSponsorPartyId(),
-                    "vote_results", Map.of("lower", 0, "upper", 0),
-                    "executive_action", "pending",
-                    "law_status", bill.getLawStatus()
-                )
+                billRecord
             );
             changed = true;
             activeBill = bill;
@@ -2318,18 +2320,18 @@ public class GovernmentSimulationService {
             governmentState.getElections().remove(governmentState.getElections().size() - 1);
         }
         governmentState.setNextElectionAt(now.plusMillis(electionIntervalMs));
+        Map<String, Object> electionEvent = new LinkedHashMap<>();
+        electionEvent.put("event_id", record.getElectionId());
+        electionEvent.put("timestamp", record.getHeldAt());
+        electionEvent.put("event_type", "election");
+        electionEvent.put("location_scope", record.getScope());
+        electionEvent.put("summary", record.getSummary());
+        electionEvent.put("triggering_action", "scheduled_cycle");
+        electionEvent.put("affected_entities", List.of("federal", "parties", "representation"));
+        electionEvent.put("resulting_world_changes", List.of("office_rotation", "budget_priority_shift"));
         historyWriter.writeImmutableJson(
             String.format(Locale.ROOT, "elections/%s.json", record.getElectionId()),
-            Map.of(
-                "event_id", record.getElectionId(),
-                "timestamp", record.getHeldAt(),
-                "event_type", "election",
-                "location_scope", record.getScope(),
-                "summary", record.getSummary(),
-                "triggering_action", "scheduled_cycle",
-                "affected_entities", List.of("federal", "parties", "representation"),
-                "resulting_world_changes", List.of("office_rotation", "budget_priority_shift")
-            )
+            electionEvent
         );
         return true;
     }
@@ -2380,18 +2382,18 @@ public class GovernmentSimulationService {
             governmentState.getExecutiveOrders().remove(governmentState.getExecutiveOrders().size() - 1);
         }
         applyExecutiveOrderEffects(governmentState, order);
+        Map<String, Object> orderEvent = new LinkedHashMap<>();
+        orderEvent.put("event_id", governmentState.getNextEventSequence());
+        orderEvent.put("timestamp", now);
+        orderEvent.put("event_type", "executive_order");
+        orderEvent.put("location_scope", order.getScope());
+        orderEvent.put("summary", order.getSummary());
+        orderEvent.put("triggering_action", order.getOrderId());
+        orderEvent.put("affected_entities", order.getAffectedSystems());
+        orderEvent.put("resulting_world_changes", order.getAffectedSystems());
         historyWriter.writeImmutableJson(
             String.format(Locale.ROOT, "events/event-%05d.json", governmentState.getNextEventSequence()),
-            Map.of(
-                "event_id", governmentState.getNextEventSequence(),
-                "timestamp", now,
-                "event_type", "executive_order",
-                "location_scope", order.getScope(),
-                "summary", order.getSummary(),
-                "triggering_action", order.getOrderId(),
-                "affected_entities", order.getAffectedSystems(),
-                "resulting_world_changes", order.getAffectedSystems()
-            )
+            orderEvent
         );
         governmentState.setNextEventSequence(governmentState.getNextEventSequence() + 1);
         return true;
@@ -2690,28 +2692,28 @@ public class GovernmentSimulationService {
     }
 
     private void writeCourtHistory(GovernmentState.CourtCase courtCase) {
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("case_id", courtCase.getCaseId());
+        data.put("court_level", courtCase.getCourtLevel());
+        data.put("status", courtCase.getStatus());
+        data.put("stage", courtCase.getStage());
+        data.put("plaintiff", courtCase.getPlaintiff());
+        data.put("defendant", courtCase.getDefendant());
+        data.put("challenged_title", courtCase.getChallengedTitle());
+        data.put("issue_summary", courtCase.getIssueSummary());
+        data.put("review_posture", courtCase.getReviewPosture());
+        data.put("doctrine", courtCase.getDoctrine());
+        data.put("scrutiny_level", courtCase.getScrutinyLevel());
+        data.put("standing_basis", courtCase.getStandingBasis());
+        data.put("remedy", courtCase.getRemedy());
+        data.put("legal_basis", courtCase.getLegalBasis());
+        data.put("decision", courtCase.getDecision());
+        data.put("constitutional_basis", courtCase.getConstitutionalBasis());
+        data.put("affected_laws", courtCase.getAffectedLaws());
+        data.put("precedent_ids", courtCase.getPrecedentIds());
         historyWriter.writeImmutableJson(
             String.format(Locale.ROOT, "courts/%s.json", courtCase.getCaseId()),
-            Map.ofEntries(
-                Map.entry("case_id", courtCase.getCaseId()),
-                Map.entry("court_level", courtCase.getCourtLevel()),
-                Map.entry("status", courtCase.getStatus()),
-                Map.entry("stage", courtCase.getStage()),
-                Map.entry("plaintiff", courtCase.getPlaintiff()),
-                Map.entry("defendant", courtCase.getDefendant()),
-                Map.entry("challenged_title", courtCase.getChallengedTitle()),
-                Map.entry("issue_summary", courtCase.getIssueSummary()),
-                Map.entry("review_posture", courtCase.getReviewPosture()),
-                Map.entry("doctrine", courtCase.getDoctrine()),
-                Map.entry("scrutiny_level", courtCase.getScrutinyLevel()),
-                Map.entry("standing_basis", courtCase.getStandingBasis()),
-                Map.entry("remedy", courtCase.getRemedy()),
-                Map.entry("legal_basis", courtCase.getLegalBasis()),
-                Map.entry("decision", courtCase.getDecision()),
-                Map.entry("constitutional_basis", courtCase.getConstitutionalBasis()),
-                Map.entry("affected_laws", courtCase.getAffectedLaws()),
-                Map.entry("precedent_ids", courtCase.getPrecedentIds())
-            )
+            data
         );
     }
 
@@ -3169,18 +3171,22 @@ public class GovernmentSimulationService {
         if (!"ENACTED".equalsIgnoreCase(bill.getLawStatus())) {
             return;
         }
+        List<Object> affectedEntities = new ArrayList<>();
+        if (bill.getPolicyDomain() != null) affectedEntities.add(bill.getPolicyDomain());
+        affectedEntities.add("budget");
+        affectedEntities.add("institutions");
+        Map<String, Object> billEvent = new LinkedHashMap<>();
+        billEvent.put("event_id", governmentState.getNextEventSequence());
+        billEvent.put("timestamp", now);
+        billEvent.put("event_type", "major_legislation");
+        billEvent.put("location_scope", bill.getScope());
+        billEvent.put("summary", bill.getTitle() + " enacted");
+        billEvent.put("triggering_action", bill.getBillId());
+        billEvent.put("affected_entities", affectedEntities);
+        billEvent.put("resulting_world_changes", bill.getWorldEffects());
         historyWriter.writeImmutableJson(
             String.format(Locale.ROOT, "events/event-%05d.json", governmentState.getNextEventSequence()),
-            Map.of(
-                "event_id", governmentState.getNextEventSequence(),
-                "timestamp", now,
-                "event_type", "major_legislation",
-                "location_scope", bill.getScope(),
-                "summary", bill.getTitle() + " enacted",
-                "triggering_action", bill.getBillId(),
-                "affected_entities", List.of(bill.getPolicyDomain(), "budget", "institutions"),
-                "resulting_world_changes", bill.getWorldEffects()
-            )
+            billEvent
         );
         governmentState.setNextEventSequence(governmentState.getNextEventSequence() + 1);
     }
