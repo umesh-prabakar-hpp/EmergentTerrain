@@ -178,6 +178,22 @@ public class RoomController {
         }
     }
 
+    @PostMapping("/room/{roomId}/advise")
+    public ResponseEntity<Void> advise(@PathVariable("roomId") String roomId,
+                                       @RequestBody AdviseRequest request) {
+        metrics.increment("room.advise");
+        if (llmService == null || request.getQuestion() == null || request.getQuestion().isBlank()) {
+            return ResponseEntity.accepted().build();
+        }
+        Payload payload = payloadService.parseToken(request.getToken());
+        RoomStateResponse roomState = roomService.getRoomState(payload, UUID.fromString(roomId));
+        String streamId = request.getStreamId() != null ? request.getStreamId()
+                : UUID.randomUUID().toString();
+        llmService.generateAdvice(UUID.fromString(roomId), streamId,
+                roomState.getGovernmentSummary(), request.getQuestion());
+        return ResponseEntity.accepted().build();
+    }
+
     @PostMapping("/room/{roomId}/explain")
     public ResponseEntity<Void> explain(@PathVariable("roomId") String roomId,
                                         @RequestBody ExplainRequest request) {

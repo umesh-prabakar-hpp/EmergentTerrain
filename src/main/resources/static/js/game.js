@@ -1185,26 +1185,48 @@ function ensureWebSocket() {
 }
 
 let activeExplainStreamId = null;
-let activeCommentaryStreamId = null;
+let activeAdviseStreamId = null;
+const commentaryCards = new Map();
+
+function getOrCreateCommentaryCard(streamId, kind) {
+  if (commentaryCards.has(streamId)) return commentaryCards.get(streamId);
+  const container = document.getElementById('governmentCommentary');
+  if (!container) return null;
+  const card = document.createElement('div');
+  card.className = 'commentary-card';
+  const header = document.createElement('div');
+  header.className = 'commentary-card-header';
+  header.textContent = kind === 'court_opinion' ? 'Court Opinion' : 'Civic Statement';
+  const body = document.createElement('span');
+  body.className = 'commentary-card-body';
+  card.appendChild(header);
+  card.appendChild(body);
+  container.appendChild(card);
+  commentaryCards.set(streamId, body);
+  return body;
+}
 
 function handleLlmToken(kind, streamId, token) {
   if (kind === 'explanation') {
     if (streamId !== activeExplainStreamId) return;
     if (explanationEl) explanationEl.textContent += token;
-  } else if (kind === 'court_opinion') {
-    const el = document.getElementById('governmentCommentary');
-    if (!el) return;
-    if (streamId !== activeCommentaryStreamId) {
-      activeCommentaryStreamId = streamId;
-      el.textContent = '';
-    }
-    el.textContent += token;
+  } else if (kind === 'court_opinion' || kind === 'actor_statement') {
+    const body = getOrCreateCommentaryCard(streamId, kind);
+    if (body) body.textContent += token;
+  } else if (kind === 'advisor') {
+    if (streamId !== activeAdviseStreamId) return;
+    const el = document.getElementById('advisorResponse');
+    if (el) el.textContent += token;
   }
 }
 
 function handleLlmDone(kind, streamId) {
   if (kind === 'explanation' && streamId === activeExplainStreamId) {
     activeExplainStreamId = null;
+  } else if (kind === 'advisor' && streamId === activeAdviseStreamId) {
+    activeAdviseStreamId = null;
+    const btn = document.getElementById('advisorSendBtn');
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -1220,6 +1242,25 @@ async function fetchExplanation(x, y, tileType) {
       body: JSON.stringify({ token, streamId, x, y, tileType })
     });
   } catch (_) { /* silent — game still works without LLM */ }
+}
+
+async function fetchAdvice(question) {
+  if (!roomId || !token || !question.trim()) return;
+  const streamId = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
+  activeAdviseStreamId = streamId;
+  const responseEl = document.getElementById('advisorResponse');
+  if (responseEl) responseEl.textContent = '';
+  const btn = document.getElementById('advisorSendBtn');
+  if (btn) btn.disabled = true;
+  try {
+    await fetch(`/room/${roomId}/advise`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, streamId, question })
+    });
+  } catch (_) {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function queueRoomRefresh() {
@@ -3472,6 +3513,20 @@ function stopAutoNav() {
   }
 }
 
+function initAdvisor() {
+  const input = document.getElementById('advisorInput');
+  const btn = document.getElementById('advisorSendBtn');
+  if (!btn || !input) return;
+  const send = () => {
+    const q = input.value.trim();
+    if (!q || !roomId) return;
+    fetchAdvice(q);
+    input.value = '';
+  };
+  btn.addEventListener('click', send);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter') send(); });
+}
+
 function initBots() {
   if (!botsPanel) return;
   botsPanel.querySelectorAll('[data-bot]').forEach(btn => {
@@ -3523,6 +3578,7 @@ async function init() {
   draw();
   initMultiplayer();
   initBots();
+  initAdvisor();
 }
 
 window.addEventListener('resize', () => {

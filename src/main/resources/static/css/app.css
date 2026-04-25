@@ -199,6 +199,82 @@ body.trend-page {
   display: none;
 }
 
+.commentary-card {
+  margin-top: 8px;
+  padding: 6px 10px;
+  border-left: 2px solid rgba(15, 23, 42, 0.15);
+  background: rgba(15, 23, 42, 0.03);
+  border-radius: 0 4px 4px 0;
+}
+
+.commentary-card-header {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-bottom: 4px;
+}
+
+.commentary-card-body {
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.advisor-input-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  margin-bottom: 8px;
+}
+
+.advisor-input {
+  flex: 1;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid rgba(15, 23, 42, 0.2);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  outline: none;
+}
+
+.advisor-input:focus {
+  border-color: rgba(15, 23, 42, 0.5);
+}
+
+.advisor-send-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid rgba(15, 23, 42, 0.25);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.advisor-send-btn:hover:not(:disabled) {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.advisor-send-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.advisor-response {
+  font-size: 12px;
+  line-height: 1.55;
+  min-height: 0;
+  white-space: pre-wrap;
+}
+
+.advisor-response:empty {
+  display: none;
+}
+
 .trend-page-meta-row {
   display: flex;
   align-items: center;
