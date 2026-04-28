@@ -1078,7 +1078,6 @@ function setRoomStateFromResponse(data) {
   const nextHighways = data.highways || highways || [];
   if (data.roomId) {
     roomId = data.roomId;
-    if (roomIdInput) roomIdInput.value = roomId;
   }
   if (previousRoomId !== roomId) {
     resetGovernmentTrendState(roomId);
