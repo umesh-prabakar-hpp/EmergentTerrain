@@ -37,6 +37,7 @@ const localProposalsList = document.getElementById('localProposalsList');
 const pollDetails = document.getElementById('pollDetails');
 const lockStatusEl = document.getElementById('lockStatus');
 const missedVotesEl = document.getElementById('missedVotes');
+const governmentTrendEl = document.getElementById('governmentTrend');
 const governmentSummaryEl = document.getElementById('governmentSummary');
 const governmentBillsEl = document.getElementById('governmentBills');
 const governmentPartiesEl = document.getElementById('governmentParties');
@@ -1321,6 +1322,10 @@ function renderParticipants() {
 
 function renderGovernmentSummary() {
   if (!roomState || !governmentSummaryEl || !governmentBillsEl || !governmentPartiesEl) return;
+  const trendTarget = governmentTrendEl || governmentSummaryEl;
+  if (governmentTrendEl) {
+    governmentTrendEl.innerHTML = '';
+  }
   governmentSummaryEl.innerHTML = '';
   governmentBillsEl.innerHTML = '';
   governmentPartiesEl.innerHTML = '';
@@ -1336,7 +1341,7 @@ function renderGovernmentSummary() {
   queueGovernmentTrendFetch(false);
   const trendCard = renderGovernmentTrendCard();
   if (trendCard) {
-    governmentSummaryEl.appendChild(trendCard);
+    trendTarget.appendChild(trendCard);
   }
 
   const summaryItems = [
