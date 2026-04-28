@@ -1197,7 +1197,7 @@ function getOrCreateCommentaryCard(streamId, kind) {
   body.className = 'commentary-card-body';
   card.appendChild(header);
   card.appendChild(body);
-  container.appendChild(card);
+  container.prepend(card);
   commentaryCards.set(streamId, body);
   return body;
 }
