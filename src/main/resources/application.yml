@@ -164,6 +164,7 @@ app:
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500
+    hintAcceptanceRate: 0.6
 
 logging:
   file:

@@ -3372,6 +3372,10 @@ public class GovernmentSimulationService {
         };
     }
 
+    private static final java.util.Set<String> VALID_POLICY_DOMAINS = java.util.Set.of(
+            "infrastructure", "housing", "labor", "services", "rights-process");
+    private static final double HINT_ACCEPTANCE_RATE = 0.6;
+
     private String nextPolicyDomain(GovernmentState governmentState, List<RoomBot> bots, String scope, String stateId) {
         double service = 0d;
         double trust = 0d;
@@ -3405,19 +3409,33 @@ public class GovernmentSimulationService {
         double avgParticipation = participation / count;
         double avgDebtPressure = debtPressure / count;
         double avgWageBand = wageBand / count;
+        String botStatsDomain;
         if (avgService < 0.42d) {
-            return "services";
+            botStatsDomain = "services";
+        } else if (avgBurden > 2.2d) {
+            botStatsDomain = "housing";
+        } else if (avgTrust < 0.45d) {
+            botStatsDomain = "rights-process";
+        } else if (avgDebtPressure > 2.0d || (avgParticipation > 0.58d && avgWageBand < 2.4d)) {
+            botStatsDomain = "labor";
+        } else {
+            botStatsDomain = "infrastructure";
         }
-        if (avgBurden > 2.2d) {
-            return "housing";
+
+        // AI hint is advice, not a mandate: bots accept it at HINT_ACCEPTANCE_RATE probability.
+        // Use tick as seed so acceptance is deterministic per tick but varies across ticks.
+        List<String> hints = governmentState.getPolicyHints();
+        if (hints != null && !hints.isEmpty()) {
+            String hint = hints.get(0);
+            if (VALID_POLICY_DOMAINS.contains(hint) && !hint.equals(botStatsDomain)) {
+                long seed = governmentState.getTick() * 31L + hint.hashCode();
+                if (new java.util.Random(seed).nextDouble() < HINT_ACCEPTANCE_RATE) {
+                    hints.remove(0); // consume — hint acted on, don't persist for remaining window
+                    return hint;
+                }
+            }
         }
-        if (avgTrust < 0.45d) {
-            return "rights-process";
-        }
-        if (avgDebtPressure > 2.0d || (avgParticipation > 0.58d && avgWageBand < 2.4d)) {
-            return "labor";
-        }
-        return "infrastructure";
+        return botStatsDomain;
     }
 
     private GovernmentState.GovernmentNode weakestStateNode(GovernmentState governmentState) {

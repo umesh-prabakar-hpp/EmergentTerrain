@@ -1,6 +1,5 @@
 package com.emergentterrain.controller;
 
-import com.emergentterrain.service.LlmService;
 import com.emergentterrain.service.Payload;
 import com.emergentterrain.service.PayloadService;
 import com.emergentterrain.service.ActivityMetrics;
@@ -19,9 +18,6 @@ public class RoomController {
     private final PayloadService payloadService;
     private final RoomService roomService;
     private final ActivityMetrics metrics;
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private LlmService llmService;
-
     public RoomController(PayloadService payloadService, RoomService roomService, ActivityMetrics metrics) {
         this.payloadService = payloadService;
         this.roomService = roomService;
@@ -176,38 +172,6 @@ public class RoomController {
         } catch (IllegalStateException e) {
             return ResponseEntity.badRequest().body(e.getMessage());
         }
-    }
-
-    @PostMapping("/room/{roomId}/advise")
-    public ResponseEntity<Void> advise(@PathVariable("roomId") String roomId,
-                                       @RequestBody AdviseRequest request) {
-        metrics.increment("room.advise");
-        if (llmService == null || request.getQuestion() == null || request.getQuestion().isBlank()) {
-            return ResponseEntity.accepted().build();
-        }
-        Payload payload = payloadService.parseToken(request.getToken());
-        RoomStateResponse roomState = roomService.getRoomState(payload, UUID.fromString(roomId));
-        String streamId = request.getStreamId() != null ? request.getStreamId()
-                : UUID.randomUUID().toString();
-        llmService.generateAdvice(UUID.fromString(roomId), streamId,
-                roomState.getGovernmentSummary(), request.getQuestion());
-        return ResponseEntity.accepted().build();
-    }
-
-    @PostMapping("/room/{roomId}/explain")
-    public ResponseEntity<Void> explain(@PathVariable("roomId") String roomId,
-                                        @RequestBody ExplainRequest request) {
-        metrics.increment("room.explain");
-        Payload payload = payloadService.parseToken(request.getToken());
-        if (llmService != null) {
-            String streamId = request.getStreamId() != null ? request.getStreamId()
-                    : java.util.UUID.randomUUID().toString();
-            llmService.generateExplanation(
-                    UUID.fromString(roomId), streamId,
-                    request.getX(), request.getY(), request.getTileType(),
-                    payload.answers());
-        }
-        return ResponseEntity.accepted().build();
     }
 
     private String formatServerTiming(Map<String, Double> timings) {

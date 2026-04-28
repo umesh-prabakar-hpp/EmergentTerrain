@@ -2,7 +2,9 @@ package com.emergentterrain.government;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public class GovernmentState {
     private String constitutionVersion;
@@ -38,6 +40,10 @@ public class GovernmentState {
     private List<FederalStateConflict> conflicts = new ArrayList<>();
     private List<ImplementationOutcome> implementationOutcomes = new ArrayList<>();
     private List<HistoricalMarker> historicalMarkers = new ArrayList<>();
+    private List<String> policyHints = new ArrayList<>();
+    private List<String> researchHints = new ArrayList<>();
+    private List<String> civicGoals = new ArrayList<>();
+    private Map<String, Double> tileNudges = new HashMap<>();
     private int activeBotCount;
     private int petitioningBotCount;
     private int reviewBotCount;
@@ -307,6 +313,38 @@ public class GovernmentState {
 
     public void setHistoricalMarkers(List<HistoricalMarker> historicalMarkers) {
         this.historicalMarkers = historicalMarkers;
+    }
+
+    public List<String> getPolicyHints() {
+        return policyHints;
+    }
+
+    public void setPolicyHints(List<String> policyHints) {
+        this.policyHints = policyHints != null ? policyHints : new ArrayList<>();
+    }
+
+    public List<String> getResearchHints() {
+        return researchHints;
+    }
+
+    public void setResearchHints(List<String> researchHints) {
+        this.researchHints = researchHints != null ? researchHints : new ArrayList<>();
+    }
+
+    public List<String> getCivicGoals() {
+        return civicGoals;
+    }
+
+    public void setCivicGoals(List<String> civicGoals) {
+        this.civicGoals = civicGoals != null ? civicGoals : new ArrayList<>();
+    }
+
+    public Map<String, Double> getTileNudges() {
+        return tileNudges;
+    }
+
+    public void setTileNudges(Map<String, Double> tileNudges) {
+        this.tileNudges = tileNudges != null ? tileNudges : new HashMap<>();
     }
 
     public int getActiveBotCount() {

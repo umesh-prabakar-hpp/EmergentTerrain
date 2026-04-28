@@ -65,6 +65,10 @@ public class RoomService {
     private final WorldService worldService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private LlmService llmService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private PolicyConsultationService policyConsultationService;
+    private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.Map<String, Double>> roomTileNudges =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final GovernmentSimulationService governmentSimulationService;
     private final GovernmentTimelineService governmentTimelineService;
     private final GpuEngineAdapter gpuEngineAdapter;
@@ -909,11 +913,22 @@ public class RoomService {
                 GovernmentSimulationService.GovernmentMutation governmentMutation =
                     governmentSimulationService.tick(room, state, botsForGovernment, getTilesForRoom(room, state), this::readBotProfile, now);
                 if (governmentMutation.governmentChanged()) {
-                    updateGovernmentStateCache(room, state, governmentMutation.governmentState());
-                    governmentTimelineService.capture(room, governmentMutation.governmentState(), now);
+                    GovernmentState govState = governmentMutation.governmentState();
+                    if (policyConsultationService != null) {
+                        // Drain any result that arrived from a prior async trigger
+                        policyConsultationService.drainAndApply(room.getId(), govState).ifPresent(resp -> {
+                            if (!govState.getTileNudges().isEmpty()) {
+                                roomTileNudges.put(room.getId(), new java.util.HashMap<>(govState.getTileNudges()));
+                            }
+                        });
+                        // Fire next consultation asynchronously (returns immediately)
+                        policyConsultationService.triggerAsync(room.getId(), govState);
+                    }
+                    updateGovernmentStateCache(room, state, govState);
+                    governmentTimelineService.capture(room, govState, now);
                     broadcaster.broadcastGovernmentUpdate(room.getId());
                     if (llmService != null) {
-                        triggerLlmGovernmentEvents(room.getId(), governmentMutation.governmentState());
+                        triggerLlmGovernmentEvents(room.getId(), govState);
                     }
                     metadataDirty = true;
                 }
@@ -4330,6 +4345,7 @@ public class RoomService {
                 applyTileEditsToCache(cache.tiles, cache.highways, tileDiffs);
             }
 
+            java.util.Map<String, Double> tileNudges = roomTileNudges.get(room.getId());
             for (RoomBot bot : bots) {
                 if (bot.getId() == null || bot.getX() == null || bot.getY() == null) {
                     continue;
@@ -4341,7 +4357,7 @@ public class RoomService {
                     .setY(bot.getY())
                     .setState(ByteString.copyFrom(encodeBotMotionStateBytes(motion)));
                 Map<String, Double> profile = readBotProfile(bot);
-                applyGpuBotProfile(botState, profile);
+                applyGpuBotProfile(botState, profile, tileNudges);
                 builder.addBots(botState);
             }
 
@@ -4411,12 +4427,25 @@ public class RoomService {
     }
 
     private void applyGpuBotProfile(BotState.Builder botState, Map<String, Double> profile) {
+        applyGpuBotProfile(botState, profile, null);
+    }
+
+    private void applyGpuBotProfile(BotState.Builder botState, Map<String, Double> profile,
+                                     java.util.Map<String, Double> nudges) {
         botState
-            .setForest(profile.getOrDefault("forest", 0.5).floatValue())
-            .setWater(profile.getOrDefault("water", 0.5).floatValue())
-            .setIndustry(profile.getOrDefault("industry", 0.5).floatValue())
-            .setClear(profile.getOrDefault("clear", 0.5).floatValue())
+            .setForest(nudgedWeight(profile, nudges, "forest"))
+            .setWater(nudgedWeight(profile, nudges, "water"))
+            .setIndustry(nudgedWeight(profile, nudges, "industry"))
+            .setClear(nudgedWeight(profile, nudges, "clear"))
             .setMobility(profile.getOrDefault("mobility", 0.5).floatValue());
+    }
+
+    private float nudgedWeight(Map<String, Double> profile, java.util.Map<String, Double> nudges, String key) {
+        double base = profile.getOrDefault(key, 0.5);
+        if (nudges != null && nudges.containsKey(key)) {
+            base = Math.min(1.0, base + nudges.get(key));
+        }
+        return (float) base;
     }
 
     private List<TileEdit> collectGpuTileDiffs(int[][] oldTiles,
