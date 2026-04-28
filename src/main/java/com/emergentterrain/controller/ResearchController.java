@@ -22,13 +22,13 @@ public class ResearchController {
 
     @GetMapping("/room/{roomId}/research/papers")
     public ResponseEntity<List<ResearchPaper>> getPapers(
-            @PathVariable UUID roomId,
-            @RequestParam(defaultValue = "50") int limit) {
+            @PathVariable("roomId") UUID roomId,
+            @RequestParam(name = "limit", defaultValue = "50") int limit) {
         return ResponseEntity.ok(universityService.getPublishedPapers(roomId, limit));
     }
 
     @GetMapping("/room/{roomId}/research/stats")
-    public ResponseEntity<Map<String, Object>> getStats(@PathVariable UUID roomId) {
+    public ResponseEntity<Map<String, Object>> getStats(@PathVariable("roomId") UUID roomId) {
         return ResponseEntity.ok(universityService.getStats(roomId));
     }
 }

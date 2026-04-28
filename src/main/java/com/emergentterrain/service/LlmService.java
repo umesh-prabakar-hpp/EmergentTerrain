@@ -33,7 +33,10 @@ public class LlmService {
     private final ConcurrentHashMap<String, Long> lastAcceptedAt = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, String> lastDigestFingerprint = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
-    private final Semaphore llmSlots = new Semaphore(1);
+    // Policy consultation and streaming use separate slots so they don't starve each other.
+    // Ollama serialises both on its CPU anyway; separate gates just prevent one from blocking the other.
+    private final Semaphore consultSlot = new Semaphore(1);
+    private final Semaphore streamSlot  = new Semaphore(1);
     private final long digestCooldownMs;
 
     public LlmService(ChatClient.Builder chatClientBuilder,
@@ -91,8 +94,8 @@ public class LlmService {
     // --- Synchronous consultation ---
 
     public String consultPolicySync(String prompt) {
-        if (!llmSlots.tryAcquire()) {
-            log.debug("LLM slot busy - skipping policy consultation");
+        if (!consultSlot.tryAcquire()) {
+            log.debug("LLM consult slot busy - skipping policy consultation");
             return null;
         }
         long start = System.currentTimeMillis();
@@ -104,14 +107,14 @@ public class LlmService {
             log.warn("LLM policy consultation failed ms={}: {}", System.currentTimeMillis() - start, e.getMessage());
             return null;
         } finally {
-            llmSlots.release();
+            consultSlot.release();
         }
     }
 
     // --- Core streaming ---
 
     public boolean generateAndStream(UUID roomId, String streamId, String kind, String prompt) {
-        if (!llmSlots.tryAcquire()) {
+        if (!streamSlot.tryAcquire()) {
             log.info("LLM slot busy - shedding room={} kind={}", roomId, kind);
             broadcaster.broadcastLlmDone(roomId, streamId, kind);
             return false;
@@ -133,12 +136,12 @@ public class LlmService {
                             System.currentTimeMillis() - start, e.getMessage());
                     broadcaster.broadcastLlmDone(roomId, streamId, kind);
                 } finally {
-                    llmSlots.release();
+                    streamSlot.release();
                 }
             });
             return true;
         } catch (RuntimeException e) {
-            llmSlots.release();
+            streamSlot.release();
             throw e;
         }
     }
