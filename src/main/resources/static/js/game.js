@@ -57,6 +57,11 @@ const botProfilesList = document.getElementById('botProfilesList');
 const civicOverlay = document.getElementById('civicOverlay');
 const civicInspectorEl = document.getElementById('civicInspector');
 const toggleCivicMapBtn = document.getElementById('toggleCivicMap');
+const publicationsPanel = document.getElementById('publicationsPanel');
+const researchStatsEl = document.getElementById('researchStats');
+const papersListEl = document.getElementById('papersList');
+const toggleResearchBtn = document.getElementById('toggleResearch');
+let researchDomainFilter = '';
 
 let tiles = [];
 let highways = [];
@@ -199,7 +204,8 @@ const panelMap = {
   milestones: milestonesPanel,
   snapshots: snapshotsPanel,
   multiplayer: multiplayerPanel,
-  bots: botsPanel
+  bots: botsPanel,
+  publications: publicationsPanel
 };
 
 function parseTimeMs(value) {
@@ -1017,6 +1023,21 @@ if (toggleMilestonesBtn) toggleMilestonesBtn.addEventListener('click', () => tog
 if (toggleSnapshotsBtn) toggleSnapshotsBtn.addEventListener('click', () => togglePanel('snapshots'));
 if (toggleMultiplayerBtn) toggleMultiplayerBtn.addEventListener('click', () => togglePanel('multiplayer'));
 if (toggleBotsBtn) toggleBotsBtn.addEventListener('click', () => togglePanel('bots'));
+if (toggleResearchBtn) toggleResearchBtn.addEventListener('click', () => {
+  togglePanel('publications');
+  if (publicationsPanel && publicationsPanel.classList.contains('active')) {
+    fetchResearchData();
+  }
+});
+
+for (const btn of document.querySelectorAll('.research-filter-btn')) {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.research-filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    researchDomainFilter = btn.dataset.domain || '';
+    fetchResearchData();
+  });
+}
 
 for (const btn of document.querySelectorAll('[data-close]')) {
   btn.addEventListener('click', () => {
@@ -3417,6 +3438,71 @@ function stopAutoNav() {
     clearInterval(autoNavTimer);
     autoNavTimer = null;
   }
+}
+
+async function fetchResearchData() {
+  if (!roomId) return;
+  try {
+    const [statsRes, papersRes] = await Promise.all([
+      fetch(`/room/${roomId}/research/stats`),
+      fetch(`/room/${roomId}/research/papers?limit=100`)
+    ]);
+    if (statsRes.ok) renderResearchStats(await statsRes.json());
+    if (papersRes.ok) renderPapers(await papersRes.json());
+  } catch (e) {
+    if (researchStatsEl) researchStatsEl.textContent = 'Research data unavailable.';
+  }
+}
+
+function renderResearchStats(stats) {
+  if (!researchStatsEl || !stats) return;
+  const byDomain = stats.byDomain || {};
+  const domainParts = Object.entries(byDomain)
+    .map(([d, n]) => `<span class="domain-badge domain-${d.toLowerCase()}">${d.charAt(0) + d.slice(1).toLowerCase()} ${n}</span>`)
+    .join(' ');
+  researchStatsEl.innerHTML = `
+    <div class="research-stat-row">
+      <span>Published: <strong>${stats.totalPublished || 0}</strong></span>
+      <span>Rejected: <strong>${stats.totalRejected || 0}</strong></span>
+      <span>Researchers: <strong>${stats.researcherCount || 0}</strong></span>
+    </div>
+    <div class="research-stat-row">
+      <span>Generation: <strong>${stats.maxGeneration || 0}</strong></span>
+      <span>Avg Reputation: <strong>${stats.avgReputation || 0}</strong></span>
+      <span>Avg Score: <strong>${stats.avgPeerScore || 0}</strong></span>
+    </div>
+    <div class="research-stat-domains">${domainParts}</div>`;
+}
+
+function renderPapers(papers) {
+  if (!papersListEl) return;
+  if (!papers || papers.length === 0) {
+    papersListEl.innerHTML = '<div class="paper-empty">No publications yet. Research cycles run every 15 seconds.</div>';
+    return;
+  }
+  const filtered = researchDomainFilter
+    ? papers.filter(p => p.domain === researchDomainFilter)
+    : papers;
+  if (filtered.length === 0) {
+    papersListEl.innerHTML = '<div class="paper-empty">No papers in this domain yet.</div>';
+    return;
+  }
+  papersListEl.innerHTML = filtered.map(p => {
+    const score = typeof p.peerScore === 'number' ? p.peerScore.toFixed(3) : '—';
+    const reviewers = (p.reviewerBotIds || []).length;
+    return `<div class="paper-card">
+      <div class="paper-header">
+        <span class="domain-badge domain-${(p.domain || '').toLowerCase()}">${p.domain || ''}</span>
+        <span class="paper-topic">${p.topic || ''}</span>
+        <span class="paper-score">Score: ${score}</span>
+      </div>
+      <div class="paper-title">${p.title || ''}</div>
+      <div class="paper-meta">Gen ${p.generation || 0} · ${p.methodology || ''} · ${reviewers} reviewer${reviewers !== 1 ? 's' : ''} · Tick ${p.tick || 0}</div>
+      <div class="paper-hypothesis">${p.hypothesis || ''}</div>
+      <div class="paper-findings">${p.findings || ''}</div>
+      <div class="paper-conclusion">${p.conclusion || ''}</div>
+    </div>`;
+  }).join('');
 }
 
 function initBots() {

@@ -138,9 +138,26 @@
               <div id="observerText" class="md-typescale-body-medium">Listening…</div>
               <md-filled-button id="observerAck">Acknowledge</md-filled-button>
             </div>
+            <div class="overlay-panel" id="publicationsPanel">
+              <div class="chip">Research Lab</div>
+              <div id="researchStats" class="research-stats md-typescale-body-medium"></div>
+              <div class="research-filters" id="researchFilters">
+                <button class="research-filter-btn active" data-domain="">All</button>
+                <button class="research-filter-btn" data-domain="MATHEMATICS">Math</button>
+                <button class="research-filter-btn" data-domain="PHYSICS">Physics</button>
+                <button class="research-filter-btn" data-domain="MATERIALS">Materials</button>
+              </div>
+              <div id="papersList" class="papers-list md-typescale-body-medium"></div>
+              <md-outlined-button class="panel-close" data-close="publicationsPanel">Close</md-outlined-button>
+            </div>
           </div>
         </div>
                 <div class="info-panel drawer open" id="infoPanel">
+          <div class="info-section info-panel-header">
+            <button id="toggleResearch" class="research-lab-btn" type="button">
+              <span class="material-symbols-outlined">science</span> Research Lab
+            </button>
+          </div>
           <div class="info-section">
             <div class="chip">Pattern Insights</div>
             <h3 class="section-title md-typescale-title-large">Explanation</h3>

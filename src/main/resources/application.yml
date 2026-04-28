@@ -159,6 +159,9 @@ app:
     root: simulation-history
   activityLog:
     intervalMs: 30000
+  university:
+    enabled: true
+    researchIntervalMs: 15000
   ai:
     enabled: true
     digestCooldownMinutes: 10

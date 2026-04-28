@@ -67,6 +67,8 @@ public class RoomService {
     private LlmService llmService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private PolicyConsultationService policyConsultationService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.UniversityService universityService;
     private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.Map<String, Double>> roomTileNudges =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final GovernmentSimulationService governmentSimulationService;
@@ -934,6 +936,11 @@ public class RoomService {
                 }
                 if (!governmentMutation.dirtyBots().isEmpty()) {
                     botRepository.saveAll(governmentMutation.dirtyBots());
+                }
+                if (universityService != null) {
+                    GovernmentState govForUni = governmentMutation.governmentState();
+                    long gameTick = govForUni != null ? govForUni.getTick() : 0L;
+                    universityService.maybeTick(room.getId(), botsForGovernment, gameTick);
                 }
             } catch (Throwable t) {
                 log.error("maintenance government tick error roomId={}", room.getId(), t);
