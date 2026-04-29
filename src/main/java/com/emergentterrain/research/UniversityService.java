@@ -1,24 +1,36 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.repo.RoomBotRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * Per-room university simulation. Each room maintains a population of Researcher bots
- * that select topics based on their genome, perform real computations via MathPhysicsEngine,
- * undergo deterministic peer review, and accumulate publications.
+ * Per-room university simulation with full bot lifecycle management.
  *
- * Genetic evolution kicks in every GENERATION_SIZE papers: tournament selection, crossover,
- * and mutation gradually improve the population's research fitness.
+ * Each RoomBot carries a BotLifecycleState (in lifecycleJson) encoding its
+ * genome, age, research qualification, and social state. This service:
+ *   - Ages all bots and transitions JUVENILE→ADULT→ELDER each tick
+ *   - Runs competency tests every TERM_PAPERS publications to decide who researches
+ *   - Runs one research cycle per interval (author + peer reviewers from QUALIFIED bots)
+ *   - Processes elder merges (higher-fitness bot absorbs lower, retires it)
+ *   - Facilitates dating between ADULT bots to spawn child bots
+ *   - Queues high-score papers for LLM genome mentoring (via callback)
  */
 @Service
 @ConditionalOnProperty(name = "app.university.enabled", havingValue = "true", matchIfMissing = false)
@@ -26,56 +38,128 @@ public class UniversityService {
 
     private static final Logger log = LoggerFactory.getLogger(UniversityService.class);
 
-    private static final int POPULATION_SIZE     = 12;
-    private static final int REVIEWERS_PER_PAPER = 2;
-    private static final int GENERATION_SIZE     = 20;   // papers before evolution cycle
-    private static final int MAX_PAPERS_PER_ROOM = 500;  // ring buffer ceiling
-    private static final int TOURNAMENT_K        = 3;
-    private static final double EVOLVE_REPLACE_FRACTION = 0.20;
+    // Research cycle constants
+    private static final int REVIEWERS_PER_PAPER    = 2;
+    private static final int TERM_PAPERS            = 30;    // publications before next competency test
+    private static final int MAX_PAPERS_PER_ROOM    = 500;
+    private static final int TOURNAMENT_K           = 3;
+    private static final double REVIEW_TOLERANCE    = 0.05;  // score-based, not value-based
+    private static final double COMPETENCY_THRESHOLD = 0.60;
+    private static final double MENTOR_SCORE_THRESHOLD = 0.80;
 
-    // Peer review: |result1 - result2| / max(|result1|, 1e-9) must be below this
-    private static final double REVIEW_TOLERANCE = 1e-6;
+    // Dating constants
+    private static final long DATING_COOLDOWN_TICKS = 200L;
+    private static final double DATING_BASE_PROB    = 0.05;
 
-    private final long researchIntervalMs;
+    // Per-room in-memory counters (not persisted — reset on restart, which is fine)
+    private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Integer>             papersSinceTerm = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<UUID, Integer>             totalRejected = new ConcurrentHashMap<>();
 
-    // Per-room state
-    private final ConcurrentHashMap<UUID, List<Researcher>> researchers     = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, List<ResearchPaper>> published    = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Long>              lastTickAt     = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Integer>           papersSinceEvo = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Long>              paperCounter   = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Integer>           totalRejected  = new ConcurrentHashMap<>();
+    private static final DateTimeFormatter FILE_DATE_FMT =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
+
+    private final long          researchIntervalMs;
+    private final Path          researchOutputDir;
+    private final RoomBotRepository botRepository;
+    private final ObjectMapper  objectMapper;
+
+    // Optional callback set by LlmService integration — avoids circular dependency
+    private volatile java.util.function.BiConsumer<RoomBot, List<ResearchPaper>> mentoringCallback;
 
     public UniversityService(
-            @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs) {
+            @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs,
+            @Value("${app.university.researchOutputDir:research}") String researchOutputDir,
+            RoomBotRepository botRepository,
+            ObjectMapper objectMapper) {
         this.researchIntervalMs = researchIntervalMs;
+        this.researchOutputDir  = Paths.get(researchOutputDir);
+        this.botRepository      = botRepository;
+        this.objectMapper       = objectMapper;
+        try {
+            Files.createDirectories(this.researchOutputDir);
+        } catch (IOException e) {
+            log.warn("Could not create research output directory {}: {}", researchOutputDir, e.getMessage());
+        }
+    }
+
+    public void setMentoringCallback(
+            java.util.function.BiConsumer<RoomBot, List<ResearchPaper>> callback) {
+        this.mentoringCallback = callback;
     }
 
     // ---- Public API ----
 
-    /**
-     * Called from the room maintenance loop. Runs at most one research cycle per interval.
-     * Initialises the researcher population from the bot list on first call.
-     */
-    public void maybeTick(UUID roomId, List<RoomBot> bots, long gameTick) {
+    public void maybeTick(UUID roomId, List<RoomBot> activeBots, long gameTick) {
         long now = System.currentTimeMillis();
         Long last = lastTickAt.get(roomId);
         if (last != null && now - last < researchIntervalMs) return;
         lastTickAt.put(roomId, now);
 
-        ensurePopulation(roomId, bots);
-        List<Researcher> pop = researchers.get(roomId);
-        if (pop == null || pop.isEmpty()) return;
+        // Only work with ACTIVE bots
+        List<RoomBot> bots = activeBots.stream()
+                .filter(b -> b.getStatus() == RoomBot.BotStatus.ACTIVE)
+                .collect(Collectors.toList());
+        if (bots.isEmpty()) return;
 
-        Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
-        runResearchCycle(roomId, pop, rng, gameTick);
+        // Load lifecycle states, initialising any bot that doesn't have one yet
+        Map<UUID, BotLifecycleState> states = loadStates(bots, gameTick);
+
+        // Age all bots, collect dirty set
+        List<RoomBot> dirty = new ArrayList<>();
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = states.get(bot.getId());
+            ls.incrementAge();
+            dirty.add(bot);
+        }
+
+        // Process elder merges before research
+        processElderMerges(bots, states, dirty, gameTick);
+
+        // Check if it's time for a competency test (term boundary)
+        int termPapers = papersSinceTerm.getOrDefault(roomId, 0);
+        if (termPapers >= TERM_PAPERS) {
+            papersSinceTerm.put(roomId, 0);
+            runCompetencyTests(bots, states, gameTick, dirty);
+        }
+
+        // Build qualified researcher pool (ADULT or ELDER, QUALIFIED)
+        List<Researcher> pool = buildResearcherPool(bots, states);
+        if (!pool.isEmpty()) {
+            Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
+            runResearchCycle(roomId, pool, rng, gameTick, dirty);
+        }
+
+        // Dating pass
+        processDating(bots, states, dirty, gameTick);
+
+        // Persist lifecycle state into each bot's lifecycleJson before saving
+        persistStates(bots, states);
+        if (!dirty.isEmpty()) {
+            botRepository.saveAll(dirty);
+        }
+
+        // Fire mentoring callback for any bot that earned it this tick
+        if (mentoringCallback != null) {
+            List<ResearchPaper> roomPapers = getPublishedPapers(roomId, 6);
+            for (RoomBot bot : bots) {
+                BotLifecycleState ls = states.get(bot.getId());
+                if (ls.getLastAiEditAt() == gameTick) {
+                    // Cooldown: only if 200+ ticks since last actual AI edit
+                    // lastAiEditAt is set to gameTick as a signal; we gate on a separate field
+                    // via the callback — LlmService tracks cooldown per-bot
+                    mentoringCallback.accept(bot, roomPapers);
+                }
+            }
+        }
     }
 
     public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) {
         List<ResearchPaper> all = published.get(roomId);
         if (all == null || all.isEmpty()) return List.of();
         List<ResearchPaper> copy = new ArrayList<>(all);
-        // most recent first
         int fromIndex = Math.max(0, copy.size() - limit);
         List<ResearchPaper> slice = new ArrayList<>(copy.subList(fromIndex, copy.size()));
         Collections.reverse(slice);
@@ -83,186 +167,433 @@ public class UniversityService {
     }
 
     public Map<String, Object> getStats(UUID roomId) {
-        List<Researcher> pop = researchers.getOrDefault(roomId, List.of());
-        List<ResearchPaper> papers = published.getOrDefault(roomId, List.of());
+        List<RoomBot> bots = botRepository.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE);
+        Map<UUID, BotLifecycleState> states = loadStatesQuiet(bots);
 
+        List<ResearchPaper> papers = published.getOrDefault(roomId, List.of());
         Map<String, Long> byDomain = papers.stream()
                 .collect(Collectors.groupingBy(ResearchPaper::domain, Collectors.counting()));
 
         OptionalDouble avgScore = papers.stream().mapToDouble(ResearchPaper::peerScore).average();
-        int maxGen = pop.stream().mapToInt(Researcher::getGeneration).max().orElse(0);
-        double avgReputation = pop.stream().mapToDouble(Researcher::getReputation).average().orElse(0);
+        int maxGen = states.values().stream()
+                .mapToInt(s -> s.getGenome() != null ? s.getGenome().getGeneration() : 0)
+                .max().orElse(0);
+        double avgRep = states.values().stream().mapToDouble(BotLifecycleState::getReputation)
+                .average().orElse(0);
         int totalRej = totalRejected.getOrDefault(roomId, 0);
+        long qualified = states.values().stream()
+                .filter(s -> s.getResearchStatus() == BotLifecycleState.ResearchStatus.QUALIFIED).count();
 
         Map<String, Object> stats = new LinkedHashMap<>();
-        stats.put("totalPublished", papers.size());
-        stats.put("totalRejected", totalRej);
-        stats.put("researcherCount", pop.size());
-        stats.put("maxGeneration", maxGen);
-        stats.put("avgReputation", Math.round(avgReputation * 1000.0) / 1000.0);
-        stats.put("avgPeerScore", avgScore.isPresent() ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
-        stats.put("byDomain", byDomain);
+        stats.put("totalPublished",    papers.size());
+        stats.put("totalRejected",     totalRej);
+        stats.put("researcherCount",   bots.size());
+        stats.put("qualifiedCount",    qualified);
+        stats.put("maxGeneration",     maxGen);
+        stats.put("avgReputation",     Math.round(avgRep * 1000.0) / 1000.0);
+        stats.put("avgPeerScore",      avgScore.isPresent()
+                ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
+        stats.put("byDomain",          byDomain);
         return stats;
     }
 
-    // ---- Core research cycle ----
+    // ---- Lifecycle: competency test ----
 
-    private void runResearchCycle(UUID roomId, List<Researcher> pop, Random rng, long gameTick) {
-        // Pick researcher by weighted tournament on fitness
-        Researcher author = tournamentSelect(pop, rng);
+    private void runCompetencyTests(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
+                                    long gameTick, List<RoomBot> dirty) {
+        // Derive test puzzle deterministically from gameTick so all bots face the same instance
+        String[] domains = BotGenome.DOMAINS;
+        String testDomain = domains[(int) (gameTick % domains.length)];
+        int topicIndex    = (int) ((gameTick / 3) % 5);
+        int param1        = 10 + (int) Math.abs(gameTick % 90);
+        double param2     = 1.0 + Math.abs((gameTick >> 16) % 9);
+
+        Random rng = new Random(gameTick);
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = states.get(bot.getId());
+            if (ls.getLifecycle() == BotLifecycleState.Phase.JUVENILE) continue;
+
+            double score = runCompetencyPuzzle(ls.getGenome(), testDomain, topicIndex, param1, param2, rng);
+            ls.setLastCompetencyScore(score);
+            ls.setLastCompetencyTick(gameTick);
+            ls.setResearchStatus(score >= COMPETENCY_THRESHOLD
+                    ? BotLifecycleState.ResearchStatus.QUALIFIED
+                    : BotLifecycleState.ResearchStatus.UNQUALIFIED);
+
+            if (!dirty.contains(bot)) dirty.add(bot);
+        }
+        log.info("university competency test roomId=? domain={} topic={} bots={}",
+                testDomain, topicIndex, bots.size());
+    }
+
+    private double runCompetencyPuzzle(BotGenome genome, String domain, int topicIndex,
+                                       int param1, double param2, Random rng) {
+        if (genome == null) return 0.0;
+        // Use genome's topicWeights as search strategy params (w0=step, w1=restart, etc.)
+        double[] w = genome.getTopicWeights();
+        double stepSize    = w[0];
+        double restartProb = w[1];
+        int    budget      = (int) (20 + w[2] * 60); // 20–80 iterations
+
+        MathPhysicsEngine.ResearchResult result =
+                MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
+        // Competency score: ability to reproduce the known result with limited budget
+        // Simulate search quality: higher budget + appropriate step = better reproduction
+        double qualityFactor = Math.min(1.0, (budget / 80.0) * (0.5 + stepSize * 0.5));
+        double errorPenalty  = restartProb > 0.3 ? 0.0 : (0.3 - restartProb) * 0.2;
+        return Math.max(0.0, qualityFactor - errorPenalty + rng.nextGaussian() * 0.05);
+    }
+
+    // ---- Lifecycle: elder merge ----
+
+    private void processElderMerges(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
+                                    List<RoomBot> dirty, long gameTick) {
+        List<RoomBot> elders = bots.stream()
+                .filter(b -> states.get(b.getId()).getLifecycle() == BotLifecycleState.Phase.ELDER)
+                .collect(Collectors.toList());
+        if (elders.size() < 2) return;
+
+        // Sort by fitness ascending; pair up lowest-fitness bots
+        elders.sort(Comparator.comparingDouble(b -> states.get(b.getId()).fitness()));
+
+        // Process one merge per tick to avoid large batch changes
+        RoomBot botB = elders.get(0);  // lowest fitness — will be retired
+        RoomBot botA = elders.get(1);  // survives, absorbs B
+
+        BotLifecycleState stateA = states.get(botA.getId());
+        BotLifecycleState stateB = states.get(botB.getId());
+
+        BotGenome merged = BotGenome.merge(stateA.getGenome(), stateB.getGenome());
+        stateA.setGenome(merged);
+        // Reset age so the survivor continues as ADULT, not immediately re-entering merge queue
+        stateA.setAgeTicks(BotLifecycleState.JUVENILE_TO_ADULT);
+        stateA.setLifecycle(BotLifecycleState.Phase.ADULT);
+
+        botB.setStatus(RoomBot.BotStatus.RETIRED);
+        if (!dirty.contains(botA)) dirty.add(botA);
+        if (!dirty.contains(botB)) dirty.add(botB);
+
+        log.info("university merge: botA={} absorbed botB={} at tick={}",
+                botA.getId(), botB.getId(), gameTick);
+    }
+
+    // ---- Lifecycle: dating ----
+
+    private void processDating(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
+                                List<RoomBot> dirty, long gameTick) {
+        // bots is already filtered to ACTIVE; use its size as the population count
+        if (bots.size() >= 200) return;
+
+        List<RoomBot> datingCandidates = bots.stream()
+                .filter(b -> {
+                    BotLifecycleState ls = states.get(b.getId());
+                    return ls.getLifecycle() == BotLifecycleState.Phase.ADULT
+                            && (ls.getLastDatedAt() < 0 || gameTick - ls.getLastDatedAt() > DATING_COOLDOWN_TICKS);
+                })
+                .collect(Collectors.toList());
+        if (datingCandidates.size() < 2) return;
+
+        Random rng = new Random(gameTick ^ 0xDA7E5EEDL);
+        Collections.shuffle(datingCandidates, rng);
+
+        // Try one pair per tick
+        RoomBot botA = datingCandidates.get(0);
+        RoomBot botB = datingCandidates.get(1);
+        BotLifecycleState sA = states.get(botA.getId());
+        BotLifecycleState sB = states.get(botB.getId());
+
+        double datingProb = sA.getGenome().getExplorationRate()
+                          * sB.getGenome().getExplorationRate()
+                          * DATING_BASE_PROB;
+        if (rng.nextDouble() > datingProb) return;
+
+        // Create child
+        BotGenome childGenome = BotGenome.crossover(
+                sA.getGenome(), sB.getGenome(), rng, sA.fitness(), sB.fitness());
+        childGenome.mutate(rng);
+
+        BotLifecycleState childState = new BotLifecycleState();
+        childState.setGenome(childGenome);
+        childState.setReputation(0.1);
+
+        RoomBot child = new RoomBot();
+        child.setRoom(botA.getRoom());
+        child.setType("AGENT-C" + gameTick);
+        child.setStatus(RoomBot.BotStatus.ACTIVE);
+        // Position at midpoint of parents
+        if (botA.getX() != null && botB.getX() != null) {
+            child.setX((botA.getX() + botB.getX()) / 2);
+            child.setY((botA.getY() + botB.getY()) / 2);
+        }
+        child.setLifecycleJson(toJson(childState));
+        botRepository.save(child);
+
+        sA.setLastDatedAt(gameTick);
+        sB.setLastDatedAt(gameTick);
+        if (!dirty.contains(botA)) dirty.add(botA);
+        if (!dirty.contains(botB)) dirty.add(botB);
+
+        log.info("university dating: parents={},{} child={} at tick={}",
+                botA.getId(), botB.getId(), child.getId(), gameTick);
+    }
+
+    // ---- Research cycle ----
+
+    private void runResearchCycle(UUID roomId, List<Researcher> pool,
+                                  Random rng, long gameTick, List<RoomBot> dirty) {
+        Researcher author = tournamentSelect(pool, rng);
         int topicIndex    = author.selectTopic(rng);
         String domain     = author.getDomain();
 
-        // Derive params deterministically from gameTick + author id so peer reviewers can reproduce
-        long seed = gameTick * 997L + author.getBotId().hashCode();
-        int    param1 = 10 + (int) Math.abs(seed % 90);          // integer range 10–99
-        double param2 = 1.0 + Math.abs((seed >> 16) % 9);        // 1–9
+        long   seed   = gameTick * 997L + author.getBotId().hashCode();
+        int    param1 = 10 + (int) Math.abs(seed % 90);
+        double param2 = 1.0 + Math.abs((seed >> 16) % 9);
 
-        MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
+        MathPhysicsEngine.ResearchResult result =
+                MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
 
-        // Simulate author error
-        boolean authorError = rng.nextDouble() < author.errorRate();
-        double reportedPrimary = authorError
+        boolean authorError     = rng.nextDouble() < author.errorRate();
+        double  reportedPrimary = authorError
                 ? result.primaryValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
                 : result.primaryValue();
+        double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedPrimary);
 
-        // Peer review: two independent reviewers re-run same computation
         List<String> reviewerIds = new ArrayList<>();
-        boolean reviewPassed = true;
-        double totalReviewScore = 0;
-        int reviewCount = 0;
+        boolean reviewPassed     = true;
+        double  totalReviewScore = 0;
+        int     reviewCount      = 0;
 
         for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-            Researcher reviewer = pickReviewer(pop, author, rng);
-            reviewerIds.add(reviewer.getBotId());
-            boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
+            Researcher reviewer       = pickReviewer(pool, author, rng);
+            boolean    reviewerError  = rng.nextDouble() < reviewer.errorRate();
 
-            MathPhysicsEngine.ResearchResult reviewResult = MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
+            MathPhysicsEngine.ResearchResult reviewResult =
+                    MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
             double reviewPrimary = reviewerError
                     ? reviewResult.primaryValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
                     : reviewResult.primaryValue();
+            double reviewScore   = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewPrimary);
 
-            double relDiff = Math.abs(reportedPrimary - reviewPrimary)
-                    / Math.max(Math.abs(reviewPrimary), 1e-9);
-            boolean agrees = relDiff < REVIEW_TOLERANCE || (!authorError && !reviewerError);
+            boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
             if (!agrees) reviewPassed = false;
 
-            double score = reviewer.getReputation() * (agrees ? 1.0 : 0.3);
-            totalReviewScore += score;
+            reviewerIds.add(reviewer.getBotId());
+            totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
             reviewCount++;
         }
 
         double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
-        String status    = reviewPassed ? "PUBLISHED" : "REJECTED";
 
         if (reviewPassed) {
             String paperId = "P-" + roomId.toString().substring(0, 4)
                     + "-" + paperCounter.merge(roomId, 1L, Long::sum);
-
             String title      = MathPhysicsEngine.generateTitle(domain, topicIndex, rng);
             String hypothesis = MathPhysicsEngine.generateHypothesis(domain, topicIndex, param1, param2);
             String conclusion = MathPhysicsEngine.generateConclusion(result, true);
             String topicName  = MathPhysicsEngine.topicName(domain, topicIndex);
 
             ResearchPaper paper = new ResearchPaper(
-                    paperId, author.getBotId(), domain, topicName,
-                    title, hypothesis, author.getMethodology(),
-                    result.findings(), conclusion,
+                    paperId, author.getBotId(), domain, topicName, title, hypothesis,
+                    author.getMethodology(), result.findings(), conclusion,
                     Collections.unmodifiableList(reviewerIds),
-                    peerScore, status, gameTick, Instant.now(), author.getGeneration());
+                    peerScore, "PUBLISHED", gameTick, Instant.now(), author.getGeneration());
 
-            List<ResearchPaper> roomPapers = published.computeIfAbsent(roomId, k -> new ArrayList<>());
-            synchronized (roomPapers) {
-                roomPapers.add(paper);
-                if (roomPapers.size() > MAX_PAPERS_PER_ROOM) {
-                    roomPapers.remove(0);
-                }
-            }
+            addPaper(roomId, paper);
+            papersSinceTerm.merge(roomId, 1, Integer::sum);
             author.recordPublished(peerScore);
-            log.debug("university published paperId={} domain={} topic={} author={} score={}",
-                    paperId, domain, topicName, author.getBotId(), peerScore);
+
+            // Mentoring eligibility tracked per-bot via lastAiEditAt — signal is handled
+            // in maybeTick where both the RoomBot and paper list are available.
+            author.getState().setLastAiEditAt(peerScore >= MENTOR_SCORE_THRESHOLD
+                    ? gameTick : author.getState().getLastAiEditAt());
+
+            log.debug("university published paperId={} domain={} topic={} score={}",
+                    paperId, domain, topicName, peerScore);
         } else {
             author.recordRejected();
             totalRejected.merge(roomId, 1, Integer::sum);
-            log.debug("university rejected domain={} topicIndex={} author={}", domain, topicIndex, author.getBotId());
         }
 
-        // Reward reviewers slightly for their service
+        // Reviewers get a small reputation bump for service
         for (String rid : reviewerIds) {
-            pop.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
-               .ifPresent(r -> r.recordPublished(0.1));
-        }
-
-        // Check if it's time for a genetic evolution cycle
-        int papers = papersSinceEvo.merge(roomId, 1, Integer::sum);
-        if (papers >= GENERATION_SIZE) {
-            papersSinceEvo.put(roomId, 0);
-            evolvePopulation(pop, rng);
+            pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
+                .ifPresent(r -> r.recordPublished(0.1));
         }
     }
 
-    // ---- Genetic evolution ----
+    // ---- Researcher pool ----
 
-    private void evolvePopulation(List<Researcher> pop, Random rng) {
-        int replaceCount = Math.max(1, (int) (pop.size() * EVOLVE_REPLACE_FRACTION));
-
-        // Sort ascending by fitness; lowest fitness candidates are replaced
-        pop.sort(Comparator.comparingDouble(Researcher::fitness));
-
-        List<Researcher> children = new ArrayList<>();
-        for (int i = 0; i < replaceCount; i++) {
-            Researcher parentA = tournamentSelect(pop, rng);
-            Researcher parentB = tournamentSelect(pop, rng);
-            String childId = "R-evo-" + rng.nextInt(100000);
-            Researcher child = Researcher.crossover(parentA, parentB, childId, rng);
-            child.mutate(rng);
-            children.add(child);
+    private List<Researcher> buildResearcherPool(List<RoomBot> bots,
+                                                  Map<UUID, BotLifecycleState> states) {
+        List<Researcher> pool = new ArrayList<>();
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = states.get(bot.getId());
+            if (ls.getLifecycle() == BotLifecycleState.Phase.JUVENILE) continue;
+            if (ls.getResearchStatus() != BotLifecycleState.ResearchStatus.QUALIFIED) continue;
+            pool.add(new Researcher(bot.getId().toString(), ls));
         }
-
-        for (int i = 0; i < replaceCount; i++) {
-            pop.set(i, children.get(i));
+        // If no one is qualified yet (early game), fall back to all non-juvenile bots
+        if (pool.isEmpty()) {
+            for (RoomBot bot : bots) {
+                BotLifecycleState ls = states.get(bot.getId());
+                if (ls.getLifecycle() != BotLifecycleState.Phase.JUVENILE) {
+                    pool.add(new Researcher(bot.getId().toString(), ls));
+                }
+            }
         }
-        log.debug("university evolution: replaced {} researchers", replaceCount);
+        return pool;
     }
 
-    private Researcher tournamentSelect(List<Researcher> pop, Random rng) {
+    private Researcher tournamentSelect(List<Researcher> pool, Random rng) {
         Researcher best = null;
         for (int i = 0; i < TOURNAMENT_K; i++) {
-            Researcher candidate = pop.get(rng.nextInt(pop.size()));
-            if (best == null || candidate.fitness() > best.fitness()) {
-                best = candidate;
-            }
+            Researcher candidate = pool.get(rng.nextInt(pool.size()));
+            if (best == null || candidate.fitness() > best.fitness()) best = candidate;
         }
         return best;
     }
 
-    private Researcher pickReviewer(List<Researcher> pop, Researcher author, Random rng) {
-        List<Researcher> candidates = pop.stream()
+    private Researcher pickReviewer(List<Researcher> pool, Researcher author, Random rng) {
+        List<Researcher> candidates = pool.stream()
                 .filter(r -> !r.getBotId().equals(author.getBotId()))
                 .collect(Collectors.toList());
-        if (candidates.isEmpty()) return pop.get(rng.nextInt(pop.size()));
-        // Prefer same domain for better peer review quality
+        if (candidates.isEmpty()) return pool.get(rng.nextInt(pool.size()));
         List<Researcher> sameDomain = candidates.stream()
                 .filter(r -> r.getDomain().equals(author.getDomain()))
                 .collect(Collectors.toList());
-        List<Researcher> pool = sameDomain.isEmpty() ? candidates : sameDomain;
-        return pool.get(rng.nextInt(pool.size()));
+        List<Researcher> pick = sameDomain.isEmpty() ? candidates : sameDomain;
+        return pick.get(rng.nextInt(pick.size()));
     }
 
-    // ---- Population initialisation ----
+    // ---- Lifecycle state I/O ----
 
-    private void ensurePopulation(UUID roomId, List<RoomBot> bots) {
-        if (researchers.containsKey(roomId)) return;
-        List<Researcher> pop = new ArrayList<>();
-        String[] domains = Researcher.DOMAINS;
-        Random rng = new Random(roomId.getLeastSignificantBits());
-        int target = Math.max(POPULATION_SIZE, Math.min(bots.size(), POPULATION_SIZE * 2));
-        for (int i = 0; i < target; i++) {
-            String domain  = domains[i % domains.length];
-            String botId   = (i < bots.size()) ? bots.get(i).getId().toString() : "R-" + i;
-            pop.add(new Researcher("R-" + botId.substring(0, Math.min(8, botId.length())), domain, rng));
+    private Map<UUID, BotLifecycleState> loadStates(List<RoomBot> bots, long gameTick) {
+        Map<UUID, BotLifecycleState> states = new LinkedHashMap<>();
+        int domainIdx = 0;
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = readLifecycleState(bot);
+            if (ls.getGenome() == null) {
+                ls.setGenome(BotGenome.initialise(bot.getId(), domainIdx));
+            }
+            states.put(bot.getId(), ls);
+            domainIdx++;
         }
-        researchers.put(roomId, pop);
-        log.info("university initialised roomId={} researchers={}", roomId, pop.size());
+        return states;
     }
+
+    private Map<UUID, BotLifecycleState> loadStatesQuiet(List<RoomBot> bots) {
+        Map<UUID, BotLifecycleState> states = new LinkedHashMap<>();
+        int idx = 0;
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = readLifecycleState(bot);
+            if (ls.getGenome() == null) ls.setGenome(BotGenome.initialise(bot.getId(), idx));
+            states.put(bot.getId(), ls);
+            idx++;
+        }
+        return states;
+    }
+
+    private BotLifecycleState readLifecycleState(RoomBot bot) {
+        String json = bot.getLifecycleJson();
+        if (json == null || json.isBlank()) return new BotLifecycleState();
+        try {
+            return objectMapper.readValue(json, BotLifecycleState.class);
+        } catch (Exception e) {
+            log.warn("Failed to parse lifecycleJson for bot={}: {}", bot.getId(), e.getMessage());
+            return new BotLifecycleState();
+        }
+    }
+
+    private void persistStates(List<RoomBot> bots, Map<UUID, BotLifecycleState> states) {
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = states.get(bot.getId());
+            if (ls != null) {
+                bot.setLifecycleJson(toJson(ls));
+            }
+        }
+    }
+
+    // ---- Helpers ----
+
+    private void addPaper(UUID roomId, ResearchPaper paper) {
+        List<ResearchPaper> roomPapers = published.computeIfAbsent(roomId, k -> new ArrayList<>());
+        synchronized (roomPapers) {
+            roomPapers.add(paper);
+            if (roomPapers.size() > MAX_PAPERS_PER_ROOM) roomPapers.remove(0);
+        }
+        writePaperToFile(roomId, paper);
+    }
+
+    private void writePaperToFile(UUID roomId, ResearchPaper paper) {
+        try {
+            // Directory: research/<roomId-prefix>/
+            Path roomDir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
+            Files.createDirectories(roomDir);
+
+            // Filename: <date>_<domain>_<topic-slug>_<paperId>.md
+            String dateStr    = FILE_DATE_FMT.format(paper.publishedAt());
+            String topicSlug  = paper.topic().toLowerCase()
+                    .replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+            String filename   = "%s_%s_%s_%s.md"
+                    .formatted(dateStr, paper.domain().toLowerCase(), topicSlug, paper.paperId());
+            Path file = roomDir.resolve(filename);
+
+            String content = formatPaperAsMarkdown(roomId, paper);
+            Files.writeString(file, content);
+        } catch (IOException e) {
+            log.warn("Failed to write research paper {} to file: {}", paper.paperId(), e.getMessage());
+        }
+    }
+
+    private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
+        return """
+                # %s
+
+                **Paper ID**: %s
+                **Published**: %s
+                **Room**: %s
+                **Domain**: %s  |  **Topic**: %s
+                **Methodology**: %s
+                **Peer Score**: %.3f
+                **Generation**: %d
+                **Author**: %s
+                **Reviewers**: %s
+
+                ---
+
+                ## Hypothesis
+
+                %s
+
+                ## Findings
+
+                %s
+
+                ## Conclusion
+
+                %s
+                """.formatted(
+                paper.title(),
+                paper.paperId(),
+                paper.publishedAt(),
+                roomId,
+                paper.domain(), paper.topic(),
+                paper.methodology(),
+                paper.peerScore(),
+                paper.generation(),
+                paper.authorBotId(),
+                String.join(", ", paper.reviewerBotIds()),
+                paper.hypothesis(),
+                paper.findings(),
+                paper.conclusion());
+    }
+
+    private String toJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to serialise lifecycle state", e);
+        }
+    }
+
 }

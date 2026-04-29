@@ -162,6 +162,7 @@ app:
   university:
     enabled: true
     researchIntervalMs: 15000
+    researchOutputDir: research
   ai:
     enabled: true
     digestCooldownMinutes: 10

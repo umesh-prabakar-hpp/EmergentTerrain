@@ -940,7 +940,11 @@ public class RoomService {
                 if (universityService != null) {
                     GovernmentState govForUni = governmentMutation.governmentState();
                     long gameTick = govForUni != null ? govForUni.getTick() : 0L;
-                    universityService.maybeTick(room.getId(), botsForGovernment, gameTick);
+                    // Pass only ACTIVE bots; retired bots must not participate in research
+                    List<RoomBot> activeBots = botsForGovernment.stream()
+                            .filter(b -> b.getStatus() == com.emergentterrain.domain.RoomBot.BotStatus.ACTIVE)
+                            .collect(java.util.stream.Collectors.toList());
+                    universityService.maybeTick(room.getId(), activeBots, gameTick);
                 }
             } catch (Throwable t) {
                 log.error("maintenance government tick error roomId={}", room.getId(), t);
@@ -1627,7 +1631,11 @@ public class RoomService {
     }
 
     private List<RoomBot> ensureBots(Room room, int[][] tiles, boolean fullPopulation) {
-        List<RoomBot> existing = botRepository.findByRoom(room);
+        List<RoomBot> allBots = botRepository.findByRoom(room);
+        // Only count and manage ACTIVE bots; retired bots are historical records only
+        List<RoomBot> existing = allBots.stream()
+                .filter(b -> b.getStatus() == com.emergentterrain.domain.RoomBot.BotStatus.ACTIVE)
+                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         int maxOccupantsTotal = Math.max(3, (tiles.length * tiles[0].length * maxOccupants) / (densityAreaSize * densityAreaSize));
         int targetBots = Math.max(40, (int) Math.round(maxOccupantsTotal * botPopulationFraction));
         targetBots = Math.min(targetBots, maxBotsPerRoom);

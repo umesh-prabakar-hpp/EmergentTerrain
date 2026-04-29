@@ -63,6 +63,18 @@ public class MathPhysicsEngine {
         };
     }
 
+    /**
+     * Normalised quality score [0,1] from a primaryValue, used for peer-review comparison.
+     * Reviewers compare scores rather than raw values so tolerance is domain-independent.
+     */
+    public static double scoreResult(String domain, int topicIndex, double primaryValue) {
+        // All current computations return finite deterministic values.
+        // Score = sigmoid-like normalisation so any finite value maps to (0,1).
+        if (!Double.isFinite(primaryValue)) return 0.0;
+        double abs = Math.abs(primaryValue);
+        return abs / (1.0 + abs);  // always in (0,1), monotone — two results agree if close
+    }
+
     public static String topicName(String domain, int topicIndex) {
         String[] names = switch (domain) {
             case "PHYSICS"   -> PHYSICS_TOPICS;

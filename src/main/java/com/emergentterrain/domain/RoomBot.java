@@ -7,6 +7,9 @@ import java.util.UUID;
 @Entity
 @Table(name = "room_bots")
 public class RoomBot {
+
+    public enum BotStatus { ACTIVE, RETIRED }
+
     @Id
     @GeneratedValue
     private UUID id;
@@ -35,6 +38,13 @@ public class RoomBot {
 
     @Column(columnDefinition = "text")
     private String civicStateJson;
+
+    @Column(columnDefinition = "text")
+    private String lifecycleJson;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    private BotStatus status = BotStatus.ACTIVE;
 
     public UUID getId() {
         return id;
@@ -118,5 +128,21 @@ public class RoomBot {
 
     public void setCivicStateJson(String civicStateJson) {
         this.civicStateJson = civicStateJson;
+    }
+
+    public String getLifecycleJson() {
+        return lifecycleJson;
+    }
+
+    public void setLifecycleJson(String lifecycleJson) {
+        this.lifecycleJson = lifecycleJson;
+    }
+
+    public BotStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(BotStatus status) {
+        this.status = status;
     }
 }

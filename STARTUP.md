@@ -22,6 +22,12 @@ Start the Ollama daemon (runs on port 11434 by default):
 ollama serve
 ```
 
+For parallel LLM requests (recommended — allows digest and genome mentoring to run concurrently):
+
+```bash
+OLLAMA_NUM_PARALLEL=3 ollama serve
+```
+
 Pull the model (do this once — downloads ~1.5 GB):
 
 ```bash
@@ -92,6 +98,7 @@ All have sensible defaults for local development. Override as needed:
 | `PG_PASSWORD` | `NewStrongPasswordHere` | Database password |
 | `OLLAMA_URL` | `http://localhost:11434` | Ollama base URL |
 | `OLLAMA_MODEL` | `gemma2:2b` | Model to use for generation |
+| `OLLAMA_NUM_PARALLEL` | `1` | Parallel inference slots in Ollama (set to 3 to match the app's 3 LLM lanes) |
 
 ---
 
@@ -113,9 +120,10 @@ Steps 2 and 3 can be started in any order relative to each other; the Spring Boo
 When Ollama is running and `app.ai.enabled=true` (the default):
 
 - **Pattern explanation** — when you click a tile to propose a change, a 1–2 sentence explanation streams into the Pattern Insights sidebar in real time.
-- **Court opinions** — when the government simulation decides a court case, a 3-paragraph majority opinion streams into the Government Commentary section of the sidebar.
+- **Court opinions / government digest** — when the government simulation decides court cases or enacts bills, a civic bulletin streams into the Government Commentary sidebar.
+- **Genome mentoring** — when a researcher bot publishes high-scoring work, it earns an LLM mentoring session that adjusts its research genome based on its emerging identity.
 
-Both stream token-by-token via the existing WebSocket connection. Expected speed on this hardware: ~8–12 tokens/second (~5–40 seconds per generation depending on length).
+All three lanes use independent semaphores so they never block each other. With `OLLAMA_NUM_PARALLEL=3`, all three can run concurrently. Expected speed on this hardware: ~8–12 tokens/second (~5–40 seconds per generation depending on length).
 
 To disable LLM features without stopping Ollama:
 

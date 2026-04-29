@@ -10,5 +10,7 @@ import java.util.UUID;
 
 public interface RoomBotRepository extends JpaRepository<RoomBot, UUID> {
     List<RoomBot> findByRoom(Room room);
+    List<RoomBot> findByRoom_IdAndStatus(UUID roomId, RoomBot.BotStatus status);
+    int countByRoom_IdAndStatus(UUID roomId, RoomBot.BotStatus status);
     Optional<RoomBot> findByRoomAndType(Room room, String type);
 }
