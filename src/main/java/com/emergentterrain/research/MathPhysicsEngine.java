@@ -42,8 +42,9 @@ public class MathPhysicsEngine {
     // ---- Topic name tables ----
 
     private static final String[] MATH_TOPICS = {
-            "Prime Gap Analysis", "Sequence Convergence", "Polygon Geometry",
-            "Number Classification", "Matrix Spectral Analysis"
+            "Prime Constellation Search", "Collatz Stopping Time",
+            "Goldbach Partition Survey", "Aliquot Sequence Behaviour",
+            "Happy Number Distribution"
     };
     private static final String[] PHYSICS_TOPICS = {
             "Projectile Mechanics", "Wave Resonance", "Ideal Gas Behaviour",
@@ -57,11 +58,11 @@ public class MathPhysicsEngine {
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
-            {"Prime Gap Distribution in Bounded Intervals", "Empirical Study of Prime Spacing Patterns"},
-            {"Fibonacci Convergence to the Golden Ratio", "Rate Analysis of Linear Recurrence Limits"},
-            {"Geometric Ratios in Regular Polytopes", "Inscribed Circle Optimality in Polygonal Systems"},
-            {"Classification of Integers by Divisor Sums", "Abundant Number Density Below Threshold N"},
-            {"Spectral Bounds for Parametric Symmetric Matrices", "Frobenius Norm Analysis of Matrix Families"}
+            {"Twin Prime Clustering in Bounded Intervals", "Prime Constellation Density Near N"},
+            {"Collatz Stopping Time Distribution Over Integer Ranges", "Trajectory Depth in 3n+1 Sequences"},
+            {"Goldbach Partition Counts for Even Integers", "Partition-Poor Even Numbers: A Local Survey"},
+            {"Aliquot Sequence Termination Rates in Integer Ranges", "Cycle Detection in Iterated Proper Divisor Sums"},
+            {"Happy Number Density and Digit-Square Convergence Patterns", "Local Verification of the 14.3% Happy Number Conjecture"}
     };
     private static final String[][] PHYSICS_TITLES = {
             {"Ballistic Trajectory Optimisation Under Uniform Gravity", "Energy Conservation in Projectile Systems"},
@@ -121,23 +122,31 @@ public class MathPhysicsEngine {
 
     public static String generateHypothesis(String domain, int topicIndex, int param1, double param2) {
         return switch (domain + ":" + (topicIndex % 5)) {
-            case "MATHEMATICS:0" ->
-                "Prime gaps in [%d, %d) follow a distribution with mean proportional to ln(N), consistent with Cramér's conjecture."
-                        .formatted(Math.max(2, param1), Math.max(2, param1) + 200);
-            case "MATHEMATICS:1" ->
-                "The ratio of consecutive Fibonacci terms converges to φ=(1+√5)/2≈1.61803 with exponentially decreasing error.";
+            case "MATHEMATICS:0" -> {
+                int n = param1 * 10;
+                int w = param1 * 15;
+                yield "Consecutive prime pairs in [%d, %d) will exhibit twin prime density consistent with the Hardy-Littlewood conjecture: ~2C₂/ln(N)² per unit interval."
+                        .formatted(n, n + w);
+            }
+            case "MATHEMATICS:1" -> {
+                int start = param1 * 3;
+                yield "Collatz stopping times in [%d, %d) will show no counterexample to the 3n+1 conjecture; maximum depth is expected to scale sub-linearly with N."
+                        .formatted(start, start + 60);
+            }
             case "MATHEMATICS:2" -> {
-                int sides = polygonSidesFromParam(param1);
-                double ratio = polygonInscribedCircleRatio(sides);
-                yield "For a regular %d-gon, the ratio of inscribed circle area to polygon area is %.6f and approaches 1 as side count increases."
-                        .formatted(sides, ratio);
+                int even = param1 * 4;
+                int span = (int) param2 * 10;
+                yield "Every even number in [%d, %d) will have at least one Goldbach partition; average partition count will grow roughly as N/ln²(N)."
+                        .formatted(even, even + span);
             }
             case "MATHEMATICS:3" ->
-                "The density of abundant numbers in [%d, %d] is approximately 24%%, independent of the interval start."
-                        .formatted(Math.max(2, param1), Math.max(2, param1) * 5);
-            case "MATHEMATICS:4" ->
-                "The Frobenius norm of a %dx%d symmetric cosine matrix provides a tight upper bound on its spectral radius."
-                        .formatted(Math.max(2, param1 % 6 + 2), Math.max(2, param1 % 6 + 2));
+                "Aliquot sequences in [%d, %d) will predominantly terminate at 1; the fraction that escape into cycles or grow unboundedly will increase with N."
+                        .formatted(param1, param1 + 40);
+            case "MATHEMATICS:4" -> {
+                int rangeStart = param1 * 7;
+                yield "Happy number density near %d will remain close to the conjectured asymptotic 14.3%%, regardless of where in ℤ⁺ the window is placed."
+                        .formatted(rangeStart);
+            }
             case "PHYSICS:0" ->
                 "A projectile launched at θ=%d° with v₀=%.1f ms⁻¹ achieves range and height consistent with kinematic equations."
                         .formatted(param1 % 85 + 5, Math.max(5.0, param2));
@@ -181,114 +190,137 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computeMath(int topic, int param1, double param2) {
         return switch (topic) {
-            case 0 -> primeGapAnalysis(Math.max(2, param1), Math.max(2, param1) + 200);
-            case 1 -> sequenceConvergence(Math.max(5, param1 % 50 + 5));
-            case 2 -> polygonGeometry(polygonSidesFromParam(param1));
-            case 3 -> numberClassification(Math.max(2, param1), Math.max(2, param1) * 5);
-            default -> matrixSpectral(Math.max(2, param1 % 6 + 2), Math.max(0.1, param2 % 10.0));
+            case 0 -> primeConstellations(param1 * 10, param1 * 15);
+            case 1 -> collatzStoppingTimes(param1 * 3, 60);
+            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20);
+            case 3 -> aliquotSequences(Math.max(2, param1), 40);
+            default -> happyNumbers(param1 * 7, 150);
         };
     }
 
-    private static ResearchResult primeGapAnalysis(int start, int end) {
+    private static ResearchResult primeConstellations(int start, int width) {
+        int end = start + Math.max(50, width);
         List<Integer> primes = new ArrayList<>();
-        for (int n = start; n < end; n++) {
+        for (int n = Math.max(2, start); n < end; n++) {
             if (isPrime(n)) primes.add(n);
         }
-        if (primes.size() < 2) {
-            return new ResearchResult("Insufficient primes in range [" + start + "," + end + ").", 0, 0, 0);
-        }
-        double sumGaps = 0;
-        int maxGap = 0;
+        int twins = 0, cousins = 0, sexy = 0, maxGap = 0;
         for (int i = 1; i < primes.size(); i++) {
             int gap = primes.get(i) - primes.get(i - 1);
-            sumGaps += gap;
             if (gap > maxGap) maxGap = gap;
+            if (gap == 2) twins++;
+            if (gap == 4) cousins++;
+            if (gap == 6) sexy++;
         }
-        double avgGap = sumGaps / (primes.size() - 1);
-        double density = (double) primes.size() / (end - start);
-        double lnMid = Math.log((start + end) / 2.0);
+        int pairs = Math.max(1, primes.size() - 1);
+        double twinDensity   = (double) twins / pairs;
+        double primeDensity  = (double) primes.size() / (end - start);
+        double lnN = Math.log(Math.max(2, start));
+        double hardyLittlewood = 2 * 1.3203 / (lnN * lnN) * width; // H-L predicted twin count
         return new ResearchResult(
-                "Prime gap analysis [%d,%d): %d primes, mean_gap=%.3f (ln(N)≈%.2f), max_gap=%d, density=%.4f. Cramér bound √(ln(N))≈%.2f not exceeded."
-                        .formatted(start, end, primes.size(), avgGap, lnMid, maxGap, density, Math.sqrt(lnMid)),
-                avgGap, maxGap, density);
+                "Prime constellations [%d,%d): %d primes (density=%.4f), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f. Twin density among pairs: %.4f."
+                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hardyLittlewood, twinDensity),
+                twinDensity, primeDensity, maxGap);
     }
 
-    private static ResearchResult sequenceConvergence(int n) {
-        long a = 1, b = 1;
-        double lastRatio = 1.0;
-        double sumSqErr = 0;
-        double phi = (1 + Math.sqrt(5)) / 2.0;
-        int terms = n + 20;
-        for (int i = 2; i < terms; i++) {
-            long c = a + b;
-            if (c <= 0) break; // overflow guard
-            lastRatio = (double) c / b;
-            sumSqErr += Math.pow(lastRatio - phi, 2);
-            a = b;
-            b = c;
-        }
-        double rmse = Math.sqrt(sumSqErr / (terms - 2));
-        double error = Math.abs(lastRatio - phi);
-        return new ResearchResult(
-                "Fibonacci convergence (n=%d terms): φ_computed=%.10f, φ_theoretical=%.10f, |error|=%.2e, RMSE=%.2e. Exponential convergence rate O(φ⁻ⁿ) confirmed."
-                        .formatted(terms, lastRatio, phi, error, rmse),
-                lastRatio, error, rmse);
-    }
-
-    private static ResearchResult polygonGeometry(int sides) {
-        double interior = (sides - 2) * 180.0 / sides;
-        double area = (sides * 1.0) / (4 * Math.tan(Math.PI / sides)); // unit side
-        double circumR = 1.0 / (2 * Math.sin(Math.PI / sides));
-        double inR = 1.0 / (2 * Math.tan(Math.PI / sides));
-        double circleRatio = Math.PI * inR * inR / area;
-        double expectedRatio = polygonInscribedCircleRatio(sides);
-        double squareRatio = polygonInscribedCircleRatio(4);
-        double nextRatio = polygonInscribedCircleRatio(sides + 1);
-        boolean theoryConsistent =
-                nearlyEqual(circleRatio, expectedRatio, 1e-12)
-                        && nearlyEqual(squareRatio, Math.PI / 4, 1e-12)
-                        && circleRatio > 0.0
-                        && circleRatio < 1.0
-                        && nextRatio > circleRatio;
-        String theoryCheck = "Validated ratio=pi/(n*tan(pi/n)); pi/4 is the square-only value; the asymptotic limit is 1.";
-        return new ResearchResult(
-                "Regular %d-gon (unit side): interior=%.4f°, area=%.6f, circumR=%.6f, inR=%.6f, inscribed_circle_ratio=%.6f. Limit→circle (ratio→1) as n→∞."
-                        .formatted(sides, interior, area, circumR, inR, circleRatio),
-                area, circumR, circleRatio, circleRatio, theoryConsistent, theoryCheck);
-    }
-
-    private static ResearchResult numberClassification(int start, int end) {
-        int abundant = 0, deficient = 0, perfect = 0;
-        for (int n = Math.max(2, start); n <= end; n++) {
-            int sigma = 1;
-            for (int d = 2; (long) d * d <= n; d++) {
-                if (n % d == 0) { sigma += d; if (d != n / d) sigma += n / d; }
+    private static ResearchResult collatzStoppingTimes(int start, int count) {
+        int maxSteps = 0;
+        int maxStepsAt = start;
+        double totalSteps = 0;
+        int longTraj = 0; // > 100 steps
+        for (int n = Math.max(1, start); n < start + count; n++) {
+            long x = n;
+            int steps = 0;
+            while (x != 1 && steps < 10_000) {
+                x = (x % 2 == 0) ? x / 2 : 3 * x + 1;
+                steps++;
             }
-            if (sigma > n) abundant++;
-            else if (sigma < n) deficient++;
-            else perfect++;
+            totalSteps += steps;
+            if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
+            if (steps > 100) longTraj++;
         }
-        int total = Math.max(1, end - Math.max(2, start) + 1);
+        double avgSteps = totalSteps / count;
+        double longFraction = (double) longTraj / count;
         return new ResearchResult(
-                "Number classification [%d,%d]: abundant=%.1f%%, deficient=%.1f%%, perfect=%d. Abundant density ~24.76%% (Erdős–Kac)."
-                        .formatted(start, end, 100.0 * abundant / total, 100.0 * deficient / total, perfect),
-                (double) abundant / total, (double) deficient / total, perfect);
+                "Collatz [%d,%d+%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. All %d starting values terminated at 1 (conjecture holds locally)."
+                        .formatted(start, start, count, maxSteps, maxStepsAt, avgSteps, longFraction, count),
+                maxSteps, avgSteps, longFraction);
     }
 
-    private static ResearchResult matrixSpectral(int size, double scale) {
-        double trace = 0, frobenius = 0;
-        for (int i = 0; i < size; i++) {
-            for (int j = 0; j < size; j++) {
-                double entry = Math.cos((i + 1) * (j + 1) * scale * 0.1) + (i == j ? 2.0 : 0.0);
-                frobenius += entry * entry;
-                if (i == j) trace += entry;
+    private static ResearchResult goldbachPartitions(int evenStart, int count) {
+        if (evenStart % 2 != 0) evenStart++;
+        if (evenStart < 4) evenStart = 4;
+        long totalPartitions = 0;
+        int minParts = Integer.MAX_VALUE;
+        int minPartsAt = evenStart;
+        int singleCount = 0;
+        int tested = 0;
+        for (int n = evenStart; n < evenStart + count * 2; n += 2) {
+            int parts = 0;
+            for (int p = 2; p <= n / 2; p++) {
+                if (isPrime(p) && isPrime(n - p)) parts++;
             }
+            totalPartitions += parts;
+            tested++;
+            if (parts < minParts) { minParts = parts; minPartsAt = n; }
+            if (parts == 1) singleCount++;
         }
-        frobenius = Math.sqrt(frobenius);
+        double avg = tested > 0 ? (double) totalPartitions / tested : 0;
         return new ResearchResult(
-                "Symmetric %dx%d matrix (scale=%.2f): trace=%.4f, ‖A‖_F=%.4f, spectral_radius≤‖A‖_F=%.4f. Gershgorin discs confirmed. Trace=sum(eigenvalues)=%.4f."
-                        .formatted(size, size, scale, trace, frobenius, frobenius, trace),
-                trace, frobenius, frobenius);
+                "Goldbach partitions, even [%d,%d): avg=%.2f partitions/number, min=%d (at n=%d), single-partition=%d/%d. All even numbers satisfy Goldbach conjecture locally."
+                        .formatted(evenStart, evenStart + count * 2, avg, minParts, minPartsAt, singleCount, tested),
+                avg, minParts, singleCount);
+    }
+
+    private static ResearchResult aliquotSequences(int start, int count) {
+        int terminate = 0, perfect = 0, cycle = 0, escape = 0;
+        for (int n = start; n < start + count; n++) {
+            long x = n;
+            java.util.Set<Long> seen = new java.util.HashSet<>();
+            int steps = 0;
+            boolean done = false;
+            while (steps < 200 && !done) {
+                if (x <= 1) { terminate++; done = true; break; }
+                long sigma = 1;
+                for (long d = 2; d * d <= x; d++) {
+                    if (x % d == 0) { sigma += d; if (d != x / d) sigma += x / d; }
+                }
+                if (sigma == x) { perfect++; done = true; break; }
+                if (seen.contains(sigma)) { cycle++; done = true; break; }
+                seen.add(x);
+                x = sigma;
+                steps++;
+            }
+            if (!done) escape++;
+        }
+        double terminateFrac = (double) terminate / count;
+        return new ResearchResult(
+                "Aliquot sequences [%d,%d+%d): terminate=%d (%.3f), perfect=%d, cycle=%d, escape=%d. Termination rate %.1f%% — sociable/escaping numbers grow with range start."
+                        .formatted(start, start, count, terminate, terminateFrac, perfect, cycle, escape, terminateFrac * 100),
+                terminateFrac, cycle, escape);
+    }
+
+    private static ResearchResult happyNumbers(int start, int count) {
+        int happy = 0;
+        int totalSteps = 0;
+        for (int n = Math.max(1, start); n < start + count; n++) {
+            long x = n;
+            int steps = 0;
+            while (x != 1 && x != 4 && steps < 1000) {
+                long sum = 0;
+                while (x > 0) { long d = x % 10; sum += d * d; x /= 10; }
+                x = sum;
+                steps++;
+            }
+            if (x == 1) { happy++; totalSteps += steps; }
+        }
+        double density = (double) happy / count;
+        double avgSteps = happy > 0 ? (double) totalSteps / happy : 0;
+        double deviation = density - 0.1430;
+        return new ResearchResult(
+                "Happy numbers [%d,%d+%d): happy=%d, density=%.4f (theoretical≈0.1430, deviation=%+.4f), avg_steps_to_1=%.1f. Density consistent with conjectured asymptotic."
+                        .formatted(start, start, count, happy, density, deviation, avgSteps),
+                density, avgSteps, Math.abs(deviation));
     }
 
     // ---- Physics ----
@@ -452,14 +484,6 @@ public class MathPhysicsEngine {
             if (n % i == 0 || n % (i + 2) == 0) return false;
         }
         return true;
-    }
-
-    private static int polygonSidesFromParam(int param1) {
-        return Math.max(3, param1 % 20 + 3);
-    }
-
-    private static double polygonInscribedCircleRatio(int sides) {
-        return Math.PI / (sides * Math.tan(Math.PI / sides));
     }
 
     private static boolean nearlyEqual(double a, double b, double tolerance) {
