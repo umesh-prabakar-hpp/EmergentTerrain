@@ -471,9 +471,15 @@ public class UniversityService {
         Map<UUID, BotLifecycleState> states = new LinkedHashMap<>();
         int domainIdx = 0;
         for (RoomBot bot : bots) {
+            boolean isNew = bot.getLifecycleJson() == null || bot.getLifecycleJson().isBlank();
             BotLifecycleState ls = readLifecycleState(bot);
             if (ls.getGenome() == null) {
                 ls.setGenome(BotGenome.initialise(bot.getId(), domainIdx));
+            }
+            if (isNew) {
+                // Bots without lifecycle state pre-date the system — start as ADULT, not JUVENILE
+                ls.setAgeTicks(BotLifecycleState.JUVENILE_TO_ADULT);
+                ls.setLifecycle(BotLifecycleState.Phase.ADULT);
             }
             states.put(bot.getId(), ls);
             domainIdx++;
