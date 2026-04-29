@@ -222,7 +222,7 @@ public class UniversityService {
 
             if (!dirty.contains(bot)) dirty.add(bot);
         }
-        log.info("university competency test roomId=? domain={} topic={} bots={}",
+        log.info("university competency test domain={} topic={} bots={}",
                 testDomain, topicIndex, bots.size());
     }
 

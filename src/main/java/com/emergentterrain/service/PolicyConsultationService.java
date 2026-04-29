@@ -69,8 +69,8 @@ public class PolicyConsultationService {
     // ---- State ----
 
     // Results are valid if current tick is within this many ticks of the snapshot tick.
-    // CPU Ollama inference takes ~100-175s; game advances ~3-4s/tick, so 60 ticks ≈ 3.5 min.
-    private static final long MAX_STALE_TICKS = 60;
+    // CPU Ollama inference takes ~100-230s; game advances ~3-4s/tick, so 90 ticks ≈ 5.5 min.
+    private static final long MAX_STALE_TICKS = 90;
 
     public final double hintAcceptanceRate;
 
