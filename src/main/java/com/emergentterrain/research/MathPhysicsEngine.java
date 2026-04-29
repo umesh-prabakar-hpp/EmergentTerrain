@@ -12,7 +12,32 @@ import java.util.Random;
 public class MathPhysicsEngine {
 
     public record ResearchResult(String findings, double primaryValue,
-                                 double secondaryValue, double tertiaryValue) {}
+                                 double secondaryValue, double tertiaryValue,
+                                 double reviewValue, boolean theoryConsistent,
+                                 String theoryCheck) {
+        public ResearchResult(String findings, double primaryValue,
+                              double secondaryValue, double tertiaryValue) {
+            this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
+                    allFinite(primaryValue, secondaryValue, tertiaryValue),
+                    allFinite(primaryValue, secondaryValue, tertiaryValue)
+                            ? "Computed values are finite and reproducible."
+                            : "One or more computed values are non-finite.");
+        }
+
+        public ResearchResult(String findings, double primaryValue,
+                              double secondaryValue, double tertiaryValue,
+                              boolean theoryConsistent, String theoryCheck) {
+            this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
+                    theoryConsistent, theoryCheck);
+        }
+
+        private static boolean allFinite(double... values) {
+            for (double value : values) {
+                if (!Double.isFinite(value)) return false;
+            }
+            return true;
+        }
+    }
 
     // ---- Topic name tables ----
 
@@ -64,14 +89,14 @@ public class MathPhysicsEngine {
     }
 
     /**
-     * Normalised quality score [0,1] from a primaryValue, used for peer-review comparison.
+     * Normalised quality score [0,1] from a review value, used for peer-review comparison.
      * Reviewers compare scores rather than raw values so tolerance is domain-independent.
      */
-    public static double scoreResult(String domain, int topicIndex, double primaryValue) {
+    public static double scoreResult(String domain, int topicIndex, double value) {
         // All current computations return finite deterministic values.
         // Score = sigmoid-like normalisation so any finite value maps to (0,1).
-        if (!Double.isFinite(primaryValue)) return 0.0;
-        double abs = Math.abs(primaryValue);
+        if (!Double.isFinite(value)) return 0.0;
+        double abs = Math.abs(value);
         return abs / (1.0 + abs);  // always in (0,1), monotone — two results agree if close
     }
 
@@ -101,9 +126,12 @@ public class MathPhysicsEngine {
                         .formatted(Math.max(2, param1), Math.max(2, param1) + 200);
             case "MATHEMATICS:1" ->
                 "The ratio of consecutive Fibonacci terms converges to φ=(1+√5)/2≈1.61803 with exponentially decreasing error.";
-            case "MATHEMATICS:2" ->
-                "For a regular %d-gon, the ratio of inscribed circle area to polygon area approaches π/4 as side count increases."
-                        .formatted(Math.max(3, param1 % 20 + 3));
+            case "MATHEMATICS:2" -> {
+                int sides = polygonSidesFromParam(param1);
+                double ratio = polygonInscribedCircleRatio(sides);
+                yield "For a regular %d-gon, the ratio of inscribed circle area to polygon area is %.6f and approaches 1 as side count increases."
+                        .formatted(sides, ratio);
+            }
             case "MATHEMATICS:3" ->
                 "The density of abundant numbers in [%d, %d] is approximately 24%%, independent of the interval start."
                         .formatted(Math.max(2, param1), Math.max(2, param1) * 5);
@@ -139,10 +167,14 @@ public class MathPhysicsEngine {
     }
 
     public static String generateConclusion(ResearchResult result, boolean passed) {
+        if (!result.theoryConsistent()) {
+            return "Theory check failed: %s Findings require correction before acceptance."
+                    .formatted(result.theoryCheck());
+        }
         if (!passed) {
             return "Computational inconsistencies detected during peer review. Findings require independent verification before acceptance.";
         }
-        return "Results are consistent with theoretical predictions. Computed values were independently verified by peer reviewers running the same computation. The hypothesis is supported.";
+        return "Results passed configured theory checks and computed values were independently verified by peer reviewers running the same computation. The hypothesis is supported.";
     }
 
     // ---- Mathematics ----
@@ -151,7 +183,7 @@ public class MathPhysicsEngine {
         return switch (topic) {
             case 0 -> primeGapAnalysis(Math.max(2, param1), Math.max(2, param1) + 200);
             case 1 -> sequenceConvergence(Math.max(5, param1 % 50 + 5));
-            case 2 -> polygonGeometry(Math.max(3, param1 % 20 + 3));
+            case 2 -> polygonGeometry(polygonSidesFromParam(param1));
             case 3 -> numberClassification(Math.max(2, param1), Math.max(2, param1) * 5);
             default -> matrixSpectral(Math.max(2, param1 % 6 + 2), Math.max(0.1, param2 % 10.0));
         };
@@ -209,10 +241,20 @@ public class MathPhysicsEngine {
         double circumR = 1.0 / (2 * Math.sin(Math.PI / sides));
         double inR = 1.0 / (2 * Math.tan(Math.PI / sides));
         double circleRatio = Math.PI * inR * inR / area;
+        double expectedRatio = polygonInscribedCircleRatio(sides);
+        double squareRatio = polygonInscribedCircleRatio(4);
+        double nextRatio = polygonInscribedCircleRatio(sides + 1);
+        boolean theoryConsistent =
+                nearlyEqual(circleRatio, expectedRatio, 1e-12)
+                        && nearlyEqual(squareRatio, Math.PI / 4, 1e-12)
+                        && circleRatio > 0.0
+                        && circleRatio < 1.0
+                        && nextRatio > circleRatio;
+        String theoryCheck = "Validated ratio=pi/(n*tan(pi/n)); pi/4 is the square-only value; the asymptotic limit is 1.";
         return new ResearchResult(
                 "Regular %d-gon (unit side): interior=%.4f°, area=%.6f, circumR=%.6f, inR=%.6f, inscribed_circle_ratio=%.6f. Limit→circle (ratio→1) as n→∞."
                         .formatted(sides, interior, area, circumR, inR, circleRatio),
-                area, circumR, circleRatio);
+                area, circumR, circleRatio, circleRatio, theoryConsistent, theoryCheck);
     }
 
     private static ResearchResult numberClassification(int start, int end) {
@@ -410,5 +452,17 @@ public class MathPhysicsEngine {
             if (n % i == 0 || n % (i + 2) == 0) return false;
         }
         return true;
+    }
+
+    private static int polygonSidesFromParam(int param1) {
+        return Math.max(3, param1 % 20 + 3);
+    }
+
+    private static double polygonInscribedCircleRatio(int sides) {
+        return Math.PI / (sides * Math.tan(Math.PI / sides));
+    }
+
+    private static boolean nearlyEqual(double a, double b, double tolerance) {
+        return Math.abs(a - b) <= tolerance;
     }
 }

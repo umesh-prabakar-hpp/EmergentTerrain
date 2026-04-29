@@ -353,13 +353,13 @@ public class UniversityService {
                 MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
 
         boolean authorError     = rng.nextDouble() < author.errorRate();
-        double  reportedPrimary = authorError
-                ? result.primaryValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
-                : result.primaryValue();
-        double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedPrimary);
+        double  reportedReviewValue = authorError
+                ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
+                : result.reviewValue();
+        double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue);
 
         List<String> reviewerIds = new ArrayList<>();
-        boolean reviewPassed     = true;
+        boolean reviewPassed     = result.theoryConsistent();
         double  totalReviewScore = 0;
         int     reviewCount      = 0;
 
@@ -369,10 +369,10 @@ public class UniversityService {
 
             MathPhysicsEngine.ResearchResult reviewResult =
                     MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
-            double reviewPrimary = reviewerError
-                    ? reviewResult.primaryValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
-                    : reviewResult.primaryValue();
-            double reviewScore   = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewPrimary);
+            double reviewValue = reviewerError
+                    ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
+                    : reviewResult.reviewValue();
+            double reviewScore   = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue);
 
             boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
             if (!agrees) reviewPassed = false;
