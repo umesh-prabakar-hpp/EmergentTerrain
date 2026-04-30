@@ -229,19 +229,11 @@ public class UniversityService {
     private double runCompetencyPuzzle(BotGenome genome, String domain, int topicIndex,
                                        int param1, double param2, Random rng) {
         if (genome == null) return 0.0;
-        // Use genome's topicWeights as search strategy params (w0=step, w1=restart, etc.)
-        double[] w = genome.getTopicWeights();
-        double stepSize    = w[0];
-        double restartProb = w[1];
-        int    budget      = (int) (20 + w[2] * 60); // 20–80 iterations
-
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(genome);
         MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
-        // Competency score: ability to reproduce the known result with limited budget
-        // Simulate search quality: higher budget + appropriate step = better reproduction
-        double qualityFactor = Math.min(1.0, (budget / 80.0) * (0.5 + stepSize * 0.5));
-        double errorPenalty  = restartProb > 0.3 ? 0.0 : (0.3 - restartProb) * 0.2;
-        return Math.max(0.0, qualityFactor - errorPenalty + rng.nextGaussian() * 0.05);
+                MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+        double score = MathPhysicsEngine.scoreResult(domain, topicIndex, result.reviewValue(), sp);
+        return Math.max(0.0, score + rng.nextGaussian() * 0.05);
     }
 
     // ---- Lifecycle: elder merge ----
@@ -349,14 +341,19 @@ public class UniversityService {
         int    param1 = 10 + (int) Math.abs(seed % 90);
         double param2 = 1.0 + Math.abs((seed >> 16) % 9);
 
+        // Author searches using their genome's strategy; SearchParams stored so reviewer can
+        // reproduce the exact same computation (peer review = same inputs → same result).
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
+                author.getState().getGenome());
+
         MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
+                MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
 
         boolean authorError     = rng.nextDouble() < author.errorRate();
         double  reportedReviewValue = authorError
                 ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
                 : result.reviewValue();
-        double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue);
+        double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue, sp);
 
         List<String> reviewerIds = new ArrayList<>();
         boolean reviewPassed     = result.theoryConsistent();
@@ -367,12 +364,13 @@ public class UniversityService {
             Researcher reviewer       = pickReviewer(pool, author, rng);
             boolean    reviewerError  = rng.nextDouble() < reviewer.errorRate();
 
+            // Reviewer re-runs with the author's sp — this is what makes reproduction deterministic.
             MathPhysicsEngine.ResearchResult reviewResult =
-                    MathPhysicsEngine.compute(domain, topicIndex, param1, param2);
+                    MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
             double reviewValue = reviewerError
                     ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
                     : reviewResult.reviewValue();
-            double reviewScore   = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue);
+            double reviewScore   = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
 
             boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
             if (!agrees) reviewPassed = false;

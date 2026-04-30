@@ -2,12 +2,18 @@ package com.emergentterrain.research;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Random;
 
 /**
  * Actual mathematics and physics computations used as the research engine.
  * All results are deterministic given the same inputs and verifiable by peer reviewers
  * re-running the same computation.
+ *
+ * SearchParams (derived from a bot's BotGenome) controls how broadly each computation
+ * explores its parameter space. candidateBreadth drives how many starting regions are
+ * tried; the best (most extreme) result is kept. stepSize controls how far apart the
+ * candidate regions are spaced. An efficiency factor in scoreResult penalises wide
+ * searches so bots that find strong results cheaply score as well as brute-force
+ * wide searchers — this maintains a multi-peaked fitness landscape.
  */
 public class MathPhysicsEngine {
 
@@ -32,10 +38,38 @@ public class MathPhysicsEngine {
         }
 
         private static boolean allFinite(double... values) {
-            for (double value : values) {
-                if (!Double.isFinite(value)) return false;
-            }
+            for (double v : values) if (!Double.isFinite(v)) return false;
             return true;
+        }
+    }
+
+    /**
+     * Genome-derived search strategy passed into every compute method.
+     *
+     * candidateBreadth — how many parameter regions are explored (20–80); the key
+     *                    evolutionary driver — wider search finds more extreme results
+     *                    but incurs an efficiency penalty in scoreResult.
+     * stepSize         — spacing between candidate regions (0.05=nearby, 1.0=spread wide).
+     * depthBias        — reserved; available to LLM mentoring for future refinement passes.
+     * restartProb      — reserved; not used in deterministic compute paths.
+     * acceptThreshold  — reserved for future publish-gating logic.
+     */
+    public record SearchParams(
+            double stepSize,
+            double restartProb,
+            int    candidateBreadth,
+            double depthBias,
+            double acceptThreshold) {
+
+        /** Derive search params from a bot's genome weights (w0–w4). */
+        public static SearchParams from(BotGenome g) {
+            double[] w = g.getTopicWeights();
+            return new SearchParams(w[0], w[1], (int) (20 + w[2] * 60), w[3], w[4]);
+        }
+
+        /** Neutral baseline used for peer-reviewer reproduction (same params as author). */
+        public static SearchParams neutral() {
+            return new SearchParams(0.5, 0.2, 40, 0.5, 0.0);
         }
     }
 
@@ -83,24 +117,40 @@ public class MathPhysicsEngine {
 
     // ---- Public API ----
 
-    public static ResearchResult compute(String domain, int topicIndex, int param1, double param2) {
+    /** Primary entry point: genome-driven search via SearchParams. */
+    public static ResearchResult compute(String domain, int topicIndex,
+                                         int param1, double param2, SearchParams sp) {
         return switch (domain) {
-            case "PHYSICS"    -> computePhysics(topicIndex % 5, param1, param2);
-            case "MATERIALS"  -> computeMaterials(topicIndex % 5, param1, param2);
-            default           -> computeMath(topicIndex % 5, param1, param2);
+            case "PHYSICS"   -> computePhysics(topicIndex % 5, param1, param2, sp);
+            case "MATERIALS" -> computeMaterials(topicIndex % 5, param1, param2, sp);
+            default          -> computeMath(topicIndex % 5, param1, param2, sp);
         };
     }
 
+    /** Backward-compatible overload — uses neutral SearchParams. */
+    public static ResearchResult compute(String domain, int topicIndex,
+                                         int param1, double param2) {
+        return compute(domain, topicIndex, param1, param2, SearchParams.neutral());
+    }
+
     /**
-     * Normalised quality score [0,1] from a review value, used for peer-review comparison.
-     * Reviewers compare scores rather than raw values so tolerance is domain-independent.
+     * Normalised quality score in (0, 1).
+     * Raw sigmoid of primaryValue discounted by an efficiency factor: a bot that
+     * searches 80 candidates pays a 25% penalty so narrow-precise strategies
+     * remain competitive against broad-shallow ones.
      */
-    public static double scoreResult(String domain, int topicIndex, double value) {
-        // All current computations return finite deterministic values.
-        // Score = sigmoid-like normalisation so any finite value maps to (0,1).
+    public static double scoreResult(String domain, int topicIndex,
+                                     double value, SearchParams sp) {
         if (!Double.isFinite(value)) return 0.0;
         double abs = Math.abs(value);
-        return abs / (1.0 + abs);  // always in (0,1), monotone — two results agree if close
+        double raw = abs / (1.0 + abs);
+        double efficiencyFactor = 1.0 - (sp.candidateBreadth() / 80.0) * 0.25;
+        return raw * efficiencyFactor;
+    }
+
+    /** Backward-compatible overload — uses neutral SearchParams. */
+    public static double scoreResult(String domain, int topicIndex, double value) {
+        return scoreResult(domain, topicIndex, value, SearchParams.neutral());
     }
 
     public static String topicName(String domain, int topicIndex) {
@@ -112,7 +162,7 @@ public class MathPhysicsEngine {
         return names[topicIndex % names.length];
     }
 
-    public static String generateTitle(String domain, int topicIndex, Random rng) {
+    public static String generateTitle(String domain, int topicIndex, java.util.Random rng) {
         String[][] table = switch (domain) {
             case "PHYSICS"   -> PHYSICS_TITLES;
             case "MATERIALS" -> MATERIALS_TITLES;
@@ -216,22 +266,33 @@ public class MathPhysicsEngine {
 
     // ---- Mathematics ----
 
-    private static ResearchResult computeMath(int topic, int param1, double param2) {
+    private static ResearchResult computeMath(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> primeConstellations(param1 * 10, param1 * 15);
-            case 1 -> collatzStoppingTimes(param1 * 3, 60);
-            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20);
-            case 3 -> aliquotSequences(Math.max(2, param1), 40);
-            default -> happyNumbers(param1 * 7, 150);
+            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp);
+            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp);
+            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp);
+            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp);
+            default -> happyNumbers(param1 * 7, 150, sp);
         };
     }
 
-    private static ResearchResult primeConstellations(int start, int width) {
+    // Outer search: try candidateBreadth windows spaced by stepSize*200.
+    // Primary = H-L deviation ratio — larger when actual twin count diverges more from prediction.
+    private static ResearchResult primeConstellations(int seedStart, int width, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(2, seedStart + (int) (i * sp.stepSize() * 200));
+            ResearchResult r = primeConstellationsAt(start, width);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : primeConstellationsAt(seedStart, width);
+    }
+
+    private static ResearchResult primeConstellationsAt(int start, int width) {
         int end = start + Math.max(50, width);
         List<Integer> primes = new ArrayList<>();
-        for (int n = Math.max(2, start); n < end; n++) {
-            if (isPrime(n)) primes.add(n);
-        }
+        for (int n = Math.max(2, start); n < end; n++) if (isPrime(n)) primes.add(n);
         int twins = 0, cousins = 0, sexy = 0, maxGap = 0;
         for (int i = 1; i < primes.size(); i++) {
             int gap = primes.get(i) - primes.get(i - 1);
@@ -241,28 +302,38 @@ public class MathPhysicsEngine {
             if (gap == 6) sexy++;
         }
         int pairs = Math.max(1, primes.size() - 1);
-        double twinDensity   = (double) twins / pairs;
-        double primeDensity  = (double) primes.size() / (end - start);
+        double twinDensity  = (double) twins / pairs;
+        double primeDensity = (double) primes.size() / (end - start);
         double lnN = Math.log(Math.max(2, start));
-        double hardyLittlewood = 2 * 1.3203 / (lnN * lnN) * width; // H-L predicted twin count
+        double hlPrediction = 2 * 1.3203 / (lnN * lnN) * width;
+        double hlDeviation  = Math.abs(twins - hlPrediction) / Math.max(1.0, hlPrediction);
         return new ResearchResult(
                 "Prime constellations [%d,%d): %d primes (density=%.4f), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f. Twin density among pairs: %.4f."
-                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hardyLittlewood, twinDensity),
-                twinDensity, primeDensity, maxGap);
+                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hlPrediction, twinDensity),
+                hlDeviation, primeDensity, maxGap);
     }
 
-    private static ResearchResult collatzStoppingTimes(int start, int count) {
-        int maxSteps = 0;
-        int maxStepsAt = start;
+    // Outer search: try candidateBreadth ranges spaced by stepSize*20.
+    // Primary = maxSteps — deeper trajectories signal more complex behaviour near that region.
+    private static ResearchResult collatzStoppingTimes(int seedStart, int count, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 20));
+            ResearchResult r = collatzStoppingTimesAt(start, count);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : collatzStoppingTimesAt(seedStart, count);
+    }
+
+    private static ResearchResult collatzStoppingTimesAt(int start, int count) {
+        int maxSteps = 0, maxStepsAt = start;
         double totalSteps = 0;
-        int longTraj = 0; // > 100 steps
+        int longTraj = 0;
         for (int n = Math.max(1, start); n < start + count; n++) {
             long x = n;
             int steps = 0;
-            while (x != 1 && steps < 10_000) {
-                x = (x % 2 == 0) ? x / 2 : 3 * x + 1;
-                steps++;
-            }
+            while (x != 1 && steps < 10_000) { x = (x % 2 == 0) ? x / 2 : 3 * x + 1; steps++; }
             totalSteps += steps;
             if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
             if (steps > 100) longTraj++;
@@ -275,32 +346,56 @@ public class MathPhysicsEngine {
                 maxSteps, avgSteps, longFraction);
     }
 
-    private static ResearchResult goldbachPartitions(int evenStart, int count) {
+    // Outer search: try candidateBreadth even ranges spaced by stepSize*40.
+    // Primary = avg/max(1,minParts) — contrast ratio flags thin-partition neighbourhoods.
+    private static ResearchResult goldbachPartitions(int seedEven, int count, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int even = Math.max(4, seedEven + (int) (i * sp.stepSize() * 40));
+            if (even % 2 != 0) even++;
+            ResearchResult r = goldbachPartitionsAt(even, count);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : goldbachPartitionsAt(seedEven, count);
+    }
+
+    private static ResearchResult goldbachPartitionsAt(int evenStart, int count) {
         if (evenStart % 2 != 0) evenStart++;
         if (evenStart < 4) evenStart = 4;
         long totalPartitions = 0;
-        int minParts = Integer.MAX_VALUE;
-        int minPartsAt = evenStart;
-        int singleCount = 0;
-        int tested = 0;
+        int minParts = Integer.MAX_VALUE, minPartsAt = evenStart;
+        int singleCount = 0, tested = 0;
         for (int n = evenStart; n < evenStart + count * 2; n += 2) {
             int parts = 0;
-            for (int p = 2; p <= n / 2; p++) {
-                if (isPrime(p) && isPrime(n - p)) parts++;
-            }
+            for (int p = 2; p <= n / 2; p++) if (isPrime(p) && isPrime(n - p)) parts++;
             totalPartitions += parts;
             tested++;
             if (parts < minParts) { minParts = parts; minPartsAt = n; }
             if (parts == 1) singleCount++;
         }
         double avg = tested > 0 ? (double) totalPartitions / tested : 0;
+        double contrast = avg / Math.max(1.0, minParts);
         return new ResearchResult(
                 "Goldbach partitions, even [%d,%d): avg=%.2f partitions/number, min=%d (at n=%d), single-partition=%d/%d. All even numbers satisfy Goldbach conjecture locally."
                         .formatted(evenStart, evenStart + count * 2, avg, minParts, minPartsAt, singleCount, tested),
-                avg, minParts, singleCount);
+                contrast, avg, singleCount);
     }
 
-    private static ResearchResult aliquotSequences(int start, int count) {
+    // Outer search: try candidateBreadth ranges spaced by stepSize*15.
+    // Primary = anomaly fraction (cycle+escape) — higher means more sociable/unbounded sequences.
+    private static ResearchResult aliquotSequences(int seedStart, int count, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(2, seedStart + (int) (i * sp.stepSize() * 15));
+            ResearchResult r = aliquotSequencesAt(start, count);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : aliquotSequencesAt(seedStart, count);
+    }
+
+    private static ResearchResult aliquotSequencesAt(int start, int count) {
         int terminate = 0, perfect = 0, cycle = 0, escape = 0;
         for (int n = start; n < start + count; n++) {
             long x = n;
@@ -322,15 +417,28 @@ public class MathPhysicsEngine {
             if (!done) escape++;
         }
         double terminateFrac = (double) terminate / count;
+        double anomalyFrac   = (double) (cycle + escape) / count;
         return new ResearchResult(
                 "Aliquot sequences [%d,%d+%d): terminate=%d (%.3f), perfect=%d, cycle=%d, escape=%d. Termination rate %.1f%% — sociable/escaping numbers grow with range start."
                         .formatted(start, start, count, terminate, terminateFrac, perfect, cycle, escape, terminateFrac * 100),
-                terminateFrac, cycle, escape);
+                anomalyFrac, terminateFrac, cycle);
     }
 
-    private static ResearchResult happyNumbers(int start, int count) {
-        int happy = 0;
-        int totalSteps = 0;
+    // Outer search: try candidateBreadth windows spaced by stepSize*200.
+    // Primary = |density - 0.143| — larger when local density deviates from the asymptotic conjecture.
+    private static ResearchResult happyNumbers(int seedStart, int count, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 200));
+            ResearchResult r = happyNumbersAt(start, count);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : happyNumbersAt(seedStart, count);
+    }
+
+    private static ResearchResult happyNumbersAt(int start, int count) {
+        int happy = 0, totalSteps = 0;
         for (int n = Math.max(1, start); n < start + count; n++) {
             long x = n;
             int steps = 0;
@@ -342,29 +450,41 @@ public class MathPhysicsEngine {
             }
             if (x == 1) { happy++; totalSteps += steps; }
         }
-        double density = (double) happy / count;
+        double density  = (double) happy / count;
         double avgSteps = happy > 0 ? (double) totalSteps / happy : 0;
-        double deviation = density - 0.1430;
+        double deviation = Math.abs(density - 0.1430);
         return new ResearchResult(
                 "Happy numbers [%d,%d+%d): happy=%d, density=%.4f (theoretical≈0.1430, deviation=%+.4f), avg_steps_to_1=%.1f. Density consistent with conjectured asymptotic."
-                        .formatted(start, start, count, happy, density, deviation, avgSteps),
-                density, avgSteps, Math.abs(deviation));
+                        .formatted(start, start, count, happy, density, density - 0.1430, avgSteps),
+                deviation, avgSteps, density);
     }
 
     // ---- Physics ----
 
-    private static ResearchResult computePhysics(int topic, int param1, double param2) {
+    private static ResearchResult computePhysics(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0);
-            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0);
-            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01);
-            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40);
-            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7);
+            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp);
+            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp);
+            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp);
+            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp);
+            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp);
         };
     }
 
-    // Sweep launch angles under quadratic drag; optimal angle shifts below 45°.
-    private static ResearchResult projectileWithDrag(double v0, double k) {
+    // Outer search: try candidateBreadth (v0, k) pairs — v0 increases by stepSize*5 per step.
+    // Primary = angle shift (45 - bestAngle); larger shift means drag is more distorting.
+    private static ResearchResult projectileWithDrag(double seedV0, double k, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double v0 = Math.max(2.0, seedV0 + i * sp.stepSize() * 5);
+            ResearchResult r = projectileWithDragAt(v0, k);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : projectileWithDragAt(seedV0, k);
+    }
+
+    private static ResearchResult projectileWithDragAt(double v0, double k) {
         double g = 9.81, dt = 0.03;
         int bestAngle = 45;
         double bestRange = 0;
@@ -383,24 +503,35 @@ public class MathPhysicsEngine {
         }
         double vacuumRange = v0 * v0 / g;
         double shift = 45 - bestAngle;
-        double loss = (vacuumRange - bestRange) / vacuumRange;
+        double loss  = (vacuumRange - bestRange) / vacuumRange;
         return new ResearchResult(
                 "Projectile drag (v₀=%.1f ms⁻¹, k=%.4f s/m): optimal_angle=%d° (%.0f° below vacuum 45°), range=%.2f m vs vacuum=%.2f m (%.1f%% loss). Drag breaks angle symmetry."
                         .formatted(v0, k, bestAngle, (double) shift, bestRange, vacuumRange, loss * 100),
-                bestAngle, bestRange, loss);
+                shift, bestRange, loss);
     }
 
-    // Find amplitude at which small-angle period error exceeds 1% using elliptic series.
-    private static ResearchResult pendulumBreakdown(double L) {
-        double g = 9.81;
+    // Outer search: try candidateBreadth pendulum lengths spaced by stepSize*0.05 m.
+    // Primary = 80 - breakdownAngle: smaller breakdown angle (more sensitive pendulum) scores higher.
+    private static ResearchResult pendulumBreakdown(double seedL, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double L = Math.max(0.01, seedL + i * sp.stepSize() * 0.05);
+            ResearchResult r = pendulumBreakdownAt(L);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : pendulumBreakdownAt(seedL);
+    }
+
+    private static ResearchResult pendulumBreakdownAt(double L) {
+        double g  = 9.81;
         double T0 = 2 * Math.PI * Math.sqrt(L / g);
         double breakdownAngle = 80;
         StringBuilder sb = new StringBuilder();
         for (int deg = 5; deg <= 80; deg += 5) {
-            double k = Math.sin(Math.toRadians(deg) / 2);
+            double k  = Math.sin(Math.toRadians(deg) / 2);
             double k2 = k * k;
-            // Series: T = T0 * (1 + k²/4 + 9k⁴/64 + 25k⁶/256)
-            double T = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256);
+            double T  = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256);
             double err = (T - T0) / T0 * 100;
             sb.append("%.0f°→%.2f%% ".formatted((double) deg, err));
             if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
@@ -408,19 +539,28 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "Pendulum (L=%.2f m, T₀=%.3f s): period error by amplitude: %s. Small-angle error exceeds 1%% at θ≈%.0f°."
                         .formatted(L, T0, sb.toString().trim(), breakdownAngle),
-                breakdownAngle, T0, L);
+                80 - breakdownAngle, T0, L);
     }
 
-    // Find pressure where CO₂ deviates from ideal gas by more than tolerance.
-    private static ResearchResult vanDerWaalsDeviation(double T, double tolerance) {
-        double a = 3.640, b = 0.04267, R = 0.08206; // L·atm units
-        double crossoverP = 100;
-        double maxDev = 0;
+    // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
+    // Primary = maxDev*100 (max percentage deviation from ideal gas) — rises with temperature.
+    private static ResearchResult vanDerWaalsDeviation(double seedT, double tolerance, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(150, seedT + i * sp.stepSize() * 20);
+            ResearchResult r = vanDerWaalsDeviationAt(T, tolerance);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : vanDerWaalsDeviationAt(seedT, tolerance);
+    }
+
+    private static ResearchResult vanDerWaalsDeviationAt(double T, double tolerance) {
+        double a = 3.640, b = 0.04267, R = 0.08206;
+        double crossoverP = 100, maxDev = 0;
         StringBuilder sb = new StringBuilder();
         for (int p = 1; p <= 100; p++) {
-            double P = p;
-            double Videal = R * T / P;
-            double V = Videal;
+            double P = p, Videal = R * T / P, V = Videal;
             for (int iter = 0; iter < 30; iter++) {
                 double f  = (P + a / (V * V)) * (V - b) - R * T;
                 double df = (P + a / (V * V)) - 2 * a * (V - b) / (V * V * V);
@@ -441,8 +581,20 @@ public class MathPhysicsEngine {
                 crossoverP, maxDev, T);
     }
 
-    // Count visible diffraction orders across optical spectrum for given grating spacing.
-    private static ResearchResult diffractionSurvey(double dMicrons, double lambdaNm) {
+    // Outer search: try candidateBreadth grating spacings spaced by stepSize*0.5 µm.
+    // Primary = spectralSpread — higher means the grating resolves more wavelength-dependent orders.
+    private static ResearchResult diffractionSurvey(double seedD, double lambdaNm, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double d = Math.max(0.4, seedD + i * sp.stepSize() * 0.5);
+            ResearchResult r = diffractionSurveyAt(d, lambdaNm);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : diffractionSurveyAt(seedD, lambdaNm);
+    }
+
+    private static ResearchResult diffractionSurveyAt(double dMicrons, double lambdaNm) {
         int maxOrder = (int) (dMicrons * 1000 / lambdaNm);
         double theta1 = maxOrder >= 1
                 ? Math.toDegrees(Math.asin(Math.min(1.0, lambdaNm / (dMicrons * 1000)))) : 0;
@@ -459,14 +611,26 @@ public class MathPhysicsEngine {
                 "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Spectral spread=%d orders — blue light shows %d more orders than red."
                         .formatted(dMicrons, lambdaNm, maxOrder, theta1, sb.toString().trim(),
                                 (int) spectralSpread, (int) spectralSpread),
-                maxOrder, theta1, spectralSpread);
+                spectralSpread, maxOrder, theta1);
     }
 
-    // Survey Q-factor across resistance values around the critical damping point.
-    private static ResearchResult rlcDampingTransition(double L, double C) {
-        double critR = 2 * Math.sqrt(L / C);
+    // Outer search: try candidateBreadth inductances; lower L (via stepSize) gives higher f₀.
+    // Primary = f₀ (resonant frequency) — bots that search toward smaller L find higher-frequency circuits.
+    private static ResearchResult rlcDampingTransition(double seedL, double C, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double L = Math.max(1e-5, seedL / (1.0 + i * sp.stepSize() * 0.2));
+            ResearchResult r = rlcDampingTransitionAt(L, C);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : rlcDampingTransitionAt(seedL, C);
+    }
+
+    private static ResearchResult rlcDampingTransitionAt(double L, double C) {
+        double critR  = 2 * Math.sqrt(L / C);
         double omega0 = 1 / Math.sqrt(L * C);
-        double f0 = omega0 / (2 * Math.PI);
+        double f0     = omega0 / (2 * Math.PI);
         StringBuilder sb = new StringBuilder();
         double minQ = Double.MAX_VALUE, maxQ = 0;
         for (double mult : new double[]{0.1, 0.25, 0.5, 1.0, 2.0, 4.0}) {
@@ -480,32 +644,43 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "RLC circuit (L=%.4f H, C=%.2e F): f₀=%.2f Hz, R_crit=%.3f Ω. Q-factor sweep: %s. Q range: [%.2f, %.2f] — transition from oscillatory to exponential at R_crit."
                         .formatted(L, C, f0, critR, sb.toString().trim(), minQ, maxQ),
-                critR, f0, maxQ / Math.max(minQ, 1e-10));
+                f0, critR, maxQ / Math.max(minQ, 1e-10));
     }
 
     // ---- Materials ----
 
-    private static ResearchResult computeMaterials(int topic, int param1, double param2) {
+    private static ResearchResult computeMaterials(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> compositeFailureMode(50.0 + param1 * 5);
-            case 1 -> binarySpherePacking(param1 / 250.0);
-            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0);
-            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20);
-            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50);
+            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp);
+            case 1 -> binarySpherePacking(sp);
+            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp);
+            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp);
+            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp);
         };
     }
 
-    // Find longitudinal composite stress at matrix yield across fibre volume fractions.
-    private static ResearchResult compositeFailureMode(double sigmaYm) {
-        double Ef = 200e3, Em = 3e3; // MPa
+    // Outer search: try candidateBreadth sigmaYm values spaced by stepSize*50 MPa.
+    // Primary = maxStress — higher matrix yield strength produces more extreme composite stress.
+    private static ResearchResult compositeFailureMode(double seedSigmaYm, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double sigmaYm = Math.max(10.0, seedSigmaYm + i * sp.stepSize() * 50);
+            ResearchResult r = compositeFailureModeAt(sigmaYm);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : compositeFailureModeAt(seedSigmaYm);
+    }
+
+    private static ResearchResult compositeFailureModeAt(double sigmaYm) {
+        double Ef = 200e3, Em = 3e3;
         double epsY = sigmaYm / Em;
         StringBuilder sb = new StringBuilder();
-        double maxStress = 0;
-        double maxVf = 0;
+        double maxStress = 0, maxVf = 0;
         for (int vfPct = 10; vfPct <= 90; vfPct += 10) {
             double Vf = vfPct / 100.0;
             double EL = Vf * Ef + (1 - Vf) * Em;
-            double sigmaC = EL * epsY; // composite stress when matrix reaches yield strain
+            double sigmaC = EL * epsY;
             if (sigmaC > maxStress) { maxStress = sigmaC; maxVf = Vf; }
             sb.append("Vf=%.0f%%→%.0fMPa ".formatted(Vf * 100, sigmaC));
         }
@@ -515,30 +690,46 @@ public class MathPhysicsEngine {
                 maxStress, epsY, maxVf);
     }
 
-    // Sweep small-sphere radius ratio; compute packing improvement over pure FCC base.
-    private static ResearchResult binarySpherePacking(double rTarget) {
-        double etaFCC = Math.PI / (3 * Math.sqrt(2)); // 0.7405
+    // Inner precision: candidateBreadth controls r sample density across [0.001, 0.65].
+    // Primary = (bestEta - etaFCC)*100 — finer sampling finds the peak r more precisely.
+    private static ResearchResult binarySpherePacking(SearchParams sp) {
+        double etaFCC = Math.PI / (3 * Math.sqrt(2));
         double bestR = 0, bestEta = etaFCC;
         StringBuilder sb = new StringBuilder();
-        for (int rPct = 5; rPct <= 60; rPct += 5) {
-            double r = rPct / 100.0;
-            // Octahedral voids (1 per sphere): fit when r < 0.4142; tetrahedral (2 per sphere): r < 0.2247
+        int samples = sp.candidateBreadth();
+        for (int i = 0; i < samples; i++) {
+            double r = 0.001 + (i / (double) Math.max(1, samples - 1)) * 0.649;
             double voidVolOcta  = r <= 0.4142 ? (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
             double voidVolTetra = r <= 0.2247 ? 2 * (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
-            double addedPacking = (voidVolOcta + voidVolTetra) * etaFCC
-                    / ((4.0 / 3) * Math.PI); // fraction of unit cell filled
+            double addedPacking = (voidVolOcta + voidVolTetra) * etaFCC / ((4.0 / 3) * Math.PI);
             double etaTotal = Math.min(0.99, etaFCC + addedPacking);
             if (etaTotal > bestEta) { bestEta = etaTotal; bestR = r; }
-            if (rPct % 10 == 0) sb.append("r=%.2f→η=%.4f ".formatted(r, etaTotal));
+            if (i % (samples / Math.min(6, samples)) == 0)
+                sb.append("r=%.2f→η=%.4f ".formatted(r, etaTotal));
         }
+        double improvement = (bestEta - etaFCC) * 100;
         return new ResearchResult(
-                "Binary sphere packing (FCC base η=%.4f): packing vs size ratio: %s. Peak packing η=%.4f at r≈%.2f. Octahedral void limit r<0.414; tetrahedral r<0.225."
-                        .formatted(etaFCC, sb.toString().trim(), bestEta, bestR),
-                bestEta, bestR, etaFCC);
+                "Binary sphere packing (FCC base η=%.4f, %d r-samples): packing survey: %s. Peak packing η=%.4f at r≈%.3f (+%.2f%% over FCC). Octahedral void limit r<0.414; tetrahedral r<0.225."
+                        .formatted(etaFCC, samples, sb.toString().trim(), bestEta, bestR, improvement),
+                improvement, bestR, etaFCC);
     }
 
-    // Find Vf where Reuss (transverse) composite stiffness reaches targetMultiple × Em.
-    private static ResearchResult compositeStiffnessCrossover(double EfOverEm, double targetMultiple) {
+    // Outer search: try candidateBreadth Ef/Em ratios spaced by stepSize*5.
+    // Searches toward lower ratios (more surprising crossover behaviour further from 50%).
+    // Primary = crossoverVf - 0.5 (departure from the intuitive 50% guess).
+    private static ResearchResult compositeStiffnessCrossover(double seedRatio, double targetMultiple,
+                                                               SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double ratio = Math.max(2.0, seedRatio - i * sp.stepSize() * 5);
+            ResearchResult r = compositeStiffnessCrossoverAt(ratio, targetMultiple);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : compositeStiffnessCrossoverAt(seedRatio, targetMultiple);
+    }
+
+    private static ResearchResult compositeStiffnessCrossoverAt(double EfOverEm, double targetMultiple) {
         double Em = 3e3, Ef = EfOverEm * Em;
         double crossoverVf = -1;
         StringBuilder sb = new StringBuilder();
@@ -550,24 +741,40 @@ public class MathPhysicsEngine {
             if (multiple >= targetMultiple && crossoverVf < 0) crossoverVf = Vf;
         }
         if (crossoverVf < 0) crossoverVf = 1.0;
+        double surprise = crossoverVf - 0.5;
         return new ResearchResult(
                 "Composite stiffness (Ef/Em=%.0f, target=%.1f×Em): Reuss bound survey: %s. E_T reaches %.1f×Em at Vf=%.2f — well above the intuitive 50%% guess."
                         .formatted(EfOverEm, targetMultiple, sb.toString().trim(), targetMultiple, crossoverVf),
-                crossoverVf, EfOverEm, targetMultiple);
+                surprise, crossoverVf, EfOverEm);
     }
 
-    // Find the Ea range where D(T+10)/D(T) is within 10% of the Van't Hoff factor of 2.
-    private static ResearchResult arrheniusRuleValidity(double T, double maxEaKJ) {
+    // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
+    // Primary = worst-case |ratio - 2.0| — larger when the Van't Hoff rule breaks down most severely.
+    private static ResearchResult arrheniusRuleValidity(double seedT, double maxEaKJ, SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(200.0, seedT + i * sp.stepSize() * 20);
+            ResearchResult r = arrheniusRuleValidityAt(T, maxEaKJ);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : arrheniusRuleValidityAt(seedT, maxEaKJ);
+    }
+
+    private static ResearchResult arrheniusRuleValidityAt(double T, double maxEaKJ) {
         double R = 8.314;
         int valid = 0, total = 0;
         double firstValid = -1, lastValid = -1;
+        double worstDev = 0;
         StringBuilder sb = new StringBuilder();
         for (int ea = 10; ea <= (int) maxEaKJ; ea += 10) {
             double Ea = ea * 1000.0;
             double D1 = Math.exp(-Ea / (R * T));
             double D2 = Math.exp(-Ea / (R * (T + 10)));
             double ratio = D2 / D1;
-            boolean holds = Math.abs(ratio - 2.0) / 2.0 < 0.10;
+            double dev = Math.abs(ratio - 2.0);
+            if (dev > worstDev) worstDev = dev;
+            boolean holds = dev / 2.0 < 0.10;
             total++;
             if (holds) { valid++; if (firstValid < 0) firstValid = ea; lastValid = ea; }
             if (ea <= 50 || ea % 40 == 10) sb.append("Ea=%dkJ→%.2f× ".formatted(ea, ratio));
@@ -577,14 +784,27 @@ public class MathPhysicsEngine {
                 "Arrhenius Van't Hoff (T=%.0f K, Ea 10–%.0f kJ/mol): sample ratios: %s. Rule holds within 10%% for %d/%d cases (%.0f%%), Ea=[%.0f,%.0f] kJ/mol. Fails at high Ea."
                         .formatted(T, maxEaKJ, sb.toString().trim(), valid, total, fraction * 100,
                                 Math.max(firstValid, 10), Math.max(lastValid, 10)),
-                fraction, firstValid > 0 ? firstValid : maxEaKJ, lastValid > 0 ? lastValid : maxEaKJ);
+                worstDev, firstValid > 0 ? firstValid : maxEaKJ, lastValid > 0 ? lastValid : maxEaKJ);
     }
 
-    // Find maximum CTE before constrained thermal stress exceeds yield; survey common materials.
-    private static ResearchResult thermalStressSafety(double deltaT, double sigmaYMPa) {
-        double E = 200e3; // MPa, steel modulus
-        double critAlpha = sigmaYMPa / (E * deltaT) * 1e6; // µm/(m·K)
-        double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50}; // representative CTEs
+    // Outer search: try candidateBreadth deltaT values spaced by stepSize*20 K.
+    // Primary = failure fraction (materials exceeding yield) — rises with deltaT.
+    private static ResearchResult thermalStressSafety(double seedDeltaT, double sigmaYMPa,
+                                                       SearchParams sp) {
+        ResearchResult best = null;
+        double bestExtreme = -1;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double deltaT = Math.max(10.0, seedDeltaT + i * sp.stepSize() * 20);
+            ResearchResult r = thermalStressSafetyAt(deltaT, sigmaYMPa);
+            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
+        }
+        return best != null ? best : thermalStressSafetyAt(seedDeltaT, sigmaYMPa);
+    }
+
+    private static ResearchResult thermalStressSafetyAt(double deltaT, double sigmaYMPa) {
+        double E = 200e3;
+        double critAlpha = sigmaYMPa / (E * deltaT) * 1e6;
+        double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50};
         String[] labels = {"Invar", "Steel", "Cu", "Al", "Al(soft)", "Brass", "Al-alloy", "Zn", "PVC"};
         int safe = 0;
         StringBuilder sb = new StringBuilder();
@@ -594,13 +814,14 @@ public class MathPhysicsEngine {
             if (ok) safe++;
             sb.append("%s(%.0f)→%.0fMPa(%s) ".formatted(labels[i], alphas[i], stress, ok ? "✓" : "✗"));
         }
+        double failFraction = (double) (alphas.length - safe) / alphas.length;
         return new ResearchResult(
                 "Thermal stress safety (ΔT=%.0f K, σ_Y=%.0f MPa, E=200GPa): critical_α=%.2f µm/(m·K). Material survey: %s. %d/%d materials remain below yield."
                         .formatted(deltaT, sigmaYMPa, critAlpha, sb.toString().trim(), safe, alphas.length),
-                critAlpha, safe, sigmaYMPa);
+                failFraction, critAlpha, safe);
     }
 
-    // ---- Helper ----
+    // ---- Helpers ----
 
     private static boolean isPrime(int n) {
         if (n < 2) return false;
