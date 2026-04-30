@@ -17,24 +17,93 @@ import java.util.List;
  */
 public class MathPhysicsEngine {
 
+    public enum ClaimStatus {
+        SUPPORTED,
+        PARTIAL,
+        REFUTED,
+        OBSERVATIONAL
+    }
+
     public record ResearchResult(String findings, double primaryValue,
                                  double secondaryValue, double tertiaryValue,
                                  double reviewValue, boolean theoryConsistent,
-                                 String theoryCheck) {
+                                 String theoryCheck, ClaimStatus claimStatus,
+                                 String claimAssessment, String hypothesis) {
         public ResearchResult(String findings, double primaryValue,
                               double secondaryValue, double tertiaryValue) {
             this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
                     allFinite(primaryValue, secondaryValue, tertiaryValue),
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
                             ? "Computed values are finite and reproducible."
-                            : "One or more computed values are non-finite.");
+                            : "One or more computed values are non-finite.",
+                    allFinite(primaryValue, secondaryValue, tertiaryValue)
+                            ? ClaimStatus.OBSERVATIONAL : ClaimStatus.REFUTED,
+                    allFinite(primaryValue, secondaryValue, tertiaryValue)
+                            ? "No topic-specific claim validator is configured for this result."
+                            : "The computation produced non-finite values.",
+                    null);
         }
 
         public ResearchResult(String findings, double primaryValue,
                               double secondaryValue, double tertiaryValue,
                               boolean theoryConsistent, String theoryCheck) {
             this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
-                    theoryConsistent, theoryCheck);
+                    theoryConsistent, theoryCheck,
+                    theoryConsistent ? ClaimStatus.SUPPORTED : ClaimStatus.REFUTED,
+                    theoryCheck, null);
+        }
+
+        public ResearchResult(String findings, double primaryValue,
+                              double secondaryValue, double tertiaryValue,
+                              double reviewValue, boolean theoryConsistent,
+                              String theoryCheck) {
+            this(findings, primaryValue, secondaryValue, tertiaryValue, reviewValue,
+                    theoryConsistent, theoryCheck,
+                    theoryConsistent ? ClaimStatus.SUPPORTED : ClaimStatus.REFUTED,
+                    theoryCheck, null);
+        }
+
+        public ResearchResult(String findings, double primaryValue,
+                              double secondaryValue, double tertiaryValue,
+                              double reviewValue, ClaimStatus claimStatus,
+                              String claimAssessment) {
+            this(findings, primaryValue, secondaryValue, tertiaryValue, reviewValue,
+                    allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue),
+                    allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue)
+                            ? "Computed values are finite and reproducible."
+                            : "One or more computed values are non-finite.",
+                    claimStatus, claimAssessment, null);
+        }
+
+        public ResearchResult(String findings, double primaryValue,
+                              double secondaryValue, double tertiaryValue,
+                              double reviewValue, ClaimStatus claimStatus,
+                              String claimAssessment, String hypothesis) {
+            this(findings, primaryValue, secondaryValue, tertiaryValue, reviewValue,
+                    allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue),
+                    allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue)
+                            ? "Computed values are finite and reproducible."
+                            : "One or more computed values are non-finite.",
+                    claimStatus, claimAssessment, hypothesis);
+        }
+
+        public ResearchResult withClaim(ClaimStatus status, String assessment) {
+            return new ResearchResult(findings, primaryValue, secondaryValue, tertiaryValue,
+                    reviewValue, theoryConsistent, theoryCheck, status, assessment, hypothesis);
+        }
+
+        public ResearchResult withFindingsAndClaim(String updatedFindings,
+                                                   ClaimStatus status,
+                                                   String assessment) {
+            return new ResearchResult(updatedFindings, primaryValue, secondaryValue,
+                    tertiaryValue, reviewValue, theoryConsistent, theoryCheck,
+                    status, assessment, hypothesis);
+        }
+
+        public ResearchResult withHypothesis(String updatedHypothesis) {
+            return new ResearchResult(findings, primaryValue, secondaryValue, tertiaryValue,
+                    reviewValue, theoryConsistent, theoryCheck, claimStatus,
+                    claimAssessment, updatedHypothesis);
         }
 
         private static boolean allFinite(double... values) {
@@ -227,12 +296,11 @@ public class MathPhysicsEngine {
                         .formatted(L, C);
             }
             case "MATERIALS:0" -> {
-                double sigmaYm = 50 + param1 * 5.0;
                 yield "In a steel-fibre/polymer composite (Ef=200 GPa, Em=3 GPa), the matrix will yield before the composite fractures across all fibre volume fractions; longitudinal stress at matrix yield will scale linearly with Vf."
                         .formatted();
             }
             case "MATERIALS:1" ->
-                "In an FCC lattice, filling octahedral voids (r<0.414) with small spheres will improve packing beyond the 74.05%% FCC baseline; the improvement will peak near r≈0.41 and plateau above r=0.5.";
+                "In an FCC lattice, filling octahedral voids (r<0.414) with small spheres will improve packing beyond the 74.05% FCC baseline; the improvement will peak near r≈0.41 and plateau above r=0.5.";
             case "MATERIALS:2" -> {
                 double ratio = 10 + param1 * 2.0;
                 yield "For a composite with Ef/Em=%.0f, transverse stiffness (Reuss bound) doubles the matrix value at a Vf well above 0.5; the crossover Vf decreases as Ef/Em grows."
@@ -261,7 +329,20 @@ public class MathPhysicsEngine {
         if (!passed) {
             return "Computational inconsistencies detected during peer review. Findings require independent verification before acceptance.";
         }
-        return "Results passed configured theory checks and computed values were independently verified by peer reviewers running the same computation. The hypothesis is supported.";
+        return switch (result.claimStatus()) {
+            case SUPPORTED ->
+                    "Computed values were independently reproduced by peer reviewers, and the topic-specific validator supports the hypothesis. %s"
+                            .formatted(result.claimAssessment());
+            case PARTIAL ->
+                    "Computed values were independently reproduced by peer reviewers. The topic-specific validator found partial support only: %s"
+                            .formatted(result.claimAssessment());
+            case REFUTED ->
+                    "Computed values were independently reproduced by peer reviewers, but the topic-specific validator does not support the hypothesis: %s"
+                            .formatted(result.claimAssessment());
+            case OBSERVATIONAL ->
+                    "Computed values were independently reproduced by peer reviewers. No topic-specific validator supports the broader hypothesis yet; treat this as an observational computational finding: %s"
+                            .formatted(result.claimAssessment());
+        };
     }
 
     // ---- Mathematics ----
@@ -305,12 +386,21 @@ public class MathPhysicsEngine {
         double twinDensity  = (double) twins / pairs;
         double primeDensity = (double) primes.size() / (end - start);
         double lnN = Math.log(Math.max(2, start));
-        double hlPrediction = 2 * 1.3203 / (lnN * lnN) * width;
+        double hlPrediction = 1.320323631693739 / (lnN * lnN) * width;
         double hlDeviation  = Math.abs(twins - hlPrediction) / Math.max(1.0, hlPrediction);
+        ClaimStatus status = hlDeviation <= 0.35 ? ClaimStatus.SUPPORTED
+                : hlDeviation <= 0.75 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = "Hardy-Littlewood twin-count deviation is %.1f%% for this finite interval; %s."
+                .formatted(hlDeviation * 100,
+                        status == ClaimStatus.SUPPORTED ? "within the configured support band"
+                                : status == ClaimStatus.PARTIAL ? "suggestive but outside the strong-support band"
+                                : "too large to call the hypothesis supported");
+        String hypothesis = "Consecutive prime pairs in [%d, %d) will exhibit twin prime density consistent with the Hardy-Littlewood finite-interval estimate ~2C₂/ln(N)²."
+                .formatted(start, end);
         return new ResearchResult(
-                "Prime constellations [%d,%d): %d primes (density=%.4f), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f. Twin density among pairs: %.4f."
-                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hlPrediction, twinDensity),
-                hlDeviation, primeDensity, maxGap);
+                "Prime constellations [%d,%d): %d primes (density=%.4f), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f, deviation=%.1f%%. Twin density among pairs: %.4f."
+                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hlPrediction, hlDeviation * 100, twinDensity),
+                hlDeviation, primeDensity, maxGap, hlDeviation, status, assessment, hypothesis);
     }
 
     // Outer search: try candidateBreadth ranges spaced by stepSize*20.
@@ -340,10 +430,13 @@ public class MathPhysicsEngine {
         }
         double avgSteps = totalSteps / count;
         double longFraction = (double) longTraj / count;
+        int end = start + count;
         return new ResearchResult(
-                "Collatz [%d,%d+%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. All %d starting values terminated at 1 (conjecture holds locally)."
-                        .formatted(start, start, count, maxSteps, maxStepsAt, avgSteps, longFraction, count),
-                maxSteps, avgSteps, longFraction);
+                "Collatz [%d,%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. All %d starting values terminated at 1 (conjecture holds locally)."
+                        .formatted(start, end, maxSteps, maxStepsAt, avgSteps, longFraction, count),
+                maxSteps, avgSteps, longFraction)
+                .withHypothesis("Collatz stopping times in [%d, %d) will show no counterexample to the 3n+1 conjecture; maximum depth characterizes local trajectory complexity."
+                        .formatted(start, end));
     }
 
     // Outer search: try candidateBreadth even ranges spaced by stepSize*40.
@@ -376,10 +469,13 @@ public class MathPhysicsEngine {
         }
         double avg = tested > 0 ? (double) totalPartitions / tested : 0;
         double contrast = avg / Math.max(1.0, minParts);
+        int end = evenStart + count * 2;
         return new ResearchResult(
                 "Goldbach partitions, even [%d,%d): avg=%.2f partitions/number, min=%d (at n=%d), single-partition=%d/%d. All even numbers satisfy Goldbach conjecture locally."
-                        .formatted(evenStart, evenStart + count * 2, avg, minParts, minPartsAt, singleCount, tested),
-                contrast, avg, singleCount);
+                        .formatted(evenStart, end, avg, minParts, minPartsAt, singleCount, tested),
+                contrast, avg, singleCount)
+                .withHypothesis("Every even number in [%d, %d) will have at least one Goldbach partition; partition counts will expose local thin-partition neighbourhoods."
+                        .formatted(evenStart, end));
     }
 
     // Outer search: try candidateBreadth ranges spaced by stepSize*15.
@@ -387,12 +483,29 @@ public class MathPhysicsEngine {
     private static ResearchResult aliquotSequences(int seedStart, int count, SearchParams sp) {
         ResearchResult best = null;
         double bestExtreme = -1;
+        double firstAnomaly = Double.NaN;
+        double lastAnomaly = Double.NaN;
+        int sampled = 0;
         for (int i = 0; i < sp.candidateBreadth(); i++) {
             int start = Math.max(2, seedStart + (int) (i * sp.stepSize() * 15));
             ResearchResult r = aliquotSequencesAt(start, count);
+            if (Double.isNaN(firstAnomaly)) firstAnomaly = r.primaryValue();
+            lastAnomaly = r.primaryValue();
+            sampled++;
             if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
         }
-        return best != null ? best : aliquotSequencesAt(seedStart, count);
+        if (best == null) best = aliquotSequencesAt(seedStart, count);
+        boolean predominantlyTerminates = best.secondaryValue() >= 0.5;
+        boolean trendIncreases = !Double.isNaN(firstAnomaly) && lastAnomaly >= firstAnomaly + 0.05;
+        ClaimStatus status = !predominantlyTerminates ? ClaimStatus.REFUTED
+                : trendIncreases ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = "Predominant local termination is %s; anomaly fraction across %d searched windows changed from %.3f to %.3f, so the range-start trend claim is %s."
+                .formatted(predominantlyTerminates ? "observed" : "not observed",
+                        sampled, firstAnomaly, lastAnomaly,
+                        trendIncreases ? "supported by the sampled windows" : "not established");
+        String findings = "%s Search trend: anomaly fraction first_window=%.3f, last_window=%.3f across %d windows."
+                .formatted(best.findings(), firstAnomaly, lastAnomaly, sampled);
+        return best.withFindingsAndClaim(findings, status, assessment);
     }
 
     private static ResearchResult aliquotSequencesAt(int start, int count) {
@@ -418,10 +531,13 @@ public class MathPhysicsEngine {
         }
         double terminateFrac = (double) terminate / count;
         double anomalyFrac   = (double) (cycle + escape) / count;
+        int end = start + count;
         return new ResearchResult(
-                "Aliquot sequences [%d,%d+%d): terminate=%d (%.3f), perfect=%d, cycle=%d, escape=%d. Termination rate %.1f%% — sociable/escaping numbers grow with range start."
-                        .formatted(start, start, count, terminate, terminateFrac, perfect, cycle, escape, terminateFrac * 100),
-                anomalyFrac, terminateFrac, cycle);
+                "Aliquot sequences [%d,%d): terminate=%d (%.3f), perfect=%d, cycle=%d, escape=%d. Termination rate %.1f%%; range-start trend requires the multi-window validator."
+                        .formatted(start, end, terminate, terminateFrac, perfect, cycle, escape, terminateFrac * 100),
+                anomalyFrac, terminateFrac, cycle)
+                .withHypothesis("Aliquot sequences in [%d, %d) will predominantly terminate at 1; searched windows will test whether cycle-or-escape anomaly fractions increase with larger starts."
+                        .formatted(start, end));
     }
 
     // Outer search: try candidateBreadth windows spaced by stepSize*200.
@@ -429,12 +545,26 @@ public class MathPhysicsEngine {
     private static ResearchResult happyNumbers(int seedStart, int count, SearchParams sp) {
         ResearchResult best = null;
         double bestExtreme = -1;
+        double maxDeviation = 0;
+        int sampled = 0;
         for (int i = 0; i < sp.candidateBreadth(); i++) {
             int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 200));
             ResearchResult r = happyNumbersAt(start, count);
+            if (r.primaryValue() > maxDeviation) maxDeviation = r.primaryValue();
+            sampled++;
             if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
         }
-        return best != null ? best : happyNumbersAt(seedStart, count);
+        if (best == null) best = happyNumbersAt(seedStart, count);
+        ClaimStatus status = maxDeviation <= 0.03 ? ClaimStatus.SUPPORTED
+                : maxDeviation <= 0.06 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = "Across %d searched windows, the largest absolute density deviation from 14.3%% was %.4f; %s."
+                .formatted(sampled, maxDeviation,
+                        status == ClaimStatus.SUPPORTED ? "all sampled windows stayed close to the conjectured density"
+                                : status == ClaimStatus.PARTIAL ? "the global claim is only partially supported"
+                                : "the searched windows contradict the regardless-of-window claim");
+        String findings = "%s Multi-window validation: max_abs_deviation=%.4f across %d windows."
+                .formatted(best.findings(), maxDeviation, sampled);
+        return best.withFindingsAndClaim(findings, status, assessment);
     }
 
     private static ResearchResult happyNumbersAt(int start, int count) {
@@ -453,10 +583,13 @@ public class MathPhysicsEngine {
         double density  = (double) happy / count;
         double avgSteps = happy > 0 ? (double) totalSteps / happy : 0;
         double deviation = Math.abs(density - 0.1430);
+        int end = start + count;
         return new ResearchResult(
-                "Happy numbers [%d,%d+%d): happy=%d, density=%.4f (theoretical≈0.1430, deviation=%+.4f), avg_steps_to_1=%.1f. Density consistent with conjectured asymptotic."
-                        .formatted(start, start, count, happy, density, density - 0.1430, avgSteps),
-                deviation, avgSteps, density);
+                "Happy numbers [%d,%d): happy=%d, density=%.4f (theoretical≈0.1430, deviation=%+.4f), avg_steps_to_1=%.1f. Local density is compared with the conjectured asymptotic."
+                        .formatted(start, end, happy, density, density - 0.1430, avgSteps),
+                deviation, avgSteps, density)
+                .withHypothesis("Happy number density in [%d, %d) will remain close to the conjectured asymptotic 14.3%%; multi-window validation tests the broader regardless-of-window claim."
+                        .formatted(start, end));
     }
 
     // ---- Physics ----
@@ -507,7 +640,9 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "Projectile drag (v₀=%.1f ms⁻¹, k=%.4f s/m): optimal_angle=%d° (%.0f° below vacuum 45°), range=%.2f m vs vacuum=%.2f m (%.1f%% loss). Drag breaks angle symmetry."
                         .formatted(v0, k, bestAngle, (double) shift, bestRange, vacuumRange, loss * 100),
-                shift, bestRange, loss);
+                shift, bestRange, loss)
+                .withHypothesis("With quadratic drag k=%.4f s/m and v₀=%.1f ms⁻¹, the range-optimal launch angle will fall below the vacuum 45° optimum."
+                        .formatted(k, v0));
     }
 
     // Outer search: try candidateBreadth pendulum lengths spaced by stepSize*0.05 m.
@@ -536,14 +671,23 @@ public class MathPhysicsEngine {
             sb.append("%.0f°→%.2f%% ".formatted((double) deg, err));
             if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
         }
+        ClaimStatus status = breakdownAngle < 20 ? ClaimStatus.SUPPORTED
+                : nearlyEqual(breakdownAngle, 20, 0.5) ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = "The 1%% error threshold occurs at about %.0f°, so the θ_c < 20° expectation is %s."
+                .formatted(breakdownAngle,
+                        status == ClaimStatus.SUPPORTED ? "supported"
+                                : status == ClaimStatus.PARTIAL ? "borderline rather than strongly supported"
+                                : "not supported");
+        String hypothesis = "For a pendulum of length L=%.2f m, the small-angle period T₀=2π√(L/g) will diverge from the finite-amplitude period by more than 1%% above θ_c; the configured claim expects θ_c < 20°."
+                .formatted(L);
         return new ResearchResult(
                 "Pendulum (L=%.2f m, T₀=%.3f s): period error by amplitude: %s. Small-angle error exceeds 1%% at θ≈%.0f°."
                         .formatted(L, T0, sb.toString().trim(), breakdownAngle),
-                80 - breakdownAngle, T0, L);
+                80 - breakdownAngle, T0, L, 80 - breakdownAngle, status, assessment, hypothesis);
     }
 
     // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
-    // Primary = maxDev*100 (max percentage deviation from ideal gas) — rises with temperature.
+    // Primary = maxDev*100 (max percentage deviation from ideal gas).
     private static ResearchResult vanDerWaalsDeviation(double seedT, double tolerance, SearchParams sp) {
         ResearchResult best = null;
         double bestExtreme = -1;
@@ -557,7 +701,7 @@ public class MathPhysicsEngine {
 
     private static ResearchResult vanDerWaalsDeviationAt(double T, double tolerance) {
         double a = 3.640, b = 0.04267, R = 0.08206;
-        double crossoverP = 100, maxDev = 0;
+        double crossoverP = -1, maxDev = 0;
         StringBuilder sb = new StringBuilder();
         for (int p = 1; p <= 100; p++) {
             double P = p, Videal = R * T / P, V = Videal;
@@ -571,14 +715,23 @@ public class MathPhysicsEngine {
             }
             double dev = Math.abs(V - Videal) / Videal;
             if (dev > maxDev) maxDev = dev;
-            if (dev > tolerance && nearlyEqual(crossoverP, 100, 0.5)) crossoverP = p;
+            if (dev > tolerance && crossoverP < 0) crossoverP = p;
             if (p == 1 || p == 5 || p == 10 || p == 20 || p == 50 || p == 100)
                 sb.append("%datm→%.2f%% ".formatted(p, dev * 100));
         }
+        boolean crossoverObserved = crossoverP > 0;
+        String crossoverText = crossoverObserved
+                ? "First crossover >%.0f%% occurs at P=%.0f atm."
+                        .formatted(tolerance * 100, crossoverP)
+                : "No >%.0f%% crossover was observed up to 100 atm."
+                        .formatted(tolerance * 100);
+        String hypothesis = "At T=%.0f K, CO₂ under the Van der Waals model will be tested for more than %.0f%% departure from ideal-gas volume within 1-100 atm."
+                .formatted(T, tolerance * 100);
         return new ResearchResult(
-                "Van der Waals CO₂ (T=%.0f K): deviation from ideal: %s. Crossover >%.0f%% at P=%.0f atm. Max deviation in [1,100] atm: %.2f%%."
-                        .formatted(T, sb.toString().trim(), tolerance * 100, crossoverP, maxDev * 100),
-                crossoverP, maxDev, T);
+                "Van der Waals CO₂ (T=%.0f K): deviation from ideal: %s. %s Max deviation in [1,100] atm: %.2f%%."
+                        .formatted(T, sb.toString().trim(), crossoverText, maxDev * 100),
+                maxDev * 100, crossoverObserved ? crossoverP : 101.0, T)
+                .withHypothesis(hypothesis);
     }
 
     // Outer search: try candidateBreadth grating spacings spaced by stepSize*0.5 µm.
@@ -611,7 +764,9 @@ public class MathPhysicsEngine {
                 "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Spectral spread=%d orders — blue light shows %d more orders than red."
                         .formatted(dMicrons, lambdaNm, maxOrder, theta1, sb.toString().trim(),
                                 (int) spectralSpread, (int) spectralSpread),
-                spectralSpread, maxOrder, theta1);
+                spectralSpread, maxOrder, theta1)
+                .withHypothesis("For a grating with d=%.2f µm, the number of visible diffraction orders will vary across 400-700 nm wavelengths; shorter wavelengths will support more orders."
+                        .formatted(dMicrons));
     }
 
     // Outer search: try candidateBreadth inductances; lower L (via stepSize) gives higher f₀.
@@ -644,7 +799,9 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "RLC circuit (L=%.4f H, C=%.2e F): f₀=%.2f Hz, R_crit=%.3f Ω. Q-factor sweep: %s. Q range: [%.2f, %.2f] — transition from oscillatory to exponential at R_crit."
                         .formatted(L, C, f0, critR, sb.toString().trim(), minQ, maxQ),
-                f0, critR, maxQ / Math.max(minQ, 1e-10));
+                f0, critR, maxQ / Math.max(minQ, 1e-10))
+                .withHypothesis("In an RLC circuit with L=%.4f H and C=%.2e F, R_c=2√(L/C) marks the transition between underdamped oscillation and overdamped decay."
+                        .formatted(L, C));
     }
 
     // ---- Materials ----
@@ -665,11 +822,11 @@ public class MathPhysicsEngine {
         ResearchResult best = null;
         double bestExtreme = -1;
         for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double sigmaYm = Math.max(10.0, seedSigmaYm + i * sp.stepSize() * 50);
+            double sigmaYm = clamp(seedSigmaYm + i * sp.stepSize() * 50, 10.0, 200.0);
             ResearchResult r = compositeFailureModeAt(sigmaYm);
             if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
         }
-        return best != null ? best : compositeFailureModeAt(seedSigmaYm);
+        return best != null ? best : compositeFailureModeAt(clamp(seedSigmaYm, 10.0, 200.0));
     }
 
     private static ResearchResult compositeFailureModeAt(double sigmaYm) {
@@ -684,10 +841,13 @@ public class MathPhysicsEngine {
             if (sigmaC > maxStress) { maxStress = sigmaC; maxVf = Vf; }
             sb.append("Vf=%.0f%%→%.0fMPa ".formatted(Vf * 100, sigmaC));
         }
+        String assessment = "The linear stress-at-matrix-yield trend is validated within the bounded 10-200 MPa matrix-yield search range, but no fibre-strength or composite-fracture criterion is modeled; the matrix-yields-before-fracture claim is only partially supported.";
+        String hypothesis = "For a steel-fibre/polymer composite with σ_ym=%.0f MPa in the bounded matrix-yield search range, longitudinal stress at matrix yield will scale linearly with fibre volume fraction; any matrix-yields-before-fracture claim remains conditional without a fibre-strength criterion."
+                .formatted(sigmaYm);
         return new ResearchResult(
-                "Composite failure (Ef=200GPa, Em=3GPa, σ_ym=%.0f MPa, ε_y=%.4f): longitudinal stress at matrix yield: %s. Stress rises linearly with Vf; max at Vf=%.0f%% → %.0f MPa."
+                "Composite failure (Ef=200GPa, Em=3GPa, σ_ym=%.0f MPa, ε_y=%.4f): longitudinal stress at matrix yield: %s. Stress rises linearly with Vf; max at Vf=%.0f%% → %.0f MPa. Fibre fracture strength is not included in this model."
                         .formatted(sigmaYm, epsY, sb.toString().trim(), maxVf * 100, maxStress),
-                maxStress, epsY, maxVf);
+                maxStress, epsY, maxVf, maxStress, ClaimStatus.PARTIAL, assessment, hypothesis);
     }
 
     // Inner precision: candidateBreadth controls r sample density across [0.001, 0.65].
@@ -711,7 +871,8 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "Binary sphere packing (FCC base η=%.4f, %d r-samples): packing survey: %s. Peak packing η=%.4f at r≈%.3f (+%.2f%% over FCC). Octahedral void limit r<0.414; tetrahedral r<0.225."
                         .formatted(etaFCC, samples, sb.toString().trim(), bestEta, bestR, improvement),
-                improvement, bestR, etaFCC);
+                improvement, bestR, etaFCC)
+                .withHypothesis("In an FCC lattice, filling octahedral and tetrahedral voids with smaller hard spheres will improve packing beyond the 74.05% FCC baseline; sampled radius ratios will identify the peak improvement.");
     }
 
     // Outer search: try candidateBreadth Ef/Em ratios spaced by stepSize*5.
@@ -745,7 +906,9 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "Composite stiffness (Ef/Em=%.0f, target=%.1f×Em): Reuss bound survey: %s. E_T reaches %.1f×Em at Vf=%.2f — well above the intuitive 50%% guess."
                         .formatted(EfOverEm, targetMultiple, sb.toString().trim(), targetMultiple, crossoverVf),
-                surprise, crossoverVf, EfOverEm);
+                surprise, crossoverVf, EfOverEm)
+                .withHypothesis("For a composite with Ef/Em=%.0f, transverse stiffness under the Reuss bound will reach %.1f×Em at a fibre volume fraction well above 0.5."
+                        .formatted(EfOverEm, targetMultiple));
     }
 
     // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
@@ -766,12 +929,14 @@ public class MathPhysicsEngine {
         int valid = 0, total = 0;
         double firstValid = -1, lastValid = -1;
         double worstDev = 0;
+        double maxRatio = 0;
         StringBuilder sb = new StringBuilder();
         for (int ea = 10; ea <= (int) maxEaKJ; ea += 10) {
             double Ea = ea * 1000.0;
             double D1 = Math.exp(-Ea / (R * T));
             double D2 = Math.exp(-Ea / (R * (T + 10)));
             double ratio = D2 / D1;
+            if (ratio > maxRatio) maxRatio = ratio;
             double dev = Math.abs(ratio - 2.0);
             if (dev > worstDev) worstDev = dev;
             boolean holds = dev / 2.0 < 0.10;
@@ -780,11 +945,21 @@ public class MathPhysicsEngine {
             if (ea <= 50 || ea % 40 == 10) sb.append("Ea=%dkJ→%.2f× ".formatted(ea, ratio));
         }
         double fraction = (double) valid / Math.max(1, total);
+        boolean limitedRange = valid > 0 && valid < total;
+        boolean highEaFarExceeds = maxRatio >= 2.2;
+        ClaimStatus status = limitedRange && highEaFarExceeds ? ClaimStatus.SUPPORTED
+                : limitedRange || highEaFarExceeds ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = "Limited 2x-valid activation-energy range: %s; maximum +10K multiplier=%.2f×, so the high-Ea far-exceeds-2x claim is %s."
+                .formatted(limitedRange ? "observed" : "not observed", maxRatio,
+                        highEaFarExceeds ? "supported" : "not supported in the scanned range");
+        String hypothesis = "At T=%.0f K, the Van't Hoff rule (diffusion doubles per 10 K) will hold within 10%% only over a limited activation-energy range up to %.0f kJ/mol; high Ea values may exceed 2×."
+                .formatted(T, maxEaKJ);
         return new ResearchResult(
-                "Arrhenius Van't Hoff (T=%.0f K, Ea 10–%.0f kJ/mol): sample ratios: %s. Rule holds within 10%% for %d/%d cases (%.0f%%), Ea=[%.0f,%.0f] kJ/mol. Fails at high Ea."
+                "Arrhenius Van't Hoff (T=%.0f K, Ea 10–%.0f kJ/mol): sample ratios: %s. Rule holds within 10%% for %d/%d cases (%.0f%%), Ea=[%.0f,%.0f] kJ/mol; max_multiplier=%.2f×."
                         .formatted(T, maxEaKJ, sb.toString().trim(), valid, total, fraction * 100,
-                                Math.max(firstValid, 10), Math.max(lastValid, 10)),
-                worstDev, firstValid > 0 ? firstValid : maxEaKJ, lastValid > 0 ? lastValid : maxEaKJ);
+                                Math.max(firstValid, 10), Math.max(lastValid, 10), maxRatio),
+                worstDev, firstValid > 0 ? firstValid : maxEaKJ,
+                lastValid > 0 ? lastValid : maxEaKJ, worstDev, status, assessment, hypothesis);
     }
 
     // Outer search: try candidateBreadth deltaT values spaced by stepSize*20 K.
@@ -818,7 +993,9 @@ public class MathPhysicsEngine {
         return new ResearchResult(
                 "Thermal stress safety (ΔT=%.0f K, σ_Y=%.0f MPa, E=200GPa): critical_α=%.2f µm/(m·K). Material survey: %s. %d/%d materials remain below yield."
                         .formatted(deltaT, sigmaYMPa, critAlpha, sb.toString().trim(), safe, alphas.length),
-                failFraction, critAlpha, safe);
+                failFraction, critAlpha, safe)
+                .withHypothesis("For a fully constrained steel member with ΔT=%.0f K and σ_Y=%.0f MPa, there is a critical CTE α_c below which thermal stress remains below yield."
+                        .formatted(deltaT, sigmaYMPa));
     }
 
     // ---- Helpers ----
@@ -835,5 +1012,9 @@ public class MathPhysicsEngine {
 
     private static boolean nearlyEqual(double a, double b, double tolerance) {
         return Math.abs(a - b) <= tolerance;
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(max, value));
     }
 }

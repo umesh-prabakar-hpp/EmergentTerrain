@@ -330,3 +330,24 @@ check chrome://gpu again. What we want to see is:
 GL_RENDERER showing AMD, not Intel
 
 http://localhost:8080/game?token=H4sIAAAAAAAA_12Qu07EMBBF_8V1gsbjsSdJtwUFEnRUNKvsZrJYJE5kOzyE-He8vCS2Pef6-mre1bPqdKXWuIx-kptBdQpYGMlJrQ_jWNOg27plc6gPDSCQPTjHR1Wp_iSqI1upJK_l1d3u9rrQaTn22S-hEI2G7DkY0ovEpLp3NfknSftxiZJyATluUv3Alz5L_I_mZQu59-EiuawS9qOXabiskLw_Tn4uTf9F2kJ4-0YflXr0wyDhPGctO9IWSxqunCOtW0IHbAyiqVSWeZXY598AozOWCHTjNDguRdvsB5_fvmyDjMhNqQFoLVWq_JH-pANitmA1NC2We0uQePpxAIZZO83aEpizy3FZv2RBgGhbptYyWVfW-7JYhl0uB0ZAVwPVSPcaO910qK_AEFhg5Af18Qnf8fjq3QEAAA.S1tFI2UguURHEgpKvpD5muTneP4niJA2tSZ2sRolrW4
+
+1. Conjecture generation (math)
+
+Exploring integer patterns, sequences, graph properties
+Can run on a laptop if you keep ranges modest
+Many discoveries historically came from small-scale computation + insight
+
+2. Small-scale inverse problems
+
+Fit simple models to synthetic or limited data
+Use regression, symbolic search, or heuristics
+
+3. Non-ideal extensions of known systems
+
+Slight deviations from ideal gas, perfect crystals, etc.
+You’re adding corrections, not simulating the universe
+
+4. Noise + uncertainty experiments
+
+Add randomness and test robustness
+Doesn’t require scale, just repetition

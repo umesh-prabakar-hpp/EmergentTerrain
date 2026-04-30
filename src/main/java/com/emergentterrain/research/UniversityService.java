@@ -18,6 +18,8 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -51,7 +53,8 @@ public class UniversityService {
     private static final long DATING_COOLDOWN_TICKS = 200L;
     private static final double DATING_BASE_PROB    = 0.05;
 
-    // Per-room in-memory counters (not persisted — reset on restart, which is fine)
+    // Per-room in-memory counters. Paper counters are lazily seeded from existing
+    // on-disk research files so restarts keep IDs unique.
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer>             papersSinceTerm = new ConcurrentHashMap<>();
@@ -60,6 +63,8 @@ public class UniversityService {
 
     private static final DateTimeFormatter FILE_DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
+    private static final Pattern PAPER_SUFFIX_PATTERN =
+            Pattern.compile("P-[0-9a-fA-F]{4}-(\\d+)");
 
     private final long          researchIntervalMs;
     private final Path          researchOutputDir;
@@ -383,10 +388,11 @@ public class UniversityService {
         double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
 
         if (reviewPassed) {
-            String paperId = "P-" + roomId.toString().substring(0, 4)
-                    + "-" + paperCounter.merge(roomId, 1L, Long::sum);
+            String paperId = nextPaperId(roomId);
             String title      = MathPhysicsEngine.generateTitle(domain, topicIndex, rng);
-            String hypothesis = MathPhysicsEngine.generateHypothesis(domain, topicIndex, param1, param2);
+            String fallbackHypothesis = MathPhysicsEngine.generateHypothesis(domain, topicIndex, param1, param2);
+            String hypothesis = (result.hypothesis() == null || result.hypothesis().isBlank())
+                    ? fallbackHypothesis : result.hypothesis();
             String conclusion = MathPhysicsEngine.generateConclusion(result, true);
             String topicName  = MathPhysicsEngine.topicName(domain, topicIndex);
 
@@ -526,6 +532,38 @@ public class UniversityService {
             if (roomPapers.size() > MAX_PAPERS_PER_ROOM) roomPapers.remove(0);
         }
         writePaperToFile(roomId, paper);
+    }
+
+    String nextPaperId(UUID roomId) {
+        String roomPrefix = roomId.toString().substring(0, 4);
+        long next = paperCounter.compute(roomId, (id, current) -> {
+            long base = current != null ? current : loadMaxPaperNumber(id);
+            return base + 1;
+        });
+        return "P-" + roomPrefix + "-" + next;
+    }
+
+    private long loadMaxPaperNumber(UUID roomId) {
+        String roomDirName = roomId.toString().substring(0, 8);
+        Path roomDir = researchOutputDir.resolve(roomDirName);
+        if (!Files.isDirectory(roomDir)) return 0L;
+
+        String paperPrefix = "P-" + roomId.toString().substring(0, 4) + "-";
+        long max = 0L;
+        try (var stream = Files.list(roomDir)) {
+            Iterator<Path> paths = stream.iterator();
+            while (paths.hasNext()) {
+                String filename = paths.next().getFileName().toString();
+                if (!filename.contains(paperPrefix)) continue;
+                Matcher matcher = PAPER_SUFFIX_PATTERN.matcher(filename);
+                while (matcher.find()) {
+                    max = Math.max(max, Long.parseLong(matcher.group(1)));
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to scan existing research papers for room {}: {}", roomId, e.getMessage());
+        }
+        return max;
     }
 
     private void writePaperToFile(UUID roomId, ResearchPaper paper) {
