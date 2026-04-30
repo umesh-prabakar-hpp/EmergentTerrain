@@ -47,12 +47,14 @@ public class MathPhysicsEngine {
             "Happy Number Distribution"
     };
     private static final String[] PHYSICS_TOPICS = {
-            "Projectile Mechanics", "Wave Resonance", "Ideal Gas Behaviour",
-            "Optical Refraction", "Coulomb Interactions"
+            "Projectile Drag Optimisation", "Pendulum Breakdown Angle",
+            "Van der Waals Crossover", "Diffraction Order Survey",
+            "RLC Damping Transition"
     };
     private static final String[] MATERIALS_TOPICS = {
-            "Elastic Moduli", "Crystal Packing", "Composite Mechanics",
-            "Arrhenius Diffusion", "Thermal Expansion"
+            "Composite Failure Mode", "Binary Sphere Packing",
+            "Stiffness Crossover Volume Fraction", "Arrhenius Rule Validity",
+            "Thermal Stress Safety Window"
     };
 
     // ---- Title tables (2 options per topic for variety) ----
@@ -65,18 +67,18 @@ public class MathPhysicsEngine {
             {"Happy Number Density and Digit-Square Convergence Patterns", "Local Verification of the 14.3% Happy Number Conjecture"}
     };
     private static final String[][] PHYSICS_TITLES = {
-            {"Ballistic Trajectory Optimisation Under Uniform Gravity", "Energy Conservation in Projectile Systems"},
-            {"Standing Wave Resonance in Homogeneous Media", "Frequency-Energy Relationships in Acoustic Systems"},
-            {"Ideal Gas Behaviour at Elevated Temperatures", "Kinetic Theory Validation via RMS Velocity"},
-            {"Snell's Law Across Refractive Index Gradients", "Critical Angle Dependencies at Dielectric Interfaces"},
-            {"Inverse-Square Law Verification for Coulomb Interactions", "Electric Potential Analysis Around Point Charges"}
+            {"Optimal Launch Angle Under Quadratic Air Resistance", "Drag-Induced Departure from the 45° Range Maximum"},
+            {"Amplitude Threshold for Pendulum Period Error Exceeding 1%", "Breakdown of the Small-Angle Approximation in Real Pendula"},
+            {"Pressure Crossover for Van der Waals Deviation in CO₂", "Real Gas Departure from Ideal Behaviour at Elevated Pressure"},
+            {"Visible Diffraction Order Count as a Function of d/λ", "Grating Resolution and Order Extinction Survey"},
+            {"Critical Resistance for RLC Oscillation Collapse", "Q-Factor Sensitivity Near the Underdamped–Overdamped Boundary"}
     };
     private static final String[][] MATERIALS_TITLES = {
-            {"Young's Modulus via Stress-Strain Analysis", "Elastic Constant Relationships in Isotropic Solids"},
-            {"Packing Efficiency in Crystal Lattice Structures", "Void Fraction in Close-Packed Arrangements"},
-            {"Rule of Mixtures in Fibre-Reinforced Composites", "Voigt-Reuss Bounds in Anisotropic Systems"},
-            {"Arrhenius Diffusion Rate Temperature Sensitivity", "Activation Energy from Diffusion Coefficients"},
-            {"Linear Thermal Expansion in Crystalline Solids", "CTE Measurement Across Temperature Ranges"}
+            {"Fibre Volume Fraction at Which Matrix Yields Before Composite", "Longitudinal Failure Mode Transition in Fibre Composites"},
+            {"Size Ratio Optimisation for Binary Hard-Sphere Packing", "Void-Filling Efficiency in FCC Lattices with Mixed Sphere Sizes"},
+            {"Volume Fraction Threshold for Transverse Stiffness Doubling", "Reuss Bound Crossover in Particle-Reinforced Composites"},
+            {"Activation Energy Range for Van't Hoff Rule Validity", "When Does the 2×-per-10K Approximation Break Down?"},
+            {"Maximum Safe CTE Before Thermal Stress Exceeds Yield", "Temperature-Rise Safety Window for Constrained Structural Materials"}
     };
 
     // ---- Public API ----
@@ -147,29 +149,55 @@ public class MathPhysicsEngine {
                 yield "Happy number density near %d will remain close to the conjectured asymptotic 14.3%%, regardless of where in ℤ⁺ the window is placed."
                         .formatted(rangeStart);
             }
-            case "PHYSICS:0" ->
-                "A projectile launched at θ=%d° with v₀=%.1f ms⁻¹ achieves range and height consistent with kinematic equations."
-                        .formatted(param1 % 85 + 5, Math.max(5.0, param2));
-            case "PHYSICS:1" ->
-                "Acoustic waves at f=%.1f Hz propagate with wavelength λ=c/f and energy density proportional to A²f²."
-                        .formatted(Math.max(20.0, 20.0 + param1 % 10000));
-            case "PHYSICS:2" ->
-                "An ideal gas at T=%.0f K satisfies PV=nRT with RMS molecular velocity √(3RT/M)."
-                        .formatted(200.0 + param1 % 600);
-            case "PHYSICS:3" ->
-                "Light transitioning from n₁=1.0 to n₂=%.2f obeys Snell's law with Brewster angle arctan(n₂/n₁)."
-                        .formatted(1.3 + (param1 % 100) / 100.0);
-            case "PHYSICS:4" ->
-                "The Coulomb force between point charges decays as r⁻² with constant k=8.99×10⁹ N·m²/C²."
+            case "PHYSICS:0" -> {
+                double k = param1 / 1000.0;
+                double v0 = 10.0 + param2 * 5;
+                yield "With quadratic drag k=%.3f s/m and v₀=%.1f ms⁻¹, the range-optimal launch angle will fall below 45°; the shift grows with k and shrinks with v₀."
+                        .formatted(k, v0);
+            }
+            case "PHYSICS:1" -> {
+                double L = 0.1 + param1 / 200.0;
+                yield "For a pendulum of length L=%.2f m, the small-angle period T₀=2π√(L/g) will diverge from the exact period by more than 1%% above some amplitude θ_c; we expect θ_c < 20°."
+                        .formatted(L);
+            }
+            case "PHYSICS:2" -> {
+                double T = 200 + param1 * 3.0;
+                yield "At T=%.0f K, CO₂ (Van der Waals a=3.64, b=0.04267) will depart from ideal gas behaviour by more than 1%% above a crossover pressure P_c; P_c decreases as temperature falls."
+                        .formatted(T);
+            }
+            case "PHYSICS:3" -> {
+                double d = 1.0 + param1 / 50.0;
+                yield "For a grating with d=%.2f µm, the number of visible diffraction orders will vary across the optical spectrum (400–700 nm); shorter wavelengths will support more orders."
+                        .formatted(d);
+            }
+            case "PHYSICS:4" -> {
+                double L = 0.001 + param1 / 10000.0;
+                double C = 1e-6 + param2 * 1e-7;
+                yield "In an RLC circuit with L=%.4f H and C=%.2e F, the critical damping resistance R_c=2√(L/C) marks a sharp transition; Q-factor collapses from oscillatory to exponential decay above R_c."
+                        .formatted(L, C);
+            }
+            case "MATERIALS:0" -> {
+                double sigmaYm = 50 + param1 * 5.0;
+                yield "In a steel-fibre/polymer composite (Ef=200 GPa, Em=3 GPa), the matrix will yield before the composite fractures across all fibre volume fractions; longitudinal stress at matrix yield will scale linearly with Vf."
                         .formatted();
-            case "MATERIALS:0" ->
-                "Stress-strain linearity holds in the elastic regime, with E=σ/ε and derived shear/bulk moduli satisfying isotropy relations.";
+            }
             case "MATERIALS:1" ->
-                "FCC/BCC/SC crystal packing efficiencies (74%/68%/52%) are derivable from hard-sphere geometry alone.";
-            case "MATERIALS:2" ->
-                "Longitudinal stiffness of fibre composites obeys the Voigt (rule of mixtures) upper bound exactly.";
-            case "MATERIALS:3" ->
-                "Diffusivity follows D=D₀·exp(−Eₐ/RT); a 10 K temperature rise increases D by a factor exp(EₐΔT/RT²).";
+                "In an FCC lattice, filling octahedral voids (r<0.414) with small spheres will improve packing beyond the 74.05%% FCC baseline; the improvement will peak near r≈0.41 and plateau above r=0.5.";
+            case "MATERIALS:2" -> {
+                double ratio = 10 + param1 * 2.0;
+                yield "For a composite with Ef/Em=%.0f, transverse stiffness (Reuss bound) doubles the matrix value at a Vf well above 0.5; the crossover Vf decreases as Ef/Em grows."
+                        .formatted(ratio);
+            }
+            case "MATERIALS:3" -> {
+                double T = 300 + param1 * 3.0;
+                yield "At T=%.0f K, the Van't Hoff rule (D doubles per 10 K) will hold within 10%% only over a limited activation energy range; at high Ea the actual multiplier will far exceed 2×."
+                        .formatted(T);
+            }
+            case "MATERIALS:4" -> {
+                double dT = 50 + param1 * 3.0;
+                yield "For a fully constrained steel member (E=200 GPa) subject to ΔT=%.0f K, there exists a critical CTE α_c below which thermal stress stays under yield; common engineering materials cluster near this boundary."
+                        .formatted(dT);
+            }
             default ->
                 "The observed values are consistent with theoretical predictions under standard boundary conditions.";
         };
@@ -327,151 +355,249 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computePhysics(int topic, int param1, double param2) {
         return switch (topic) {
-            case 0 -> projectileMotion(param1 % 85 + 5, Math.max(5.0, 5.0 + param2 % 45));
-            case 1 -> waveResonance(Math.max(20.0, 20.0 + param1 % 10000), Math.max(0.001, param1 / 10000.0));
-            case 2 -> idealGasLaw(200.0 + param1 % 600, 0.01 + (param1 % 50) * 0.002);
-            case 3 -> snellRefraction(1.0, 1.3 + (param1 % 100) / 100.0);
-            default -> coulombInteraction((1 + param1 % 20) * 1e-9, 0.01 + (param1 % 100) / 100.0);
+            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0);
+            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0);
+            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01);
+            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40);
+            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7);
         };
     }
 
-    private static ResearchResult projectileMotion(int angleDeg, double v0) {
-        double a = Math.toRadians(angleDeg);
-        double g = 9.81;
-        double range    = (v0 * v0 * Math.sin(2 * a)) / g;
-        double maxH     = (v0 * v0 * Math.pow(Math.sin(a), 2)) / (2 * g);
-        double tFlight  = (2 * v0 * Math.sin(a)) / g;
-        double optRange = (v0 * v0) / g;
-        return new ResearchResult(
-                "Projectile: θ=%d°, v₀=%.2f ms⁻¹ → range=%.3f m, max_height=%.3f m, t_flight=%.3f s. Optimal (45°) range=%.3f m. KE=%.1f J (unit mass)."
-                        .formatted(angleDeg, v0, range, maxH, tFlight, optRange, 0.5 * v0 * v0),
-                range, maxH, tFlight);
-    }
-
-    private static ResearchResult waveResonance(double freq, double amplitude) {
-        double c = 343.0; // m/s in air
-        double wavelength = c / freq;
-        double omega = 2 * Math.PI * freq;
-        double energyDensity = 0.5 * 1.293 * amplitude * amplitude * omega * omega;
-        double period = 1.0 / freq;
-        return new ResearchResult(
-                "Wave: f=%.2f Hz, A=%.4f m → λ=%.4f m, ω=%.2f rad/s, T=%.6f s, energy_density=%.4f J/m³. Resonance nodes at L=nλ/2."
-                        .formatted(freq, amplitude, wavelength, omega, period, energyDensity),
-                wavelength, energyDensity, period);
-    }
-
-    private static ResearchResult idealGasLaw(double temp, double moles) {
-        double R = 8.314;
-        double V = 0.001; // 1 litre
-        double P = moles * R * temp / V;
-        double vRms = Math.sqrt(3 * R * temp / 0.029); // air M=29g/mol
-        double kB = 1.38e-23;
-        double meanFP = kB * temp / (Math.sqrt(2) * Math.PI * Math.pow(3.7e-10, 2) * P);
-        return new ResearchResult(
-                "Ideal gas: T=%.1f K, n=%.3f mol, V=1 L → P=%.1f Pa, v_rms=%.1f ms⁻¹, λ_mfp≈%.2e m. PV/nRT=%.6f (ideal ratio)."
-                        .formatted(temp, moles, P, vRms, meanFP, P * V / (moles * R * temp)),
-                P, vRms, meanFP);
-    }
-
-    private static ResearchResult snellRefraction(double n1, double n2) {
-        double brewsterDeg = Math.toDegrees(Math.atan(n2 / n1));
-        StringBuilder cases = new StringBuilder();
-        for (int inc : new int[]{15, 30, 45, 60}) {
-            double sinR = n1 * Math.sin(Math.toRadians(inc)) / n2;
-            if (Math.abs(sinR) <= 1.0) {
-                cases.append("%.0f°→%.2f° ".formatted((double) inc, Math.toDegrees(Math.asin(sinR))));
+    // Sweep launch angles under quadratic drag; optimal angle shifts below 45°.
+    private static ResearchResult projectileWithDrag(double v0, double k) {
+        double g = 9.81, dt = 0.03;
+        int bestAngle = 45;
+        double bestRange = 0;
+        for (int a = 5; a <= 85; a++) {
+            double vx = v0 * Math.cos(Math.toRadians(a));
+            double vy = v0 * Math.sin(Math.toRadians(a));
+            double x = 0, y = 0;
+            for (int i = 0; i < 5000 && y >= -0.01; i++) {
+                double spd = Math.sqrt(vx * vx + vy * vy);
+                vx -= k * spd * vx * dt;
+                vy -= (g + k * spd * vy) * dt;
+                x += vx * dt;
+                y += vy * dt;
             }
+            if (x > bestRange) { bestRange = x; bestAngle = a; }
+        }
+        double vacuumRange = v0 * v0 / g;
+        double shift = 45 - bestAngle;
+        double loss = (vacuumRange - bestRange) / vacuumRange;
+        return new ResearchResult(
+                "Projectile drag (v₀=%.1f ms⁻¹, k=%.4f s/m): optimal_angle=%d° (%.0f° below vacuum 45°), range=%.2f m vs vacuum=%.2f m (%.1f%% loss). Drag breaks angle symmetry."
+                        .formatted(v0, k, bestAngle, (double) shift, bestRange, vacuumRange, loss * 100),
+                bestAngle, bestRange, loss);
+    }
+
+    // Find amplitude at which small-angle period error exceeds 1% using elliptic series.
+    private static ResearchResult pendulumBreakdown(double L) {
+        double g = 9.81;
+        double T0 = 2 * Math.PI * Math.sqrt(L / g);
+        double breakdownAngle = 80;
+        StringBuilder sb = new StringBuilder();
+        for (int deg = 5; deg <= 80; deg += 5) {
+            double k = Math.sin(Math.toRadians(deg) / 2);
+            double k2 = k * k;
+            // Series: T = T0 * (1 + k²/4 + 9k⁴/64 + 25k⁶/256)
+            double T = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256);
+            double err = (T - T0) / T0 * 100;
+            sb.append("%.0f°→%.2f%% ".formatted((double) deg, err));
+            if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
         }
         return new ResearchResult(
-                "Snell's law n₁=%.3f→n₂=%.3f: [%s] Brewster_angle=%.2f°. No TIR (n₁<n₂). Reflectance minimum at Brewster angle confirms p-polarisation prediction."
-                        .formatted(n1, n2, cases.toString().trim(), brewsterDeg),
-                brewsterDeg, n2 / n1, 0);
+                "Pendulum (L=%.2f m, T₀=%.3f s): period error by amplitude: %s. Small-angle error exceeds 1%% at θ≈%.0f°."
+                        .formatted(L, T0, sb.toString().trim(), breakdownAngle),
+                breakdownAngle, T0, L);
     }
 
-    private static ResearchResult coulombInteraction(double q, double r) {
-        double k = 8.99e9;
-        double F = k * q * q / (r * r);
-        double V = k * q / r;
-        double E = k * q / (r * r);
+    // Find pressure where CO₂ deviates from ideal gas by more than tolerance.
+    private static ResearchResult vanDerWaalsDeviation(double T, double tolerance) {
+        double a = 3.640, b = 0.04267, R = 0.08206; // L·atm units
+        double crossoverP = 100;
+        double maxDev = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int p = 1; p <= 100; p++) {
+            double P = p;
+            double Videal = R * T / P;
+            double V = Videal;
+            for (int iter = 0; iter < 30; iter++) {
+                double f  = (P + a / (V * V)) * (V - b) - R * T;
+                double df = (P + a / (V * V)) - 2 * a * (V - b) / (V * V * V);
+                if (Math.abs(df) < 1e-15) break;
+                double step = f / df;
+                V -= step;
+                if (V <= b) { V = b * 1.01; break; }
+            }
+            double dev = Math.abs(V - Videal) / Videal;
+            if (dev > maxDev) maxDev = dev;
+            if (dev > tolerance && nearlyEqual(crossoverP, 100, 0.5)) crossoverP = p;
+            if (p == 1 || p == 5 || p == 10 || p == 20 || p == 50 || p == 100)
+                sb.append("%datm→%.2f%% ".formatted(p, dev * 100));
+        }
         return new ResearchResult(
-                "Coulomb: q=%.2e C, r=%.3f m → F=%.4e N, V=%.4e J/C, E=%.4e N/C. Doubling r → F/4 (inverse-square confirmed). Energy stored U=kq²/r=%.4e J."
-                        .formatted(q, r, F, V, E, k * q * q / r),
-                F, V, E);
+                "Van der Waals CO₂ (T=%.0f K): deviation from ideal: %s. Crossover >%.0f%% at P=%.0f atm. Max deviation in [1,100] atm: %.2f%%."
+                        .formatted(T, sb.toString().trim(), tolerance * 100, crossoverP, maxDev * 100),
+                crossoverP, maxDev, T);
+    }
+
+    // Count visible diffraction orders across optical spectrum for given grating spacing.
+    private static ResearchResult diffractionSurvey(double dMicrons, double lambdaNm) {
+        int maxOrder = (int) (dMicrons * 1000 / lambdaNm);
+        double theta1 = maxOrder >= 1
+                ? Math.toDegrees(Math.asin(Math.min(1.0, lambdaNm / (dMicrons * 1000)))) : 0;
+        StringBuilder sb = new StringBuilder();
+        int minOrders = Integer.MAX_VALUE, maxOrders = 0;
+        for (double lam : new double[]{400, 450, 500, 550, 600, 650, 700}) {
+            int orders = (int) (dMicrons * 1000 / lam);
+            if (orders < minOrders) minOrders = orders;
+            if (orders > maxOrders) maxOrders = orders;
+            sb.append("%.0fnm→%d ".formatted(lam, orders));
+        }
+        double spectralSpread = maxOrders - minOrders;
+        return new ResearchResult(
+                "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Spectral spread=%d orders — blue light shows %d more orders than red."
+                        .formatted(dMicrons, lambdaNm, maxOrder, theta1, sb.toString().trim(),
+                                (int) spectralSpread, (int) spectralSpread),
+                maxOrder, theta1, spectralSpread);
+    }
+
+    // Survey Q-factor across resistance values around the critical damping point.
+    private static ResearchResult rlcDampingTransition(double L, double C) {
+        double critR = 2 * Math.sqrt(L / C);
+        double omega0 = 1 / Math.sqrt(L * C);
+        double f0 = omega0 / (2 * Math.PI);
+        StringBuilder sb = new StringBuilder();
+        double minQ = Double.MAX_VALUE, maxQ = 0;
+        for (double mult : new double[]{0.1, 0.25, 0.5, 1.0, 2.0, 4.0}) {
+            double R = critR * mult;
+            double Q = omega0 * L / R;
+            if (Q < minQ) minQ = Q;
+            if (Q > maxQ) maxQ = Q;
+            String regime = mult < 1 ? "under" : mult > 1 ? "over" : "crit";
+            sb.append("%.2f×R_c→Q=%.2f(%s) ".formatted(mult, Q, regime));
+        }
+        return new ResearchResult(
+                "RLC circuit (L=%.4f H, C=%.2e F): f₀=%.2f Hz, R_crit=%.3f Ω. Q-factor sweep: %s. Q range: [%.2f, %.2f] — transition from oscillatory to exponential at R_crit."
+                        .formatted(L, C, f0, critR, sb.toString().trim(), minQ, maxQ),
+                critR, f0, maxQ / Math.max(minQ, 1e-10));
     }
 
     // ---- Materials ----
 
     private static ResearchResult computeMaterials(int topic, int param1, double param2) {
         return switch (topic) {
-            case 0 -> elasticModuli(Math.max(50.0, 50.0 + param2 % 450), 0.001 + (param1 % 50) * 0.001);
-            case 1 -> crystalPacking(new int[]{6, 8, 12}[param1 % 3]);
-            case 2 -> compositeStrength(Math.max(0.05, Math.min(0.95, (double) param1 / 200.0)));
-            case 3 -> arrheniusDiffusion(300.0 + param1 % 500, 50.0 + param2 % 200);
-            default -> thermalExpansion(Math.max(5.0, 5.0 + param1 % 100), 200.0 + param1 % 800);
+            case 0 -> compositeFailureMode(50.0 + param1 * 5);
+            case 1 -> binarySpherePacking(param1 / 250.0);
+            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0);
+            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20);
+            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50);
         };
     }
 
-    private static ResearchResult elasticModuli(double stressMPa, double strain) {
-        double E  = stressMPa / strain; // MPa
-        double nu = 0.25 + strain * 2;  // approximate Poisson ratio
-        nu = Math.min(0.49, nu);
-        double G  = E / (2 * (1 + nu));
-        double K  = E / (3 * (1 - 2 * nu));
+    // Find longitudinal composite stress at matrix yield across fibre volume fractions.
+    private static ResearchResult compositeFailureMode(double sigmaYm) {
+        double Ef = 200e3, Em = 3e3; // MPa
+        double epsY = sigmaYm / Em;
+        StringBuilder sb = new StringBuilder();
+        double maxStress = 0;
+        double maxVf = 0;
+        for (int vfPct = 10; vfPct <= 90; vfPct += 10) {
+            double Vf = vfPct / 100.0;
+            double EL = Vf * Ef + (1 - Vf) * Em;
+            double sigmaC = EL * epsY; // composite stress when matrix reaches yield strain
+            if (sigmaC > maxStress) { maxStress = sigmaC; maxVf = Vf; }
+            sb.append("Vf=%.0f%%→%.0fMPa ".formatted(Vf * 100, sigmaC));
+        }
         return new ResearchResult(
-                "Elastic moduli: σ=%.1f MPa, ε=%.4f → E=%.2f GPa, ν=%.3f, G=%.2f GPa, K=%.2f GPa. Cauchy relation G=E/[2(1+ν)] verified. Plastic onset ~σ_y=%.0f MPa."
-                        .formatted(stressMPa, strain, E / 1000, nu, G / 1000, K / 1000, stressMPa * 1.5),
-                E, G, K);
+                "Composite failure (Ef=200GPa, Em=3GPa, σ_ym=%.0f MPa, ε_y=%.4f): longitudinal stress at matrix yield: %s. Stress rises linearly with Vf; max at Vf=%.0f%% → %.0f MPa."
+                        .formatted(sigmaYm, epsY, sb.toString().trim(), maxVf * 100, maxStress),
+                maxStress, epsY, maxVf);
     }
 
-    private static ResearchResult crystalPacking(int cn) {
-        double eta = switch (cn) {
-            case 12 -> Math.PI / (3 * Math.sqrt(2));  // FCC  74.05%
-            case 8  -> Math.PI * Math.sqrt(3) / 8;    // BCC  68.02%
-            default -> Math.PI / 6;                    // SC   52.36%
-        };
-        String lattice = switch (cn) { case 12 -> "FCC"; case 8 -> "BCC"; default -> "SC"; };
+    // Sweep small-sphere radius ratio; compute packing improvement over pure FCC base.
+    private static ResearchResult binarySpherePacking(double rTarget) {
+        double etaFCC = Math.PI / (3 * Math.sqrt(2)); // 0.7405
+        double bestR = 0, bestEta = etaFCC;
+        StringBuilder sb = new StringBuilder();
+        for (int rPct = 5; rPct <= 60; rPct += 5) {
+            double r = rPct / 100.0;
+            // Octahedral voids (1 per sphere): fit when r < 0.4142; tetrahedral (2 per sphere): r < 0.2247
+            double voidVolOcta  = r <= 0.4142 ? (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
+            double voidVolTetra = r <= 0.2247 ? 2 * (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
+            double addedPacking = (voidVolOcta + voidVolTetra) * etaFCC
+                    / ((4.0 / 3) * Math.PI); // fraction of unit cell filled
+            double etaTotal = Math.min(0.99, etaFCC + addedPacking);
+            if (etaTotal > bestEta) { bestEta = etaTotal; bestR = r; }
+            if (rPct % 10 == 0) sb.append("r=%.2f→η=%.4f ".formatted(r, etaTotal));
+        }
         return new ResearchResult(
-                "Crystal packing (%s, CN=%d): η=%.4f (%.2f%%), void_fraction=%.4f. Theoretical maximum (FCC/HCP)=%.4f. Hard-sphere model confirmed."
-                        .formatted(lattice, cn, eta, eta * 100, 1 - eta, Math.PI / (3 * Math.sqrt(2))),
-                eta, 1 - eta, cn);
+                "Binary sphere packing (FCC base η=%.4f): packing vs size ratio: %s. Peak packing η=%.4f at r≈%.2f. Octahedral void limit r<0.414; tetrahedral r<0.225."
+                        .formatted(etaFCC, sb.toString().trim(), bestEta, bestR),
+                bestEta, bestR, etaFCC);
     }
 
-    private static ResearchResult compositeStrength(double vf) {
-        double vm    = 1.0 - vf;
-        double Ef    = 200e3; // MPa (steel fibre)
-        double Em    = 3e3;   // MPa (polymer matrix)
-        double E_L   = vf * Ef + vm * Em;                         // Voigt
-        double E_T   = 1.0 / (vf / Ef + vm / Em);                // Reuss
-        double aniso = E_L / E_T;
+    // Find Vf where Reuss (transverse) composite stiffness reaches targetMultiple × Em.
+    private static ResearchResult compositeStiffnessCrossover(double EfOverEm, double targetMultiple) {
+        double Em = 3e3, Ef = EfOverEm * Em;
+        double crossoverVf = -1;
+        StringBuilder sb = new StringBuilder();
+        for (int vfPct = 5; vfPct <= 95; vfPct += 5) {
+            double Vf = vfPct / 100.0;
+            double ET = 1.0 / (Vf / Ef + (1 - Vf) / Em);
+            double multiple = ET / Em;
+            if (vfPct % 20 == 0) sb.append("Vf=%.0f%%→%.2f× ".formatted(Vf * 100, multiple));
+            if (multiple >= targetMultiple && crossoverVf < 0) crossoverVf = Vf;
+        }
+        if (crossoverVf < 0) crossoverVf = 1.0;
         return new ResearchResult(
-                "Composite (vf=%.2f, vm=%.2f): E_L=%.2f GPa, E_T=%.2f GPa, anisotropy=%.1f×. Voigt upper bound and Reuss lower bound bracketed correctly. Load transfer efficiency=%.1f%%."
-                        .formatted(vf, vm, E_L / 1000, E_T / 1000, aniso, 100.0 * E_T / E_L),
-                E_L, E_T, aniso);
+                "Composite stiffness (Ef/Em=%.0f, target=%.1f×Em): Reuss bound survey: %s. E_T reaches %.1f×Em at Vf=%.2f — well above the intuitive 50%% guess."
+                        .formatted(EfOverEm, targetMultiple, sb.toString().trim(), targetMultiple, crossoverVf),
+                crossoverVf, EfOverEm, targetMultiple);
     }
 
-    private static ResearchResult arrheniusDiffusion(double T, double EaKJ) {
-        double R  = 8.314;
-        double D0 = 1e-4; // m²/s
-        double D  = D0 * Math.exp(-EaKJ * 1000 / (R * T));
-        double halfLife = Math.log(2) / Math.max(D, 1e-30);
-        double T10  = T + 10;
-        double D10  = D0 * Math.exp(-EaKJ * 1000 / (R * T10));
-        double mult = D10 / Math.max(D, 1e-30);
+    // Find the Ea range where D(T+10)/D(T) is within 10% of the Van't Hoff factor of 2.
+    private static ResearchResult arrheniusRuleValidity(double T, double maxEaKJ) {
+        double R = 8.314;
+        int valid = 0, total = 0;
+        double firstValid = -1, lastValid = -1;
+        StringBuilder sb = new StringBuilder();
+        for (int ea = 10; ea <= (int) maxEaKJ; ea += 10) {
+            double Ea = ea * 1000.0;
+            double D1 = Math.exp(-Ea / (R * T));
+            double D2 = Math.exp(-Ea / (R * (T + 10)));
+            double ratio = D2 / D1;
+            boolean holds = Math.abs(ratio - 2.0) / 2.0 < 0.10;
+            total++;
+            if (holds) { valid++; if (firstValid < 0) firstValid = ea; lastValid = ea; }
+            if (ea <= 50 || ea % 40 == 10) sb.append("Ea=%dkJ→%.2f× ".formatted(ea, ratio));
+        }
+        double fraction = (double) valid / Math.max(1, total);
         return new ResearchResult(
-                "Arrhenius diffusion: T=%.1f K, Eₐ=%.1f kJ/mol → D=%.3e m²/s, half_life=%.2e s. +10 K multiplies D by %.2f×. Van't Hoff rule (~2× per 10 K) approx at low Eₐ."
-                        .formatted(T, EaKJ, D, halfLife, mult),
-                D, halfLife, mult);
+                "Arrhenius Van't Hoff (T=%.0f K, Ea 10–%.0f kJ/mol): sample ratios: %s. Rule holds within 10%% for %d/%d cases (%.0f%%), Ea=[%.0f,%.0f] kJ/mol. Fails at high Ea."
+                        .formatted(T, maxEaKJ, sb.toString().trim(), valid, total, fraction * 100,
+                                Math.max(firstValid, 10), Math.max(lastValid, 10)),
+                fraction, firstValid > 0 ? firstValid : maxEaKJ, lastValid > 0 ? lastValid : maxEaKJ);
     }
 
-    private static ResearchResult thermalExpansion(double alphaPerMK, double deltaT) {
-        double alpha = alphaPerMK * 1e-6; // /K
-        double strain = alpha * deltaT;
-        double stress = strain * 200e9;   // assume steel E=200 GPa
-        double deltaV = 3 * strain;       // volumetric expansion ≈ 3α ΔT
+    // Find maximum CTE before constrained thermal stress exceeds yield; survey common materials.
+    private static ResearchResult thermalStressSafety(double deltaT, double sigmaYMPa) {
+        double E = 200e3; // MPa, steel modulus
+        double critAlpha = sigmaYMPa / (E * deltaT) * 1e6; // µm/(m·K)
+        double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50}; // representative CTEs
+        String[] labels = {"Invar", "Steel", "Cu", "Al", "Al(soft)", "Brass", "Al-alloy", "Zn", "PVC"};
+        int safe = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < alphas.length; i++) {
+            double stress = alphas[i] * 1e-6 * E * deltaT;
+            boolean ok = stress < sigmaYMPa;
+            if (ok) safe++;
+            sb.append("%s(%.0f)→%.0fMPa(%s) ".formatted(labels[i], alphas[i], stress, ok ? "✓" : "✗"));
+        }
         return new ResearchResult(
-                "Thermal expansion: α=%.1f µm/(m·K), ΔT=%.1f K → ε_thermal=%.4f, σ_constrained=%.1f MPa, ΔV/V≈%.4f. CTE anisotropy negligible for isotropic sample."
-                        .formatted(alphaPerMK, deltaT, strain, stress / 1e6, deltaV),
-                strain, stress / 1e6, deltaV);
+                "Thermal stress safety (ΔT=%.0f K, σ_Y=%.0f MPa, E=200GPa): critical_α=%.2f µm/(m·K). Material survey: %s. %d/%d materials remain below yield."
+                        .formatted(deltaT, sigmaYMPa, critAlpha, sb.toString().trim(), safe, alphas.length),
+                critAlpha, safe, sigmaYMPa);
     }
 
     // ---- Helper ----
