@@ -47,7 +47,9 @@ public class UniversityService {
     private static final int TOURNAMENT_K           = 3;
     private static final double REVIEW_TOLERANCE    = 0.05;  // score-based, not value-based
     private static final double COMPETENCY_THRESHOLD = 0.60;
-    private static final double MENTOR_SCORE_THRESHOLD = 0.80;
+    // Trigger is authorScore (result quality), not peerScore (reviewer reputation).
+    // 0.45 ≈ sigmoid(1.0) × 0.9 — fires for genuinely good work from the first generation.
+    private static final double MENTOR_SCORE_THRESHOLD = 0.45;
 
     // Dating constants
     private static final long DATING_COOLDOWN_TICKS = 200L;
@@ -408,7 +410,7 @@ public class UniversityService {
 
             // Mentoring eligibility tracked per-bot via lastAiEditAt — signal is handled
             // in maybeTick where both the RoomBot and paper list are available.
-            author.getState().setLastAiEditAt(peerScore >= MENTOR_SCORE_THRESHOLD
+            author.getState().setLastAiEditAt(authorScore >= MENTOR_SCORE_THRESHOLD
                     ? gameTick : author.getState().getLastAiEditAt());
 
             log.debug("university published paperId={} domain={} topic={} score={}",

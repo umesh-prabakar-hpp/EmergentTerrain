@@ -204,14 +204,16 @@ public class MathPhysicsEngine {
 
     /**
      * Normalised quality score in (0, 1).
-     * Raw sigmoid of primaryValue discounted by an efficiency factor: a bot that
-     * searches 80 candidates pays a 25% penalty so narrow-precise strategies
+     * Primary value is divided by a per-topic scale before the sigmoid so every topic
+     * uses the full (0,1) range instead of saturating near 1.0 or languishing near 0.
+     * An efficiency factor then penalises wide searches so narrow-precise strategies
      * remain competitive against broad-shallow ones.
      */
     public static double scoreResult(String domain, int topicIndex,
                                      double value, SearchParams sp) {
         if (!Double.isFinite(value)) return 0.0;
-        double abs = Math.abs(value);
+        double scale = topicScale(domain, topicIndex % 5);
+        double abs = Math.abs(value) / scale;
         double raw = abs / (1.0 + abs);
         double efficiencyFactor = 1.0 - (sp.candidateBreadth() / 80.0) * 0.25;
         return raw * efficiencyFactor;
@@ -220,6 +222,34 @@ public class MathPhysicsEngine {
     /** Backward-compatible overload — uses neutral SearchParams. */
     public static double scoreResult(String domain, int topicIndex, double value) {
         return scoreResult(domain, topicIndex, value, SearchParams.neutral());
+    }
+
+    /**
+     * Per-topic normalization scale: chosen so that a "typical interesting result"
+     * lands near sigmoid input 1.0 (score ≈ 0.5 × efficiencyFactor).
+     * Fixes sigmoid saturation for large-primary topics (Collatz, RLC, Composite) and
+     * near-zero scores for small-primary topics (Aliquot, Happy, Sphere packing).
+     */
+    private static double topicScale(String domain, int topic) {
+        return switch (domain + ":" + topic) {
+            // Mathematics
+            case "MATHEMATICS:1" -> 100.0;   // Collatz maxSteps (~100-350 typical)
+            case "MATHEMATICS:2" -> 3.0;     // Goldbach contrast ratio (~1.5-5)
+            case "MATHEMATICS:3" -> 0.05;    // Aliquot anomalyFrac (~0.02-0.10)
+            case "MATHEMATICS:4" -> 0.02;    // Happy number deviation (~0.005-0.05)
+            // Physics
+            case "PHYSICS:0"     -> 10.0;    // projectile angle shift in degrees (~5-25°)
+            case "PHYSICS:1"     -> 50.0;    // pendulum T0*(80-angle) (~13-185)
+            case "PHYSICS:2"     -> 30.0;    // VdW maxDev% (~10-90%)
+            case "PHYSICS:3"     -> 1.5;     // diffraction order ratio (~1.5-2.5)
+            case "PHYSICS:4"     -> 2000.0;  // RLC f0 in Hz (~500-5000)
+            // Materials
+            case "MATERIALS:0"   -> 5000.0;  // composite maxStress in MPa (~1000-18000)
+            case "MATERIALS:1"   -> 0.1;     // sphere packing improvement% (~0.02-0.15)
+            case "MATERIALS:2"   -> 0.4;     // stiffness crossover Vf-0.5 (~0.3-0.5)
+            case "MATERIALS:3"   -> 3.0;     // Arrhenius worstDev (~0.5-10)
+            default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
+        };
     }
 
     public static String topicName(String domain, int topicIndex) {
@@ -646,7 +676,8 @@ public class MathPhysicsEngine {
     }
 
     // Outer search: try candidateBreadth pendulum lengths spaced by stepSize*0.05 m.
-    // Primary = 80 - breakdownAngle: smaller breakdown angle (more sensitive pendulum) scores higher.
+    // Primary = T0*(80-breakdownAngle): T0 scales with √L so longer pendula score higher,
+    // making the genome's stepSize/candidateBreadth actually influence which L is found.
     private static ResearchResult pendulumBreakdown(double seedL, SearchParams sp) {
         ResearchResult best = null;
         double bestExtreme = -1;
@@ -680,10 +711,11 @@ public class MathPhysicsEngine {
                                 : "not supported");
         String hypothesis = "For a pendulum of length L=%.2f m, the small-angle period T₀=2π√(L/g) will diverge from the finite-amplitude period by more than 1%% above θ_c; the configured claim expects θ_c < 20°."
                 .formatted(L);
+        double primary = T0 * (80 - breakdownAngle);
         return new ResearchResult(
                 "Pendulum (L=%.2f m, T₀=%.3f s): period error by amplitude: %s. Small-angle error exceeds 1%% at θ≈%.0f°."
                         .formatted(L, T0, sb.toString().trim(), breakdownAngle),
-                80 - breakdownAngle, T0, L, 80 - breakdownAngle, status, assessment, hypothesis);
+                primary, T0, L, primary, status, assessment, hypothesis);
     }
 
     // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
@@ -735,7 +767,8 @@ public class MathPhysicsEngine {
     }
 
     // Outer search: try candidateBreadth grating spacings spaced by stepSize*0.5 µm.
-    // Primary = spectralSpread — higher means the grating resolves more wavelength-dependent orders.
+    // Primary = maxOrders/minOrders ratio — oscillates due to integer floor effects rather than
+    // growing monotonically, so the genome's strategy actually influences which d is found.
     private static ResearchResult diffractionSurvey(double seedD, double lambdaNm, SearchParams sp) {
         ResearchResult best = null;
         double bestExtreme = -1;
@@ -759,12 +792,12 @@ public class MathPhysicsEngine {
             if (orders > maxOrders) maxOrders = orders;
             sb.append("%.0fnm→%d ".formatted(lam, orders));
         }
-        double spectralSpread = maxOrders - minOrders;
+        double orderRatio = (double) maxOrders / Math.max(1, minOrders);
         return new ResearchResult(
-                "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Spectral spread=%d orders — blue light shows %d more orders than red."
+                "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Order ratio (max/min)=%.2f — blue light supports %.1f× more orders than red."
                         .formatted(dMicrons, lambdaNm, maxOrder, theta1, sb.toString().trim(),
-                                (int) spectralSpread, (int) spectralSpread),
-                spectralSpread, maxOrder, theta1)
+                                orderRatio, orderRatio),
+                orderRatio, maxOrder, theta1)
                 .withHypothesis("For a grating with d=%.2f µm, the number of visible diffraction orders will vary across 400-700 nm wavelengths; shorter wavelengths will support more orders."
                         .formatted(dMicrons));
     }
