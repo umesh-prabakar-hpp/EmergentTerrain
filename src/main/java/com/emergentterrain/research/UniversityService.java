@@ -363,12 +363,14 @@ public class UniversityService {
         double  authorScore     = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue, sp);
 
         List<String> reviewerIds = new ArrayList<>();
+        Set<String>  usedReviewerIds = new HashSet<>();
         boolean reviewPassed     = result.theoryConsistent();
         double  totalReviewScore = 0;
         int     reviewCount      = 0;
 
         for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-            Researcher reviewer       = pickReviewer(pool, author, rng);
+            Researcher reviewer       = pickReviewer(pool, author, usedReviewerIds, rng);
+            usedReviewerIds.add(reviewer.getBotId());
             boolean    reviewerError  = rng.nextDouble() < reviewer.errorRate();
 
             // Reviewer re-runs with the author's sp — this is what makes reproduction deterministic.
@@ -459,10 +461,18 @@ public class UniversityService {
         return best;
     }
 
-    private Researcher pickReviewer(List<Researcher> pool, Researcher author, Random rng) {
+    private Researcher pickReviewer(List<Researcher> pool, Researcher author,
+                                    Set<String> alreadyPicked, Random rng) {
         List<Researcher> candidates = pool.stream()
-                .filter(r -> !r.getBotId().equals(author.getBotId()))
+                .filter(r -> !r.getBotId().equals(author.getBotId())
+                          && !alreadyPicked.contains(r.getBotId()))
                 .collect(Collectors.toList());
+        // Fall back to excluding only the author if there aren't enough unique reviewers.
+        if (candidates.isEmpty()) {
+            candidates = pool.stream()
+                    .filter(r -> !r.getBotId().equals(author.getBotId()))
+                    .collect(Collectors.toList());
+        }
         if (candidates.isEmpty()) return pool.get(rng.nextInt(pool.size()));
         List<Researcher> sameDomain = candidates.stream()
                 .filter(r -> r.getDomain().equals(author.getDomain()))

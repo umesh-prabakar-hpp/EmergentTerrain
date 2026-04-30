@@ -450,10 +450,12 @@ public class MathPhysicsEngine {
         int maxSteps = 0, maxStepsAt = start;
         double totalSteps = 0;
         int longTraj = 0;
+        boolean allTerminated = true;
         for (int n = Math.max(1, start); n < start + count; n++) {
             long x = n;
             int steps = 0;
             while (x != 1 && steps < 10_000) { x = (x % 2 == 0) ? x / 2 : 3 * x + 1; steps++; }
+            if (x != 1) allTerminated = false;
             totalSteps += steps;
             if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
             if (steps > 100) longTraj++;
@@ -461,10 +463,19 @@ public class MathPhysicsEngine {
         double avgSteps = totalSteps / count;
         double longFraction = (double) longTraj / count;
         int end = start + count;
+        ClaimStatus status = allTerminated ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = allTerminated
+                ? "All %d starting values in [%d, %d) terminated at 1; the 3n+1 conjecture holds locally. Maximum stopping depth %d at n=%d."
+                        .formatted(count, start, end, maxSteps, maxStepsAt)
+                : "Not all starting values in [%d, %d) reached 1 within 10,000 steps; the conjecture could not be fully verified."
+                        .formatted(start, end);
+        String terminated = allTerminated
+                ? "All %d starting values terminated at 1 (conjecture holds locally).".formatted(count)
+                : "Some values did not terminate within 10,000 steps.";
         return new ResearchResult(
-                "Collatz [%d,%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. All %d starting values terminated at 1 (conjecture holds locally)."
-                        .formatted(start, end, maxSteps, maxStepsAt, avgSteps, longFraction, count),
-                maxSteps, avgSteps, longFraction)
+                "Collatz [%d,%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. %s"
+                        .formatted(start, end, maxSteps, maxStepsAt, avgSteps, longFraction, terminated),
+                maxSteps, avgSteps, longFraction, maxSteps, status, assessment)
                 .withHypothesis("Collatz stopping times in [%d, %d) will show no counterexample to the 3n+1 conjecture; maximum depth characterizes local trajectory complexity."
                         .formatted(start, end));
     }
@@ -538,6 +549,9 @@ public class MathPhysicsEngine {
         return best.withFindingsAndClaim(findings, status, assessment);
     }
 
+    // Aliquot sequences can grow without bound — cap x to avoid O(√x) factoring of huge numbers.
+    private static final long ALIQUOT_X_CAP = 1_000_000L;
+
     private static ResearchResult aliquotSequencesAt(int start, int count) {
         int terminate = 0, perfect = 0, cycle = 0, escape = 0;
         for (int n = start; n < start + count; n++) {
@@ -547,6 +561,7 @@ public class MathPhysicsEngine {
             boolean done = false;
             while (steps < 200 && !done) {
                 if (x <= 1) { terminate++; done = true; break; }
+                if (x > ALIQUOT_X_CAP) { escape++; done = true; break; }
                 long sigma = 1;
                 for (long d = 2; d * d <= x; d++) {
                     if (x % d == 0) { sigma += d; if (d != x / d) sigma += x / d; }
