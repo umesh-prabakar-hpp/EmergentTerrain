@@ -106,6 +106,7 @@ public class RoomService {
     private final ActivityMetrics metrics;
     private final int maxBotsPerRoom;
     private final int initialRoomCreateTarget;
+    private final int botSeedMinimum;
     private final int maxBotsTickedPerMaintenance;
     private final double botReversePenalty;
     private final double botHeadingBias;
@@ -214,6 +215,7 @@ public class RoomService {
                        @Value("${app.bots.populationFraction:0.25}") double botPopulationFraction,
                        @Value("${app.bots.maxPerRoom:200}") int maxBotsPerRoom,
                        @Value("${app.bots.initialRoomCreateTarget:200}") int initialRoomCreateTarget,
+                       @Value("${app.bots.seedMinimum:50}") int botSeedMinimum,
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
                        @Value("${app.bots.reversePenalty:0.6}") double botReversePenalty,
                        @Value("${app.bots.headingBias:0.18}") double botHeadingBias,
@@ -293,6 +295,7 @@ public class RoomService {
         this.botPopulationFraction = botPopulationFraction;
         this.maxBotsPerRoom = Math.max(1, maxBotsPerRoom);
         this.initialRoomCreateTarget = Math.max(minNeighbors, initialRoomCreateTarget);
+        this.botSeedMinimum = Math.max(10, botSeedMinimum);
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
         this.botReversePenalty = Math.max(0d, botReversePenalty);
         this.botHeadingBias = Math.max(0d, botHeadingBias);
@@ -883,7 +886,8 @@ public class RoomService {
                         }
                         int[][] tiles = getTilesForRoom(room, botState);
                         long botsStart = System.nanoTime();
-                        List<RoomBot> bots = ensureBots(room, tiles, true);
+                        // Seed only to minimum; organic growth via dating fills the rest
+                        List<RoomBot> bots = ensureBots(room, tiles, false);
                         maintainedBots.set(new ArrayList<>(bots));
                         long botsMs = (System.nanoTime() - botsStart) / 1_000_000;
                         log.debug("maintenance step=ensureBots end roomId={} botsMs={}", room.getId(), botsMs);
@@ -944,7 +948,7 @@ public class RoomService {
                     List<RoomBot> activeBots = botsForGovernment.stream()
                             .filter(b -> b.getStatus() == com.emergentterrain.domain.RoomBot.BotStatus.ACTIVE)
                             .collect(java.util.stream.Collectors.toList());
-                    universityService.maybeTick(room.getId(), activeBots, gameTick);
+                    universityService.maybeTick(room.getId(), activeBots, gameTick, govForUni);
                 }
             } catch (Throwable t) {
                 log.error("maintenance government tick error roomId={}", room.getId(), t);
@@ -1639,7 +1643,9 @@ public class RoomService {
         int maxOccupantsTotal = Math.max(3, (tiles.length * tiles[0].length * maxOccupants) / (densityAreaSize * densityAreaSize));
         int targetBots = Math.max(40, (int) Math.round(maxOccupantsTotal * botPopulationFraction));
         targetBots = Math.min(targetBots, maxBotsPerRoom);
-        int desiredBots = fullPopulation ? targetBots : Math.min(targetBots, initialRoomCreateTarget);
+        // fullPopulation=true is used only for historical/ad-hoc fills; normal operation
+        // seeds to botSeedMinimum and lets dating drive organic growth toward K.
+        int desiredBots = fullPopulation ? targetBots : Math.min(targetBots, botSeedMinimum);
 
         Map<String, RoomBot> byType = new HashMap<>();
         for (RoomBot bot : existing) {

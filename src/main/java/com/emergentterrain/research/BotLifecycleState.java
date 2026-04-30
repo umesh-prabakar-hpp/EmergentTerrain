@@ -32,10 +32,14 @@ public class BotLifecycleState {
     // --- Domain helpers ---
 
     public void incrementAge() {
+        incrementAge(JUVENILE_TO_ADULT, ADULT_TO_ELDER);
+    }
+
+    public void incrementAge(long juvenileToAdult, long adultToElder) {
         ageTicks++;
-        if (ageTicks >= ADULT_TO_ELDER) {
+        if (ageTicks >= adultToElder) {
             lifecycle = Phase.ELDER;
-        } else if (ageTicks >= JUVENILE_TO_ADULT) {
+        } else if (ageTicks >= juvenileToAdult) {
             lifecycle = Phase.ADULT;
         }
     }

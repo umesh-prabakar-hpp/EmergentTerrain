@@ -1,6 +1,7 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -51,9 +52,13 @@ public class UniversityService {
     // 0.45 ≈ sigmoid(1.0) × 0.9 — fires for genuinely good work from the first generation.
     private static final double MENTOR_SCORE_THRESHOLD = 0.45;
 
-    // Dating constants
-    private static final long DATING_COOLDOWN_TICKS = 200L;
-    private static final double DATING_BASE_PROB    = 0.05;
+    // Dating constants (static defaults; runtime uses dynamic values from computePopulationParams)
+    private static final long   DATING_COOLDOWN_TICKS   = 200L;
+    private static final double DATING_BASE_PROB        = 0.05;
+    private static final int    POPULATION_K_DEFAULT    = 200;
+
+    private record PopulationParams(int K, long adultToElder, long datingCooldown,
+                                    double scoreVariance, double fillRatio) {}
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -100,6 +105,11 @@ public class UniversityService {
     // ---- Public API ----
 
     public void maybeTick(UUID roomId, List<RoomBot> activeBots, long gameTick) {
+        maybeTick(roomId, activeBots, gameTick, null);
+    }
+
+    public void maybeTick(UUID roomId, List<RoomBot> activeBots, long gameTick,
+                          GovernmentState govState) {
         long now = System.currentTimeMillis();
         Long last = lastTickAt.get(roomId);
         if (last != null && now - last < researchIntervalMs) return;
@@ -114,11 +124,14 @@ public class UniversityService {
         // Load lifecycle states, initialising any bot that doesn't have one yet
         Map<UUID, BotLifecycleState> states = loadStates(bots, gameTick);
 
-        // Age all bots, collect dirty set
+        // Compute dynamic population parameters from government state + current population
+        PopulationParams params = computePopulationParams(bots, govState, roomId);
+
+        // Age all bots using dynamic adult lifespan threshold
         List<RoomBot> dirty = new ArrayList<>();
         for (RoomBot bot : bots) {
             BotLifecycleState ls = states.get(bot.getId());
-            ls.incrementAge();
+            ls.incrementAge(BotLifecycleState.JUVENILE_TO_ADULT, params.adultToElder());
             dirty.add(bot);
         }
 
@@ -139,8 +152,8 @@ public class UniversityService {
             runResearchCycle(roomId, pool, rng, gameTick, dirty);
         }
 
-        // Dating pass
-        processDating(bots, states, dirty, gameTick);
+        // Dating pass with dynamic K and cooldown
+        processDating(bots, states, dirty, gameTick, params);
 
         // Persist lifecycle state into each bot's lifecycleJson before saving
         persistStates(bots, states);
@@ -202,6 +215,50 @@ public class UniversityService {
                 ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
         stats.put("byDomain",          byDomain);
         return stats;
+    }
+
+    // ---- Dynamic population ecology ----
+
+    private PopulationParams computePopulationParams(List<RoomBot> bots,
+                                                      GovernmentState govState,
+                                                      UUID roomId) {
+        double educationFactor = 0.3;
+        double healthFactor    = 0.3;
+        double trustFactor     = 0.5;
+        double serviceFactor   = 0.5;
+
+        if (govState != null && govState.getFederal() != null) {
+            GovernmentState.BudgetState budget = govState.getFederal().getBudget();
+            if (budget != null) {
+                educationFactor = Math.min(1.0, budget.getEducation() / 100_000.0);
+                healthFactor    = Math.min(1.0, budget.getHealth()    / 100_000.0);
+            }
+            trustFactor   = Math.min(1.0, Math.max(0.0, govState.getFederal().getPublicTrust()));
+            serviceFactor = Math.min(1.0, Math.max(0.0, govState.getFederal().getServiceAccess()));
+        }
+
+        // K: 60 (bare minimum) up to 1200 (thriving society)
+        int K = (int)(60 + educationFactor * 600 + trustFactor * 300 + serviceFactor * 240);
+
+        // Adult lifespan: 800 base ticks + health/education investment (800-5800 ticks)
+        long adultToElder = (long)(800 + healthFactor * 3000 + educationFactor * 2000);
+
+        // Evolutionary pressure: high score variance → shorter generations (faster exploration)
+        List<ResearchPaper> recent = getPublishedPapers(roomId, 20);
+        double avg = recent.stream().mapToDouble(ResearchPaper::peerScore).average().orElse(0.2);
+        double variance = recent.stream()
+                .mapToDouble(p -> (p.peerScore() - avg) * (p.peerScore() - avg))
+                .average().orElse(0.0);
+        double stdDev = Math.sqrt(variance);
+        // stdDev near 0.15 is neutral; higher → shorten generations, lower → extend
+        adultToElder += (long)((0.15 - stdDev) * 1000);
+        adultToElder = Math.max(800, Math.min(6000, adultToElder));
+
+        // Dating cooldown: quadratic braking as population approaches K
+        double fillRatio = K > 0 ? Math.min(1.0, (double) bots.size() / K) : 1.0;
+        long datingCooldown = (long)(200 + fillRatio * fillRatio * 1800);
+
+        return new PopulationParams(K, adultToElder, datingCooldown, stdDev, fillRatio);
     }
 
     // ---- Lifecycle: competency test ----
@@ -279,15 +336,15 @@ public class UniversityService {
     // ---- Lifecycle: dating ----
 
     private void processDating(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
-                                List<RoomBot> dirty, long gameTick) {
-        // bots is already filtered to ACTIVE; use its size as the population count
-        if (bots.size() >= 200) return;
+                                List<RoomBot> dirty, long gameTick, PopulationParams params) {
+        if (bots.size() >= params.K()) return;
 
+        long cooldown = params.datingCooldown();
         List<RoomBot> datingCandidates = bots.stream()
                 .filter(b -> {
                     BotLifecycleState ls = states.get(b.getId());
                     return ls.getLifecycle() == BotLifecycleState.Phase.ADULT
-                            && (ls.getLastDatedAt() < 0 || gameTick - ls.getLastDatedAt() > DATING_COOLDOWN_TICKS);
+                            && (ls.getLastDatedAt() < 0 || gameTick - ls.getLastDatedAt() > cooldown);
                 })
                 .collect(Collectors.toList());
         if (datingCandidates.size() < 2) return;
