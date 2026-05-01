@@ -5,6 +5,7 @@ import com.emergentterrain.government.GovernmentState;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,7 +21,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
@@ -267,13 +267,6 @@ public class LlmService {
         // circular dependency on ObjectMapper here; delegate parsing to a simple helper.
         // We pass the lifecycle JSON as context and let the LLM read the plain-English summary.
 
-        // Build a research narrative from recent papers
-        StringBuilder history = new StringBuilder();
-        for (ResearchPaper p : papers) {
-            history.append("  %s — %s / %s — score %.2f%n"
-                    .formatted(p.status(), p.domain(), p.topic(), p.peerScore()));
-        }
-
         // Extract genome fields from the lifecycle JSON via substring search
         // (avoids needing ObjectMapper injection here)
         double w0 = extractDouble(json, "topicWeights", 0, 0.3);
@@ -287,6 +280,26 @@ public class LlmService {
         int rej   = (int) extractNamedDouble(json, "rejectedCount", 0);
         String domain = extractString(json, "domain", "MATHEMATICS");
         String method = extractString(json, "methodology", "THEORETICAL");
+
+        String botIdStr = bot.getId().toString();
+
+        // Split papers into own work vs peers in the same domain; flag anomalies
+        StringBuilder ownWork  = new StringBuilder();
+        StringBuilder peerWork = new StringBuilder();
+        for (ResearchPaper p : papers) {
+            String anomalyTag = Math.abs(p.anomalyZScore()) >= 1.5
+                    ? " [ANOMALOUS z=%+.1f]".formatted(p.anomalyZScore()) : "";
+            if (botIdStr.equals(p.authorBotId())) {
+                ownWork.append("  %s / %s — score %.2f%s%n"
+                        .formatted(p.domain(), p.topic(), p.peerScore(), anomalyTag));
+            } else if (domain.equalsIgnoreCase(p.domain())) {
+                peerWork.append("  bot-%s: %s / %s — score %.2f%s%n"
+                        .formatted(p.authorBotId().substring(0, 6), p.domain(), p.topic(),
+                                   p.peerScore(), anomalyTag));
+            }
+        }
+        String ownSection  = ownWork.isEmpty()  ? "  (none yet)\n" : ownWork.toString();
+        String peerSection = peerWork.isEmpty() ? "  (none in domain)\n" : peerWork.toString();
 
         return """
                 You are a research advisor in a simulation. A researcher bot has just published \
@@ -304,49 +317,77 @@ public class LlmService {
                   Curiosity:             %.2f  — overall openness to new approaches
 
                 Career so far: %d papers published, %d drafts not accepted
-                Recent work:
+                Their own recent work:
                 %s
-                As their advisor, reflect on the arc of their recent work. What does it say about \
-                where their research instincts are taking them? Suggest one or two small genome \
-                adjustments that would help them go further in the direction they are already moving — \
-                not to fix weaknesses, but to sharpen what is already working. Also identify one trait \
-                to protect.
+                Recent work by peers in the same domain:
+                %s
+                As their advisor, consider what the peer findings reveal about this domain. \
+                Pay particular attention to results marked [ANOMALOUS] — these deviate significantly \
+                from the room's historical distribution for that topic and may indicate unexplored \
+                territory or a structural pattern worth investigating. Suggest one or two small genome \
+                adjustments and, if any anomalous result points to a specific unexplored range, include \
+                a directive to follow it up.
 
-                Reply in this exact format:
-                REFLECTION: <2–3 sentences on emerging research identity>
-                PROTECT: <gene name> — <why this trait is an asset>
-                DEVELOP 1 — GENE: <w0|w1|w2|w3|w4|explorationRate> DELTA: <-0.15 to 0.15> REASON: <one sentence>
-                DEVELOP 2 (optional) — GENE: <...> DELTA: <...> REASON: <...>
+                Reply with only this JSON and nothing else:
+                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"prime-happy overlap near 500","rangeStart":500,"rangeEnd":700,"predicate":"isPrime AND isHappy","metric":"fraction_satisfying","baseline":0.018,"hypothesis":"The overlap of primes and happy numbers near 500 should be ~1.8%% of the range."}}
+                Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate. delta between -0.15 and 0.15. Include 1 or 2 edits.
+                Directive rules: predicate uses isPrime, isHappy, collatzTerminates, isAbundant, isPerfect joined with AND or OR. \
+                metric is one of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum. \
+                rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value. \
+                Only include directive if the peer papers reveal a specific unexplored range worth targeting. Omit directive entirely otherwise.
                 """.formatted(
-                        bot.getId().toString().substring(0, 8),
+                        botIdStr.substring(0, 8),
                         domain, method, gen,
                         w0, w1, w2, w3, w4, er,
-                        pub, rej, history.toString().trim());
+                        pub, rej, ownSection.trim(), peerSection.trim());
     }
 
     private void applyGenomeMentoringResult(RoomBot bot, String response) {
         if (response == null || response.isBlank()) return;
-        List<double[]> edits = parseGenomeEdits(response);
-        if (edits.isEmpty()) {
-            log.debug("LLM genome mentor: no parseable edits for bot={}", bot.getId());
+        log.info("LLM genome mentor raw response bot={}:\n{}", bot.getId(), response);
+
+        int jsonStart = response.indexOf('{');
+        int jsonEnd   = response.lastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart) {
+            log.warn("LLM genome mentor: no JSON block found for bot={}", bot.getId());
             return;
         }
 
-        String json = bot.getLifecycleJson();
-        if (json == null || json.isBlank()) return;
+        com.fasterxml.jackson.databind.JsonNode root;
         try {
-            BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
-            BotGenome genome = ls.getGenome();
-            if (genome == null) return;
+            root = objectMapper.readTree(response.substring(jsonStart, jsonEnd + 1));
+        } catch (Exception e) {
+            log.warn("LLM genome mentor: JSON parse failed for bot={}: {}", bot.getId(), e.getMessage());
+            return;
+        }
 
-            String[] geneNames = {"w0", "w1", "w2", "w3", "w4", "explorationRate"};
-            for (double[] edit : edits) {
-                String gene  = geneNames[(int) edit[0]];
-                double delta = edit[1];
-                genome.applyDelta(gene, delta);
-                log.info("LLM genome mentor applied: bot={} gene={} delta={}", bot.getId(), gene, delta);
+        String identity = root.path("identity").asText(null);
+        if (identity != null) log.info("LLM genome mentor identity bot={}: {}", bot.getId(), identity);
+
+        List<GenomeEdit> edits     = parseEditsFromRoot(root, bot.getId());
+        DynamicProblem   directive = parseDirectiveFromRoot(root, bot.getId());
+
+        if (edits.isEmpty() && directive == null) {
+            log.warn("LLM genome mentor: no parseable edits or directive for bot={}", bot.getId());
+            return;
+        }
+
+        String lifecycleJson = bot.getLifecycleJson();
+        if (lifecycleJson == null || lifecycleJson.isBlank()) return;
+        try {
+            BotLifecycleState ls     = objectMapper.readValue(lifecycleJson, BotLifecycleState.class);
+            BotGenome         genome = ls.getGenome();
+            if (genome != null) {
+                for (GenomeEdit edit : edits) {
+                    genome.applyDelta(edit.gene(), edit.delta());
+                    log.info("LLM genome mentor applied: bot={} gene={} delta={}", bot.getId(), edit.gene(), edit.delta());
+                }
             }
-
+            if (directive != null) {
+                ls.setPendingDirective(directive);
+                log.info("LLM genome mentor directive queued: bot={} description=\"{}\" range=[{},{})",
+                        bot.getId(), directive.description(), directive.rangeStart(), directive.rangeEnd());
+            }
             bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
             botRepository.save(bot);
         } catch (Exception e) {
@@ -356,26 +397,77 @@ public class LlmService {
 
     // --- Parsing helpers ---
 
-    private List<double[]> parseGenomeEdits(String response) {
-        // Each edit is a DEVELOP N — GENE: <name> DELTA: <number> line
-        List<double[]> result = new ArrayList<>();
-        String[] geneNames = {"w0", "w1", "w2", "w3", "w4", "explorationRate"};
-        for (String line : response.lines().toList()) {
-            if (!line.contains("GENE:") || !line.contains("DELTA:")) continue;
-            try {
-                String genePart  = line.substring(line.indexOf("GENE:") + 5).trim();
-                String gene      = genePart.split("\\s")[0].trim();
-                int geneIdx      = Arrays.asList(geneNames).indexOf(gene);
-                if (geneIdx < 0) continue;
+    private static final java.util.Set<String> VALID_GENES = java.util.Set.of(
+            "w0", "w1", "w2", "w3", "w4", "explorationRate");
 
-                String deltaPart = line.substring(line.indexOf("DELTA:") + 6).trim();
-                double delta     = Double.parseDouble(deltaPart.split("\\s")[0].trim());
-                delta            = Math.max(-0.15, Math.min(0.15, delta));
-                result.add(new double[]{geneIdx, delta});
-            } catch (Exception ignored) {}
+    private static final java.util.Set<String> VALID_PREDICATES = java.util.Set.of(
+            "isPrime", "isHappy", "collatzTerminates", "isAbundant", "isPerfect");
+
+    private static final java.util.Set<String> VALID_METRICS = java.util.Set.of(
+            "fraction_satisfying", "mean_of:collatzSteps", "max_of:collatzSteps", "mean_of:sigmaSum");
+
+    private List<GenomeEdit> parseEditsFromRoot(com.fasterxml.jackson.databind.JsonNode root, UUID botId) {
+        com.fasterxml.jackson.databind.JsonNode editsNode = root.get("edits");
+        if (editsNode == null || !editsNode.isArray()) {
+            log.warn("LLM genome mentor: JSON missing 'edits' array for bot={}", botId);
+            return List.of();
+        }
+        List<GenomeEdit> result = new ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode e : editsNode) {
+            String gene  = e.path("gene").asText(null);
+            double delta = e.path("delta").asDouble(Double.NaN);
+            if (gene == null || !VALID_GENES.contains(gene) || Double.isNaN(delta)) {
+                log.warn("LLM genome mentor: invalid edit entry for bot={}: {}", botId, e);
+                continue;
+            }
+            result.add(new GenomeEdit(gene, Math.max(-0.15, Math.min(0.15, delta))));
         }
         return result;
     }
+
+    private DynamicProblem parseDirectiveFromRoot(com.fasterxml.jackson.databind.JsonNode root, UUID botId) {
+        com.fasterxml.jackson.databind.JsonNode d = root.get("directive");
+        if (d == null || d.isNull() || d.isMissingNode()) return null;
+        try {
+            String description = d.path("description").asText(null);
+            int    rangeStart  = d.path("rangeStart").asInt(-1);
+            int    rangeEnd    = d.path("rangeEnd").asInt(-1);
+            String predicate   = d.path("predicate").asText(null);
+            String metric      = d.path("metric").asText("fraction_satisfying");
+            double baseline    = d.path("baseline").asDouble(0.0);
+            String hypothesis  = d.path("hypothesis").asText(null);
+
+            if (description == null || rangeStart < 1 || rangeEnd <= rangeStart
+                    || rangeEnd - rangeStart > 500) {
+                log.warn("LLM genome mentor: invalid directive range for bot={}: {}", botId, d);
+                return null;
+            }
+            if (predicate == null || predicate.isBlank()) {
+                log.warn("LLM genome mentor: directive missing predicate for bot={}", botId);
+                return null;
+            }
+            // Validate each predicate token
+            for (String token : predicate.replace(" AND ", "|").replace(" OR ", "|").split("\\|")) {
+                if (!VALID_PREDICATES.contains(token.trim())) {
+                    log.warn("LLM genome mentor: unknown predicate '{}' for bot={}", token.trim(), botId);
+                    return null;
+                }
+            }
+            if (!VALID_METRICS.contains(metric)) {
+                log.warn("LLM genome mentor: unknown metric '{}' for bot={}", metric, botId);
+                return null;
+            }
+
+            String id = "dyn-" + botId.toString().substring(0, 6) + "-" + System.currentTimeMillis();
+            return new DynamicProblem(id, description, rangeStart, rangeEnd,
+                    predicate, metric, baseline, hypothesis);
+        } catch (Exception e) {
+            log.warn("LLM genome mentor: directive parse failed for bot={}: {}", botId, e.getMessage());
+            return null;
+        }
+    }
+
+    private record GenomeEdit(String gene, double delta) {}
 
     /** Extract a value from a JSON array field (topicWeights[index]). */
     private double extractDouble(String json, String arrayField, int index, double fallback) {

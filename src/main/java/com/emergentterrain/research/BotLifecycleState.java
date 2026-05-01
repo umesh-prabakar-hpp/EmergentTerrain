@@ -25,6 +25,8 @@ public class BotLifecycleState {
     private int            publishedCount   = 0;
     private int            rejectedCount    = 0;
     private double         reputation       = 0.2;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private DynamicProblem pendingDirective = null;
 
     // For Jackson
     public BotLifecycleState() {}
@@ -97,4 +99,7 @@ public class BotLifecycleState {
 
     public double getReputation()                         { return reputation; }
     public void   setReputation(double r)                 { this.reputation = r; }
+
+    public DynamicProblem getPendingDirective()            { return pendingDirective; }
+    public void           setPendingDirective(DynamicProblem d) { this.pendingDirective = d; }
 }

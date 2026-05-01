@@ -63,6 +63,7 @@ public class UniversityService {
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
+    private final AnomalyTracker                               anomalyTracker = new AnomalyTracker();
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer>             papersSinceTerm = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
@@ -163,7 +164,7 @@ public class UniversityService {
 
         // Fire mentoring callback for any bot that earned it this tick
         if (mentoringCallback != null) {
-            List<ResearchPaper> roomPapers = getPublishedPapers(roomId, 6);
+            List<ResearchPaper> roomPapers = getPublishedPapers(roomId, 20);
             for (RoomBot bot : bots) {
                 BotLifecycleState ls = states.get(bot.getId());
                 if (ls.getLastAiEditAt() == gameTick) {
@@ -398,6 +399,14 @@ public class UniversityService {
     private void runResearchCycle(UUID roomId, List<Researcher> pool,
                                   Random rng, long gameTick, List<RoomBot> dirty) {
         Researcher author = tournamentSelect(pool, rng);
+
+        DynamicProblem directive = author.getState().getPendingDirective();
+        if (directive != null) {
+            author.getState().setPendingDirective(null);
+            runDynamicResearchCycle(roomId, author, pool, directive, rng, gameTick);
+            return;
+        }
+
         int topicIndex    = author.selectTopic(rng);
         String domain     = author.getDomain();
 
@@ -457,11 +466,12 @@ public class UniversityService {
             String conclusion = MathPhysicsEngine.generateConclusion(result, true);
             String topicName  = MathPhysicsEngine.topicName(domain, topicIndex);
 
+            double zScore = anomalyTracker.observe(domain, topicName, peerScore);
             ResearchPaper paper = new ResearchPaper(
                     paperId, author.getBotId(), domain, topicName, title, hypothesis,
                     author.getMethodology(), result.findings(), conclusion,
                     Collections.unmodifiableList(reviewerIds),
-                    peerScore, "PUBLISHED", gameTick, Instant.now(), author.getGeneration());
+                    peerScore, "PUBLISHED", gameTick, Instant.now(), author.getGeneration(), zScore);
 
             addPaper(roomId, paper);
             papersSinceTerm.merge(roomId, 1, Integer::sum);
@@ -483,6 +493,72 @@ public class UniversityService {
         for (String rid : reviewerIds) {
             pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
                 .ifPresent(r -> r.recordPublished(0.1));
+        }
+    }
+
+    // ---- Dynamic research cycle ----
+
+    private void runDynamicResearchCycle(UUID roomId, Researcher author, List<Researcher> pool,
+                                         DynamicProblem directive, Random rng, long gameTick) {
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
+        MathPhysicsEngine.ResearchResult result = DynamicComputeEngine.compute(directive);
+
+        boolean authorError = rng.nextDouble() < author.errorRate();
+        double reportedValue = authorError
+                ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
+                : result.reviewValue();
+        double authorScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reportedValue, sp);
+
+        List<String> reviewerIds  = new ArrayList<>();
+        Set<String>  usedIds      = new HashSet<>();
+        boolean reviewPassed      = result.theoryConsistent();
+        double  totalReviewScore  = 0;
+        int     reviewCount       = 0;
+
+        for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
+            Researcher reviewer = pickReviewer(pool, author, usedIds, rng);
+            usedIds.add(reviewer.getBotId());
+            MathPhysicsEngine.ResearchResult reviewResult = DynamicComputeEngine.compute(directive);
+            boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
+            double reviewValue = reviewerError
+                    ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
+                    : reviewResult.reviewValue();
+            double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
+            boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
+            if (!agrees) reviewPassed = false;
+            reviewerIds.add(reviewer.getBotId());
+            totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
+            reviewCount++;
+        }
+
+        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
+
+        if (reviewPassed) {
+            String paperId   = nextPaperId(roomId);
+            String topicName = directive.description().length() > 50
+                    ? directive.description().substring(0, 50) + "…"
+                    : directive.description();
+            String hypothesis = directive.hypothesis() != null ? directive.hypothesis() : directive.description();
+            String conclusion = MathPhysicsEngine.generateConclusion(result, true);
+
+            double zScore = anomalyTracker.observe(author.getDomain(), topicName, peerScore);
+            ResearchPaper paper = new ResearchPaper(
+                    paperId, author.getBotId(), author.getDomain(), topicName,
+                    "Dynamic: " + directive.description(), hypothesis,
+                    author.getMethodology(), result.findings(), conclusion,
+                    Collections.unmodifiableList(reviewerIds),
+                    peerScore, "PUBLISHED", gameTick, Instant.now(), author.getGeneration(), zScore);
+
+            addPaper(roomId, paper);
+            papersSinceTerm.merge(roomId, 1, Integer::sum);
+            author.recordPublished(peerScore);
+            author.getState().setLastAiEditAt(authorScore >= MENTOR_SCORE_THRESHOLD
+                    ? gameTick : author.getState().getLastAiEditAt());
+            log.info("university dynamic paper published botId={} description=\"{}\" score={}",
+                    author.getBotId(), directive.description(), peerScore);
+        } else {
+            author.recordRejected();
+            totalRejected.merge(roomId, 1, Integer::sum);
         }
     }
 
@@ -665,7 +741,7 @@ public class UniversityService {
                 **Room**: %s
                 **Domain**: %s  |  **Topic**: %s
                 **Methodology**: %s
-                **Peer Score**: %.3f
+                **Peer Score**: %.3f%s
                 **Generation**: %d
                 **Author**: %s
                 **Reviewers**: %s
@@ -691,6 +767,8 @@ public class UniversityService {
                 paper.domain(), paper.topic(),
                 paper.methodology(),
                 paper.peerScore(),
+                Math.abs(paper.anomalyZScore()) >= 1.5
+                        ? "  ⚑ anomaly z=%.2f".formatted(paper.anomalyZScore()) : "",
                 paper.generation(),
                 paper.authorBotId(),
                 String.join(", ", paper.reviewerBotIds()),

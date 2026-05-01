@@ -329,7 +329,7 @@ check chrome://gpu again. What we want to see is:
 *ACTIVE* on AMD
 GL_RENDERER showing AMD, not Intel
 
-http://localhost:8080/game?token=H4sIAAAAAAAA_12Qu07EMBBF_8V1gsbjsSdJtwUFEnRUNKvsZrJYJE5kOzyE-He8vCS2Pef6-mre1bPqdKXWuIx-kptBdQpYGMlJrQ_jWNOg27plc6gPDSCQPTjHR1Wp_iSqI1upJK_l1d3u9rrQaTn22S-hEI2G7DkY0ovEpLp3NfknSftxiZJyATluUv3Alz5L_I_mZQu59-EiuawS9qOXabiskLw_Tn4uTf9F2kJ4-0YflXr0wyDhPGctO9IWSxqunCOtW0IHbAyiqVSWeZXY598AozOWCHTjNDguRdvsB5_fvmyDjMhNqQFoLVWq_JH-pANitmA1NC2We0uQePpxAIZZO83aEpizy3FZv2RBgGhbptYyWVfW-7JYhl0uB0ZAVwPVSPcaO910qK_AEFhg5Af18Qnf8fjq3QEAAA.S1tFI2UguURHEgpKvpD5muTneP4niJA2tSZ2sRolrW4
+http://localhost:8080/game?token=H4sIAAAAAAAA_12QvW7DMAyE30WzHUjUv7cMHQq0W6cugRMxqVBbNmS5aRDk3UunKYpk5H135IFn9sUaUbExD_vY4XNgDZPQWhnktt56BbWCra_bvZa1sMFIbHkIgrOKtQdkjdQVm_CbUq_rlydSu2HXljgkUgRIpRdjmo6YJ9acWRc_cdrsh4xTIaHkGaubeGwL5nupH-ZU2pgenMOIabOP2IXHFVg2uy72tOkeTHNKp1_pUrGPGAKmpc5IPaY5k5uvjLYKnPIAFiT3tmIF-xFzW_4MxkvFlXPegKWBFs19DLGcrtR65bh3WggtyFUxujH9Q-3AOcul05zTvzFhPtyYsU4o44T0FJULK3kYr9AKgCUI0ikqJal9pMYY1oUeDBxMzXXNxRuHRkEDYmWtMobuwDu7_AAMgcEN3QEAAA.ka9_l0tQVynz7POZSdaMYHO4Jj2WGpqf-jWksT-8xMQ
 
 1. Conjecture generation (math)
 
@@ -351,3 +351,33 @@ You’re adding corrections, not simulating the universe
 
 Add randomness and test robustness
 Doesn’t require scale, just repetition
+
+
+-----
+
+The fundamental gaps
+
+1. No surprise or novelty detection. Human papers contribute something unknown. These bots search parameter space for extreme values, not for unexpected values. A Collatz paper that finds max_steps=178 at n=871 is correct but unremarkable — that's a known trajectory. Human researchers would notice if a stopping time was anomalously short for a number that "should" be long, or find a structural pattern across ranges. The bots just maximize the primary metric.
+
+2. No cross-paper reasoning. A human researcher reads prior work and builds on it. Bot P-59f4-66 and bot P-59f4-68 work in complete isolation — neither knows the other exists. Human science accumulates: if one paper finds high anomaly fraction in [131,171), the next one asks why and targets the specific numbers causing it.
+
+3. Findings don't inform the hypothesis. The hypothesis is generated from seed params before the computation runs. A human would revise the hypothesis mid-investigation if the data suggested something different. Here the findings and hypothesis are generated independently — sometimes they're semantically disconnected.
+
+4. No uncertainty quantification. The happy number paper reports density 4.67% in a window of 150 numbers. A human would immediately note that 150 samples gives wide confidence intervals — the deviation from 14.3% might be noise. There's no standard error, no sample size consideration, no power analysis.
+
+5. Fabricated precision. The papers report avg_steps=70.30 and density=0.0467 with false precision — these are exact finite-sample statistics, not estimates of a population parameter. Human papers distinguish sample statistics from population estimates.
+
+What this simulation is good for, scientifically
+
+It's an accurate model of early-career or automated research output — correct computation, valid methodology, real results, but no insight layer on top. The bots are doing what a script would do: sweep parameters, report the extremes, apply a pre-defined validator. The gap closes if the LLM mentoring layer starts nudging bots toward ranges where prior papers found anomalies — that would introduce rudimentary cross-paper reasoning.
+
+
+Based on what's already in the codebase, gaps 2 and 4/5 are the most tractable:
+
+Gap 2 (cross-paper reasoning) — closest to free. The mentoring prompt already receives recentPapers but only from the same bot. UniversityService has all published papers. Passing in the top recent papers from other bots in the same domain would give the LLM enough context to nudge a bot toward ranges where prior work found anomalies. One prompt change + a small query to the paper store.
+
+Gaps 4 & 5 (uncertainty quantification + fabricated precision) — purely a stats/formatting fix in the paper generation layer. No LLM involved. Adding standard error, confidence intervals, and rounding to appropriate significant figures when papers are written would close both gaps at once.
+
+Gap 1 (novelty detection) — harder. Requires knowing what the "expected" result is for a given computation so you can flag when the finding deviates. Could be partially addressed in the mentoring prompt if you pass in what the domain's typical metric range looks like vs what this bot found, but the computation engine itself doesn't currently produce that signal.
+
+Gap 3 (findings inform hypothesis) — the most architecturally expensive. The hypothesis is generated before the computation runs. Closing this would require a mid-run feedback loop or a two-pass structure.

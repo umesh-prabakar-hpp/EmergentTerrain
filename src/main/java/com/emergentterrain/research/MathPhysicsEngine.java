@@ -248,6 +248,7 @@ public class MathPhysicsEngine {
             case "MATERIALS:1"   -> 0.1;     // sphere packing improvement% (~0.02-0.15)
             case "MATERIALS:2"   -> 0.4;     // stiffness crossover Vf-0.5 (~0.3-0.5)
             case "MATERIALS:3"   -> 3.0;     // Arrhenius worstDev (~0.5-10)
+            case "DYNAMIC:0"     -> 0.1;     // dynamic problem deviation score
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -428,8 +429,10 @@ public class MathPhysicsEngine {
         String hypothesis = "Consecutive prime pairs in [%d, %d) will exhibit twin prime density consistent with the Hardy-Littlewood finite-interval estimate ~2C₂/ln(N)²."
                 .formatted(start, end);
         return new ResearchResult(
-                "Prime constellations [%d,%d): %d primes (density=%.4f), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f, deviation=%.1f%%. Twin density among pairs: %.4f."
-                        .formatted(start, end, primes.size(), primeDensity, twins, cousins, sexy, maxGap, hlPrediction, hlDeviation * 100, twinDensity),
+                "Prime constellations [%d,%d): %d primes (density=%s), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f, deviation=%.1f%%. Twin density among pairs: %s."
+                        .formatted(start, end, primes.size(), fmtProp(primeDensity, end - start),
+                                   twins, cousins, sexy, maxGap, hlPrediction, hlDeviation * 100,
+                                   fmtProp(twinDensity, pairs)),
                 hlDeviation, primeDensity, maxGap, hlDeviation, status, assessment, hypothesis);
     }
 
@@ -448,19 +451,22 @@ public class MathPhysicsEngine {
 
     private static ResearchResult collatzStoppingTimesAt(int start, int count) {
         int maxSteps = 0, maxStepsAt = start;
-        double totalSteps = 0;
-        int longTraj = 0;
+        int longTraj = 0, wCount = 0;
         boolean allTerminated = true;
+        double wMean = 0, wM2 = 0;
         for (int n = Math.max(1, start); n < start + count; n++) {
             long x = n;
             int steps = 0;
             while (x != 1 && steps < 10_000) { x = (x % 2 == 0) ? x / 2 : 3 * x + 1; steps++; }
             if (x != 1) allTerminated = false;
-            totalSteps += steps;
+            wCount++;
+            double delta = steps - wMean;
+            wMean += delta / wCount;
+            wM2 += delta * (steps - wMean);
             if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
             if (steps > 100) longTraj++;
         }
-        double avgSteps = totalSteps / count;
+        double avgSteps = wMean;
         double longFraction = (double) longTraj / count;
         int end = start + count;
         ClaimStatus status = allTerminated ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
@@ -473,8 +479,9 @@ public class MathPhysicsEngine {
                 ? "All %d starting values terminated at 1 (conjecture holds locally).".formatted(count)
                 : "Some values did not terminate within 10,000 steps.";
         return new ResearchResult(
-                "Collatz [%d,%d): max_steps=%d (at n=%d), avg_steps=%.2f, fraction>100_steps=%.3f. %s"
-                        .formatted(start, end, maxSteps, maxStepsAt, avgSteps, longFraction, terminated),
+                "Collatz [%d,%d): max_steps=%d (at n=%d), avg_steps=%s, fraction>100_steps=%s. %s"
+                        .formatted(start, end, maxSteps, maxStepsAt,
+                                   fmtMean(wMean, wM2, count), fmtProp(longFraction, count), terminated),
                 maxSteps, avgSteps, longFraction, maxSteps, status, assessment)
                 .withHypothesis("Collatz stopping times in [%d, %d) will show no counterexample to the 3n+1 conjecture; maximum depth characterizes local trajectory complexity."
                         .formatted(start, end));
@@ -497,23 +504,26 @@ public class MathPhysicsEngine {
     private static ResearchResult goldbachPartitionsAt(int evenStart, int count) {
         if (evenStart % 2 != 0) evenStart++;
         if (evenStart < 4) evenStart = 4;
-        long totalPartitions = 0;
         int minParts = Integer.MAX_VALUE, minPartsAt = evenStart;
         int singleCount = 0, tested = 0;
+        double wMean = 0, wM2 = 0;
         for (int n = evenStart; n < evenStart + count * 2; n += 2) {
             int parts = 0;
             for (int p = 2; p <= n / 2; p++) if (isPrime(p) && isPrime(n - p)) parts++;
-            totalPartitions += parts;
             tested++;
+            double delta = parts - wMean;
+            wMean += delta / tested;
+            wM2 += delta * (parts - wMean);
             if (parts < minParts) { minParts = parts; minPartsAt = n; }
             if (parts == 1) singleCount++;
         }
-        double avg = tested > 0 ? (double) totalPartitions / tested : 0;
+        double avg = wMean;
         double contrast = avg / Math.max(1.0, minParts);
         int end = evenStart + count * 2;
         return new ResearchResult(
-                "Goldbach partitions, even [%d,%d): avg=%.2f partitions/number, min=%d (at n=%d), single-partition=%d/%d. All even numbers satisfy Goldbach conjecture locally."
-                        .formatted(evenStart, end, avg, minParts, minPartsAt, singleCount, tested),
+                "Goldbach partitions, even [%d,%d): avg=%s partitions/number, min=%d (at n=%d), single-partition=%s. All even numbers satisfy Goldbach conjecture locally."
+                        .formatted(evenStart, end, fmtMean(wMean, wM2, tested),
+                                   minParts, minPartsAt, fmtProp((double) singleCount / Math.max(1, tested), tested)),
                 contrast, avg, singleCount)
                 .withHypothesis("Every even number in [%d, %d) will have at least one Goldbach partition; partition counts will expose local thin-partition neighbourhoods."
                         .formatted(evenStart, end));
@@ -578,8 +588,9 @@ public class MathPhysicsEngine {
         double anomalyFrac   = (double) (cycle + escape) / count;
         int end = start + count;
         return new ResearchResult(
-                "Aliquot sequences [%d,%d): terminate=%d (%.3f), perfect=%d, cycle=%d, escape=%d. Termination rate %.1f%%; range-start trend requires the multi-window validator."
-                        .formatted(start, end, terminate, terminateFrac, perfect, cycle, escape, terminateFrac * 100),
+                "Aliquot sequences [%d,%d): terminate=%d (%s), perfect=%d, cycle=%d, escape=%d. Anomaly fraction %s; range-start trend requires the multi-window validator."
+                        .formatted(start, end, terminate, fmtProp(terminateFrac, count),
+                                   perfect, cycle, escape, fmtProp(anomalyFrac, count)),
                 anomalyFrac, terminateFrac, cycle)
                 .withHypothesis("Aliquot sequences in [%d, %d) will predominantly terminate at 1; searched windows will test whether cycle-or-escape anomaly fractions increase with larger starts."
                         .formatted(start, end));
@@ -613,7 +624,8 @@ public class MathPhysicsEngine {
     }
 
     private static ResearchResult happyNumbersAt(int start, int count) {
-        int happy = 0, totalSteps = 0;
+        int happy = 0;
+        double happyMean = 0, happyM2 = 0;
         for (int n = Math.max(1, start); n < start + count; n++) {
             long x = n;
             int steps = 0;
@@ -623,15 +635,21 @@ public class MathPhysicsEngine {
                 x = sum;
                 steps++;
             }
-            if (x == 1) { happy++; totalSteps += steps; }
+            if (x == 1) {
+                happy++;
+                double delta = steps - happyMean;
+                happyMean += delta / happy;
+                happyM2 += delta * (steps - happyMean);
+            }
         }
         double density  = (double) happy / count;
-        double avgSteps = happy > 0 ? (double) totalSteps / happy : 0;
+        double avgSteps = happy > 0 ? happyMean : 0;
         double deviation = Math.abs(density - 0.1430);
         int end = start + count;
         return new ResearchResult(
-                "Happy numbers [%d,%d): happy=%d, density=%.4f (theoretical≈0.1430, deviation=%+.4f), avg_steps_to_1=%.1f. Local density is compared with the conjectured asymptotic."
-                        .formatted(start, end, happy, density, density - 0.1430, avgSteps),
+                "Happy numbers [%d,%d): happy=%d/%d, density=%s (theoretical≈0.143, deviation=%+.3f), avg_steps_to_1=%s. Local density is compared with the conjectured asymptotic."
+                        .formatted(start, end, happy, count, fmtProp(density, count), density - 0.1430,
+                                   fmtMean(happyMean, happyM2, happy)),
                 deviation, avgSteps, density)
                 .withHypothesis("Happy number density in [%d, %d) will remain close to the conjectured asymptotic 14.3%%; multi-window validation tests the broader regardless-of-window claim."
                         .formatted(start, end));
@@ -1046,9 +1064,9 @@ public class MathPhysicsEngine {
                         .formatted(deltaT, sigmaYMPa));
     }
 
-    // ---- Helpers ----
+    // ---- Helpers (package-private so DynamicComputeEngine can use them) ----
 
-    private static boolean isPrime(int n) {
+    static boolean isPrime(int n) {
         if (n < 2) return false;
         if (n < 4) return true;
         if (n % 2 == 0 || n % 3 == 0) return false;
@@ -1058,11 +1076,64 @@ public class MathPhysicsEngine {
         return true;
     }
 
+    static boolean isHappy(int n) {
+        long x = n;
+        int steps = 0;
+        while (x != 1 && x != 4 && steps < 1000) {
+            long sum = 0;
+            while (x > 0) { long d = x % 10; sum += d * d; x /= 10; }
+            x = sum;
+            steps++;
+        }
+        return x == 1;
+    }
+
+    static int collatzSteps(int n) {
+        long x = Math.max(1, n);
+        int steps = 0;
+        while (x != 1 && steps < 10_000) { x = (x % 2 == 0) ? x / 2 : 3 * x + 1; steps++; }
+        return steps;
+    }
+
+    static long sigmaSum(int n) {
+        if (n <= 1) return 0;
+        long sigma = 1;
+        for (long d = 2; d * d <= n; d++) {
+            if (n % d == 0) { sigma += d; if (d != n / d) sigma += n / d; }
+        }
+        return sigma;
+    }
+
     private static boolean nearlyEqual(double a, double b, double tolerance) {
         return Math.abs(a - b) <= tolerance;
     }
 
     private static double clamp(double value, double min, double max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    /**
+     * Format a proportion estimated from n samples with 95% CI.
+     * Decimal places chosen so the CI has ~2 significant figures.
+     * e.g., p=0.0467, n=150 → "0.047 ± 0.033 (95% CI, n=150)"
+     */
+    private static String fmtProp(double p, int n) {
+        if (n <= 0) return String.format("%.4f", p);
+        double se = Math.sqrt(Math.max(0, p * (1 - p)) / n);
+        double ci = 1.96 * se;
+        int dp = (se > 1e-9) ? Math.max(0, -(int) Math.floor(Math.log10(se))) : 4;
+        String fmt = "%." + dp + "f";
+        return (fmt + " ± " + fmt + " (95%% CI, n=%d)").formatted(p, ci, n);
+    }
+
+    /**
+     * Format a mean ± SE from a Welford M2 accumulator and sample count.
+     * e.g., mean=70.3, m2=54000, n=60 → "70 ± 4 (SE, n=60)"
+     */
+    private static String fmtMean(double mean, double m2, int n) {
+        double se = (n > 1) ? Math.sqrt(m2 / (n - 1) / n) : 0;
+        int dp = (se > 1e-9) ? Math.max(0, -(int) Math.floor(Math.log10(se))) : 2;
+        String fmt = "%." + dp + "f";
+        return (fmt + " ± " + fmt + " (SE, n=%d)").formatted(mean, se, n);
     }
 }

@@ -18,5 +18,6 @@ public record ResearchPaper(
         String status,
         long tick,
         Instant publishedAt,
-        int generation
+        int generation,
+        double anomalyZScore   // z-score of peerScore vs room's domain+topic distribution; 0.0 if < 5 prior papers
 ) {}
