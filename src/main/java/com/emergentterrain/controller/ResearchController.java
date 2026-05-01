@@ -24,7 +24,7 @@ public class ResearchController {
     public ResponseEntity<List<ResearchPaper>> getPapers(
             @PathVariable("roomId") UUID roomId,
             @RequestParam(name = "limit", defaultValue = "50") int limit) {
-        return ResponseEntity.ok(universityService.getPublishedPapers(roomId, limit));
+        return ResponseEntity.ok(universityService.getPublishedPapers(roomId, Math.min(limit, 500)));
     }
 
     @GetMapping("/room/{roomId}/research/stats")

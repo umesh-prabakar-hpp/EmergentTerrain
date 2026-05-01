@@ -6,6 +6,9 @@ import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.DynamicProblem;
+import com.emergentterrain.research.FollowUpParams;
+import com.emergentterrain.research.NarrationResult;
+import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,15 +54,21 @@ public class LlmService {
     private final ConcurrentHashMap<UUID, Long>   lastMentoredAt        = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    // Three independent semaphores — none can block another from checking its slot.
+    // Four independent semaphores — none can block another from checking its slot.
     // streamSlot/genomeSlot allow 2 concurrent requests each when OLLAMA_NUM_PARALLEL >= 3.
-    // consultSlot stays at 1 because it blocks the caller synchronously.
-    private final Semaphore consultSlot = new Semaphore(1);  // policy consultation (sync)
-    private final Semaphore streamSlot  = new Semaphore(2);  // government digest (async stream)
-    private final Semaphore genomeSlot  = new Semaphore(2);  // genome mentoring (async stream)
+    // consultSlot and narrationSlot stay at 1 (sync call and sequential paper pipeline).
+    private final Semaphore consultSlot   = new Semaphore(1);  // policy consultation (sync)
+    private final Semaphore streamSlot    = new Semaphore(2);  // government digest (async stream)
+    private final Semaphore genomeSlot    = new Semaphore(2);  // genome mentoring (async stream)
+    private final Semaphore narrationSlot = new Semaphore(1);  // paper narration — one at a time
 
     // Genome mentoring requests are queued — they must not be shed (earned reward).
-    private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue     = new ConcurrentLinkedQueue<>();
+    // Paper narration queue — every passed paper goes through LLM before being published.
+    private final ConcurrentLinkedQueue<PaperDraft>             narrationQueue  = new ConcurrentLinkedQueue<>();
+
+    // Set during wireUniversityCallback — calls university.publishPaper on narration completion.
+    private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
     private final long digestCooldownMs;
 
@@ -83,7 +92,9 @@ public class LlmService {
                 .getBeanProvider(UniversityService.class).getIfAvailable();
         if (university != null) {
             university.setMentoringCallback(this::enqueueGenomeMentoring);
-            log.info("LlmService: genome mentoring callback wired to UniversityService");
+            university.setNarratingCallback(this::enqueueNarration);
+            this.narrationPublisher = university::publishPaper;
+            log.info("LlmService: genome mentoring + paper narration callbacks wired to UniversityService");
         }
     }
 
@@ -178,6 +189,133 @@ public class LlmService {
         } catch (RuntimeException e) {
             streamSlot.release();
             throw e;
+        }
+    }
+
+    // --- Paper narration ---
+
+    /**
+     * Enqueues a passed paper for LLM narrative synthesis. Every paper goes through
+     * this path before being published; the narrationSlot serialises calls so a slow
+     * model response cannot pile up concurrent LLM requests.
+     */
+    public void enqueueNarration(PaperDraft draft) {
+        narrationQueue.offer(draft);
+        executor.execute(this::drainNarrationQueue);
+    }
+
+    private void drainNarrationQueue() {
+        PaperDraft draft = narrationQueue.poll();
+        if (draft == null) return;
+        if (!narrationSlot.tryAcquire()) {
+            narrationQueue.offer(draft);
+            return;
+        }
+        try {
+            runNarration(draft);
+        } finally {
+            narrationSlot.release();
+            if (!narrationQueue.isEmpty()) executor.execute(this::drainNarrationQueue);
+        }
+    }
+
+    private void runNarration(PaperDraft draft) {
+        String prompt = buildNarrationPrompt(draft);
+        long start = System.currentTimeMillis();
+        StringBuilder response = new StringBuilder();
+        try {
+            chatClient.prompt().user(prompt).stream().content().toStream()
+                    .forEach(response::append);
+            log.info("LLM narration done paperId={} ms={}", draft.paperId(),
+                    System.currentTimeMillis() - start);
+        } catch (Exception e) {
+            log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
+                    draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
+        }
+        NarrationResult result = parseNarrationResult(response.toString());
+        if (narrationPublisher != null) {
+            narrationPublisher.accept(draft, result);
+        }
+    }
+
+    private String buildNarrationPrompt(PaperDraft draft) {
+        // Collect prior papers in the same domain + topic for cross-paper context
+        StringBuilder priorWork = new StringBuilder();
+        draft.recentPapers().stream()
+                .filter(p -> p.domain().equalsIgnoreCase(draft.domain())
+                          && p.topic().equalsIgnoreCase(draft.topicName()))
+                .limit(3)
+                .forEach(p -> {
+                    String snippet = p.findings().length() > 160
+                            ? p.findings().substring(0, 160) + "…" : p.findings();
+                    priorWork.append("  %s [score %.2f]: %s%n"
+                            .formatted(p.paperId(), p.peerScore(), snippet));
+                });
+        String priorSection = priorWork.isEmpty()
+                ? "  (no prior papers in this domain/topic yet)\n"
+                : priorWork.toString();
+
+        return """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: %s | Topic: %s | Methodology: %s
+                Title: "%s"
+                Bot generation: %d
+
+                Raw computation output (do NOT simply repeat these numbers — interpret what they mean):
+                %s
+
+                Prior papers in this domain and topic (inform the hypothesis and discussion; \
+                cite by Paper ID if directly relevant):
+                %s
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence about THIS computation, \
+                informed by prior work and the actual parameters used","findings":"2-3 sentences \
+                interpreting what these results mean — their significance, what pattern they suggest, \
+                reference a prior paper by ID if directly relevant","conclusion":"1-2 sentences: \
+                what does this result imply, and what open question does it raise for future investigation",\
+                "followUp":{"param1":N,"param2":X.X}}
+
+                followUp rules: ONLY include followUp if the prior papers reveal a specific \
+                unexplored parameter region worth targeting next. param1 is an integer 10–99 \
+                (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
+                If no clear follow-up region emerges from the data, OMIT the followUp field entirely.
+                All text values under 120 words each. Plain prose inside JSON strings only — \
+                no bullet points, no sub-headers, no markdown formatting.
+                """.formatted(
+                draft.domain(), draft.topicName(), draft.methodology(),
+                draft.title(), draft.generation(),
+                draft.rawFindings(),
+                priorSection.trim());
+    }
+
+    private NarrationResult parseNarrationResult(String response) {
+        if (response == null || response.isBlank()) return new NarrationResult(null, null, null, null);
+        int start = response.indexOf('{');
+        int end   = response.lastIndexOf('}');
+        if (start < 0 || end <= start) return new NarrationResult(null, null, null, null);
+        try {
+            com.fasterxml.jackson.databind.JsonNode root =
+                    objectMapper.readTree(response.substring(start, end + 1));
+            FollowUpParams followUp = null;
+            com.fasterxml.jackson.databind.JsonNode fuNode = root.get("followUp");
+            if (fuNode != null && !fuNode.isNull() && !fuNode.isMissingNode()) {
+                int    p1 = fuNode.path("param1").asInt(-1);
+                double p2 = fuNode.path("param2").asDouble(-1.0);
+                if (p1 >= 10 && p1 <= 99 && p2 >= 1.0 && p2 <= 9.0) {
+                    followUp = new FollowUpParams(p1, p2);
+                } else {
+                    log.debug("LLM narration: followUp out of range (param1={}, param2={}) — discarded", p1, p2);
+                }
+            }
+            return new NarrationResult(
+                    root.path("hypothesis").asText(null),
+                    root.path("findings").asText(null),
+                    root.path("conclusion").asText(null),
+                    followUp);
+        } catch (Exception e) {
+            log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
+            return new NarrationResult(null, null, null, null);
         }
     }
 
@@ -329,12 +467,18 @@ public class LlmService {
                 a directive to follow it up.
 
                 Reply with only this JSON and nothing else:
-                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"prime-happy overlap near 500","rangeStart":500,"rangeEnd":700,"predicate":"isPrime AND isHappy","metric":"fraction_satisfying","baseline":0.018,"hypothesis":"The overlap of primes and happy numbers near 500 should be ~1.8%% of the range."}}
+                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"hypothesis":"your hypothesis"}}
                 Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate. delta between -0.15 and 0.15. Include 1 or 2 edits.
                 Directive rules: predicate uses isPrime, isHappy, collatzTerminates, isAbundant, isPerfect joined with AND or OR. \
                 metric is one of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum. \
-                rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value. \
+                rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value for the metric. \
+                Base the directive on what the ACTUAL peer papers above reveal — target a specific unexplored range \
+                or combination that their anomalous or interesting results point toward. \
                 Only include directive if the peer papers reveal a specific unexplored range worth targeting. Omit directive entirely otherwise.
+                Example directives (DO NOT copy these — generate your own based on the actual papers shown above):
+                  {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"hypothesis":"About 25%% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
+                  {"description":"mean Collatz depth for happy primes near 800","rangeStart":780,"rangeEnd":950,"predicate":"isPrime AND isHappy","metric":"mean_of:collatzSteps","baseline":75.0,"hypothesis":"Happy primes near 800 require about 75 Collatz steps to terminate, deeper than the general average."}
+                  {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"hypothesis":"Roughly 24%% of integers below 302 are abundant or perfect."}
                 """.formatted(
                         botIdStr.substring(0, 8),
                         domain, method, gen,

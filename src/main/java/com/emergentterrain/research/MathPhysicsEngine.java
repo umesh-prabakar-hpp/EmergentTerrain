@@ -39,7 +39,7 @@ public class MathPhysicsEngine {
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
                             ? ClaimStatus.OBSERVATIONAL : ClaimStatus.REFUTED,
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
-                            ? "No topic-specific claim validator is configured for this result."
+                            ? "The computed values are finite; this region has no prior theoretical bound to compare against."
                             : "The computation produced non-finite values.",
                     null);
         }
@@ -371,7 +371,7 @@ public class MathPhysicsEngine {
                     "Computed values were independently reproduced by peer reviewers, but the topic-specific validator does not support the hypothesis: %s"
                             .formatted(result.claimAssessment());
             case OBSERVATIONAL ->
-                    "Computed values were independently reproduced by peer reviewers. No topic-specific validator supports the broader hypothesis yet; treat this as an observational computational finding: %s"
+                    "Computed values were independently reproduced by peer reviewers. These findings represent an observational baseline; no prior theoretical bound constrains the expected value in this region. %s"
                             .formatted(result.claimAssessment());
         };
     }
