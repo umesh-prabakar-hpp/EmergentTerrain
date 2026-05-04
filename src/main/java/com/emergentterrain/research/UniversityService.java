@@ -530,7 +530,7 @@ public class UniversityService {
                     result.findings(), templateHypothesis, templateConclusion,
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId,
+                    author.getGeneration(), paperId, param1, (double) param2,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {
@@ -591,10 +591,8 @@ public class UniversityService {
         double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
 
         if (reviewPassed) {
-            String paperId   = nextPaperId(roomId);
-            String topicName = directive.description().length() > 50
-                    ? directive.description().substring(0, 50) + "…"
-                    : directive.description();
+            String paperId            = nextPaperId(roomId);
+            String topicName          = dynamicTopicName(directive);
             String templateHypothesis = directive.hypothesis() != null
                     ? directive.hypothesis() : directive.description();
             String templateConclusion = MathPhysicsEngine.generateConclusion(result, true);
@@ -607,11 +605,11 @@ public class UniversityService {
 
             PaperDraft draft = new PaperDraft(
                     roomId, author.getBotId(), "MATHEMATICS", topicName,
-                    "Dynamic: " + directive.description(), result.findings(),
+                    dynamicPaperTitle(directive), result.findings(),
                     templateHypothesis, templateConclusion,
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId,
+                    author.getGeneration(), paperId, null, null,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {
@@ -737,6 +735,40 @@ public class UniversityService {
                 bot.setLifecycleJson(toJson(ls));
             }
         }
+    }
+
+    // ---- Dynamic paper title / topic helpers ----
+
+    private static String dynamicPaperTitle(DynamicProblem d) {
+        return "%s of %s Numbers in [%d, %d)".formatted(
+                metricLabel(d.metric()), predicateLabel(d.predicate()),
+                d.rangeStart(), d.rangeEnd());
+    }
+
+    private static String dynamicTopicName(DynamicProblem d) {
+        String name = predicateLabel(d.predicate()) + " " + metricLabel(d.metric());
+        return name.length() > 50 ? name.substring(0, 50) : name;
+    }
+
+    private static String predicateLabel(String predicate) {
+        return predicate
+                .replace("isPrime",           "Prime")
+                .replace("isHappy",           "Happy")
+                .replace("isAbundant",        "Abundant")
+                .replace("isPerfect",         "Perfect")
+                .replace("collatzTerminates", "Collatz-Terminating")
+                .replace(" AND ", "-")
+                .replace(" OR ",  " or ");
+    }
+
+    private static String metricLabel(String metric) {
+        return switch (metric) {
+            case "fraction_satisfying"  -> "Density";
+            case "mean_of:collatzSteps" -> "Mean Collatz Depth";
+            case "max_of:collatzSteps"  -> "Maximum Collatz Depth";
+            case "mean_of:sigmaSum"     -> "Mean Divisor Sum";
+            default                     -> metric;
+        };
     }
 
     // ---- Helpers ----

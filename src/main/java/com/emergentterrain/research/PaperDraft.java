@@ -31,5 +31,7 @@ public record PaperDraft(
         Instant publishedAt,
         int    generation,
         String paperId,
+        Integer param1,
+        Double  param2,
         List<ResearchPaper> recentPapers
 ) {}

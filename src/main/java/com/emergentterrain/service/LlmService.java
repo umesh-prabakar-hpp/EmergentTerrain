@@ -239,7 +239,6 @@ public class LlmService {
     }
 
     private String buildNarrationPrompt(PaperDraft draft) {
-        // Collect prior papers in the same domain + topic for cross-paper context
         StringBuilder priorWork = new StringBuilder();
         draft.recentPapers().stream()
                 .filter(p -> p.domain().equalsIgnoreCase(draft.domain())
@@ -255,25 +254,37 @@ public class LlmService {
                 ? "  (no prior papers in this domain/topic yet)\n"
                 : priorWork.toString();
 
+        String paramsLine = (draft.param1() != null)
+                ? "Computation parameters: starting position %d, scale %.1f\n"
+                        .formatted(draft.param1(), draft.param2())
+                : "";
+
+        String scaffold = (draft.templateHypothesis() != null && !draft.templateHypothesis().isBlank())
+                ? draft.templateHypothesis() : "(none)";
+
         return """
                 You are writing the narrative for a computational research paper in a simulation.
 
                 Domain: %s | Topic: %s | Methodology: %s
                 Title: "%s"
                 Bot generation: %d
-
-                Raw computation output (do NOT simply repeat these numbers — interpret what they mean):
+                %s
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
                 %s
 
-                Prior papers in this domain and topic (inform the hypothesis and discussion; \
-                cite by Paper ID if directly relevant):
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                %s
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
                 %s
                 Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
-                {"hypothesis":"one specific testable sentence about THIS computation, \
-                informed by prior work and the actual parameters used","findings":"2-3 sentences \
-                interpreting what these results mean — their significance, what pattern they suggest, \
-                reference a prior paper by ID if directly relevant","conclusion":"1-2 sentences: \
-                what does this result imply, and what open question does it raise for future investigation",\
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
+                interpreting the pattern or trend — its significance and what it suggests; \
+                cite a prior paper by ID if relevant","conclusion":"1-2 sentences on what this \
+                result implies and what open question it raises",\
                 "followUp":{"param1":N,"param2":X.X}}
 
                 followUp rules: ONLY include followUp if the prior papers reveal a specific \
@@ -285,8 +296,51 @@ public class LlmService {
                 """.formatted(
                 draft.domain(), draft.topicName(), draft.methodology(),
                 draft.title(), draft.generation(),
-                draft.rawFindings(),
+                paramsLine,
+                compactRawFindings(draft.rawFindings()),
+                scaffold,
                 priorSection.trim());
+    }
+
+    private static String compactRawFindings(String raw) {
+        if (raw == null || raw.isBlank()) return "(none)";
+        if (raw.length() <= 350) return raw;
+        // Count Unicode arrow data points (e.g. Vf=10%→1513MPa)
+        int arrowCount = 0;
+        for (int i = raw.indexOf('→'); i >= 0; i = raw.indexOf('→', i + 1)) arrowCount++;
+        if (arrowCount >= 5) {
+            // Preamble: text before the first data block
+            int firstArrow  = raw.indexOf('→');
+            int blockStart  = raw.lastIndexOf(' ', firstArrow - 2) + 1;
+            String preamble = blockStart > 0 ? raw.substring(0, blockStart).trim() : "";
+            // Extract numeric values following each arrow
+            double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
+            int n = 0, pos = 0;
+            while ((pos = raw.indexOf('→', pos)) >= 0) {
+                int end = pos + 1;
+                while (end < raw.length()
+                        && (Character.isDigit(raw.charAt(end)) || raw.charAt(end) == '.')) end++;
+                if (end > pos + 1) {
+                    try {
+                        double v = Double.parseDouble(raw.substring(pos + 1, end));
+                        min = Math.min(min, v); max = Math.max(max, v); n++;
+                    } catch (NumberFormatException ignored) {}
+                }
+                pos = end;
+            }
+            String stats = n > 0
+                    ? "[%d data points, values %.0f – %.0f]".formatted(n, min, max)
+                    : "[%d data points]".formatted(arrowCount);
+            // Tail: summary sentence(s) after the last data point
+            int lastArrow = raw.lastIndexOf('→');
+            int tailStart = raw.indexOf('.', lastArrow + 5);
+            String tail   = (tailStart > 0 && tailStart + 1 < raw.length())
+                    ? raw.substring(tailStart + 1).trim() : "";
+            return (preamble.isEmpty() ? "" : preamble + " ")
+                    + stats
+                    + (tail.isEmpty() ? "" : "\n" + tail);
+        }
+        return raw.substring(0, 350) + "…";
     }
 
     private NarrationResult parseNarrationResult(String response) {
@@ -574,6 +628,9 @@ public class LlmService {
         if (d == null || d.isNull() || d.isMissingNode()) return null;
         try {
             String description = d.path("description").asText(null);
+            if (description != null) {
+                description = description.replaceAll("\\[ANOMALOUS[^\\]]*\\]", "").trim();
+            }
             int    rangeStart  = d.path("rangeStart").asInt(-1);
             int    rangeEnd    = d.path("rangeEnd").asInt(-1);
             String predicate   = d.path("predicate").asText(null);
