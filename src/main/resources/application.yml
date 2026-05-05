@@ -164,6 +164,7 @@ app:
     researchIntervalMs: 15000
     researchOutputDir: research
     maxDraftBacklog: 3
+    peerReviewEnabled: false
   ai:
     enabled: true
     digestCooldownMinutes: 10

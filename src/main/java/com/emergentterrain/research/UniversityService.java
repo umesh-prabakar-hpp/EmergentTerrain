@@ -56,7 +56,8 @@ public class UniversityService {
 
     // Max pending drafts: if backlog reaches this, skip the research cycle this tick.
     // Keeps paper output naturally paced to LLM throughput with no build-up.
-    private final int maxDraftBacklog;
+    private final int     maxDraftBacklog;
+    private final boolean peerReviewEnabled;
 
     // Dating constants (static defaults; runtime uses dynamic values from computePopulationParams)
     private static final long   DATING_COOLDOWN_TICKS   = 200L;
@@ -110,11 +111,13 @@ public class UniversityService {
             @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs,
             @Value("${app.university.researchOutputDir:research}") String researchOutputDir,
             @Value("${app.university.maxDraftBacklog:3}") int maxDraftBacklog,
+            @Value("${app.university.peerReviewEnabled:true}") boolean peerReviewEnabled,
             RoomBotRepository botRepository,
             ObjectMapper objectMapper) {
-        this.researchIntervalMs = researchIntervalMs;
-        this.researchOutputDir  = Paths.get(researchOutputDir);
-        this.maxDraftBacklog    = maxDraftBacklog;
+        this.researchIntervalMs  = researchIntervalMs;
+        this.researchOutputDir   = Paths.get(researchOutputDir);
+        this.maxDraftBacklog     = maxDraftBacklog;
+        this.peerReviewEnabled   = peerReviewEnabled;
         this.botRepository      = botRepository;
         this.objectMapper       = objectMapper;
         try {
@@ -766,28 +769,30 @@ public class UniversityService {
         double  totalReviewScore     = 0;
         int     reviewCount          = 0;
 
-        for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-            Researcher reviewer      = pickReviewer(pool, author, usedReviewerIds, rng);
-            usedReviewerIds.add(reviewer.getBotId());
-            boolean    reviewerError = rng.nextDouble() < reviewer.errorRate();
+        if (peerReviewEnabled) {
+            for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
+                Researcher reviewer      = pickReviewer(pool, author, usedReviewerIds, rng);
+                usedReviewerIds.add(reviewer.getBotId());
+                boolean    reviewerError = rng.nextDouble() < reviewer.errorRate();
 
-            MathPhysicsEngine.ResearchResult reviewResult =
-                    MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
-            double reviewValue = reviewerError
-                    ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
-                    : reviewResult.reviewValue();
-            double reviewScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
+                MathPhysicsEngine.ResearchResult reviewResult =
+                        MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+                double reviewValue = reviewerError
+                        ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
+                        : reviewResult.reviewValue();
+                double reviewScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
 
-            boolean agrees = Math.abs(authorScore - reviewScore)
-                    < reviewer.getState().getGenome().getPeerTolerance();
-            if (!agrees) reviewPassed = false;
+                boolean agrees = Math.abs(authorScore - reviewScore)
+                        < reviewer.getState().getGenome().getPeerTolerance();
+                if (!agrees) reviewPassed = false;
 
-            reviewerIds.add(reviewer.getBotId());
-            totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
-            reviewCount++;
+                reviewerIds.add(reviewer.getBotId());
+                totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
+                reviewCount++;
+            }
         }
 
-        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
+        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : authorScore;
 
         if (reviewPassed) {
             String paperId    = nextPaperId(roomId);
@@ -853,24 +858,26 @@ public class UniversityService {
         double  totalReviewScore = 0;
         int     reviewCount      = 0;
 
-        for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-            Researcher reviewer = pickReviewer(pool, author, usedIds, rng);
-            usedIds.add(reviewer.getBotId());
-            MathPhysicsEngine.ResearchResult reviewResult = DynamicComputeEngine.compute(directive);
-            boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
-            double reviewValue = reviewerError
-                    ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
-                    : reviewResult.reviewValue();
-            double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
-            boolean agrees = Math.abs(authorScore - reviewScore)
-                    < reviewer.getState().getGenome().getPeerTolerance();
-            if (!agrees) reviewPassed = false;
-            reviewerIds.add(reviewer.getBotId());
-            totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
-            reviewCount++;
+        if (peerReviewEnabled) {
+            for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
+                Researcher reviewer = pickReviewer(pool, author, usedIds, rng);
+                usedIds.add(reviewer.getBotId());
+                MathPhysicsEngine.ResearchResult reviewResult = DynamicComputeEngine.compute(directive);
+                boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
+                double reviewValue = reviewerError
+                        ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
+                        : reviewResult.reviewValue();
+                double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
+                boolean agrees = Math.abs(authorScore - reviewScore)
+                        < reviewer.getState().getGenome().getPeerTolerance();
+                if (!agrees) reviewPassed = false;
+                reviewerIds.add(reviewer.getBotId());
+                totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
+                reviewCount++;
+            }
         }
 
-        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : 0;
+        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : authorScore;
 
         if (reviewPassed) {
             String paperId            = nextPaperId(roomId);
