@@ -136,6 +136,17 @@ public class MathPhysicsEngine {
             return new SearchParams(w[0], w[1], (int) (20 + w[2] * 60), w[3], w[4]);
         }
 
+        /**
+         * Genome-derived params with an education funding bonus.
+         * educationFactor in [0,1] adds up to +20 extra candidate regions,
+         * simulating how research funding expands the breadth of a search.
+         */
+        public static SearchParams from(BotGenome g, double educationFactor) {
+            double[] w = g.getTopicWeights();
+            int breadth = Math.min(80, (int)(20 + w[2] * 60) + (int)(educationFactor * 20));
+            return new SearchParams(w[0], w[1], breadth, w[3], w[4]);
+        }
+
         /** Neutral baseline used for peer-reviewer reproduction (same params as author). */
         public static SearchParams neutral() {
             return new SearchParams(0.5, 0.2, 40, 0.5, 0.0);

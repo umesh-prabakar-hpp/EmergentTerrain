@@ -19,6 +19,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -63,7 +64,7 @@ public class UniversityService {
     private static final int    POPULATION_K_DEFAULT    = 200;
 
     private record PopulationParams(int K, long adultToElder, long datingCooldown,
-                                    double scoreVariance, double fillRatio) {}
+                                    double scoreVariance, double fillRatio, double educationFactor) {}
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -74,6 +75,19 @@ public class UniversityService {
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer>             totalRejected = new ConcurrentHashMap<>();
     private final AtomicInteger                                draftQueueSize = new AtomicInteger(0);
+
+    private record ReplicationRequest(UUID roomId, String paperId, String domain,
+                                       int topicIndex, int param1, double param2,
+                                       double originalScore) {}
+
+    private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
+
+    // Score gap that triggers a DISPUTED status on failed replication
+    private static final double REPLICATION_FAIL_THRESHOLD = 0.15;
+    private static final double ANOMALY_REPLICATION_Z      = 3.0;
+    private static final double BRIDGE_SCORE_THRESHOLD     = 0.38;
+
+    private final ConcurrentLinkedQueue<ReplicationRequest> replicationQueue = new ConcurrentLinkedQueue<>();
 
     private static final DateTimeFormatter FILE_DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
@@ -170,11 +184,228 @@ public class UniversityService {
             });
         }
 
+        // Citation tracking: parse cited paper IDs from narration text, boost cited authors
+        processCitations(draft.roomId(), draft.paperId(), hypothesis, findings, conclusion);
+
+        // Anomaly replication: queue high-z papers for independent verification
+        if (Math.abs(draft.anomalyZScore()) >= ANOMALY_REPLICATION_Z && draft.param1() != null) {
+            int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
+            if (topicIndex >= 0) {
+                replicationQueue.offer(new ReplicationRequest(
+                        draft.roomId(), draft.paperId(), draft.domain(), topicIndex,
+                        draft.param1(), draft.param2(), draft.peerScore()));
+                log.info("university replication queued paperId={} z={}", draft.paperId(), draft.anomalyZScore());
+            }
+        }
+
+        // Cross-domain knowledge bridging: share productive params with specialists
+        if ("INTERDISCIPLINARY".equals(draft.domain()) && draft.peerScore() >= BRIDGE_SCORE_THRESHOLD
+                && draft.param1() != null) {
+            bridgeKnowledge(draft);
+        }
+
         if (draft.authorScore() >= MENTOR_SCORE_THRESHOLD && mentoringCallback != null) {
             UUID botId = UUID.fromString(draft.authorBotId());
             botRepository.findById(botId).ifPresent(bot ->
                     mentoringCallback.accept(bot, getPublishedPapers(draft.roomId(), 20)));
         }
+    }
+
+    // ---- Citation tracking ----
+
+    private void processCitations(UUID roomId, String thisPaperId,
+                                   String hypothesis, String findings, String conclusion) {
+        Set<String> cited = new LinkedHashSet<>();
+        for (String text : new String[]{hypothesis, findings, conclusion}) {
+            if (text == null) continue;
+            Matcher m = CITED_PAPER_PATTERN.matcher(text);
+            while (m.find()) {
+                String id = m.group();
+                if (!id.equals(thisPaperId)) cited.add(id);
+            }
+        }
+        if (cited.isEmpty()) return;
+
+        List<ResearchPaper> allPapers = published.getOrDefault(roomId, List.of());
+        List<ResearchPaper> snapshot;
+        synchronized (allPapers) { snapshot = new ArrayList<>(allPapers); }
+
+        for (String citedId : cited) {
+            snapshot.stream().filter(p -> citedId.equals(p.paperId())).findFirst()
+                    .ifPresent(citedPaper -> {
+                        try {
+                            UUID authorId = UUID.fromString(citedPaper.authorBotId());
+                            botRepository.findById(authorId).ifPresent(bot -> {
+                                String json = bot.getLifecycleJson();
+                                if (json == null || json.isBlank()) return;
+                                try {
+                                    BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
+                                    ls.setReputation(Math.min(1.0, ls.getReputation() + 0.03));
+                                    bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
+                                    botRepository.save(bot);
+                                    log.debug("citation boost: cited={} by={} author={}",
+                                            citedId, thisPaperId, authorId);
+                                } catch (Exception e) {
+                                    log.warn("citation boost failed for cited={}: {}", citedId, e.getMessage());
+                                }
+                            });
+                        } catch (IllegalArgumentException ignored) {}
+                    });
+        }
+    }
+
+    // ---- Cross-domain knowledge bridging ----
+
+    /**
+     * Component domains by interdisciplinary topic index.
+     * Each topic bridges two domains; we share the productive params with bots in each.
+     */
+    private static final String[][] BRIDGE_DOMAINS = {
+        {"MATHEMATICS", "PHYSICS"},    // topic 0: Collatz→RLC
+        {"MATHEMATICS", "MATERIALS"},  // topic 1: PrimeGap→Thermal
+        {"PHYSICS",     "MATERIALS"},  // topic 2: RLC→Fatigue
+        {"MATHEMATICS", "MATERIALS"},  // topic 3: Happy→Packing
+        {"PHYSICS",     "MATERIALS"},  // topic 4: VdW→Composite
+    };
+
+    private void bridgeKnowledge(PaperDraft draft) {
+        int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
+        if (topicIndex < 0 || topicIndex >= BRIDGE_DOMAINS.length) return;
+        String[] domains = BRIDGE_DOMAINS[topicIndex];
+
+        List<RoomBot> roomBots = botRepository.findByRoom_IdAndStatus(
+                draft.roomId(), com.emergentterrain.domain.RoomBot.BotStatus.ACTIVE);
+        Random rng = new Random(draft.paperId().hashCode());
+
+        for (String targetDomain : domains) {
+            // Pick one eligible specialist bot in this domain without a pending follow-up
+            roomBots.stream()
+                    .filter(bot -> !bot.getId().toString().equals(draft.authorBotId()))
+                    .filter(bot -> {
+                        String json = bot.getLifecycleJson();
+                        if (json == null || json.isBlank()) return false;
+                        try {
+                            BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
+                            return targetDomain.equals(ls.getGenome() != null ? ls.getGenome().getDomain() : "")
+                                    && ls.getPendingFollowUp() == null;
+                        } catch (Exception e) { return false; }
+                    })
+                    .sorted(Comparator.comparingInt(b -> rng.nextInt())) // random selection
+                    .findFirst()
+                    .ifPresent(bot -> {
+                        String json = bot.getLifecycleJson();
+                        try {
+                            BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
+                            ls.setPendingFollowUp(new FollowUpParams(
+                                    draft.param1(), draft.param2(), null, "INTERDISCIPLINARY"));
+                            bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
+                            botRepository.save(bot);
+                            log.info("university bridge: interdisciplinary={} → {} bot={}",
+                                    draft.paperId(), targetDomain, bot.getId());
+                        } catch (Exception e) {
+                            log.warn("university bridge failed domain={}: {}", targetDomain, e.getMessage());
+                        }
+                    });
+        }
+    }
+
+    // ---- Replication and retraction ----
+
+    private void processReplication(UUID roomId, List<Researcher> pool, Random rng,
+                                     long gameTick, PopulationParams popParams) {
+        ReplicationRequest req = replicationQueue.peek();
+        if (req == null || !req.roomId().equals(roomId)) return;
+        replicationQueue.poll();
+
+        // Pick a replicator who is not the original author
+        Researcher replicator = pool.stream()
+                .filter(r -> !r.getBotId().equals(
+                        published.getOrDefault(roomId, List.of()).stream()
+                                .filter(p -> req.paperId().equals(p.paperId()))
+                                .map(ResearchPaper::authorBotId).findFirst().orElse("")))
+                .findFirst().orElse(pool.get(rng.nextInt(pool.size())));
+
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
+                replicator.getState().getGenome(), popParams.educationFactor());
+        MathPhysicsEngine.ResearchResult replicaResult = MathPhysicsEngine.compute(
+                req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
+        double replicaScore = MathPhysicsEngine.scoreResult(req.domain(), req.topicIndex(),
+                replicaResult.reviewValue(), sp);
+
+        double scoreDiff = Math.abs(req.originalScore() - replicaScore);
+        boolean failed = scoreDiff > REPLICATION_FAIL_THRESHOLD;
+        log.info("university replication paperId={} original={} replica={} diff={} failed={}",
+                req.paperId(), req.originalScore(), replicaScore, scoreDiff, failed);
+
+        if (failed) {
+            markPaperDisputed(roomId, req.paperId(), replicator.getBotId(), replicaScore);
+        }
+    }
+
+    private void markPaperDisputed(UUID roomId, String paperId,
+                                    String replicatorBotId, double replicaScore) {
+        List<ResearchPaper> papers = published.get(roomId);
+        if (papers == null) return;
+        synchronized (papers) {
+            for (int i = 0; i < papers.size(); i++) {
+                ResearchPaper p = papers.get(i);
+                if (!paperId.equals(p.paperId())) continue;
+                // Replace with DISPUTED status
+                ResearchPaper disputed = new ResearchPaper(
+                        p.paperId(), p.authorBotId(), p.domain(), p.topic(), p.title(),
+                        p.hypothesis(), p.methodology(), p.findings(),
+                        p.conclusion() + " [REPLICATION NOTE: Independent replication by bot-"
+                                + replicatorBotId.substring(0, 6)
+                                + " produced score " + String.format("%.3f", replicaScore)
+                                + " vs original " + String.format("%.3f", p.peerScore())
+                                + " — result is under dispute.]",
+                        p.reviewerBotIds(), p.peerScore(), "DISPUTED",
+                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore());
+                papers.set(i, disputed);
+                overwritePaperFile(roomId, disputed);
+                // Penalise original author's reputation
+                try {
+                    UUID authorId = UUID.fromString(p.authorBotId());
+                    botRepository.findById(authorId).ifPresent(bot -> {
+                        String json = bot.getLifecycleJson();
+                        if (json == null || json.isBlank()) return;
+                        try {
+                            BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
+                            ls.setReputation(Math.max(0.0, ls.getReputation() - 0.08));
+                            bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
+                            botRepository.save(bot);
+                        } catch (Exception e) {
+                            log.warn("dispute reputation penalty failed: {}", e.getMessage());
+                        }
+                    });
+                } catch (IllegalArgumentException ignored) {}
+                log.info("university paper DISPUTED paperId={}", paperId);
+                break;
+            }
+        }
+    }
+
+    // ---- Topic index resolution ----
+
+    private static int resolveTopicIndex(String domain, String topicName) {
+        String[] topics = switch (domain) {
+            case "PHYSICS"           -> new String[]{"Projectile Drag Optimisation", "Pendulum Breakdown Angle",
+                                                    "Van der Waals Crossover", "Diffraction Order Survey",
+                                                    "RLC Damping Transition"};
+            case "MATERIALS"         -> new String[]{"Composite Failure Mode", "Binary Sphere Packing",
+                                                    "Stiffness Crossover Volume Fraction", "Arrhenius Rule Validity",
+                                                    "Thermal Stress Safety Window"};
+            case "INTERDISCIPLINARY" -> new String[]{"Collatz-RLC Depth Resonance", "Prime-Gap Defect Thermal Loading",
+                                                    "Resonant Thermal Fatigue Window", "Happy-Number Packing Anomaly",
+                                                    "Van-der-Waals Composite Crossover"};
+            default                  -> new String[]{"Prime Constellation Search", "Collatz Stopping Time",
+                                                    "Goldbach Partition Survey", "Aliquot Sequence Behaviour",
+                                                    "Happy Number Distribution"};
+        };
+        for (int i = 0; i < topics.length; i++) {
+            if (topics[i].equalsIgnoreCase(topicName)) return i;
+        }
+        return -1;
     }
 
     // ---- Public API ----
@@ -227,10 +458,17 @@ public class UniversityService {
         if (!pool.isEmpty()) {
             if (draftQueueSize.get() < MAX_DRAFT_BACKLOG) {
                 Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
-                runResearchCycle(roomId, pool, rng, gameTick);
+                runResearchCycle(roomId, pool, rng, gameTick, params);
             } else {
                 log.debug("university skipping research cycle — draft backlog={}", draftQueueSize.get());
             }
+        }
+
+        // Replication pass — one pending request per tick, uses the qualified researcher pool
+        List<Researcher> poolForReplication = buildResearcherPool(bots, states);
+        if (!poolForReplication.isEmpty()) {
+            Random rng2 = new Random(gameTick * 7919L + roomId.getMostSignificantBits());
+            processReplication(roomId, poolForReplication, rng2, gameTick, params);
         }
 
         // Dating pass with dynamic K and cooldown
@@ -264,6 +502,7 @@ public class UniversityService {
         List<ResearchPaper> papers = published.getOrDefault(roomId, List.of());
         Map<String, Long> byDomain = papers.stream()
                 .collect(Collectors.groupingBy(ResearchPaper::domain, Collectors.counting()));
+        long disputed = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
 
         OptionalDouble avgScore = papers.stream().mapToDouble(ResearchPaper::peerScore).average();
         int maxGen = states.values().stream()
@@ -285,6 +524,8 @@ public class UniversityService {
         stats.put("avgPeerScore",      avgScore.isPresent()
                 ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
         stats.put("byDomain",          byDomain);
+        stats.put("disputed",          disputed);
+        stats.put("replicationPending", replicationQueue.size());
         return stats;
     }
 
@@ -329,7 +570,7 @@ public class UniversityService {
         double fillRatio = K > 0 ? Math.min(1.0, (double) bots.size() / K) : 1.0;
         long datingCooldown = (long)(200 + fillRatio * fillRatio * 1800);
 
-        return new PopulationParams(K, adultToElder, datingCooldown, stdDev, fillRatio);
+        return new PopulationParams(K, adultToElder, datingCooldown, stdDev, fillRatio, educationFactor);
     }
 
     // ---- Lifecycle: competency test ----
@@ -459,7 +700,8 @@ public class UniversityService {
 
     // ---- Research cycle ----
 
-    private void runResearchCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick) {
+    private void runResearchCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick,
+                                  PopulationParams popParams) {
         Researcher author = tournamentSelect(pool, rng);
 
         DynamicProblem directive = author.getState().getPendingDirective();
@@ -506,7 +748,8 @@ public class UniversityService {
             }
         }
 
-        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
+                author.getState().getGenome(), popParams.educationFactor());
         MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
 
         boolean authorError         = rng.nextDouble() < author.errorRate();
@@ -853,6 +1096,25 @@ public class UniversityService {
         return max;
     }
 
+    /** Overwrite a paper's markdown file in-place — used when status changes to DISPUTED. */
+    private void overwritePaperFile(UUID roomId, ResearchPaper paper) {
+        try {
+            Path roomDir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
+            String topicSlug = paper.topic().toLowerCase()
+                    .replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+            String dateStr = FILE_DATE_FMT.format(paper.publishedAt());
+            String filename = "%s_%s_%s_%s.md"
+                    .formatted(dateStr, paper.domain().toLowerCase(), topicSlug, paper.paperId());
+            Path file = roomDir.resolve(filename);
+            if (Files.exists(file)) {
+                Files.writeString(file, formatPaperAsMarkdown(roomId, paper));
+                log.debug("university paper file overwritten paperId={} status={}", paper.paperId(), paper.status());
+            }
+        } catch (IOException e) {
+            log.warn("Failed to overwrite paper file {}: {}", paper.paperId(), e.getMessage());
+        }
+    }
+
     private void writePaperToFile(UUID roomId, ResearchPaper paper) {
         try {
             // Directory: research/<roomId-prefix>/
@@ -875,6 +1137,11 @@ public class UniversityService {
     }
 
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
+        boolean disputed = "DISPUTED".equals(paper.status());
+        String disputedBanner = disputed
+                ? "\n> ⚠ **UNDER DISPUTE** — Independent replication produced a divergent result. "
+                  + "This paper's findings are under review.\n"
+                : "";
         return """
                 # %s
 
@@ -884,10 +1151,11 @@ public class UniversityService {
                 **Domain**: %s  |  **Topic**: %s
                 **Methodology**: %s
                 **Peer Score**: %.3f%s
+                **Status**: %s
                 **Generation**: %d
                 **Author**: %s
                 **Reviewers**: %s
-
+                %s
                 ---
 
                 ## Hypothesis
@@ -911,9 +1179,11 @@ public class UniversityService {
                 paper.peerScore(),
                 Math.abs(paper.anomalyZScore()) >= 1.5
                         ? "  ⚑ anomaly z=%.2f".formatted(paper.anomalyZScore()) : "",
+                paper.status(),
                 paper.generation(),
                 paper.authorBotId(),
                 String.join(", ", paper.reviewerBotIds()),
+                disputedBanner,
                 paper.hypothesis(),
                 paper.findings(),
                 paper.conclusion());
