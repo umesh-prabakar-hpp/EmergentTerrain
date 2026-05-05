@@ -24,7 +24,7 @@ import java.util.UUID;
  */
 public class BotGenome {
 
-    public static final String[] DOMAINS      = {"MATHEMATICS", "PHYSICS", "MATERIALS"};
+    public static final String[] DOMAINS      = {"MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY"};
     public static final String[] METHODOLOGIES = {"THEORETICAL", "COMPUTATIONAL", "EMPIRICAL"};
     static final int TOPIC_COUNT = 5;
 

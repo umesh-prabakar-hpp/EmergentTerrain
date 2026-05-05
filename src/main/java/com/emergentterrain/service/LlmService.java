@@ -57,10 +57,11 @@ public class LlmService {
     // Four independent semaphores — none can block another from checking its slot.
     // streamSlot/genomeSlot allow 2 concurrent requests each when OLLAMA_NUM_PARALLEL >= 3.
     // consultSlot and narrationSlot stay at 1 (sync call and sequential paper pipeline).
-    private final Semaphore consultSlot   = new Semaphore(1);  // policy consultation (sync)
-    private final Semaphore streamSlot    = new Semaphore(2);  // government digest (async stream)
-    private final Semaphore genomeSlot    = new Semaphore(2);  // genome mentoring (async stream)
-    private final Semaphore narrationSlot = new Semaphore(1);  // paper narration — one at a time
+    private final Semaphore consultSlot      = new Semaphore(1);  // policy consultation (sync)
+    private final Semaphore streamSlot       = new Semaphore(2);  // government digest (async stream)
+    private final Semaphore genomeSlot       = new Semaphore(2);  // genome mentoring (async stream)
+    private final Semaphore narrationSlot    = new Semaphore(1);  // paper narration — one at a time
+    private final Semaphore formulationSlot  = new Semaphore(1);  // pre-computation formulation (sync)
 
     // Genome mentoring requests are queued — they must not be shed (earned reward).
     private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue     = new ConcurrentLinkedQueue<>();
@@ -93,10 +94,20 @@ public class LlmService {
         if (university != null) {
             university.setMentoringCallback(this::enqueueGenomeMentoring);
             university.setNarratingCallback(this::enqueueNarration);
+            university.setFormulationCallback(args -> {
+                String domain         = (String) args[0];
+                String topicName      = (String) args[1];
+                BotGenome genome      = (BotGenome) args[2];
+                @SuppressWarnings("unchecked")
+                List<ResearchPaper> papers = (List<ResearchPaper>) args[3];
+                return formulateResearch(domain, topicName, genome, papers);
+            });
             this.narrationPublisher = university::publishPaper;
-            log.info("LlmService: genome mentoring + paper narration callbacks wired to UniversityService");
+            log.info("LlmService: genome mentoring + narration + formulation callbacks wired to UniversityService");
         }
     }
+
+    public record FormulationResult(int param1, double param2, String researchQuestion) {}
 
     // --- Public triggers ---
 
@@ -192,6 +203,101 @@ public class LlmService {
         }
     }
 
+    // --- Research formulation (pre-computation LLM step) ---
+
+    /**
+     * Synchronous pre-computation step: LLM chooses specific param1/param2 values and a
+     * research question based on the bot's learned search region and prior papers in this
+     * domain+topic. Returns null immediately if the formulation slot is busy — caller
+     * falls back to genome sampling in that case.
+     */
+    public FormulationResult formulateResearch(String domain, String topicName,
+                                               BotGenome genome, List<ResearchPaper> priorPapers) {
+        if (!formulationSlot.tryAcquire()) {
+            log.debug("LLM formulation slot busy — falling back to genome sampling");
+            return null;
+        }
+        long start = System.currentTimeMillis();
+        try {
+            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers);
+            String response = chatClient.prompt().user(prompt).call().content();
+            log.info("LLM formulation done domain={} topic={} ms={}", domain, topicName,
+                    System.currentTimeMillis() - start);
+            return parseFormulationResult(response);
+        } catch (Exception e) {
+            log.warn("LLM formulation failed domain={} topic={} ms={}: {}", domain, topicName,
+                    System.currentTimeMillis() - start, e.getMessage());
+            return null;
+        } finally {
+            formulationSlot.release();
+        }
+    }
+
+    private String buildFormulationPrompt(String domain, String topicName,
+                                          BotGenome genome, List<ResearchPaper> priorPapers) {
+        int center1 = genome.getParamCenter1();
+        double center2 = genome.getParamCenter2();
+        int radius1 = genome.getParamRadius1();
+        double radius2 = genome.getParamRadius2();
+
+        StringBuilder priorWork = new StringBuilder();
+        priorPapers.stream()
+                .filter(p -> p.domain().equalsIgnoreCase(domain)
+                          && p.topic().equalsIgnoreCase(topicName))
+                .limit(4)
+                .forEach(p -> priorWork.append("  %s [score %.2f]: %s\n"
+                        .formatted(p.paperId(), p.peerScore(),
+                                p.findings().length() > 120
+                                        ? p.findings().substring(0, 120) + "…"
+                                        : p.findings())));
+        String priorSection = priorWork.isEmpty()
+                ? "  (no prior papers in this topic yet — choose a fresh starting region)\n"
+                : priorWork.toString();
+
+        return """
+                You are a research advisor choosing where a computational researcher should focus next.
+
+                Domain: %s | Topic: %s
+                Researcher's learned search region: param1 center=%d (±%d), param2 center=%.1f (±%.1f)
+                param1 is an integer 10–99 (controls the starting position of the search space).
+                param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
+
+                Prior papers in this topic:
+                %s
+                Based on the prior work, choose a specific unexplored or promising parameter region
+                within or near the researcher's learned search region. Explain the research question
+                this choice targets in one sentence.
+
+                Reply with ONLY this JSON, no other text:
+                {"param1":N,"param2":X.X,"question":"one sentence stating the specific research question"}
+
+                param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
+                Choose values that differ from or extend what prior papers have already explored.
+                """.formatted(domain, topicName, center1, radius1, center2, radius2, priorSection.trim());
+    }
+
+    private FormulationResult parseFormulationResult(String response) {
+        if (response == null || response.isBlank()) return null;
+        int start = response.indexOf('{');
+        int end   = response.lastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode root =
+                    objectMapper.readTree(response.substring(start, end + 1));
+            int    p1 = root.path("param1").asInt(-1);
+            double p2 = root.path("param2").asDouble(-1.0);
+            String q  = root.path("question").asText(null);
+            if (p1 < 10 || p1 > 99 || p2 < 1.0 || p2 > 9.0) {
+                log.debug("LLM formulation: params out of range (param1={}, param2={}) — discarded", p1, p2);
+                return null;
+            }
+            return new FormulationResult(p1, p2, q);
+        } catch (Exception e) {
+            log.warn("LLM formulation: JSON parse failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
     // --- Paper narration ---
 
     /**
@@ -259,12 +365,38 @@ public class LlmService {
                         .formatted(draft.param1(), draft.param2())
                 : "";
 
-        String followUpNote = draft.isFollowUp()
-                ? "IMPORTANT: This paper is a deliberate follow-up investigation — the author's " +
-                  "prior conclusion suggested this exact parameter region. Acknowledge the chain: " +
-                  "reference a prior paper by ID, state what was predicted, and report whether " +
-                  "this result confirms, refines, or surprises that prediction.\n"
-                : "";
+        String followUpNote;
+        if (draft.isFollowUp()) {
+            String predNote = (draft.predictedScore() != null)
+                    ? " The prior paper predicted a quality score of ~%.2f for this region; actual score is %.2f. Explicitly compare prediction to outcome."
+                            .formatted(draft.predictedScore(), draft.peerScore())
+                    : "";
+            String methodChain = (draft.priorMethodology() != null)
+                    ? " Prior paper used %s methodology; this paper uses %s — acknowledge the methodological progression if relevant."
+                            .formatted(draft.priorMethodology(), draft.methodology())
+                    : "";
+            followUpNote = "IMPORTANT: This paper is a deliberate follow-up investigation — the author's "
+                    + "prior conclusion suggested this exact parameter region. Acknowledge the chain: "
+                    + "reference a prior paper by ID, state what was predicted, and report whether "
+                    + "this result confirms, refines, or surprises that prediction."
+                    + predNote + methodChain + "\n";
+        } else {
+            followUpNote = "";
+        }
+
+        String anomalyNote;
+        double absZ = Math.abs(draft.anomalyZScore());
+        if (absZ >= 2.5) {
+            anomalyNote = (draft.anomalyZScore() > 0
+                    ? "DISCOVERY CONTEXT: This result is anomalously strong (z=+%.1f σ above the room's historical distribution for this topic). Frame the conclusion as a notable discovery, not a routine survey. Explain what makes this region special."
+                    : "NOTE: This result is anomalously weak (z=%.1f σ, unusually below the room average for this topic). The conclusion should acknowledge the unexpected underperformance and suggest why this region may be structurally less productive.")
+                    .formatted(draft.anomalyZScore()) + "\n";
+        } else if (absZ >= 1.5) {
+            anomalyNote = "NOTE: This result sits at z=%.1f σ from the room baseline — moderately noteworthy. Mention whether the result is stronger or weaker than typical for this topic.\n"
+                    .formatted(draft.anomalyZScore());
+        } else {
+            anomalyNote = "";
+        }
 
         String scaffoldHyp = (draft.templateHypothesis() != null && !draft.templateHypothesis().isBlank())
                 ? draft.templateHypothesis() : "(none)";
@@ -277,7 +409,7 @@ public class LlmService {
                 Domain: %s | Topic: %s | Methodology: %s
                 Title: "%s"
                 Bot generation: %d
-                %s%s
+                %s%s%s
                 Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
                 tables or copy individual values:
                 %s
@@ -298,18 +430,19 @@ public class LlmService {
                 interpreting the pattern or trend — its significance and what it suggests; \
                 cite a prior paper by ID if relevant","conclusion":"1-2 sentences: what this \
                 result implies and one concrete open question it raises",\
-                "followUp":{"param1":N,"param2":X.X}}
+                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30}}
 
                 followUp rules: ONLY include followUp if the prior papers reveal a specific \
                 unexplored parameter region worth targeting next. param1 is an integer 10–99 \
                 (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
-                If no clear follow-up region emerges from the data, OMIT the followUp field entirely.
+                predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
+                result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
                 All text values under 120 words each. Plain prose inside JSON strings only — \
                 no bullet points, no sub-headers, no markdown formatting.
                 """.formatted(
                 draft.domain(), draft.topicName(), draft.methodology(),
                 draft.title(), draft.generation(),
-                paramsLine, followUpNote,
+                paramsLine, followUpNote, anomalyNote,
                 compactRawFindings(draft.rawFindings()),
                 scaffoldHyp,
                 scaffoldCon,
@@ -382,7 +515,9 @@ public class LlmService {
                 int    p1 = fuNode.path("param1").asInt(-1);
                 double p2 = fuNode.path("param2").asDouble(-1.0);
                 if (p1 >= 10 && p1 <= 99 && p2 >= 1.0 && p2 <= 9.0) {
-                    followUp = new FollowUpParams(p1, p2);
+                    double ps = fuNode.path("predictedScore").asDouble(-1.0);
+                    Double predictedScore = (ps >= 0.0 && ps <= 1.0) ? ps : null;
+                    followUp = new FollowUpParams(p1, p2, predictedScore, null);
                 } else {
                     log.debug("LLM narration: followUp out of range (param1={}, param2={}) — discarded", p1, p2);
                 }

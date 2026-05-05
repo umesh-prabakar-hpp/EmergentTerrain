@@ -159,6 +159,13 @@ public class MathPhysicsEngine {
             "Stiffness Crossover Volume Fraction", "Arrhenius Rule Validity",
             "Thermal Stress Safety Window"
     };
+    private static final String[] INTERDISCIPLINARY_TOPICS = {
+            "Collatz-RLC Depth Resonance",        // Math→Physics: Collatz depth drives RLC inductance
+            "Prime-Gap Defect Thermal Loading",    // Math→Materials: prime gap → crystal defect spacing
+            "Resonant Thermal Fatigue Window",     // Physics→Materials: RLC frequency → thermal cycling
+            "Happy-Number Packing Anomaly",        // Math→Materials: happy density → sphere packing seed
+            "Van-der-Waals Composite Crossover"    // Physics→Materials: VdW pressure → composite stress
+    };
 
     // ---- Title tables (2 options per topic for variety) ----
 
@@ -183,6 +190,13 @@ public class MathPhysicsEngine {
             {"Activation Energy Range for Van't Hoff Rule Validity", "When Does the 2×-per-10K Approximation Break Down?"},
             {"Maximum Safe CTE Before Thermal Stress Exceeds Yield", "Temperature-Rise Safety Window for Constrained Structural Materials"}
     };
+    private static final String[][] INTERDISCIPLINARY_TITLES = {
+            {"Collatz Trajectory Depth as an RLC Inductance Driver", "Number-Theoretic Resonance: 3n+1 Depth Governs Circuit Frequency"},
+            {"Prime-Gap Defect Spacing and Thermal Yield Onset", "Crystal Defect Periodicity Derived from Prime Constellation Gaps"},
+            {"Resonant Frequency as a Thermal Cycling Rate in Composites", "From RLC Oscillation to Fibre Fatigue: A Cross-Domain Study"},
+            {"Happy Number Density Modulating Binary Packing Efficiency", "Digit-Square Convergence as a Structural Disorder Proxy"},
+            {"Van der Waals Pressure Threshold Governing Composite Stress Onset", "Real-Gas Behaviour as a Mechanical Loading Analogue"}
+    };
 
     // ---- Public API ----
 
@@ -190,9 +204,10 @@ public class MathPhysicsEngine {
     public static ResearchResult compute(String domain, int topicIndex,
                                          int param1, double param2, SearchParams sp) {
         return switch (domain) {
-            case "PHYSICS"   -> computePhysics(topicIndex % 5, param1, param2, sp);
-            case "MATERIALS" -> computeMaterials(topicIndex % 5, param1, param2, sp);
-            default          -> computeMath(topicIndex % 5, param1, param2, sp);
+            case "PHYSICS"           -> computePhysics(topicIndex % 5, param1, param2, sp);
+            case "MATERIALS"         -> computeMaterials(topicIndex % 5, param1, param2, sp);
+            case "INTERDISCIPLINARY" -> computeInterdisciplinary(topicIndex % 5, param1, param2, sp);
+            default                  -> computeMath(topicIndex % 5, param1, param2, sp);
         };
     }
 
@@ -248,25 +263,32 @@ public class MathPhysicsEngine {
             case "MATERIALS:1"   -> 0.1;     // sphere packing improvement% (~0.02-0.15)
             case "MATERIALS:2"   -> 0.4;     // stiffness crossover Vf-0.5 (~0.3-0.5)
             case "MATERIALS:3"   -> 3.0;     // Arrhenius worstDev (~0.5-10)
-            case "DYNAMIC:0"     -> 0.1;     // dynamic problem deviation score
+            case "DYNAMIC:0"             -> 0.1;
+            case "INTERDISCIPLINARY:0"   -> 2000.0;  // RLC f₀ driven by Collatz depth (~200-8000 Hz)
+            case "INTERDISCIPLINARY:1"   -> 500.0;   // composite stress from prime-gap alpha (~100-2000 MPa)
+            case "INTERDISCIPLINARY:2"   -> 0.6;     // fatigue fraction driven by RLC frequency (~0.2-0.9)
+            case "INTERDISCIPLINARY:3"   -> 0.05;    // packing improvement modulated by happy density (~0.01-0.15)
+            case "INTERDISCIPLINARY:4"   -> 8000.0;  // composite stress triggered by VdW pressure onset (~1000-15000 MPa)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
 
     public static String topicName(String domain, int topicIndex) {
         String[] names = switch (domain) {
-            case "PHYSICS"   -> PHYSICS_TOPICS;
-            case "MATERIALS" -> MATERIALS_TOPICS;
-            default          -> MATH_TOPICS;
+            case "PHYSICS"           -> PHYSICS_TOPICS;
+            case "MATERIALS"         -> MATERIALS_TOPICS;
+            case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS;
+            default                  -> MATH_TOPICS;
         };
         return names[topicIndex % names.length];
     }
 
     public static String generateTitle(String domain, int topicIndex, java.util.Random rng) {
         String[][] table = switch (domain) {
-            case "PHYSICS"   -> PHYSICS_TITLES;
-            case "MATERIALS" -> MATERIALS_TITLES;
-            default          -> MATH_TITLES;
+            case "PHYSICS"           -> PHYSICS_TITLES;
+            case "MATERIALS"         -> MATERIALS_TITLES;
+            case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TITLES;
+            default                  -> MATH_TITLES;
         };
         String[] row = table[topicIndex % table.length];
         return row[rng.nextInt(row.length)];
@@ -347,6 +369,21 @@ public class MathPhysicsEngine {
                 yield "For a fully constrained steel member (E=200 GPa) subject to ΔT=%.0f K, there exists a critical CTE α_c below which thermal stress stays under yield; common engineering materials cluster near this boundary."
                         .formatted(dT);
             }
+            case "INTERDISCIPLINARY:0" ->
+                "Collatz stopping depth at n=%d will map to an RLC inductance that produces a measurable resonant frequency; deeper trajectories will yield lower-frequency circuits."
+                        .formatted(param1 * 3);
+            case "INTERDISCIPLINARY:1" ->
+                "Prime constellation gaps near %d will act as crystal defect spacings; wider gaps (rarer primes) will produce lower effective CTE and safer thermal stress."
+                        .formatted(param1 * 10);
+            case "INTERDISCIPLINARY:2" ->
+                "The RLC resonant frequency for an inductance derived from param1=%d will drive thermal cycling; high-frequency circuits will push a majority of structural materials past their yield threshold."
+                        .formatted(param1);
+            case "INTERDISCIPLINARY:3" ->
+                "Happy number density near %d will deviate from the 14.3%% asymptotic in a way that measurably modulates small-sphere packing efficiency in binary FCC lattices."
+                        .formatted(param1 * 7);
+            case "INTERDISCIPLINARY:4" ->
+                "Van der Waals crossover pressure for CO₂ at temperature derived from param1=%d, treated as a mechanical pressure, will drive composite longitudinal stress above 3 GPa."
+                        .formatted(param1);
             default ->
                 "The observed values are consistent with theoretical predictions under standard boundary conditions.";
         };
@@ -1062,6 +1099,232 @@ public class MathPhysicsEngine {
                 failFraction, critAlpha, safe)
                 .withHypothesis("For a fully constrained steel member with ΔT=%.0f K and σ_Y=%.0f MPa, there is a critical CTE α_c below which thermal stress remains below yield."
                         .formatted(deltaT, sigmaYMPa));
+    }
+
+    // ---- Interdisciplinary (chained cross-domain computation) ----
+
+    private static ResearchResult computeInterdisciplinary(int topic, int param1, double param2,
+                                                            SearchParams sp) {
+        return switch (topic) {
+            case 0 -> collatzRlcDepthResonance(param1, param2, sp);
+            case 1 -> primeGapDefectThermal(param1, param2, sp);
+            case 2 -> resonantThermalFatigue(param1, param2, sp);
+            case 3 -> happyPackingAnomaly(param1, param2, sp);
+            default -> vanDerWaalsCompositeStress(param1, param2, sp);
+        };
+    }
+
+    /**
+     * Math→Physics chain: Collatz stopping time at n=param1*3 determines inductance
+     * L = depth/10000 H; that L drives an RLC resonance survey.
+     * Cross-domain claim: number-theoretic trajectory depth has a measurable analogue
+     * in circuit resonance — deeper Collatz sequences produce lower-frequency RLC circuits.
+     */
+    private static ResearchResult collatzRlcDepthResonance(int param1, double param2,
+                                                            SearchParams sp) {
+        int best = 0;
+        double bestF0 = 0;
+        int bestDepth = 0, bestN = param1 * 3;
+        StringBuilder mathSb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int n = Math.max(2, param1 * 3 + (int)(i * sp.stepSize() * 10));
+            int depth = collatzSteps(n);
+            double L = Math.max(1e-5, depth / 10000.0);
+            double C = 1e-6 + param2 * 1e-7;
+            double f0 = 1.0 / (2 * Math.PI * Math.sqrt(L * C));
+            if (f0 > bestF0) { bestF0 = f0; bestDepth = depth; bestN = n; }
+            if (i < 4) mathSb.append("n=%d→depth=%d→f₀=%.0fHz ".formatted(n, depth, f0));
+        }
+        double L_best = Math.max(1e-5, bestDepth / 10000.0);
+        double C = 1e-6 + param2 * 1e-7;
+        double critR = 2 * Math.sqrt(L_best / C);
+        boolean deepMeansLow = bestDepth > 50 && bestF0 < 5000;
+        ClaimStatus status = deepMeansLow ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = "Collatz depth %d at n=%d maps to L=%.4f H; resonant frequency f₀=%.0f Hz, R_crit=%.2f Ω. %s"
+                .formatted(bestDepth, bestN, L_best, bestF0, critR,
+                        deepMeansLow ? "Deep trajectories yield sub-5 kHz circuits — cross-domain relationship confirmed."
+                                     : "Cross-domain relationship is suggestive but not monotone in the searched range.");
+        return new ResearchResult(
+                "Collatz→RLC chain (param1=%d, C=%.2e F): best_n=%d depth=%d → L=%.4f H → f₀=%.0f Hz, R_crit=%.2f Ω. Sample chain: %s"
+                        .formatted(param1, C, bestN, bestDepth, L_best, bestF0, critR, mathSb.toString().trim()),
+                bestF0, bestDepth, critR, bestF0, status, assessment)
+                .withHypothesis("Collatz stopping depth at n=%d (depth=%d) maps to circuit inductance L=%.4f H; the resulting RLC resonance f₀=%.0f Hz quantifies how number-theoretic complexity translates to physical frequency."
+                        .formatted(bestN, bestDepth, L_best, bestF0));
+    }
+
+    /**
+     * Math→Materials chain: prime constellation max gap in a window seeded by param1
+     * is interpreted as a crystal defect spacing (in µm), driving a thermal stress model.
+     */
+    private static ResearchResult primeGapDefectThermal(int param1, double param2,
+                                                         SearchParams sp) {
+        double bestStress = 0;
+        int bestGap = 0, bestStart = param1 * 10;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(2, param1 * 10 + (int)(i * sp.stepSize() * 50));
+            int end = start + 60;
+            int maxGap = 2;
+            int prev = -1;
+            for (int n = start; n < end; n++) {
+                if (isPrime(n)) { if (prev > 0) maxGap = Math.max(maxGap, n - prev); prev = n; }
+            }
+            // Defect spacing in µm = maxGap; CTE increases with defect density (1/spacing)
+            double alpha = 5.0 + 20.0 / maxGap;
+            double deltaT = 200 + param2 * 30;
+            double E = 200e3;
+            double stress = alpha * 1e-6 * E * deltaT;
+            if (stress > bestStress) { bestStress = stress; bestGap = maxGap; bestStart = start; }
+            if (i < 4) sb.append("[%d,%d)gap=%d→σ=%.0fMPa ".formatted(start, end, maxGap, stress));
+        }
+        double threshold = 200.0 + param2 * 30;
+        boolean yieldExceeded = bestStress > threshold;
+        ClaimStatus status = yieldExceeded ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = "Best prime gap %d in range starting %d → effective CTE α=%.2f µm/(m·K) → stress=%.0f MPa (yield threshold ~%.0f MPa). %s"
+                .formatted(bestGap, bestStart, 5.0 + 20.0 / bestGap, bestStress, threshold,
+                        yieldExceeded ? "Yield exceeded — prime-gap-derived defect spacing produces critical thermal loading."
+                                      : "Stress below yield — this prime-gap spacing is a safe defect density.");
+        return new ResearchResult(
+                "Prime-gap→Thermal chain: sample windows: %s Best: gap=%d → α=%.2f µm/(m·K) → σ=%.0f MPa at ΔT=%.0f K."
+                        .formatted(sb.toString().trim(), bestGap, 5.0 + 20.0 / bestGap, bestStress,
+                                200 + param2 * 30),
+                bestStress, bestGap, 5.0 + 20.0 / bestGap, bestStress, status, assessment)
+                .withHypothesis("Prime constellation gaps near %d map to crystal defect spacings; wider gaps (rarer primes) produce lower effective CTE and safer thermal stress."
+                        .formatted(param1 * 10));
+    }
+
+    /**
+     * Physics→Materials chain: RLC resonant frequency for given L (param1-derived) and C
+     * becomes the thermal cycling frequency; materials are tested against fatigue failure.
+     * High-frequency cycling exhausts thermal fatigue allowance faster.
+     */
+    private static ResearchResult resonantThermalFatigue(int param1, double param2,
+                                                          SearchParams sp) {
+        double bestFatigueFrac = 0;
+        double bestF0 = 0, bestL = 0;
+        StringBuilder sb = new StringBuilder();
+        double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50};
+        String[] labels = {"Invar", "Steel", "Cu", "Al", "Al(soft)", "Brass", "Al-alloy", "Zn", "PVC"};
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double L = Math.max(1e-5, (0.001 + param1 / 10000.0) / (1.0 + i * sp.stepSize() * 0.2));
+            double C = 1e-6 + param2 * 1e-7;
+            double f0 = 1.0 / (2 * Math.PI * Math.sqrt(L * C));
+            // Thermal cycling: each oscillation is one load cycle; material fatigue limit ~10^6 cycles
+            // Higher f0 → fatigue limit reached sooner; fatigue fraction = f0 / 1e6 (scaled)
+            double deltaT = 10.0 + f0 / 1000.0;
+            double E = 200e3;
+            int failed = 0;
+            for (double alpha : alphas) {
+                double stress = alpha * 1e-6 * E * deltaT;
+                if (stress > 200) failed++;
+            }
+            double fatigueFrac = (double) failed / alphas.length;
+            if (fatigueFrac > bestFatigueFrac) {
+                bestFatigueFrac = fatigueFrac; bestF0 = f0; bestL = L;
+            }
+            if (i < 4) sb.append("L=%.4fH→f₀=%.0fHz→fail=%d/%d ".formatted(L, f0, failed, alphas.length));
+        }
+        boolean criticalFatigue = bestFatigueFrac >= 0.5;
+        ClaimStatus status = criticalFatigue ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = "At f₀=%.0f Hz (L=%.4f H), %.0f%% of materials exceed 200 MPa yield under resonance-driven thermal loading. %s"
+                .formatted(bestF0, bestL, bestFatigueFrac * 100,
+                        criticalFatigue ? "Majority of materials reach critical fatigue — resonant coupling is structurally significant."
+                                        : "Minority of materials fail — resonance-driven fatigue is material-selective.");
+        return new ResearchResult(
+                "RLC→Fatigue chain: sample circuits: %s Best: f₀=%.0f Hz (L=%.4f H) → thermal ΔT=%.1f K/cycle → %.0f%% materials exceed yield."
+                        .formatted(sb.toString().trim(), bestF0, bestL, 10 + bestF0 / 1000.0,
+                                bestFatigueFrac * 100),
+                bestFatigueFrac, bestF0, bestL, bestFatigueFrac, status, assessment)
+                .withHypothesis("RLC resonant frequency for L derived from param1=%d governs the thermal cycling rate; higher frequencies push more materials past their 200 MPa yield threshold."
+                        .formatted(param1));
+    }
+
+    /**
+     * Math→Materials chain: happy number density in a window seeded by param1 modulates
+     * the small-sphere radius in binary FCC sphere packing.
+     * Happy density above the 14.3% asymptotic is mapped to a denser packing improvement.
+     */
+    private static ResearchResult happyPackingAnomaly(int param1, double param2, SearchParams sp) {
+        double bestImprovement = 0;
+        double bestDensity = 0.143;
+        int bestStart = param1 * 7;
+        StringBuilder sb = new StringBuilder();
+        double etaFCC = Math.PI / (3 * Math.sqrt(2));
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(1, param1 * 7 + (int)(i * sp.stepSize() * 200));
+            int count = 80 + (int)(param2 * 20);
+            int happy = 0;
+            for (int n = start; n < start + count; n++) if (isHappy(n)) happy++;
+            double density = (double) happy / count;
+            // Density deviation drives the small-sphere radius: r = 0.2 + 0.3*(density/0.143)
+            double r = Math.min(0.45, 0.2 + 0.3 * (density / 0.143));
+            double voidVol = r <= 0.4142 ? (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
+            double improvement = (voidVol * etaFCC / ((4.0 / 3) * Math.PI)) * 100;
+            if (improvement > bestImprovement) {
+                bestImprovement = improvement; bestDensity = density; bestStart = start;
+            }
+            if (i < 4) sb.append("[%d]happy=%.3f→r=%.3f→+%.2f%% ".formatted(start, density, r, improvement));
+        }
+        double r_best = Math.min(0.45, 0.2 + 0.3 * (bestDensity / 0.143));
+        boolean anomalous = bestDensity > 0.155 || bestDensity < 0.130;
+        ClaimStatus status = anomalous ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = "Best window [%d]: happy density=%.3f → small-sphere r=%.3f → packing +%.3f%% over FCC. %s"
+                .formatted(bestStart, bestDensity, r_best, bestImprovement,
+                        anomalous ? "Density anomaly detected — above/below 14.3% asymptotic; modulated packing improvement is statistically notable."
+                                  : "Density near asymptotic — packing improvement follows expected baseline; no strong anomaly.");
+        return new ResearchResult(
+                "Happy→Packing chain: sample windows: %s Best: density=%.3f at [%d] → r=%.3f → FCC improvement=%.3f%%."
+                        .formatted(sb.toString().trim(), bestDensity, bestStart, r_best, bestImprovement),
+                bestImprovement / 100.0, bestDensity, r_best, bestImprovement / 100.0, status, assessment)
+                .withHypothesis("Happy number density near %d modulates small-sphere radius in binary FCC packing; windows with density anomalies above the 14.3%% asymptotic produce measurably different packing efficiency."
+                        .formatted(param1 * 7));
+    }
+
+    /**
+     * Physics→Materials chain: Van der Waals crossover pressure (where CO₂ departs >1% from ideal)
+     * at temperature T derived from param1 is used as a proxy mechanical pressure loading a fibre composite.
+     */
+    private static ResearchResult vanDerWaalsCompositeStress(int param1, double param2,
+                                                              SearchParams sp) {
+        double bestStress = 0;
+        double bestCrossoverP = -1, bestT = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(150, 200 + param1 * 3.0 + i * sp.stepSize() * 20);
+            double a = 3.640, b = 0.04267, R = 0.08206;
+            double crossoverP = -1;
+            for (int p = 1; p <= 100; p++) {
+                double P = p, Videal = R * T / P, V = Videal;
+                for (int iter = 0; iter < 20; iter++) {
+                    double f  = (P + a / (V * V)) * (V - b) - R * T;
+                    double df = (P + a / (V * V)) - 2 * a * (V - b) / (V * V * V);
+                    if (Math.abs(df) < 1e-15) break;
+                    V -= f / df;
+                    if (V <= b) { V = b * 1.01; break; }
+                }
+                double dev = Math.abs(V - Videal) / Videal;
+                if (dev > 0.01 && crossoverP < 0) { crossoverP = p; break; }
+            }
+            // Treat crossover pressure (atm) as MPa loading on a composite
+            double Ef = 200e3, Em = 3e3, Vf = 0.3 + param2 * 0.05;
+            double EL = Vf * Ef + (1 - Vf) * Em;
+            double stress = crossoverP > 0 ? crossoverP * EL / 1000.0 : 0;
+            if (stress > bestStress) { bestStress = stress; bestCrossoverP = crossoverP; bestT = T; }
+            if (i < 4 && crossoverP > 0) sb.append("T=%.0fK→P_c=%.0fatm→σ=%.0fMPa ".formatted(T, crossoverP, stress));
+        }
+        boolean highStress = bestStress > 3000;
+        ClaimStatus status = highStress ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = "At T=%.0f K, VdW crossover at P_c=%.0f atm → composite longitudinal stress=%.0f MPa (Vf=%.2f). %s"
+                .formatted(bestT, bestCrossoverP > 0 ? bestCrossoverP : 0, bestStress,
+                        0.3 + param2 * 0.05,
+                        highStress ? "Crossover-driven stress exceeds 3 GPa — Van der Waals pressure onset is mechanically critical for this composite geometry."
+                                   : "Stress below 3 GPa threshold — VdW crossover at this temperature does not critically load the composite.");
+        return new ResearchResult(
+                "VdW→Composite chain: sample results: %s Best: T=%.0f K → P_c=%.0f atm → longitudinal σ=%.0f MPa."
+                        .formatted(sb.toString().trim(), bestT, bestCrossoverP > 0 ? bestCrossoverP : 0, bestStress),
+                bestStress, bestCrossoverP > 0 ? bestCrossoverP : 0, bestT, bestStress, status, assessment)
+                .withHypothesis("Van der Waals crossover pressure for CO₂ at T=%.0f K, treated as a mechanical loading analogue, drives longitudinal stress in a %.0f%% fibre-volume composite."
+                        .formatted(bestT, (0.3 + param2 * 0.05) * 100));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

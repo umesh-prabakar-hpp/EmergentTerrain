@@ -34,5 +34,7 @@ public record PaperDraft(
         Integer param1,
         Double  param2,
         boolean isFollowUp,
+        Double  predictedScore,
+        String  priorMethodology,
         List<ResearchPaper> recentPapers
 ) {}

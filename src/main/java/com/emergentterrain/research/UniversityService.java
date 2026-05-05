@@ -88,6 +88,9 @@ public class UniversityService {
     // Optional callbacks set by LlmService — avoids circular Spring bean dependency
     private volatile java.util.function.BiConsumer<RoomBot, List<ResearchPaper>> mentoringCallback;
     private volatile java.util.function.Consumer<PaperDraft>                     narratingCallback;
+    // Formulation: (domain, topicName, genome, recentPapers) -> FormulationResult (nullable)
+    @SuppressWarnings("unchecked")
+    private volatile java.util.function.Function<Object[], Object>               formulationCallback;
 
     public UniversityService(
             @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs,
@@ -112,6 +115,10 @@ public class UniversityService {
 
     public void setNarratingCallback(java.util.function.Consumer<PaperDraft> callback) {
         this.narratingCallback = callback;
+    }
+
+    public void setFormulationCallback(java.util.function.Function<Object[], Object> callback) {
+        this.formulationCallback = callback;
     }
 
     /**
@@ -140,17 +147,22 @@ public class UniversityService {
 
         FollowUpParams followUp = narration.followUp();
         if (followUp != null) {
+            // Stamp this paper's methodology as the priorMethodology for the follow-up chain
+            FollowUpParams withChain = new FollowUpParams(
+                    followUp.param1(), followUp.param2(),
+                    followUp.predictedScore(), draft.methodology());
             UUID botId = UUID.fromString(draft.authorBotId());
             botRepository.findById(botId).ifPresent(bot -> {
                 String json = bot.getLifecycleJson();
                 if (json != null && !json.isBlank()) {
                     try {
                         BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
-                        ls.setPendingFollowUp(followUp);
+                        ls.setPendingFollowUp(withChain);
                         bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
                         botRepository.save(bot);
-                        log.debug("university follow-up stored botId={} param1={} param2={}",
-                                botId, followUp.param1(), followUp.param2());
+                        log.debug("university follow-up stored botId={} param1={} param2={} predicted={} priorMethod={}",
+                                botId, withChain.param1(), withChain.param2(),
+                                withChain.predictedScore(), withChain.priorMethodology());
                     } catch (Exception e) {
                         log.warn("university follow-up storage failed botId={}: {}", botId, e.getMessage());
                     }
@@ -464,17 +476,34 @@ public class UniversityService {
         boolean isFollowUp = (pendingFollowUp != null);
         int    param1;
         double param2;
+        Double predictedScore   = null;
+        String priorMethodology = null;
         if (isFollowUp) {
-            param1 = pendingFollowUp.param1();
-            param2 = pendingFollowUp.param2();
+            param1          = pendingFollowUp.param1();
+            param2          = pendingFollowUp.param2();
+            predictedScore  = pendingFollowUp.predictedScore();
+            priorMethodology = pendingFollowUp.priorMethodology();
             author.getState().setPendingFollowUp(null);
-            log.debug("university consuming follow-up botId={} param1={} param2={}",
-                    author.getBotId(), param1, param2);
+            log.debug("university consuming follow-up botId={} param1={} param2={} predicted={}",
+                    author.getBotId(), param1, param2, predictedScore);
         } else {
-            // Draw from the bot's learned parameter distribution — shifts toward
-            // productive regions as recordSuccess() is called after each publication.
-            param1 = author.getState().getGenome().sampleParam1(rng);
-            param2 = author.getState().getGenome().sampleParam2(rng);
+            // Ask LLM to choose specific params based on prior work; fall back to genome sampling.
+            String topicNameForFormulation = MathPhysicsEngine.topicName(domain, topicIndex);
+            List<ResearchPaper> recentForFormulation = getPublishedPapers(roomId, 6);
+            Object formResult = (formulationCallback != null)
+                    ? formulationCallback.apply(new Object[]{
+                            domain, topicNameForFormulation,
+                            author.getState().getGenome(), recentForFormulation})
+                    : null;
+            if (formResult instanceof com.emergentterrain.service.LlmService.FormulationResult fr) {
+                param1 = fr.param1();
+                param2 = fr.param2();
+                log.debug("university formulation used botId={} param1={} param2={} question={}",
+                        author.getBotId(), param1, param2, fr.researchQuestion());
+            } else {
+                param1 = author.getState().getGenome().sampleParam1(rng);
+                param2 = author.getState().getGenome().sampleParam2(rng);
+            }
         }
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
@@ -536,6 +565,7 @@ public class UniversityService {
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
+                    predictedScore, priorMethodology,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {
@@ -617,6 +647,7 @@ public class UniversityService {
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, null, null, false,
+                    null, null,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {

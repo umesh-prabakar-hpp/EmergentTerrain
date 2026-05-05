@@ -259,10 +259,12 @@ public class RoomUpdateBroadcaster {
         TextMessage message = new TextMessage(raw);
         for (WebSocketSession session : sessions) {
             try {
-                if (session.isOpen()) {
-                    session.sendMessage(message);
-                } else {
-                    unregister(session);
+                synchronized (session) {
+                    if (session.isOpen()) {
+                        session.sendMessage(message);
+                    } else {
+                        unregister(session);
+                    }
                 }
             } catch (IOException ignored) {
                 unregister(session);
