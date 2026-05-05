@@ -350,88 +350,110 @@ public class LlmService {
         }
     }
 
+    private static final int MAX_REFINEMENTS = 2;
+
     /**
-     * Pre-narration refinement: LLM sees the initial raw findings and decides whether a
-     * second focused computation is warranted. If yes, runs it, appends findings, and
-     * returns an enriched draft. Falls back to the original if the slot is busy or the
-     * model declines to refine. Dynamic papers (param1==null) are skipped.
+     * Multi-step computation loop: runs up to MAX_REFINEMENTS additional focused
+     * computations before narration. Each iteration shows the LLM all findings so far;
+     * it decides "refine" or "done". No semaphore guard — runs inline inside
+     * narrationSlot (which serialises narration), so at most one refinement loop is
+     * active at any time and concurrency with genome/formulation calls stays within
+     * OLLAMA_NUM_PARALLEL=3. Dynamic papers (param1==null) are always skipped.
      */
     private PaperDraft maybeRefineComputation(PaperDraft draft) {
-        if (draft.param1() == null) return draft;       // dynamic paper — skip
+        if (draft.param1() == null) return draft;
         int topicIdx = MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName());
-        if (topicIdx < 0) return draft;                 // unknown topic — skip
+        if (topicIdx < 0) return draft;
 
-        if (!formulationSlot.tryAcquire()) {
-            log.debug("LLM refinement slot busy — skipping for paperId={}", draft.paperId());
-            return draft;
+        MathPhysicsEngine.SearchParams focusSp =
+                new MathPhysicsEngine.SearchParams(0.2, 0.0, 20, 0.5, 0.0);
+
+        String accumulatedFindings = draft.rawFindings();
+        int completedRefinements = 0;
+
+        for (int iteration = 1; iteration <= MAX_REFINEMENTS; iteration++) {
+            long start = System.currentTimeMillis();
+            try {
+                String prompt = buildRefinementPrompt(
+                        draft, accumulatedFindings, iteration, MAX_REFINEMENTS);
+                String response = chatClient.prompt().user(prompt).call().content();
+                RefinementDecision decision = parseRefinementDecision(response);
+                if (decision == null) {
+                    log.debug("LLM refinement {}/{} done (model says stop) paperId={}",
+                            iteration, MAX_REFINEMENTS, draft.paperId());
+                    break;
+                }
+
+                MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
+                        draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
+
+                accumulatedFindings += "\nComputation %d — %s (param1=%d, param2=%.1f): %s"
+                        .formatted(iteration + 1, decision.rationale(),
+                                decision.param1(), decision.param2(), refined.findings());
+                completedRefinements++;
+
+                log.info("LLM refinement {}/{} done paperId={} ms={} rationale=\"{}\"",
+                        iteration, MAX_REFINEMENTS, draft.paperId(),
+                        System.currentTimeMillis() - start, decision.rationale());
+
+            } catch (Exception e) {
+                log.warn("LLM refinement {}/{} failed paperId={} ms={}: {}",
+                        iteration, MAX_REFINEMENTS, draft.paperId(),
+                        System.currentTimeMillis() - start, e.getMessage());
+                break;
+            }
         }
-        long start = System.currentTimeMillis();
-        try {
-            String prompt = buildRefinementPrompt(draft);
-            String response = chatClient.prompt().user(prompt).call().content();
-            RefinementDecision decision = parseRefinementDecision(response);
-            if (decision == null) return draft;
 
-            // Run the focused computation with neutral SearchParams (it's a zoom-in, not a sweep)
-            MathPhysicsEngine.SearchParams focusSp = new MathPhysicsEngine.SearchParams(
-                    0.2, 0.0, 20, 0.5, 0.0);  // tight step, narrow breadth — targeted probe
-            MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
-                    draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
+        if (completedRefinements == 0) return draft;
 
-            log.info("LLM refinement done paperId={} ms={} rationale=\"{}\"",
-                    draft.paperId(), System.currentTimeMillis() - start, decision.rationale());
-
-            // Append refined findings to the raw findings of the draft
-            String combined = draft.rawFindings()
-                    + "\nFocused investigation (param1=" + decision.param1()
-                    + ", param2=" + String.format("%.1f", decision.param2()) + "): "
-                    + refined.findings();
-
-            return new PaperDraft(
-                    draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
-                    draft.title(), combined, draft.templateHypothesis(), draft.templateConclusion(),
-                    draft.methodology(), draft.reviewerBotIds(),
-                    draft.peerScore(), draft.authorScore(), draft.anomalyZScore(),
-                    draft.gameTick(), draft.publishedAt(), draft.generation(),
-                    draft.paperId(), draft.param1(), draft.param2(),
-                    draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
-                    draft.recentPapers());
-        } catch (Exception e) {
-            log.warn("LLM refinement failed paperId={} ms={}: {}", draft.paperId(),
-                    System.currentTimeMillis() - start, e.getMessage());
-            return draft;
-        } finally {
-            formulationSlot.release();
-        }
+        return new PaperDraft(
+                draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
+                draft.title(), accumulatedFindings,
+                draft.templateHypothesis(), draft.templateConclusion(),
+                draft.methodology(), draft.reviewerBotIds(),
+                draft.peerScore(), draft.authorScore(), draft.anomalyZScore(),
+                draft.gameTick(), draft.publishedAt(), draft.generation(),
+                draft.paperId(), draft.param1(), draft.param2(),
+                draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
+                draft.recentPapers());
     }
 
-    private String buildRefinementPrompt(PaperDraft draft) {
-        String compact = compactRawFindings(draft.rawFindings());
+    private String buildRefinementPrompt(PaperDraft draft, String accumulatedFindings,
+                                          int iteration, int maxIterations) {
+        String compact = compactRawFindings(accumulatedFindings);
+        String iterContext = iteration == 1
+                ? "initial result"
+                : "results so far (%d computations completed)".formatted(iteration);
         return """
-                A computational paper has produced the following initial result. \
-                Decide whether one additional focused computation would meaningfully \
-                deepen the finding — for example, narrowing to a sub-region where \
-                something interesting occurred, or testing a boundary condition implied \
-                by the result.
+                You are guiding a multi-step computational investigation. \
+                The researcher has %s — decide whether one more focused \
+                computation would add a meaningfully distinct data point.
 
                 Domain: %s | Topic: %s | Methodology: %s
-                Computation parameters: param1=%d (starting position), param2=%.1f (scale/depth)
-                Initial result:
+                Primary parameters: param1=%d, param2=%.1f
+                Computations so far:
                 %s
 
-                If a focused follow-up computation would add a quantitatively distinct \
-                second data point (not just repeating the same result), reply with:
-                {"action":"refine","param1":N,"param2":X.X,"rationale":"one sentence on what to probe"}
+                A good refinement target narrows to a sub-region where something \
+                interesting occurred, tests a boundary condition, or checks an \
+                adjacent parameter scale. It must produce quantitatively different \
+                numbers — not a repeat of what is already shown.
 
-                If the initial result is already conclusive or no clear refinement target \
-                exists, reply with:
+                Remaining iterations allowed: %d of %d.
+
+                Reply with ONLY one of these JSON forms — no other text:
+                {"action":"refine","param1":N,"param2":X.X,"rationale":"one sentence — what this probes and why"}
                 {"action":"done"}
 
-                param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0. \
-                Choose values that probe the most interesting feature of the initial result \
-                at a different scale or sub-region. Reply with ONLY the JSON — no other text.
-                """.formatted(draft.domain(), draft.topicName(), draft.methodology(),
-                draft.param1(), draft.param2(), compact);
+                param1 int 10–99. param2 decimal 1.0–9.0. \
+                Choose "done" if the finding is already well-characterised or \
+                no clear target remains.
+                """.formatted(
+                iterContext,
+                draft.domain(), draft.topicName(), draft.methodology(),
+                draft.param1(), draft.param2(),
+                compact,
+                maxIterations - iteration + 1, maxIterations);
     }
 
     private RefinementDecision parseRefinementDecision(String response) {
