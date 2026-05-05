@@ -284,6 +284,20 @@ public class MathPhysicsEngine {
         };
     }
 
+    /** Reverse-lookup: returns the 0-based topic index for a given topic name, or -1 if not found. */
+    public static int topicIndex(String domain, String topicName) {
+        String[] names = switch (domain) {
+            case "PHYSICS"           -> PHYSICS_TOPICS;
+            case "MATERIALS"         -> MATERIALS_TOPICS;
+            case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS;
+            default                  -> MATH_TOPICS;
+        };
+        for (int i = 0; i < names.length; i++) {
+            if (names[i].equalsIgnoreCase(topicName)) return i;
+        }
+        return -1;
+    }
+
     public static String topicName(String domain, int topicIndex) {
         String[] names = switch (domain) {
             case "PHYSICS"           -> PHYSICS_TOPICS;

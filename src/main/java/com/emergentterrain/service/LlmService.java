@@ -7,6 +7,7 @@ import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.FollowUpParams;
+import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.ResearchPaper;
@@ -325,22 +326,131 @@ public class LlmService {
         }
     }
 
+    private record RefinementDecision(int param1, double param2, String rationale) {}
+
     private void runNarration(PaperDraft draft) {
-        String prompt = buildNarrationPrompt(draft);
+        // Multi-step: attempt one focused refinement computation before narrating
+        PaperDraft enrichedDraft = maybeRefineComputation(draft);
+
+        String prompt = buildNarrationPrompt(enrichedDraft);
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
             chatClient.prompt().user(prompt).stream().content().toStream()
                     .forEach(response::append);
-            log.info("LLM narration done paperId={} ms={}", draft.paperId(),
+            log.info("LLM narration done paperId={} ms={}", enrichedDraft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
-                    draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
+                    enrichedDraft.paperId(), System.currentTimeMillis() - start, e.getMessage());
         }
         NarrationResult result = parseNarrationResult(response.toString());
         if (narrationPublisher != null) {
-            narrationPublisher.accept(draft, result);
+            narrationPublisher.accept(enrichedDraft, result);
+        }
+    }
+
+    /**
+     * Pre-narration refinement: LLM sees the initial raw findings and decides whether a
+     * second focused computation is warranted. If yes, runs it, appends findings, and
+     * returns an enriched draft. Falls back to the original if the slot is busy or the
+     * model declines to refine. Dynamic papers (param1==null) are skipped.
+     */
+    private PaperDraft maybeRefineComputation(PaperDraft draft) {
+        if (draft.param1() == null) return draft;       // dynamic paper — skip
+        int topicIdx = MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName());
+        if (topicIdx < 0) return draft;                 // unknown topic — skip
+
+        if (!formulationSlot.tryAcquire()) {
+            log.debug("LLM refinement slot busy — skipping for paperId={}", draft.paperId());
+            return draft;
+        }
+        long start = System.currentTimeMillis();
+        try {
+            String prompt = buildRefinementPrompt(draft);
+            String response = chatClient.prompt().user(prompt).call().content();
+            RefinementDecision decision = parseRefinementDecision(response);
+            if (decision == null) return draft;
+
+            // Run the focused computation with neutral SearchParams (it's a zoom-in, not a sweep)
+            MathPhysicsEngine.SearchParams focusSp = new MathPhysicsEngine.SearchParams(
+                    0.2, 0.0, 20, 0.5, 0.0);  // tight step, narrow breadth — targeted probe
+            MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
+                    draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
+
+            log.info("LLM refinement done paperId={} ms={} rationale=\"{}\"",
+                    draft.paperId(), System.currentTimeMillis() - start, decision.rationale());
+
+            // Append refined findings to the raw findings of the draft
+            String combined = draft.rawFindings()
+                    + "\nFocused investigation (param1=" + decision.param1()
+                    + ", param2=" + String.format("%.1f", decision.param2()) + "): "
+                    + refined.findings();
+
+            return new PaperDraft(
+                    draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
+                    draft.title(), combined, draft.templateHypothesis(), draft.templateConclusion(),
+                    draft.methodology(), draft.reviewerBotIds(),
+                    draft.peerScore(), draft.authorScore(), draft.anomalyZScore(),
+                    draft.gameTick(), draft.publishedAt(), draft.generation(),
+                    draft.paperId(), draft.param1(), draft.param2(),
+                    draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
+                    draft.recentPapers());
+        } catch (Exception e) {
+            log.warn("LLM refinement failed paperId={} ms={}: {}", draft.paperId(),
+                    System.currentTimeMillis() - start, e.getMessage());
+            return draft;
+        } finally {
+            formulationSlot.release();
+        }
+    }
+
+    private String buildRefinementPrompt(PaperDraft draft) {
+        String compact = compactRawFindings(draft.rawFindings());
+        return """
+                A computational paper has produced the following initial result. \
+                Decide whether one additional focused computation would meaningfully \
+                deepen the finding — for example, narrowing to a sub-region where \
+                something interesting occurred, or testing a boundary condition implied \
+                by the result.
+
+                Domain: %s | Topic: %s | Methodology: %s
+                Computation parameters: param1=%d (starting position), param2=%.1f (scale/depth)
+                Initial result:
+                %s
+
+                If a focused follow-up computation would add a quantitatively distinct \
+                second data point (not just repeating the same result), reply with:
+                {"action":"refine","param1":N,"param2":X.X,"rationale":"one sentence on what to probe"}
+
+                If the initial result is already conclusive or no clear refinement target \
+                exists, reply with:
+                {"action":"done"}
+
+                param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0. \
+                Choose values that probe the most interesting feature of the initial result \
+                at a different scale or sub-region. Reply with ONLY the JSON — no other text.
+                """.formatted(draft.domain(), draft.topicName(), draft.methodology(),
+                draft.param1(), draft.param2(), compact);
+    }
+
+    private RefinementDecision parseRefinementDecision(String response) {
+        if (response == null || response.isBlank()) return null;
+        int start = response.indexOf('{');
+        int end   = response.lastIndexOf('}');
+        if (start < 0 || end <= start) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode root =
+                    objectMapper.readTree(response.substring(start, end + 1));
+            if ("done".equals(root.path("action").asText(null))) return null;
+            int    p1 = root.path("param1").asInt(-1);
+            double p2 = root.path("param2").asDouble(-1.0);
+            String rationale = root.path("rationale").asText("");
+            if (p1 < 10 || p1 > 99 || p2 < 1.0 || p2 > 9.0) return null;
+            return new RefinementDecision(p1, p2, rationale);
+        } catch (Exception e) {
+            log.debug("LLM refinement: parse failed: {}", e.getMessage());
+            return null;
         }
     }
 
