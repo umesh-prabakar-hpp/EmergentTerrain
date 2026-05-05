@@ -67,6 +67,16 @@ public class BotLifecycleState {
         reputation = Math.max(0.0, reputation - 0.02);
     }
 
+    /**
+     * Very slow reputation decay toward baseline (0.2) — called every research interval.
+     * Ensures bots that stop publishing gradually lose accumulated reputation, maintaining
+     * selection pressure to keep producing. A score-0.25 publication (+0.0125 rep) easily
+     * outpaces the per-tick decay, so active bots are unaffected.
+     */
+    public void decayReputation() {
+        reputation = 0.2 + (reputation - 0.2) * 0.9999;
+    }
+
     // --- Getters / setters for Jackson ---
 
     public BotGenome getGenome()                   { return genome; }

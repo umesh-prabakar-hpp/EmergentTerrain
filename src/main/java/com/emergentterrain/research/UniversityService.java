@@ -195,6 +195,7 @@ public class UniversityService {
         for (RoomBot bot : bots) {
             BotLifecycleState ls = states.get(bot.getId());
             ls.incrementAge(BotLifecycleState.JUVENILE_TO_ADULT, params.adultToElder());
+            ls.decayReputation();
             dirty.add(bot);
         }
 
@@ -460,9 +461,10 @@ public class UniversityService {
         String domain  = author.getDomain();
 
         FollowUpParams pendingFollowUp = author.getState().getPendingFollowUp();
+        boolean isFollowUp = (pendingFollowUp != null);
         int    param1;
         double param2;
-        if (pendingFollowUp != null) {
+        if (isFollowUp) {
             param1 = pendingFollowUp.param1();
             param2 = pendingFollowUp.param2();
             author.getState().setPendingFollowUp(null);
@@ -533,7 +535,7 @@ public class UniversityService {
                     result.findings(), templateHypothesis, templateConclusion,
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId, param1, (double) param2,
+                    author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {
@@ -546,6 +548,7 @@ public class UniversityService {
                     paperId, domain, topicName, peerScore);
         } else {
             author.recordRejected();
+            author.getState().getGenome().recordRejection(rng);
             totalRejected.merge(roomId, 1, Integer::sum);
         }
 
@@ -613,7 +616,7 @@ public class UniversityService {
                     templateHypothesis, templateConclusion,
                     author.getMethodology(), Collections.unmodifiableList(reviewerIds),
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId, null, null,
+                    author.getGeneration(), paperId, null, null, false,
                     getPublishedPapers(roomId, 5));
 
             if (narratingCallback != null) {
@@ -626,6 +629,7 @@ public class UniversityService {
                     author.getBotId(), directive.description(), peerScore);
         } else {
             author.recordRejected();
+            author.getState().getGenome().recordRejection(rng);
             totalRejected.merge(roomId, 1, Integer::sum);
         }
 

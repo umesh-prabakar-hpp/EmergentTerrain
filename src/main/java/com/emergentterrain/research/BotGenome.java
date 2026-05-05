@@ -88,6 +88,24 @@ public class BotGenome {
     }
 
     /**
+     * Called on peer-review rejection. w1 (restartProb, 0.05–1.0) controls how likely
+     * the bot is to jump its search center to a new region instead of persisting. High-w1
+     * bots are explorers that abandon dead ends quickly; low-w1 bots are persistent and
+     * keep drilling the same region. Both strategies can be selected for by evolution.
+     */
+    public void recordRejection(Random rng) {
+        if (rng.nextDouble() < topicWeights[1]) {
+            int jump = (int)(rng.nextGaussian() * 25);
+            paramCenter1 = Math.max(10, Math.min(99, paramCenter1 + jump));
+            paramCenter2 = Math.max(1.0, Math.min(9.0,
+                    paramCenter2 + rng.nextGaussian() * 2.0));
+            // Reopen radius slightly so the new region is explored broadly
+            paramRadius1 = Math.min(35, paramRadius1 + 4);
+            paramRadius2 = Math.min(3.5, paramRadius2 + 0.4);
+        }
+    }
+
+    /**
      * Called after a paper passes peer review. Shifts the parameter center toward
      * the successful coordinates (higher-scoring papers pull harder) and slowly
      * narrows the radius so the bot specialises over its career.

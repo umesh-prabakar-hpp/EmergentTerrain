@@ -33,5 +33,6 @@ public record PaperDraft(
         String paperId,
         Integer param1,
         Double  param2,
+        boolean isFollowUp,
         List<ResearchPaper> recentPapers
 ) {}

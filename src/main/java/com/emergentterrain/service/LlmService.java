@@ -259,6 +259,13 @@ public class LlmService {
                         .formatted(draft.param1(), draft.param2())
                 : "";
 
+        String followUpNote = draft.isFollowUp()
+                ? "IMPORTANT: This paper is a deliberate follow-up investigation — the author's " +
+                  "prior conclusion suggested this exact parameter region. Acknowledge the chain: " +
+                  "reference a prior paper by ID, state what was predicted, and report whether " +
+                  "this result confirms, refines, or surprises that prediction.\n"
+                : "";
+
         String scaffoldHyp = (draft.templateHypothesis() != null && !draft.templateHypothesis().isBlank())
                 ? draft.templateHypothesis() : "(none)";
         String scaffoldCon = (draft.templateConclusion() != null && !draft.templateConclusion().isBlank())
@@ -270,7 +277,7 @@ public class LlmService {
                 Domain: %s | Topic: %s | Methodology: %s
                 Title: "%s"
                 Bot generation: %d
-                %s
+                %s%s
                 Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
                 tables or copy individual values:
                 %s
@@ -302,7 +309,7 @@ public class LlmService {
                 """.formatted(
                 draft.domain(), draft.topicName(), draft.methodology(),
                 draft.title(), draft.generation(),
-                paramsLine,
+                paramsLine, followUpNote,
                 compactRawFindings(draft.rawFindings()),
                 scaffoldHyp,
                 scaffoldCon,
