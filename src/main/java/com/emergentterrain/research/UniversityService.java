@@ -56,7 +56,7 @@ public class UniversityService {
 
     // Max pending drafts: if backlog reaches this, skip the research cycle this tick.
     // Keeps paper output naturally paced to LLM throughput with no build-up.
-    private static final int MAX_DRAFT_BACKLOG = 3;
+    private final int maxDraftBacklog;
 
     // Dating constants (static defaults; runtime uses dynamic values from computePopulationParams)
     private static final long   DATING_COOLDOWN_TICKS   = 200L;
@@ -109,10 +109,12 @@ public class UniversityService {
     public UniversityService(
             @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs,
             @Value("${app.university.researchOutputDir:research}") String researchOutputDir,
+            @Value("${app.university.maxDraftBacklog:3}") int maxDraftBacklog,
             RoomBotRepository botRepository,
             ObjectMapper objectMapper) {
         this.researchIntervalMs = researchIntervalMs;
         this.researchOutputDir  = Paths.get(researchOutputDir);
+        this.maxDraftBacklog    = maxDraftBacklog;
         this.botRepository      = botRepository;
         this.objectMapper       = objectMapper;
         try {
@@ -456,7 +458,7 @@ public class UniversityService {
         // Skip research this tick if drafts are already queued — pace output to LLM throughput.
         List<Researcher> pool = buildResearcherPool(bots, states);
         if (!pool.isEmpty()) {
-            if (draftQueueSize.get() < MAX_DRAFT_BACKLOG) {
+            if (draftQueueSize.get() < maxDraftBacklog) {
                 Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
                 runResearchCycle(roomId, pool, rng, gameTick, params);
             } else {

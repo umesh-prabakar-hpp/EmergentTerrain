@@ -73,6 +73,7 @@ mvn spring-boot:run
 Or build and run the jar:
 
 ```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn package -DskipTests
 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 ```
@@ -84,8 +85,9 @@ The app starts on **http://localhost:8080**.
 The app load-balances across multiple Ollama instances automatically. Pass hostnames as a comma-separated list at startup:
 
 ```bash
-java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar \
-  --app.ai.backendHosts=localhost,192.168.1.145
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+mvn package -DskipTests
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar --app.ai.backendHosts=localhost,192.168.1.145
 ```
 
 Or via environment variable:

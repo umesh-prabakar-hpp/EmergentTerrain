@@ -163,6 +163,7 @@ app:
     enabled: true
     researchIntervalMs: 15000
     researchOutputDir: research
+    maxDraftBacklog: 3
   ai:
     enabled: true
     digestCooldownMinutes: 10
