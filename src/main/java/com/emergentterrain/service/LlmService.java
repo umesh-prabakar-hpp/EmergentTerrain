@@ -259,8 +259,10 @@ public class LlmService {
                         .formatted(draft.param1(), draft.param2())
                 : "";
 
-        String scaffold = (draft.templateHypothesis() != null && !draft.templateHypothesis().isBlank())
+        String scaffoldHyp = (draft.templateHypothesis() != null && !draft.templateHypothesis().isBlank())
                 ? draft.templateHypothesis() : "(none)";
+        String scaffoldCon = (draft.templateConclusion() != null && !draft.templateConclusion().isBlank())
+                ? draft.templateConclusion() : "(none)";
 
         return """
                 You are writing the narrative for a computational research paper in a simulation.
@@ -277,14 +279,18 @@ public class LlmService {
                 computation parameters above):
                 %s
 
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                %s
+
                 Prior papers in this domain and topic (cite by Paper ID if directly relevant):
                 %s
                 Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
                 {"hypothesis":"one specific testable sentence grounding the claim in the actual \
                 computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
                 interpreting the pattern or trend — its significance and what it suggests; \
-                cite a prior paper by ID if relevant","conclusion":"1-2 sentences on what this \
-                result implies and what open question it raises",\
+                cite a prior paper by ID if relevant","conclusion":"1-2 sentences: what this \
+                result implies and one concrete open question it raises",\
                 "followUp":{"param1":N,"param2":X.X}}
 
                 followUp rules: ONLY include followUp if the prior papers reveal a specific \
@@ -298,7 +304,8 @@ public class LlmService {
                 draft.title(), draft.generation(),
                 paramsLine,
                 compactRawFindings(draft.rawFindings()),
-                scaffold,
+                scaffoldHyp,
+                scaffoldCon,
                 priorSection.trim());
     }
 
@@ -309,13 +316,24 @@ public class LlmService {
         int arrowCount = 0;
         for (int i = raw.indexOf('→'); i >= 0; i = raw.indexOf('→', i + 1)) arrowCount++;
         if (arrowCount >= 5) {
-            // Preamble: text before the first data block
-            int firstArrow  = raw.indexOf('→');
-            int blockStart  = raw.lastIndexOf(' ', firstArrow - 2) + 1;
+            // Preamble: text before the first key→value token
+            int firstArrow = raw.indexOf('→');
+            int blockStart = raw.lastIndexOf(' ', firstArrow - 2) + 1;
             String preamble = blockStart > 0 ? raw.substring(0, blockStart).trim() : "";
-            // Extract numeric values following each arrow
+            // Sample: keep first two key→value tokens to show the pattern and scale
+            StringBuilder sample = new StringBuilder();
+            int pos = blockStart, kv = 0;
+            while (pos < raw.length() && kv < 2) {
+                int next = raw.indexOf(' ', pos + 1);
+                if (next < 0) next = raw.length();
+                String token = raw.substring(pos, next).trim();
+                if (token.contains("→")) { sample.append(token).append(" "); kv++; }
+                pos = next + 1;
+            }
+            // Extract all numeric values after arrows for range summary
             double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
-            int n = 0, pos = 0;
+            int n = 0;
+            pos = 0;
             while ((pos = raw.indexOf('→', pos)) >= 0) {
                 int end = pos + 1;
                 while (end < raw.length()
@@ -329,15 +347,15 @@ public class LlmService {
                 pos = end;
             }
             String stats = n > 0
-                    ? "[%d data points, values %.0f – %.0f]".formatted(n, min, max)
-                    : "[%d data points]".formatted(arrowCount);
+                    ? "… [%d total; min=%.0f, max=%.0f]".formatted(n, min, max)
+                    : "… [%d data points]".formatted(arrowCount);
             // Tail: summary sentence(s) after the last data point
             int lastArrow = raw.lastIndexOf('→');
             int tailStart = raw.indexOf('.', lastArrow + 5);
             String tail   = (tailStart > 0 && tailStart + 1 < raw.length())
                     ? raw.substring(tailStart + 1).trim() : "";
-            return (preamble.isEmpty() ? "" : preamble + " ")
-                    + stats
+            return (preamble.isEmpty() ? "" : preamble + "\n")
+                    + sample.toString().trim() + " " + stats
                     + (tail.isEmpty() ? "" : "\n" + tail);
         }
         return raw.substring(0, 350) + "…";
