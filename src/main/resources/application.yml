@@ -170,7 +170,6 @@ app:
     explanationCooldownMs: 2500
     hintAcceptanceRate: 0.6
     # Comma-separated Ollama hostnames. Override with OLLAMA_HOSTS env var or --app.ai.backendHosts=...
-    # Example: localhost,192.168.1.145
     backendHosts: ${OLLAMA_HOSTS:localhost,192.168.1.145}
     backendPort: 11434
     # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
