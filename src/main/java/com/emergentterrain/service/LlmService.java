@@ -16,7 +16,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.event.ContextRefreshedEvent;
@@ -45,7 +44,7 @@ public class LlmService {
     private static final int DIGEST_MAX_BILLS = 3;
     private static final long AI_EDIT_COOLDOWN_TICKS = 200L;
 
-    private final ChatClient chatClient;
+    private final OllamaPool pool;
     private final RoomUpdateBroadcaster broadcaster;
     private final RoomBotRepository botRepository;
     private final ObjectMapper objectMapper;
@@ -74,16 +73,17 @@ public class LlmService {
 
     private final long digestCooldownMs;
 
-    public LlmService(ChatClient.Builder chatClientBuilder,
+    public LlmService(OllamaPool pool,
                       RoomUpdateBroadcaster broadcaster,
                       RoomBotRepository botRepository,
                       ObjectMapper objectMapper,
                       @Value("${app.ai.digestCooldownMinutes:10}") long digestCooldownMinutes) {
-        this.chatClient       = chatClientBuilder.build();
+        this.pool             = pool;
         this.broadcaster      = broadcaster;
         this.botRepository    = botRepository;
         this.objectMapper     = objectMapper;
         this.digestCooldownMs = TimeUnit.MINUTES.toMillis(Math.max(0L, digestCooldownMinutes));
+        log.info("LlmService: connected to OllamaPool ({} backend(s))", pool.backendCount());
     }
 
     /** Wire up the mentoring callback into UniversityService after the context is ready. */
@@ -158,7 +158,7 @@ public class LlmService {
         }
         long start = System.currentTimeMillis();
         try {
-            String response = chatClient.prompt().user(prompt).call().content();
+            String response = pool.call(c -> c.prompt().user(prompt).call().content());
             log.info("LLM policy consultation done ms={}", System.currentTimeMillis() - start);
             return response;
         } catch (Exception e) {
@@ -181,12 +181,11 @@ public class LlmService {
             executor.execute(() -> {
                 long start = System.currentTimeMillis();
                 try {
-                    chatClient.prompt()
-                            .user(prompt)
-                            .stream()
-                            .content()
-                            .toStream()
-                            .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
+                    pool.call(c -> {
+                        c.prompt().user(prompt).stream().content().toStream()
+                                .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
+                        return null;
+                    });
                     log.info("LLM done room={} kind={} ms={}", roomId, kind, System.currentTimeMillis() - start);
                     broadcaster.broadcastLlmDone(roomId, streamId, kind);
                 } catch (Exception e) {
@@ -221,7 +220,7 @@ public class LlmService {
         long start = System.currentTimeMillis();
         try {
             String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers);
-            String response = chatClient.prompt().user(prompt).call().content();
+            String response = pool.call(c -> c.prompt().user(prompt).call().content());
             log.info("LLM formulation done domain={} topic={} ms={}", domain, topicName,
                     System.currentTimeMillis() - start);
             return parseFormulationResult(response);
@@ -336,8 +335,10 @@ public class LlmService {
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
-            chatClient.prompt().user(prompt).stream().content().toStream()
-                    .forEach(response::append);
+            pool.call(c -> {
+                c.prompt().user(prompt).stream().content().toStream().forEach(response::append);
+                return null;
+            });
             log.info("LLM narration done paperId={} ms={}", enrichedDraft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
@@ -376,7 +377,7 @@ public class LlmService {
             try {
                 String prompt = buildRefinementPrompt(
                         draft, accumulatedFindings, iteration, MAX_REFINEMENTS);
-                String response = chatClient.prompt().user(prompt).call().content();
+                String response = pool.call(c -> c.prompt().user(prompt).call().content());
                 RefinementDecision decision = parseRefinementDecision(response);
                 if (decision == null) {
                     log.debug("LLM refinement {}/{} done (model says stop) paperId={}",
@@ -395,6 +396,13 @@ public class LlmService {
                 log.info("LLM refinement {}/{} done paperId={} ms={} rationale=\"{}\"",
                         iteration, MAX_REFINEMENTS, draft.paperId(),
                         System.currentTimeMillis() - start, decision.rationale());
+
+                // Min-1 guarantee satisfied — stop early only if other papers are waiting
+                if (!narrationQueue.isEmpty()) {
+                    log.debug("LLM refinement stopping after {}/{} — narration backlog depth={}",
+                            iteration, MAX_REFINEMENTS, narrationQueue.size());
+                    break;
+                }
 
             } catch (Exception e) {
                 log.warn("LLM refinement {}/{} failed paperId={} ms={}: {}",
@@ -722,15 +730,14 @@ public class LlmService {
         long start = System.currentTimeMillis();
         StringBuilder fullResponse = new StringBuilder();
         try {
-            chatClient.prompt()
-                    .user(prompt)
-                    .stream()
-                    .content()
-                    .toStream()
-                    .forEach(token -> {
-                        broadcaster.broadcastLlmToken(roomId, streamId, "genome_mentor", token);
-                        fullResponse.append(token);
-                    });
+            pool.call(c -> {
+                c.prompt().user(prompt).stream().content().toStream()
+                        .forEach(token -> {
+                            broadcaster.broadcastLlmToken(roomId, streamId, "genome_mentor", token);
+                            fullResponse.append(token);
+                        });
+                return null;
+            });
             broadcaster.broadcastLlmDone(roomId, streamId, "genome_mentor");
             log.info("LLM genome mentor done bot={} ms={}", botId, System.currentTimeMillis() - start);
 
