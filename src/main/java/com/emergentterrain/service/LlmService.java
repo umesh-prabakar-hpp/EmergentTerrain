@@ -490,6 +490,10 @@ public class LlmService {
         int rej   = (int) extractNamedDouble(json, "rejectedCount", 0);
         String domain = extractString(json, "domain", "MATHEMATICS");
         String method = extractString(json, "methodology", "THEORETICAL");
+        int    pc1 = (int) extractNamedDouble(json, "paramCenter1", 50);
+        double pc2 = extractNamedDouble(json, "paramCenter2", 5.0);
+        int    pr1 = (int) extractNamedDouble(json, "paramRadius1", 35);
+        double pr2 = extractNamedDouble(json, "paramRadius2", 3.5);
 
         String botIdStr = bot.getId().toString();
 
@@ -519,12 +523,17 @@ public class LlmService {
                 Generation: %d  (evolution and mentoring cycles completed)
 
                 Research personality (genome):
-                  Exploration boldness:  %.2f  — how large their search moves are
-                  Restart willingness:   %.2f  — how readily they abandon a direction and try another
-                  Candidate breadth:     %.2f  — how many options they consider before committing
-                  Depth vs breadth:      %.2f  — whether they pursue one path deeply or survey widely
-                  Acceptance threshold:  %.2f  — how close to perfect a solution must be to satisfy them
-                  Curiosity:             %.2f  — overall openness to new approaches
+                  Step size:             %.2f  — spacing between candidate regions (0.05=narrow, 1.0=wide)
+                  Restart willingness:   %.2f  — reserved, not yet active
+                  Candidate breadth:     %.2f  — regions explored per paper (20–80; key quality driver)
+                  Peer tolerance:        %.2f  — reviewer strictness (low=strict 0.02, high=lenient 0.12)
+                  Acceptance threshold:  %.2f  — reserved for future gating
+                  Curiosity:             %.2f  — overall openness to new directions
+
+                Parameter search region (learned from publication history):
+                  Center: [param1=%d, param2=%.1f]  — where they focus searches
+                  Radius: [±%d, ±%.1f]              — how broadly they explore around that center
+                  (narrowing radius = deepening specialisation; wider = more exploratory)
 
                 Career so far: %d papers published, %d drafts not accepted
                 Their own recent work:
@@ -535,17 +544,21 @@ public class LlmService {
                 Pay particular attention to results marked [ANOMALOUS] — these deviate significantly \
                 from the room's historical distribution for that topic and may indicate unexplored \
                 territory or a structural pattern worth investigating. Suggest one or two small genome \
-                adjustments and, if any anomalous result points to a specific unexplored range, include \
-                a directive to follow it up.
+                adjustments. If the peer papers reveal a specific unexplored parameter region, you may \
+                also redirect the bot's search center (paramCenter1, paramCenter2) toward it, OR \
+                include a directive to run a focused number-theoretic investigation.
 
                 Reply with only this JSON and nothing else:
                 {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"hypothesis":"your hypothesis"}}
-                Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate. delta between -0.15 and 0.15. Include 1 or 2 edits.
+                Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate paramCenter1 paramCenter2. \
+                delta between -0.15 and 0.15. Include 1 or 2 edits. \
+                For paramCenter1: delta ±0.15 shifts the center by ±6 units (range 10–99). \
+                For paramCenter2: delta ±0.15 shifts by ±0.75 (range 1.0–9.0).
                 Directive rules: predicate uses isPrime, isHappy, collatzTerminates, isAbundant, isPerfect joined with AND or OR. \
                 metric is one of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum. \
                 rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value for the metric. \
                 Base the directive on what the ACTUAL peer papers above reveal — target a specific unexplored range \
-                or combination that their anomalous or interesting results point toward. \
+                or combination that their results point toward. \
                 Only include directive if the peer papers reveal a specific unexplored range worth targeting. Omit directive entirely otherwise.
                 Example directives (DO NOT copy these — generate your own based on the actual papers shown above):
                   {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"hypothesis":"About 25%% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
@@ -555,6 +568,7 @@ public class LlmService {
                         botIdStr.substring(0, 8),
                         domain, method, gen,
                         w0, w1, w2, w3, w4, er,
+                        pc1, pc2, pr1, pr2,
                         pub, rej, ownSection.trim(), peerSection.trim());
     }
 
@@ -614,7 +628,8 @@ public class LlmService {
     // --- Parsing helpers ---
 
     private static final java.util.Set<String> VALID_GENES = java.util.Set.of(
-            "w0", "w1", "w2", "w3", "w4", "explorationRate");
+            "w0", "w1", "w2", "w3", "w4", "explorationRate",
+            "paramCenter1", "paramCenter2");
 
     private static final java.util.Set<String> VALID_PREDICATES = java.util.Set.of(
             "isPrime", "isHappy", "collatzTerminates", "isAbundant", "isPerfect");

@@ -469,9 +469,10 @@ public class UniversityService {
             log.debug("university consuming follow-up botId={} param1={} param2={}",
                     author.getBotId(), param1, param2);
         } else {
-            long seed = gameTick * 997L + author.getBotId().hashCode();
-            param1 = 10 + (int) Math.abs(seed % 90);
-            param2 = 1.0 + Math.abs((seed >> 16) % 9);
+            // Draw from the bot's learned parameter distribution — shifts toward
+            // productive regions as recordSuccess() is called after each publication.
+            param1 = author.getState().getGenome().sampleParam1(rng);
+            param2 = author.getState().getGenome().sampleParam2(rng);
         }
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
@@ -501,7 +502,8 @@ public class UniversityService {
                     : reviewResult.reviewValue();
             double reviewScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
 
-            boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
+            boolean agrees = Math.abs(authorScore - reviewScore)
+                    < reviewer.getState().getGenome().getPeerTolerance();
             if (!agrees) reviewPassed = false;
 
             reviewerIds.add(reviewer.getBotId());
@@ -524,6 +526,7 @@ public class UniversityService {
             // Reputation updated now — evolutionary pressure must not wait for LLM latency.
             papersSinceTerm.merge(roomId, 1, Integer::sum);
             author.recordPublished(peerScore);
+            author.getState().getGenome().recordSuccess(param1, param2, peerScore);
 
             PaperDraft draft = new PaperDraft(
                     roomId, author.getBotId(), domain, topicName, title,
@@ -581,7 +584,8 @@ public class UniversityService {
                     ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
                     : reviewResult.reviewValue();
             double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
-            boolean agrees = Math.abs(authorScore - reviewScore) < REVIEW_TOLERANCE;
+            boolean agrees = Math.abs(authorScore - reviewScore)
+                    < reviewer.getState().getGenome().getPeerTolerance();
             if (!agrees) reviewPassed = false;
             reviewerIds.add(reviewer.getBotId());
             totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
