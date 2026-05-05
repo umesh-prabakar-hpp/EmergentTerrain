@@ -169,9 +169,10 @@ app:
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500
     hintAcceptanceRate: 0.6
-    # Comma-separated Ollama backend URLs. Add a second entry when a remote instance is ready.
-    # Example: http://localhost:11434,http://192.168.1.x:11434
-    backendUrls: ${OLLAMA_URL:http://localhost:11434},http://192.168.1.145:11434
+    # Comma-separated Ollama hostnames. Override with OLLAMA_HOSTS env var or --app.ai.backendHosts=...
+    # Example: localhost,192.168.1.145
+    backendHosts: ${OLLAMA_HOSTS:localhost,192.168.1.145}
+    backendPort: 11434
     # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
     backendParallelism: 3
 

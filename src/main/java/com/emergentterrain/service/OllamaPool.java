@@ -61,7 +61,8 @@ public class OllamaPool {
             });
 
     public OllamaPool(
-            @Value("${app.ai.backendUrls:http://localhost:11434}") String backendUrlsCsv,
+            @Value("${app.ai.backendHosts:localhost}") String backendHostsCsv,
+            @Value("${app.ai.backendPort:11434}") int port,
             @Value("${app.ai.backendParallelism:3}") int parallelism,
             @Value("${spring.ai.ollama.chat.model:gemma3:4b}") String model,
             @Value("${spring.ai.ollama.chat.options.temperature:0.7}") double temperature,
@@ -74,9 +75,10 @@ public class OllamaPool {
                 .build();
 
         List<Backend> built = new ArrayList<>();
-        for (String raw : backendUrlsCsv.split(",")) {
-            String url = raw.trim();
-            if (url.isEmpty()) continue;
+        for (String raw : backendHostsCsv.split(",")) {
+            String host = raw.trim();
+            if (host.isEmpty()) continue;
+            String url = "http://" + host + ":" + port;
             OllamaApi api = new OllamaApi.Builder().baseUrl(url).build();
             OllamaChatModel chatModel = OllamaChatModel.builder()
                     .ollamaApi(api)
