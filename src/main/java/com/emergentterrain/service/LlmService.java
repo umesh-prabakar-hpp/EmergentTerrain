@@ -225,10 +225,11 @@ public class LlmService {
         }
         long start = System.currentTimeMillis();
         try {
-            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers, researchHypothesis);
+            NoveltyAssessment novelty = checkNovelty(domain, topicName, priorPapers);
+            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers, researchHypothesis, novelty);
             String response = router.callFast(prompt);
-            log.info("LLM formulation done domain={} topic={} ms={}", domain, topicName,
-                    System.currentTimeMillis() - start);
+            log.info("LLM formulation done domain={} topic={} novelty={} ms={}", domain, topicName,
+                    String.format("%.2f", novelty.score()), System.currentTimeMillis() - start);
             return parseFormulationResult(response);
         } catch (Exception e) {
             log.warn("LLM formulation failed domain={} topic={} ms={}: {}", domain, topicName,
@@ -241,7 +242,7 @@ public class LlmService {
 
     private String buildFormulationPrompt(String domain, String topicName,
                                           BotGenome genome, List<ResearchPaper> priorPapers,
-                                          String researchHypothesis) {
+                                          String researchHypothesis, NoveltyAssessment novelty) {
         int center1 = genome.getParamCenter1();
         double center2 = genome.getParamCenter2();
         int radius1 = genome.getParamRadius1();
@@ -285,6 +286,19 @@ public class LlmService {
                   + "parameter regions might be interesting in this topic too:\n"
                   + domainAnomalies + "\n";
 
+        String noveltyContext = "";
+        if (novelty.isSaturated()) {
+            noveltyContext = "NOVELTY WARNING (score=%.2f/1.0): This topic is becoming saturated. "
+                    .formatted(novelty.score())
+                    + (novelty.coverageNote().isBlank() ? "" : "Covered so far: " + novelty.coverageNote() + ". ")
+                    + (novelty.unexploredHint().isBlank()
+                        ? "Choose parameters that differ meaningfully from all prior work above.\n"
+                        : "Unexplored angle: " + novelty.unexploredHint() + " Prioritise this gap.\n");
+        } else if (novelty.score() < 0.60 && !novelty.unexploredHint().isBlank()) {
+            noveltyContext = "NOVELTY NOTE (score=%.2f/1.0): Suggested unexplored angle: %s\n"
+                    .formatted(novelty.score(), novelty.unexploredHint());
+        }
+
         return """
                 You are a research advisor choosing where a computational researcher should focus next.
 
@@ -292,7 +306,7 @@ public class LlmService {
                 Researcher's learned search region: param1 center=%d (±%d), param2 center=%.1f (±%.1f)
                 param1 is an integer 10–99 (controls the starting position of the search space).
                 param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
-                %s
+                %s%s
                 Prior papers in this topic:
                 %s%s
                 Based on the prior work, choose a specific unexplored or promising parameter region
@@ -312,7 +326,7 @@ public class LlmService {
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
                 """.formatted(domain, topicName, center1, radius1, center2, radius2,
-                        hypothesisSection, priorSection.trim(), anomalyContext);
+                        hypothesisSection, noveltyContext, priorSection.trim(), anomalyContext);
     }
 
     private FormulationResult parseFormulationResult(String response) {
@@ -351,6 +365,68 @@ public class LlmService {
         }
     }
 
+    private NoveltyAssessment checkNovelty(String domain, String topicName, List<ResearchPaper> papers) {
+        long count = papers.stream()
+                .filter(p -> p.domain().equalsIgnoreCase(domain) && p.topic().equalsIgnoreCase(topicName))
+                .count();
+        if (count < 3) return new NoveltyAssessment(1.0, "", "");
+        try {
+            String response = router.callFast(buildNoveltyPrompt(domain, topicName, papers, count));
+            return parseNoveltyAssessment(response);
+        } catch (Exception e) {
+            log.debug("LLM novelty check failed domain={} topic={}: {}", domain, topicName, e.getMessage());
+            return new NoveltyAssessment(1.0, "", "");
+        }
+    }
+
+    private static String buildNoveltyPrompt(String domain, String topicName,
+                                              List<ResearchPaper> papers, long totalCount) {
+        StringBuilder recent = new StringBuilder();
+        papers.stream()
+                .filter(p -> p.domain().equalsIgnoreCase(domain) && p.topic().equalsIgnoreCase(topicName))
+                .limit(8)
+                .forEach(p -> {
+                    String snippet = p.findings().length() > 100
+                            ? p.findings().substring(0, 100) + "…" : p.findings();
+                    recent.append("  %s [score %.2f]: %s\n".formatted(p.paperId(), p.peerScore(), snippet));
+                });
+        return """
+                You are assessing how much computational novelty remains in a research topic.
+
+                Domain: %s | Topic: %s
+                Total papers published in this topic so far: %d
+
+                Most recent papers (findings summaries):
+                %s
+                Rate how much unexplored territory remains: 1.0 = completely fresh, 0.0 = fully saturated.
+                Note which parameter regions or angles have NOT been tried yet.
+
+                Reply with ONLY this JSON — no other text:
+                {"novelty_score":0.7,"coverage_note":"brief note on what has been covered","unexplored_hint":"specific suggestion for an unexplored region or angle; empty string if no clear gap"}
+                """.formatted(domain, topicName, totalCount, recent.toString().trim());
+    }
+
+    private NoveltyAssessment parseNoveltyAssessment(String response) {
+        return parseNoveltyAssessment(objectMapper, response);
+    }
+
+    static NoveltyAssessment parseNoveltyAssessment(ObjectMapper mapper, String response) {
+        if (response == null || response.isBlank()) return new NoveltyAssessment(1.0, "", "");
+        int start = response.indexOf('{');
+        int end   = response.lastIndexOf('}');
+        if (start < 0 || end <= start) return new NoveltyAssessment(1.0, "", "");
+        try {
+            com.fasterxml.jackson.databind.JsonNode root =
+                    mapper.readTree(response.substring(start, end + 1));
+            double score = Math.max(0.0, Math.min(1.0, root.path("novelty_score").asDouble(1.0)));
+            String coverageNote   = root.path("coverage_note").asText("");
+            String unexploredHint = root.path("unexplored_hint").asText("");
+            return new NoveltyAssessment(score, coverageNote, unexploredHint);
+        } catch (Exception e) {
+            return new NoveltyAssessment(1.0, "", "");
+        }
+    }
+
     // --- Paper narration ---
 
     /**
@@ -370,9 +446,11 @@ public class LlmService {
         } finally {
             refinementSlot.release();
         }
+        // Statistical framing — fast call between refinement and narration; best-effort
+        PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
         narrationSlot.acquireUninterruptibly();
         try {
-            runNarration(enrichedDraft);
+            runNarration(framedDraft);
         } finally {
             narrationSlot.release();
         }
@@ -380,25 +458,170 @@ public class LlmService {
 
     record RefinementDecision(int param1, double param2, String rationale) {}
 
+    /** Novelty assessment for a domain+topic before formulation. score=1.0 means fully fresh. */
+    record NoveltyAssessment(double score, String coverageNote, String unexploredHint) {
+        boolean isSaturated() { return score < 0.30; }
+    }
+
     private void runNarration(PaperDraft draft) {
         String prompt = buildNarrationPrompt(draft);
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
             router.streamPrimary(prompt, response::append);
-            log.info("LLM narration done paperId={} ms={}", draft.paperId(),
+            log.info("LLM narration first-pass done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
                     draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
         }
-        NarrationResult parsed = parseNarrationResult(response.toString());
+        NarrationResult firstPass = parseNarrationResult(response.toString());
+        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass);
         NarrationResult result = new NarrationResult(
-                parsed.hypothesis(), parsed.findings(), parsed.conclusion(),
-                parsed.followUp(), router.primaryModel(),
-                parsed.confidenceScore(), parsed.citedPaperIds());
+                finalResult.hypothesis(), finalResult.findings(), finalResult.conclusion(),
+                finalResult.followUp(), router.primaryModel(),
+                finalResult.confidenceScore(), finalResult.citedPaperIds());
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
+        }
+    }
+
+    // --- Self-critique + revision ---
+
+    /**
+     * After first-pass narration: fast-calls a critique (Ollama) to identify up to 3 weaknesses,
+     * then streams a revision (Groq) that addresses them. Falls back to firstPass on any failure
+     * or if the first pass lacked content. The followUp from firstPass is preserved when the
+     * revision doesn't produce one — the first-pass LLM had more context for that decision.
+     */
+    private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass) {
+        if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
+            return firstPass;
+        }
+        try {
+            long critiqueStart = System.currentTimeMillis();
+            String critiqueResponse = router.callFast(buildCritiquePrompt(draft, firstPass));
+            List<String> weaknesses = parseCritiqueWeaknesses(critiqueResponse);
+            if (weaknesses.isEmpty()) {
+                log.debug("LLM critique: no weaknesses found paperId={} ms={}", draft.paperId(),
+                        System.currentTimeMillis() - critiqueStart);
+                return firstPass;
+            }
+            log.info("LLM critique: {} weakness(es) identified paperId={} ms={}", weaknesses.size(),
+                    draft.paperId(), System.currentTimeMillis() - critiqueStart);
+
+            long revisionStart = System.currentTimeMillis();
+            StringBuilder revised = new StringBuilder();
+            router.streamPrimary(buildRevisionPrompt(draft, firstPass, weaknesses), revised::append);
+            NarrationResult revParsed = parseNarrationResult(revised.toString());
+            if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
+                log.info("LLM revision done paperId={} ms={}", draft.paperId(),
+                        System.currentTimeMillis() - revisionStart);
+                // Preserve followUp from first pass if revision omits it — richer formulation context there
+                com.emergentterrain.research.FollowUpParams followUp =
+                        revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
+                return new NarrationResult(
+                        revParsed.hypothesis(), revParsed.findings(), revParsed.conclusion(),
+                        followUp, router.primaryModel(),
+                        revParsed.confidenceScore(), revParsed.citedPaperIds());
+            }
+        } catch (Exception e) {
+            log.warn("LLM critique+revision failed paperId={}: {} — using first-pass narration",
+                    draft.paperId(), e.getMessage());
+        }
+        return firstPass;
+    }
+
+    static String buildCritiquePrompt(PaperDraft draft, NarrationResult narration) {
+        String preRegLine = draft.preRegistration() != null
+                ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
+        String classLine  = draft.resultClassification() != null
+                ? "Result classification: " + draft.resultClassification() + "\n" : "";
+        return """
+                You are a peer reviewer critically assessing a computational research paper draft.
+
+                Domain: %s | Topic: %s
+                %s%s
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+
+                Identify up to 3 specific weaknesses in this draft. Focus on:
+                - Claims that exceed what the computation actually shows
+                - Missing uncertainty qualifiers or unjustified precision
+                - Logical gaps between findings and conclusion
+                - Null or partial results framed more positively than warranted
+                - Conclusions inconsistent with the pre-registered prediction
+
+                Reply with ONLY this JSON — no other text:
+                {"weaknesses":["first weakness in one sentence","second weakness","third weakness"]}
+                Return an empty array if the draft is sound.
+                """.formatted(
+                draft.domain(), draft.topicName(),
+                preRegLine, classLine,
+                narration.hypothesis(), narration.findings(), narration.conclusion());
+    }
+
+    static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
+                                      List<String> weaknesses) {
+        String weaknessList = weaknesses.stream()
+                .map(w -> "  - " + w)
+                .collect(java.util.stream.Collectors.joining("\n"));
+        boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
+        String conclusionSpec = isNull
+                ? "\"conclusion\":\"explicitly state the pre-registered prediction was NOT confirmed; "
+                  + "what was expected vs found; what this rules out\""
+                : "\"conclusion\":\"1-2 sentences: what result implies; one open question it raises\"";
+        return """
+                You are revising a computational research paper draft to address peer review feedback.
+
+                Domain: %s | Topic: %s
+
+                ORIGINAL DRAFT:
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+
+                PEER REVIEW WEAKNESSES TO ADDRESS:
+                %s
+
+                Revise to address these weaknesses. Keep correct content unchanged. \
+                Strengthen qualifications where needed. Dial back over-claims appropriately. \
+                Do not change factual content, trends, or physical quantities.
+
+                Reply with ONLY this JSON — no markdown, no preamble:
+                {"hypothesis":"revised hypothesis","findings":"revised 2-3 sentence findings",%s,\
+                "confidenceScore":0.75,"cited_paper_ids":[]}
+
+                All text values plain prose, under 120 words each.
+                """.formatted(
+                draft.domain(), draft.topicName(),
+                firstPass.hypothesis(), firstPass.findings(), firstPass.conclusion(),
+                weaknessList, conclusionSpec);
+    }
+
+    private List<String> parseCritiqueWeaknesses(String response) {
+        return parseCritiqueWeaknesses(objectMapper, response);
+    }
+
+    static List<String> parseCritiqueWeaknesses(ObjectMapper mapper, String response) {
+        if (response == null || response.isBlank()) return List.of();
+        int start = response.indexOf('{');
+        int end   = response.lastIndexOf('}');
+        if (start < 0 || end <= start) return List.of();
+        try {
+            com.fasterxml.jackson.databind.JsonNode root =
+                    mapper.readTree(response.substring(start, end + 1));
+            com.fasterxml.jackson.databind.JsonNode arr = root.get("weaknesses");
+            if (arr == null || !arr.isArray()) return List.of();
+            List<String> result = new ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode node : arr) {
+                String w = node.asText(null);
+                if (w != null && !w.isBlank()) result.add(w);
+            }
+            return List.copyOf(result);
+        } catch (Exception e) {
+            return List.of();
         }
     }
 
@@ -551,6 +774,85 @@ public class LlmService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    // --- Statistical framing (Gaps 4 & 5) ---
+
+    /**
+     * Rewrites rawFindings with appropriate significant figures and uncertainty qualifiers.
+     * Fast Ollama call; falls back to the unmodified draft on any failure.
+     * Skipped for dynamic papers (param1 == null).
+     */
+    private PaperDraft applyStatisticalFraming(PaperDraft draft) {
+        if (draft.param1() == null) return draft;
+        String raw = draft.rawFindings();
+        if (raw == null || raw.isBlank()) return draft;
+        try {
+            long start = System.currentTimeMillis();
+            String response = router.callFast(buildStatisticalFramingPrompt(raw, draft.domain(), draft.topicName()));
+            String framed = parseStatisticalFraming(response);
+            if (framed != null) {
+                log.debug("LLM statistical framing done paperId={} ms={}", draft.paperId(),
+                        System.currentTimeMillis() - start);
+                return new PaperDraft(
+                        draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
+                        draft.title(), framed,
+                        draft.templateHypothesis(), draft.templateConclusion(),
+                        draft.methodology(), draft.reviewerBotIds(),
+                        draft.peerScore(), draft.authorScore(), draft.anomalyZScore(),
+                        draft.gameTick(), draft.publishedAt(), draft.generation(),
+                        draft.paperId(), draft.param1(), draft.param2(),
+                        draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
+                        draft.recentPapers(), draft.researchHypothesis(),
+                        draft.preRegistration(), draft.resultClassification());
+            }
+        } catch (Exception e) {
+            log.debug("LLM statistical framing failed paperId={}: {} — using raw findings",
+                    draft.paperId(), e.getMessage());
+        }
+        return draft;
+    }
+
+    static String buildStatisticalFramingPrompt(String rawFindings, String domain, String topicName) {
+        String trimmed = rawFindings.length() > 500 ? rawFindings.substring(0, 500) + "…" : rawFindings;
+        return """
+                You are a scientific editor improving precision reporting in a computational paper.
+
+                Domain: %s | Topic: %s
+
+                Raw computational output:
+                %s
+
+                Rewrite this for the findings section of a scientific paper. Rules:
+                1. Replace exact decimals beyond 3 significant figures with rounded values.
+                2. Add appropriate uncertainty qualifiers: "approximately", "roughly", "within ~X%%", "±" estimates.
+                3. For very small (<0.001) or very large (>10000) values use scientific notation.
+                4. Do NOT change any facts, trends, relationships, or physical quantities — only the precision framing.
+                5. Keep the same length and structure. Plain prose only, no bullet points, no headers.
+
+                Reply with ONLY the rewritten findings text — no preamble, no JSON, no explanation.
+                """.formatted(domain, topicName, trimmed);
+    }
+
+    static String parseStatisticalFraming(String response) {
+        if (response == null || response.isBlank()) return null;
+        String cleaned = response.strip();
+        // Reject JSON (model confused about output format), empty, or suspiciously short
+        if (cleaned.startsWith("{") || cleaned.startsWith("[") || cleaned.length() < 20) return null;
+        // Strip common preambles like "Here is the rewritten..." if the model ignores the instruction
+        for (String preamble : new String[]{"Here is", "Here's", "Rewritten:", "Revised:", "Output:"}) {
+            if (cleaned.startsWith(preamble)) {
+                int nl = cleaned.indexOf('\n');
+                if (nl > 0 && nl < 80) {
+                    cleaned = cleaned.substring(nl + 1).strip();
+                } else if (preamble.endsWith(":")) {
+                    // Single-line colon-terminated preamble — strip just the prefix
+                    cleaned = cleaned.substring(preamble.length()).stripLeading();
+                }
+                break;
+            }
+        }
+        return cleaned.isBlank() ? null : cleaned;
     }
 
     private String buildNarrationPrompt(PaperDraft draft) {
@@ -904,9 +1206,10 @@ public class LlmService {
 
         String botIdStr = bot.getId().toString();
 
-        // Split papers into own work vs peers in the same domain; flag anomalies
-        StringBuilder ownWork  = new StringBuilder();
-        StringBuilder peerWork = new StringBuilder();
+        // Split papers: own work, same-domain peers, cross-domain anomalies from other bots
+        StringBuilder ownWork         = new StringBuilder();
+        StringBuilder peerWork        = new StringBuilder();
+        StringBuilder crossDomainAnom = new StringBuilder();
         for (ResearchPaper p : papers) {
             String anomalyTag = Math.abs(p.anomalyZScore()) >= 1.5
                     ? " [ANOMALOUS z=%+.1f]".formatted(p.anomalyZScore()) : "";
@@ -917,10 +1220,20 @@ public class LlmService {
                 peerWork.append("  bot-%s: %s / %s — score %.2f%s%n"
                         .formatted(p.authorBotId().substring(0, 6), p.domain(), p.topic(),
                                    p.peerScore(), anomalyTag));
+            } else if (!botIdStr.equals(p.authorBotId()) && Math.abs(p.anomalyZScore()) >= 1.5) {
+                // Cross-domain anomaly — another bot found something unusual in a different domain
+                String snippet = p.findings().length() > 110
+                        ? p.findings().substring(0, 110) + "…" : p.findings();
+                crossDomainAnom.append("  bot-%s: %s / %s — score %.2f [z=%+.1f]: %s%n"
+                        .formatted(p.authorBotId().substring(0, 6), p.domain(), p.topic(),
+                                   p.peerScore(), p.anomalyZScore(), snippet));
             }
         }
-        String ownSection  = ownWork.isEmpty()  ? "  (none yet)\n" : ownWork.toString();
-        String peerSection = peerWork.isEmpty() ? "  (none in domain)\n" : peerWork.toString();
+        String ownSection       = ownWork.isEmpty()         ? "  (none yet)\n" : ownWork.toString();
+        String peerSection      = peerWork.isEmpty()        ? "  (none in domain)\n" : peerWork.toString();
+        String crossDomainSection = crossDomainAnom.isEmpty() ? ""
+                : "\nAnomalous findings in OTHER domains (cross-domain inspiration from peers):\n"
+                  + crossDomainAnom.toString().trim() + "\n";
 
         return """
                 You are a research advisor in a simulation. A researcher bot has just published \
@@ -946,14 +1259,15 @@ public class LlmService {
                 Their own recent work:
                 %s
                 Recent work by peers in the same domain:
-                %s
+                %s%s
                 As their advisor, consider what the peer findings reveal about this domain. \
                 Pay particular attention to results marked [ANOMALOUS] — these deviate significantly \
                 from the room's historical distribution for that topic and may indicate unexplored \
-                territory or a structural pattern worth investigating. Suggest one or two small genome \
-                adjustments. If the peer papers reveal a specific unexplored parameter region, you may \
-                also redirect the bot's search center (paramCenter1, paramCenter2) toward it, OR \
-                include a directive to run a focused number-theoretic investigation.
+                territory or a structural pattern worth investigating. \
+                If cross-domain anomalies are shown above, consider whether any structural pattern \
+                (e.g. a mathematical property, a scale threshold, a domain boundary) might transfer \
+                to this researcher's domain — if so, incorporate that into the directive or search \
+                center adjustment. Suggest one or two small genome adjustments.
 
                 Reply with only this JSON and nothing else:
                 {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"hypothesis":"your hypothesis"}}
@@ -976,7 +1290,7 @@ public class LlmService {
                         domain, method, gen,
                         w0, w1, w2, w3, w4, er,
                         pc1, pc2, pr1, pr2,
-                        pub, rej, ownSection.trim(), peerSection.trim());
+                        pub, rej, ownSection.trim(), peerSection.trim(), crossDomainSection);
     }
 
     private void applyGenomeMentoringResult(RoomBot bot, String response) {

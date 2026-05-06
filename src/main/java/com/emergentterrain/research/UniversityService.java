@@ -232,7 +232,7 @@ public class UniversityService {
         if (draft.authorScore() >= MENTOR_SCORE_THRESHOLD && mentoringCallback != null) {
             UUID botId = UUID.fromString(draft.authorBotId());
             botRepository.findById(botId).ifPresent(bot ->
-                    mentoringCallback.accept(bot, getPublishedPapers(draft.roomId(), 20)));
+                    mentoringCallback.accept(bot, getPublishedPapers(draft.roomId(), 40)));
         }
     }
 

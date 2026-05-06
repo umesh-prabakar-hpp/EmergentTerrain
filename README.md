@@ -87,8 +87,9 @@ bash ./scripts/test-setup-fedora-prereqs.sh
 
 ## Scientific Integrity Pipeline
 
-Research papers go through a deterministic integrity layer before any LLM narration call:
+Research papers go through a deterministic integrity layer before any LLM narration call, and a multi-step quality pipeline that uses additional LLM calls to improve per-paper quality:
 
+**Deterministic integrity (no LLM):**
 1. **Pre-registration** — the fast-pool LLM writes a hypothesis, prediction, and falsification condition *before* computation runs (`PreRegistration` record). For cross-domain papers, `mappingNotes` forces explicit justification of any constant mappings.
 2. **Deterministic classification** — `UniversityService.classifyResult()` maps `MathPhysicsEngine.ClaimStatus` + `authorScore` to one of four outcomes: SUPPORTED, PARTIALLY_SUPPORTED, NULL_RESULT, or DEGENERATE. This runs before peer review and before any LLM call, preventing post-hoc rationalization.
 3. **Degenerate rejection** — non-finite values, all-zero sentinels, and non-positive author scores are silently rejected; no draft is created and no LLM call is made.
@@ -97,11 +98,18 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 6. **Replication and bridge guards** — null results are excluded from anomaly replication queues and cross-domain knowledge bridging; only positive results are eligible.
 7. **Cross-topic anomaly context** — the formulation prompt surfaces anomalous papers from adjacent topics in the same domain, enabling the LLM to reason across papers when exploring new parameter regions.
 
+**Quality pipeline (additional LLM calls):**
+8. **Novelty check** — before formulation, when ≥3 papers exist in the topic, a fast Ollama call assesses saturation (0=fully covered, 1=fresh). Score < 0.30 injects a NOVELTY WARNING redirecting the LLM to unexplored parameter regions; 0.30–0.59 injects a softer hint.
+9. **Statistical framing** — after refinement and before narration, a fast Ollama call rewrites `rawFindings` with ≤3 significant figures, uncertainty qualifiers ("approximately", "within ~X%", "±"), and scientific notation for extreme values. Addresses fabricated-precision and uncertainty-quantification gaps.
+10. **Self-critique + revision** — after first-pass Groq narration, a fast Ollama peer-review critique identifies up to 3 weaknesses; if found, a second Groq call revises the paper to address them. Falls back to first pass if no weaknesses are found or any call fails.
+11. **Cross-bot anomaly mentoring** — the genome mentoring prompt now includes anomalous findings from other bots in different domains (|z| ≥ 1.5), enabling the advisor to suggest cross-domain redirects. The mentoring callback passes 40 papers instead of 20 for broader coverage.
+
 Stats endpoint (`getStats`) now reports: `totalPublished`, `positiveResults`, `nullResults`, `disputed`, `totalRejected`.
 
 ## Tests (summary)
 - `ResultClassificationTest` — all 17 branches of `classifyResult`: DEGENERATE (NaN, Infinity, zero sentinel, zero authorScore), NULL_RESULT (score floor, REFUTED claim, low OBSERVATIONAL), SUPPORTED, PARTIALLY_SUPPORTED, and real computation round-trips.
 - `LlmServiceParseTest` — 35 tests for `parseFormulationResult`, `parseNarrationResult`, and `parseRefinementDecision`: valid JSON, boundary params, malformed input, preamble extraction, confidence clamping, paper ID filtering, follow-up validation.
+- `LlmServiceQualityPipelineTest` — 35 tests for the four quality-pipeline parse/build methods: `parseNoveltyAssessment` (score clamping, fallback, saturation threshold), `buildStatisticalFramingPrompt` / `parseStatisticalFraming` (truncation, JSON rejection, preamble stripping), `parseCritiqueWeaknesses` (valid/empty/malformed), `buildCritiquePrompt` / `buildRevisionPrompt` (content inclusion, null-result vs supported spec).
 - `PublishPaperTest` — 13 tests for `publishPaper`: confidence scaling by classification, null-result fixed factor, status assignment (PUBLISHED vs NULL_RESULT), template fallback, stats separation.
 - `PreRegistrationTest` — record structure, equality, null-tolerant fields, PaperDraft carries both pre-registration and classification.
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
@@ -375,15 +383,15 @@ Doesn’t require scale, just repetition
 
 The fundamental gaps (current status)
 
-1. **No surprise or novelty detection** *(open)*. Bots maximize the primary metric rather than detecting unexpected values. Closing this requires knowing what the "expected" result is for a given computation so anomalous deviations can be flagged.
+1. **No surprise or novelty detection** *(partially addressed)*. A fast Ollama novelty check now runs before each formulation call (when ≥3 topic papers exist). It rates topic saturation and injects a redirect hint into the formulation prompt for saturated topics (score < 0.30). Bots still don't detect *surprising* values within a computation (deviations from a prior expectation); the novelty check addresses topic-level saturation, not intra-paper surprise.
 
-2. **Cross-paper reasoning** *(partially addressed)*. The formulation prompt now surfaces anomalous findings from adjacent topics in the same domain, giving the LLM context to target interesting parameter regions. Bots still do not explicitly reference each other's conclusions; the next step is a mentoring nudge toward ranges where other bots found anomalies.
+2. **Cross-paper reasoning** *(substantially addressed)*. The formulation prompt surfaces same-domain anomalies; the genome mentoring prompt now also surfaces cross-domain anomalies from other bots (|z| ≥ 1.5), enabling structural-pattern transfers across research areas. The remaining open piece is proactive bot-to-bot citation and discussion, where a bot explicitly references another's finding and designs a follow-up computation to test it.
 
-3. **Findings don't inform the hypothesis** *(mitigated, not solved)*. Pre-registration locks the hypothesis before computation — the LLM can no longer retroactively invent a hypothesis that fits the results. However, the hypothesis is still written before results are visible; a two-pass structure would be needed to allow mid-investigation revision.
+3. **Findings don't inform the hypothesis** *(mitigated, not solved)*. Pre-registration + the self-critique+revision pipeline both guard against post-hoc rationalization. The critique step explicitly checks whether conclusions are inconsistent with the pre-registered prediction. A two-pass write-then-revise structure is now live; a further step would be mid-investigation hypothesis revision (before results, not after).
 
-4. **No uncertainty quantification** *(open)*. Statistical findings still report point estimates without standard errors or confidence intervals.
+4. **No uncertainty quantification** *(substantially addressed)*. The statistical framing call rewrites `rawFindings` with uncertainty qualifiers ("approximately", "within ~X%", "±") before narration. Single point estimates without any qualifier should now be rare. Formal standard-error computation in `MathPhysicsEngine` itself remains open.
 
-5. **Fabricated precision** *(open)*. Finite-sample statistics are reported with false precision. Standard error and rounding to appropriate significant figures would close this alongside gap 4.
+5. **Fabricated precision** *(substantially addressed)*. The statistical framing call enforces ≤3 significant figures and scientific notation for extreme values. The narration LLM now receives already-framed findings rather than raw exact decimals. Systematic enforcement at the engine output layer (before framing) remains open.
 
 **What has been addressed (post-hoc rationalization)**
 
