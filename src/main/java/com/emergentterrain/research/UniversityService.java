@@ -157,7 +157,8 @@ public class UniversityService {
                 draft.paperId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
                 draft.reviewerBotIds(), draft.peerScore(), "PUBLISHED",
-                draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore());
+                draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
+                narration.aiModel());
 
         addPaper(draft.roomId(), paper);
         draftQueueSize.decrementAndGet();
@@ -365,7 +366,7 @@ public class UniversityService {
                                 + " vs original " + String.format("%.3f", p.peerScore())
                                 + " — result is under dispute.]",
                         p.reviewerBotIds(), p.peerScore(), "DISPUTED",
-                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore());
+                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore(), p.aiModel());
                 papers.set(i, disputed);
                 overwritePaperFile(roomId, disputed);
                 // Penalise original author's reputation
@@ -822,7 +823,7 @@ public class UniversityService {
                 draftQueueSize.incrementAndGet();
                 narratingCallback.accept(draft);
             } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null));
+                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null));
             }
             log.debug("university draft queued paperId={} domain={} topic={} score={}",
                     paperId, domain, topicName, peerScore);
@@ -906,7 +907,7 @@ public class UniversityService {
                 draftQueueSize.incrementAndGet();
                 narratingCallback.accept(draft);
             } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null));
+                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null));
             }
             log.debug("university dynamic draft queued botId={} description=\"{}\" score={}",
                     author.getBotId(), directive.description(), peerScore);
@@ -1163,6 +1164,7 @@ public class UniversityService {
                 **Status**: %s
                 **Generation**: %d
                 **Author**: %s
+                **AI Narrator**: %s
                 **Reviewers**: %s
                 %s
                 ---
@@ -1191,6 +1193,7 @@ public class UniversityService {
                 paper.status(),
                 paper.generation(),
                 paper.authorBotId(),
+                paper.aiModel() != null ? paper.aiModel() : "template",
                 String.join(", ", paper.reviewerBotIds()),
                 disputedBanner,
                 paper.hypothesis(),

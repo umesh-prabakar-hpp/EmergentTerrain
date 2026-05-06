@@ -24,24 +24,16 @@ import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
+import java.util.function.Consumer;
 
 /**
  * Round-robin pool of Ollama backends with per-backend concurrency control and
- * automatic health tracking. Replaces the single chatClient in LlmService.
- *
- * Configuration:
- *   app.ai.backendUrls      — comma-separated list of Ollama base URLs
- *   app.ai.backendParallelism — max concurrent requests per backend (= OLLAMA_NUM_PARALLEL)
- *
- * Acquisition strategy: try each backend in round-robin order; pick the first
- * healthy one that has a free slot. If all are at capacity, block on the best
- * available candidate (fair wait, not a drop). On MAX_FAILURES consecutive
- * errors a backend is marked unhealthy and probed every 30 s until it recovers.
+ * automatic health tracking. Active when app.ai.enabled=true and no other LlmPool
+ * bean (e.g. GroqPool) is present.
  */
 @Component
 @ConditionalOnProperty(name = "app.ai.enabled", havingValue = "true", matchIfMissing = false)
-public class OllamaPool {
+public class OllamaPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaPool.class);
 
@@ -53,6 +45,7 @@ public class OllamaPool {
 
     private final List<Backend> backends;
     private final AtomicInteger cursor = new AtomicInteger(0);
+    private final String modelName;
     private final ScheduledExecutorService probeScheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "ollama-health-probe");
@@ -67,6 +60,8 @@ public class OllamaPool {
             @Value("${spring.ai.ollama.chat.model:gemma3:4b}") String model,
             @Value("${spring.ai.ollama.chat.options.temperature:0.7}") double temperature,
             @Value("${spring.ai.ollama.chat.options.num-predict:200}") int numPredict) {
+
+        this.modelName = model;
 
         OllamaOptions options = OllamaOptions.builder()
                 .model(model)
@@ -91,20 +86,16 @@ public class OllamaPool {
         }
         if (built.isEmpty()) {
             throw new IllegalStateException(
-                    "OllamaPool: no backend URLs configured — set app.ai.backendUrls");
+                    "OllamaPool: no backend URLs configured — set app.ai.backendHosts");
         }
         this.backends = List.copyOf(built);
     }
 
-    /**
-     * Acquire a backend slot, run fn against its ChatClient, release the slot.
-     * Blocks if all backends are at capacity. Re-throws RuntimeException from fn
-     * after recording a failure on that backend.
-     */
-    public <T> T call(Function<ChatClient, T> fn) {
+    @Override
+    public String callSync(String prompt) {
         Backend backend = acquire();
         try {
-            T result = fn.apply(backend.client());
+            String result = backend.client().prompt().user(prompt).call().content();
             backend.consecutiveFailures().set(0);
             return result;
         } catch (RuntimeException e) {
@@ -115,14 +106,34 @@ public class OllamaPool {
         }
     }
 
+    @Override
+    public void callStream(String prompt, Consumer<String> tokenConsumer) {
+        Backend backend = acquire();
+        try {
+            backend.client().prompt().user(prompt).stream().content()
+                    .toStream().forEach(tokenConsumer);
+            backend.consecutiveFailures().set(0);
+        } catch (RuntimeException e) {
+            recordFailure(backend);
+            throw e;
+        } finally {
+            backend.slots().release();
+        }
+    }
+
+    @Override
+    public String selectedModel() { return modelName; }
+
+    @Override
     public int backendCount()  { return backends.size(); }
+
+    @Override
     public int healthyCount()  { return (int) backends.stream().filter(b -> b.healthy().get()).count(); }
 
     private Backend acquire() {
         int n     = backends.size();
         int start = Math.abs(cursor.getAndIncrement() % n);
 
-        // Fast path: first healthy backend with a free slot (round-robin order)
         for (int i = 0; i < n; i++) {
             Backend b = backends.get((start + i) % n);
             if (b.healthy().get() && b.slots().tryAcquire()) {
@@ -130,13 +141,12 @@ public class OllamaPool {
             }
         }
 
-        // Slow path: all full or unhealthy — block on the best available candidate
         Backend candidate = null;
         for (int i = 0; i < n; i++) {
             Backend b = backends.get((start + i) % n);
             if (b.healthy().get()) { candidate = b; break; }
         }
-        if (candidate == null) candidate = backends.get(start % n); // last resort
+        if (candidate == null) candidate = backends.get(start % n);
         try {
             candidate.slots().acquire();
         } catch (InterruptedException e) {

@@ -167,6 +167,13 @@ app:
     peerReviewEnabled: true
   ai:
     enabled: true
+    groq:
+      enabled: true
+      apiKey: ${GROQ_API_KEY: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}
+      parallelism: 3
+      maxTokens: 600
+      # Leave blank to auto-discover and benchmark all Groq models at startup
+      preferredModel: ""
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500

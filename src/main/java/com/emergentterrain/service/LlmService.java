@@ -44,7 +44,7 @@ public class LlmService {
     private static final int DIGEST_MAX_BILLS = 3;
     private static final long AI_EDIT_COOLDOWN_TICKS = 200L;
 
-    private final OllamaPool pool;
+    private final LlmRouter router;
     private final RoomUpdateBroadcaster broadcaster;
     private final RoomBotRepository botRepository;
     private final ObjectMapper objectMapper;
@@ -73,17 +73,18 @@ public class LlmService {
 
     private final long digestCooldownMs;
 
-    public LlmService(OllamaPool pool,
+    public LlmService(LlmRouter router,
                       RoomUpdateBroadcaster broadcaster,
                       RoomBotRepository botRepository,
                       ObjectMapper objectMapper,
                       @Value("${app.ai.digestCooldownMinutes:10}") long digestCooldownMinutes) {
-        this.pool             = pool;
+        this.router           = router;
         this.broadcaster      = broadcaster;
         this.botRepository    = botRepository;
         this.objectMapper     = objectMapper;
         this.digestCooldownMs = TimeUnit.MINUTES.toMillis(Math.max(0L, digestCooldownMinutes));
-        log.info("LlmService: connected to OllamaPool ({} backend(s))", pool.backendCount());
+        log.info("LlmService: primary={} fast={}",
+                router.primaryModel(), router.fastModel());
     }
 
     /** Wire up the mentoring callback into UniversityService after the context is ready. */
@@ -158,7 +159,7 @@ public class LlmService {
         }
         long start = System.currentTimeMillis();
         try {
-            String response = pool.call(c -> c.prompt().user(prompt).call().content());
+            String response = router.callFast(prompt);
             log.info("LLM policy consultation done ms={}", System.currentTimeMillis() - start);
             return response;
         } catch (Exception e) {
@@ -181,11 +182,8 @@ public class LlmService {
             executor.execute(() -> {
                 long start = System.currentTimeMillis();
                 try {
-                    pool.call(c -> {
-                        c.prompt().user(prompt).stream().content().toStream()
-                                .forEach(token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
-                        return null;
-                    });
+                    router.streamFast(prompt,
+                            token -> broadcaster.broadcastLlmToken(roomId, streamId, kind, token));
                     log.info("LLM done room={} kind={} ms={}", roomId, kind, System.currentTimeMillis() - start);
                     broadcaster.broadcastLlmDone(roomId, streamId, kind);
                 } catch (Exception e) {
@@ -220,7 +218,7 @@ public class LlmService {
         long start = System.currentTimeMillis();
         try {
             String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers);
-            String response = pool.call(c -> c.prompt().user(prompt).call().content());
+            String response = router.callFast(prompt);
             log.info("LLM formulation done domain={} topic={} ms={}", domain, topicName,
                     System.currentTimeMillis() - start);
             return parseFormulationResult(response);
@@ -335,17 +333,17 @@ public class LlmService {
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
-            pool.call(c -> {
-                c.prompt().user(prompt).stream().content().toStream().forEach(response::append);
-                return null;
-            });
+            router.streamPrimary(prompt, response::append);
             log.info("LLM narration done paperId={} ms={}", enrichedDraft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
                     enrichedDraft.paperId(), System.currentTimeMillis() - start, e.getMessage());
         }
-        NarrationResult result = parseNarrationResult(response.toString());
+        NarrationResult parsed = parseNarrationResult(response.toString());
+        NarrationResult result = new NarrationResult(
+                parsed.hypothesis(), parsed.findings(), parsed.conclusion(),
+                parsed.followUp(), router.primaryModel());
         if (narrationPublisher != null) {
             narrationPublisher.accept(enrichedDraft, result);
         }
@@ -377,7 +375,7 @@ public class LlmService {
             try {
                 String prompt = buildRefinementPrompt(
                         draft, accumulatedFindings, iteration, MAX_REFINEMENTS);
-                String response = pool.call(c -> c.prompt().user(prompt).call().content());
+                String response = router.callFast(prompt);
                 RefinementDecision decision = parseRefinementDecision(response);
                 if (decision == null) {
                     log.debug("LLM refinement {}/{} done (model says stop) paperId={}",
@@ -642,10 +640,10 @@ public class LlmService {
     }
 
     private NarrationResult parseNarrationResult(String response) {
-        if (response == null || response.isBlank()) return new NarrationResult(null, null, null, null);
+        if (response == null || response.isBlank()) return new NarrationResult(null, null, null, null, null);
         int start = response.indexOf('{');
         int end   = response.lastIndexOf('}');
-        if (start < 0 || end <= start) return new NarrationResult(null, null, null, null);
+        if (start < 0 || end <= start) return new NarrationResult(null, null, null, null, null);
         try {
             com.fasterxml.jackson.databind.JsonNode root =
                     objectMapper.readTree(response.substring(start, end + 1));
@@ -666,10 +664,10 @@ public class LlmService {
                     root.path("hypothesis").asText(null),
                     root.path("findings").asText(null),
                     root.path("conclusion").asText(null),
-                    followUp);
+                    followUp, null);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
-            return new NarrationResult(null, null, null, null);
+            return new NarrationResult(null, null, null, null, null);
         }
     }
 
@@ -730,13 +728,9 @@ public class LlmService {
         long start = System.currentTimeMillis();
         StringBuilder fullResponse = new StringBuilder();
         try {
-            pool.call(c -> {
-                c.prompt().user(prompt).stream().content().toStream()
-                        .forEach(token -> {
-                            broadcaster.broadcastLlmToken(roomId, streamId, "genome_mentor", token);
-                            fullResponse.append(token);
-                        });
-                return null;
+            router.streamPrimary(prompt, token -> {
+                broadcaster.broadcastLlmToken(roomId, streamId, "genome_mentor", token);
+                fullResponse.append(token);
             });
             broadcaster.broadcastLlmDone(roomId, streamId, "genome_mentor");
             log.info("LLM genome mentor done bot={} ms={}", botId, System.currentTimeMillis() - start);
