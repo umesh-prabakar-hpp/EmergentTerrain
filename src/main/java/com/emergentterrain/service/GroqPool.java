@@ -304,16 +304,28 @@ public class GroqPool implements LlmPool {
             List<String> result = new ArrayList<>();
             for (JsonNode node : arr) {
                 String name = node.asText("").trim();
-                if (valid.contains(name) && !result.contains(name)) result.add(name);
+                String matched = matchCandidate(name, valid);
+                if (matched != null && !result.contains(matched)) result.add(matched);
             }
             if (result.isEmpty()) {
-                log.debug("GroqPool: ranking array had no recognized model names: {}", cleaned.substring(start, Math.min(end + 1, start + 300)));
+                log.warn("GroqPool: ranking array had no recognized model names: {}",
+                        cleaned.substring(start, Math.min(end + 1, start + 300)));
             }
             return result;
         } catch (Exception e) {
             log.debug("GroqPool: failed to parse ranking: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    // Exact match first; then suffix match to handle models that drop their namespace prefix
+    // e.g. "gpt-oss-120b" → "openai/gpt-oss-120b", "llama-3.3-70b-versatile" → exact
+    private String matchCandidate(String name, Set<String> valid) {
+        if (valid.contains(name)) return name;
+        return valid.stream()
+                .filter(c -> c.endsWith("/" + name))
+                .findFirst()
+                .orElse(null);
     }
 
     // --- Ollama quality scoring ---
