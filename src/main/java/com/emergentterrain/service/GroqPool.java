@@ -298,28 +298,34 @@ public class GroqPool implements LlmPool {
                     cleaned.substring(0, Math.min(cleaned.length(), 400)));
             return List.of();
         }
+        Set<String> valid = Set.copyOf(candidates);
+        // Try JSON parse first
         try {
             JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
-            if (!arr.isArray()) {
-                log.debug("GroqPool: ranking response parsed but root is not an array: {}", cleaned.substring(start, Math.min(end + 1, start + 200)));
-                return List.of();
+            if (arr.isArray()) {
+                List<String> result = new ArrayList<>();
+                for (JsonNode node : arr) {
+                    String matched = matchCandidate(node.asText("").trim(), valid);
+                    if (matched != null && !result.contains(matched)) result.add(matched);
+                }
+                if (!result.isEmpty()) return result;
             }
-            Set<String> valid = Set.copyOf(candidates);
-            List<String> result = new ArrayList<>();
-            for (JsonNode node : arr) {
-                String name = node.asText("").trim();
-                String matched = matchCandidate(name, valid);
-                if (matched != null && !result.contains(matched)) result.add(matched);
-            }
-            if (result.isEmpty()) {
-                log.warn("GroqPool: ranking array had no recognized model names: {}",
-                        cleaned.substring(start, Math.min(end + 1, start + 300)));
-            }
-            return result;
-        } catch (Exception e) {
-            log.debug("GroqPool: failed to parse ranking: {}", e.getMessage());
-            return List.of();
+        } catch (Exception ignored) {}
+
+        // Fallback: scan the full response for any known candidate name (handles prose,
+        // numbered lists, unquoted arrays, etc.)
+        List<String> fallback = new ArrayList<>();
+        for (String candidate : candidates) {
+            if (cleaned.contains(candidate) && !fallback.contains(candidate)) fallback.add(candidate);
+            // Also check suffix (model may omit namespace prefix)
+            String suffix = candidate.contains("/") ? candidate.substring(candidate.lastIndexOf('/') + 1) : null;
+            if (suffix != null && cleaned.contains(suffix) && !fallback.contains(candidate)) fallback.add(candidate);
         }
+        if (fallback.isEmpty()) {
+            log.warn("GroqPool: could not extract any model names from ranking response: {}",
+                    cleaned.substring(0, Math.min(cleaned.length(), 400)));
+        }
+        return fallback;
     }
 
     // Exact match first; then suffix match to handle models that drop their namespace prefix
