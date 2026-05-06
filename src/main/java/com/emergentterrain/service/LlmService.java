@@ -361,10 +361,9 @@ public class LlmService {
     /**
      * Multi-step computation loop: runs up to MAX_REFINEMENTS additional focused
      * computations before narration. Each iteration shows the LLM all findings so far;
-     * it decides "refine" or "done". No semaphore guard — runs inline inside
-     * narrationSlot (which serialises narration), so at most one refinement loop is
-     * active at any time and concurrency with genome/formulation calls stays within
-     * OLLAMA_NUM_PARALLEL=3. Dynamic papers (param1==null) are always skipped.
+     * it decides "refine" or "done". Runs inside refinementSlot (permits=2), decoupled
+     * from narrationSlot so concurrent narrations are not blocked by GPU compute.
+     * Dynamic papers (param1==null) are always skipped.
      */
     private PaperDraft maybeRefineComputation(PaperDraft draft) {
         if (draft.param1() == null) return draft;
