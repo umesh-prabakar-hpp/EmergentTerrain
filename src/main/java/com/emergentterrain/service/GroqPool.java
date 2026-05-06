@@ -211,7 +211,7 @@ public class GroqPool implements LlmPool {
             // Phase 1: ranking call — low token budget, just a JSON array of names
             try {
                 String rankResponse = syncCallWithBackoff(modelId, rankingPrompt, RANKING_MAX_TOKENS);
-                List<String> ranking = parseRanking(rankResponse, candidates);
+                List<String> ranking = parseRanking(mapper, rankResponse, candidates);
                 for (int rank = 0; rank < ranking.size(); rank++) {
                     bordaScores.merge(ranking.get(rank), n - 1 - rank, Integer::sum);
                 }
@@ -238,7 +238,9 @@ public class GroqPool implements LlmPool {
                 ollamaScores = scoreWithOllama(testResponses, candidates);
                 log.info("GroqPool: Ollama quality scores={}", ollamaScores);
             } catch (Exception e) {
-                log.warn("GroqPool: Ollama scoring failed — using Borda only: {}", e.getMessage());
+                Throwable cause = e.getCause() != null ? e.getCause() : e;
+                log.warn("GroqPool: Ollama scoring failed — using Borda only: {} ({})",
+                        e.getMessage(), cause.getMessage());
             }
         }
 
@@ -288,39 +290,46 @@ public class GroqPool implements LlmPool {
                "[\"best-model\", \"second-model\", ...]";
     }
 
-    private List<String> parseRanking(String response, List<String> candidates) {
+    static List<String> parseRanking(ObjectMapper mapper, String response, List<String> candidates) {
         if (response == null || response.isBlank()) return List.of();
         String cleaned = response.replaceAll("(?s)<think>.*?</think>", "").trim();
+        Set<String> valid = Set.copyOf(candidates);
+
+        // Phase 1: try JSON array parse if brackets are present
         int start = cleaned.indexOf('[');
         int end   = cleaned.lastIndexOf(']');
-        if (start < 0 || end <= start) {
-            log.warn("GroqPool: ranking response has no JSON array: {}",
-                    cleaned.substring(0, Math.min(cleaned.length(), 400)));
-            return List.of();
-        }
-        Set<String> valid = Set.copyOf(candidates);
-        // Try JSON parse first
-        try {
-            JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
-            if (arr.isArray()) {
-                List<String> result = new ArrayList<>();
-                for (JsonNode node : arr) {
-                    String matched = matchCandidate(node.asText("").trim(), valid);
-                    if (matched != null && !result.contains(matched)) result.add(matched);
+        if (start >= 0 && end > start) {
+            try {
+                JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
+                if (arr.isArray()) {
+                    List<String> result = new ArrayList<>();
+                    for (JsonNode node : arr) {
+                        String matched = matchCandidate(node.asText("").trim(), valid);
+                        if (matched != null && !result.contains(matched)) result.add(matched);
+                    }
+                    if (!result.isEmpty()) return result;
                 }
-                if (!result.isEmpty()) return result;
-            }
-        } catch (Exception ignored) {}
-
-        // Fallback: scan the full response for any known candidate name (handles prose,
-        // numbered lists, unquoted arrays, etc.)
-        List<String> fallback = new ArrayList<>();
-        for (String candidate : candidates) {
-            if (cleaned.contains(candidate) && !fallback.contains(candidate)) fallback.add(candidate);
-            // Also check suffix (model may omit namespace prefix)
-            String suffix = candidate.contains("/") ? candidate.substring(candidate.lastIndexOf('/') + 1) : null;
-            if (suffix != null && cleaned.contains(suffix) && !fallback.contains(candidate)) fallback.add(candidate);
+            } catch (Exception ignored) {}
         }
+
+        // Phase 2: text scan — handles numbered lists, prose, unquoted arrays, no brackets
+        // Sort by first occurrence position to preserve rank order.
+        List<String> fallback = candidates.stream()
+                .filter(c -> {
+                    if (cleaned.contains(c)) return true;
+                    String suffix = c.contains("/") ? c.substring(c.lastIndexOf('/') + 1) : null;
+                    return suffix != null && cleaned.contains(suffix);
+                })
+                .sorted(java.util.Comparator.comparingInt(c -> {
+                    int pos = cleaned.indexOf(c);
+                    if (pos < 0) {
+                        String suffix = c.substring(c.lastIndexOf('/') + 1);
+                        pos = cleaned.indexOf(suffix);
+                    }
+                    return pos < 0 ? Integer.MAX_VALUE : pos;
+                }))
+                .collect(Collectors.toList());
+
         if (fallback.isEmpty()) {
             log.warn("GroqPool: could not extract any model names from ranking response: {}",
                     cleaned.substring(0, Math.min(cleaned.length(), 400)));
@@ -330,7 +339,7 @@ public class GroqPool implements LlmPool {
 
     // Exact match first; then suffix match to handle models that drop their namespace prefix
     // e.g. "gpt-oss-120b" → "openai/gpt-oss-120b", "llama-3.3-70b-versatile" → exact
-    private String matchCandidate(String name, Set<String> valid) {
+    static String matchCandidate(String name, Set<String> valid) {
         if (valid.contains(name)) return name;
         return valid.stream()
                 .filter(c -> c.endsWith("/" + name))
