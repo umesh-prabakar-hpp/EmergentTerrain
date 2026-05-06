@@ -36,5 +36,6 @@ public record PaperDraft(
         boolean isFollowUp,
         Double  predictedScore,
         String  priorMethodology,
-        List<ResearchPaper> recentPapers
+        List<ResearchPaper> recentPapers,
+        String  researchHypothesis
 ) {}

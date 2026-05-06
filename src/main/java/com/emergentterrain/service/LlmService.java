@@ -54,19 +54,19 @@ public class LlmService {
     private final ConcurrentHashMap<UUID, Long>   lastMentoredAt        = new ConcurrentHashMap<>();
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
 
-    // Four independent semaphores — none can block another from checking its slot.
+    // Independent semaphores — none can block another from checking its slot.
     // streamSlot/genomeSlot allow 2 concurrent requests each when OLLAMA_NUM_PARALLEL >= 3.
-    // consultSlot and narrationSlot stay at 1 (sync call and sequential paper pipeline).
+    // narrationSlot permits = primaryPoolSize (one concurrent narration per active Groq model).
+    // refinementSlot limits concurrent GPU refinement loops independent of narration.
     private final Semaphore consultSlot      = new Semaphore(1);  // policy consultation (sync)
     private final Semaphore streamSlot       = new Semaphore(2);  // government digest (async stream)
     private final Semaphore genomeSlot       = new Semaphore(2);  // genome mentoring (async stream)
-    private final Semaphore narrationSlot    = new Semaphore(1);  // paper narration — one at a time
+    private final Semaphore refinementSlot   = new Semaphore(2);  // pre-narration computation refinement
+    private final Semaphore narrationSlot;                         // paper narration — set from primaryPoolSize
     private final Semaphore formulationSlot  = new Semaphore(1);  // pre-computation formulation (sync)
 
     // Genome mentoring requests are queued — they must not be shed (earned reward).
-    private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue     = new ConcurrentLinkedQueue<>();
-    // Paper narration queue — every passed paper goes through LLM before being published.
-    private final ConcurrentLinkedQueue<PaperDraft>             narrationQueue  = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue = new ConcurrentLinkedQueue<>();
 
     // Set during wireUniversityCallback — calls university.publishPaper on narration completion.
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
@@ -83,8 +83,9 @@ public class LlmService {
         this.botRepository    = botRepository;
         this.objectMapper     = objectMapper;
         this.digestCooldownMs = TimeUnit.MINUTES.toMillis(Math.max(0L, digestCooldownMinutes));
-        log.info("LlmService: primary={} fast={}",
-                router.primaryModel(), router.fastModel());
+        this.narrationSlot    = new Semaphore(router.primaryPoolSize());
+        log.info("LlmService: primary={} fast={} narrationSlots={}",
+                router.primaryModel(), router.fastModel(), narrationSlot.availablePermits());
     }
 
     /** Wire up the mentoring callback into UniversityService after the context is ready. */
@@ -102,7 +103,8 @@ public class LlmService {
                 BotGenome genome      = (BotGenome) args[2];
                 @SuppressWarnings("unchecked")
                 List<ResearchPaper> papers = (List<ResearchPaper>) args[3];
-                return formulateResearch(domain, topicName, genome, papers);
+                String hypothesis     = (args.length > 4) ? (String) args[4] : null;
+                return formulateResearch(domain, topicName, genome, papers, hypothesis);
             });
             this.narrationPublisher = university::publishPaper;
             log.info("LlmService: genome mentoring + narration + formulation callbacks wired to UniversityService");
@@ -210,14 +212,15 @@ public class LlmService {
      * falls back to genome sampling in that case.
      */
     public FormulationResult formulateResearch(String domain, String topicName,
-                                               BotGenome genome, List<ResearchPaper> priorPapers) {
+                                               BotGenome genome, List<ResearchPaper> priorPapers,
+                                               String researchHypothesis) {
         if (!formulationSlot.tryAcquire()) {
             log.debug("LLM formulation slot busy — falling back to genome sampling");
             return null;
         }
         long start = System.currentTimeMillis();
         try {
-            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers);
+            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers, researchHypothesis);
             String response = router.callFast(prompt);
             log.info("LLM formulation done domain={} topic={} ms={}", domain, topicName,
                     System.currentTimeMillis() - start);
@@ -232,7 +235,8 @@ public class LlmService {
     }
 
     private String buildFormulationPrompt(String domain, String topicName,
-                                          BotGenome genome, List<ResearchPaper> priorPapers) {
+                                          BotGenome genome, List<ResearchPaper> priorPapers,
+                                          String researchHypothesis) {
         int center1 = genome.getParamCenter1();
         double center2 = genome.getParamCenter2();
         int radius1 = genome.getParamRadius1();
@@ -252,6 +256,10 @@ public class LlmService {
                 ? "  (no prior papers in this topic yet — choose a fresh starting region)\n"
                 : priorWork.toString();
 
+        String hypothesisSection = (researchHypothesis != null && !researchHypothesis.isBlank())
+                ? "Researcher's current research direction: " + researchHypothesis + "\n"
+                : "";
+
         return """
                 You are a research advisor choosing where a computational researcher should focus next.
 
@@ -259,7 +267,7 @@ public class LlmService {
                 Researcher's learned search region: param1 center=%d (±%d), param2 center=%.1f (±%.1f)
                 param1 is an integer 10–99 (controls the starting position of the search space).
                 param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
-
+                %s
                 Prior papers in this topic:
                 %s
                 Based on the prior work, choose a specific unexplored or promising parameter region
@@ -271,7 +279,8 @@ public class LlmService {
 
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
-                """.formatted(domain, topicName, center1, radius1, center2, radius2, priorSection.trim());
+                """.formatted(domain, topicName, center1, radius1, center2, radius2,
+                        hypothesisSection, priorSection.trim());
     }
 
     private FormulationResult parseFormulationResult(String response) {
@@ -299,53 +308,51 @@ public class LlmService {
     // --- Paper narration ---
 
     /**
-     * Enqueues a passed paper for LLM narrative synthesis. Every paper goes through
-     * this path before being published; the narrationSlot serialises calls so a slow
-     * model response cannot pile up concurrent LLM requests.
+     * Submits a passed paper for LLM narrative synthesis on a virtual thread.
+     * Refinement and narration run on separate slots so a slow GPU refinement loop
+     * does not block other papers from starting their Groq narration call.
      */
     public void enqueueNarration(PaperDraft draft) {
-        narrationQueue.offer(draft);
-        executor.execute(this::drainNarrationQueue);
+        executor.execute(() -> refineAndNarrate(draft));
     }
 
-    private void drainNarrationQueue() {
-        PaperDraft draft = narrationQueue.poll();
-        if (draft == null) return;
-        if (!narrationSlot.tryAcquire()) {
-            narrationQueue.offer(draft);
-            return;
-        }
+    private void refineAndNarrate(PaperDraft draft) {
+        refinementSlot.acquireUninterruptibly();
+        PaperDraft enrichedDraft;
         try {
-            runNarration(draft);
+            enrichedDraft = maybeRefineComputation(draft);
+        } finally {
+            refinementSlot.release();
+        }
+        narrationSlot.acquireUninterruptibly();
+        try {
+            runNarration(enrichedDraft);
         } finally {
             narrationSlot.release();
-            if (!narrationQueue.isEmpty()) executor.execute(this::drainNarrationQueue);
         }
     }
 
     private record RefinementDecision(int param1, double param2, String rationale) {}
 
     private void runNarration(PaperDraft draft) {
-        // Multi-step: attempt one focused refinement computation before narrating
-        PaperDraft enrichedDraft = maybeRefineComputation(draft);
-
-        String prompt = buildNarrationPrompt(enrichedDraft);
+        String prompt = buildNarrationPrompt(draft);
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
             router.streamPrimary(prompt, response::append);
-            log.info("LLM narration done paperId={} ms={}", enrichedDraft.paperId(),
+            log.info("LLM narration done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
-                    enrichedDraft.paperId(), System.currentTimeMillis() - start, e.getMessage());
+                    draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
         }
         NarrationResult parsed = parseNarrationResult(response.toString());
         NarrationResult result = new NarrationResult(
                 parsed.hypothesis(), parsed.findings(), parsed.conclusion(),
-                parsed.followUp(), router.primaryModel());
+                parsed.followUp(), router.primaryModel(),
+                parsed.confidenceScore(), parsed.citedPaperIds());
         if (narrationPublisher != null) {
-            narrationPublisher.accept(enrichedDraft, result);
+            narrationPublisher.accept(draft, result);
         }
     }
 
@@ -395,10 +402,10 @@ public class LlmService {
                         iteration, MAX_REFINEMENTS, draft.paperId(),
                         System.currentTimeMillis() - start, decision.rationale());
 
-                // Min-1 guarantee satisfied — stop early only if other papers are waiting
-                if (!narrationQueue.isEmpty()) {
+                // Min-1 guarantee satisfied — stop early only if other papers are waiting for narration
+                if (narrationSlot.getQueueLength() > 0) {
                     log.debug("LLM refinement stopping after {}/{} — narration backlog depth={}",
-                            iteration, MAX_REFINEMENTS, narrationQueue.size());
+                            iteration, MAX_REFINEMENTS, narrationSlot.getQueueLength());
                     break;
                 }
 
@@ -421,7 +428,7 @@ public class LlmService {
                 draft.gameTick(), draft.publishedAt(), draft.generation(),
                 draft.paperId(), draft.param1(), draft.param2(),
                 draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
-                draft.recentPapers());
+                draft.recentPapers(), draft.researchHypothesis());
     }
 
     private String buildRefinementPrompt(PaperDraft draft, String accumulatedFindings,
@@ -568,13 +575,18 @@ public class LlmService {
                 interpreting the pattern or trend — its significance and what it suggests; \
                 cite a prior paper by ID if relevant","conclusion":"1-2 sentences: what this \
                 result implies and one concrete open question it raises",\
-                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30}}
+                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
 
                 followUp rules: ONLY include followUp if the prior papers reveal a specific \
                 unexplored parameter region worth targeting next. param1 is an integer 10–99 \
                 (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
                 predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
                 result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
+                confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
+                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain).
+                cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
+                you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
                 All text values under 120 words each. Plain prose inside JSON strings only — \
                 no bullet points, no sub-headers, no markdown formatting.
                 """.formatted(
@@ -639,11 +651,16 @@ public class LlmService {
         return raw.substring(0, 350) + "…";
     }
 
+    private static final java.util.regex.Pattern PAPER_ID_PATTERN =
+            java.util.regex.Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
+
     private NarrationResult parseNarrationResult(String response) {
-        if (response == null || response.isBlank()) return new NarrationResult(null, null, null, null, null);
+        if (response == null || response.isBlank())
+            return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         int start = response.indexOf('{');
         int end   = response.lastIndexOf('}');
-        if (start < 0 || end <= start) return new NarrationResult(null, null, null, null, null);
+        if (start < 0 || end <= start)
+            return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         try {
             com.fasterxml.jackson.databind.JsonNode root =
                     objectMapper.readTree(response.substring(start, end + 1));
@@ -660,14 +677,24 @@ public class LlmService {
                     log.debug("LLM narration: followUp out of range (param1={}, param2={}) — discarded", p1, p2);
                 }
             }
+            double confidenceScore = Math.max(0.0, Math.min(1.0,
+                    root.path("confidenceScore").asDouble(0.5)));
+            List<String> citedPaperIds = new ArrayList<>();
+            com.fasterxml.jackson.databind.JsonNode citedNode = root.get("cited_paper_ids");
+            if (citedNode != null && citedNode.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode idNode : citedNode) {
+                    String id = idNode.asText(null);
+                    if (id != null && PAPER_ID_PATTERN.matcher(id).matches()) citedPaperIds.add(id);
+                }
+            }
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
                     root.path("findings").asText(null),
                     root.path("conclusion").asText(null),
-                    followUp, null);
+                    followUp, null, confidenceScore, List.copyOf(citedPaperIds));
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
-            return new NarrationResult(null, null, null, null, null);
+            return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         }
     }
 

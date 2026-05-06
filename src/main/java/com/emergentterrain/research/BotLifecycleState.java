@@ -29,6 +29,8 @@ public class BotLifecycleState {
     private DynamicProblem pendingDirective = null;
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     private FollowUpParams pendingFollowUp  = null;
+    @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+    private String researchHypothesis = null;
 
     // For Jackson
     public BotLifecycleState() {}
@@ -117,4 +119,7 @@ public class BotLifecycleState {
 
     public FollowUpParams getPendingFollowUp()              { return pendingFollowUp; }
     public void           setPendingFollowUp(FollowUpParams f) { this.pendingFollowUp = f; }
+
+    public String getResearchHypothesis()                  { return researchHypothesis; }
+    public void   setResearchHypothesis(String h)          { this.researchHypothesis = h; }
 }

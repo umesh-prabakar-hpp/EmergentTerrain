@@ -68,6 +68,7 @@ public class LlmRouter {
         fastPool.callStream(prompt, tokenConsumer);
     }
 
-    public String primaryModel() { return primaryPool.selectedModel(); }
-    public String fastModel()    { return fastPool.selectedModel(); }
+    public String primaryModel()  { return primaryPool.selectedModel(); }
+    public String fastModel()     { return fastPool.selectedModel(); }
+    public int    primaryPoolSize() { return Math.max(1, primaryPool.selectedModels().size()); }
 }

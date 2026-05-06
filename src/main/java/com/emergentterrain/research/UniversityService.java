@@ -153,45 +153,57 @@ public class UniversityService {
         String conclusion = (narration.conclusion() != null && !narration.conclusion().isBlank())
                 ? narration.conclusion() : draft.templateConclusion();
 
+        // Adjust published score by narration confidence: neutral at 0.5 → ×1.0, range ×0.92–×1.08
+        double adjustedScore = draft.peerScore() *
+                (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
+
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
-                draft.reviewerBotIds(), draft.peerScore(), "PUBLISHED",
+                draft.reviewerBotIds(), adjustedScore, "PUBLISHED",
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel());
 
         addPaper(draft.roomId(), paper);
         draftQueueSize.decrementAndGet();
-        log.info("university paper published paperId={} domain={} topic={} score={}",
-                draft.paperId(), draft.domain(), draft.topicName(), draft.peerScore());
+        log.info("university paper published paperId={} domain={} topic={} score={} confidence={}",
+                draft.paperId(), draft.domain(), draft.topicName(),
+                String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()));
 
+        // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();
-        if (followUp != null) {
-            // Stamp this paper's methodology as the priorMethodology for the follow-up chain
-            FollowUpParams withChain = new FollowUpParams(
-                    followUp.param1(), followUp.param2(),
-                    followUp.predictedScore(), draft.methodology());
+        String newHypothesis = (conclusion != null && !conclusion.isBlank()) ? conclusion : null;
+        if (followUp != null || newHypothesis != null) {
             UUID botId = UUID.fromString(draft.authorBotId());
             botRepository.findById(botId).ifPresent(bot -> {
                 String json = bot.getLifecycleJson();
                 if (json != null && !json.isBlank()) {
                     try {
                         BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
-                        ls.setPendingFollowUp(withChain);
+                        if (followUp != null) {
+                            FollowUpParams withChain = new FollowUpParams(
+                                    followUp.param1(), followUp.param2(),
+                                    followUp.predictedScore(), draft.methodology());
+                            ls.setPendingFollowUp(withChain);
+                            log.debug("university follow-up stored botId={} param1={} param2={} predicted={} priorMethod={}",
+                                    botId, withChain.param1(), withChain.param2(),
+                                    withChain.predictedScore(), withChain.priorMethodology());
+                        }
+                        if (newHypothesis != null) {
+                            ls.setResearchHypothesis(newHypothesis);
+                        }
                         bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
                         botRepository.save(bot);
-                        log.debug("university follow-up stored botId={} param1={} param2={} predicted={} priorMethod={}",
-                                botId, withChain.param1(), withChain.param2(),
-                                withChain.predictedScore(), withChain.priorMethodology());
                     } catch (Exception e) {
-                        log.warn("university follow-up storage failed botId={}: {}", botId, e.getMessage());
+                        log.warn("university bot state update failed botId={}: {}", botId, e.getMessage());
                     }
                 }
             });
         }
 
-        // Citation tracking: parse cited paper IDs from narration text, boost cited authors
-        processCitations(draft.roomId(), draft.paperId(), hypothesis, findings, conclusion);
+        // Citation tracking: use structured IDs from narration; regex fallback if none provided
+        processCitations(draft.roomId(), draft.paperId(), narration.citedPaperIds(),
+                hypothesis, findings, conclusion);
 
         // Anomaly replication: queue high-z papers for independent verification
         if (Math.abs(draft.anomalyZScore()) >= ANOMALY_REPLICATION_Z && draft.param1() != null) {
@@ -220,14 +232,22 @@ public class UniversityService {
     // ---- Citation tracking ----
 
     private void processCitations(UUID roomId, String thisPaperId,
+                                   List<String> structuredCitedIds,
                                    String hypothesis, String findings, String conclusion) {
         Set<String> cited = new LinkedHashSet<>();
-        for (String text : new String[]{hypothesis, findings, conclusion}) {
-            if (text == null) continue;
-            Matcher m = CITED_PAPER_PATTERN.matcher(text);
-            while (m.find()) {
-                String id = m.group();
-                if (!id.equals(thisPaperId)) cited.add(id);
+        // Prefer structured IDs from LLM JSON; fall back to regex scan if none provided
+        if (structuredCitedIds != null && !structuredCitedIds.isEmpty()) {
+            for (String id : structuredCitedIds) {
+                if (id != null && !id.equals(thisPaperId)) cited.add(id);
+            }
+        } else {
+            for (String text : new String[]{hypothesis, findings, conclusion}) {
+                if (text == null) continue;
+                Matcher m = CITED_PAPER_PATTERN.matcher(text);
+                while (m.find()) {
+                    String id = m.group();
+                    if (!id.equals(thisPaperId)) cited.add(id);
+                }
             }
         }
         if (cited.isEmpty()) return;
@@ -741,7 +761,8 @@ public class UniversityService {
             Object formResult = (formulationCallback != null)
                     ? formulationCallback.apply(new Object[]{
                             domain, topicNameForFormulation,
-                            author.getState().getGenome(), recentForFormulation})
+                            author.getState().getGenome(), recentForFormulation,
+                            author.getState().getResearchHypothesis()})
                     : null;
             if (formResult instanceof com.emergentterrain.service.LlmService.FormulationResult fr) {
                 param1 = fr.param1();
@@ -817,13 +838,13 @@ public class UniversityService {
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
                     predictedScore, priorMethodology,
-                    getPublishedPapers(roomId, 5));
+                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis());
 
             if (narratingCallback != null) {
                 draftQueueSize.incrementAndGet();
                 narratingCallback.accept(draft);
             } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null));
+                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null, 0.5, List.of()));
             }
             log.debug("university draft queued paperId={} domain={} topic={} score={}",
                     paperId, domain, topicName, peerScore);
@@ -901,13 +922,13 @@ public class UniversityService {
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, null, null, false,
                     null, null,
-                    getPublishedPapers(roomId, 5));
+                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis());
 
             if (narratingCallback != null) {
                 draftQueueSize.incrementAndGet();
                 narratingCallback.accept(draft);
             } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null));
+                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null, 0.5, List.of()));
             }
             log.debug("university dynamic draft queued botId={} description=\"{}\" score={}",
                     author.getBotId(), directive.description(), peerScore);
