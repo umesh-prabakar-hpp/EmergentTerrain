@@ -123,6 +123,21 @@ class GroqPoolParseRankingTest {
         assertEquals(List.of("llama-3.3-70b-versatile", "openai/gpt-oss-120b"), result);
     }
 
+    @Test
+    void parseRanking_reasoningFieldContent() {
+        // openai/gpt-oss-120b exhausts its token budget on internal chain-of-thought and
+        // emits empty content. The caller falls back to the "reasoning" field text, which
+        // mentions both model names but no JSON array. Text scan should still find them.
+        String reasoningText =
+                "We need to rank the two models: openai/gpt-oss-120b, llama-3.3-70b-versatile. " +
+                "openai/gpt-oss-120b is a 120B parameter model, likely stronger for scientific " +
+                "reasoning. llama-3.3-70b-versatile is a 70B model.";
+        var result = GroqPool.parseRanking(MAPPER, reasoningText, CANDIDATES);
+        assertEquals(2, result.size(), "text scan should find both model names in reasoning text");
+        // openai/gpt-oss-120b appears first in the text
+        assertEquals("openai/gpt-oss-120b", result.get(0));
+    }
+
     // --- parseRanking: degenerate cases ---
 
     @Test

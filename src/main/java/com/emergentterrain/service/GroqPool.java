@@ -62,8 +62,9 @@ public class GroqPool implements LlmPool {
     private static final int  MAX_RETRIES          = 4;
     private static final long INITIAL_BACKOFF_MS   = 2000;
 
-    // Ranking call only needs to return a short JSON array of names
-    private static final int RANKING_MAX_TOKENS = 150;
+    // Reasoning models (e.g. openai/gpt-oss-120b) consume most of their token budget on
+    // internal chain-of-thought before writing content. 150 was exhausted by reasoning alone.
+    private static final int RANKING_MAX_TOKENS = 600;
 
     // Hypothesis-falsification test — correct answer: REFUTED, critical angle ~25 degrees
     private static final String TEST_PROMPT =
@@ -211,6 +212,9 @@ public class GroqPool implements LlmPool {
             // Phase 1: ranking call — low token budget, just a JSON array of names
             try {
                 String rankResponse = syncCallWithBackoff(modelId, rankingPrompt, RANKING_MAX_TOKENS);
+                log.info("GroqPool ranking raw rater={} len={}: [{}]",
+                        modelId, rankResponse.length(),
+                        rankResponse.substring(0, Math.min(rankResponse.length(), 300)));
                 List<String> ranking = parseRanking(mapper, rankResponse, candidates);
                 for (int rank = 0; rank < ranking.size(); rank++) {
                     bordaScores.merge(ranking.get(rank), n - 1 - rank, Integer::sum);
@@ -298,6 +302,7 @@ public class GroqPool implements LlmPool {
         // Phase 1: try JSON array parse if brackets are present
         int start = cleaned.indexOf('[');
         int end   = cleaned.lastIndexOf(']');
+        log.info("GroqPool parseRanking: cleanedLen={} bracketsFound={}", cleaned.length(), start >= 0 && end > start);
         if (start >= 0 && end > start) {
             try {
                 JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
@@ -307,9 +312,12 @@ public class GroqPool implements LlmPool {
                         String matched = matchCandidate(node.asText("").trim(), valid);
                         if (matched != null && !result.contains(matched)) result.add(matched);
                     }
+                    log.info("GroqPool parseRanking: JSON array found size={} matched={}", arr.size(), result.size());
                     if (!result.isEmpty()) return result;
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                log.info("GroqPool parseRanking: JSON parse failed: {}", e.getMessage());
+            }
         }
 
         // Phase 2: text scan — handles numbered lists, prose, unquoted arrays, no brackets
@@ -564,8 +572,14 @@ public class GroqPool implements LlmPool {
             if (resp.statusCode() != 200) {
                 throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
             }
-            return mapper.readTree(resp.body())
-                    .path("choices").get(0).path("message").path("content").asText();
+            JsonNode message = mapper.readTree(resp.body()).path("choices").get(0).path("message");
+            String content = message.path("content").asText("");
+            if (content.isBlank()) {
+                // Reasoning models (e.g. openai/gpt-oss-120b) put chain-of-thought in "reasoning"
+                // and may leave "content" empty when token budget is exhausted mid-reasoning.
+                content = message.path("reasoning").asText("");
+            }
+            return content;
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
