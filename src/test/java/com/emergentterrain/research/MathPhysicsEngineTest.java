@@ -26,7 +26,7 @@ class MathPhysicsEngineTest {
 
         assertThat(result.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.OBSERVATIONAL);
         assertThat(MathPhysicsEngine.generateConclusion(result, true))
-                .contains("observational computational finding")
+                .contains("observational baseline")
                 .doesNotContain("hypothesis is supported");
     }
 

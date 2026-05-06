@@ -85,7 +85,25 @@ bash ./scripts/test-setup-fedora-prereqs.sh
   - `git config --global core.autocrlf false`
   - `git config --global core.eol lf`
 
+## Scientific Integrity Pipeline
+
+Research papers go through a deterministic integrity layer before any LLM narration call:
+
+1. **Pre-registration** — the fast-pool LLM writes a hypothesis, prediction, and falsification condition *before* computation runs (`PreRegistration` record). For cross-domain papers, `mappingNotes` forces explicit justification of any constant mappings.
+2. **Deterministic classification** — `UniversityService.classifyResult()` maps `MathPhysicsEngine.ClaimStatus` + `authorScore` to one of four outcomes: SUPPORTED, PARTIALLY_SUPPORTED, NULL_RESULT, or DEGENERATE. This runs before peer review and before any LLM call, preventing post-hoc rationalization.
+3. **Degenerate rejection** — non-finite values, all-zero sentinels, and non-positive author scores are silently rejected; no draft is created and no LLM call is made.
+4. **Classification-aware narration** — the narration prompt includes the pre-registered hypothesis and classification. NULL_RESULT prompts explicitly prohibit reframing as partial success.
+5. **Honest null reporting** — NULL_RESULT papers are stored with status `NULL_RESULT` (not PUBLISHED), receive no confidence boost (fixed ×0.92), are excluded from average score calculations, and display a `∅ NULL RESULT` banner in markdown.
+6. **Replication and bridge guards** — null results are excluded from anomaly replication queues and cross-domain knowledge bridging; only positive results are eligible.
+7. **Cross-topic anomaly context** — the formulation prompt surfaces anomalous papers from adjacent topics in the same domain, enabling the LLM to reason across papers when exploring new parameter regions.
+
+Stats endpoint (`getStats`) now reports: `totalPublished`, `positiveResults`, `nullResults`, `disputed`, `totalRejected`.
+
 ## Tests (summary)
+- `ResultClassificationTest` — all 17 branches of `classifyResult`: DEGENERATE (NaN, Infinity, zero sentinel, zero authorScore), NULL_RESULT (score floor, REFUTED claim, low OBSERVATIONAL), SUPPORTED, PARTIALLY_SUPPORTED, and real computation round-trips.
+- `LlmServiceParseTest` — 35 tests for `parseFormulationResult`, `parseNarrationResult`, and `parseRefinementDecision`: valid JSON, boundary params, malformed input, preamble extraction, confidence clamping, paper ID filtering, follow-up validation.
+- `PublishPaperTest` — 13 tests for `publishPaper`: confidence scaling by classification, null-result fixed factor, status assignment (PUBLISHED vs NULL_RESULT), template fallback, stats separation.
+- `PreRegistrationTest` — record structure, equality, null-tolerant fields, PaperDraft carries both pre-registration and classification.
 - `RoomRapidChangePersistenceIntegrationTest` (profile: `test`) runs a short rapid-change loop, forces maintenance/flushes, and asserts persisted snapshots and change counts. Expected time: ~80s.
 - `RoomStateSamplingIntegrationTest` (profile: `test`) seeds a room, waits `sample.waitMs` (default 3 minutes), applies proposals, flushes state, and writes sampling output to `sample-output/`. Expected time: ~3m 15s with the default wait.
 - `scripts/run-real-gpu-e2e.ps1` starts the real Rust GPU engine plus the Java app, forces GPU proof thresholds for bots and patch rebuilds, verifies non-stub world data over `/game/state`, creates a room, waits for live bot movement over `/room/{roomId}/state`, submits a proposal, and proves the live `rebuild_patch` RPC. Use `scripts/run-real-gpu-e2e.sh` on Fedora and `pwsh ./scripts/run-real-gpu-e2e.ps1` on Windows. Expected time: ~30-60s after startup.
@@ -355,29 +373,18 @@ Doesn’t require scale, just repetition
 
 -----
 
-The fundamental gaps
+The fundamental gaps (current status)
 
-1. No surprise or novelty detection. Human papers contribute something unknown. These bots search parameter space for extreme values, not for unexpected values. A Collatz paper that finds max_steps=178 at n=871 is correct but unremarkable — that's a known trajectory. Human researchers would notice if a stopping time was anomalously short for a number that "should" be long, or find a structural pattern across ranges. The bots just maximize the primary metric.
+1. **No surprise or novelty detection** *(open)*. Bots maximize the primary metric rather than detecting unexpected values. Closing this requires knowing what the "expected" result is for a given computation so anomalous deviations can be flagged.
 
-2. No cross-paper reasoning. A human researcher reads prior work and builds on it. Bot P-59f4-66 and bot P-59f4-68 work in complete isolation — neither knows the other exists. Human science accumulates: if one paper finds high anomaly fraction in [131,171), the next one asks why and targets the specific numbers causing it.
+2. **Cross-paper reasoning** *(partially addressed)*. The formulation prompt now surfaces anomalous findings from adjacent topics in the same domain, giving the LLM context to target interesting parameter regions. Bots still do not explicitly reference each other's conclusions; the next step is a mentoring nudge toward ranges where other bots found anomalies.
 
-3. Findings don't inform the hypothesis. The hypothesis is generated from seed params before the computation runs. A human would revise the hypothesis mid-investigation if the data suggested something different. Here the findings and hypothesis are generated independently — sometimes they're semantically disconnected.
+3. **Findings don't inform the hypothesis** *(mitigated, not solved)*. Pre-registration locks the hypothesis before computation — the LLM can no longer retroactively invent a hypothesis that fits the results. However, the hypothesis is still written before results are visible; a two-pass structure would be needed to allow mid-investigation revision.
 
-4. No uncertainty quantification. The happy number paper reports density 4.67% in a window of 150 numbers. A human would immediately note that 150 samples gives wide confidence intervals — the deviation from 14.3% might be noise. There's no standard error, no sample size consideration, no power analysis.
+4. **No uncertainty quantification** *(open)*. Statistical findings still report point estimates without standard errors or confidence intervals.
 
-5. Fabricated precision. The papers report avg_steps=70.30 and density=0.0467 with false precision — these are exact finite-sample statistics, not estimates of a population parameter. Human papers distinguish sample statistics from population estimates.
+5. **Fabricated precision** *(open)*. Finite-sample statistics are reported with false precision. Standard error and rounding to appropriate significant figures would close this alongside gap 4.
 
-What this simulation is good for, scientifically
+**What has been addressed (post-hoc rationalization)**
 
-It's an accurate model of early-career or automated research output — correct computation, valid methodology, real results, but no insight layer on top. The bots are doing what a script would do: sweep parameters, report the extremes, apply a pre-defined validator. The gap closes if the LLM mentoring layer starts nudging bots toward ranges where prior papers found anomalies — that would introduce rudimentary cross-paper reasoning.
-
-
-Based on what's already in the codebase, gaps 2 and 4/5 are the most tractable:
-
-Gap 2 (cross-paper reasoning) — closest to free. The mentoring prompt already receives recentPapers but only from the same bot. UniversityService has all published papers. Passing in the top recent papers from other bots in the same domain would give the LLM enough context to nudge a bot toward ranges where prior work found anomalies. One prompt change + a small query to the paper store.
-
-Gaps 4 & 5 (uncertainty quantification + fabricated precision) — purely a stats/formatting fix in the paper generation layer. No LLM involved. Adding standard error, confidence intervals, and rounding to appropriate significant figures when papers are written would close both gaps at once.
-
-Gap 1 (novelty detection) — harder. Requires knowing what the "expected" result is for a given computation so you can flag when the finding deviates. Could be partially addressed in the mentoring prompt if you pass in what the domain's typical metric range looks like vs what this bot found, but the computation engine itself doesn't currently produce that signal.
-
-Gap 3 (findings inform hypothesis) — the most architecturally expensive. The hypothesis is generated before the computation runs. Closing this would require a mid-run feedback loop or a two-pass structure.
+The redesign in commit `b4c7f45` eliminated the root cause of papers like P-a29f-244 and P-a29f-252, where the LLM reframed null results as partial confirmations. The fixes: pre-registration locks the hypothesis before computation; deterministic classification assigns SUPPORTED/PARTIALLY_SUPPORTED/NULL_RESULT/DEGENERATE from numeric evidence alone; the narration prompt explicitly prohibits reframing null results; null result papers are stored separately with no confidence boost and a null-result banner.

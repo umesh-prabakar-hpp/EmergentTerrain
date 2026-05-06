@@ -211,8 +211,9 @@ public class UniversityService {
         processCitations(draft.roomId(), draft.paperId(), narration.citedPaperIds(),
                 hypothesis, findings, conclusion);
 
-        // Anomaly replication: queue high-z papers for independent verification
-        if (Math.abs(draft.anomalyZScore()) >= ANOMALY_REPLICATION_Z && draft.param1() != null) {
+        // Anomaly replication: only queue positive results — null results have no claim to verify
+        if (!isNullResult && Math.abs(draft.anomalyZScore()) >= ANOMALY_REPLICATION_Z
+                && draft.param1() != null) {
             int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
             if (topicIndex >= 0) {
                 replicationQueue.offer(new ReplicationRequest(
@@ -222,9 +223,9 @@ public class UniversityService {
             }
         }
 
-        // Cross-domain knowledge bridging: share productive params with specialists
-        if ("INTERDISCIPLINARY".equals(draft.domain()) && draft.peerScore() >= BRIDGE_SCORE_THRESHOLD
-                && draft.param1() != null) {
+        // Cross-domain knowledge bridging: only for positive, high-scoring results
+        if (!isNullResult && "INTERDISCIPLINARY".equals(draft.domain())
+                && draft.peerScore() >= BRIDGE_SCORE_THRESHOLD && draft.param1() != null) {
             bridgeKnowledge(draft);
         }
 
@@ -564,9 +565,14 @@ public class UniversityService {
         List<ResearchPaper> papers = published.getOrDefault(roomId, List.of());
         Map<String, Long> byDomain = papers.stream()
                 .collect(Collectors.groupingBy(ResearchPaper::domain, Collectors.counting()));
-        long disputed = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
+        long disputed    = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
+        long nullResults = papers.stream().filter(p -> "NULL_RESULT".equals(p.status())).count();
+        long positive    = papers.size() - nullResults - disputed;
 
-        OptionalDouble avgScore = papers.stream().mapToDouble(ResearchPaper::peerScore).average();
+        // Average score over positive results only — null/disputed papers skew the baseline down
+        OptionalDouble avgScore = papers.stream()
+                .filter(p -> "PUBLISHED".equals(p.status()))
+                .mapToDouble(ResearchPaper::peerScore).average();
         int maxGen = states.values().stream()
                 .mapToInt(s -> s.getGenome() != null ? s.getGenome().getGeneration() : 0)
                 .max().orElse(0);
@@ -578,6 +584,9 @@ public class UniversityService {
 
         Map<String, Object> stats = new LinkedHashMap<>();
         stats.put("totalPublished",    papers.size());
+        stats.put("positiveResults",   positive);
+        stats.put("nullResults",       nullResults);
+        stats.put("disputed",          disputed);
         stats.put("totalRejected",     totalRej);
         stats.put("researcherCount",   bots.size());
         stats.put("qualifiedCount",    qualified);
@@ -586,7 +595,6 @@ public class UniversityService {
         stats.put("avgPeerScore",      avgScore.isPresent()
                 ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
         stats.put("byDomain",          byDomain);
-        stats.put("disputed",          disputed);
         stats.put("replicationPending", replicationQueue.size());
         return stats;
     }

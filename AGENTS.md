@@ -115,6 +115,12 @@ GPU_ENGINE_ADDR=127.0.0.1:50052 cargo run
 - `src/main/java/com/emergentterrain/gpu/GpuEngineCodec.java` handles tile and bool-grid encoding.
 - `src/main/resources/application.yml` holds runtime defaults including GPU, consensus, cache, bot, simulation-history, government feedback thresholds, and `app.government.timeline.*` retention settings.
 - Append-only simulation history is written under `simulation-history/constitution`, `simulation-history/events`, `simulation-history/elections`, `simulation-history/courts`, and `simulation-history/legislation`.
+- `src/main/java/com/emergentterrain/research/ResultClassification.java` is an enum with four values (SUPPORTED, PARTIALLY_SUPPORTED, NULL_RESULT, DEGENERATE) that drives narration prompt framing, paper status, and downstream guards. It is assigned deterministically by `UniversityService.classifyResult()` before any LLM call.
+- `src/main/java/com/emergentterrain/research/PreRegistration.java` is a record holding the LLM-written hypothesis, prediction, falsification condition, and mapping notes — locked before computation runs. It is populated by `LlmService.parseFormulationResult()` and stored on `PaperDraft`.
+- `UniversityService.classifyResult()` is the sole source of truth for result classification; it is static package-private and directly unit-tested. Do not call it after narration — classification must precede narration.
+- `LlmService.parseFormulationResult()`, `parseNarrationResult()`, and `parseRefinementDecision()` are static package-private methods so they can be unit-tested without a Spring context or LLM. When modifying JSON parsing logic, update these methods and their tests together.
+- NULL_RESULT papers are stored in the `published` map with status `"NULL_RESULT"` and are excluded from: anomaly replication queues, cross-domain knowledge bridging, and the `avgPeerScore` in `getStats`. Only papers with status `"PUBLISHED"` count as positive results.
+- The formulation prompt includes anomalous papers from adjacent topics in the same domain (z ≥ 1.5) to enable cross-topic reasoning; this section is empty when no anomalies exist and costs no extra LLM call.
 
 ## Constraints
 - Do not commit local outputs under `sample-output/`.

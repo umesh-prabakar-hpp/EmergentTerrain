@@ -265,6 +265,26 @@ public class LlmService {
                 ? "Researcher's current research direction: " + researchHypothesis + "\n"
                 : "";
 
+        // Anomalous discoveries from adjacent topics — cross-topic context for parameter choice
+        StringBuilder domainAnomalies = new StringBuilder();
+        priorPapers.stream()
+                .filter(p -> p.domain().equalsIgnoreCase(domain)
+                          && !p.topic().equalsIgnoreCase(topicName)
+                          && Math.abs(p.anomalyZScore()) >= 1.5)
+                .sorted((a, b) -> Double.compare(Math.abs(b.anomalyZScore()), Math.abs(a.anomalyZScore())))
+                .limit(3)
+                .forEach(p -> {
+                    String snippet = p.findings().length() > 100
+                            ? p.findings().substring(0, 100) + "…" : p.findings();
+                    domainAnomalies.append("  %s / %s [z=%+.1f score=%.2f]: %s\n"
+                            .formatted(p.paperId(), p.topic(),
+                                    p.anomalyZScore(), p.peerScore(), snippet));
+                });
+        String anomalyContext = domainAnomalies.isEmpty() ? ""
+                : "Anomalous findings in adjacent topics (same domain) — consider whether similar "
+                  + "parameter regions might be interesting in this topic too:\n"
+                  + domainAnomalies + "\n";
+
         return """
                 You are a research advisor choosing where a computational researcher should focus next.
 
@@ -274,7 +294,7 @@ public class LlmService {
                 param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
                 %s
                 Prior papers in this topic:
-                %s
+                %s%s
                 Based on the prior work, choose a specific unexplored or promising parameter region
                 within or near the researcher's learned search region. Explain the research question
                 this choice targets in one sentence.
@@ -292,22 +312,25 @@ public class LlmService {
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
                 """.formatted(domain, topicName, center1, radius1, center2, radius2,
-                        hypothesisSection, priorSection.trim());
+                        hypothesisSection, priorSection.trim(), anomalyContext);
     }
 
     private FormulationResult parseFormulationResult(String response) {
+        return parseFormulationResult(objectMapper, response);
+    }
+
+    static FormulationResult parseFormulationResult(ObjectMapper mapper, String response) {
         if (response == null || response.isBlank()) return null;
         int start = response.indexOf('{');
         int end   = response.lastIndexOf('}');
         if (start < 0 || end <= start) return null;
         try {
             com.fasterxml.jackson.databind.JsonNode root =
-                    objectMapper.readTree(response.substring(start, end + 1));
+                    mapper.readTree(response.substring(start, end + 1));
             int    p1 = root.path("param1").asInt(-1);
             double p2 = root.path("param2").asDouble(-1.0);
             String q  = root.path("question").asText(null);
             if (p1 < 10 || p1 > 99 || p2 < 1.0 || p2 > 9.0) {
-                log.debug("LLM formulation: params out of range (param1={}, param2={}) — discarded", p1, p2);
                 return null;
             }
             PreRegistration preReg = null;
@@ -319,7 +342,6 @@ public class LlmService {
                 String mapN  = prNode.path("mapping_notes").asText(null);
                 if (hyp != null && !hyp.isBlank() && pred != null && !pred.isBlank()) {
                     preReg = new PreRegistration(hyp, pred, falsc, mapN);
-                    log.debug("LLM formulation: pre-registration captured hypothesis=\"{}\"", hyp);
                 }
             }
             return new FormulationResult(p1, p2, q, preReg);
@@ -356,7 +378,7 @@ public class LlmService {
         }
     }
 
-    private record RefinementDecision(int param1, double param2, String rationale) {}
+    record RefinementDecision(int param1, double param2, String rationale) {}
 
     private void runNarration(PaperDraft draft) {
         String prompt = buildNarrationPrompt(draft);
@@ -509,13 +531,17 @@ public class LlmService {
     }
 
     private RefinementDecision parseRefinementDecision(String response) {
+        return parseRefinementDecision(objectMapper, response);
+    }
+
+    static RefinementDecision parseRefinementDecision(ObjectMapper mapper, String response) {
         if (response == null || response.isBlank()) return null;
         int start = response.indexOf('{');
         int end   = response.lastIndexOf('}');
         if (start < 0 || end <= start) return null;
         try {
             com.fasterxml.jackson.databind.JsonNode root =
-                    objectMapper.readTree(response.substring(start, end + 1));
+                    mapper.readTree(response.substring(start, end + 1));
             if ("done".equals(root.path("action").asText(null))) return null;
             int    p1 = root.path("param1").asInt(-1);
             double p2 = root.path("param2").asDouble(-1.0);
@@ -523,7 +549,6 @@ public class LlmService {
             if (p1 < 10 || p1 > 99 || p2 < 1.0 || p2 > 9.0) return null;
             return new RefinementDecision(p1, p2, rationale);
         } catch (Exception e) {
-            log.debug("LLM refinement: parse failed: {}", e.getMessage());
             return null;
         }
     }
@@ -733,6 +758,10 @@ public class LlmService {
             java.util.regex.Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
     private NarrationResult parseNarrationResult(String response) {
+        return parseNarrationResult(objectMapper, response);
+    }
+
+    static NarrationResult parseNarrationResult(ObjectMapper mapper, String response) {
         if (response == null || response.isBlank())
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         int start = response.indexOf('{');
@@ -741,7 +770,7 @@ public class LlmService {
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         try {
             com.fasterxml.jackson.databind.JsonNode root =
-                    objectMapper.readTree(response.substring(start, end + 1));
+                    mapper.readTree(response.substring(start, end + 1));
             FollowUpParams followUp = null;
             com.fasterxml.jackson.databind.JsonNode fuNode = root.get("followUp");
             if (fuNode != null && !fuNode.isNull() && !fuNode.isMissingNode()) {
@@ -751,8 +780,6 @@ public class LlmService {
                     double ps = fuNode.path("predictedScore").asDouble(-1.0);
                     Double predictedScore = (ps >= 0.0 && ps <= 1.0) ? ps : null;
                     followUp = new FollowUpParams(p1, p2, predictedScore, null);
-                } else {
-                    log.debug("LLM narration: followUp out of range (param1={}, param2={}) — discarded", p1, p2);
                 }
             }
             double confidenceScore = Math.max(0.0, Math.min(1.0,

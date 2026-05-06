@@ -118,7 +118,7 @@ The engine listens on its gRPC port (default 50051). The Spring Boot app connect
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn spring-boot:run
+OLLAMA_HOSTS=localhost,192.168.1.145 mvn clean spring-boot:run
 ```
 
 Or build and run the jar:
@@ -200,10 +200,16 @@ across two pools based on task quality requirements:
 - **Genome mentoring** — when a bot publishes high-scoring work, it earns a mentoring session that adjusts its research genome and may redirect its parameter search region.
 
 **Fast pool (Ollama):**
-- **Research formulation** — before each computation, the LLM chooses specific parameter values based on the bot's learned search region and prior papers in that domain/topic.
-- **Multi-step computation** — after the primary result, the LLM decides whether a focused follow-up computation adds value. Up to 2 additional computations run before narration (adaptive: throttles to 1 if the narration queue is backed up).
+- **Research formulation** — before each computation, the LLM chooses specific parameter values based on the bot's learned search region and prior papers in that domain/topic. Includes pre-registration: the LLM writes a testable hypothesis, prediction, and falsification condition *before* results are visible. This is locked and cannot be revised once computation runs.
+- **Multi-step computation** — after the primary result, the LLM decides whether a focused follow-up computation adds value. Up to 2 additional computations run before narration (adaptive: throttles to 1 if the narration queue is backed up). Duplicate parameter proposals are rejected.
 - **Government digest** — when the government simulation decides court cases or enacts bills, a civic bulletin streams into the Government Commentary sidebar.
 - **Pattern explanation** — when you click a tile to propose a change, a 1–2 sentence explanation streams into the Pattern Insights sidebar.
+
+**Scientific integrity pipeline (built into research cycle, no extra LLM call):**
+- **Deterministic classification** — after computation, `classifyResult()` assigns SUPPORTED / PARTIALLY_SUPPORTED / NULL_RESULT / DEGENERATE from the engine's `ClaimStatus` and `authorScore`, before any narration call.
+- **Degenerate rejection** — non-finite values, all-zero sentinels, or non-positive author scores are silently discarded; no draft is created and no LLM call is made.
+- **Null result honesty** — NULL_RESULT papers are stored with status `NULL_RESULT` (not PUBLISHED), receive no confidence boost, and display a null-result banner in markdown output. The narration prompt explicitly prohibits reframing null results as partial success.
+- **Cross-domain anomaly context** — the formulation prompt includes anomalous findings from adjacent topics in the same domain, enabling cross-paper reasoning when interesting patterns emerge nearby.
 
 Routing rationale: Groq's free tier is rate-limited. Formulation and refinement fire
 frequently but only parse a short JSON response — model quality is indistinguishable
