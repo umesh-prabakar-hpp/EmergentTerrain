@@ -371,10 +371,15 @@ public class LlmService {
                 .count();
         if (count < 3) return new NoveltyAssessment(1.0, "", "");
         try {
+            long start = System.currentTimeMillis();
             String response = router.callFast(buildNoveltyPrompt(domain, topicName, papers, count));
-            return parseNoveltyAssessment(response);
+            NoveltyAssessment result = parseNoveltyAssessment(response);
+            log.info("LLM novelty check done domain={} topic={} score={} saturated={} ms={}",
+                    domain, topicName, String.format("%.2f", result.score()),
+                    result.isSaturated(), System.currentTimeMillis() - start);
+            return result;
         } catch (Exception e) {
-            log.debug("LLM novelty check failed domain={} topic={}: {}", domain, topicName, e.getMessage());
+            log.warn("LLM novelty check failed domain={} topic={}: {}", domain, topicName, e.getMessage());
             return new NoveltyAssessment(1.0, "", "");
         }
     }
@@ -463,6 +468,24 @@ public class LlmService {
         boolean isSaturated() { return score < 0.30; }
     }
 
+    /**
+     * An experiment prescribed by the professor (critique LLM) to address a specific weakness.
+     * type="param"    → run MathPhysicsEngine.compute at param1/param2
+     * type="dynamic"  → run DynamicComputeEngine with predicate/range (MATHEMATICS / INTERDISCIPLINARY only)
+     */
+    record ExperimentalGap(
+            String type, String description, String rationale,
+            Integer param1, Double param2,               // param path
+            String predicate, Integer rangeStart, Integer rangeEnd,  // dynamic path
+            String metric, double baseline, String hypothesis) {}
+
+    /** Full structured result from the professor critique call. */
+    record CritiqueResult(List<String> weaknesses, ExperimentalGap experimentalGap) {
+        boolean hasActionableFeedback() {
+            return !weaknesses.isEmpty() || experimentalGap != null;
+        }
+    }
+
     private void runNarration(PaperDraft draft) {
         String prompt = buildNarrationPrompt(draft);
         long start = System.currentTimeMillis();
@@ -489,10 +512,15 @@ public class LlmService {
     // --- Self-critique + revision ---
 
     /**
-     * After first-pass narration: fast-calls a critique (Ollama) to identify up to 3 weaknesses,
-     * then streams a revision (Groq) that addresses them. Falls back to firstPass on any failure
-     * or if the first pass lacked content. The followUp from firstPass is preserved when the
-     * revision doesn't produce one — the first-pass LLM had more context for that decision.
+     * Professor–student collaboration loop:
+     * 1. Professor (fast Ollama) reviews the student's first-pass draft and returns:
+     *    - up to 2 textual weaknesses
+     *    - an optional prescribed experiment (param-based or number-theoretic)
+     * 2. If an experiment is prescribed, the student runs it synchronously and frames the result.
+     * 3. Student (primary Groq) revises the paper incorporating professor feedback + new evidence.
+     *
+     * Falls back to firstPass on any failure or if the professor finds no actionable issues.
+     * The followUp from firstPass is preserved when the revision omits it.
      */
     private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass) {
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
@@ -501,23 +529,36 @@ public class LlmService {
         try {
             long critiqueStart = System.currentTimeMillis();
             String critiqueResponse = router.callFast(buildCritiquePrompt(draft, firstPass));
-            List<String> weaknesses = parseCritiqueWeaknesses(critiqueResponse);
-            if (weaknesses.isEmpty()) {
-                log.debug("LLM critique: no weaknesses found paperId={} ms={}", draft.paperId(),
-                        System.currentTimeMillis() - critiqueStart);
+            CritiqueResult critique = parseCritiqueResult(critiqueResponse);
+
+            if (!critique.hasActionableFeedback()) {
+                String snippet = critiqueResponse == null ? "(null)"
+                        : critiqueResponse.length() > 120 ? critiqueResponse.substring(0, 120) + "…"
+                        : critiqueResponse;
+                log.info("LLM professor review: clean draft paperId={} ms={} raw=\"{}\"",
+                        draft.paperId(), System.currentTimeMillis() - critiqueStart, snippet);
                 return firstPass;
             }
-            log.info("LLM critique: {} weakness(es) identified paperId={} ms={}", weaknesses.size(),
+            log.info("LLM professor review: {} weakness(es) experiment={} paperId={} ms={}",
+                    critique.weaknesses().size(), critique.experimentalGap() != null,
                     draft.paperId(), System.currentTimeMillis() - critiqueStart);
+
+            // Student runs professor-prescribed experiment before writing the revision
+            String professorExperiment = null;
+            if (critique.experimentalGap() != null) {
+                professorExperiment = runProfessorDirectedExperiment(draft, critique.experimentalGap());
+            }
 
             long revisionStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamPrimary(buildRevisionPrompt(draft, firstPass, weaknesses), revised::append);
+            router.streamPrimary(
+                    buildRevisionPrompt(draft, firstPass, critique.weaknesses(), professorExperiment),
+                    revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
-                log.info("LLM revision done paperId={} ms={}", draft.paperId(),
+                log.info("LLM student revision done paperId={} experiment_included={} ms={}",
+                        draft.paperId(), professorExperiment != null,
                         System.currentTimeMillis() - revisionStart);
-                // Preserve followUp from first pass if revision omits it — richer formulation context there
                 com.emergentterrain.research.FollowUpParams followUp =
                         revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
                 return new NarrationResult(
@@ -526,10 +567,57 @@ public class LlmService {
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
         } catch (Exception e) {
-            log.warn("LLM critique+revision failed paperId={}: {} — using first-pass narration",
+            log.warn("LLM professor+revision failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
         return firstPass;
+    }
+
+    /**
+     * Executes the professor-prescribed experiment synchronously.
+     * Returns a formatted summary string for the revision prompt, or null on failure.
+     */
+    private String runProfessorDirectedExperiment(PaperDraft draft, ExperimentalGap gap) {
+        try {
+            long start = System.currentTimeMillis();
+            MathPhysicsEngine.ResearchResult result;
+
+            if ("dynamic".equals(gap.type()) && gap.predicate() != null && gap.rangeStart() != null) {
+                String id = "prof-" + draft.paperId() + "-" + System.currentTimeMillis();
+                com.emergentterrain.research.DynamicProblem problem =
+                        new com.emergentterrain.research.DynamicProblem(
+                                id, gap.description(), gap.rangeStart(), gap.rangeEnd(),
+                                gap.predicate(), gap.metric(), gap.baseline(), gap.hypothesis());
+                result = com.emergentterrain.research.DynamicComputeEngine.compute(problem);
+            } else if ("param".equals(gap.type()) && gap.param1() != null && gap.param2() != null) {
+                int topicIdx = MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName());
+                if (topicIdx < 0) return null;
+                MathPhysicsEngine.SearchParams focusSp =
+                        new MathPhysicsEngine.SearchParams(0.1, 0.0, 10, 0.5, 0.0);
+                result = MathPhysicsEngine.compute(
+                        draft.domain(), topicIdx, gap.param1(), gap.param2(), focusSp);
+            } else {
+                return null;
+            }
+
+            // Best-effort statistical framing of the new result
+            String findings = result.findings();
+            try {
+                String framed = parseStatisticalFraming(router.callFast(
+                        buildStatisticalFramingPrompt(findings, draft.domain(), draft.topicName())));
+                if (framed != null) findings = framed;
+            } catch (Exception ignored) {}
+
+            log.info("LLM professor experiment done paperId={} type={} ms=\"{}\" findings=\"{}\"",
+                    draft.paperId(), gap.type(), System.currentTimeMillis() - start,
+                    findings.length() > 100 ? findings.substring(0, 100) + "…" : findings);
+
+            return "Professor-directed experiment — \"%s\":\n%s\n(Rationale: %s)"
+                    .formatted(gap.description(), findings, gap.rationale());
+        } catch (Exception e) {
+            log.warn("LLM professor experiment failed paperId={}: {}", draft.paperId(), e.getMessage());
+            return null;
+        }
     }
 
     static String buildCritiquePrompt(PaperDraft draft, NarrationResult narration) {
@@ -537,57 +625,104 @@ public class LlmService {
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
         String classLine  = draft.resultClassification() != null
                 ? "Result classification: " + draft.resultClassification() + "\n" : "";
+
+        boolean canParam   = draft.param1() != null
+                && MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName()) >= 0;
+        boolean canDynamic = canParam
+                && ("MATHEMATICS".equalsIgnoreCase(draft.domain())
+                    || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain()));
+
+        String experimentSpec;
+        if (canDynamic) {
+            experimentSpec = """
+                    You may prescribe ONE of:
+                    • Param-based (any topic): \
+                    {"type":"param","param1":75,"param2":5.0,"description":"...","rationale":"..."}
+                    • Number-theoretic (MATHEMATICS/INTERDISCIPLINARY): \
+                    {"type":"dynamic","predicate":"isPrime AND isHappy","range_start":200,"range_end":500,\
+                    "metric":"fraction_satisfying","hypothesis":"...","baseline":0.04,\
+                    "description":"...","rationale":"..."}
+                    Valid predicates: isPrime isHappy collatzTerminates isAbundant isPerfect (AND/OR)
+                    Valid metrics: fraction_satisfying mean_of:collatzSteps max_of:collatzSteps mean_of:sigmaSum
+                    param1 int 10–99, param2 decimal 1.0–9.0. range_end − range_start ≤ 500.
+                    """;
+        } else if (canParam) {
+            experimentSpec = """
+                    You may prescribe ONE param-based computation: \
+                    {"type":"param","param1":75,"param2":5.0,"description":"...","rationale":"..."}
+                    param1 int 10–99, param2 decimal 1.0–9.0.
+                    """;
+        } else {
+            experimentSpec = "No additional computation is possible for this paper type.\n";
+        }
+
         return """
-                You are a peer reviewer critically assessing a computational research paper draft.
+                You are a professor reviewing a student's computational research paper.
 
                 Domain: %s | Topic: %s
                 %s%s
+                Student's draft:
                 Hypothesis: %s
                 Findings: %s
                 Conclusion: %s
 
-                Identify up to 3 specific weaknesses in this draft. Focus on:
-                - Claims that exceed what the computation actually shows
-                - Missing uncertainty qualifiers or unjustified precision
-                - Logical gaps between findings and conclusion
-                - Null or partial results framed more positively than warranted
-                - Conclusions inconsistent with the pre-registered prediction
+                Provide two types of feedback:
+                1. Up to 2 textual weaknesses (overclaiming, missing qualifications, logic gaps,
+                   conclusions that contradict the pre-registered prediction).
+                2. ONE prescribed experiment — a specific computation that would directly address
+                   a real weakness in the paper. Only prescribe if it would materially change
+                   what can be claimed. Omit if the paper is already well-supported.
 
+                %s
                 Reply with ONLY this JSON — no other text:
-                {"weaknesses":["first weakness in one sentence","second weakness","third weakness"]}
-                Return an empty array if the draft is sound.
+                {"weaknesses":["w1","w2"],"experimental_gap":{...}}
+                Omit experimental_gap entirely if no computation would help.
+                Return weaknesses as an empty array if the draft is sound.
                 """.formatted(
                 draft.domain(), draft.topicName(),
                 preRegLine, classLine,
-                narration.hypothesis(), narration.findings(), narration.conclusion());
+                narration.hypothesis(), narration.findings(), narration.conclusion(),
+                experimentSpec);
     }
 
     static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
                                       List<String> weaknesses) {
-        String weaknessList = weaknesses.stream()
-                .map(w -> "  - " + w)
-                .collect(java.util.stream.Collectors.joining("\n"));
+        return buildRevisionPrompt(draft, firstPass, weaknesses, null);
+    }
+
+    static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
+                                      List<String> weaknesses, String professorExperiment) {
+        String weaknessList = weaknesses.isEmpty() ? "  (no textual weaknesses — address the new experimental evidence only)"
+                : weaknesses.stream()
+                        .map(w -> "  - " + w)
+                        .collect(java.util.stream.Collectors.joining("\n"));
         boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
         String conclusionSpec = isNull
                 ? "\"conclusion\":\"explicitly state the pre-registered prediction was NOT confirmed; "
                   + "what was expected vs found; what this rules out\""
                 : "\"conclusion\":\"1-2 sentences: what result implies; one open question it raises\"";
+        String experimentSection = professorExperiment == null ? ""
+                : "\nPROFESSOR-PRESCRIBED EXPERIMENT (run after the first draft):\n"
+                  + professorExperiment
+                  + "\nIntegrate this new evidence naturally. In your findings, reference it as a "
+                  + "follow-up test. In your conclusion, state whether it resolves the weakness "
+                  + "or raises a new question.\n";
         return """
-                You are revising a computational research paper draft to address peer review feedback.
+                You are a student revising your computational research paper based on your \
+                professor's feedback.
 
                 Domain: %s | Topic: %s
 
-                ORIGINAL DRAFT:
+                YOUR ORIGINAL DRAFT:
                 Hypothesis: %s
                 Findings: %s
                 Conclusion: %s
 
-                PEER REVIEW WEAKNESSES TO ADDRESS:
-                %s
-
-                Revise to address these weaknesses. Keep correct content unchanged. \
-                Strengthen qualifications where needed. Dial back over-claims appropriately. \
-                Do not change factual content, trends, or physical quantities.
+                PROFESSOR'S FEEDBACK:
+                %s%s
+                Revise your paper. Keep correct content unchanged. Qualify over-claims. \
+                If new experimental evidence is shown above, incorporate it naturally — \
+                do not fabricate results beyond what is stated. Do not change physical quantities.
 
                 Reply with ONLY this JSON — no markdown, no preamble:
                 {"hypothesis":"revised hypothesis","findings":"revised 2-3 sentence findings",%s,\
@@ -597,7 +732,7 @@ public class LlmService {
                 """.formatted(
                 draft.domain(), draft.topicName(),
                 firstPass.hypothesis(), firstPass.findings(), firstPass.conclusion(),
-                weaknessList, conclusionSpec);
+                weaknessList, experimentSection, conclusionSpec);
     }
 
     private List<String> parseCritiqueWeaknesses(String response) {
@@ -605,24 +740,75 @@ public class LlmService {
     }
 
     static List<String> parseCritiqueWeaknesses(ObjectMapper mapper, String response) {
-        if (response == null || response.isBlank()) return List.of();
+        return parseCritiqueResult(mapper, response).weaknesses();
+    }
+
+    private CritiqueResult parseCritiqueResult(String response) {
+        return parseCritiqueResult(objectMapper, response);
+    }
+
+    static CritiqueResult parseCritiqueResult(ObjectMapper mapper, String response) {
+        if (response == null || response.isBlank()) return new CritiqueResult(List.of(), null);
         int start = response.indexOf('{');
         int end   = response.lastIndexOf('}');
-        if (start < 0 || end <= start) return List.of();
+        if (start < 0 || end <= start) return new CritiqueResult(List.of(), null);
         try {
             com.fasterxml.jackson.databind.JsonNode root =
                     mapper.readTree(response.substring(start, end + 1));
+
+            // Parse weaknesses
+            List<String> weaknesses = new ArrayList<>();
             com.fasterxml.jackson.databind.JsonNode arr = root.get("weaknesses");
-            if (arr == null || !arr.isArray()) return List.of();
-            List<String> result = new ArrayList<>();
-            for (com.fasterxml.jackson.databind.JsonNode node : arr) {
-                String w = node.asText(null);
-                if (w != null && !w.isBlank()) result.add(w);
+            if (arr != null && arr.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode node : arr) {
+                    String w = node.asText(null);
+                    if (w != null && !w.isBlank()) weaknesses.add(w);
+                }
             }
-            return List.copyOf(result);
+
+            // Parse experimental_gap
+            ExperimentalGap gap = null;
+            com.fasterxml.jackson.databind.JsonNode gapNode = root.get("experimental_gap");
+            if (gapNode != null && !gapNode.isNull() && !gapNode.isMissingNode()) {
+                gap = parseExperimentalGap(gapNode);
+            }
+            return new CritiqueResult(List.copyOf(weaknesses), gap);
         } catch (Exception e) {
-            return List.of();
+            return new CritiqueResult(List.of(), null);
         }
+    }
+
+    private static ExperimentalGap parseExperimentalGap(
+            com.fasterxml.jackson.databind.JsonNode node) {
+        String type        = node.path("type").asText(null);
+        String description = node.path("description").asText(null);
+        String rationale   = node.path("rationale").asText("");
+        if (description == null || description.isBlank() || type == null) return null;
+
+        if ("param".equals(type)) {
+            int    p1 = node.path("param1").asInt(-1);
+            double p2 = node.path("param2").asDouble(-1.0);
+            if (p1 < 10 || p1 > 99 || p2 < 1.0 || p2 > 9.0) return null;
+            return new ExperimentalGap(type, description, rationale,
+                    p1, p2, null, null, null, null, 0.0, null);
+        }
+        if ("dynamic".equals(type)) {
+            String predicate  = node.path("predicate").asText(null);
+            int    rangeStart = node.path("range_start").asInt(-1);
+            int    rangeEnd   = node.path("range_end").asInt(-1);
+            String metric     = node.path("metric").asText("fraction_satisfying");
+            double baseline   = node.path("baseline").asDouble(0.0);
+            String hypothesis = node.path("hypothesis").asText(null);
+            if (predicate == null || rangeStart < 1 || rangeEnd <= rangeStart
+                    || rangeEnd - rangeStart > 500) return null;
+            for (String token : predicate.replace(" AND ", "|").replace(" OR ", "|").split("\\|")) {
+                if (!VALID_PREDICATES.contains(token.trim())) return null;
+            }
+            if (!VALID_METRICS.contains(metric)) return null;
+            return new ExperimentalGap(type, description, rationale,
+                    null, null, predicate, rangeStart, rangeEnd, metric, baseline, hypothesis);
+        }
+        return null;
     }
 
     private static final int MAX_REFINEMENTS = 2;
@@ -792,7 +978,7 @@ public class LlmService {
             String response = router.callFast(buildStatisticalFramingPrompt(raw, draft.domain(), draft.topicName()));
             String framed = parseStatisticalFraming(response);
             if (framed != null) {
-                log.debug("LLM statistical framing done paperId={} ms={}", draft.paperId(),
+                log.info("LLM statistical framing done paperId={} ms={}", draft.paperId(),
                         System.currentTimeMillis() - start);
                 return new PaperDraft(
                         draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
@@ -807,7 +993,7 @@ public class LlmService {
                         draft.preRegistration(), draft.resultClassification());
             }
         } catch (Exception e) {
-            log.debug("LLM statistical framing failed paperId={}: {} — using raw findings",
+            log.warn("LLM statistical framing failed paperId={}: {} — using raw findings",
                     draft.paperId(), e.getMessage());
         }
         return draft;

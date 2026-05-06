@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 
+import static com.emergentterrain.service.LlmService.parseCritiqueResult;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -322,12 +324,206 @@ class LlmServiceQualityPipelineTest {
     }
 
     // ==========================================================================
+    // parseCritiqueResult — ExperimentalGap (param)
+    // ==========================================================================
+
+    @Test
+    void critiqueResultParsesParamGap() {
+        String json = """
+                {"weaknesses":["overclaims"],"experimental_gap":{
+                "type":"param","param1":75,"param2":5.0,
+                "description":"test boundary","rationale":"address overclaim"}}
+                """;
+        var result = parseCritiqueResult(MAPPER, json);
+        assertThat(result.weaknesses()).hasSize(1);
+        assertThat(result.experimentalGap()).isNotNull();
+        assertThat(result.experimentalGap().type()).isEqualTo("param");
+        assertThat(result.experimentalGap().param1()).isEqualTo(75);
+        assertThat(result.experimentalGap().param2()).isEqualTo(5.0);
+        assertThat(result.experimentalGap().description()).contains("boundary");
+        assertThat(result.experimentalGap().rationale()).contains("overclaim");
+    }
+
+    @Test
+    void critiqueResultParsesDynamicGap() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"dynamic","predicate":"isPrime AND isHappy","range_start":200,"range_end":500,
+                "metric":"fraction_satisfying","hypothesis":"roughly 4% are both","baseline":0.04,
+                "description":"test prime+happy density","rationale":"claim needs more specificity"}}
+                """;
+        var result = parseCritiqueResult(MAPPER, json);
+        assertThat(result.experimentalGap()).isNotNull();
+        assertThat(result.experimentalGap().type()).isEqualTo("dynamic");
+        assertThat(result.experimentalGap().predicate()).isEqualTo("isPrime AND isHappy");
+        assertThat(result.experimentalGap().rangeStart()).isEqualTo(200);
+        assertThat(result.experimentalGap().rangeEnd()).isEqualTo(500);
+        assertThat(result.experimentalGap().metric()).isEqualTo("fraction_satisfying");
+        assertThat(result.experimentalGap().baseline()).isEqualTo(0.04);
+        assertThat(result.experimentalGap().hypothesis()).contains("4%");
+    }
+
+    @Test
+    void critiqueResultRejectsParamGapWithInvalidParam1() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"param","param1":5,"param2":3.0,
+                "description":"d","rationale":"r"}}
+                """;
+        assertThat(parseCritiqueResult(MAPPER, json).experimentalGap()).isNull();
+    }
+
+    @Test
+    void critiqueResultRejectsDynamicGapWithInvalidPredicate() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"dynamic","predicate":"isGoldenRatio","range_start":1,"range_end":100,
+                "metric":"fraction_satisfying","baseline":0.1,"description":"d","rationale":"r"}}
+                """;
+        assertThat(parseCritiqueResult(MAPPER, json).experimentalGap()).isNull();
+    }
+
+    @Test
+    void critiqueResultRejectsDynamicGapWithRangeTooLarge() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"dynamic","predicate":"isPrime","range_start":1,"range_end":600,
+                "metric":"fraction_satisfying","baseline":0.2,"description":"d","rationale":"r"}}
+                """;
+        assertThat(parseCritiqueResult(MAPPER, json).experimentalGap()).isNull();
+    }
+
+    @Test
+    void critiqueResultRejectsDynamicGapWithInvalidMetric() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"dynamic","predicate":"isPrime","range_start":1,"range_end":100,
+                "metric":"mean_of:goldbach","baseline":0.1,"description":"d","rationale":"r"}}
+                """;
+        assertThat(parseCritiqueResult(MAPPER, json).experimentalGap()).isNull();
+    }
+
+    @Test
+    void critiqueResultNoGapWhenFieldOmitted() {
+        String json = "{\"weaknesses\":[\"w1\"]}";
+        var result = parseCritiqueResult(MAPPER, json);
+        assertThat(result.weaknesses()).hasSize(1);
+        assertThat(result.experimentalGap()).isNull();
+        assertThat(result.hasActionableFeedback()).isTrue();
+    }
+
+    @Test
+    void critiqueResultNotActionableWhenBothEmpty() {
+        String json = "{\"weaknesses\":[]}";
+        var result = parseCritiqueResult(MAPPER, json);
+        assertThat(result.hasActionableFeedback()).isFalse();
+    }
+
+    @Test
+    void critiqueResultActionableWithGapAloneAndNoWeaknesses() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"param","param1":80,"param2":4.0,
+                "description":"test upper boundary","rationale":"fills gap"}}
+                """;
+        var result = parseCritiqueResult(MAPPER, json);
+        assertThat(result.weaknesses()).isEmpty();
+        assertThat(result.experimentalGap()).isNotNull();
+        assertThat(result.hasActionableFeedback()).isTrue();
+    }
+
+    @Test
+    void critiqueResultParsesOrPredicateInDynamicGap() {
+        String json = """
+                {"weaknesses":[],"experimental_gap":{
+                "type":"dynamic","predicate":"isAbundant OR isPerfect","range_start":2,"range_end":302,
+                "metric":"fraction_satisfying","baseline":0.24,"description":"abundant or perfect","rationale":"test density"}}
+                """;
+        var gap = parseCritiqueResult(MAPPER, json).experimentalGap();
+        assertThat(gap).isNotNull();
+        assertThat(gap.predicate()).isEqualTo("isAbundant OR isPerfect");
+    }
+
+    // ==========================================================================
+    // buildCritiquePrompt — domain awareness
+    // ==========================================================================
+
+    @Test
+    void critiquePromptForMathsDraftIncludesDynamicExperimentOption() {
+        PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);  // MATHEMATICS, param1=42
+        NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
+        String prompt = LlmService.buildCritiquePrompt(draft, narration);
+        assertThat(prompt).contains("dynamic");
+        assertThat(prompt).contains("isPrime");
+        assertThat(prompt).contains("fraction_satisfying");
+    }
+
+    @Test
+    void critiquePromptForDynamicPaperExcludesExperimentOption() {
+        // Dynamic paper has param1 == null
+        PaperDraft draft = dynamicPaperDraft();
+        NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
+        String prompt = LlmService.buildCritiquePrompt(draft, narration);
+        assertThat(prompt).contains("No additional computation is possible");
+    }
+
+    // ==========================================================================
+    // buildRevisionPrompt — professor experiment section
+    // ==========================================================================
+
+    @Test
+    void revisionPromptWithExperimentContainsProfessorSection() {
+        PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
+        NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.7, List.of());
+        String prompt = LlmService.buildRevisionPrompt(
+                draft, narration, List.of("w1"),
+                "Professor-directed experiment — \"test at 80\":\nfraction=0.42 ± 0.03\n(Rationale: boundary)");
+        assertThat(prompt).contains("PROFESSOR-PRESCRIBED EXPERIMENT");
+        assertThat(prompt).contains("test at 80");
+        assertThat(prompt).contains("fraction=0.42");
+        assertThat(prompt).contains("incorporate it naturally");
+    }
+
+    @Test
+    void revisionPromptWithoutExperimentOmitsProfessorSection() {
+        PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
+        NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.7, List.of());
+        String prompt = LlmService.buildRevisionPrompt(draft, narration, List.of("w1"), null);
+        assertThat(prompt).doesNotContain("PROFESSOR-PRESCRIBED");
+        assertThat(prompt).doesNotContain("Professor-directed");
+    }
+
+    @Test
+    void revisionPromptWithEmptyWeaknessesAndExperimentNotes() {
+        PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
+        NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
+        String prompt = LlmService.buildRevisionPrompt(
+                draft, narration, List.of(),
+                "Professor-directed experiment — \"boundary test\":\nresult=0.7\n(Rationale: boundary)");
+        assertThat(prompt).contains("no textual weaknesses");
+        assertThat(prompt).contains("PROFESSOR-PRESCRIBED EXPERIMENT");
+    }
+
+    // ==========================================================================
     // Helpers
     // ==========================================================================
 
-    private static PaperDraft minimalDraft(ResultClassification classification) {
+    private static PaperDraft dynamicPaperDraft() {
         return new PaperDraft(
                 java.util.UUID.randomUUID(), "bot-1", "MATHEMATICS", "collatz-stopping-time",
+                "A Dynamic Paper", "dynamic findings here",
+                "template hypothesis", "template conclusion",
+                "THEORETICAL", List.of(),
+                0.5, 0.5, 0.0,
+                100L, Instant.now(), 1,
+                "P-test-dyn", null, null,   // param1=null → dynamic paper
+                false, null, null,
+                List.of(), null, null, ResultClassification.SUPPORTED);
+    }
+
+    private static PaperDraft minimalDraft(ResultClassification classification) {
+        return new PaperDraft(
+                java.util.UUID.randomUUID(), "bot-1", "MATHEMATICS", "Collatz Stopping Time",
                 "A Test Paper", "raw findings here",
                 "template hypothesis", "template conclusion",
                 "THEORETICAL", List.of(),

@@ -197,7 +197,7 @@ across two pools based on task quality requirements:
 
 **Primary pool (Groq when configured, else Ollama):**
 - **Paper narration** — once computations are complete, the LLM writes hypothesis, findings, and conclusion for the paper, citing prior work and flagging anomalies. The model name is stamped on each paper as **AI Narrator**.
-- **Self-critique + revision** — after first-pass narration, a fast Ollama peer-review critique identifies up to 3 weaknesses; if any are found, a second Groq call revises the paper to address them. Falls back to first pass if critique finds nothing or any call fails. Adds 1 fast + 1 primary call per paper with non-trivial content.
+- **Professor-student critique + revision** — after first-pass narration, a fast Ollama "professor" critique reviews the paper and returns up to 3 textual weaknesses *and* (for MATHEMATICS / INTERDISCIPLINARY) a prescribed experiment (parameter sweep or number-theoretic dynamic computation). The "student" (bot) runs that experiment synchronously — no extra LLM call — and a second Groq call revises the paper incorporating the new experimental evidence and addressing the weaknesses. Falls back to first pass on any failure.
 - **Genome mentoring** — when a bot publishes high-scoring work, it earns a mentoring session that adjusts its research genome and may redirect its parameter search region. The mentor prompt now includes cross-domain anomalous findings from other bots, enabling transfer of structural patterns across research areas.
 
 **Fast pool (Ollama):**
@@ -223,8 +223,9 @@ across two pools based on task quality requirements:
 | Refinement decision(s) | Ollama | 0–2 calls between compute and narration |
 | Statistical framing | Ollama | After refinement, before narration |
 | Narration (first pass) | Groq | Once per paper |
-| Critique | Ollama | After first-pass narration |
-| Revision | Groq | If critique finds weaknesses |
+| Critique (professor) | Ollama | After first-pass narration |
+| Professor experiment | (sync computation, no LLM) | If critique prescribes an experimental gap |
+| Revision (student) | Groq | If critique finds weaknesses or prescribes an experiment |
 | Genome mentoring | Groq | Once per high-scoring paper (cooldown ~50 min) |
 
 Routing rationale: Groq's free tier is rate-limited. Formulation, refinement, novelty, framing, and critique fire frequently but parse short responses — model quality is indistinguishable there. Narration, revision, and mentoring produce text users read; that is where the quality gap between a 4B and 120B model is clearly visible.
