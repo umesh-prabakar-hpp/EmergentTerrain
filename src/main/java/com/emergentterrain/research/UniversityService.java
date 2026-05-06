@@ -153,22 +153,28 @@ public class UniversityService {
         String conclusion = (narration.conclusion() != null && !narration.conclusion().isBlank())
                 ? narration.conclusion() : draft.templateConclusion();
 
-        // Adjust published score by narration confidence: neutral at 0.5 → ×1.0, range ×0.92–×1.08
-        double adjustedScore = draft.peerScore() *
-                (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
+        // Null results get no confidence boost (fixed ×0.92); others range ×0.92–×1.08
+        boolean isNullResult = draft.resultClassification() == ResultClassification.NULL_RESULT;
+        double confidenceFactor = isNullResult
+                ? 0.92
+                : (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
+        double adjustedScore = draft.peerScore() * confidenceFactor;
+
+        String paperStatus = isNullResult ? "NULL_RESULT" : "PUBLISHED";
 
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
-                draft.reviewerBotIds(), adjustedScore, "PUBLISHED",
+                draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel());
 
         addPaper(draft.roomId(), paper);
         draftQueueSize.decrementAndGet();
-        log.info("university paper published paperId={} domain={} topic={} score={} confidence={}",
+        log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={}",
                 draft.paperId(), draft.domain(), draft.topicName(),
-                String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()));
+                String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
+                draft.resultClassification());
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();
@@ -409,6 +415,36 @@ public class UniversityService {
                 break;
             }
         }
+    }
+
+    // ---- Result classification ----
+
+    /**
+     * Deterministic classification of a computation result. Called after authorScore is known,
+     * before peer review, before any LLM call. DEGENERATE results are rejected without a draft.
+     * Classification is stored on PaperDraft and drives narration prompt framing and paper status.
+     */
+    static ResultClassification classifyResult(MathPhysicsEngine.ResearchResult result,
+                                                double authorScore) {
+        // Non-finite values or all-zero primary+secondary = engine returned a sentinel/fallback
+        if (!Double.isFinite(result.reviewValue())
+                || (result.primaryValue() == 0.0 && result.secondaryValue() == 0.0
+                    && !result.theoryConsistent())) {
+            return ResultClassification.DEGENERATE;
+        }
+        if (authorScore <= 0.0) return ResultClassification.DEGENERATE;
+
+        // Very low score with no theory support = effectively null
+        if (authorScore < 0.05) return ResultClassification.NULL_RESULT;
+
+        return switch (result.claimStatus()) {
+            case REFUTED      -> ResultClassification.NULL_RESULT;
+            case SUPPORTED    -> ResultClassification.SUPPORTED;
+            case PARTIAL      -> ResultClassification.PARTIALLY_SUPPORTED;
+            case OBSERVATIONAL -> authorScore < 0.12
+                    ? ResultClassification.NULL_RESULT
+                    : ResultClassification.PARTIALLY_SUPPORTED;
+        };
     }
 
     // ---- Topic index resolution ----
@@ -746,6 +782,7 @@ public class UniversityService {
         double param2;
         Double predictedScore   = null;
         String priorMethodology = null;
+        Object formResult = null;  // hoisted so pre-registration is accessible after param selection
         if (isFollowUp) {
             param1          = pendingFollowUp.param1();
             param2          = pendingFollowUp.param2();
@@ -758,7 +795,7 @@ public class UniversityService {
             // Ask LLM to choose specific params based on prior work; fall back to genome sampling.
             String topicNameForFormulation = MathPhysicsEngine.topicName(domain, topicIndex);
             List<ResearchPaper> recentForFormulation = getPublishedPapers(roomId, 6);
-            Object formResult = (formulationCallback != null)
+            formResult = (formulationCallback != null)
                     ? formulationCallback.apply(new Object[]{
                             domain, topicNameForFormulation,
                             author.getState().getGenome(), recentForFormulation,
@@ -784,6 +821,23 @@ public class UniversityService {
                 ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
                 : result.reviewValue();
         double  authorScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue, sp);
+
+        // Reject degenerate results before peer review — no draft, no LLM call
+        ResultClassification classification = classifyResult(result, authorScore);
+        if (classification == ResultClassification.DEGENERATE) {
+            log.info("university DEGENERATE result rejected domain={} topic={} param1={} param2={} score={}",
+                    domain, MathPhysicsEngine.topicName(domain, topicIndex), param1, param2, authorScore);
+            author.recordRejected();
+            author.getState().getGenome().recordRejection(rng);
+            totalRejected.merge(roomId, 1, Integer::sum);
+            return;
+        }
+
+        // Extract pre-registration from formulation result (null if genome-sampled fallback was used)
+        PreRegistration preReg = null;
+        if (!isFollowUp && formResult instanceof com.emergentterrain.service.LlmService.FormulationResult fr) {
+            preReg = fr.preRegistration();
+        }
 
         List<String> reviewerIds     = new ArrayList<>();
         Set<String>  usedReviewerIds = new HashSet<>();
@@ -838,7 +892,8 @@ public class UniversityService {
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
                     predictedScore, priorMethodology,
-                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis());
+                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
+                    preReg, classification);
 
             if (narratingCallback != null) {
                 draftQueueSize.incrementAndGet();
@@ -901,6 +956,17 @@ public class UniversityService {
 
         double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : authorScore;
 
+        // Reject degenerate dynamic results before any draft is created
+        ResultClassification dynClassification = classifyResult(result, authorScore);
+        if (dynClassification == ResultClassification.DEGENERATE) {
+            log.info("university DEGENERATE dynamic result rejected description=\"{}\" score={}",
+                    directive.description(), authorScore);
+            author.recordRejected();
+            author.getState().getGenome().recordRejection(rng);
+            totalRejected.merge(roomId, 1, Integer::sum);
+            return;
+        }
+
         if (reviewPassed) {
             String paperId            = nextPaperId(roomId);
             String topicName          = dynamicTopicName(directive);
@@ -922,7 +988,8 @@ public class UniversityService {
                     peerScore, authorScore, zScore, gameTick, Instant.now(),
                     author.getGeneration(), paperId, null, null, false,
                     null, null,
-                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis());
+                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
+                    null, dynClassification);
 
             if (narratingCallback != null) {
                 draftQueueSize.incrementAndGet();
@@ -1169,9 +1236,13 @@ public class UniversityService {
 
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
         boolean disputed = "DISPUTED".equals(paper.status());
+        boolean nullResult = "NULL_RESULT".equals(paper.status());
         String disputedBanner = disputed
                 ? "\n> ⚠ **UNDER DISPUTE** — Independent replication produced a divergent result. "
                   + "This paper's findings are under review.\n"
+                : nullResult
+                ? "\n> ∅ **NULL RESULT** — Computation ran but the pre-registered hypothesis was not supported. "
+                  + "Reported for transparency; no positive claim is made.\n"
                 : "";
         return """
                 # %s

@@ -10,7 +10,9 @@ import com.emergentterrain.research.FollowUpParams;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
+import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.research.ResultClassification;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
@@ -25,7 +27,9 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -111,7 +115,8 @@ public class LlmService {
         }
     }
 
-    public record FormulationResult(int param1, double param2, String researchQuestion) {}
+    public record FormulationResult(int param1, double param2, String researchQuestion,
+                                    PreRegistration preRegistration) {}
 
     // --- Public triggers ---
 
@@ -274,8 +279,15 @@ public class LlmService {
                 within or near the researcher's learned search region. Explain the research question
                 this choice targets in one sentence.
 
+                Before any computation runs, pre-register your hypothesis. This is locked and \
+                cannot be revised once results are seen.
+
                 Reply with ONLY this JSON, no other text:
-                {"param1":N,"param2":X.X,"question":"one sentence stating the specific research question"}
+                {"param1":N,"param2":X.X,"question":"one sentence research question",\
+                "pre_registration":{"hypothesis":"one testable claim this parameter choice will investigate",\
+                "prediction":"expected direction or magnitude (e.g. monotone increase, value near 0.3)",\
+                "falsification_condition":"what outcome would contradict this (e.g. no correlation, 0 exceedance)",\
+                "mapping_notes":"if crossing domains: state any constants or analogies and their justification; empty string otherwise"}}
 
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
@@ -298,7 +310,19 @@ public class LlmService {
                 log.debug("LLM formulation: params out of range (param1={}, param2={}) — discarded", p1, p2);
                 return null;
             }
-            return new FormulationResult(p1, p2, q);
+            PreRegistration preReg = null;
+            com.fasterxml.jackson.databind.JsonNode prNode = root.get("pre_registration");
+            if (prNode != null && !prNode.isNull()) {
+                String hyp   = prNode.path("hypothesis").asText(null);
+                String pred  = prNode.path("prediction").asText(null);
+                String falsc = prNode.path("falsification_condition").asText(null);
+                String mapN  = prNode.path("mapping_notes").asText(null);
+                if (hyp != null && !hyp.isBlank() && pred != null && !pred.isBlank()) {
+                    preReg = new PreRegistration(hyp, pred, falsc, mapN);
+                    log.debug("LLM formulation: pre-registration captured hypothesis=\"{}\"", hyp);
+                }
+            }
+            return new FormulationResult(p1, p2, q, preReg);
         } catch (Exception e) {
             log.warn("LLM formulation: JSON parse failed: {}", e.getMessage());
             return null;
@@ -376,6 +400,12 @@ public class LlmService {
         String accumulatedFindings = draft.rawFindings();
         int completedRefinements = 0;
 
+        // Track visited (param1, param2) pairs to reject duplicate refinement proposals
+        Set<String> visitedParams = new HashSet<>();
+        if (draft.param1() != null) {
+            visitedParams.add(draft.param1() + "_" + String.format("%.1f", draft.param2()));
+        }
+
         for (int iteration = 1; iteration <= MAX_REFINEMENTS; iteration++) {
             long start = System.currentTimeMillis();
             try {
@@ -388,6 +418,15 @@ public class LlmService {
                             iteration, MAX_REFINEMENTS, draft.paperId());
                     break;
                 }
+
+                // Reject duplicate parameter proposals — these add no new information
+                String paramKey = decision.param1() + "_" + String.format("%.1f", decision.param2());
+                if (visitedParams.contains(paramKey)) {
+                    log.debug("LLM refinement {}/{} proposed duplicate params (param1={}, param2={}) — stopping paperId={}",
+                            iteration, MAX_REFINEMENTS, decision.param1(), decision.param2(), draft.paperId());
+                    break;
+                }
+                visitedParams.add(paramKey);
 
                 MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
                         draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
@@ -427,7 +466,8 @@ public class LlmService {
                 draft.gameTick(), draft.publishedAt(), draft.generation(),
                 draft.paperId(), draft.param1(), draft.param2(),
                 draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
-                draft.recentPapers(), draft.researchHypothesis());
+                draft.recentPapers(), draft.researchHypothesis(),
+                draft.preRegistration(), draft.resultClassification());
     }
 
     private String buildRefinementPrompt(PaperDraft draft, String accumulatedFindings,
@@ -547,6 +587,42 @@ public class LlmService {
         String scaffoldCon = (draft.templateConclusion() != null && !draft.templateConclusion().isBlank())
                 ? draft.templateConclusion() : "(none)";
 
+        // Pre-registration section — present only when formulation captured a pre-reg
+        String preRegSection = "";
+        if (draft.preRegistration() != null) {
+            PreRegistration pr = draft.preRegistration();
+            String mapLine = (pr.mappingNotes() != null && !pr.mappingNotes().isBlank()
+                    && !pr.mappingNotes().equals("null") && !pr.mappingNotes().isEmpty())
+                    ? "Cross-domain mapping used: " + pr.mappingNotes() + "\n"
+                    : "";
+            String classLine = (draft.resultClassification() != null)
+                    ? "Deterministic result classification: " + draft.resultClassification() + "\n"
+                    : "";
+            String nullWarn = (draft.resultClassification() == ResultClassification.NULL_RESULT)
+                    ? "⚠ NULL RESULT: The computation does not support the pre-registered prediction. "
+                      + "Your conclusion MUST explicitly state this. Do NOT reframe as partial support, "
+                      + "\"selective\" confirmation, or attribute failure to material/domain properties. "
+                      + "A null result is a valid finding — report it honestly.\n"
+                    : "";
+            preRegSection = """
+
+                    Pre-registered hypothesis (locked before computation ran): %s
+                    Pre-registered prediction: %s
+                    Falsification condition: %s
+                    %s%s%s""".formatted(
+                            pr.hypothesis(), pr.prediction(),
+                            pr.falsificationCondition() != null ? pr.falsificationCondition() : "(not specified)",
+                            mapLine, classLine, nullWarn);
+        }
+
+        // Conclusion instruction varies by classification to prevent null-result reframing
+        boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
+        String conclusionSpec = isNull
+                ? "\"conclusion\":\"1-2 sentences: explicitly state the pre-registered prediction "
+                  + "was NOT confirmed; what was expected, what was found, what this rules out\""
+                : "\"conclusion\":\"1-2 sentences: assess whether the pre-registered prediction was "
+                  + "met (if applicable); what this result implies; one concrete open question it raises\"";
+
         return """
                 You are writing the narrative for a computational research paper in a simulation.
 
@@ -567,13 +643,12 @@ public class LlmService {
                 %s
 
                 Prior papers in this domain and topic (cite by Paper ID if directly relevant):
-                %s
+                %s%s
                 Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
                 {"hypothesis":"one specific testable sentence grounding the claim in the actual \
                 computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
                 interpreting the pattern or trend — its significance and what it suggests; \
-                cite a prior paper by ID if relevant","conclusion":"1-2 sentences: what this \
-                result implies and one concrete open question it raises",\
+                cite a prior paper by ID if relevant",%s,\
                 "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
                 "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
 
@@ -583,7 +658,9 @@ public class LlmService {
                 predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
                 result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
                 confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
-                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain).
+                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain). \
+                For a null result, confidenceScore should reflect confidence that the result is \
+                genuinely null, not confidence in a positive claim.
                 cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
                 you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
                 All text values under 120 words each. Plain prose inside JSON strings only — \
@@ -595,7 +672,9 @@ public class LlmService {
                 compactRawFindings(draft.rawFindings()),
                 scaffoldHyp,
                 scaffoldCon,
-                priorSection.trim());
+                priorSection.trim(),
+                preRegSection,
+                conclusionSpec);
     }
 
     private static String compactRawFindings(String raw) {

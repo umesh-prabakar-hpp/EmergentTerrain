@@ -37,5 +37,7 @@ public record PaperDraft(
         Double  predictedScore,
         String  priorMethodology,
         List<ResearchPaper> recentPapers,
-        String  researchHypothesis
+        String  researchHypothesis,
+        PreRegistration preRegistration,
+        ResultClassification resultClassification
 ) {}
