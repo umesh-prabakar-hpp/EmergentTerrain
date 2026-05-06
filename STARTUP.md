@@ -120,11 +120,19 @@ java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 
 The app starts on **http://localhost:8080**.
 
-### With Groq + multiple Ollama backends
+### With multiple Ollama backends
+
+Groq is enabled by default — the API key is pre-configured in `application.yml`. Just set the Ollama hosts:
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn package -DskipTests 
+mvn package -DskipTests
+OLLAMA_HOSTS=localhost,192.168.1.145 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
+```
+
+To use a different Groq API key, override via env var:
+
+```bash
 GROQ_API_KEY=gsk_... OLLAMA_HOSTS=localhost,192.168.1.145 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 ```
 
@@ -150,7 +158,7 @@ All have sensible defaults for local development. Override as needed:
 | `PG_URL` | `jdbc:postgresql://localhost:5432/emergentterrain` | PostgreSQL JDBC URL |
 | `PG_USER` | `postgres` | Database username |
 | `PG_PASSWORD` | `NewStrongPasswordHere` | Database password |
-| `GROQ_API_KEY` | *(none)* | Groq API key — enables high-quality narration |
+| `GROQ_API_KEY` | *(pre-configured in application.yml)* | Groq API key — override to use a different key |
 | `OLLAMA_HOSTS` | `localhost,192.168.1.145` | Comma-separated Ollama hostnames (fast pool) |
 | `OLLAMA_MODEL` | `gemma3:4b` | Model name (must be pulled on every Ollama backend) |
 
