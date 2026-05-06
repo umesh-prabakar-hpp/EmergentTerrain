@@ -172,6 +172,7 @@ app:
       apiKey: ${GROQ_API_KEY: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}
       parallelism: 3
       maxTokens: 600
+      toolMaxTokens: 1500    # token budget for professor tool-calling calls (critique + synthesis)
       primaryModelCount: 10  # effectively "all" — benchmark selects top-N 70B+ models for round-robin
       # Leave blank to auto-discover and rank all Groq models at startup.
       # Comma-separated list to pin specific models (e.g. "llama-3.3-70b-versatile,llama-3.1-70b-versatile")

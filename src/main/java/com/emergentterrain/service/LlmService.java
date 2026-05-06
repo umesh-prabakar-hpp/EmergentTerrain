@@ -49,6 +49,7 @@ public class LlmService {
     private static final long AI_EDIT_COOLDOWN_TICKS = 200L;
 
     private final LlmRouter router;
+    private final MathToolSuite toolSuite;
     private final RoomUpdateBroadcaster broadcaster;
     private final RoomBotRepository botRepository;
     private final ObjectMapper objectMapper;
@@ -83,6 +84,7 @@ public class LlmService {
                       ObjectMapper objectMapper,
                       @Value("${app.ai.digestCooldownMinutes:10}") long digestCooldownMinutes) {
         this.router           = router;
+        this.toolSuite        = new MathToolSuite(router, objectMapper);
         this.broadcaster      = broadcaster;
         this.botRepository    = botRepository;
         this.objectMapper     = objectMapper;
@@ -512,38 +514,87 @@ public class LlmService {
     // --- Self-critique + revision ---
 
     /**
-     * Professor–student collaboration loop:
-     * 1. Professor (fast Ollama) reviews the student's first-pass draft and returns:
-     *    - up to 2 textual weaknesses
-     *    - an optional prescribed experiment (param-based or number-theoretic)
-     * 2. If an experiment is prescribed, the student runs it synchronously and frames the result.
-     * 3. Student (primary Groq) revises the paper incorporating professor feedback + new evidence.
+     * Professor–student collaboration loop.
      *
-     * Falls back to firstPass on any failure or if the professor finds no actionable issues.
-     * The followUp from firstPass is preserved when the revision omits it.
+     * Tool-calling path (Groq available): the professor is a Groq model with four
+     * mathematical tools it can call freely — param sweep, predicate scan, symbolic
+     * evaluation, and sandboxed code (reviewed by 4b before execution). After calling
+     * any tools it deems necessary, it writes a synthesis. The student (another Groq
+     * call) then revises the paper incorporating the professor's findings.
+     *
+     * Fallback path (Ollama only): uses the existing JSON-based ExperimentalGap approach
+     * (fast Ollama critique → prescribed experiment → Groq revision).
+     *
+     * Falls back to firstPass on any failure.
      */
     private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass) {
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
             return firstPass;
         }
+        return router.supportsProfessorTools()
+                ? maybeCritiqueAndReviseWithTools(draft, firstPass)
+                : maybeCritiqueAndReviseJsonPath(draft, firstPass);
+    }
+
+    /** Tool-calling professor path — Groq with MathToolSuite. */
+    private NarrationResult maybeCritiqueAndReviseWithTools(PaperDraft draft, NarrationResult firstPass) {
+        try {
+            long start = System.currentTimeMillis();
+            boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
+                    || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain());
+            String toolsJson    = toolSuite.toolsJson(includeDynamic);
+            String systemPrompt = buildProfessorSystemPrompt();
+            String userPrompt   = buildProfessorUserPrompt(draft, firstPass);
+
+            String professorSynthesis = router.callPrimaryWithTools(
+                    systemPrompt, userPrompt, toolsJson,
+                    toolSuite.buildExecutor(draft));
+
+            if (professorSynthesis == null || professorSynthesis.isBlank()) {
+                log.info("LLM professor tools: empty synthesis paperId={} — keeping first pass", draft.paperId());
+                return firstPass;
+            }
+            log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
+                    professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
+
+            long revStart = System.currentTimeMillis();
+            StringBuilder revised = new StringBuilder();
+            router.streamPrimary(buildRevisionPromptFromSynthesis(draft, firstPass, professorSynthesis),
+                    revised::append);
+            NarrationResult revParsed = parseNarrationResult(revised.toString());
+            if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
+                log.info("LLM student revision done paperId={} ms={}", draft.paperId(),
+                        System.currentTimeMillis() - revStart);
+                com.emergentterrain.research.FollowUpParams followUp =
+                        revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
+                return new NarrationResult(
+                        revParsed.hypothesis(), revParsed.findings(), revParsed.conclusion(),
+                        followUp, router.primaryModel(),
+                        revParsed.confidenceScore(), revParsed.citedPaperIds());
+            }
+        } catch (Exception e) {
+            log.warn("LLM professor tools path failed paperId={}: {} — using first-pass narration",
+                    draft.paperId(), e.getMessage());
+        }
+        return firstPass;
+    }
+
+    /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
+    private NarrationResult maybeCritiqueAndReviseJsonPath(PaperDraft draft, NarrationResult firstPass) {
         try {
             long critiqueStart = System.currentTimeMillis();
             String critiqueResponse = router.callFast(buildCritiquePrompt(draft, firstPass));
             CritiqueResult critique = parseCritiqueResult(critiqueResponse);
 
             if (!critique.hasActionableFeedback()) {
-                String snippet = critiqueResponse == null ? "(null)"
-                        : critiqueResponse.length() > 120 ? critiqueResponse.substring(0, 120) + "…"
-                        : critiqueResponse;
-                log.info("LLM professor review: clean draft paperId={} ms={} raw=\"{}\"",
-                        draft.paperId(), System.currentTimeMillis() - critiqueStart, snippet);
+                log.info("LLM professor review (json): clean draft paperId={} ms={}",
+                        draft.paperId(), System.currentTimeMillis() - critiqueStart);
                 return firstPass;
             }
-            log.info("LLM professor review: {} weakness(es) experiment={} paperId={} ms={}",
+            log.info("LLM professor review (json): {} weakness(es) experiment={} paperId={} ms={}",
                     critique.weaknesses().size(), critique.experimentalGap() != null,
                     draft.paperId(), System.currentTimeMillis() - critiqueStart);
 
-            // Student runs professor-prescribed experiment before writing the revision
             String professorExperiment = null;
             if (critique.experimentalGap() != null) {
                 professorExperiment = runProfessorDirectedExperiment(draft, critique.experimentalGap());
@@ -556,9 +607,8 @@ public class LlmService {
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
-                log.info("LLM student revision done paperId={} experiment_included={} ms={}",
-                        draft.paperId(), professorExperiment != null,
-                        System.currentTimeMillis() - revisionStart);
+                log.info("LLM student revision (json) done paperId={} ms={}",
+                        draft.paperId(), System.currentTimeMillis() - revisionStart);
                 com.emergentterrain.research.FollowUpParams followUp =
                         revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
                 return new NarrationResult(
@@ -567,7 +617,7 @@ public class LlmService {
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
         } catch (Exception e) {
-            log.warn("LLM professor+revision failed paperId={}: {} — using first-pass narration",
+            log.warn("LLM professor+revision (json) failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
         return firstPass;
@@ -684,6 +734,78 @@ public class LlmService {
                 narration.hypothesis(), narration.findings(), narration.conclusion(),
                 experimentSpec);
     }
+
+    // ── Tool-calling professor prompts ────────────────────────────────────────
+
+    static String buildProfessorSystemPrompt() {
+        return """
+                You are a professor reviewing a student's computational research paper.
+                You have access to mathematical tools to investigate gaps you identify.
+                Use tools when they would provide new evidence that materially changes what can be claimed.
+                You do not need to use tools if the paper is already well-supported.
+                After any tool calls, write a concise synthesis:
+                  1. List specific textual weaknesses (overclaiming, missing error bounds,
+                     inconsistency with pre-registration, unsupported leaps). Omit if none.
+                  2. Summarise what your experiments revealed and how they bear on the claims.
+                Be direct and specific. If the paper is fundamentally sound, say so briefly.
+                """;
+    }
+
+    static String buildProfessorUserPrompt(PaperDraft draft, NarrationResult narration) {
+        String preRegLine = draft.preRegistration() != null
+                ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
+        String classLine  = draft.resultClassification() != null
+                ? "Result classification: " + draft.resultClassification() + "\n" : "";
+        return """
+                Paper for review:
+                Domain: %s | Topic: %s
+                %s%s
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+                """.formatted(draft.domain(), draft.topicName(),
+                preRegLine, classLine,
+                narration.hypothesis(), narration.findings(), narration.conclusion());
+    }
+
+    static String buildRevisionPromptFromSynthesis(PaperDraft draft, NarrationResult firstPass,
+                                                    String professorSynthesis) {
+        boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
+        String conclusionSpec = isNull
+                ? "\"conclusion\":\"explicitly state the pre-registered prediction was NOT confirmed; "
+                  + "what was expected vs found; what this rules out\""
+                : "\"conclusion\":\"1-2 sentences: what result implies; one open question it raises\"";
+        String paramsLine = draft.param1() != null
+                ? "Primary parameters: param1=%d, param2=%.1f\n".formatted(draft.param1(), draft.param2())
+                : "";
+        return """
+                You are a student revising your computational research paper based on your professor's review.
+                Incorporate the professor's experimental findings naturally into the revised text.
+                Address the identified weaknesses. Do not introduce new claims beyond what the data supports.
+
+                %sDomain: %s | Topic: %s
+
+                PROFESSOR'S REVIEW:
+                %s
+
+                CURRENT DRAFT:
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+
+                Rewrite the paper as:
+                {"hypothesis":"...",
+                 "findings":"2-3 sentences with appropriate precision; incorporate new experimental evidence",
+                 %s,
+                 "confidenceScore":0.0-1.0}
+                Reply with ONLY the JSON.
+                """.formatted(paramsLine, draft.domain(), draft.topicName(),
+                professorSynthesis,
+                firstPass.hypothesis(), firstPass.findings(), firstPass.conclusion(),
+                conclusionSpec);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
 
     static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
                                       List<String> weaknesses) {

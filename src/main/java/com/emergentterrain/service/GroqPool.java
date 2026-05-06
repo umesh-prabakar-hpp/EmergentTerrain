@@ -79,8 +79,11 @@ public class GroqPool implements LlmPool {
     // Max Ollama score per model: verdict(10) + angle(10) + reasoning(10)
     private static final int MAX_OLLAMA_SCORE = 30;
 
+    private static final int MAX_TOOL_ROUNDS = 5;
+
     private final String apiKey;
     private final int maxTokens;
+    private final int toolMaxTokens;
     private final String ollamaJudgeUrl;
     private final String ollamaJudgeModel;
     private final List<String> activeModels;
@@ -93,6 +96,7 @@ public class GroqPool implements LlmPool {
             @Value("${app.ai.groq.apiKey:}") String apiKey,
             @Value("${app.ai.groq.parallelism:3}") int parallelism,
             @Value("${app.ai.groq.maxTokens:600}") int maxTokens,
+            @Value("${app.ai.groq.toolMaxTokens:1500}") int toolMaxTokens,
             @Value("${app.ai.groq.primaryModelCount:10}") int primaryModelCount,
             @Value("${app.ai.groq.preferredModels:}") String preferredModels,
             @Value("${app.ai.ollamaJudgeUrl:http://localhost:11434}") String ollamaJudgeUrl,
@@ -105,6 +109,7 @@ public class GroqPool implements LlmPool {
         }
         this.apiKey          = apiKey;
         this.maxTokens       = maxTokens;
+        this.toolMaxTokens   = toolMaxTokens;
         this.ollamaJudgeUrl  = ollamaJudgeUrl;
         this.ollamaJudgeModel = ollamaJudgeModel;
         this.mapper          = mapper;
@@ -149,6 +154,118 @@ public class GroqPool implements LlmPool {
     @Override public List<String> selectedModels() { return activeModels; }
     @Override public int backendCount()            { return 1; }
     @Override public int healthyCount()            { return 1; }
+
+    /**
+     * Multi-turn tool-calling call. The professor LLM may invoke tools up to
+     * MAX_TOOL_ROUNDS times; each call is executed via {@code executor} and the
+     * result added to the conversation. Returns the model's final synthesis text.
+     */
+    public String callWithTools(String systemPrompt, String userPrompt,
+                                 String toolsJson,
+                                 java.util.function.Function<String, String> executor) {
+        acquireSlot();
+        try {
+            int size  = activeModels.size();
+            int start = rrIndex.getAndIncrement() % size;
+            RuntimeException last = null;
+            for (int i = 0; i < size; i++) {
+                String modelId = activeModels.get((start + i) % size);
+                try {
+                    return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor);
+                } catch (RuntimeException e) {
+                    last = e;
+                    if (i < size - 1)
+                        log.warn("GroqPool tools: model={} failed, trying next: {}", modelId, e.getMessage());
+                }
+            }
+            throw last;
+        } finally {
+            slots.release();
+        }
+    }
+
+    private String runToolLoop(String modelId, String systemPrompt, String userPrompt,
+                                String toolsJson,
+                                java.util.function.Function<String, String> executor) {
+        try {
+            com.fasterxml.jackson.databind.node.ArrayNode messages = mapper.createArrayNode();
+            if (systemPrompt != null && !systemPrompt.isBlank())
+                messages.addObject().put("role", "system").put("content", systemPrompt);
+            messages.addObject().put("role", "user").put("content", userPrompt);
+            JsonNode tools = mapper.readTree(toolsJson);
+
+            for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+                boolean lastRound = round == MAX_TOOL_ROUNDS;
+                String payload = buildConversationPayload(
+                        modelId, messages, lastRound ? null : tools, toolMaxTokens);
+                HttpRequest req = HttpRequest.newBuilder()
+                        .uri(URI.create(BASE_URL + "/chat/completions"))
+                        .header("Authorization", "Bearer " + apiKey)
+                        .header("Content-Type", "application/json")
+                        .POST(HttpRequest.BodyPublishers.ofString(payload))
+                        .build();
+                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() != 200)
+                    throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
+
+                JsonNode body    = mapper.readTree(resp.body());
+                JsonNode choice  = body.path("choices").get(0);
+                JsonNode message = choice.path("message");
+                String   reason  = choice.path("finish_reason").asText("stop");
+
+                if ("tool_calls".equals(reason) && !lastRound) {
+                    messages.add(message);
+                    for (JsonNode tc : message.path("tool_calls")) {
+                        String callId = tc.path("id").asText();
+                        String fnName = tc.path("function").path("name").asText();
+                        String fnArgs = tc.path("function").path("arguments").asText("{}");
+                        String result;
+                        try {
+                            result = executor.apply(mapper.writeValueAsString(
+                                    mapper.createObjectNode()
+                                            .put("name", fnName)
+                                            .set("arguments", mapper.readTree(fnArgs))));
+                        } catch (Exception ex) {
+                            result = "Tool error: " + ex.getMessage();
+                        }
+                        log.info("GroqPool tools: fn={} result_len={}", fnName, result.length());
+                        messages.addObject()
+                                .put("role", "tool")
+                                .put("tool_call_id", callId)
+                                .put("content", result);
+                    }
+                } else {
+                    String content = message.path("content").asText("");
+                    if (content.isBlank()) content = message.path("reasoning").asText("");
+                    return content;
+                }
+            }
+            return "";
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("GroqPool tool loop failed", e);
+        }
+    }
+
+    private String buildConversationPayload(String modelId, JsonNode messages,
+                                             JsonNode tools, int tokenLimit) {
+        try {
+            ObjectNode node = mapper.createObjectNode();
+            node.put("model", modelId);
+            node.put("stream", false);
+            node.put("max_tokens", tokenLimit);
+            node.put("temperature", 0.7);
+            node.set("messages", messages);
+            if (tools != null && tools.isArray() && !tools.isEmpty()) {
+                node.set("tools", tools);
+                node.put("tool_choice", "auto");
+            }
+            return mapper.writeValueAsString(node);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build conversation payload", e);
+        }
+    }
 
     // --- Runtime fallback wrappers ---
 
