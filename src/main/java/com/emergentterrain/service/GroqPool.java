@@ -25,6 +25,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -83,6 +84,7 @@ public class GroqPool implements LlmPool {
     private final String ollamaJudgeModel;
     private final List<String> activeModels;
     private final Semaphore slots;
+    private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
     private final HttpClient http;
 
@@ -90,7 +92,7 @@ public class GroqPool implements LlmPool {
             @Value("${app.ai.groq.apiKey:}") String apiKey,
             @Value("${app.ai.groq.parallelism:3}") int parallelism,
             @Value("${app.ai.groq.maxTokens:600}") int maxTokens,
-            @Value("${app.ai.groq.primaryModelCount:2}") int primaryModelCount,
+            @Value("${app.ai.groq.primaryModelCount:10}") int primaryModelCount,
             @Value("${app.ai.groq.preferredModels:}") String preferredModels,
             @Value("${app.ai.ollamaJudgeUrl:http://localhost:11434}") String ollamaJudgeUrl,
             @Value("${app.ai.ollamaJudgeModel:gemma3:4b}") String ollamaJudgeModel,
@@ -150,16 +152,19 @@ public class GroqPool implements LlmPool {
     // --- Runtime fallback wrappers ---
 
     private String callSyncWithFallback(String prompt) {
+        int size  = activeModels.size();
+        int start = rrIndex.getAndIncrement() % size;
         RuntimeException last = null;
-        for (int i = 0; i < activeModels.size(); i++) {
-            String modelId = activeModels.get(i);
+        for (int i = 0; i < size; i++) {
+            String modelId = activeModels.get((start + i) % size);
             try {
                 return syncCall(modelId, prompt, maxTokens);
             } catch (RuntimeException e) {
                 last = e;
-                if (i < activeModels.size() - 1) {
-                    log.warn("GroqPool: model={} failed, trying fallback model={}: {}",
-                            modelId, activeModels.get(i + 1), e.getMessage());
+                int next = (start + i + 1) % size;
+                if (i < size - 1) {
+                    log.warn("GroqPool: model={} failed, trying next model={}: {}",
+                            modelId, activeModels.get(next), e.getMessage());
                 }
             }
         }
@@ -167,17 +172,20 @@ public class GroqPool implements LlmPool {
     }
 
     private void callStreamWithFallback(String prompt, Consumer<String> tokenConsumer) {
+        int size  = activeModels.size();
+        int start = rrIndex.getAndIncrement() % size;
         RuntimeException last = null;
-        for (int i = 0; i < activeModels.size(); i++) {
-            String modelId = activeModels.get(i);
+        for (int i = 0; i < size; i++) {
+            String modelId = activeModels.get((start + i) % size);
             try {
                 streamCall(modelId, prompt, tokenConsumer);
                 return;
             } catch (RuntimeException e) {
                 last = e;
-                if (i < activeModels.size() - 1) {
-                    log.warn("GroqPool: model={} stream failed, trying fallback model={}: {}",
-                            modelId, activeModels.get(i + 1), e.getMessage());
+                int next = (start + i + 1) % size;
+                if (i < size - 1) {
+                    log.warn("GroqPool: model={} stream failed, trying next model={}: {}",
+                            modelId, activeModels.get(next), e.getMessage());
                 }
             }
         }
