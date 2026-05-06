@@ -212,9 +212,6 @@ public class GroqPool implements LlmPool {
             // Phase 1: ranking call — low token budget, just a JSON array of names
             try {
                 String rankResponse = syncCallWithBackoff(modelId, rankingPrompt, RANKING_MAX_TOKENS);
-                log.info("GroqPool ranking raw rater={} len={}: [{}]",
-                        modelId, rankResponse.length(),
-                        rankResponse.substring(0, Math.min(rankResponse.length(), 300)));
                 List<String> ranking = parseRanking(mapper, rankResponse, candidates);
                 for (int rank = 0; rank < ranking.size(); rank++) {
                     bordaScores.merge(ranking.get(rank), n - 1 - rank, Integer::sum);
@@ -302,7 +299,6 @@ public class GroqPool implements LlmPool {
         // Phase 1: try JSON array parse if brackets are present
         int start = cleaned.indexOf('[');
         int end   = cleaned.lastIndexOf(']');
-        log.info("GroqPool parseRanking: cleanedLen={} bracketsFound={}", cleaned.length(), start >= 0 && end > start);
         if (start >= 0 && end > start) {
             try {
                 JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
@@ -312,12 +308,9 @@ public class GroqPool implements LlmPool {
                         String matched = matchCandidate(node.asText("").trim(), valid);
                         if (matched != null && !result.contains(matched)) result.add(matched);
                     }
-                    log.info("GroqPool parseRanking: JSON array found size={} matched={}", arr.size(), result.size());
                     if (!result.isEmpty()) return result;
                 }
-            } catch (Exception e) {
-                log.info("GroqPool parseRanking: JSON parse failed: {}", e.getMessage());
-            }
+            } catch (Exception ignored) {}
         }
 
         // Phase 2: text scan — handles numbered lists, prose, unquoted arrays, no brackets
