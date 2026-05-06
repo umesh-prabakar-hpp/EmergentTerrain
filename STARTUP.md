@@ -61,17 +61,28 @@ app:
       apiKey: your-key-here
 ```
 
-At startup, the app queries Groq's model list, benchmarks each candidate with a
-research narration prompt, and automatically selects the best-performing model.
-The selected model is logged on startup and stamped on every paper as **AI Narrator**.
+At startup, the app fetches the live Groq model list, asks each candidate to rank
+all others for scientific and mathematical reasoning (no ties allowed), aggregates
+via Borda count, and selects the top `primaryModelCount` models (default: 2).
+Calls fall back through the ranked list automatically if the primary model fails.
+The selected models are logged on startup; the model used per paper is stamped as **AI Narrator**.
 
-To pin a specific model instead of auto-discovering:
+To control how many fallback models are selected:
 
 ```yaml
 app:
   ai:
     groq:
-      preferredModel: openai/gpt-oss-120b
+      primaryModelCount: 2   # pick top-2 by peer ranking (1–N)
+```
+
+To pin specific models instead of auto-discovering (comma-separated, in fallback order):
+
+```yaml
+app:
+  ai:
+    groq:
+      preferredModels: "llama-3.3-70b-versatile,groq/compound"
 ```
 
 > **Without Groq:** Paper narration and genome mentoring fall back to Ollama
@@ -114,7 +125,7 @@ Or build and run the jar:
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn package -DskipTests
+mvn clean package -DskipTests
 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 ```
 
@@ -126,7 +137,7 @@ Groq is enabled by default — the API key is pre-configured in `application.yml
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn package -DskipTests
+mvn clean package -DskipTests
 OLLAMA_HOSTS=localhost,192.168.1.145 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 ```
 

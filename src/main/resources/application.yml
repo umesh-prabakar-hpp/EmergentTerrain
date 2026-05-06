@@ -172,8 +172,10 @@ app:
       apiKey: ${GROQ_API_KEY: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}
       parallelism: 3
       maxTokens: 600
-      # Leave blank to auto-discover and benchmark all Groq models at startup
-      preferredModel: ""
+      primaryModelCount: 2
+      # Leave blank to auto-discover and rank all Groq models at startup.
+      # Comma-separated list to pin specific models (e.g. "llama-3.3-70b-versatile,groq/compound")
+      preferredModels: ""
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500

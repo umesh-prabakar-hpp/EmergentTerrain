@@ -157,7 +157,8 @@ class MathPhysicsEngineTest {
                 "# Existing\n\n**Paper ID**: P-59f4-29\n");
 
         UniversityService service = new UniversityService(
-                0L, tempDir.toString(), mock(RoomBotRepository.class),
+                0L, tempDir.toString(), 3, true,
+                mock(RoomBotRepository.class),
                 new ObjectMapper().findAndRegisterModules());
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

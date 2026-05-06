@@ -43,8 +43,8 @@ public class LlmRouter {
         // Fast: prefer Ollama for frequent low-stakes calls (preserves Groq quota)
         this.fastPool = (ollama != null) ? ollama : primaryPool;
 
-        log.info("LlmRouter: primary={} [{}]  fast={} [{}]",
-                primaryPool.getClass().getSimpleName(), primaryPool.selectedModel(),
+        log.info("LlmRouter: primary={} {}  fast={} [{}]",
+                primaryPool.getClass().getSimpleName(), primaryPool.selectedModels(),
                 fastPool.getClass().getSimpleName(), fastPool.selectedModel());
     }
 
