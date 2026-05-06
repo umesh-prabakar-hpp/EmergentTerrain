@@ -293,7 +293,11 @@ public class GroqPool implements LlmPool {
         String cleaned = response.replaceAll("(?s)<think>.*?</think>", "").trim();
         int start = cleaned.indexOf('[');
         int end   = cleaned.lastIndexOf(']');
-        if (start < 0 || end <= start) return List.of();
+        if (start < 0 || end <= start) {
+            log.warn("GroqPool: ranking response has no JSON array: {}",
+                    cleaned.substring(0, Math.min(cleaned.length(), 400)));
+            return List.of();
+        }
         try {
             JsonNode arr = mapper.readTree(cleaned.substring(start, end + 1));
             if (!arr.isArray()) {
