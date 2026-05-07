@@ -24,6 +24,7 @@ import java.util.Map;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -91,6 +92,9 @@ public class GroqPool implements LlmPool {
     private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
     private final HttpClient http;
+    // Per-model TPD expiry: when a model exhausts its daily token quota, record when it recovers.
+    // Models are skipped until System.currentTimeMillis() passes the expiry epoch.
+    private final ConcurrentHashMap<String, Long> tpdExpiry = new ConcurrentHashMap<>();
 
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
@@ -155,6 +159,27 @@ public class GroqPool implements LlmPool {
     @Override public int backendCount()            { return 1; }
     @Override public int healthyCount()            { return 1; }
 
+    /** True when every model in the active list has an unexpired TPD block. */
+    public boolean allModelsTpdBlocked() {
+        if (activeModels.isEmpty()) return false;
+        long now = System.currentTimeMillis();
+        return activeModels.stream().allMatch(m -> {
+            Long exp = tpdExpiry.get(m);
+            return exp != null && now < exp;
+        });
+    }
+
+    /** Epoch-millis of the earliest TPD expiry across all active models. */
+    public java.time.Instant earliestRecovery() {
+        long now = System.currentTimeMillis();
+        return activeModels.stream()
+                .map(tpdExpiry::get)
+                .filter(exp -> exp != null && exp > now)
+                .min(Long::compareTo)
+                .map(java.time.Instant::ofEpochMilli)
+                .orElse(java.time.Instant.now());
+    }
+
     /**
      * Multi-turn tool-calling call. The professor LLM may invoke tools up to
      * MAX_TOOL_ROUNDS times; each call is executed via {@code executor} and the
@@ -170,6 +195,11 @@ public class GroqPool implements LlmPool {
             RuntimeException last = null;
             for (int i = 0; i < size; i++) {
                 String modelId = activeModels.get((start + i) % size);
+                Long exp = tpdExpiry.get(modelId);
+                if (exp != null && System.currentTimeMillis() < exp) {
+                    last = new RuntimeException("TPD quota not yet recovered for model=" + modelId);
+                    continue;
+                }
                 try {
                     return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor);
                 } catch (RuntimeException e) {
@@ -275,6 +305,11 @@ public class GroqPool implements LlmPool {
         RuntimeException last = null;
         for (int i = 0; i < size; i++) {
             String modelId = activeModels.get((start + i) % size);
+            Long exp = tpdExpiry.get(modelId);
+            if (exp != null && System.currentTimeMillis() < exp) {
+                last = new RuntimeException("TPD quota not yet recovered for model=" + modelId);
+                continue;
+            }
             try {
                 return syncCall(modelId, prompt, maxTokens);
             } catch (RuntimeException e) {
@@ -295,6 +330,11 @@ public class GroqPool implements LlmPool {
         RuntimeException last = null;
         for (int i = 0; i < size; i++) {
             String modelId = activeModels.get((start + i) % size);
+            Long exp = tpdExpiry.get(modelId);
+            if (exp != null && System.currentTimeMillis() < exp) {
+                last = new RuntimeException("TPD quota not yet recovered for model=" + modelId);
+                continue;
+            }
             try {
                 streamCall(modelId, prompt, tokenConsumer);
                 return;
@@ -627,8 +667,11 @@ public class GroqPool implements LlmPool {
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
                     // TPD (daily quota) exhaustion — retry-after is hours/minutes, skip immediately
                     if (msg.contains("tokens per day") || msg.contains("TPD")) {
-                        log.warn("GroqPool: TPD daily quota exhausted for model={} — skipping ({})",
-                                modelId, extractRetryAfterLabel(msg));
+                        long waitMs = parseRetryAfterMs(msg).orElse(60 * 60 * 1000L);
+                        long expiry = System.currentTimeMillis() + waitMs;
+                        tpdExpiry.put(modelId, expiry);
+                        log.warn("GroqPool: TPD quota exhausted model={} — blocked for {}ms until ~{}",
+                                modelId, waitMs, java.time.Instant.ofEpochMilli(expiry));
                         throw e;
                     }
                     // TPM (per-minute) — use Groq's retry-after when available

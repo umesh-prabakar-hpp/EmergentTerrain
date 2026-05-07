@@ -241,7 +241,8 @@ public class MathToolSuite {
         if (!reviewVerdict.startsWith("APPROVED")) {
             log.warn("MathToolSuite: sandbox code rejected by 4b review: {} code=\"{}\"",
                     reviewVerdict, code.length() > 80 ? code.substring(0, 80) + "…" : code);
-            return "Sandbox code rejected by safety review: " + reviewVerdict;
+            return "REJECTED by safety review: " + reviewVerdict +
+                    " — Please revise the pseudocode to address this issue and call run_sandboxed_code again.";
         }
         log.info("MathToolSuite: sandbox code approved, executing range=[{},{}) description=\"{}\"",
                 rangeStart, rangeEnd, description);

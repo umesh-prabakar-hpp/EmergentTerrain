@@ -20,5 +20,6 @@ public record ResearchPaper(
         Instant publishedAt,
         int generation,
         double anomalyZScore,   // z-score of peerScore vs room's domain+topic distribution; 0.0 if < 5 prior papers
-        String aiModel          // LLM that wrote the narration; null when template fallback was used
+        String aiModel,         // LLM that wrote the narration; null when template fallback was used
+        String llmCallPath      // audit trail of LLM calls (e.g. "audit:4b:2gaps → prof:llama-70b:ok")
 ) {}

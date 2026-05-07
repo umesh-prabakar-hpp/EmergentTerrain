@@ -396,3 +396,40 @@ The fundamental gaps (current status)
 **What has been addressed (post-hoc rationalization)**
 
 The redesign in commit `b4c7f45` eliminated the root cause of papers like P-a29f-244 and P-a29f-252, where the LLM reframed null results as partial confirmations. The fixes: pre-registration locks the hypothesis before computation; deterministic classification assigns SUPPORTED/PARTIALLY_SUPPORTED/NULL_RESULT/DEGENERATE from numeric evidence alone; the narration prompt explicitly prohibits reframing null results; null result papers are stored separately with no confidence boost and a null-result banner.
+
+
+
+
+------------------------
+**DNA and gene expression for future reference and possible game implementation:**
+```
+Almost every human cell contains a complete copy of your DNA — approximately 3 billion base pairs organized into 46 chromosomes, located in the cell nucleus.
+
+The few exceptions:
+
+Red blood cells — mature ones eject their nucleus entirely, so no DNA
+Platelets — cell fragments, no nucleus, no DNA
+Some lens cells in the eye — also lose their nuclei at maturity
+Every other cell type — neurons, muscle cells, skin cells, liver cells — carries the full genome. The reason a liver cell is a liver cell and not a neuron isn't that it has different DNA; it's that different genes are switched on or off in each cell type through a process called gene expression.
+
+When genes first switch on
+
+The earliest switching happens during embryonic development. A fertilized egg starts as one cell with all genes mostly silent, then as it divides, different genes activate in different daughter cells, driving them to become different tissue types. By the time organs are forming (weeks 3–8 in humans), thousands of genes are already being selectively expressed — this is how a liver cell lineage diverges from a neuron lineage from what was originally identical cells.
+
+Does it stay on permanently?
+
+No, not in general. There are three patterns:
+
+Constitutive (always on) — housekeeping genes that every cell needs constantly, like the ones running basic metabolism and DNA repair. These stay on in essentially all cells all the time.
+
+Inducible (on/off by signal) — most genes. They respond to hormones, nutrients, stress, infection, temperature, physical activity, even time of day (circadian genes). Insulin tells liver cells to switch on glucose storage genes. Exercise activates muscle-repair genes. These can cycle on and off repeatedly throughout life.
+
+Developmental (on once, then silenced) — some genes fire during a specific developmental window and are then permanently shut off via epigenetic silencing (DNA methylation, histone modification). Fetal hemoglobin genes are a classic example — active before birth, then largely silenced as adult hemoglobin genes take over.
+
+What does the switching
+
+The machinery is mostly transcription factors — proteins that bind to DNA near a gene and either recruit or block the RNA polymerase that reads it. External signals (hormones, nutrients, damage signals) change which transcription factors are active, which changes which genes get read.
+
+The short answer: gene expression is more like a constantly adjusting equalizer than a set of light switches that flip once and stay.
+```
+------------

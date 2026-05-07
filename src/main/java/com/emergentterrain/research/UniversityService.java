@@ -51,8 +51,10 @@ public class UniversityService {
     private static final double REVIEW_TOLERANCE    = 0.05;  // score-based, not value-based
     private static final double COMPETENCY_THRESHOLD = 0.60;
     // Trigger is authorScore (result quality), not peerScore (reviewer reputation).
-    // 0.45 ≈ sigmoid(1.0) × 0.9 — fires for genuinely good work from the first generation.
-    private static final double MENTOR_SCORE_THRESHOLD = 0.45;
+    // Lowered from 0.45 to 0.30: cross-domain interdisciplinary topics naturally score lower
+    // due to partial-support claims; 0.30 lets generation-0 bots earn mentoring on their best
+    // PARTIALLY_SUPPORTED work rather than requiring SUPPORTED-level scores to break the cold-start.
+    private static final double MENTOR_SCORE_THRESHOLD = 0.30;
 
     // Max pending drafts: if backlog reaches this, skip the research cycle this tick.
     // Keeps paper output naturally paced to LLM throughput with no build-up.
@@ -146,6 +148,13 @@ public class UniversityService {
      * Also fires genome mentoring for high-quality papers.
      */
     public void publishPaper(PaperDraft draft, NarrationResult narration) {
+        if (narration == null) {
+            // Professor synthesis was blank — discard draft without publishing.
+            draftQueueSize.decrementAndGet();
+            log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
+                    draft.paperId(), draft.domain(), draft.topicName());
+            return;
+        }
         String hypothesis = (narration.hypothesis() != null && !narration.hypothesis().isBlank())
                 ? narration.hypothesis() : draft.templateHypothesis();
         String findings   = (narration.findings()  != null && !narration.findings().isBlank())
@@ -167,14 +176,15 @@ public class UniversityService {
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
-                narration.aiModel());
+                narration.aiModel(), narration.callPath());
 
         addPaper(draft.roomId(), paper);
         draftQueueSize.decrementAndGet();
-        log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={}",
+        log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={} path=[{}]",
                 draft.paperId(), draft.domain(), draft.topicName(),
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
-                draft.resultClassification());
+                draft.resultClassification(),
+                narration.callPath() != null ? narration.callPath() : "none");
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();
@@ -393,7 +403,7 @@ public class UniversityService {
                                 + " vs original " + String.format("%.3f", p.peerScore())
                                 + " — result is under dispute.]",
                         p.reviewerBotIds(), p.peerScore(), "DISPUTED",
-                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore(), p.aiModel());
+                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore(), p.aiModel(), p.llmCallPath());
                 papers.set(i, disputed);
                 overwritePaperFile(roomId, disputed);
                 // Penalise original author's reputation
@@ -427,10 +437,12 @@ public class UniversityService {
      */
     static ResultClassification classifyResult(MathPhysicsEngine.ResearchResult result,
                                                 double authorScore) {
-        // Non-finite values or all-zero primary+secondary = engine returned a sentinel/fallback
+        // Non-finite values or all-zero primary+secondary+review with no theory support = sentinel/fallback.
+        // Note: theoryConsistent is respected — if the engine explicitly marks the result as theory-consistent,
+        // zero values are a valid null result (e.g., "zero failures"), not a computation bug.
         if (!Double.isFinite(result.reviewValue())
                 || (result.primaryValue() == 0.0 && result.secondaryValue() == 0.0
-                    && !result.theoryConsistent())) {
+                    && result.reviewValue() == 0.0 && !result.theoryConsistent())) {
             return ResultClassification.DEGENERATE;
         }
         if (authorScore <= 0.0) return ResultClassification.DEGENERATE;
@@ -1266,6 +1278,7 @@ public class UniversityService {
                 **Author**: %s
                 **AI Narrator**: %s
                 **Reviewers**: %s
+                **LLM Call Path**: %s
                 %s
                 ---
 
@@ -1295,6 +1308,7 @@ public class UniversityService {
                 paper.authorBotId(),
                 paper.aiModel() != null ? paper.aiModel() : "template",
                 String.join(", ", paper.reviewerBotIds()),
+                paper.llmCallPath() != null ? paper.llmCallPath() : "none",
                 disputedBanner,
                 paper.hypothesis(),
                 paper.findings(),

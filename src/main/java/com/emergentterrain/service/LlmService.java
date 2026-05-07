@@ -489,23 +489,43 @@ public class LlmService {
     }
 
     private void runNarration(PaperDraft draft) {
+        // End-game: all Groq models TPD-exhausted — suppress and log recovery time
+        if (router.primaryFullyExhausted()) {
+            java.time.Instant recovery = router.earliestPrimaryRecovery();
+            log.error("LLM RESEARCH PAUSED — all Groq models TPD-exhausted. " +
+                    "Earliest recovery: {}. paperId={} suppressed.", recovery, draft.paperId());
+            if (narrationPublisher != null) narrationPublisher.accept(draft, null);
+            return;
+        }
+
+        List<String> callPath = new java.util.ArrayList<>();
+
+        // First-pass narration (Groq/primary stream)
         String prompt = buildNarrationPrompt(draft);
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
             router.streamPrimary(prompt, response::append);
+            callPath.add("fp:" + abbrev(router.primaryModel()));
             log.info("LLM narration first-pass done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
+            callPath.add("fp:FAILED");
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
                     draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
         }
+
         NarrationResult firstPass = parseNarrationResult(response.toString());
-        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass);
-        NarrationResult result = new NarrationResult(
+        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass, callPath);
+
+        String pathStr = String.join(" → ", callPath);
+        log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
+
+        // null means professor blank or all-TPD — pass null so queue counter is decremented
+        NarrationResult result = finalResult == null ? null : new NarrationResult(
                 finalResult.hypothesis(), finalResult.findings(), finalResult.conclusion(),
                 finalResult.followUp(), router.primaryModel(),
-                finalResult.confidenceScore(), finalResult.citedPaperIds());
+                finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr);
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -527,23 +547,30 @@ public class LlmService {
      *
      * Falls back to firstPass on any failure.
      */
-    private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass) {
+    private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass,
+                                                    List<String> callPath) {
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
+            callPath.add("critique:skip:incomplete_firstpass");
             return firstPass;
         }
         return router.supportsProfessorTools()
-                ? maybeCritiqueAndReviseWithTools(draft, firstPass)
-                : maybeCritiqueAndReviseJsonPath(draft, firstPass);
+                ? maybeCritiqueAndReviseWithTools(draft, firstPass, callPath)
+                : maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
     }
 
-    /** Tool-calling professor path — Groq with MathToolSuite. */
-    private NarrationResult maybeCritiqueAndReviseWithTools(PaperDraft draft, NarrationResult firstPass) {
+    /** Tool-calling professor path: audit → professor (tool-calling) → student revision. */
+    private NarrationResult maybeCritiqueAndReviseWithTools(PaperDraft draft, NarrationResult firstPass,
+                                                             List<String> callPath) {
         try {
+            // Phase 1 — Quality audit (fast Ollama): identify gaps before professor is invoked
+            String auditSummary = runQualityAudit(draft, firstPass, callPath);
+
+            // Phase 2 — Professor (Groq tool-calling), directed by audit gaps
             long start = System.currentTimeMillis();
             boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
                     || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain());
             String toolsJson    = toolSuite.toolsJson(includeDynamic);
-            String systemPrompt = buildProfessorSystemPrompt();
+            String systemPrompt = buildProfessorSystemPrompt(auditSummary);
             String userPrompt   = buildProfessorUserPrompt(draft, firstPass);
 
             String professorSynthesis = router.callPrimaryWithTools(
@@ -551,18 +578,23 @@ public class LlmService {
                     toolSuite.buildExecutor(draft));
 
             if (professorSynthesis == null || professorSynthesis.isBlank()) {
-                log.info("LLM professor tools: empty synthesis paperId={} — keeping first pass", draft.paperId());
-                return firstPass;
+                callPath.add("prof:" + abbrev(router.primaryModel()) + ":blank→suppressed");
+                log.warn("LLM professor tools: blank synthesis paperId={} ms={} — draft suppressed",
+                        draft.paperId(), System.currentTimeMillis() - start);
+                return null;
             }
+            callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
 
+            // Phase 3 — Student revision incorporating professor's findings
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
             router.streamPrimary(buildRevisionPromptFromSynthesis(draft, firstPass, professorSynthesis),
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
+                callPath.add("rev:" + abbrev(router.primaryModel()) + ":ok");
                 log.info("LLM student revision done paperId={} ms={}", draft.paperId(),
                         System.currentTimeMillis() - revStart);
                 com.emergentterrain.research.FollowUpParams followUp =
@@ -572,7 +604,16 @@ public class LlmService {
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
+            callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
+            if (router.primaryFullyExhausted()) {
+                java.time.Instant recovery = router.earliestPrimaryRecovery();
+                callPath.add("prof:ALL_TPD→suppressed:recovery=" + recovery);
+                log.error("LLM ALL GROQ MODELS TPD-EXHAUSTED — research paused. " +
+                        "Earliest recovery: {}. paperId={} suppressed.", recovery, draft.paperId());
+                return null;
+            }
+            callPath.add("prof:error→fp");
             log.warn("LLM professor tools path failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
@@ -580,17 +621,20 @@ public class LlmService {
     }
 
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
-    private NarrationResult maybeCritiqueAndReviseJsonPath(PaperDraft draft, NarrationResult firstPass) {
+    private NarrationResult maybeCritiqueAndReviseJsonPath(PaperDraft draft, NarrationResult firstPass,
+                                                            List<String> callPath) {
         try {
             long critiqueStart = System.currentTimeMillis();
             String critiqueResponse = router.callFast(buildCritiquePrompt(draft, firstPass));
             CritiqueResult critique = parseCritiqueResult(critiqueResponse);
 
             if (!critique.hasActionableFeedback()) {
+                callPath.add("json_critique:4b:clean→fp");
                 log.info("LLM professor review (json): clean draft paperId={} ms={}",
                         draft.paperId(), System.currentTimeMillis() - critiqueStart);
                 return firstPass;
             }
+            callPath.add("json_critique:4b:" + critique.weaknesses().size() + "gaps");
             log.info("LLM professor review (json): {} weakness(es) experiment={} paperId={} ms={}",
                     critique.weaknesses().size(), critique.experimentalGap() != null,
                     draft.paperId(), System.currentTimeMillis() - critiqueStart);
@@ -607,6 +651,7 @@ public class LlmService {
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
+                callPath.add("json_rev:" + abbrev(router.primaryModel()) + ":ok");
                 log.info("LLM student revision (json) done paperId={} ms={}",
                         draft.paperId(), System.currentTimeMillis() - revisionStart);
                 com.emergentterrain.research.FollowUpParams followUp =
@@ -616,7 +661,9 @@ public class LlmService {
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
+            callPath.add("json_rev:parse_failed→fp");
         } catch (Exception e) {
+            callPath.add("json_critique:error→fp");
             log.warn("LLM professor+revision (json) failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
@@ -737,18 +784,112 @@ public class LlmService {
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
 
+    // ── Audit gap record ─────────────────────────────────────────────────────
+    private record AuditGap(String dimension, String severity, String description) {}
+
+    // ── Quality audit (fast Ollama) ──────────────────────────────────────────
+
+    private String runQualityAudit(PaperDraft draft, NarrationResult firstPass,
+                                    List<String> callPath) {
+        try {
+            long t = System.currentTimeMillis();
+            String raw = router.callFast(buildAuditPrompt(draft, firstPass));
+            List<AuditGap> gaps = parseAuditGaps(objectMapper, raw);
+            if (gaps.isEmpty()) {
+                callPath.add("audit:4b:0gaps");
+                log.info("LLM quality audit paperId={} ms={} 0 gaps", draft.paperId(),
+                        System.currentTimeMillis() - t);
+                return "";
+            }
+            String pathEntry = gaps.stream()
+                    .map(g -> g.dimension() + "(" + g.severity().charAt(0) + ")")
+                    .collect(java.util.stream.Collectors.joining(","));
+            callPath.add("audit:4b:" + gaps.size() + "gaps=[" + pathEntry + "]");
+            log.info("LLM quality audit paperId={} ms={} gaps={}", draft.paperId(),
+                    System.currentTimeMillis() - t, gaps.size());
+            return gaps.stream()
+                    .map(g -> "- [" + g.severity().toUpperCase() + "] " + g.dimension() + ": " + g.description())
+                    .collect(java.util.stream.Collectors.joining("\n"));
+        } catch (Exception e) {
+            callPath.add("audit:4b:failed");
+            log.warn("LLM quality audit failed paperId={}: {}", draft.paperId(), e.getMessage());
+            return "";
+        }
+    }
+
+    static String buildAuditPrompt(PaperDraft draft, NarrationResult narration) {
+        return """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: %s | Topic: %s | Classification: %s
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """.formatted(draft.domain(), draft.topicName(),
+                draft.resultClassification() != null ? draft.resultClassification() : "UNKNOWN",
+                narration.hypothesis(), narration.findings(), narration.conclusion());
+    }
+
+    static List<AuditGap> parseAuditGaps(ObjectMapper mapper, String response) {
+        if (response == null || response.isBlank()) return List.of();
+        int s = response.indexOf('{'), e = response.lastIndexOf('}');
+        if (s < 0 || e <= s) return List.of();
+        try {
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response.substring(s, e + 1));
+            List<AuditGap> out = new java.util.ArrayList<>();
+            for (com.fasterxml.jackson.databind.JsonNode g : root.path("gaps")) {
+                String dim  = g.path("dimension").asText("").trim();
+                String sev  = g.path("severity").asText("moderate").trim();
+                String desc = g.path("description").asText("").trim();
+                if (!dim.isBlank() && !desc.isBlank()) out.add(new AuditGap(dim, sev, desc));
+            }
+            return List.copyOf(out);
+        } catch (Exception ex) {
+            return List.of();
+        }
+    }
+
+    private static String abbrev(String model) {
+        if (model == null) return "?";
+        if (model.length() <= 18) return model;
+        // Keep the first 18 chars (e.g. "llama-3.3-70b-vers" → "llama-3.3-70b-ver")
+        return model.substring(0, 18);
+    }
+
     static String buildProfessorSystemPrompt() {
+        return buildProfessorSystemPrompt("");
+    }
+
+    static String buildProfessorSystemPrompt(String auditSummary) {
+        String auditSection = (auditSummary != null && !auditSummary.isBlank())
+                ? "\nA quality audit identified these specific gaps. Address them with your tools:\n"
+                  + auditSummary + "\n"
+                : "";
         return """
                 You are a professor reviewing a student's computational research paper.
                 You have access to mathematical tools to investigate gaps you identify.
                 Use tools when they would provide new evidence that materially changes what can be claimed.
                 You do not need to use tools if the paper is already well-supported.
+                %s
                 After any tool calls, write a concise synthesis:
                   1. List specific textual weaknesses (overclaiming, missing error bounds,
                      inconsistency with pre-registration, unsupported leaps). Omit if none.
                   2. Summarise what your experiments revealed and how they bear on the claims.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
-                """;
+                If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
+                and submit again — you have additional tool rounds available.
+                """.formatted(auditSection);
     }
 
     static String buildProfessorUserPrompt(PaperDraft draft, NarrationResult narration) {

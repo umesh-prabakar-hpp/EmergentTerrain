@@ -77,6 +77,17 @@ public class LlmRouter {
         return primaryPool instanceof GroqPool;
     }
 
+    /** True when the primary pool is Groq and every model has an active TPD block. */
+    public boolean primaryFullyExhausted() {
+        return primaryPool instanceof GroqPool gp && gp.allModelsTpdBlocked();
+    }
+
+    /** Earliest time any primary-pool model recovers from TPD exhaustion. */
+    public java.time.Instant earliestPrimaryRecovery() {
+        if (primaryPool instanceof GroqPool gp) return gp.earliestRecovery();
+        return java.time.Instant.now();
+    }
+
     /**
      * Tool-enabled primary call. The professor LLM may invoke tools to gather evidence,
      * then writes a synthesis. Falls back to a plain primary call if Groq is not configured.

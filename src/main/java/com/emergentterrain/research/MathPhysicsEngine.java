@@ -1225,7 +1225,9 @@ public class MathPhysicsEngine {
      */
     private static ResearchResult resonantThermalFatigue(int param1, double param2,
                                                           SearchParams sp) {
-        double bestFatigueFrac = 0;
+        // Use NEGATIVE_INFINITY so the very first candidate always wins, avoiding zero-sentinel defaults
+        // when no material fails (fatigueFrac=0 for every candidate is a valid null result, not a bug).
+        double bestFatigueFrac = Double.NEGATIVE_INFINITY;
         double bestF0 = 0, bestL = 0;
         StringBuilder sb = new StringBuilder();
         double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50};
@@ -1249,6 +1251,7 @@ public class MathPhysicsEngine {
             }
             if (i < 4) sb.append("L=%.4fH→f₀=%.0fHz→fail=%d/%d ".formatted(L, f0, failed, alphas.length));
         }
+        if (bestFatigueFrac < 0) bestFatigueFrac = 0; // empty candidateBreadth guard
         boolean criticalFatigue = bestFatigueFrac >= 0.5;
         ClaimStatus status = criticalFatigue ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = "At f₀=%.0f Hz (L=%.4f H), %.0f%% of materials exceed 200 MPa yield under resonance-driven thermal loading. %s"
