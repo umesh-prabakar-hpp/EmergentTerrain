@@ -51,6 +51,9 @@ class PublishPaperTest {
                         mock(com.emergentterrain.repo.ProgramOpenQuestionRepository.class),
                         mock(com.emergentterrain.repo.ProgramFailedApproachRepository.class),
                         papersRepo),
+                new ExpectationModelService(
+                        mock(com.emergentterrain.repo.ExpectationPriorRepository.class),
+                        mock(com.emergentterrain.repo.SurpriseEventRepository.class)),
                 mapper);
         roomId = UUID.randomUUID();
     }

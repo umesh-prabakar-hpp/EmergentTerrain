@@ -78,6 +78,7 @@ public class UniversityService {
     private final BotLifecycleService botLifecycleService;
     private final ResearchCycleService researchCycleService;
     private final ResearchProgramService researchProgramService;
+    private final ExpectationModelService expectationModelService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -120,6 +121,7 @@ public class UniversityService {
             BotLifecycleService botLifecycleService,
             ResearchCycleService researchCycleService,
             ResearchProgramService researchProgramService,
+            ExpectationModelService expectationModelService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -133,6 +135,7 @@ public class UniversityService {
         this.botLifecycleService      = botLifecycleService;
         this.researchCycleService     = researchCycleService;
         this.researchProgramService   = researchProgramService;
+        this.expectationModelService  = expectationModelService;
         this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
@@ -145,6 +148,13 @@ public class UniversityService {
         // dispute listener so the markdown file stays in sync.
         this.replicationService.setPaperLookup(this::findCachedPaper);
         this.replicationService.setDisputeListener(p -> overwritePaperFile(p.roomId(), p));
+    }
+
+    /** Defensively parse an authorBotId string; returns null on malformed input. */
+    private static UUID parseBotIdSafely(String s) {
+        if (s == null) return null;
+        try { return UUID.fromString(s); }
+        catch (IllegalArgumentException e) { return null; }
     }
 
     /** Cache-first paper lookup — falls through to the DB on a miss. */
@@ -247,6 +257,22 @@ public class UniversityService {
             researchProgramService.recordOpenQuestion(authorId, draft.domain(),
                     "Follow-up at param1=" + narration.followUp().param1()
                     + " param2=" + narration.followUp().param2());
+        }
+
+        // Phase 2 Iter 1: score the paper against the bot's running prior, then
+        // fold the new sample in. High-surprise events get logged as a new open
+        // question on the research program (no-op when programs flag is off).
+        UUID authorBotIdForSurprise = parseBotIdSafely(draft.authorBotId());
+        if (authorBotIdForSurprise != null) {
+            SurpriseEvent surprise = expectationModelService.scoreExperiment(
+                    authorBotIdForSurprise, paper, draft.preRegistration());
+            if (surprise != null) {
+                researchProgramService.recordOpenQuestion(authorBotIdForSurprise, draft.domain(),
+                        "Investigate surprise at paperId=" + paper.paperId()
+                        + " (residual=" + String.format("%.3f", surprise.getResidual())
+                        + ", score=" + String.format("%.2f", surprise.getSurpriseScore()) + ")");
+            }
+            expectationModelService.updatePrior(authorBotIdForSurprise, paper);
         }
 
         // Update bot state in one read+write: follow-up params and research hypothesis

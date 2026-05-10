@@ -175,6 +175,9 @@ class MathPhysicsEngineTest {
                         mock(com.emergentterrain.repo.ProgramOpenQuestionRepository.class),
                         mock(com.emergentterrain.repo.ProgramFailedApproachRepository.class),
                         papersRepo),
+                new ExpectationModelService(
+                        mock(com.emergentterrain.repo.ExpectationPriorRepository.class),
+                        mock(com.emergentterrain.repo.SurpriseEventRepository.class)),
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
