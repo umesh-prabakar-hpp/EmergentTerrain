@@ -20,9 +20,11 @@ This is where the architecture transitions from a sophisticated simulation to a 
 
 - **`PreRegistration`** (record on `PaperDraft`) — already contains `hypothesis`, `prediction`, `falsificationCondition`, `mappingNotes` as structured pre-narration data. This is the closest thing to a `FormalFinding` the codebase has.
 - **`DynamicProblem`** — already structured: `predicate`, `metric`, `baseline`, `hypothesis`, `[rangeStart, rangeEnd)`. Demonstrates the system can work with formal problem specifications.
-- **`MathPhysicsEngine.ResearchResult`** — already contains `primaryValue`, `secondaryValue`, `tertiaryValue`, `claimStatus` (SUPPORTED/PARTIAL/REFUTED/OBSERVATIONAL).
+- **`MathPhysicsEngine.ResearchResult`** — already contains `primaryValue`, `secondaryValue`, `tertiaryValue`, and a `ClaimStatus` enum (SUPPORTED/PARTIAL/REFUTED/OBSERVATIONAL). `ClaimStatus` is used by **both** `MathPhysicsEngine` (deterministic problems) **and** `DynamicComputeEngine` (LLM-generated problems) — it is the right enum to reuse for formal-finding verdicts at the computation layer.
 - **`NarrationResult`** — already JSON-parsed via `LlmService.parseNarrationResult()` (post-Phase-0: `ResearchNarrationService.parseResult()`). Adding more structured fields is straightforward.
 - **`PaperRelationship` of type `CONTRADICTS`** (Phase 1) — provides edge-level contradiction signals.
+
+**Note on enum layering:** the codebase has two related but distinct enums. `ClaimStatus` answers *"did the math match the theoretical expectation?"* (computation-level verdict on `ResearchResult`). `ResultClassification` (SUPPORTED/PARTIALLY_SUPPORTED/NULL_RESULT/DEGENERATE) answers *"should this paper be narrated, and how?"* (publication-level verdict on `PaperDraft`). When `FormalFinding` records the strength of a claim, reuse `ClaimStatus` — that is the layer formal findings live at. Don't introduce a third overlapping enum.
 
 What's missing is **post-narration extraction of structured findings into a queryable knowledge base**, and **automatic contradiction detection across findings** (rather than just paper-level relationships).
 
@@ -34,10 +36,11 @@ public class FormalFinding {
     UUID id;
     UUID paperId;                       // FK to ResearchPaper
     UUID extractedByBotId;              // null if extracted by post-process LLM
-    RelationType relationType;          // PROPORTIONAL, LOGARITHMIC, INVERSE, THRESHOLD, CATEGORICAL, NULL
+    RelationType relationType;          // PROPORTIONAL, LOGARITHMIC, INVERSE, THRESHOLD, CATEGORICAL, NULL — NEW enum
     String dependentVariable;
     String[] independentVariables;
     String equationForm;                // LaTeX or symbolic form
+    MathPhysicsEngine.ClaimStatus claimStatus;  // reuse existing enum: SUPPORTED/PARTIAL/REFUTED/OBSERVATIONAL
     double confidence;                  // 0.0–1.0
     double validRegionMin;
     double validRegionMax;
@@ -84,7 +87,7 @@ This reuses the existing structured-output pattern used for `NarrationResult.cit
 
 ## What already exists
 
-- **`callPath`** on `ResearchPaper` — already an audit trail like `"audit:4b:2gaps → prof:llama-70b:ok"`. Captures which prompt path produced each paper. **This is the seed of meta-science already.**
+- **`llmCallPath`** on `ResearchPaper` — already an audit trail like `"audit:4b:2gaps → prof:llama-70b:ok"`. Captures which prompt path produced each paper. **This is the seed of meta-science already.**
 - **`AnomalyTracker`** — Welford's online algorithm for tracking distributions. Directly reusable for tracking per-prompt replication rates, per-bot calibration trajectories, etc.
 - **`calibrationScore(botId)`** (Phase 3 Iteration 7) — already tracking per-bot calibration.
 - **`surpriseScore`** (Phase 2) — already tracking per-paper surprise.
@@ -98,7 +101,7 @@ A surprising amount of the *data* needed for meta-science already exists. What's
 ```java
 public class MetaResearchService {
     record PromptPathStats(
-        String callPath,                // e.g., "prof:llama-70b:ok"
+        String llmCallPath,             // e.g., "prof:llama-70b:ok" — matches ResearchPaper.llmCallPath
         int paperCount,
         double meanReplicationRate,
         double meanCalibration,
@@ -119,7 +122,7 @@ public class MetaResearchService {
         double meanCitationCount
     ) {}
 
-    PromptPathStats statsForPath(String callPath);
+    PromptPathStats statsForPath(String llmCallPath);
     BotMetaStats statsForBot(UUID botId);
     MethodMetaStats statsForMethod(Methodology method);
     void runAnalysisCycle();           // scheduled, weekly sim-time
@@ -154,8 +157,8 @@ The original phase document listed these in increasing risk order. That ordering
 
 - Most of this is observation and analysis — low-risk to add. The risk concentrates in the *evolution* steps that close the feedback loop.
 - The Welford pattern in `AnomalyTracker` is the right template. Don't reimplement; subclass or extract.
-- Meta-papers should be marked clearly (`paper.kind = META`) so they don't dominate the citation graph or skew domain stats.
-- The recursion is real: `MetaResearchService` analyzing its own meta-papers is fine. Bound the depth (e.g., reject meta-meta-meta-papers) to prevent runaway recursion.
+- Meta-papers need to be distinguishable from domain papers so they don't dominate the citation graph or skew per-domain stats. **There is no `kind` field on `ResearchPaper` today — this is genuinely new.** Add a `PaperKind` enum (DOMAIN, META) and a corresponding column during this iteration. Default existing papers to `DOMAIN` in the migration.
+- The recursion is real: `MetaResearchService` analyzing its own meta-papers is fine. Bound the depth (e.g., reject meta-meta-meta-papers via `PaperKind` checks) to prevent runaway recursion.
 
 ---
 
@@ -178,7 +181,8 @@ The original phase document listed these in increasing risk order. That ordering
 - [ ] `ExperimentPlannerService` thresholds become dynamic, driven by `MetaResearchService`
 - [ ] `PromptTemplateRegistry` introduced; templates versioned and selectable
 - [ ] A/B testing infrastructure splits papers across template variants with guardrails
-- [ ] Meta-papers marked `paper.kind = META`; subject to same paper pipeline
+- [ ] `PaperKind` enum (DOMAIN, META) introduced; `ResearchPaper` gains `kind` column with `DOMAIN` default
+- [ ] Meta-papers marked `kind = META`; subject to same paper pipeline
 - [ ] Recursion bound enforced (no meta-meta-meta papers)
 
 ---

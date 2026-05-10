@@ -21,7 +21,7 @@ The bot already carries most of what `ResearchIdentity` would hold:
 
 | Phase document field | Existing source |
 |---|---|
-| `favored_methods` | `BotGenome.methodology` (THEORETICAL/COMPUTATIONAL/EMPIRICAL) |
+| `favored_methods` | `BotGenome.methodology` — a `String` field whose values come from the constant `BotGenome.METHODOLOGIES = {"THEORETICAL","COMPUTATIONAL","EMPIRICAL"}`. **Note:** this is a String, not a Java enum. |
 | `risk_tolerance` | `BotGenome.explorationRate` (0.05–0.5) |
 | `mathematical_style` | `BotGenome.topicWeights[5]` (implicit specialization) |
 | `abstraction_preference` | Derivable from domain affinity in `BotGenome.domain` |
@@ -39,7 +39,7 @@ Add a `ResearchIdentity` view class that **reads from existing sources** rather 
 
 ```java
 public record ResearchIdentity(
-    Methodology favoredMethod,           // from BotGenome.methodology
+    String favoredMethod,                // from BotGenome.methodology (String, not enum)
     double riskTolerance,                // from BotGenome.explorationRate
     double skepticismLevel,              // NEW: peer review harshness
     double[] topicAffinity,              // from BotGenome.topicWeights
@@ -47,6 +47,8 @@ public record ResearchIdentity(
     ReputationHistory reputationHistory  // NEW: trajectory over time
 ) {}
 ```
+
+**Optional small refactor:** introduce a `Methodology` enum and migrate `BotGenome.methodology: String` + `BotGenome.METHODOLOGIES: String[]` to use it. This makes `favoredMethod` strongly typed throughout the system. It's a low-risk change but touches every read of `methodology`, so do it in its own commit before the rest of Iter 2 — or skip it and use `String` everywhere. Either is acceptable.
 
 `skepticismLevel` is genuinely new state — store it in `BotLifecycleState` (already serialized to `lifecycleJson`).
 
@@ -73,12 +75,13 @@ The "schools emerge" claim from the original document already partly happens via
 
 ## What already exists
 
-- `ResearchPaper.citedPaperIds` is already populated. Either the LLM emits structured IDs in `NarrationResult.citedPaperIds` or `LlmService.parseNarrationResult()` falls back to regex over the `P-XXXX-N` format.
-- Citations already grant `+0.03` reputation to cited authors.
-- After Phase 0, `ResearchPaper` is a JPA entity, so cross-paper queries are now possible.
+- The LLM produces `NarrationResult.citedPaperIds` (structured), with `LlmService.parseNarrationResult()` falling back to regex over the `P-XXXX-N` format.
+- `UniversityService.processCitations()` (line 221) reads `NarrationResult.citedPaperIds` and grants `+0.03` reputation to cited authors.
+- After Phase 0, `ResearchPaper` is a JPA entity AND citation IDs are persisted alongside the paper (Phase 0 Task 0.1).
 
 ## What's missing
 
+- **Until Phase 0 ships:** citations live only on `NarrationResult` — they are not on `ResearchPaper` and are not persisted after `processCitations()` consumes them. Phase 1 Iteration 3 cannot start until Phase 0 has migrated this data.
 - The citations are an **untyped** graph. There's no `supports` vs `contradicts` vs `extends` distinction.
 - There's no service for traversing the graph (no contradiction-cluster detection, no citation-count rank).
 
@@ -119,7 +122,7 @@ public class PaperGraphService {
 
 ## Implementation notes
 
-- Backfill historical papers' `citedPaperIds` into `PaperRelationship` records on first deployment, classifying all existing edges as `EXTENDS` (the safe default).
+- Backfill historical papers' citation IDs (now persisted by Phase 0) into `PaperRelationship` records on first deployment, classifying all existing edges as `EXTENDS` (the safe default). Older papers from before the Phase 0 migration may have no citation data — their narration markdown is the only source, and re-extraction from prose is best-effort.
 - LLM-classified edges have higher trust than regex-extracted ones. Track `classifiedByBotId` so meta-science (Phase 4) can score classifier accuracy.
 - Don't try to enforce cycle-freeness. Real science has citation cycles (paper A cites B which cites C which cites A).
 

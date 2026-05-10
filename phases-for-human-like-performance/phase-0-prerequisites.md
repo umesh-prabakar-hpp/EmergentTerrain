@@ -20,6 +20,7 @@ Currently:
 - `ResearchPaper` is a Java record stored in `UniversityService.published`, a `ConcurrentHashMap<UUID, List<ResearchPaper>>`.
 - Persistence is a markdown file written to `research/<roomPrefix>/*.md`.
 - Restart relies on lazy-load of the max paper number to avoid ID collisions.
+- Citation IDs (`citedPaperIds`) live on `NarrationResult` only — they are processed by `UniversityService.processCitations()` (line 221) for the `+0.03` reputation boost, but never persisted on the paper itself. The narration text is the only durable record of citation links.
 
 This is fine for narration output. It is not fine for:
 
@@ -37,6 +38,7 @@ Every later phase depends on this.
 - Migrate `UniversityService.published` reads to repository queries; keep the in-memory cache as a write-through cache only if profiling shows it's needed.
 - Keep the markdown writer for human-readable output, but treat the DB as the source of truth.
 - Index by `roomId`, `domain`, `topic`, `status`, `createdAt`, `peerScore`.
+- **Persist citation IDs alongside the paper.** Add a `citedPaperIds` column (or, equivalently, write a `PaperCitation` join table) populated from `NarrationResult.citedPaperIds` at publish time. Currently this data is consumed by `processCitations()` and discarded — Phase 1 Iteration 3 needs it durable.
 
 ## Risks
 
@@ -98,7 +100,7 @@ Each service owns its own prompt builders and result parsers. `LlmService` becom
 
 ## Why this matters
 
-`UniversityService` is 1327 lines and owns:
+`UniversityService` is 1326 lines and owns:
 
 - Bot lifecycle ticking (aging, qualification, dating, elder merges)
 - Research cycle (author selection, computation, peer review, draft enqueue)
@@ -145,16 +147,28 @@ The research pipeline has a lot of subtle invariants:
 
 Phases 1–4 all depend on these invariants. Breaking any of them silently regresses the "no fake science" claim that justifies the whole project.
 
-## What to do
+## What already exists
 
-If not already present, add integration tests for:
+The codebase already has tests for several research invariants:
 
-- Pre-registration is written before `MathPhysicsEngine.compute()` is called.
-- `ResultClassification` is determined before `LlmService.enqueueNarration()`.
-- A degenerate result never produces a paper.
-- A failed peer review never produces a paper.
-- Anomaly tracking advances correctly across multiple papers in the same domain/topic.
-- Replication mismatch (>0.15 score diff) marks the original paper `DISPUTED` and penalizes reputation.
+- `MathPhysicsEngineTest` — deterministic computation
+- `PreRegistrationTest` — pre-narration hypothesis fixing
+- `PublishPaperTest` — paper publication path
+- `ResultClassificationTest` — classification before narration
+- `LlmServiceParseTest`, `LlmServiceQualityPipelineTest` — LLM output handling
+- `GovernmentSimulationServiceTest` — government tick coverage
+
+**Run the existing suite first.** This task is "fill gaps," not "build from scratch."
+
+## What to add (gaps to fill)
+
+After running the existing tests, add coverage for whichever of these is missing:
+
+- A degenerate result never produces a paper (silent reject).
+- A failed peer review (reviewer disagreement) never produces a paper.
+- `AnomalyTracker` Welford state advances correctly across multiple papers in the same `(domain, topic)`.
+- Replication mismatch (>0.15 score diff) marks the original paper `DISPUTED` and penalizes the original author's reputation.
+- The `+0.03` citation reputation boost fires once per cited paper (and not on self-citation).
 
 These tests are also the safety net for the Task 0.3 refactor.
 
@@ -163,11 +177,20 @@ These tests are also the safety net for the Task 0.3 refactor.
 # Phase 0 Completion Criteria
 
 - [ ] `ResearchPaper` persisted as a JPA entity with repository and indexes
+- [ ] `citedPaperIds` (or a `PaperCitation` join table) persisted alongside the paper
 - [ ] In-memory cache (if retained) is write-through; DB is source of truth
 - [ ] One-time markdown → DB backfill executed on first migrated startup
 - [ ] `LlmService` reduced to routing + concurrency only
 - [ ] `ResearchNarrationService`, `FormulationService`, `GenomeMentoringService` carved out
 - [ ] `UniversityService` reduced to orchestration only
 - [ ] `BotLifecycleService`, `ResearchCycleService`, `ReplicationService`, `PopulationEcologyService` carved out
-- [ ] Integration tests cover the invariants above and pass on the refactored code
+- [ ] Existing test suite passes on the refactored code; new gap tests added per Task 0.4
 - [ ] No behavioral changes user-visible (this is pure refactor)
+
+---
+
+# Out of Scope for Phase 0
+
+`RoomService` is 4,746 lines — the largest service in the codebase. It is not touched in Phase 0 because it is the room/game-loop layer, not the research pipeline. Any Phase 3 work involving room-scoped institutions or world interventions will brush up against it; plan for incremental extraction at that point, not now.
+
+`MathPhysicsEngine` at 1,430 lines is also large but is a self-contained deterministic computation library with no entanglement with bot lifecycle or LLM state. It does not need refactoring.

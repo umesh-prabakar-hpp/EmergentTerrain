@@ -96,8 +96,8 @@ Falsifiability is automatic. The system either produces the predicted change or 
 
 ## What already exists
 
-- `GovernmentSimulationService` already models institutions: `InstitutionProfile` for legislative/executive/judicial branches with capacity, workload, morale.
-- `GovernmentNode` is a recursive authority unit with budget, public trust, service access — the same pattern can model universities and journals.
+- `GovernmentSimulationService` already models institutions: `InstitutionProfile` for legislative/executive/judicial branches with `workload` and `capacityPerTick` fields. (Note: no `morale` field — the original phase document was wrong on that. Add `morale` if you need it, or model effective morale as `workload / capacityPerTick`.)
+- `GovernmentNode` is a non-recursive node with its own budget, public trust, and service access. The hierarchy is built one level up at `GovernmentState` itself: `federal: GovernmentNode` plus `List<GovernmentNode> states`. The same flat-hierarchy pattern can model `University` (per room) and `Journal` (per domain).
 - `UniversityService` already acts as a de facto research institution at the room level — but it's a service singleton, not an emergent entity.
 - `BudgetState.education` already exists and feeds into bot population params.
 - `PoliticalParty`, `PoliticalPressure`, `LegalPrecedent` show that the codebase can already model emergent group identities and norms.
@@ -173,7 +173,7 @@ prompt orchestration
 
 - This is the most invasive change in Phase 3. `UniversityService` is 1327 lines and tightly coupled to room lifecycle (post-Phase-0 it's smaller, but still substantial). Plan for a multi-week refactor.
 - Don't try to model "corruption" explicitly at first. Let it emerge from journals with biased editor pools rejecting contradictory findings. If it doesn't emerge, *then* add explicit corruption mechanics.
-- Reuse `GovernmentNode` patterns for `University`. Don't invent new abstractions for things that already work.
+- Reuse `GovernmentNode` patterns for `University` — same field shape (budget, trust, service access), same flat-hierarchy approach (a top-level list rather than nested recursion). Don't invent new abstractions for things that already work.
 - Institutional legitimacy already feeds the existing pressure propagation system. Connect `University.prestige` and `Journal.impactFactor` to this same pressure system so that institutional decline is visible in the simulation.
 
 ---
