@@ -77,6 +77,14 @@ public class ResearchPaper {
     @Column(name = "program_id")
     private UUID programId;
 
+    /** Phase 3 Iter 8 — optional FK to the {@link University} that hosted the author. */
+    @Column(name = "university_id")
+    private UUID universityId;
+
+    /** Phase 3 Iter 8 — optional FK to the {@link Journal} the paper was submitted to. */
+    @Column(name = "journal_id")
+    private UUID journalId;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -146,9 +154,13 @@ public class ResearchPaper {
     public String       aiModel()        { return aiModel; }
     public String       llmCallPath()    { return llmCallPath; }
     public UUID         programId()      { return programId; }
+    public UUID         universityId()   { return universityId; }
+    public UUID         journalId()      { return journalId; }
 
-    // Narrow setters used by the DISPUTED flow + program attachment.
-    public void setStatus(String status)         { this.status = status; }
-    public void setConclusion(String conclusion) { this.conclusion = conclusion; }
-    public void setProgramId(UUID programId)     { this.programId = programId; }
+    // Narrow setters used by the DISPUTED flow + program / institution attachment.
+    public void setStatus(String status)             { this.status = status; }
+    public void setConclusion(String conclusion)     { this.conclusion = conclusion; }
+    public void setProgramId(UUID programId)         { this.programId = programId; }
+    public void setUniversityId(UUID universityId)   { this.universityId = universityId; }
+    public void setJournalId(UUID journalId)         { this.journalId = journalId; }
 }

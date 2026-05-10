@@ -59,6 +59,11 @@ class PublishPaperTest {
                         mock(com.emergentterrain.repo.ProgramOpenQuestionRepository.class),
                         mock(com.emergentterrain.repo.PaperCitationRepository.class),
                         mock(com.emergentterrain.repo.SurpriseEventRepository.class)),
+                new InstitutionService(false,
+                        mock(com.emergentterrain.repo.UniversityRepository.class),
+                        mock(com.emergentterrain.repo.JournalRepository.class),
+                        mock(com.emergentterrain.repo.FundingAgencyRepository.class),
+                        mock(com.emergentterrain.repo.ReplicationCouncilRepository.class)),
                 mapper);
         roomId = UUID.randomUUID();
     }

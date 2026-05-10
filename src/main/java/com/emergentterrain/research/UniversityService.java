@@ -80,6 +80,7 @@ public class UniversityService {
     private final ResearchProgramService researchProgramService;
     private final ExpectationModelService expectationModelService;
     private final ExperimentPlannerService experimentPlannerService;
+    private final InstitutionService institutionService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -124,6 +125,7 @@ public class UniversityService {
             ResearchProgramService researchProgramService,
             ExpectationModelService expectationModelService,
             ExperimentPlannerService experimentPlannerService,
+            InstitutionService institutionService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -139,6 +141,7 @@ public class UniversityService {
         this.researchProgramService   = researchProgramService;
         this.expectationModelService  = expectationModelService;
         this.experimentPlannerService = experimentPlannerService;
+        this.institutionService       = institutionService;
         this.objectMapper             = objectMapper;
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
@@ -246,6 +249,20 @@ public class UniversityService {
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel(), narration.callPath());
+
+        // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
+        // it lands in the cache + DB. No-op when the institutions flag is off.
+        InstitutionService.BootstrapResult institutions =
+                institutionService.bootstrapForPaper(draft.roomId(), draft.domain());
+        if (institutions != null) {
+            if (institutions.university() != null) {
+                paper.setUniversityId(institutions.university().getId());
+            }
+            if (institutions.journal() != null) {
+                paper.setJournalId(institutions.journal().getId());
+                institutionService.recordJournalAcceptance(institutions.journal().getId());
+            }
+        }
 
         addPaper(draft.roomId(), paper);
         researchCycleService.decrementDraftQueue();
