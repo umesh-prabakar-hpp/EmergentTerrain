@@ -170,6 +170,11 @@ class MathPhysicsEngineTest {
                 new BotLifecycleService(botRepo,
                         mock(com.emergentterrain.repo.ReputationHistoryRepository.class), mapper),
                 new ResearchCycleService(),
+                new ResearchProgramService(false,
+                        mock(com.emergentterrain.repo.ResearchProgramRepository.class),
+                        mock(com.emergentterrain.repo.ProgramOpenQuestionRepository.class),
+                        mock(com.emergentterrain.repo.ProgramFailedApproachRepository.class),
+                        papersRepo),
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

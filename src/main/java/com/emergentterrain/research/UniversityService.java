@@ -77,6 +77,7 @@ public class UniversityService {
     private final ReplicationService replicationService;
     private final BotLifecycleService botLifecycleService;
     private final ResearchCycleService researchCycleService;
+    private final ResearchProgramService researchProgramService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -118,6 +119,7 @@ public class UniversityService {
             ReplicationService replicationService,
             BotLifecycleService botLifecycleService,
             ResearchCycleService researchCycleService,
+            ResearchProgramService researchProgramService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -130,6 +132,7 @@ public class UniversityService {
         this.replicationService       = replicationService;
         this.botLifecycleService      = botLifecycleService;
         this.researchCycleService     = researchCycleService;
+        this.researchProgramService   = researchProgramService;
         this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
@@ -235,6 +238,16 @@ public class UniversityService {
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
                 draft.resultClassification(),
                 narration.callPath() != null ? narration.callPath() : "none");
+
+        // Phase 1 Iter 4: attach the paper to a research program (no-op when the
+        // app.research.programs.enabled flag is off).
+        researchProgramService.onPaperPublished(paper, draft.resultClassification(), hypothesis);
+        if (narration.followUp() != null) {
+            UUID authorId = UUID.fromString(draft.authorBotId());
+            researchProgramService.recordOpenQuestion(authorId, draft.domain(),
+                    "Follow-up at param1=" + narration.followUp().param1()
+                    + " param2=" + narration.followUp().param2());
+        }
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();

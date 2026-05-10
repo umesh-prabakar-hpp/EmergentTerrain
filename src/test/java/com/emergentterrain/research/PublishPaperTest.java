@@ -46,6 +46,11 @@ class PublishPaperTest {
                 new BotLifecycleService(botRepo,
                         mock(com.emergentterrain.repo.ReputationHistoryRepository.class), mapper),
                 new ResearchCycleService(),
+                new ResearchProgramService(false,
+                        mock(com.emergentterrain.repo.ResearchProgramRepository.class),
+                        mock(com.emergentterrain.repo.ProgramOpenQuestionRepository.class),
+                        mock(com.emergentterrain.repo.ProgramFailedApproachRepository.class),
+                        papersRepo),
                 mapper);
         roomId = UUID.randomUUID();
     }

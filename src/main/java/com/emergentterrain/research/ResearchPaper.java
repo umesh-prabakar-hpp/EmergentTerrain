@@ -73,6 +73,10 @@ public class ResearchPaper {
     @Column(columnDefinition = "text")
     private String llmCallPath;
 
+    /** Phase 1 Iter 4 — optional FK to the {@link ResearchProgram} this paper belongs to. */
+    @Column(name = "program_id")
+    private UUID programId;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -141,8 +145,10 @@ public class ResearchPaper {
     public double       anomalyZScore()  { return anomalyZScore; }
     public String       aiModel()        { return aiModel; }
     public String       llmCallPath()    { return llmCallPath; }
+    public UUID         programId()      { return programId; }
 
-    // Narrow setters used by the DISPUTED flow only.
+    // Narrow setters used by the DISPUTED flow + program attachment.
     public void setStatus(String status)         { this.status = status; }
     public void setConclusion(String conclusion) { this.conclusion = conclusion; }
+    public void setProgramId(UUID programId)     { this.programId = programId; }
 }
