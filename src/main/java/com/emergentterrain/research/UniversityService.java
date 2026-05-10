@@ -82,6 +82,7 @@ public class UniversityService {
     private final ExperimentPlannerService experimentPlannerService;
     private final InstitutionService institutionService;
     private final EpistemicMarketService epistemicMarketService;
+    private final KnowledgeBaseService knowledgeBaseService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -128,6 +129,7 @@ public class UniversityService {
             ExperimentPlannerService experimentPlannerService,
             InstitutionService institutionService,
             EpistemicMarketService epistemicMarketService,
+            KnowledgeBaseService knowledgeBaseService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -145,6 +147,7 @@ public class UniversityService {
         this.experimentPlannerService = experimentPlannerService;
         this.institutionService       = institutionService;
         this.epistemicMarketService   = epistemicMarketService;
+        this.knowledgeBaseService     = knowledgeBaseService;
         this.objectMapper             = objectMapper;
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
@@ -317,6 +320,12 @@ public class UniversityService {
         // is off.
         epistemicMarketService.maybeResolveMarketsFor(paper, observedSurpriseScore);
         epistemicMarketService.openMarketFor(paper, draft.preRegistration());
+
+        // Phase 4 Iter 9: persist structured findings extracted from the LLM
+        // narration. No-op when the findings flag is off or the LLM didn't
+        // produce a formal_findings block.
+        knowledgeBaseService.persistFindings(
+                paper, narration.formalFindings(), authorBotIdForSurprise);
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();

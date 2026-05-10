@@ -1082,6 +1082,13 @@ public class ResearchNarrationService {
                 REPLICATES when you ran the same experiment; CRITICIZES when you question its method; \
                 DERIVES_FROM when you inherit its framework. Only include cited_papers when you have \
                 high enough confidence to pick a specific type — otherwise stick with cited_paper_ids.
+                Optional formal_findings array — emit one entry per quantitative relationship the \
+                results support. Each entry: {"relation_type":"PROPORTIONAL|INVERSE|THRESHOLD|NULL",\
+                "dependent_variable":"name","independent_variables":["x1","x2"],\
+                "equation_form":"optional symbolic form","claim_status":"SUPPORTED|PARTIAL|REFUTED|OBSERVATIONAL",\
+                "confidence":0.0-1.0,"valid_region_min":N,"valid_region_max":M}. Use PROPORTIONAL/INVERSE \
+                only when the relationship is clearly monotone; THRESHOLD for step changes; NULL when the \
+                paper found no reliable relationship. Omit the array when nothing is structurally extractable.
                 All text values under 120 words each. Plain prose inside JSON strings only — \
                 no bullet points, no sub-headers, no markdown formatting.
                 """.formatted(
@@ -1213,16 +1220,75 @@ public class ResearchNarrationService {
                 for (NarrationResult.TypedCitation t : typedCitations) citedPaperIds.add(t.paperId());
             }
 
+            // Phase 4 Iter 9 — optional formal_findings array. Each entry maps to a
+            // FormalFinding row when the findings flag is on; malformed entries
+            // are silently skipped (don't fail the whole paper for one bad finding).
+            List<NarrationResult.ExtractedFinding> formalFindings = new java.util.ArrayList<>();
+            com.fasterxml.jackson.databind.JsonNode findingsNode = root.get("formal_findings");
+            if (findingsNode != null && findingsNode.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode f : findingsNode) {
+                    NarrationResult.ExtractedFinding ef = parseFormalFinding(f);
+                    if (ef != null) formalFindings.add(ef);
+                }
+            }
+
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
                     root.path("findings").asText(null),
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
-                    null, List.copyOf(typedCitations));
+                    null, List.copyOf(typedCitations), List.copyOf(formalFindings));
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         }
+    }
+
+    /**
+     * Phase 4 Iter 9 — parse one {@code formal_findings[]} entry. Returns null on
+     * malformed input rather than throwing, so a single bad finding doesn't
+     * disqualify the rest of the narration. Confidence is clamped to [0,1];
+     * unknown enum values silently fall back to NULL / OBSERVATIONAL.
+     */
+    static NarrationResult.ExtractedFinding parseFormalFinding(
+            com.fasterxml.jackson.databind.JsonNode f) {
+        if (f == null || !f.isObject()) return null;
+        String relStr = f.path("relation_type").asText("NULL").toUpperCase();
+        com.emergentterrain.research.RelationType relation;
+        try {
+            relation = com.emergentterrain.research.RelationType.valueOf(relStr);
+        } catch (IllegalArgumentException e) {
+            relation = com.emergentterrain.research.RelationType.NULL;
+        }
+        String depVar = f.path("dependent_variable").asText(null);
+        if (depVar == null || depVar.isBlank()) return null;
+
+        java.util.List<String> indepVars = new java.util.ArrayList<>();
+        com.fasterxml.jackson.databind.JsonNode indepNode = f.get("independent_variables");
+        if (indepNode != null && indepNode.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode v : indepNode) {
+                String name = v.asText(null);
+                if (name != null && !name.isBlank()) indepVars.add(name);
+            }
+        }
+
+        String equationForm = f.path("equation_form").asText(null);
+
+        String claimStr = f.path("claim_status").asText("OBSERVATIONAL").toUpperCase();
+        com.emergentterrain.research.MathPhysicsEngine.ClaimStatus claim;
+        try {
+            claim = com.emergentterrain.research.MathPhysicsEngine.ClaimStatus.valueOf(claimStr);
+        } catch (IllegalArgumentException e) {
+            claim = com.emergentterrain.research.MathPhysicsEngine.ClaimStatus.OBSERVATIONAL;
+        }
+
+        double confidence = Math.max(0.0, Math.min(1.0, f.path("confidence").asDouble(0.5)));
+        double validMin = f.path("valid_region_min").asDouble(Double.NEGATIVE_INFINITY);
+        double validMax = f.path("valid_region_max").asDouble(Double.POSITIVE_INFINITY);
+
+        return new NarrationResult.ExtractedFinding(
+                relation, depVar, indepVars, equationForm,
+                claim, confidence, validMin, validMax);
     }
 
     // Genome mentoring moved to GenomeMentoringService in Phase 0 Task 0.2.

@@ -69,6 +69,8 @@ class PublishPaperTest {
                         mock(com.emergentterrain.repo.MarketStakeRepository.class),
                         mock(com.emergentterrain.repo.BotCalibrationRepository.class),
                         botRepo, mapper),
+                new KnowledgeBaseService(false,
+                        mock(com.emergentterrain.repo.FormalFindingRepository.class)),
                 mapper);
         roomId = UUID.randomUUID();
     }

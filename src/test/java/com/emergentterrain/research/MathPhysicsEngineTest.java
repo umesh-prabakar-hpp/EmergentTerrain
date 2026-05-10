@@ -193,6 +193,8 @@ class MathPhysicsEngineTest {
                         mock(com.emergentterrain.repo.MarketStakeRepository.class),
                         mock(com.emergentterrain.repo.BotCalibrationRepository.class),
                         botRepo, mapper),
+                new KnowledgeBaseService(false,
+                        mock(com.emergentterrain.repo.FormalFindingRepository.class)),
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

@@ -22,25 +22,52 @@ import java.util.List;
 public record NarrationResult(String hypothesis, String findings, String conclusion,
                                FollowUpParams followUp, String aiModel,
                                double confidenceScore, List<String> citedPaperIds,
-                               String callPath, List<TypedCitation> typedCitations) {
+                               String callPath, List<TypedCitation> typedCitations,
+                               List<ExtractedFinding> formalFindings) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
 
-    /** Backward-compatible 8-arg constructor — passes empty typed citations. */
+    /**
+     * Phase 4 Iter 9 — a single structured finding the narration LLM extracted
+     * from the paper's results. Persisted to {@link FormalFinding} when the
+     * findings flag is on. Carried on NarrationResult rather than written
+     * directly so the publish path keeps the persistence + provenance logic
+     * (extractedByBotId, validation, error handling) in one place.
+     */
+    public record ExtractedFinding(
+            RelationType relationType,
+            String dependentVariable,
+            List<String> independentVariables,
+            String equationForm,
+            MathPhysicsEngine.ClaimStatus claimStatus,
+            double confidence,
+            double validRegionMin,
+            double validRegionMax) {}
+
+    /** 9-arg backward-compatible constructor — empty formalFindings. */
+    public NarrationResult(String hypothesis, String findings, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations) {
+        this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
+                citedPaperIds, callPath, typedCitations, List.of());
+    }
+
+    /** 8-arg backward-compatible — empty typed citations, empty findings. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds,
                            String callPath) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, List.of());
+                citedPaperIds, callPath, List.of(), List.of());
     }
 
-    /** Backward-compatible 7-arg constructor — passes null callPath, empty typed citations. */
+    /** 7-arg backward-compatible — null callPath, empty extras. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, null, List.of());
+                citedPaperIds, null, List.of(), List.of());
     }
 }
