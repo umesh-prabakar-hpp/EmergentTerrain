@@ -1,5 +1,7 @@
 package com.emergentterrain.research;
 
+import com.emergentterrain.repo.PaperCitationRepository;
+import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,6 +36,8 @@ class PublishPaperTest {
         service = new UniversityService(
                 0L, tempDir.toString(), 3, false,
                 mock(RoomBotRepository.class),
+                mock(ResearchPaperRepository.class),
+                mock(PaperCitationRepository.class),
                 new ObjectMapper().findAndRegisterModules());
         roomId = UUID.randomUUID();
     }

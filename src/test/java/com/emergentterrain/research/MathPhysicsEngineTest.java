@@ -159,6 +159,8 @@ class MathPhysicsEngineTest {
         UniversityService service = new UniversityService(
                 0L, tempDir.toString(), 3, true,
                 mock(RoomBotRepository.class),
+                mock(com.emergentterrain.repo.ResearchPaperRepository.class),
+                mock(com.emergentterrain.repo.PaperCitationRepository.class),
                 new ObjectMapper().findAndRegisterModules());
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

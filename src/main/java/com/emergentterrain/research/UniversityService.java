@@ -2,6 +2,8 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.government.GovernmentState;
+import com.emergentterrain.repo.PaperCitationRepository;
+import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -100,7 +102,12 @@ public class UniversityService {
     private final long          researchIntervalMs;
     private final Path          researchOutputDir;
     private final RoomBotRepository botRepository;
+    private final ResearchPaperRepository papersRepository;
+    private final PaperCitationRepository citationsRepository;
     private final ObjectMapper  objectMapper;
+
+    /** Tracks rooms whose in-memory cache has been seeded from the DB. */
+    private final java.util.Set<UUID> hydratedRooms = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     // Optional callbacks set by LlmService — avoids circular Spring bean dependency
     private volatile java.util.function.BiConsumer<RoomBot, List<ResearchPaper>> mentoringCallback;
@@ -115,18 +122,45 @@ public class UniversityService {
             @Value("${app.university.maxDraftBacklog:3}") int maxDraftBacklog,
             @Value("${app.university.peerReviewEnabled:true}") boolean peerReviewEnabled,
             RoomBotRepository botRepository,
+            ResearchPaperRepository papersRepository,
+            PaperCitationRepository citationsRepository,
             ObjectMapper objectMapper) {
         this.researchIntervalMs  = researchIntervalMs;
         this.researchOutputDir   = Paths.get(researchOutputDir);
         this.maxDraftBacklog     = maxDraftBacklog;
         this.peerReviewEnabled   = peerReviewEnabled;
-        this.botRepository      = botRepository;
-        this.objectMapper       = objectMapper;
+        this.botRepository       = botRepository;
+        this.papersRepository    = papersRepository;
+        this.citationsRepository = citationsRepository;
+        this.objectMapper        = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
         } catch (IOException e) {
             log.warn("Could not create research output directory {}: {}", researchOutputDir, e.getMessage());
         }
+    }
+
+    /**
+     * Lazily populate the in-memory cache for a room from the DB. Called from any read
+     * path that needs the published list. Idempotent and thread-safe — first caller for
+     * a room loads, subsequent calls are no-ops.
+     */
+    private List<ResearchPaper> roomPapers(UUID roomId) {
+        if (hydratedRooms.add(roomId)) {
+            List<ResearchPaper> fromDb = papersRepository.findByRoomIdOrderByTickAsc(roomId);
+            if (!fromDb.isEmpty()) {
+                List<ResearchPaper> bucket = published.computeIfAbsent(roomId, k -> new ArrayList<>());
+                synchronized (bucket) {
+                    bucket.clear();
+                    bucket.addAll(fromDb);
+                    if (bucket.size() > MAX_PAPERS_PER_ROOM) {
+                        bucket.subList(0, bucket.size() - MAX_PAPERS_PER_ROOM).clear();
+                    }
+                }
+                log.info("university hydrated cache from DB roomId={} papers={}", roomId, bucket.size());
+            }
+        }
+        return published.computeIfAbsent(roomId, k -> new ArrayList<>());
     }
 
     public void setMentoringCallback(
@@ -172,7 +206,7 @@ public class UniversityService {
         String paperStatus = isNullResult ? "NULL_RESULT" : "PUBLISHED";
 
         ResearchPaper paper = new ResearchPaper(
-                draft.paperId(), draft.authorBotId(), draft.domain(), draft.topicName(),
+                draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
@@ -269,7 +303,19 @@ public class UniversityService {
         }
         if (cited.isEmpty()) return;
 
-        List<ResearchPaper> allPapers = published.getOrDefault(roomId, List.of());
+        // Persist edges first so the citation graph is durable even if downstream
+        // reputation lookups fail. Phase 1 Iteration 3 will add typed relationships.
+        Instant now = Instant.now();
+        for (String citedId : cited) {
+            try {
+                citationsRepository.save(new PaperCitation(thisPaperId, citedId, roomId, now));
+            } catch (Exception e) {
+                log.warn("citation edge persist failed citing={} cited={}: {}",
+                        thisPaperId, citedId, e.getMessage());
+            }
+        }
+
+        List<ResearchPaper> allPapers = roomPapers(roomId);
         List<ResearchPaper> snapshot;
         synchronized (allPapers) { snapshot = new ArrayList<>(allPapers); }
 
@@ -363,7 +409,7 @@ public class UniversityService {
         // Pick a replicator who is not the original author
         Researcher replicator = pool.stream()
                 .filter(r -> !r.getBotId().equals(
-                        published.getOrDefault(roomId, List.of()).stream()
+                        roomPapers(roomId).stream()
                                 .filter(p -> req.paperId().equals(p.paperId()))
                                 .map(ResearchPaper::authorBotId).findFirst().orElse("")))
                 .findFirst().orElse(pool.get(rng.nextInt(pool.size())));
@@ -387,45 +433,47 @@ public class UniversityService {
 
     private void markPaperDisputed(UUID roomId, String paperId,
                                     String replicatorBotId, double replicaScore) {
-        List<ResearchPaper> papers = published.get(roomId);
-        if (papers == null) return;
+        List<ResearchPaper> papers = roomPapers(roomId);
+        ResearchPaper paper;
         synchronized (papers) {
-            for (int i = 0; i < papers.size(); i++) {
-                ResearchPaper p = papers.get(i);
-                if (!paperId.equals(p.paperId())) continue;
-                // Replace with DISPUTED status
-                ResearchPaper disputed = new ResearchPaper(
-                        p.paperId(), p.authorBotId(), p.domain(), p.topic(), p.title(),
-                        p.hypothesis(), p.methodology(), p.findings(),
-                        p.conclusion() + " [REPLICATION NOTE: Independent replication by bot-"
-                                + replicatorBotId.substring(0, 6)
-                                + " produced score " + String.format("%.3f", replicaScore)
-                                + " vs original " + String.format("%.3f", p.peerScore())
-                                + " — result is under dispute.]",
-                        p.reviewerBotIds(), p.peerScore(), "DISPUTED",
-                        p.tick(), p.publishedAt(), p.generation(), p.anomalyZScore(), p.aiModel(), p.llmCallPath());
-                papers.set(i, disputed);
-                overwritePaperFile(roomId, disputed);
-                // Penalise original author's reputation
-                try {
-                    UUID authorId = UUID.fromString(p.authorBotId());
-                    botRepository.findById(authorId).ifPresent(bot -> {
-                        String json = bot.getLifecycleJson();
-                        if (json == null || json.isBlank()) return;
-                        try {
-                            BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
-                            ls.setReputation(Math.max(0.0, ls.getReputation() - 0.08));
-                            bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
-                            botRepository.save(bot);
-                        } catch (Exception e) {
-                            log.warn("dispute reputation penalty failed: {}", e.getMessage());
-                        }
-                    });
-                } catch (IllegalArgumentException ignored) {}
-                log.info("university paper DISPUTED paperId={}", paperId);
-                break;
-            }
+            paper = papers.stream()
+                    .filter(p -> paperId.equals(p.paperId()))
+                    .findFirst().orElse(null);
         }
+        if (paper == null) return;
+
+        String note = " [REPLICATION NOTE: Independent replication by bot-"
+                + replicatorBotId.substring(0, 6)
+                + " produced score " + String.format("%.3f", replicaScore)
+                + " vs original " + String.format("%.3f", paper.peerScore())
+                + " — result is under dispute.]";
+        paper.setStatus("DISPUTED");
+        paper.setConclusion(paper.conclusion() + note);
+        try {
+            papersRepository.save(paper);
+        } catch (Exception e) {
+            log.warn("university failed to persist DISPUTED status paperId={}: {}",
+                    paperId, e.getMessage());
+        }
+        overwritePaperFile(roomId, paper);
+
+        // Penalise original author's reputation.
+        try {
+            UUID authorId = UUID.fromString(paper.authorBotId());
+            botRepository.findById(authorId).ifPresent(bot -> {
+                String json = bot.getLifecycleJson();
+                if (json == null || json.isBlank()) return;
+                try {
+                    BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
+                    ls.setReputation(Math.max(0.0, ls.getReputation() - 0.08));
+                    bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
+                    botRepository.save(bot);
+                } catch (Exception e) {
+                    log.warn("dispute reputation penalty failed: {}", e.getMessage());
+                }
+            });
+        } catch (IllegalArgumentException ignored) {}
+        log.info("university paper DISPUTED paperId={}", paperId);
     }
 
     // ---- Result classification ----
@@ -557,8 +605,7 @@ public class UniversityService {
     }
 
     public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) {
-        List<ResearchPaper> all = published.get(roomId);
-        if (all == null) return List.of();
+        List<ResearchPaper> all = roomPapers(roomId);
         List<ResearchPaper> copy;
         synchronized (all) {
             if (all.isEmpty()) return List.of();
@@ -574,7 +621,7 @@ public class UniversityService {
         List<RoomBot> bots = botRepository.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE);
         Map<UUID, BotLifecycleState> states = loadStatesQuiet(bots);
 
-        List<ResearchPaper> papers = published.getOrDefault(roomId, List.of());
+        List<ResearchPaper> papers = roomPapers(roomId);
         Map<String, Long> byDomain = papers.stream()
                 .collect(Collectors.groupingBy(ResearchPaper::domain, Collectors.counting()));
         long disputed    = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
@@ -1174,10 +1221,17 @@ public class UniversityService {
     // ---- Helpers ----
 
     private void addPaper(UUID roomId, ResearchPaper paper) {
-        List<ResearchPaper> roomPapers = published.computeIfAbsent(roomId, k -> new ArrayList<>());
-        synchronized (roomPapers) {
-            roomPapers.add(paper);
-            if (roomPapers.size() > MAX_PAPERS_PER_ROOM) roomPapers.remove(0);
+        // DB is source of truth. Persist first, then mirror to in-memory cache and disk.
+        try {
+            papersRepository.save(paper);
+        } catch (Exception e) {
+            log.error("university failed to persist paper paperId={}: {}", paper.paperId(), e.getMessage(), e);
+            // Continue — cache+disk fallback keeps the simulation running even if DB is unavailable.
+        }
+        List<ResearchPaper> bucket = roomPapers(roomId);
+        synchronized (bucket) {
+            bucket.add(paper);
+            if (bucket.size() > MAX_PAPERS_PER_ROOM) bucket.remove(0);
         }
         writePaperToFile(roomId, paper);
     }
@@ -1191,7 +1245,19 @@ public class UniversityService {
         return "P-" + roomPrefix + "-" + next;
     }
 
+    /**
+     * Finds the highest paperId numeric suffix for a room. DB is queried first;
+     * markdown directory is consulted as a fallback only when the DB has no rows
+     * (e.g. a freshly migrated environment whose papers exist only on disk).
+     */
     private long loadMaxPaperNumber(UUID roomId) {
+        try {
+            long fromDb = papersRepository.maxPaperNumberForRoom(roomId);
+            if (fromDb > 0L) return fromDb;
+        } catch (Exception e) {
+            log.warn("DB max-paper lookup failed for room {}: {}", roomId, e.getMessage());
+        }
+
         String roomDirName = roomId.toString().substring(0, 8);
         Path roomDir = researchOutputDir.resolve(roomDirName);
         if (!Files.isDirectory(roomDir)) return 0L;
