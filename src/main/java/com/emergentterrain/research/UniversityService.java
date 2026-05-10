@@ -322,8 +322,11 @@ public class UniversityService {
             });
         }
 
-        // Citation tracking: use structured IDs from narration; regex fallback if none provided
-        processCitations(draft.roomId(), draft.paperId(), narration.citedPaperIds(),
+        // Citation tracking: prefer typed citations from the LLM, then flat IDs,
+        // then regex extraction from the narrative text.
+        processCitations(draft.roomId(), draft.paperId(),
+                narration.typedCitations(), narration.citedPaperIds(),
+                parseBotIdSafely(draft.authorBotId()),
                 hypothesis, findings, conclusion);
 
         // Anomaly replication: only queue positive results — null results have no claim to verify
@@ -354,15 +357,26 @@ public class UniversityService {
     // ---- Citation tracking ----
 
     private void processCitations(UUID roomId, String thisPaperId,
+                                   List<NarrationResult.TypedCitation> typedCitations,
                                    List<String> structuredCitedIds,
+                                   UUID classifierBotId,
                                    String hypothesis, String findings, String conclusion) {
         Set<String> cited = new LinkedHashSet<>();
-        // Prefer structured IDs from LLM JSON; fall back to regex scan if none provided
-        if (structuredCitedIds != null && !structuredCitedIds.isEmpty()) {
+        // Phase 2b — typed citations win, then flat IDs, then regex scan as final fallback.
+        Map<String, NarrationResult.TypedCitation> typedById = new LinkedHashMap<>();
+        if (typedCitations != null) {
+            for (NarrationResult.TypedCitation t : typedCitations) {
+                if (t.paperId() == null || t.paperId().equals(thisPaperId)) continue;
+                typedById.putIfAbsent(t.paperId(), t);
+                cited.add(t.paperId());
+            }
+        }
+        if (cited.isEmpty() && structuredCitedIds != null && !structuredCitedIds.isEmpty()) {
             for (String id : structuredCitedIds) {
                 if (id != null && !id.equals(thisPaperId)) cited.add(id);
             }
-        } else {
+        }
+        if (cited.isEmpty()) {
             for (String text : new String[]{hypothesis, findings, conclusion}) {
                 if (text == null) continue;
                 Matcher m = CITED_PAPER_PATTERN.matcher(text);
@@ -374,12 +388,18 @@ public class UniversityService {
         }
         if (cited.isEmpty()) return;
 
-        // Persist edges first so the citation graph is durable even if downstream
-        // reputation lookups fail. Phase 1 Iteration 3 will add typed relationships.
+        // Persist edges with whatever typing we have. Untyped (heuristic) edges
+        // default to EXTENDS with confidence 1.0 and a null classifier id.
         Instant now = Instant.now();
         for (String citedId : cited) {
+            NarrationResult.TypedCitation t = typedById.get(citedId);
             try {
-                citationsRepository.save(new PaperCitation(thisPaperId, citedId, roomId, now));
+                if (t != null) {
+                    citationsRepository.save(new PaperCitation(thisPaperId, citedId, roomId, now,
+                            t.type(), classifierBotId, t.confidence()));
+                } else {
+                    citationsRepository.save(new PaperCitation(thisPaperId, citedId, roomId, now));
+                }
             } catch (Exception e) {
                 log.warn("citation edge persist failed citing={} cited={}: {}",
                         thisPaperId, citedId, e.getMessage());

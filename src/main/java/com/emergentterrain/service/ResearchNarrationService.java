@@ -1074,6 +1074,14 @@ public class ResearchNarrationService {
                 genuinely null, not confidence in a positive claim.
                 cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
                 you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
+                Optionally — instead of (or in addition to) cited_paper_ids, you may emit a \
+                cited_papers array with typed relationships. Each entry: {"id":"P-xxxx-N",\
+                "type":"SUPPORTS|CONTRADICTS|EXTENDS|REPLICATES|CRITICIZES|DERIVES_FROM",\
+                "confidence":0.0-1.0}. Use SUPPORTS when your findings confirm the cited paper; \
+                CONTRADICTS when they disagree; EXTENDS when you build on it without disputing; \
+                REPLICATES when you ran the same experiment; CRITICIZES when you question its method; \
+                DERIVES_FROM when you inherit its framework. Only include cited_papers when you have \
+                high enough confidence to pick a specific type — otherwise stick with cited_paper_ids.
                 All text values under 120 words each. Plain prose inside JSON strings only — \
                 no bullet points, no sub-headers, no markdown formatting.
                 """.formatted(
@@ -1170,6 +1178,27 @@ public class ResearchNarrationService {
             }
             double confidenceScore = Math.max(0.0, Math.min(1.0,
                     root.path("confidenceScore").asDouble(0.5)));
+
+            // Phase 2b — typed citations override the flat cited_paper_ids when present.
+            // The LLM may emit either shape; we accept both and prefer the richer one.
+            List<NarrationResult.TypedCitation> typedCitations = new java.util.ArrayList<>();
+            com.fasterxml.jackson.databind.JsonNode typedNode = root.get("cited_papers");
+            if (typedNode != null && typedNode.isArray()) {
+                for (com.fasterxml.jackson.databind.JsonNode e : typedNode) {
+                    String id = e.path("id").asText(null);
+                    if (id == null || !PAPER_ID_PATTERN.matcher(id).matches()) continue;
+                    String typeStr = e.path("type").asText("EXTENDS").toUpperCase();
+                    com.emergentterrain.research.RelationshipType type;
+                    try {
+                        type = com.emergentterrain.research.RelationshipType.valueOf(typeStr);
+                    } catch (IllegalArgumentException iae) {
+                        type = com.emergentterrain.research.RelationshipType.EXTENDS;
+                    }
+                    double conf = Math.max(0.0, Math.min(1.0, e.path("confidence").asDouble(0.7)));
+                    typedCitations.add(new NarrationResult.TypedCitation(id, type, conf));
+                }
+            }
+
             List<String> citedPaperIds = new ArrayList<>();
             com.fasterxml.jackson.databind.JsonNode citedNode = root.get("cited_paper_ids");
             if (citedNode != null && citedNode.isArray()) {
@@ -1178,11 +1207,18 @@ public class ResearchNarrationService {
                     if (id != null && PAPER_ID_PATTERN.matcher(id).matches()) citedPaperIds.add(id);
                 }
             }
+            // When typed citations are present, the flat ID list mirrors them so legacy
+            // consumers (regex fallback, audit logs) still see every cited paper.
+            if (!typedCitations.isEmpty() && citedPaperIds.isEmpty()) {
+                for (NarrationResult.TypedCitation t : typedCitations) citedPaperIds.add(t.paperId());
+            }
+
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
                     root.path("findings").asText(null),
                     root.path("conclusion").asText(null),
-                    followUp, null, confidenceScore, List.copyOf(citedPaperIds));
+                    followUp, null, confidenceScore, List.copyOf(citedPaperIds),
+                    null, List.copyOf(typedCitations));
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
