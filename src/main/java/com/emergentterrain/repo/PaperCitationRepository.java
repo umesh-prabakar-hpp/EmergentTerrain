@@ -1,6 +1,7 @@
 package com.emergentterrain.repo;
 
 import com.emergentterrain.research.PaperCitation;
+import com.emergentterrain.research.RelationshipType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -15,4 +16,9 @@ public interface PaperCitationRepository extends JpaRepository<PaperCitation, UU
     long countByCitedPaperId(String citedPaperId);
 
     List<PaperCitation> findByRoomId(UUID roomId);
+
+    /** Phase 1 Iter 3 — find all edges of a given type for a room. */
+    List<PaperCitation> findByRoomIdAndRelationshipType(UUID roomId, RelationshipType type);
+
+    long countByCitedPaperIdAndRelationshipType(String citedPaperId, RelationshipType type);
 }
