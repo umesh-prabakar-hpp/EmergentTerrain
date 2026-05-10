@@ -63,13 +63,10 @@ public class UniversityService {
     private final int     maxDraftBacklog;
     private final boolean peerReviewEnabled;
 
-    // Dating constants (static defaults; runtime uses dynamic values from computePopulationParams)
+    // Dating constants (static defaults; runtime uses dynamic values from PopulationEcologyService)
     private static final long   DATING_COOLDOWN_TICKS   = 200L;
     private static final double DATING_BASE_PROB        = 0.05;
     private static final int    POPULATION_K_DEFAULT    = 200;
-
-    private record PopulationParams(int K, long adultToElder, long datingCooldown,
-                                    double scoreVariance, double fillRatio, double educationFactor) {}
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -104,6 +101,7 @@ public class UniversityService {
     private final RoomBotRepository botRepository;
     private final ResearchPaperRepository papersRepository;
     private final PaperCitationRepository citationsRepository;
+    private final PopulationEcologyService populationEcologyService;
     private final ObjectMapper  objectMapper;
 
     /** Tracks rooms whose in-memory cache has been seeded from the DB. */
@@ -124,15 +122,17 @@ public class UniversityService {
             RoomBotRepository botRepository,
             ResearchPaperRepository papersRepository,
             PaperCitationRepository citationsRepository,
+            PopulationEcologyService populationEcologyService,
             ObjectMapper objectMapper) {
-        this.researchIntervalMs  = researchIntervalMs;
-        this.researchOutputDir   = Paths.get(researchOutputDir);
-        this.maxDraftBacklog     = maxDraftBacklog;
-        this.peerReviewEnabled   = peerReviewEnabled;
-        this.botRepository       = botRepository;
-        this.papersRepository    = papersRepository;
-        this.citationsRepository = citationsRepository;
-        this.objectMapper        = objectMapper;
+        this.researchIntervalMs       = researchIntervalMs;
+        this.researchOutputDir        = Paths.get(researchOutputDir);
+        this.maxDraftBacklog          = maxDraftBacklog;
+        this.peerReviewEnabled        = peerReviewEnabled;
+        this.botRepository            = botRepository;
+        this.papersRepository         = papersRepository;
+        this.citationsRepository      = citationsRepository;
+        this.populationEcologyService = populationEcologyService;
+        this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
         } catch (IOException e) {
@@ -401,7 +401,7 @@ public class UniversityService {
     // ---- Replication and retraction ----
 
     private void processReplication(UUID roomId, List<Researcher> pool, Random rng,
-                                     long gameTick, PopulationParams popParams) {
+                                     long gameTick, PopulationEcologyService.PopulationParams popParams) {
         ReplicationRequest req = replicationQueue.peek();
         if (req == null || !req.roomId().equals(roomId)) return;
         replicationQueue.poll();
@@ -554,7 +554,8 @@ public class UniversityService {
         Map<UUID, BotLifecycleState> states = loadStates(bots, gameTick);
 
         // Compute dynamic population parameters from government state + current population
-        PopulationParams params = computePopulationParams(bots, govState, roomId);
+        List<ResearchPaper> recentForEcology = getPublishedPapers(roomId, 20);
+        PopulationEcologyService.PopulationParams params = populationEcologyService.computePopulationParams(bots, govState, recentForEcology);
 
         // Age all bots using dynamic adult lifespan threshold
         List<RoomBot> dirty = new ArrayList<>();
@@ -658,49 +659,7 @@ public class UniversityService {
         return stats;
     }
 
-    // ---- Dynamic population ecology ----
 
-    private PopulationParams computePopulationParams(List<RoomBot> bots,
-                                                      GovernmentState govState,
-                                                      UUID roomId) {
-        double educationFactor = 0.3;
-        double healthFactor    = 0.3;
-        double trustFactor     = 0.5;
-        double serviceFactor   = 0.5;
-
-        if (govState != null && govState.getFederal() != null) {
-            GovernmentState.BudgetState budget = govState.getFederal().getBudget();
-            if (budget != null) {
-                educationFactor = Math.min(1.0, budget.getEducation() / 100_000.0);
-                healthFactor    = Math.min(1.0, budget.getHealth()    / 100_000.0);
-            }
-            trustFactor   = Math.min(1.0, Math.max(0.0, govState.getFederal().getPublicTrust()));
-            serviceFactor = Math.min(1.0, Math.max(0.0, govState.getFederal().getServiceAccess()));
-        }
-
-        // K: 60 (bare minimum) up to 1200 (thriving society)
-        int K = (int)(60 + educationFactor * 600 + trustFactor * 300 + serviceFactor * 240);
-
-        // Adult lifespan: 800 base ticks + health/education investment (800-5800 ticks)
-        long adultToElder = (long)(800 + healthFactor * 3000 + educationFactor * 2000);
-
-        // Evolutionary pressure: high score variance → shorter generations (faster exploration)
-        List<ResearchPaper> recent = getPublishedPapers(roomId, 20);
-        double avg = recent.stream().mapToDouble(ResearchPaper::peerScore).average().orElse(0.2);
-        double variance = recent.stream()
-                .mapToDouble(p -> (p.peerScore() - avg) * (p.peerScore() - avg))
-                .average().orElse(0.0);
-        double stdDev = Math.sqrt(variance);
-        // stdDev near 0.15 is neutral; higher → shorten generations, lower → extend
-        adultToElder += (long)((0.15 - stdDev) * 1000);
-        adultToElder = Math.max(800, Math.min(6000, adultToElder));
-
-        // Dating cooldown: quadratic braking as population approaches K
-        double fillRatio = K > 0 ? Math.min(1.0, (double) bots.size() / K) : 1.0;
-        long datingCooldown = (long)(200 + fillRatio * fillRatio * 1800);
-
-        return new PopulationParams(K, adultToElder, datingCooldown, stdDev, fillRatio, educationFactor);
-    }
 
     // ---- Lifecycle: competency test ----
 
@@ -773,7 +732,7 @@ public class UniversityService {
     // ---- Lifecycle: dating ----
 
     private void processDating(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
-                                List<RoomBot> dirty, long gameTick, PopulationParams params) {
+                                List<RoomBot> dirty, long gameTick, PopulationEcologyService.PopulationParams params) {
         if (bots.size() >= params.K()) return;
 
         long cooldown = params.datingCooldown();
@@ -830,7 +789,7 @@ public class UniversityService {
     // ---- Research cycle ----
 
     private void runResearchCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick,
-                                  PopulationParams popParams) {
+                                  PopulationEcologyService.PopulationParams popParams) {
         Researcher author = tournamentSelect(pool, rng);
 
         DynamicProblem directive = author.getState().getPendingDirective();

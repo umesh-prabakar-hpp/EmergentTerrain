@@ -38,6 +38,7 @@ class PublishPaperTest {
                 mock(RoomBotRepository.class),
                 mock(ResearchPaperRepository.class),
                 mock(PaperCitationRepository.class),
+                new PopulationEcologyService(),
                 new ObjectMapper().findAndRegisterModules());
         roomId = UUID.randomUUID();
     }
