@@ -81,6 +81,7 @@ public class UniversityService {
     private final ExpectationModelService expectationModelService;
     private final ExperimentPlannerService experimentPlannerService;
     private final InstitutionService institutionService;
+    private final EpistemicMarketService epistemicMarketService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -126,6 +127,7 @@ public class UniversityService {
             ExpectationModelService expectationModelService,
             ExperimentPlannerService experimentPlannerService,
             InstitutionService institutionService,
+            EpistemicMarketService epistemicMarketService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -142,6 +144,7 @@ public class UniversityService {
         this.expectationModelService  = expectationModelService;
         this.experimentPlannerService = experimentPlannerService;
         this.institutionService       = institutionService;
+        this.epistemicMarketService   = epistemicMarketService;
         this.objectMapper             = objectMapper;
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
@@ -307,6 +310,13 @@ public class UniversityService {
             experimentPlannerService.recordOutcome(
                     draft.plannerQuestionId(), observedSurpriseScore);
         }
+
+        // Phase 3 Iter 7: resolve any open markets in this (room, domain, topic)
+        // whose closing window has passed. Then open a new market on this paper
+        // if it carries a falsifiable prediction. No-op when the markets flag
+        // is off.
+        epistemicMarketService.maybeResolveMarketsFor(paper, observedSurpriseScore);
+        epistemicMarketService.openMarketFor(paper, draft.preRegistration());
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();

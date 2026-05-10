@@ -64,6 +64,11 @@ class PublishPaperTest {
                         mock(com.emergentterrain.repo.JournalRepository.class),
                         mock(com.emergentterrain.repo.FundingAgencyRepository.class),
                         mock(com.emergentterrain.repo.ReplicationCouncilRepository.class)),
+                new EpistemicMarketService(false,
+                        mock(com.emergentterrain.repo.EpistemicMarketRepository.class),
+                        mock(com.emergentterrain.repo.MarketStakeRepository.class),
+                        mock(com.emergentterrain.repo.BotCalibrationRepository.class),
+                        botRepo, mapper),
                 mapper);
         roomId = UUID.randomUUID();
     }

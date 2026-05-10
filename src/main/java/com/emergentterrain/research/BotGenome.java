@@ -126,7 +126,12 @@ public class BotGenome {
      * Strict reviewers (low w3) require score agreement within 0.02;
      * lenient reviewers (high w3) accept agreement up to 0.12.
      * Natural selection favours the optimum between quality and publication rate.
+     *
+     * Marked @JsonIgnore because the value is recomputed from topicWeights[3] on
+     * every read — serialising it would store stale data that round-trips back
+     * as an unknown property under strict deserialisation settings.
      */
+    @com.fasterxml.jackson.annotation.JsonIgnore
     public double getPeerTolerance() {
         return 0.02 + topicWeights[3] * 0.10;
     }
