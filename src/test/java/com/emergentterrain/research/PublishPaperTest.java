@@ -44,6 +44,7 @@ class PublishPaperTest {
                 new PopulationEcologyService(),
                 new ReplicationService(papersRepo, botRepo, mapper),
                 new BotLifecycleService(botRepo, mapper),
+                new ResearchCycleService(),
                 mapper);
         roomId = UUID.randomUUID();
     }

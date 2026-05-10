@@ -168,6 +168,7 @@ class MathPhysicsEngineTest {
                 new PopulationEcologyService(),
                 new ReplicationService(papersRepo, botRepo, mapper),
                 new BotLifecycleService(botRepo, mapper),
+                new ResearchCycleService(),
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

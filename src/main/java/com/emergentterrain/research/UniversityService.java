@@ -21,7 +21,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -45,11 +44,8 @@ public class UniversityService {
     private static final Logger log = LoggerFactory.getLogger(UniversityService.class);
 
     // Research cycle constants
-    private static final int REVIEWERS_PER_PAPER    = 2;
     private static final int TERM_PAPERS            = 30;    // publications before next competency test
     private static final int MAX_PAPERS_PER_ROOM    = 500;
-    private static final int TOURNAMENT_K           = 3;
-    private static final double REVIEW_TOLERANCE    = 0.05;  // score-based, not value-based
     private static final double MENTOR_SCORE_THRESHOLD = 0.30;
 
     // Max pending drafts: if backlog reaches this, skip the research cycle this tick.
@@ -60,13 +56,8 @@ public class UniversityService {
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
-    private final AnomalyTracker                               anomalyTracker = new AnomalyTracker();
     private final ConcurrentHashMap<UUID, Long>                lastTickAt    = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Integer>             papersSinceTerm = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Long>                paperCounter  = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<UUID, Integer>             totalRejected = new ConcurrentHashMap<>();
-    private final AtomicInteger                                draftQueueSize = new AtomicInteger(0);
-
     private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
     // (Replication threshold + queue moved to ReplicationService in Phase 0 Task 0.3b.)
@@ -85,7 +76,25 @@ public class UniversityService {
     private final PopulationEcologyService populationEcologyService;
     private final ReplicationService replicationService;
     private final BotLifecycleService botLifecycleService;
+    private final ResearchCycleService researchCycleService;
     private final ObjectMapper  objectMapper;
+
+    /** Adapter that lets the cycle call back into this orchestrator. */
+    private final ResearchCycleService.Context cycleContext = new ResearchCycleService.Context() {
+        @Override public String nextPaperId(UUID roomId) { return UniversityService.this.nextPaperId(roomId); }
+        @Override public List<ResearchPaper> getPublishedPapers(UUID roomId, int limit) {
+            return UniversityService.this.getPublishedPapers(roomId, limit);
+        }
+        @Override public void publishPaper(PaperDraft draft, NarrationResult narration) {
+            UniversityService.this.publishPaper(draft, narration);
+        }
+        @Override public java.util.function.Consumer<PaperDraft> narratingCallback() {
+            return narratingCallback;
+        }
+        @Override public java.util.function.Function<Object[], Object> formulationCallback() {
+            return formulationCallback;
+        }
+    };
 
     /** Tracks rooms whose in-memory cache has been seeded from the DB. */
     private final java.util.Set<UUID> hydratedRooms = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -108,6 +117,7 @@ public class UniversityService {
             PopulationEcologyService populationEcologyService,
             ReplicationService replicationService,
             BotLifecycleService botLifecycleService,
+            ResearchCycleService researchCycleService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -119,6 +129,7 @@ public class UniversityService {
         this.populationEcologyService = populationEcologyService;
         this.replicationService       = replicationService;
         this.botLifecycleService      = botLifecycleService;
+        this.researchCycleService     = researchCycleService;
         this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
@@ -189,7 +200,7 @@ public class UniversityService {
     public void publishPaper(PaperDraft draft, NarrationResult narration) {
         if (narration == null) {
             // Professor synthesis was blank — discard draft without publishing.
-            draftQueueSize.decrementAndGet();
+            researchCycleService.decrementDraftQueue();
             log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
                     draft.paperId(), draft.domain(), draft.topicName());
             return;
@@ -218,7 +229,7 @@ public class UniversityService {
                 narration.aiModel(), narration.callPath());
 
         addPaper(draft.roomId(), paper);
-        draftQueueSize.decrementAndGet();
+        researchCycleService.decrementDraftQueue();
         log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={} path=[{}]",
                 draft.paperId(), draft.domain(), draft.topicName(),
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
@@ -499,9 +510,9 @@ public class UniversityService {
         botLifecycleService.processElderMerges(bots, states, dirty, gameTick);
 
         // Check if it's time for a competency test (term boundary)
-        int termPapers = papersSinceTerm.getOrDefault(roomId, 0);
+        int termPapers = researchCycleService.papersSinceTerm(roomId);
         if (termPapers >= TERM_PAPERS) {
-            papersSinceTerm.put(roomId, 0);
+            researchCycleService.resetPapersSinceTerm(roomId);
             botLifecycleService.runCompetencyTests(bots, states, gameTick, dirty);
         }
 
@@ -509,11 +520,12 @@ public class UniversityService {
         // Skip research this tick if drafts are already queued — pace output to LLM throughput.
         List<Researcher> pool = botLifecycleService.buildResearcherPool(bots, states);
         if (!pool.isEmpty()) {
-            if (draftQueueSize.get() < maxDraftBacklog) {
+            if (researchCycleService.draftQueueSize() < maxDraftBacklog) {
                 Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
-                runResearchCycle(roomId, pool, rng, gameTick, params);
+                researchCycleService.runCycle(roomId, pool, rng, gameTick, params,
+                        peerReviewEnabled, cycleContext);
             } else {
-                log.debug("university skipping research cycle — draft backlog={}", draftQueueSize.get());
+                log.debug("university skipping research cycle — draft backlog={}", researchCycleService.draftQueueSize());
             }
         }
 
@@ -568,7 +580,7 @@ public class UniversityService {
                 .max().orElse(0);
         double avgRep = states.values().stream().mapToDouble(BotLifecycleState::getReputation)
                 .average().orElse(0);
-        int totalRej = totalRejected.getOrDefault(roomId, 0);
+        int totalRej = researchCycleService.totalRejected(roomId);
         long qualified = states.values().stream()
                 .filter(s -> s.getResearchStatus() == BotLifecycleState.ResearchStatus.QUALIFIED).count();
 
@@ -590,322 +602,6 @@ public class UniversityService {
     }
 
 
-
-    // ---- Research cycle ----
-
-    private void runResearchCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick,
-                                  PopulationEcologyService.PopulationParams popParams) {
-        Researcher author = tournamentSelect(pool, rng);
-
-        DynamicProblem directive = author.getState().getPendingDirective();
-        if (directive != null) {
-            author.getState().setPendingDirective(null);
-            runDynamicResearchCycle(roomId, author, pool, directive, rng, gameTick);
-            return;
-        }
-
-        int topicIndex = author.selectTopic(rng);
-        String domain  = author.getDomain();
-
-        FollowUpParams pendingFollowUp = author.getState().getPendingFollowUp();
-        boolean isFollowUp = (pendingFollowUp != null);
-        int    param1;
-        double param2;
-        Double predictedScore   = null;
-        String priorMethodology = null;
-        Object formResult = null;  // hoisted so pre-registration is accessible after param selection
-        if (isFollowUp) {
-            param1          = pendingFollowUp.param1();
-            param2          = pendingFollowUp.param2();
-            predictedScore  = pendingFollowUp.predictedScore();
-            priorMethodology = pendingFollowUp.priorMethodology();
-            author.getState().setPendingFollowUp(null);
-            log.debug("university consuming follow-up botId={} param1={} param2={} predicted={}",
-                    author.getBotId(), param1, param2, predictedScore);
-        } else {
-            // Ask LLM to choose specific params based on prior work; fall back to genome sampling.
-            String topicNameForFormulation = MathPhysicsEngine.topicName(domain, topicIndex);
-            List<ResearchPaper> recentForFormulation = getPublishedPapers(roomId, 6);
-            formResult = (formulationCallback != null)
-                    ? formulationCallback.apply(new Object[]{
-                            domain, topicNameForFormulation,
-                            author.getState().getGenome(), recentForFormulation,
-                            author.getState().getResearchHypothesis()})
-                    : null;
-            if (formResult instanceof com.emergentterrain.service.FormulationService.FormulationResult fr) {
-                param1 = fr.param1();
-                param2 = fr.param2();
-                log.debug("university formulation used botId={} param1={} param2={} question={}",
-                        author.getBotId(), param1, param2, fr.researchQuestion());
-            } else {
-                param1 = author.getState().getGenome().sampleParam1(rng);
-                param2 = author.getState().getGenome().sampleParam2(rng);
-            }
-        }
-
-        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
-                author.getState().getGenome(), popParams.educationFactor());
-        MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
-
-        boolean authorError         = rng.nextDouble() < author.errorRate();
-        double  reportedReviewValue = authorError
-                ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
-                : result.reviewValue();
-        double  authorScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reportedReviewValue, sp);
-
-        // Reject degenerate results before peer review — no draft, no LLM call
-        ResultClassification classification = classifyResult(result, authorScore);
-        if (classification == ResultClassification.DEGENERATE) {
-            log.info("university DEGENERATE result rejected domain={} topic={} param1={} param2={} score={}",
-                    domain, MathPhysicsEngine.topicName(domain, topicIndex), param1, param2, authorScore);
-            author.recordRejected();
-            author.getState().getGenome().recordRejection(rng);
-            totalRejected.merge(roomId, 1, Integer::sum);
-            return;
-        }
-
-        // Extract pre-registration from formulation result (null if genome-sampled fallback was used)
-        PreRegistration preReg = null;
-        if (!isFollowUp && formResult instanceof com.emergentterrain.service.FormulationService.FormulationResult fr) {
-            preReg = fr.preRegistration();
-        }
-
-        List<String> reviewerIds     = new ArrayList<>();
-        Set<String>  usedReviewerIds = new HashSet<>();
-        boolean reviewPassed         = result.theoryConsistent();
-        double  totalReviewScore     = 0;
-        int     reviewCount          = 0;
-
-        if (peerReviewEnabled) {
-            for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-                Researcher reviewer      = pickReviewer(pool, author, usedReviewerIds, rng);
-                usedReviewerIds.add(reviewer.getBotId());
-                boolean    reviewerError = rng.nextDouble() < reviewer.errorRate();
-
-                MathPhysicsEngine.ResearchResult reviewResult =
-                        MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
-                double reviewValue = reviewerError
-                        ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
-                        : reviewResult.reviewValue();
-                double reviewScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
-
-                boolean agrees = Math.abs(authorScore - reviewScore)
-                        < reviewer.getState().getGenome().getPeerTolerance();
-                if (!agrees) reviewPassed = false;
-
-                reviewerIds.add(reviewer.getBotId());
-                totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
-                reviewCount++;
-            }
-        }
-
-        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : authorScore;
-
-        if (reviewPassed) {
-            String paperId    = nextPaperId(roomId);
-            String topicName  = MathPhysicsEngine.topicName(domain, topicIndex);
-            String title      = MathPhysicsEngine.generateTitle(domain, topicIndex, rng);
-            String templateHypothesis = (result.hypothesis() != null && !result.hypothesis().isBlank())
-                    ? result.hypothesis()
-                    : MathPhysicsEngine.generateHypothesis(domain, topicIndex, param1, param2);
-            String templateConclusion = MathPhysicsEngine.generateConclusion(result, true);
-            double zScore = anomalyTracker.observe(domain, topicName, peerScore);
-
-            // Reputation updated now — evolutionary pressure must not wait for LLM latency.
-            papersSinceTerm.merge(roomId, 1, Integer::sum);
-            author.recordPublished(peerScore);
-            author.getState().getGenome().recordSuccess(param1, param2, peerScore);
-
-            PaperDraft draft = new PaperDraft(
-                    roomId, author.getBotId(), domain, topicName, title,
-                    result.findings(), templateHypothesis, templateConclusion,
-                    author.getMethodology(), Collections.unmodifiableList(reviewerIds),
-                    peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
-                    predictedScore, priorMethodology,
-                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
-                    preReg, classification);
-
-            if (narratingCallback != null) {
-                draftQueueSize.incrementAndGet();
-                narratingCallback.accept(draft);
-            } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null, 0.5, List.of()));
-            }
-            log.debug("university draft queued paperId={} domain={} topic={} score={}",
-                    paperId, domain, topicName, peerScore);
-        } else {
-            author.recordRejected();
-            author.getState().getGenome().recordRejection(rng);
-            totalRejected.merge(roomId, 1, Integer::sum);
-        }
-
-        // Reviewers get a small reputation bump for service regardless of outcome.
-        for (String rid : reviewerIds) {
-            pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
-                .ifPresent(r -> r.recordPublished(0.1));
-        }
-    }
-
-    // ---- Dynamic research cycle ----
-
-    private void runDynamicResearchCycle(UUID roomId, Researcher author, List<Researcher> pool,
-                                         DynamicProblem directive, Random rng, long gameTick) {
-        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(author.getState().getGenome());
-        MathPhysicsEngine.ResearchResult result = DynamicComputeEngine.compute(directive);
-
-        boolean authorError  = rng.nextDouble() < author.errorRate();
-        double reportedValue = authorError
-                ? result.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.3)
-                : result.reviewValue();
-        double authorScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reportedValue, sp);
-
-        List<String> reviewerIds = new ArrayList<>();
-        Set<String>  usedIds     = new HashSet<>();
-        boolean reviewPassed     = result.theoryConsistent();
-        double  totalReviewScore = 0;
-        int     reviewCount      = 0;
-
-        if (peerReviewEnabled) {
-            for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-                Researcher reviewer = pickReviewer(pool, author, usedIds, rng);
-                usedIds.add(reviewer.getBotId());
-                MathPhysicsEngine.ResearchResult reviewResult = DynamicComputeEngine.compute(directive);
-                boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
-                double reviewValue = reviewerError
-                        ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
-                        : reviewResult.reviewValue();
-                double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
-                boolean agrees = Math.abs(authorScore - reviewScore)
-                        < reviewer.getState().getGenome().getPeerTolerance();
-                if (!agrees) reviewPassed = false;
-                reviewerIds.add(reviewer.getBotId());
-                totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
-                reviewCount++;
-            }
-        }
-
-        double peerScore = reviewCount > 0 ? totalReviewScore / reviewCount : authorScore;
-
-        // Reject degenerate dynamic results before any draft is created
-        ResultClassification dynClassification = classifyResult(result, authorScore);
-        if (dynClassification == ResultClassification.DEGENERATE) {
-            log.info("university DEGENERATE dynamic result rejected description=\"{}\" score={}",
-                    directive.description(), authorScore);
-            author.recordRejected();
-            author.getState().getGenome().recordRejection(rng);
-            totalRejected.merge(roomId, 1, Integer::sum);
-            return;
-        }
-
-        if (reviewPassed) {
-            String paperId            = nextPaperId(roomId);
-            String topicName          = dynamicTopicName(directive);
-            String templateHypothesis = directive.hypothesis() != null
-                    ? directive.hypothesis() : directive.description();
-            String templateConclusion = MathPhysicsEngine.generateConclusion(result, true);
-
-            // Dynamic problems are always number-theoretic; always classify as MATHEMATICS.
-            double zScore = anomalyTracker.observe("MATHEMATICS", topicName, peerScore);
-
-            papersSinceTerm.merge(roomId, 1, Integer::sum);
-            author.recordPublished(peerScore);
-
-            PaperDraft draft = new PaperDraft(
-                    roomId, author.getBotId(), "MATHEMATICS", topicName,
-                    dynamicPaperTitle(directive), result.findings(),
-                    templateHypothesis, templateConclusion,
-                    author.getMethodology(), Collections.unmodifiableList(reviewerIds),
-                    peerScore, authorScore, zScore, gameTick, Instant.now(),
-                    author.getGeneration(), paperId, null, null, false,
-                    null, null,
-                    getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
-                    null, dynClassification);
-
-            if (narratingCallback != null) {
-                draftQueueSize.incrementAndGet();
-                narratingCallback.accept(draft);
-            } else {
-                publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(), templateConclusion, null, null, 0.5, List.of()));
-            }
-            log.debug("university dynamic draft queued botId={} description=\"{}\" score={}",
-                    author.getBotId(), directive.description(), peerScore);
-        } else {
-            author.recordRejected();
-            author.getState().getGenome().recordRejection(rng);
-            totalRejected.merge(roomId, 1, Integer::sum);
-        }
-
-        for (String rid : reviewerIds) {
-            pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
-                .ifPresent(r -> r.recordPublished(0.1));
-        }
-    }
-
-    // ---- Researcher pool ----
-
-    private Researcher tournamentSelect(List<Researcher> pool, Random rng) {
-        Researcher best = null;
-        for (int i = 0; i < TOURNAMENT_K; i++) {
-            Researcher candidate = pool.get(rng.nextInt(pool.size()));
-            if (best == null || candidate.fitness() > best.fitness()) best = candidate;
-        }
-        return best;
-    }
-
-    private Researcher pickReviewer(List<Researcher> pool, Researcher author,
-                                    Set<String> alreadyPicked, Random rng) {
-        List<Researcher> candidates = pool.stream()
-                .filter(r -> !r.getBotId().equals(author.getBotId())
-                          && !alreadyPicked.contains(r.getBotId()))
-                .collect(Collectors.toList());
-        // Fall back to excluding only the author if there aren't enough unique reviewers.
-        if (candidates.isEmpty()) {
-            candidates = pool.stream()
-                    .filter(r -> !r.getBotId().equals(author.getBotId()))
-                    .collect(Collectors.toList());
-        }
-        if (candidates.isEmpty()) return pool.get(rng.nextInt(pool.size()));
-        List<Researcher> sameDomain = candidates.stream()
-                .filter(r -> r.getDomain().equals(author.getDomain()))
-                .collect(Collectors.toList());
-        List<Researcher> pick = sameDomain.isEmpty() ? candidates : sameDomain;
-        return pick.get(rng.nextInt(pick.size()));
-    }
-
-    // ---- Dynamic paper title / topic helpers ----
-
-    private static String dynamicPaperTitle(DynamicProblem d) {
-        return "%s of %s Numbers in [%d, %d)".formatted(
-                metricLabel(d.metric()), predicateLabel(d.predicate()),
-                d.rangeStart(), d.rangeEnd());
-    }
-
-    private static String dynamicTopicName(DynamicProblem d) {
-        String name = predicateLabel(d.predicate()) + " " + metricLabel(d.metric());
-        return name.length() > 50 ? name.substring(0, 50) : name;
-    }
-
-    private static String predicateLabel(String predicate) {
-        return predicate
-                .replace("isPrime",           "Prime")
-                .replace("isHappy",           "Happy")
-                .replace("isAbundant",        "Abundant")
-                .replace("isPerfect",         "Perfect")
-                .replace("collatzTerminates", "Collatz-Terminating")
-                .replace(" AND ", "-")
-                .replace(" OR ",  " or ");
-    }
-
-    private static String metricLabel(String metric) {
-        return switch (metric) {
-            case "fraction_satisfying"  -> "Density";
-            case "mean_of:collatzSteps" -> "Mean Collatz Depth";
-            case "max_of:collatzSteps"  -> "Maximum Collatz Depth";
-            case "mean_of:sigmaSum"     -> "Mean Divisor Sum";
-            default                     -> metric;
-        };
-    }
 
     // ---- Helpers ----
 
