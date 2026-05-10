@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -59,6 +60,14 @@ public class ResearchCycleService {
     private final ConcurrentHashMap<UUID, Integer> totalRejected   = new ConcurrentHashMap<>();
     private final AtomicInteger draftQueueSize = new AtomicInteger(0);
 
+    /** Phase 2 Iter 5 — optional planner. Null when no Spring bean is wired. */
+    private volatile ExperimentPlannerService planner;
+
+    /** Setter (rather than constructor arg) to keep the existing test setUp tidy. */
+    public void setExperimentPlannerService(ExperimentPlannerService planner) {
+        this.planner = planner;
+    }
+
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
     public int draftQueueSize()                  { return draftQueueSize.get(); }
@@ -91,6 +100,14 @@ public class ResearchCycleService {
         Double predictedScore   = null;
         String priorMethodology = null;
         Object formResult = null;
+        Optional<ExperimentPlannerService.ExperimentPlan> plan = Optional.empty();
+        if (planner != null && planner.isEnabled() && !isFollowUp) {
+            try {
+                UUID authorBotId = UUID.fromString(author.getBotId());
+                plan = planner.planNext(authorBotId, domain,
+                        author.getState().getGenome(), rng);
+            } catch (IllegalArgumentException ignored) { /* author bot id malformed */ }
+        }
         if (isFollowUp) {
             param1          = pendingFollowUp.param1();
             param2          = pendingFollowUp.param2();
@@ -99,6 +116,12 @@ public class ResearchCycleService {
             author.getState().setPendingFollowUp(null);
             log.debug("university consuming follow-up botId={} param1={} param2={} predicted={}",
                     author.getBotId(), param1, param2, predictedScore);
+        } else if (plan.isPresent()) {
+            ExperimentPlannerService.ExperimentPlan p = plan.get();
+            param1 = p.param1();
+            param2 = p.param2();
+            log.info("planner: bot={} domain={} strategy={} param1={} param2={} target={}",
+                    author.getBotId(), domain, p.strategy(), param1, param2, p.targetQuestionId());
         } else {
             String topicNameForFormulation = MathPhysicsEngine.topicName(domain, topicIndex);
             List<ResearchPaper> recentForFormulation = ctx.getPublishedPapers(roomId, 6);

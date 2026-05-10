@@ -79,6 +79,7 @@ public class UniversityService {
     private final ResearchCycleService researchCycleService;
     private final ResearchProgramService researchProgramService;
     private final ExpectationModelService expectationModelService;
+    private final ExperimentPlannerService experimentPlannerService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -122,6 +123,7 @@ public class UniversityService {
             ResearchCycleService researchCycleService,
             ResearchProgramService researchProgramService,
             ExpectationModelService expectationModelService,
+            ExperimentPlannerService experimentPlannerService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -136,7 +138,11 @@ public class UniversityService {
         this.researchCycleService     = researchCycleService;
         this.researchProgramService   = researchProgramService;
         this.expectationModelService  = expectationModelService;
+        this.experimentPlannerService = experimentPlannerService;
         this.objectMapper             = objectMapper;
+        // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
+        // before the formulation callback when the planner flag is on.
+        this.researchCycleService.setExperimentPlannerService(experimentPlannerService);
         try {
             Files.createDirectories(this.researchOutputDir);
         } catch (IOException e) {
