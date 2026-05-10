@@ -25,6 +25,19 @@ public class BotLifecycleState {
     private int            publishedCount   = 0;
     private int            rejectedCount    = 0;
     private double         reputation       = 0.2;
+    /**
+     * Phase 1 Iter 2: peer-review harshness in [0, 1]. 0 = lenient (use genome's
+     * peerTolerance verbatim), 1 = strict (effective tolerance halved). Mutated
+     * slowly by the genome mentoring loop based on a reviewer's accuracy track
+     * record. Default 0.5 keeps existing review behaviour unchanged at startup.
+     */
+    private double         skepticismLevel  = 0.5;
+    /**
+     * Phase 1 Iter 2: tick at which the last ReputationHistory snapshot was
+     * recorded. Sampling cadence is enforced by BotLifecycleService so bots
+     * that haven't been seen recently still get a fresh sample on next load.
+     */
+    private long           lastReputationSampledAt = -1L;
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
     private DynamicProblem pendingDirective = null;
     @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
@@ -113,6 +126,14 @@ public class BotLifecycleState {
 
     public double getReputation()                         { return reputation; }
     public void   setReputation(double r)                 { this.reputation = r; }
+
+    public double getSkepticismLevel()                    { return skepticismLevel; }
+    public void   setSkepticismLevel(double s)            {
+        this.skepticismLevel = Math.max(0.0, Math.min(1.0, s));
+    }
+
+    public long getLastReputationSampledAt()              { return lastReputationSampledAt; }
+    public void setLastReputationSampledAt(long t)        { this.lastReputationSampledAt = t; }
 
     public DynamicProblem getPendingDirective()            { return pendingDirective; }
     public void           setPendingDirective(DynamicProblem d) { this.pendingDirective = d; }

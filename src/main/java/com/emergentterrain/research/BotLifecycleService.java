@@ -1,6 +1,7 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.repo.ReputationHistoryRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -44,12 +45,51 @@ public class BotLifecycleService {
     /** Base dating probability — multiplied by both parents' explorationRate. */
     private static final double DATING_BASE_PROB = 0.05;
 
+    /** Phase 1 Iter 2 — minimum game ticks between ReputationHistory snapshots per bot. */
+    private static final long REPUTATION_SAMPLE_INTERVAL_TICKS = 10L;
+
     private final RoomBotRepository botRepository;
+    private final ReputationHistoryRepository reputationHistoryRepository;
     private final ObjectMapper objectMapper;
 
-    public BotLifecycleService(RoomBotRepository botRepository, ObjectMapper objectMapper) {
-        this.botRepository = botRepository;
-        this.objectMapper  = objectMapper;
+    public BotLifecycleService(RoomBotRepository botRepository,
+                               ReputationHistoryRepository reputationHistoryRepository,
+                               ObjectMapper objectMapper) {
+        this.botRepository               = botRepository;
+        this.reputationHistoryRepository = reputationHistoryRepository;
+        this.objectMapper                = objectMapper;
+    }
+
+    /**
+     * Phase 1 Iter 2 — capture a ReputationHistory snapshot for any bot whose last
+     * sample was more than {@link #REPUTATION_SAMPLE_INTERVAL_TICKS} ticks ago, or
+     * who just transitioned phase. Called from UniversityService.maybeTick after
+     * loadStates and ageing have run, so the snapshot reflects the post-ageing state.
+     */
+    public void sampleReputationHistory(java.util.UUID roomId, List<RoomBot> bots,
+                                        Map<UUID, BotLifecycleState> states, long gameTick,
+                                        Map<UUID, BotLifecycleState.Phase> previousPhases) {
+        for (RoomBot bot : bots) {
+            BotLifecycleState ls = states.get(bot.getId());
+            if (ls == null) continue;
+            BotLifecycleState.Phase prevPhase = previousPhases != null
+                    ? previousPhases.get(bot.getId()) : null;
+            boolean phaseChanged = prevPhase != null && prevPhase != ls.getLifecycle();
+            boolean cadenceDue   = gameTick - ls.getLastReputationSampledAt()
+                                    >= REPUTATION_SAMPLE_INTERVAL_TICKS;
+            if (!phaseChanged && !cadenceDue) continue;
+
+            try {
+                reputationHistoryRepository.save(new ReputationHistory(
+                        bot.getId(), roomId, gameTick,
+                        ls.getReputation(), ls.getPublishedCount(), ls.getRejectedCount(),
+                        ls.getLifecycle(), ls.getResearchStatus()));
+                ls.setLastReputationSampledAt(gameTick);
+            } catch (Exception e) {
+                log.warn("reputation-history sample failed bot={} tick={}: {}",
+                        bot.getId(), gameTick, e.getMessage());
+            }
+        }
     }
 
     // ---- State load / persist ----

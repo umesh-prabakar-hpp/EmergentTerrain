@@ -165,7 +165,7 @@ public class ResearchCycleService {
                 double reviewScore = MathPhysicsEngine.scoreResult(domain, topicIndex, reviewValue, sp);
 
                 boolean agrees = Math.abs(authorScore - reviewScore)
-                        < reviewer.getState().getGenome().getPeerTolerance();
+                        < effectivePeerTolerance(reviewer);
                 if (!agrees) reviewPassed = false;
 
                 reviewerIds.add(reviewer.getBotId());
@@ -253,7 +253,7 @@ public class ResearchCycleService {
                         : reviewResult.reviewValue();
                 double reviewScore = MathPhysicsEngine.scoreResult("DYNAMIC", 0, reviewValue, sp);
                 boolean agrees = Math.abs(authorScore - reviewScore)
-                        < reviewer.getState().getGenome().getPeerTolerance();
+                        < effectivePeerTolerance(reviewer);
                 if (!agrees) reviewPassed = false;
                 reviewerIds.add(reviewer.getBotId());
                 totalReviewScore += reviewer.getReputation() * (agrees ? 1.0 : 0.3);
@@ -317,6 +317,17 @@ public class ResearchCycleService {
             pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
                 .ifPresent(r -> r.recordPublished(0.1));
         }
+    }
+
+    /**
+     * Phase 1 Iter 2 — apply the reviewer's skepticismLevel as a tolerance
+     * multiplier on top of the genome's peerTolerance. Higher skepticism →
+     * tighter agreement window → easier for the reviewer to disagree.
+     */
+    private static double effectivePeerTolerance(Researcher reviewer) {
+        double base = reviewer.getState().getGenome().getPeerTolerance();
+        double s = Math.max(0.0, Math.min(1.0, reviewer.getState().getSkepticismLevel()));
+        return base * (1.0 - s * 0.5);
     }
 
     // ---- Researcher selection helpers ----

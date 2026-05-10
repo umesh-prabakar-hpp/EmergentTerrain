@@ -497,14 +497,20 @@ public class UniversityService {
         List<ResearchPaper> recentForEcology = getPublishedPapers(roomId, 20);
         PopulationEcologyService.PopulationParams params = populationEcologyService.computePopulationParams(bots, govState, recentForEcology);
 
-        // Age all bots using dynamic adult lifespan threshold
+        // Age all bots using dynamic adult lifespan threshold. Capture phase before
+        // incrementAge so the reputation-history sampler can detect transitions.
+        Map<UUID, BotLifecycleState.Phase> phaseBefore = new HashMap<>();
         List<RoomBot> dirty = new ArrayList<>();
         for (RoomBot bot : bots) {
             BotLifecycleState ls = states.get(bot.getId());
+            phaseBefore.put(bot.getId(), ls.getLifecycle());
             ls.incrementAge(BotLifecycleState.JUVENILE_TO_ADULT, params.adultToElder());
             ls.decayReputation();
             dirty.add(bot);
         }
+
+        // Phase 1 Iter 2 — sample reputation trajectory (cadence-throttled, per-bot).
+        botLifecycleService.sampleReputationHistory(roomId, bots, states, gameTick, phaseBefore);
 
         // Process elder merges before research
         botLifecycleService.processElderMerges(bots, states, dirty, gameTick);

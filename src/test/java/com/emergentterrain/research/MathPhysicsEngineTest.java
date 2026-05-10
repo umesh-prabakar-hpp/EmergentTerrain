@@ -167,7 +167,8 @@ class MathPhysicsEngineTest {
                 mock(com.emergentterrain.repo.PaperCitationRepository.class),
                 new PopulationEcologyService(),
                 new ReplicationService(papersRepo, botRepo, mapper),
-                new BotLifecycleService(botRepo, mapper),
+                new BotLifecycleService(botRepo,
+                        mock(com.emergentterrain.repo.ReputationHistoryRepository.class), mapper),
                 new ResearchCycleService(),
                 mapper);
 
