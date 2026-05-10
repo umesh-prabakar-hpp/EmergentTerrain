@@ -21,7 +21,6 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -78,18 +77,10 @@ public class UniversityService {
     private final ConcurrentHashMap<UUID, Integer>             totalRejected = new ConcurrentHashMap<>();
     private final AtomicInteger                                draftQueueSize = new AtomicInteger(0);
 
-    private record ReplicationRequest(UUID roomId, String paperId, String domain,
-                                       int topicIndex, int param1, double param2,
-                                       double originalScore) {}
-
     private static final Pattern CITED_PAPER_PATTERN = Pattern.compile("P-[0-9a-fA-F]{4}-\\d+");
 
-    // Score gap that triggers a DISPUTED status on failed replication
-    private static final double REPLICATION_FAIL_THRESHOLD = 0.15;
-    private static final double ANOMALY_REPLICATION_Z      = 3.0;
-    private static final double BRIDGE_SCORE_THRESHOLD     = 0.38;
-
-    private final ConcurrentLinkedQueue<ReplicationRequest> replicationQueue = new ConcurrentLinkedQueue<>();
+    // (Replication threshold + queue moved to ReplicationService in Phase 0 Task 0.3b.)
+    private static final double BRIDGE_SCORE_THRESHOLD = 0.38;
 
     private static final DateTimeFormatter FILE_DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss").withZone(ZoneId.systemDefault());
@@ -102,6 +93,7 @@ public class UniversityService {
     private final ResearchPaperRepository papersRepository;
     private final PaperCitationRepository citationsRepository;
     private final PopulationEcologyService populationEcologyService;
+    private final ReplicationService replicationService;
     private final ObjectMapper  objectMapper;
 
     /** Tracks rooms whose in-memory cache has been seeded from the DB. */
@@ -123,6 +115,7 @@ public class UniversityService {
             ResearchPaperRepository papersRepository,
             PaperCitationRepository citationsRepository,
             PopulationEcologyService populationEcologyService,
+            ReplicationService replicationService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -132,12 +125,31 @@ public class UniversityService {
         this.papersRepository         = papersRepository;
         this.citationsRepository      = citationsRepository;
         this.populationEcologyService = populationEcologyService;
+        this.replicationService       = replicationService;
         this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
         } catch (IOException e) {
             log.warn("Could not create research output directory {}: {}", researchOutputDir, e.getMessage());
         }
+
+        // Hand the replication service a cache-aware paper lookup so its mutations
+        // are visible in the in-memory `published` cache without a re-read, and a
+        // dispute listener so the markdown file stays in sync.
+        this.replicationService.setPaperLookup(this::findCachedPaper);
+        this.replicationService.setDisputeListener(p -> overwritePaperFile(p.roomId(), p));
+    }
+
+    /** Cache-first paper lookup — falls through to the DB on a miss. */
+    private Optional<ResearchPaper> findCachedPaper(String paperId) {
+        for (List<ResearchPaper> bucket : published.values()) {
+            synchronized (bucket) {
+                for (ResearchPaper p : bucket) {
+                    if (paperId.equals(p.paperId())) return Optional.of(p);
+                }
+            }
+        }
+        return papersRepository.findByPaperId(paperId);
     }
 
     /**
@@ -256,11 +268,11 @@ public class UniversityService {
                 hypothesis, findings, conclusion);
 
         // Anomaly replication: only queue positive results — null results have no claim to verify
-        if (!isNullResult && Math.abs(draft.anomalyZScore()) >= ANOMALY_REPLICATION_Z
+        if (!isNullResult && Math.abs(draft.anomalyZScore()) >= ReplicationService.ANOMALY_REPLICATION_Z
                 && draft.param1() != null) {
             int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
             if (topicIndex >= 0) {
-                replicationQueue.offer(new ReplicationRequest(
+                replicationService.enqueue(new ReplicationService.ReplicationRequest(
                         draft.roomId(), draft.paperId(), draft.domain(), topicIndex,
                         draft.param1(), draft.param2(), draft.peerScore()));
                 log.info("university replication queued paperId={} z={}", draft.paperId(), draft.anomalyZScore());
@@ -398,83 +410,7 @@ public class UniversityService {
         }
     }
 
-    // ---- Replication and retraction ----
-
-    private void processReplication(UUID roomId, List<Researcher> pool, Random rng,
-                                     long gameTick, PopulationEcologyService.PopulationParams popParams) {
-        ReplicationRequest req = replicationQueue.peek();
-        if (req == null || !req.roomId().equals(roomId)) return;
-        replicationQueue.poll();
-
-        // Pick a replicator who is not the original author
-        Researcher replicator = pool.stream()
-                .filter(r -> !r.getBotId().equals(
-                        roomPapers(roomId).stream()
-                                .filter(p -> req.paperId().equals(p.paperId()))
-                                .map(ResearchPaper::authorBotId).findFirst().orElse("")))
-                .findFirst().orElse(pool.get(rng.nextInt(pool.size())));
-
-        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
-                replicator.getState().getGenome(), popParams.educationFactor());
-        MathPhysicsEngine.ResearchResult replicaResult = MathPhysicsEngine.compute(
-                req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
-        double replicaScore = MathPhysicsEngine.scoreResult(req.domain(), req.topicIndex(),
-                replicaResult.reviewValue(), sp);
-
-        double scoreDiff = Math.abs(req.originalScore() - replicaScore);
-        boolean failed = scoreDiff > REPLICATION_FAIL_THRESHOLD;
-        log.info("university replication paperId={} original={} replica={} diff={} failed={}",
-                req.paperId(), req.originalScore(), replicaScore, scoreDiff, failed);
-
-        if (failed) {
-            markPaperDisputed(roomId, req.paperId(), replicator.getBotId(), replicaScore);
-        }
-    }
-
-    private void markPaperDisputed(UUID roomId, String paperId,
-                                    String replicatorBotId, double replicaScore) {
-        List<ResearchPaper> papers = roomPapers(roomId);
-        ResearchPaper paper;
-        synchronized (papers) {
-            paper = papers.stream()
-                    .filter(p -> paperId.equals(p.paperId()))
-                    .findFirst().orElse(null);
-        }
-        if (paper == null) return;
-
-        String note = " [REPLICATION NOTE: Independent replication by bot-"
-                + replicatorBotId.substring(0, 6)
-                + " produced score " + String.format("%.3f", replicaScore)
-                + " vs original " + String.format("%.3f", paper.peerScore())
-                + " — result is under dispute.]";
-        paper.setStatus("DISPUTED");
-        paper.setConclusion(paper.conclusion() + note);
-        try {
-            papersRepository.save(paper);
-        } catch (Exception e) {
-            log.warn("university failed to persist DISPUTED status paperId={}: {}",
-                    paperId, e.getMessage());
-        }
-        overwritePaperFile(roomId, paper);
-
-        // Penalise original author's reputation.
-        try {
-            UUID authorId = UUID.fromString(paper.authorBotId());
-            botRepository.findById(authorId).ifPresent(bot -> {
-                String json = bot.getLifecycleJson();
-                if (json == null || json.isBlank()) return;
-                try {
-                    BotLifecycleState ls = objectMapper.readValue(json, BotLifecycleState.class);
-                    ls.setReputation(Math.max(0.0, ls.getReputation() - 0.08));
-                    bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
-                    botRepository.save(bot);
-                } catch (Exception e) {
-                    log.warn("dispute reputation penalty failed: {}", e.getMessage());
-                }
-            });
-        } catch (IllegalArgumentException ignored) {}
-        log.info("university paper DISPUTED paperId={}", paperId);
-    }
+    // (Replication + dispute marking moved to ReplicationService in Phase 0 Task 0.3b.)
 
     // ---- Result classification ----
 
@@ -592,7 +528,8 @@ public class UniversityService {
         List<Researcher> poolForReplication = buildResearcherPool(bots, states);
         if (!poolForReplication.isEmpty()) {
             Random rng2 = new Random(gameTick * 7919L + roomId.getMostSignificantBits());
-            processReplication(roomId, poolForReplication, rng2, gameTick, params);
+            replicationService.processOne(roomId, poolForReplication, rng2,
+                    params.educationFactor());
         }
 
         // Dating pass with dynamic K and cooldown
@@ -655,7 +592,7 @@ public class UniversityService {
         stats.put("avgPeerScore",      avgScore.isPresent()
                 ? Math.round(avgScore.getAsDouble() * 1000.0) / 1000.0 : 0.0);
         stats.put("byDomain",          byDomain);
-        stats.put("replicationPending", replicationQueue.size());
+        stats.put("replicationPending", replicationService.pendingCount());
         return stats;
     }
 

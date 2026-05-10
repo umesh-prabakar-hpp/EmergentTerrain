@@ -156,13 +156,17 @@ class MathPhysicsEngineTest {
         Files.writeString(roomDir.resolve("2026-04-29_20-41-40_mathematics_collatz-stopping-time_P-59f4-29.md"),
                 "# Existing\n\n**Paper ID**: P-59f4-29\n");
 
+        com.emergentterrain.repo.ResearchPaperRepository papersRepo =
+                mock(com.emergentterrain.repo.ResearchPaperRepository.class);
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         UniversityService service = new UniversityService(
                 0L, tempDir.toString(), 3, true,
                 mock(RoomBotRepository.class),
-                mock(com.emergentterrain.repo.ResearchPaperRepository.class),
+                papersRepo,
                 mock(com.emergentterrain.repo.PaperCitationRepository.class),
                 new PopulationEcologyService(),
-                new ObjectMapper().findAndRegisterModules());
+                new ReplicationService(papersRepo, mock(RoomBotRepository.class), mapper),
+                mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-31");

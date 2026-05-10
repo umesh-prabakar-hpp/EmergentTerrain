@@ -33,13 +33,16 @@ class PublishPaperTest {
 
     @BeforeEach
     void setUp() {
+        ResearchPaperRepository papersRepo = mock(ResearchPaperRepository.class);
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         service = new UniversityService(
                 0L, tempDir.toString(), 3, false,
                 mock(RoomBotRepository.class),
-                mock(ResearchPaperRepository.class),
+                papersRepo,
                 mock(PaperCitationRepository.class),
                 new PopulationEcologyService(),
-                new ObjectMapper().findAndRegisterModules());
+                new ReplicationService(papersRepo, mock(RoomBotRepository.class), mapper),
+                mapper);
         roomId = UUID.randomUUID();
     }
 
