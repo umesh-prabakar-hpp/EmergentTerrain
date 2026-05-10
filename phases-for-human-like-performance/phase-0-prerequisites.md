@@ -191,6 +191,6 @@ These tests are also the safety net for the Task 0.3 refactor.
 
 # Out of Scope for Phase 0
 
-`RoomService` is 4,746 lines — the largest service in the codebase. It is not touched in Phase 0 because it is the room/game-loop layer, not the research pipeline. Any Phase 3 work involving room-scoped institutions or world interventions will brush up against it; plan for incremental extraction at that point, not now.
+`RoomService` is 4,746 lines — the largest service in the codebase. It is not touched in Phase 0 because it is the room/game-loop layer, not the research pipeline. **Phase 2.5** is a dedicated placeholder for refactoring it before Phase 3 begins; see [phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md). Phase 0 should not bundle that work.
 
 `MathPhysicsEngine` at 1,430 lines is also large but is a self-contained deterministic computation library with no entanglement with bot lifecycle or LLM state. It does not need refactoring.

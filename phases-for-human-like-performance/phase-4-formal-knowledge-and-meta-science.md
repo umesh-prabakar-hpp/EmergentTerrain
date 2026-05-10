@@ -196,10 +196,11 @@ All estimates assume AI-assisted development (Claude Code or equivalent) with on
 | 0 | Refactor | 3–7 days | **Atomic — one PR or tight series.** Only phase that should be bundled. | Migrate `ResearchPaper` to JPA; split `LlmService` and `UniversityService` |
 | 1 | 2, 3, 4 | 2–3 weeks | Three PRs, one per iteration. Iter 4 behind `app.research.programs.enabled` flag. | Mostly formalizing existing primitives on `BotGenome`/`BotLifecycleState`/`BotCivicState` |
 | 2 | 1, 5 | 3–4 weeks | Two PRs. Iter 5 behind `app.research.planner.enabled`; ship strategies incrementally. | Surprise engine reuses Welford; experiment planner is novel algorithmic work |
+| 2.5 | RoomService refactor | 1–2 weeks | One PR per extraction (≈3–4 extractions). Pure refactor; no feature work. | Carve `RoomService` (4,746 lines) into composable services *before* Phase 3 needs to integrate with it. **Trigger only when Phase 3 design is concrete.** |
 | 3 | 6, 8, 7 | 5–7 weeks | Three PRs — never bundle. Each iteration behind its own feature flag. Iter 8 split into sub-commits. | Institution refactor against moving `UniversityService` is the slowest and most fragile item |
 | 4 | 9, 10 | 3–5 weeks | Two PRs. Iter 10 prompt evolution behind `app.research.prompt.evolution.enabled` with A/B + rollback trigger. | Structured extraction is fast; prompt-evolution step needs careful human review |
 
-**Total AI-assisted range:** ~13–20 weeks of active development.
+**Total AI-assisted range:** ~14–22 weeks of active development (was 13–20; +1–2 weeks for Phase 2.5).
 
 For reference, traditional single-developer estimates (no AI assistance) would be roughly 32–46 weeks. The compression is highest in Phases 1 and 4 (greenfield + clear schemas) and lowest in Phase 3 Iteration 8 (refactoring subtle stateful invariants in `UniversityService` and the bot lifecycle state machine).
 

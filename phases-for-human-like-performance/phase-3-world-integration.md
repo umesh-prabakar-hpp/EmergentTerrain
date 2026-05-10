@@ -2,7 +2,7 @@
 
 **Scope:** Iterations 6, 8, 7 (note: re-ordered from the original 6, 7, 8)
 
-**Prerequisite:** Phase 2 complete. The reordering matters: institutions (8) must exist before markets (7) can wager on grant funding and publication access.
+**Prerequisite:** Phase 2 complete; Phase 2.5 (`RoomService` refactor) recommended before Iterations 6 and 8 begin in earnest. The 6 → 8 → 7 reordering matters: institutions (8) must exist before markets (7) can wager on grant funding and publication access.
 
 **Goal:** Turn EmergentTerrain's existing world simulation into the primary experimental substrate,
 and evolve science itself into an emergent social phenomenon with institutions, markets, and incentive structures.
