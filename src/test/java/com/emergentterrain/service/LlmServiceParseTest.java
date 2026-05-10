@@ -151,7 +151,7 @@ class LlmServiceParseTest {
                 "cited_paper_ids":["P-a29f-10","P-a29f-22"],
                 "followUp":{"param1":45,"param2":3.0,"predictedScore":0.72}}
                 """;
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, json);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         assertThat(result.hypothesis()).contains("Collatz");
         assertThat(result.findings()).contains("max_steps");
         assertThat(result.conclusion()).contains("confirmed");
@@ -167,7 +167,7 @@ class LlmServiceParseTest {
     void narrationDefaultsConfidenceTo0_5WhenAbsent() {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"cited_paper_ids\":[]}";
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, json);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         assertThat(result.confidenceScore()).isEqualTo(0.5);
     }
 
@@ -177,8 +177,8 @@ class LlmServiceParseTest {
                 + "\"confidenceScore\":1.5,\"cited_paper_ids\":[]}";
         String tooLow  = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":-0.3,\"cited_paper_ids\":[]}";
-        assertThat(LlmService.parseNarrationResult(MAPPER, tooHigh).confidenceScore()).isEqualTo(1.0);
-        assertThat(LlmService.parseNarrationResult(MAPPER, tooLow).confidenceScore()).isEqualTo(0.0);
+        assertThat(ResearchNarrationService.parseNarrationResult(MAPPER, tooHigh).confidenceScore()).isEqualTo(1.0);
+        assertThat(ResearchNarrationService.parseNarrationResult(MAPPER, tooLow).confidenceScore()).isEqualTo(0.0);
     }
 
     @Test
@@ -187,7 +187,7 @@ class LlmServiceParseTest {
                 + "\"confidenceScore\":0.5,"
                 + "\"cited_paper_ids\":[\"P-a29f-10\",\"not-a-paper-id\",\"P-zzzz-5\","
                 + "\"P-1234-99\"]}";
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, json);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         // P-a29f-10 and P-1234-99 are valid; "not-a-paper-id" and "P-zzzz-5" are not
         assertThat(result.citedPaperIds())
                 .contains("P-a29f-10", "P-1234-99")
@@ -200,7 +200,7 @@ class LlmServiceParseTest {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.5,\"cited_paper_ids\":[],"
                 + "\"followUp\":{\"param1\":5,\"param2\":3.0,\"predictedScore\":0.4}}";
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, json);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         assertThat(result.followUp()).isNull();
     }
 
@@ -209,7 +209,7 @@ class LlmServiceParseTest {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.5,\"cited_paper_ids\":[],"
                 + "\"followUp\":{\"param1\":50,\"param2\":3.0,\"predictedScore\":1.5}}";
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, json);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         // followUp itself is valid (params in range), but predictedScore is discarded
         assertThat(result.followUp()).isNotNull();
         assertThat(result.followUp().predictedScore()).isNull();
@@ -217,7 +217,7 @@ class LlmServiceParseTest {
 
     @Test
     void narrationReturnsEmptyDefaultForNullInput() {
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, null);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, null);
         assertThat(result.hypothesis()).isNull();
         assertThat(result.findings()).isNull();
         assertThat(result.conclusion()).isNull();
@@ -228,14 +228,14 @@ class LlmServiceParseTest {
 
     @Test
     void narrationReturnsEmptyDefaultForBlankInput() {
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, "   ");
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, "   ");
         assertThat(result.confidenceScore()).isEqualTo(0.5);
         assertThat(result.citedPaperIds()).isEmpty();
     }
 
     @Test
     void narrationReturnsEmptyDefaultForMalformedJson() {
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, "not json at all");
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, "not json at all");
         assertThat(result.hypothesis()).isNull();
         assertThat(result.confidenceScore()).isEqualTo(0.5);
     }
@@ -247,7 +247,7 @@ class LlmServiceParseTest {
                 + "\"findings\":\"Gap distribution is non-uniform\","
                 + "\"conclusion\":\"The hypothesis is partially confirmed\","
                 + "\"confidenceScore\":0.6,\"cited_paper_ids\":[]}";
-        NarrationResult result = LlmService.parseNarrationResult(MAPPER, response);
+        NarrationResult result = ResearchNarrationService.parseNarrationResult(MAPPER, response);
         assertThat(result.hypothesis()).contains("Prime gaps");
         assertThat(result.confidenceScore()).isEqualTo(0.6);
     }
@@ -256,14 +256,14 @@ class LlmServiceParseTest {
     void narrationEmptyCitedPaperIdsArrayProducesEmptyList() {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.7,\"cited_paper_ids\":[]}";
-        assertThat(LlmService.parseNarrationResult(MAPPER, json).citedPaperIds()).isEmpty();
+        assertThat(ResearchNarrationService.parseNarrationResult(MAPPER, json).citedPaperIds()).isEmpty();
     }
 
     @Test
     void narrationAbsentFollowUpFieldProducesNullFollowUp() {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
-        assertThat(LlmService.parseNarrationResult(MAPPER, json).followUp()).isNull();
+        assertThat(ResearchNarrationService.parseNarrationResult(MAPPER, json).followUp()).isNull();
     }
 
     // ==========================================================================
@@ -274,7 +274,7 @@ class LlmServiceParseTest {
     void refinementRefineActionReturnsDecision() {
         String json = "{\"action\":\"refine\",\"param1\":55,\"param2\":4.5,"
                 + "\"rationale\":\"Test boundary near previous peak\"}";
-        var result = LlmService.parseRefinementDecision(MAPPER, json);
+        var result = ResearchNarrationService.parseRefinementDecision(MAPPER, json);
         assertThat(result).isNotNull();
         assertThat(result.param1()).isEqualTo(55);
         assertThat(result.param2()).isEqualTo(4.5);
@@ -284,7 +284,7 @@ class LlmServiceParseTest {
     @Test
     void refinementDoneActionReturnsNull() {
         String json = "{\"action\":\"done\"}";
-        assertThat(LlmService.parseRefinementDecision(MAPPER, json)).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, json)).isNull();
     }
 
     @Test
@@ -292,14 +292,14 @@ class LlmServiceParseTest {
         // param2=10.0 is above the 9.0 ceiling
         String json = "{\"action\":\"refine\",\"param1\":50,\"param2\":10.0,"
                 + "\"rationale\":\"explore extreme scale\"}";
-        assertThat(LlmService.parseRefinementDecision(MAPPER, json)).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, json)).isNull();
     }
 
     @Test
     void refinementRejectsNegativeParam1() {
         String json = "{\"action\":\"refine\",\"param1\":-5,\"param2\":3.0,"
                 + "\"rationale\":\"negative region\"}";
-        assertThat(LlmService.parseRefinementDecision(MAPPER, json)).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, json)).isNull();
     }
 
     @Test
@@ -308,30 +308,30 @@ class LlmServiceParseTest {
                 + "\"rationale\":\"minimum values\"}";
         String json99_9 = "{\"action\":\"refine\",\"param1\":99,\"param2\":9.0,"
                 + "\"rationale\":\"maximum values\"}";
-        assertThat(LlmService.parseRefinementDecision(MAPPER, json10_1)).isNotNull();
-        assertThat(LlmService.parseRefinementDecision(MAPPER, json99_9)).isNotNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, json10_1)).isNotNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, json99_9)).isNotNull();
     }
 
     @Test
     void refinementReturnsNullForNullInput() {
-        assertThat(LlmService.parseRefinementDecision(MAPPER, null)).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, null)).isNull();
     }
 
     @Test
     void refinementReturnsNullForBlankInput() {
-        assertThat(LlmService.parseRefinementDecision(MAPPER, "   ")).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, "   ")).isNull();
     }
 
     @Test
     void refinementReturnsNullForNonJson() {
-        assertThat(LlmService.parseRefinementDecision(MAPPER, "The investigation is complete.")).isNull();
+        assertThat(ResearchNarrationService.parseRefinementDecision(MAPPER, "The investigation is complete.")).isNull();
     }
 
     @Test
     void refinementWithPreambleExtractsJson() {
         String response = "Let me think... {\"action\":\"refine\",\"param1\":67,"
                 + "\"param2\":2.5,\"rationale\":\"narrow to high-yield sub-region\"}";
-        var result = LlmService.parseRefinementDecision(MAPPER, response);
+        var result = ResearchNarrationService.parseRefinementDecision(MAPPER, response);
         assertThat(result).isNotNull();
         assertThat(result.param1()).isEqualTo(67);
     }
@@ -339,7 +339,7 @@ class LlmServiceParseTest {
     @Test
     void refinementRationaleDefaultsToEmptyStringWhenAbsent() {
         String json = "{\"action\":\"refine\",\"param1\":50,\"param2\":3.0}";
-        var result = LlmService.parseRefinementDecision(MAPPER, json);
+        var result = ResearchNarrationService.parseRefinementDecision(MAPPER, json);
         assertThat(result).isNotNull();
         assertThat(result.rationale()).isEmpty();
     }
@@ -354,7 +354,7 @@ class LlmServiceParseTest {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.5,"
                 + "\"cited_paper_ids\":[\"P-a29f-1\",\"P-ABCD-999\",\"P-0000-0\"]}";
-        List<String> ids = LlmService.parseNarrationResult(MAPPER, json).citedPaperIds();
+        List<String> ids = ResearchNarrationService.parseNarrationResult(MAPPER, json).citedPaperIds();
         assertThat(ids).containsExactlyInAnyOrder("P-a29f-1", "P-ABCD-999", "P-0000-0");
     }
 
@@ -363,6 +363,6 @@ class LlmServiceParseTest {
         String json = "{\"hypothesis\":\"h\",\"findings\":\"f\",\"conclusion\":\"c\","
                 + "\"confidenceScore\":0.5,"
                 + "\"cited_paper_ids\":[\"a29f-1\",\"paper-a29f-1\"]}";
-        assertThat(LlmService.parseNarrationResult(MAPPER, json).citedPaperIds()).isEmpty();
+        assertThat(ResearchNarrationService.parseNarrationResult(MAPPER, json).citedPaperIds()).isEmpty();
     }
 }
