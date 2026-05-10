@@ -33,7 +33,7 @@ class LlmServiceParseTest {
                 "prediction":"max_steps > 150","falsification_condition":"max_steps < 50",
                 "mapping_notes":""}}
                 """;
-        var result = LlmService.parseFormulationResult(MAPPER, json);
+        var result = FormulationService.parseFormulationResult(MAPPER, json);
         assertThat(result).isNotNull();
         assertThat(result.param1()).isEqualTo(42);
         assertThat(result.param2()).isEqualTo(3.5);
@@ -50,7 +50,7 @@ class LlmServiceParseTest {
                 {"param1":5,"param2":3.0,"question":"q",
                 "pre_registration":{"hypothesis":"h","prediction":"p","falsification_condition":"f","mapping_notes":""}}
                 """;
-        assertThat(LlmService.parseFormulationResult(MAPPER, json)).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json)).isNull();
     }
 
     @Test
@@ -59,7 +59,7 @@ class LlmServiceParseTest {
                 {"param1":100,"param2":3.0,"question":"q",
                 "pre_registration":{"hypothesis":"h","prediction":"p","falsification_condition":"f","mapping_notes":""}}
                 """;
-        assertThat(LlmService.parseFormulationResult(MAPPER, json)).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json)).isNull();
     }
 
     @Test
@@ -68,7 +68,7 @@ class LlmServiceParseTest {
                 {"param1":50,"param2":0.5,"question":"q",
                 "pre_registration":{"hypothesis":"h","prediction":"p","falsification_condition":"f","mapping_notes":""}}
                 """;
-        assertThat(LlmService.parseFormulationResult(MAPPER, json)).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json)).isNull();
     }
 
     @Test
@@ -77,19 +77,19 @@ class LlmServiceParseTest {
                 {"param1":50,"param2":9.5,"question":"q",
                 "pre_registration":{"hypothesis":"h","prediction":"p","falsification_condition":"f","mapping_notes":""}}
                 """;
-        assertThat(LlmService.parseFormulationResult(MAPPER, json)).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json)).isNull();
     }
 
     @Test
     void formulationReturnsNullForBlankInput() {
-        assertThat(LlmService.parseFormulationResult(MAPPER, null)).isNull();
-        assertThat(LlmService.parseFormulationResult(MAPPER, "")).isNull();
-        assertThat(LlmService.parseFormulationResult(MAPPER, "  ")).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, null)).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, "")).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, "  ")).isNull();
     }
 
     @Test
     void formulationReturnsNullForNonJson() {
-        assertThat(LlmService.parseFormulationResult(MAPPER, "Sorry, I cannot help with that.")).isNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, "Sorry, I cannot help with that.")).isNull();
     }
 
     @Test
@@ -99,7 +99,7 @@ class LlmServiceParseTest {
                 + "\"pre_registration\":{\"hypothesis\":\"High param1 yields peaks\","
                 + "\"prediction\":\"value > 200\",\"falsification_condition\":\"value < 100\","
                 + "\"mapping_notes\":\"\"}}";
-        var result = LlmService.parseFormulationResult(MAPPER, response);
+        var result = FormulationService.parseFormulationResult(MAPPER, response);
         assertThat(result).isNotNull();
         assertThat(result.param1()).isEqualTo(75);
     }
@@ -108,7 +108,7 @@ class LlmServiceParseTest {
     void formulationWithMissingPreRegistrationStillReturnsValidParams() {
         // LLM omits the pre_registration field — params are still valid
         String json = "{\"param1\":30,\"param2\":4.0,\"question\":\"No pre-reg\"}";
-        var result = LlmService.parseFormulationResult(MAPPER, json);
+        var result = FormulationService.parseFormulationResult(MAPPER, json);
         assertThat(result).isNotNull();
         assertThat(result.param1()).isEqualTo(30);
         assertThat(result.preRegistration()).isNull();
@@ -120,7 +120,7 @@ class LlmServiceParseTest {
         String json = "{\"param1\":50,\"param2\":2.0,\"question\":\"q\","
                 + "\"pre_registration\":{\"hypothesis\":\"h\",\"prediction\":\"\","
                 + "\"falsification_condition\":\"f\",\"mapping_notes\":\"\"}}";
-        var result = LlmService.parseFormulationResult(MAPPER, json);
+        var result = FormulationService.parseFormulationResult(MAPPER, json);
         assertThat(result).isNotNull();
         assertThat(result.preRegistration()).isNull();
     }
@@ -133,8 +133,8 @@ class LlmServiceParseTest {
         String json99 = "{\"param1\":99,\"param2\":9.0,\"question\":\"q\","
                 + "\"pre_registration\":{\"hypothesis\":\"h\",\"prediction\":\"p\","
                 + "\"falsification_condition\":\"f\",\"mapping_notes\":\"\"}}";
-        assertThat(LlmService.parseFormulationResult(MAPPER, json10)).isNotNull();
-        assertThat(LlmService.parseFormulationResult(MAPPER, json99)).isNotNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json10)).isNotNull();
+        assertThat(FormulationService.parseFormulationResult(MAPPER, json99)).isNotNull();
     }
 
     // ==========================================================================

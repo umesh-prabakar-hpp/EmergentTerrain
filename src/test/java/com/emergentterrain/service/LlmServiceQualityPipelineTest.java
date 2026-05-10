@@ -37,7 +37,7 @@ class LlmServiceQualityPipelineTest {
                 {"novelty_score":0.6,"coverage_note":"low and mid param1 explored",
                 "unexplored_hint":"try param1 near 80-90"}
                 """;
-        var result = LlmService.parseNoveltyAssessment(MAPPER, json);
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, json);
         assertThat(result.score()).isEqualTo(0.6);
         assertThat(result.coverageNote()).contains("low and mid");
         assertThat(result.unexploredHint()).contains("80-90");
@@ -48,36 +48,36 @@ class LlmServiceQualityPipelineTest {
         String json = """
                 {"novelty_score":1.5,"coverage_note":"x","unexplored_hint":"y"}
                 """;
-        assertThat(LlmService.parseNoveltyAssessment(MAPPER, json).score()).isEqualTo(1.0);
+        assertThat(FormulationService.parseNoveltyAssessment(MAPPER, json).score()).isEqualTo(1.0);
 
         String json2 = """
                 {"novelty_score":-0.3,"coverage_note":"x","unexplored_hint":"y"}
                 """;
-        assertThat(LlmService.parseNoveltyAssessment(MAPPER, json2).score()).isEqualTo(0.0);
+        assertThat(FormulationService.parseNoveltyAssessment(MAPPER, json2).score()).isEqualTo(0.0);
     }
 
     @Test
     void noveltyReturnsFreshAssessmentOnNullInput() {
-        var result = LlmService.parseNoveltyAssessment(MAPPER, null);
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, null);
         assertThat(result.score()).isEqualTo(1.0);
         assertThat(result.isSaturated()).isFalse();
     }
 
     @Test
     void noveltyReturnsFreshAssessmentOnBlankInput() {
-        var result = LlmService.parseNoveltyAssessment(MAPPER, "   ");
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, "   ");
         assertThat(result.score()).isEqualTo(1.0);
     }
 
     @Test
     void noveltyReturnsFreshAssessmentOnNonJson() {
-        var result = LlmService.parseNoveltyAssessment(MAPPER, "Sure! The topic seems well-covered.");
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, "Sure! The topic seems well-covered.");
         assertThat(result.score()).isEqualTo(1.0);
     }
 
     @Test
     void noveltyReturnsFreshAssessmentOnMalformedJson() {
-        var result = LlmService.parseNoveltyAssessment(MAPPER, "{novelty_score: oops}");
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, "{novelty_score: oops}");
         assertThat(result.score()).isEqualTo(1.0);
     }
 
@@ -86,7 +86,7 @@ class LlmServiceQualityPipelineTest {
         String json = """
                 {"novelty_score":0.25,"coverage_note":"fully explored","unexplored_hint":""}
                 """;
-        var result = LlmService.parseNoveltyAssessment(MAPPER, json);
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, json);
         assertThat(result.isSaturated()).isTrue();
     }
 
@@ -95,13 +95,13 @@ class LlmServiceQualityPipelineTest {
         String json = """
                 {"novelty_score":0.31,"coverage_note":"mostly explored","unexplored_hint":"edge region"}
                 """;
-        var result = LlmService.parseNoveltyAssessment(MAPPER, json);
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, json);
         assertThat(result.isSaturated()).isFalse();
     }
 
     @Test
     void noveltyMissingFieldsDefaultSafely() {
-        var result = LlmService.parseNoveltyAssessment(MAPPER, "{}");
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, "{}");
         assertThat(result.score()).isEqualTo(1.0);
         assertThat(result.coverageNote()).isEmpty();
         assertThat(result.unexploredHint()).isEmpty();
@@ -110,7 +110,7 @@ class LlmServiceQualityPipelineTest {
     @Test
     void noveltyPreambleStrippedAndJsonExtracted() {
         String response = "Here is my assessment:\n{\"novelty_score\":0.4,\"coverage_note\":\"mid range\",\"unexplored_hint\":\"high end\"}";
-        var result = LlmService.parseNoveltyAssessment(MAPPER, response);
+        var result = FormulationService.parseNoveltyAssessment(MAPPER, response);
         assertThat(result.score()).isEqualTo(0.4);
     }
 

@@ -868,7 +868,7 @@ public class UniversityService {
                             author.getState().getGenome(), recentForFormulation,
                             author.getState().getResearchHypothesis()})
                     : null;
-            if (formResult instanceof com.emergentterrain.service.LlmService.FormulationResult fr) {
+            if (formResult instanceof com.emergentterrain.service.FormulationService.FormulationResult fr) {
                 param1 = fr.param1();
                 param2 = fr.param2();
                 log.debug("university formulation used botId={} param1={} param2={} question={}",
@@ -902,7 +902,7 @@ public class UniversityService {
 
         // Extract pre-registration from formulation result (null if genome-sampled fallback was used)
         PreRegistration preReg = null;
-        if (!isFollowUp && formResult instanceof com.emergentterrain.service.LlmService.FormulationResult fr) {
+        if (!isFollowUp && formResult instanceof com.emergentterrain.service.FormulationService.FormulationResult fr) {
             preReg = fr.preRegistration();
         }
 
