@@ -9,6 +9,8 @@ This is where the system starts behaving like a scientist rather than a paper ge
 
 **Estimated effort:** 3–4 weeks (AI-assisted). Per-iteration breakdown: Iter 1 ≈ 1 week (reuses `AnomalyTracker` Welford code, structured residuals, ~2–3x compression), Iter 5 ≈ 2–3 weeks (novel algorithmic work; design dominates over typing, only ~1.5x compression).
 
+**Implementation strategy:** **Two separate PRs, one per iteration.** Do not bundle. Iter 1 (surprise engine) is observable on its own — bots produce visible surprise events and replication priorities shift. Ship it first and validate the signal before stacking the planner on top. Iter 5 is behavior-changing — `ExperimentPlannerService` replaces LLM-suggested follow-ups with algorithmic parameter selection — so ship it behind a feature flag (e.g., `app.research.planner.enabled`) and roll out per room. Within Iter 5, ship strategies incrementally: `ADAPTIVE_SWEEP` first, validate on 10+ papers, then add `CONTRADICTION_TARGET`, `REPLICATION`, `EXPLORATION` as follow-up commits. Defer `BAYESIAN_OPTIMIZATION` to a Phase 2b PR.
+
 ---
 
 # Iteration 1 — Surprise-Driven Science Engine

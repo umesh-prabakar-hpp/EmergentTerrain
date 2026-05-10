@@ -9,6 +9,8 @@ A surprising amount of this is already in the codebase — much of Phase 1 is *f
 
 **Estimated effort:** 2–3 weeks (AI-assisted). Per-iteration breakdown: Iter 2 ≈ 0.5–1 week (mostly view code over existing fields, ~3–4x compression), Iter 3 ≈ 1–1.5 weeks (clear JPA schema, structured-output extraction, ~3–4x compression), Iter 4 ≈ 1 week (entities + LLM program-creation prompt, ~2–3x compression).
 
+**Implementation strategy:** **Three separate PRs, one per iteration.** Do not bundle. Each iteration is independently demoable: Iter 2 ships a measurable identity surface, Iter 3 ships a citation graph view, Iter 4 ships longitudinal program tracking. Bundling the phase into a single 2–3 week branch causes review friction and bit-rot against `UniversityService`. Recommended order: Iter 2 → Iter 3 → Iter 4 (the order they're written). Iter 4 is behavior-changing — it replaces `pendingFollowUp` semantics with `ResearchProgram.openQuestions` — so ship it behind a feature flag (e.g., `app.research.programs.enabled`) and roll out per room.
+
 ---
 
 # Iteration 2 — Persistent Research Identity

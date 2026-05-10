@@ -7,6 +7,8 @@ None of this is user-visible. All of it is required.
 
 **Estimated effort:** 3–7 days (AI-assisted; assumes Claude Code or equivalent + a single developer reviewing and integrating)
 
+**Implementation strategy:** **Implement atomically — this is the one exception to the per-iteration rule.** The JPA migration, service splits, and invariant tests reference each other tightly. A half-finished state (e.g., `ResearchPaper` migrated but `LlmService` still monolithic, or `UniversityService` partially carved) is genuinely worse than not starting, because the coupling between subsystems means subsequent work will fight the partial state. Do this as a single coordinated effort — one PR or a tight series merged together — and verify the existing test suite passes end-to-end before declaring it done.
+
 ---
 
 # Task 0.1 — Migrate `ResearchPaper` to a JPA Entity

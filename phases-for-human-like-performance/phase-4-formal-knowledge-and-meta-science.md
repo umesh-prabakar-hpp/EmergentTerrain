@@ -10,6 +10,8 @@ This is where the architecture transitions from a sophisticated simulation to a 
 
 **Estimated effort:** 3–5 weeks (AI-assisted). Per-iteration breakdown: Iter 9 ≈ 1.5–2 weeks (clear JSON schemas, structured LLM output, ~3–4x compression), Iter 10 ≈ 2–3 weeks (mostly observation code with ~3x compression, but the prompt-evolution step is risky and requires careful human review at ~1.5x compression).
 
+**Implementation strategy:** **Two separate PRs, one per iteration.** Do not bundle. Iter 9 ships immediate value — formal findings become queryable, contradictions auto-detected — without changing simulation behavior. Iter 10 is the riskier of the two and should follow only after Iter 9 is stable. Within Iter 10, ship the four evolution targets as separate commits in the documented order (reviewer assignment → funding allocation → exploration heuristics → prompt evolution); the first three are routing/weighting changes, but the fourth (prompt evolution) is genuinely behavior-changing and can degrade narration quality if templates regress. Ship prompt evolution behind a feature flag (e.g., `app.research.prompt.evolution.enabled`) with A/B testing and an automatic rollback trigger if downstream replication rates drop below baseline.
+
 ---
 
 # Iteration 9 — Formal Knowledge Substrate
@@ -185,17 +187,49 @@ The original phase document listed these in increasing risk order. That ordering
 
 All estimates assume AI-assisted development (Claude Code or equivalent) with one developer reviewing and integrating. Compression rates vary: greenfield code with clear schemas compresses ~3–4x vs. traditional development; refactoring stateful subsystems and novel algorithmic work compresses ~1.5–2x.
 
-| Phase | Iterations | AI-assisted | Key Driver |
-|-------|-----------|-------------|------------|
-| 0 | Refactor | 3–7 days | Migrate `ResearchPaper` to JPA; split `LlmService` and `UniversityService` |
-| 1 | 2, 3, 4 | 2–3 weeks | Mostly formalizing existing primitives; many fields already exist on `BotGenome`/`BotLifecycleState`/`BotCivicState` |
-| 2 | 1, 5 | 3–4 weeks | Surprise engine reuses Welford code; experiment planner is novel algorithmic work and compresses less |
-| 3 | 6, 8, 7 | 5–7 weeks | Reordered: world bridge first, institutions next, markets last (depend on institutions). Institution refactor is the slowest item. |
-| 4 | 9, 10 | 3–5 weeks | Structured extraction is fast; prompt-evolution step needs careful human review |
+| Phase | Iterations | AI-assisted | Implementation strategy | Key driver |
+|-------|-----------|-------------|-------------------------|------------|
+| 0 | Refactor | 3–7 days | **Atomic — one PR or tight series.** Only phase that should be bundled. | Migrate `ResearchPaper` to JPA; split `LlmService` and `UniversityService` |
+| 1 | 2, 3, 4 | 2–3 weeks | Three PRs, one per iteration. Iter 4 behind `app.research.programs.enabled` flag. | Mostly formalizing existing primitives on `BotGenome`/`BotLifecycleState`/`BotCivicState` |
+| 2 | 1, 5 | 3–4 weeks | Two PRs. Iter 5 behind `app.research.planner.enabled`; ship strategies incrementally. | Surprise engine reuses Welford; experiment planner is novel algorithmic work |
+| 3 | 6, 8, 7 | 5–7 weeks | Three PRs — never bundle. Each iteration behind its own feature flag. Iter 8 split into sub-commits. | Institution refactor against moving `UniversityService` is the slowest and most fragile item |
+| 4 | 9, 10 | 3–5 weeks | Two PRs. Iter 10 prompt evolution behind `app.research.prompt.evolution.enabled` with A/B + rollback trigger. | Structured extraction is fast; prompt-evolution step needs careful human review |
 
 **Total AI-assisted range:** ~13–20 weeks of active development.
 
 For reference, traditional single-developer estimates (no AI assistance) would be roughly 32–46 weeks. The compression is highest in Phases 1 and 4 (greenfield + clear schemas) and lowest in Phase 3 Iteration 8 (refactoring subtle stateful invariants in `UniversityService` and the bot lifecycle state machine).
+
+## Why per-iteration PRs
+
+The phase docs are organized around **dependency**, not scope. Each iteration is independently demoable and ships measurable value:
+
+- End of Phase 1 Iter 2: visible bot identity surface (methodology, skepticism, reputation trajectory)
+- End of Phase 1 Iter 3: citation graph view with typed relationships
+- End of Phase 1 Iter 4: longitudinal research programs with open questions and failed approaches
+- End of Phase 2 Iter 1: surprise events trigger replication and propagate to peers
+- End of Phase 2 Iter 5: bots autonomously plan their next experiment
+- End of Phase 3 Iter 6: papers about the simulation itself (strongest demo moment)
+- End of Phase 3 Iter 8: universities, journals, funding agencies visible in UI
+- End of Phase 3 Iter 7: prediction markets resolve with calibration scores
+- End of Phase 4 Iter 9: queryable formal findings with auto-detected contradictions
+- End of Phase 4 Iter 10: self-improving methodology
+
+Bundling iterations into a single phase-sized PR forfeits the ability to ship each of these independently and creates merge conflicts against the rest of the codebase.
+
+## Feature flag pattern
+
+The codebase already uses this pattern — `app.university.enabled`, `app.government.enabled`, `app.world.enabled`. Behavior-changing iterations should follow it:
+
+| Iteration | Flag | Why flagged |
+|-----------|------|-------------|
+| Phase 1 Iter 4 | `app.research.programs.enabled` | Replaces `pendingFollowUp` semantics |
+| Phase 2 Iter 5 | `app.research.planner.enabled` | Replaces LLM-suggested follow-ups with algorithmic selection |
+| Phase 3 Iter 6 | `app.world.intervention.enabled` | Bots can propose world changes that route through government |
+| Phase 3 Iter 7 | `app.research.markets.enabled` | Reputation can be staked and lost |
+| Phase 3 Iter 8 | `app.research.institutions.enabled` | Papers route through journals; existing peer review semantics shift |
+| Phase 4 Iter 10 | `app.research.prompt.evolution.enabled` | Prompts mutate based on downstream metrics; can degrade quality |
+
+Roll out per room. Watch metrics. Default-enable only after the signal is stable.
 
 ## Key transitions
 

@@ -9,6 +9,8 @@ and evolve science itself into an emergent social phenomenon with institutions, 
 
 **Estimated effort:** 5–7 weeks (AI-assisted). Per-iteration breakdown: Iter 6 ≈ 1.5–2 weeks (greenfield bridge over existing data, ~2–3x compression), Iter 8 ≈ 2–3 weeks (institution refactor against stateful `UniversityService`, only ~1.5–2x compression), Iter 7 ≈ 1.5–2 weeks (greenfield market service with clear contracts, ~2–3x compression).
 
+**Implementation strategy:** **Three separate PRs — never bundle this phase.** A 5–7 week branch will diverge from main and become unmergeable, especially against the moving `UniversityService`. The institution refactor (Iter 8) alone is a multi-week effort and must not be entangled with world-bridge or market work. Ship in the order specified (6 → 8 → 7), not the document's original ordering: Iter 6 is the highest-leverage demo moment (papers about the simulation itself); Iter 8 establishes the wagering venues that Iter 7 needs; Iter 7 closes the loop. Within Iter 8, prefer multiple small commits — `University` first, then `Journal`, then `FundingAgency`, then `ReplicationCouncil` — rather than one big institution commit. All three iterations include behavior changes affecting existing rooms; ship each behind its own feature flag (`app.world.intervention.enabled`, `app.research.institutions.enabled`, `app.research.markets.enabled`) and enable per-room.
+
 ---
 
 # Iteration 6 — World-Integrated Science
