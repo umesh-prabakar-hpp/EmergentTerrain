@@ -39,5 +39,13 @@ public record PaperDraft(
         List<ResearchPaper> recentPapers,
         String  researchHypothesis,
         PreRegistration preRegistration,
-        ResultClassification resultClassification
+        ResultClassification resultClassification,
+        /**
+         * Phase 2b — the {@link ProgramOpenQuestion} ID that
+         * {@link ExperimentPlannerService} targeted when picking this draft's
+         * params, or null when the planner wasn't consulted. After the paper
+         * publishes, the publish path calls {@code planner.recordOutcome} so
+         * the question's uncertainty decays automatically.
+         */
+        UUID plannerQuestionId
 ) {}

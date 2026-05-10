@@ -75,7 +75,7 @@ class PreRegistrationTest {
                 java.util.List.of(), 0.5, 0.5, 0.0, 1L,
                 java.time.Instant.now(), 1, "P-test-1", 42, 3.0, false,
                 null, null, java.util.List.of(), null,
-                preReg, ResultClassification.SUPPORTED);
+                preReg, ResultClassification.SUPPORTED, null);
 
         assertThat(draft.preRegistration()).isEqualTo(preReg);
         assertThat(draft.resultClassification()).isEqualTo(ResultClassification.SUPPORTED);
@@ -90,7 +90,7 @@ class PreRegistrationTest {
                 java.util.List.of(), 0.3, 0.3, 0.0, 1L,
                 java.time.Instant.now(), 1, "P-test-2", null, null, false,
                 null, null, java.util.List.of(), null,
-                null, ResultClassification.PARTIALLY_SUPPORTED);
+                null, ResultClassification.PARTIALLY_SUPPORTED, null);
 
         assertThat(draft.preRegistration()).isNull();
         assertThat(draft.param1()).isNull();

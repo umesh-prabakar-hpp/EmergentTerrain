@@ -518,7 +518,7 @@ class LlmServiceQualityPipelineTest {
                 100L, Instant.now(), 1,
                 "P-test-dyn", null, null,   // param1=null → dynamic paper
                 false, null, null,
-                List.of(), null, null, ResultClassification.SUPPORTED);
+                List.of(), null, null, ResultClassification.SUPPORTED, null);
     }
 
     private static PaperDraft minimalDraft(ResultClassification classification) {
@@ -531,7 +531,7 @@ class LlmServiceQualityPipelineTest {
                 100L, Instant.now(), 1,
                 "P-test-1", 42, 3.5,
                 false, null, null,
-                List.of(), null, null, classification);
+                List.of(), null, null, classification, null);
     }
 
     private static PaperDraft draftWithPreReg(PreRegistration preReg) {
@@ -544,6 +544,6 @@ class LlmServiceQualityPipelineTest {
                 100L, Instant.now(), 1,
                 "P-test-2", 50, 2.0,
                 false, null, null,
-                List.of(), null, preReg, ResultClassification.SUPPORTED);
+                List.of(), null, preReg, ResultClassification.SUPPORTED, null);
     }
 }

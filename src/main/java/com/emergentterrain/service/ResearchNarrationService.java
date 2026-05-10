@@ -794,7 +794,8 @@ public class ResearchNarrationService {
                 draft.paperId(), draft.param1(), draft.param2(),
                 draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
                 draft.recentPapers(), draft.researchHypothesis(),
-                draft.preRegistration(), draft.resultClassification());
+                draft.preRegistration(), draft.resultClassification(),
+                draft.plannerQuestionId());
     }
 
     private String buildRefinementPrompt(PaperDraft draft, String accumulatedFindings,
@@ -886,7 +887,8 @@ public class ResearchNarrationService {
                         draft.paperId(), draft.param1(), draft.param2(),
                         draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
                         draft.recentPapers(), draft.researchHypothesis(),
-                        draft.preRegistration(), draft.resultClassification());
+                        draft.preRegistration(), draft.resultClassification(),
+                        draft.plannerQuestionId());
             }
         } catch (Exception e) {
             log.warn("LLM statistical framing failed paperId={}: {} — using raw findings",

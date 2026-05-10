@@ -213,6 +213,8 @@ public class ResearchCycleService {
             author.recordPublished(peerScore);
             author.getState().getGenome().recordSuccess(param1, param2, peerScore);
 
+            UUID plannerQuestionId = plan.map(ExperimentPlannerService.ExperimentPlan::targetQuestionId)
+                    .orElse(null);
             PaperDraft draft = new PaperDraft(
                     roomId, author.getBotId(), domain, topicName, title,
                     result.findings(), templateHypothesis, templateConclusion,
@@ -221,7 +223,7 @@ public class ResearchCycleService {
                     author.getGeneration(), paperId, param1, (double) param2, isFollowUp,
                     predictedScore, priorMethodology,
                     ctx.getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
-                    preReg, classification);
+                    preReg, classification, plannerQuestionId);
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
@@ -318,7 +320,7 @@ public class ResearchCycleService {
                     author.getGeneration(), paperId, null, null, false,
                     null, null,
                     ctx.getPublishedPapers(roomId, 5), author.getState().getResearchHypothesis(),
-                    null, dynClassification);
+                    null, dynClassification, null);
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
