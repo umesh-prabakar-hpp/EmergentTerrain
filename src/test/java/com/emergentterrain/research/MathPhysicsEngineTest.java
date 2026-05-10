@@ -158,14 +158,16 @@ class MathPhysicsEngineTest {
 
         com.emergentterrain.repo.ResearchPaperRepository papersRepo =
                 mock(com.emergentterrain.repo.ResearchPaperRepository.class);
+        RoomBotRepository botRepo = mock(RoomBotRepository.class);
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         UniversityService service = new UniversityService(
                 0L, tempDir.toString(), 3, true,
-                mock(RoomBotRepository.class),
+                botRepo,
                 papersRepo,
                 mock(com.emergentterrain.repo.PaperCitationRepository.class),
                 new PopulationEcologyService(),
-                new ReplicationService(papersRepo, mock(RoomBotRepository.class), mapper),
+                new ReplicationService(papersRepo, botRepo, mapper),
+                new BotLifecycleService(botRepo, mapper),
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

@@ -50,22 +50,12 @@ public class UniversityService {
     private static final int MAX_PAPERS_PER_ROOM    = 500;
     private static final int TOURNAMENT_K           = 3;
     private static final double REVIEW_TOLERANCE    = 0.05;  // score-based, not value-based
-    private static final double COMPETENCY_THRESHOLD = 0.60;
-    // Trigger is authorScore (result quality), not peerScore (reviewer reputation).
-    // Lowered from 0.45 to 0.30: cross-domain interdisciplinary topics naturally score lower
-    // due to partial-support claims; 0.30 lets generation-0 bots earn mentoring on their best
-    // PARTIALLY_SUPPORTED work rather than requiring SUPPORTED-level scores to break the cold-start.
     private static final double MENTOR_SCORE_THRESHOLD = 0.30;
 
     // Max pending drafts: if backlog reaches this, skip the research cycle this tick.
     // Keeps paper output naturally paced to LLM throughput with no build-up.
     private final int     maxDraftBacklog;
     private final boolean peerReviewEnabled;
-
-    // Dating constants (static defaults; runtime uses dynamic values from PopulationEcologyService)
-    private static final long   DATING_COOLDOWN_TICKS   = 200L;
-    private static final double DATING_BASE_PROB        = 0.05;
-    private static final int    POPULATION_K_DEFAULT    = 200;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -94,6 +84,7 @@ public class UniversityService {
     private final PaperCitationRepository citationsRepository;
     private final PopulationEcologyService populationEcologyService;
     private final ReplicationService replicationService;
+    private final BotLifecycleService botLifecycleService;
     private final ObjectMapper  objectMapper;
 
     /** Tracks rooms whose in-memory cache has been seeded from the DB. */
@@ -116,6 +107,7 @@ public class UniversityService {
             PaperCitationRepository citationsRepository,
             PopulationEcologyService populationEcologyService,
             ReplicationService replicationService,
+            BotLifecycleService botLifecycleService,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -126,6 +118,7 @@ public class UniversityService {
         this.citationsRepository      = citationsRepository;
         this.populationEcologyService = populationEcologyService;
         this.replicationService       = replicationService;
+        this.botLifecycleService      = botLifecycleService;
         this.objectMapper             = objectMapper;
         try {
             Files.createDirectories(this.researchOutputDir);
@@ -487,7 +480,7 @@ public class UniversityService {
         if (bots.isEmpty()) return;
 
         // Load lifecycle states, initialising any bot that doesn't have one yet
-        Map<UUID, BotLifecycleState> states = loadStates(bots, gameTick);
+        Map<UUID, BotLifecycleState> states = botLifecycleService.loadStates(bots, gameTick);
 
         // Compute dynamic population parameters from government state + current population
         List<ResearchPaper> recentForEcology = getPublishedPapers(roomId, 20);
@@ -503,18 +496,18 @@ public class UniversityService {
         }
 
         // Process elder merges before research
-        processElderMerges(bots, states, dirty, gameTick);
+        botLifecycleService.processElderMerges(bots, states, dirty, gameTick);
 
         // Check if it's time for a competency test (term boundary)
         int termPapers = papersSinceTerm.getOrDefault(roomId, 0);
         if (termPapers >= TERM_PAPERS) {
             papersSinceTerm.put(roomId, 0);
-            runCompetencyTests(bots, states, gameTick, dirty);
+            botLifecycleService.runCompetencyTests(bots, states, gameTick, dirty);
         }
 
         // Build qualified researcher pool (ADULT or ELDER, QUALIFIED).
         // Skip research this tick if drafts are already queued — pace output to LLM throughput.
-        List<Researcher> pool = buildResearcherPool(bots, states);
+        List<Researcher> pool = botLifecycleService.buildResearcherPool(bots, states);
         if (!pool.isEmpty()) {
             if (draftQueueSize.get() < maxDraftBacklog) {
                 Random rng = new Random(gameTick * 1337L + roomId.getLeastSignificantBits());
@@ -525,7 +518,7 @@ public class UniversityService {
         }
 
         // Replication pass — one pending request per tick, uses the qualified researcher pool
-        List<Researcher> poolForReplication = buildResearcherPool(bots, states);
+        List<Researcher> poolForReplication = botLifecycleService.buildResearcherPool(bots, states);
         if (!poolForReplication.isEmpty()) {
             Random rng2 = new Random(gameTick * 7919L + roomId.getMostSignificantBits());
             replicationService.processOne(roomId, poolForReplication, rng2,
@@ -533,10 +526,10 @@ public class UniversityService {
         }
 
         // Dating pass with dynamic K and cooldown
-        processDating(bots, states, dirty, gameTick, params);
+        botLifecycleService.processDating(bots, states, dirty, gameTick, params);
 
         // Persist lifecycle state into each bot's lifecycleJson before saving
-        persistStates(bots, states);
+        botLifecycleService.persistStates(bots, states);
         if (!dirty.isEmpty()) {
             botRepository.saveAll(dirty);
         }
@@ -557,7 +550,7 @@ public class UniversityService {
 
     public Map<String, Object> getStats(UUID roomId) {
         List<RoomBot> bots = botRepository.findByRoom_IdAndStatus(roomId, RoomBot.BotStatus.ACTIVE);
-        Map<UUID, BotLifecycleState> states = loadStatesQuiet(bots);
+        Map<UUID, BotLifecycleState> states = botLifecycleService.loadStatesQuiet(bots);
 
         List<ResearchPaper> papers = roomPapers(roomId);
         Map<String, Long> byDomain = papers.stream()
@@ -597,131 +590,6 @@ public class UniversityService {
     }
 
 
-
-    // ---- Lifecycle: competency test ----
-
-    private void runCompetencyTests(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
-                                    long gameTick, List<RoomBot> dirty) {
-        // Derive test puzzle deterministically from gameTick so all bots face the same instance
-        String[] domains = BotGenome.DOMAINS;
-        String testDomain = domains[(int) (gameTick % domains.length)];
-        int topicIndex    = (int) ((gameTick / 3) % 5);
-        int param1        = 10 + (int) Math.abs(gameTick % 90);
-        double param2     = 1.0 + Math.abs((gameTick >> 16) % 9);
-
-        Random rng = new Random(gameTick);
-        for (RoomBot bot : bots) {
-            BotLifecycleState ls = states.get(bot.getId());
-            if (ls.getLifecycle() == BotLifecycleState.Phase.JUVENILE) continue;
-
-            double score = runCompetencyPuzzle(ls.getGenome(), testDomain, topicIndex, param1, param2, rng);
-            ls.setLastCompetencyScore(score);
-            ls.setLastCompetencyTick(gameTick);
-            ls.setResearchStatus(score >= COMPETENCY_THRESHOLD
-                    ? BotLifecycleState.ResearchStatus.QUALIFIED
-                    : BotLifecycleState.ResearchStatus.UNQUALIFIED);
-
-        }
-        log.info("university competency test domain={} topic={} bots={}",
-                testDomain, topicIndex, bots.size());
-    }
-
-    private double runCompetencyPuzzle(BotGenome genome, String domain, int topicIndex,
-                                       int param1, double param2, Random rng) {
-        if (genome == null) return 0.0;
-        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(genome);
-        MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
-        double score = MathPhysicsEngine.scoreResult(domain, topicIndex, result.reviewValue(), sp);
-        return Math.max(0.0, score + rng.nextGaussian() * 0.05);
-    }
-
-    // ---- Lifecycle: elder merge ----
-
-    private void processElderMerges(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
-                                    List<RoomBot> dirty, long gameTick) {
-        List<RoomBot> elders = bots.stream()
-                .filter(b -> states.get(b.getId()).getLifecycle() == BotLifecycleState.Phase.ELDER)
-                .collect(Collectors.toList());
-        if (elders.size() < 2) return;
-
-        // Sort by fitness ascending; pair up lowest-fitness bots
-        elders.sort(Comparator.comparingDouble(b -> states.get(b.getId()).fitness()));
-
-        // Process one merge per tick to avoid large batch changes
-        RoomBot botB = elders.get(0);  // lowest fitness — will be retired
-        RoomBot botA = elders.get(1);  // survives, absorbs B
-
-        BotLifecycleState stateA = states.get(botA.getId());
-        BotLifecycleState stateB = states.get(botB.getId());
-
-        BotGenome merged = BotGenome.merge(stateA.getGenome(), stateB.getGenome());
-        stateA.setGenome(merged);
-        // Reset age so the survivor continues as ADULT, not immediately re-entering merge queue
-        stateA.setAgeTicks(BotLifecycleState.JUVENILE_TO_ADULT);
-        stateA.setLifecycle(BotLifecycleState.Phase.ADULT);
-
-        botB.setStatus(RoomBot.BotStatus.RETIRED);
-        log.info("university merge: botA={} absorbed botB={} at tick={}",
-                botA.getId(), botB.getId(), gameTick);
-    }
-
-    // ---- Lifecycle: dating ----
-
-    private void processDating(List<RoomBot> bots, Map<UUID, BotLifecycleState> states,
-                                List<RoomBot> dirty, long gameTick, PopulationEcologyService.PopulationParams params) {
-        if (bots.size() >= params.K()) return;
-
-        long cooldown = params.datingCooldown();
-        List<RoomBot> datingCandidates = bots.stream()
-                .filter(b -> {
-                    BotLifecycleState ls = states.get(b.getId());
-                    return ls.getLifecycle() == BotLifecycleState.Phase.ADULT
-                            && (ls.getLastDatedAt() < 0 || gameTick - ls.getLastDatedAt() > cooldown);
-                })
-                .collect(Collectors.toList());
-        if (datingCandidates.size() < 2) return;
-
-        Random rng = new Random(gameTick ^ 0xDA7E5EEDL);
-        Collections.shuffle(datingCandidates, rng);
-
-        // Try one pair per tick
-        RoomBot botA = datingCandidates.get(0);
-        RoomBot botB = datingCandidates.get(1);
-        BotLifecycleState sA = states.get(botA.getId());
-        BotLifecycleState sB = states.get(botB.getId());
-
-        double datingProb = sA.getGenome().getExplorationRate()
-                          * sB.getGenome().getExplorationRate()
-                          * DATING_BASE_PROB;
-        if (rng.nextDouble() > datingProb) return;
-
-        // Create child
-        BotGenome childGenome = BotGenome.crossover(
-                sA.getGenome(), sB.getGenome(), rng, sA.fitness(), sB.fitness());
-        childGenome.mutate(rng);
-
-        BotLifecycleState childState = new BotLifecycleState();
-        childState.setGenome(childGenome);
-        childState.setReputation(0.1);
-
-        RoomBot child = new RoomBot();
-        child.setRoom(botA.getRoom());
-        child.setType("AGENT-C" + gameTick);
-        child.setStatus(RoomBot.BotStatus.ACTIVE);
-        // Position at midpoint of parents
-        if (botA.getX() != null && botB.getX() != null) {
-            child.setX((botA.getX() + botB.getX()) / 2);
-            child.setY((botA.getY() + botB.getY()) / 2);
-        }
-        child.setLifecycleJson(toJson(childState));
-        botRepository.save(child);
-
-        sA.setLastDatedAt(gameTick);
-        sB.setLastDatedAt(gameTick);
-        log.info("university dating: parents={},{} child={} at tick={}",
-                botA.getId(), botB.getId(), child.getId(), gameTick);
-    }
 
     // ---- Research cycle ----
 
@@ -976,27 +844,6 @@ public class UniversityService {
 
     // ---- Researcher pool ----
 
-    private List<Researcher> buildResearcherPool(List<RoomBot> bots,
-                                                  Map<UUID, BotLifecycleState> states) {
-        List<Researcher> pool = new ArrayList<>();
-        for (RoomBot bot : bots) {
-            BotLifecycleState ls = states.get(bot.getId());
-            if (ls.getLifecycle() == BotLifecycleState.Phase.JUVENILE) continue;
-            if (ls.getResearchStatus() != BotLifecycleState.ResearchStatus.QUALIFIED) continue;
-            pool.add(new Researcher(bot.getId().toString(), ls));
-        }
-        // If no one is qualified yet (early game), fall back to all non-juvenile bots
-        if (pool.isEmpty()) {
-            for (RoomBot bot : bots) {
-                BotLifecycleState ls = states.get(bot.getId());
-                if (ls.getLifecycle() != BotLifecycleState.Phase.JUVENILE) {
-                    pool.add(new Researcher(bot.getId().toString(), ls));
-                }
-            }
-        }
-        return pool;
-    }
-
     private Researcher tournamentSelect(List<Researcher> pool, Random rng) {
         Researcher best = null;
         for (int i = 0; i < TOURNAMENT_K; i++) {
@@ -1024,60 +871,6 @@ public class UniversityService {
                 .collect(Collectors.toList());
         List<Researcher> pick = sameDomain.isEmpty() ? candidates : sameDomain;
         return pick.get(rng.nextInt(pick.size()));
-    }
-
-    // ---- Lifecycle state I/O ----
-
-    private Map<UUID, BotLifecycleState> loadStates(List<RoomBot> bots, long gameTick) {
-        Map<UUID, BotLifecycleState> states = new LinkedHashMap<>();
-        int domainIdx = 0;
-        for (RoomBot bot : bots) {
-            boolean isNew = bot.getLifecycleJson() == null || bot.getLifecycleJson().isBlank();
-            BotLifecycleState ls = readLifecycleState(bot);
-            if (ls.getGenome() == null) {
-                ls.setGenome(BotGenome.initialise(bot.getId(), domainIdx));
-            }
-            if (isNew) {
-                // Bots without lifecycle state pre-date the system — start as ADULT, not JUVENILE
-                ls.setAgeTicks(BotLifecycleState.JUVENILE_TO_ADULT);
-                ls.setLifecycle(BotLifecycleState.Phase.ADULT);
-            }
-            states.put(bot.getId(), ls);
-            domainIdx++;
-        }
-        return states;
-    }
-
-    private Map<UUID, BotLifecycleState> loadStatesQuiet(List<RoomBot> bots) {
-        Map<UUID, BotLifecycleState> states = new LinkedHashMap<>();
-        int idx = 0;
-        for (RoomBot bot : bots) {
-            BotLifecycleState ls = readLifecycleState(bot);
-            if (ls.getGenome() == null) ls.setGenome(BotGenome.initialise(bot.getId(), idx));
-            states.put(bot.getId(), ls);
-            idx++;
-        }
-        return states;
-    }
-
-    private BotLifecycleState readLifecycleState(RoomBot bot) {
-        String json = bot.getLifecycleJson();
-        if (json == null || json.isBlank()) return new BotLifecycleState();
-        try {
-            return objectMapper.readValue(json, BotLifecycleState.class);
-        } catch (Exception e) {
-            log.warn("Failed to parse lifecycleJson for bot={}: {}", bot.getId(), e.getMessage());
-            return new BotLifecycleState();
-        }
-    }
-
-    private void persistStates(List<RoomBot> bots, Map<UUID, BotLifecycleState> states) {
-        for (RoomBot bot : bots) {
-            BotLifecycleState ls = states.get(bot.getId());
-            if (ls != null) {
-                bot.setLifecycleJson(toJson(ls));
-            }
-        }
     }
 
     // ---- Dynamic paper title / topic helpers ----
