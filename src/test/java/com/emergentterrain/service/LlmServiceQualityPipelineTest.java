@@ -268,7 +268,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult(
                 "hypothesis text", "findings text", "conclusion text", null, null, 0.8, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
         assertThat(prompt).contains("hypothesis text").contains("findings text").contains("conclusion text");
     }
 
@@ -277,7 +277,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = draftWithPreReg(new PreRegistration(
                 "hyp", "value near 0.3", "no correlation", ""));
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
         assertThat(prompt).contains("value near 0.3");
     }
 
@@ -285,7 +285,7 @@ class LlmServiceQualityPipelineTest {
     void critiquePromptIncludesClassification() {
         PaperDraft draft = minimalDraft(ResultClassification.NULL_RESULT);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
         assertThat(prompt).contains("NULL_RESULT");
     }
 
@@ -298,7 +298,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.7, List.of());
         List<String> weaknesses = List.of("Over-claims the result", "Missing error bounds");
-        String prompt = ResearchNarrationService.buildRevisionPrompt(draft, narration, weaknesses);
+        String prompt = ResearchNarrationService.buildRevisionPrompt(REGISTRY, draft, narration, weaknesses);
         assertThat(prompt).contains("Over-claims the result");
         assertThat(prompt).contains("Missing error bounds");
     }
@@ -307,7 +307,7 @@ class LlmServiceQualityPipelineTest {
     void revisionPromptForNullResultUsesNullConclusionSpec() {
         PaperDraft draft = minimalDraft(ResultClassification.NULL_RESULT);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildRevisionPrompt(draft, narration, List.of("overclaims"));
+        String prompt = ResearchNarrationService.buildRevisionPrompt(REGISTRY, draft, narration, List.of("overclaims"));
         assertThat(prompt).containsIgnoringCase("NOT confirmed");
     }
 
@@ -315,7 +315,7 @@ class LlmServiceQualityPipelineTest {
     void revisionPromptForSupportedResultUsesOpenQuestionSpec() {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
-        String prompt = ResearchNarrationService.buildRevisionPrompt(draft, narration, List.of("minor gap"));
+        String prompt = ResearchNarrationService.buildRevisionPrompt(REGISTRY, draft, narration, List.of("minor gap"));
         assertThat(prompt).contains("open question");
     }
 
@@ -325,7 +325,7 @@ class LlmServiceQualityPipelineTest {
         NarrationResult narration = new NarrationResult(
                 "the original hypothesis", "the original findings", "the original conclusion",
                 null, null, 0.6, List.of());
-        String prompt = ResearchNarrationService.buildRevisionPrompt(draft, narration, List.of("w1"));
+        String prompt = ResearchNarrationService.buildRevisionPrompt(REGISTRY, draft, narration, List.of("w1"));
         assertThat(prompt).contains("the original hypothesis");
         assertThat(prompt).contains("the original findings");
         assertThat(prompt).contains("the original conclusion");
@@ -460,7 +460,7 @@ class LlmServiceQualityPipelineTest {
     void critiquePromptForMathsDraftIncludesDynamicExperimentOption() {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);  // MATHEMATICS, param1=42
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
         assertThat(prompt).contains("dynamic");
         assertThat(prompt).contains("isPrime");
         assertThat(prompt).contains("fraction_satisfying");
@@ -471,7 +471,7 @@ class LlmServiceQualityPipelineTest {
         // Dynamic paper has param1 == null
         PaperDraft draft = dynamicPaperDraft();
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
         assertThat(prompt).contains("No additional computation is possible");
     }
 
@@ -484,7 +484,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.7, List.of());
         String prompt = ResearchNarrationService.buildRevisionPrompt(
-                draft, narration, List.of("w1"),
+                REGISTRY, draft, narration, List.of("w1"),
                 "Professor-directed experiment — \"test at 80\":\nfraction=0.42 ± 0.03\n(Rationale: boundary)");
         assertThat(prompt).contains("PROFESSOR-PRESCRIBED EXPERIMENT");
         assertThat(prompt).contains("test at 80");
@@ -496,7 +496,7 @@ class LlmServiceQualityPipelineTest {
     void revisionPromptWithoutExperimentOmitsProfessorSection() {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.7, List.of());
-        String prompt = ResearchNarrationService.buildRevisionPrompt(draft, narration, List.of("w1"), null);
+        String prompt = ResearchNarrationService.buildRevisionPrompt(REGISTRY, draft, narration, List.of("w1"), null);
         assertThat(prompt).doesNotContain("PROFESSOR-PRESCRIBED");
         assertThat(prompt).doesNotContain("Professor-directed");
     }
@@ -506,7 +506,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
         String prompt = ResearchNarrationService.buildRevisionPrompt(
-                draft, narration, List.of(),
+                REGISTRY, draft, narration, List.of(),
                 "Professor-directed experiment — \"boundary test\":\nresult=0.7\n(Rationale: boundary)");
         assertThat(prompt).contains("no textual weaknesses");
         assertThat(prompt).contains("PROFESSOR-PRESCRIBED EXPERIMENT");

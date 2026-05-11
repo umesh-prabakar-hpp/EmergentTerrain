@@ -137,6 +137,201 @@ public class PromptTemplateRegistry {
                   {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"hypothesis":"Roughly 24% of integers below 302 are abundant or perfect."}
                 """));
 
+        // NARRATION_PRIMARY — the main first-pass narration. Largest template
+        // in the registry by far. Three optional context blocks
+        // ({{ paramsLine }}, {{ followUpNote }}, {{ anomalyNote }}) follow the
+        // pre-carve %s%s%s pattern; {{ preRegSection }} folds the optional
+        // pre-registration block; {{ conclusionSpec }} is one of two JSON
+        // shapes depending on whether the result was classified NULL.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PRIMARY_ID,
+                PromptTemplateIds.NARRATION_PRIMARY_VERSION,
+                """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
+                Title: "{{ title }}"
+                Bot generation: {{ generation }}
+                {{ paramsLine }}{{ followUpNote }}{{ anomalyNote }}
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
+                {{ rawFindings }}
+
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                {{ scaffoldHyp }}
+
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                {{ scaffoldCon }}
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
+                {{ priorPapers }}{{ preRegSection }}
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
+                interpreting the pattern or trend — its significance and what it suggests; \
+                cite a prior paper by ID if relevant",{{ conclusionSpec }},\
+                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
+
+                followUp rules: ONLY include followUp if the prior papers reveal a specific \
+                unexplored parameter region worth targeting next. param1 is an integer 10–99 \
+                (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
+                predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
+                result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
+                confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
+                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain). \
+                For a null result, confidenceScore should reflect confidence that the result is \
+                genuinely null, not confidence in a positive claim.
+                cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
+                you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
+                Optionally — instead of (or in addition to) cited_paper_ids, you may emit a \
+                cited_papers array with typed relationships. Each entry: {"id":"P-xxxx-N",\
+                "type":"SUPPORTS|CONTRADICTS|EXTENDS|REPLICATES|CRITICIZES|DERIVES_FROM",\
+                "confidence":0.0-1.0}. Use SUPPORTS when your findings confirm the cited paper; \
+                CONTRADICTS when they disagree; EXTENDS when you build on it without disputing; \
+                REPLICATES when you ran the same experiment; CRITICIZES when you question its method; \
+                DERIVES_FROM when you inherit its framework. Only include cited_papers when you have \
+                high enough confidence to pick a specific type — otherwise stick with cited_paper_ids.
+                Optional formal_findings array — emit one entry per quantitative relationship the \
+                results support. Each entry: {"relation_type":"PROPORTIONAL|INVERSE|THRESHOLD|NULL",\
+                "dependent_variable":"name","independent_variables":["x1","x2"],\
+                "equation_form":"optional symbolic form","claim_status":"SUPPORTED|PARTIAL|REFUTED|OBSERVATIONAL",\
+                "confidence":0.0-1.0,"valid_region_min":N,"valid_region_max":M}. Use PROPORTIONAL/INVERSE \
+                only when the relationship is clearly monotone; THRESHOLD for step changes; NULL when the \
+                paper found no reliable relationship. Omit the array when nothing is structurally extractable.
+                All text values under 120 words each. Plain prose inside JSON strings only — \
+                no bullet points, no sub-headers, no markdown formatting.
+                """));
+
+        // NARRATION_REFINEMENT — refinement-loop "should I run another step"
+        // decider. Single round-trip with a small JSON reply
+        // ({"action":"refine|done", ...}).
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_REFINEMENT_ID,
+                PromptTemplateIds.NARRATION_REFINEMENT_VERSION,
+                """
+                You are guiding a multi-step computational investigation. \
+                The researcher has {{ iterContext }} — decide whether one more focused \
+                computation would add a meaningfully distinct data point.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
+                Primary parameters: param1={{ param1 }}, param2={{ param2 }}
+                Computations so far:
+                {{ accumulatedFindings }}
+
+                A good refinement target narrows to a sub-region where something \
+                interesting occurred, tests a boundary condition, or checks an \
+                adjacent parameter scale. It must produce quantitatively different \
+                numbers — not a repeat of what is already shown.
+
+                Remaining iterations allowed: {{ remainingIterations }} of {{ maxIterations }}.
+
+                Reply with ONLY one of these JSON forms — no other text:
+                {"action":"refine","param1":N,"param2":X.X,"rationale":"one sentence — what this probes and why"}
+                {"action":"done"}
+
+                param1 int 10–99. param2 decimal 1.0–9.0. \
+                Choose "done" if the finding is already well-characterised or \
+                no clear target remains.
+                """));
+
+        // NARRATION_REVISION — two variants registered under the same id. The
+        // "from-synthesis" variant is used when a tool-calling professor agent
+        // produced a synthesis output; the "from-critique" variant is the
+        // standard path that takes a critique's weakness list plus an optional
+        // professor-prescribed experiment block. Variants pick the same id so
+        // Piece 3 can A/B them as alternative phrasings of the same role; the
+        // current pickActive returns the last-registered variant, so
+        // production callsites pass an explicit version string to disambiguate.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_REVISION_ID,
+                "v1-from-critique",
+                """
+                You are a student revising your computational research paper based on your \
+                professor's feedback.
+
+                Domain: {{ domain }} | Topic: {{ topicName }}
+
+                YOUR ORIGINAL DRAFT:
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                PROFESSOR'S FEEDBACK:
+                {{ weaknessList }}{{ experimentSection }}
+                Revise your paper. Keep correct content unchanged. Qualify over-claims. \
+                If new experimental evidence is shown above, incorporate it naturally — \
+                do not fabricate results beyond what is stated. Do not change physical quantities.
+
+                Reply with ONLY this JSON — no markdown, no preamble:
+                {"hypothesis":"revised hypothesis","findings":"revised 2-3 sentence findings",{{ conclusionSpec }},\
+                "confidenceScore":0.75,"cited_paper_ids":[]}
+
+                All text values plain prose, under 120 words each.
+                """));
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_REVISION_ID,
+                "v1-from-synthesis",
+                """
+                You are a student revising your computational research paper based on your professor's review.
+                Incorporate the professor's experimental findings naturally into the revised text.
+                Address the identified weaknesses. Do not introduce new claims beyond what the data supports.
+
+                {{ paramsLine }}Domain: {{ domain }} | Topic: {{ topicName }}
+
+                PROFESSOR'S REVIEW:
+                {{ professorSynthesis }}
+
+                CURRENT DRAFT:
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Rewrite the paper as:
+                {"hypothesis":"...",
+                 "findings":"2-3 sentences with appropriate precision; incorporate new experimental evidence",
+                 {{ conclusionSpec }},
+                 "confidenceScore":0.0-1.0}
+                Reply with ONLY the JSON.
+                """));
+
+        // NARRATION_CRITIQUE — self-critique before revision. The {{ experimentSpec }}
+        // composite slot folds in one of three pre-carve branches: a "dynamic +
+        // param" block when the topic supports number-theoretic experiments, a
+        // param-only block when only param-based computation is possible, or a
+        // single-line "no additional computation" fallback. The
+        // {{ preRegAndClassLines }} composite slot folds the optional
+        // pre-registration and result-classification lines, matching the
+        // pre-carve %s%s pattern.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_CRITIQUE_ID,
+                PromptTemplateIds.NARRATION_CRITIQUE_VERSION,
+                """
+                You are a professor reviewing a student's computational research paper.
+
+                Domain: {{ domain }} | Topic: {{ topicName }}
+                {{ preRegAndClassLines }}
+                Student's draft:
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Provide two types of feedback:
+                1. Up to 2 textual weaknesses (overclaiming, missing qualifications, logic gaps,
+                   conclusions that contradict the pre-registered prediction).
+                2. ONE prescribed experiment — a specific computation that would directly address
+                   a real weakness in the paper. Only prescribe if it would materially change
+                   what can be claimed. Omit if the paper is already well-supported.
+
+                {{ experimentSpec }}
+                Reply with ONLY this JSON — no other text:
+                {"weaknesses":["w1","w2"],"experimental_gap":{...}}
+                Omit experimental_gap entirely if no computation would help.
+                Return weaknesses as an empty array if the draft is sound.
+                """));
+
         // NARRATION_STATISTICAL_FRAMING — second-pass editor that takes raw
         // computational findings and re-shapes them into precision-aware
         // scientific prose. Single round-trip, free-form text reply (NOT JSON).

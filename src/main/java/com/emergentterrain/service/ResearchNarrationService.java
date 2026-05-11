@@ -236,7 +236,7 @@ public class ResearchNarrationService {
             // Phase 3 — Student revision incorporating professor's findings
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamPrimary(buildRevisionPromptFromSynthesis(draft, firstPass, professorSynthesis),
+            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass, professorSynthesis),
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -271,7 +271,7 @@ public class ResearchNarrationService {
                                                             List<String> callPath) {
         try {
             long critiqueStart = System.currentTimeMillis();
-            String critiqueResponse = router.callFast(buildCritiquePrompt(draft, firstPass));
+            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass));
             CritiqueResult critique = parseCritiqueResult(critiqueResponse);
 
             if (!critique.hasActionableFeedback()) {
@@ -293,7 +293,7 @@ public class ResearchNarrationService {
             long revisionStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
             router.streamPrimary(
-                    buildRevisionPrompt(draft, firstPass, critique.weaknesses(), professorExperiment),
+                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), professorExperiment),
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -363,7 +363,8 @@ public class ResearchNarrationService {
         }
     }
 
-    static String buildCritiquePrompt(PaperDraft draft, NarrationResult narration) {
+    static String buildCritiquePrompt(PromptTemplateRegistry registry,
+                                       PaperDraft draft, NarrationResult narration) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
         String classLine  = draft.resultClassification() != null
@@ -399,33 +400,15 @@ public class ResearchNarrationService {
             experimentSpec = "No additional computation is possible for this paper type.\n";
         }
 
-        return """
-                You are a professor reviewing a student's computational research paper.
-
-                Domain: %s | Topic: %s
-                %s%s
-                Student's draft:
-                Hypothesis: %s
-                Findings: %s
-                Conclusion: %s
-
-                Provide two types of feedback:
-                1. Up to 2 textual weaknesses (overclaiming, missing qualifications, logic gaps,
-                   conclusions that contradict the pre-registered prediction).
-                2. ONE prescribed experiment — a specific computation that would directly address
-                   a real weakness in the paper. Only prescribe if it would materially change
-                   what can be claimed. Omit if the paper is already well-supported.
-
-                %s
-                Reply with ONLY this JSON — no other text:
-                {"weaknesses":["w1","w2"],"experimental_gap":{...}}
-                Omit experimental_gap entirely if no computation would help.
-                Return weaknesses as an empty array if the draft is sound.
-                """.formatted(
-                draft.domain(), draft.topicName(),
-                preRegLine, classLine,
-                narration.hypothesis(), narration.findings(), narration.conclusion(),
-                experimentSpec);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",              draft.domain());
+        params.put("topicName",           draft.topicName());
+        params.put("preRegAndClassLines", preRegLine + classLine);
+        params.put("hypothesis",          narration.hypothesis());
+        params.put("findings",            narration.findings());
+        params.put("conclusion",          narration.conclusion());
+        params.put("experimentSpec",      experimentSpec);
+        return registry.render(PromptTemplateIds.NARRATION_CRITIQUE_ID, params);
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
@@ -533,7 +516,8 @@ public class ResearchNarrationService {
         return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID, params);
     }
 
-    static String buildRevisionPromptFromSynthesis(PaperDraft draft, NarrationResult firstPass,
+    static String buildRevisionPromptFromSynthesis(PromptTemplateRegistry registry,
+                                                    PaperDraft draft, NarrationResult firstPass,
                                                     String professorSynthesis) {
         boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
         String conclusionSpec = isNull
@@ -543,41 +527,28 @@ public class ResearchNarrationService {
         String paramsLine = draft.param1() != null
                 ? "Primary parameters: param1=%d, param2=%.1f\n".formatted(draft.param1(), draft.param2())
                 : "";
-        return """
-                You are a student revising your computational research paper based on your professor's review.
-                Incorporate the professor's experimental findings naturally into the revised text.
-                Address the identified weaknesses. Do not introduce new claims beyond what the data supports.
-
-                %sDomain: %s | Topic: %s
-
-                PROFESSOR'S REVIEW:
-                %s
-
-                CURRENT DRAFT:
-                Hypothesis: %s
-                Findings: %s
-                Conclusion: %s
-
-                Rewrite the paper as:
-                {"hypothesis":"...",
-                 "findings":"2-3 sentences with appropriate precision; incorporate new experimental evidence",
-                 %s,
-                 "confidenceScore":0.0-1.0}
-                Reply with ONLY the JSON.
-                """.formatted(paramsLine, draft.domain(), draft.topicName(),
-                professorSynthesis,
-                firstPass.hypothesis(), firstPass.findings(), firstPass.conclusion(),
-                conclusionSpec);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("paramsLine",         paramsLine);
+        params.put("domain",             draft.domain());
+        params.put("topicName",          draft.topicName());
+        params.put("professorSynthesis", professorSynthesis);
+        params.put("hypothesis",         firstPass.hypothesis());
+        params.put("findings",           firstPass.findings());
+        params.put("conclusion",         firstPass.conclusion());
+        params.put("conclusionSpec",     conclusionSpec);
+        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
 
-    static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
+    static String buildRevisionPrompt(PromptTemplateRegistry registry,
+                                      PaperDraft draft, NarrationResult firstPass,
                                       List<String> weaknesses) {
-        return buildRevisionPrompt(draft, firstPass, weaknesses, null);
+        return buildRevisionPrompt(registry, draft, firstPass, weaknesses, null);
     }
 
-    static String buildRevisionPrompt(PaperDraft draft, NarrationResult firstPass,
+    static String buildRevisionPrompt(PromptTemplateRegistry registry,
+                                      PaperDraft draft, NarrationResult firstPass,
                                       List<String> weaknesses, String professorExperiment) {
         String weaknessList = weaknesses.isEmpty() ? "  (no textual weaknesses — address the new experimental evidence only)"
                 : weaknesses.stream()
@@ -594,32 +565,16 @@ public class ResearchNarrationService {
                   + "\nIntegrate this new evidence naturally. In your findings, reference it as a "
                   + "follow-up test. In your conclusion, state whether it resolves the weakness "
                   + "or raises a new question.\n";
-        return """
-                You are a student revising your computational research paper based on your \
-                professor's feedback.
-
-                Domain: %s | Topic: %s
-
-                YOUR ORIGINAL DRAFT:
-                Hypothesis: %s
-                Findings: %s
-                Conclusion: %s
-
-                PROFESSOR'S FEEDBACK:
-                %s%s
-                Revise your paper. Keep correct content unchanged. Qualify over-claims. \
-                If new experimental evidence is shown above, incorporate it naturally — \
-                do not fabricate results beyond what is stated. Do not change physical quantities.
-
-                Reply with ONLY this JSON — no markdown, no preamble:
-                {"hypothesis":"revised hypothesis","findings":"revised 2-3 sentence findings",%s,\
-                "confidenceScore":0.75,"cited_paper_ids":[]}
-
-                All text values plain prose, under 120 words each.
-                """.formatted(
-                draft.domain(), draft.topicName(),
-                firstPass.hypothesis(), firstPass.findings(), firstPass.conclusion(),
-                weaknessList, experimentSection, conclusionSpec);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",             draft.domain());
+        params.put("topicName",          draft.topicName());
+        params.put("hypothesis",         firstPass.hypothesis());
+        params.put("findings",           firstPass.findings());
+        params.put("conclusion",         firstPass.conclusion());
+        params.put("weaknessList",       weaknessList);
+        params.put("experimentSection",  experimentSection);
+        params.put("conclusionSpec",     conclusionSpec);
+        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-critique", params);
     }
 
     private List<String> parseCritiqueWeaknesses(String response) {
@@ -795,36 +750,17 @@ public class ResearchNarrationService {
         String iterContext = iteration == 1
                 ? "initial result"
                 : "results so far (%d computations completed)".formatted(iteration);
-        return """
-                You are guiding a multi-step computational investigation. \
-                The researcher has %s — decide whether one more focused \
-                computation would add a meaningfully distinct data point.
-
-                Domain: %s | Topic: %s | Methodology: %s
-                Primary parameters: param1=%d, param2=%.1f
-                Computations so far:
-                %s
-
-                A good refinement target narrows to a sub-region where something \
-                interesting occurred, tests a boundary condition, or checks an \
-                adjacent parameter scale. It must produce quantitatively different \
-                numbers — not a repeat of what is already shown.
-
-                Remaining iterations allowed: %d of %d.
-
-                Reply with ONLY one of these JSON forms — no other text:
-                {"action":"refine","param1":N,"param2":X.X,"rationale":"one sentence — what this probes and why"}
-                {"action":"done"}
-
-                param1 int 10–99. param2 decimal 1.0–9.0. \
-                Choose "done" if the finding is already well-characterised or \
-                no clear target remains.
-                """.formatted(
-                iterContext,
-                draft.domain(), draft.topicName(), draft.methodology(),
-                draft.param1(), draft.param2(),
-                compact,
-                maxIterations - iteration + 1, maxIterations);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("iterContext",          iterContext);
+        params.put("domain",               draft.domain());
+        params.put("topicName",            draft.topicName());
+        params.put("methodology",          draft.methodology());
+        params.put("param1",               String.valueOf(draft.param1()));
+        params.put("param2",               String.format("%.1f", draft.param2()));
+        params.put("accumulatedFindings",  compact);
+        params.put("remainingIterations",  String.valueOf(maxIterations - iteration + 1));
+        params.put("maxIterations",        String.valueOf(maxIterations));
+        return promptRegistry.render(PromptTemplateIds.NARRATION_REFINEMENT_ID, params);
     }
 
     private RefinementDecision parseRefinementDecision(String response) {
@@ -1013,73 +949,22 @@ public class ResearchNarrationService {
                 : "\"conclusion\":\"1-2 sentences: assess whether the pre-registered prediction was "
                   + "met (if applicable); what this result implies; one concrete open question it raises\"";
 
-        return """
-                You are writing the narrative for a computational research paper in a simulation.
-
-                Domain: %s | Topic: %s | Methodology: %s
-                Title: "%s"
-                Bot generation: %d
-                %s%s%s
-                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
-                tables or copy individual values:
-                %s
-
-                Preliminary hypothesis (rewrite in your own words, grounding it in the \
-                computation parameters above):
-                %s
-
-                Preliminary conclusion (rewrite — explain what the result implies and what \
-                open question it raises for the next investigation):
-                %s
-
-                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
-                %s%s
-                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
-                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
-                computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
-                interpreting the pattern or trend — its significance and what it suggests; \
-                cite a prior paper by ID if relevant",%s,\
-                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
-                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
-
-                followUp rules: ONLY include followUp if the prior papers reveal a specific \
-                unexplored parameter region worth targeting next. param1 is an integer 10–99 \
-                (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
-                predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
-                result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
-                confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
-                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain). \
-                For a null result, confidenceScore should reflect confidence that the result is \
-                genuinely null, not confidence in a positive claim.
-                cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
-                you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
-                Optionally — instead of (or in addition to) cited_paper_ids, you may emit a \
-                cited_papers array with typed relationships. Each entry: {"id":"P-xxxx-N",\
-                "type":"SUPPORTS|CONTRADICTS|EXTENDS|REPLICATES|CRITICIZES|DERIVES_FROM",\
-                "confidence":0.0-1.0}. Use SUPPORTS when your findings confirm the cited paper; \
-                CONTRADICTS when they disagree; EXTENDS when you build on it without disputing; \
-                REPLICATES when you ran the same experiment; CRITICIZES when you question its method; \
-                DERIVES_FROM when you inherit its framework. Only include cited_papers when you have \
-                high enough confidence to pick a specific type — otherwise stick with cited_paper_ids.
-                Optional formal_findings array — emit one entry per quantitative relationship the \
-                results support. Each entry: {"relation_type":"PROPORTIONAL|INVERSE|THRESHOLD|NULL",\
-                "dependent_variable":"name","independent_variables":["x1","x2"],\
-                "equation_form":"optional symbolic form","claim_status":"SUPPORTED|PARTIAL|REFUTED|OBSERVATIONAL",\
-                "confidence":0.0-1.0,"valid_region_min":N,"valid_region_max":M}. Use PROPORTIONAL/INVERSE \
-                only when the relationship is clearly monotone; THRESHOLD for step changes; NULL when the \
-                paper found no reliable relationship. Omit the array when nothing is structurally extractable.
-                All text values under 120 words each. Plain prose inside JSON strings only — \
-                no bullet points, no sub-headers, no markdown formatting.
-                """.formatted(
-                draft.domain(), draft.topicName(), draft.methodology(),
-                draft.title(), draft.generation(),
-                paramsLine, followUpNote, anomalyNote,
-                compactRawFindings(draft.rawFindings()),
-                scaffoldHyp,
-                scaffoldCon,
-                priorSection.trim(),
-                preRegSection,
-                conclusionSpec);
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",         draft.domain());
+        params.put("topicName",      draft.topicName());
+        params.put("methodology",    draft.methodology());
+        params.put("title",          draft.title());
+        params.put("generation",     String.valueOf(draft.generation()));
+        params.put("paramsLine",     paramsLine);
+        params.put("followUpNote",   followUpNote);
+        params.put("anomalyNote",    anomalyNote);
+        params.put("rawFindings",    compactRawFindings(draft.rawFindings()));
+        params.put("scaffoldHyp",    scaffoldHyp);
+        params.put("scaffoldCon",    scaffoldCon);
+        params.put("priorPapers",    priorSection.trim());
+        params.put("preRegSection",  preRegSection);
+        params.put("conclusionSpec", conclusionSpec);
+        return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID, params);
     }
 
     private static String compactRawFindings(String raw) {

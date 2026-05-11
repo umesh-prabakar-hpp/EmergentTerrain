@@ -513,6 +513,124 @@ class PromptTemplateRegistryTest {
         assertThat(registryRendered).isEqualTo(inlineExpected);
     }
 
+    @Test
+    void narrationPrimaryRendersToSameStringAsOldInlineFormat() {
+        // Byte-for-byte regression test for the largest template in the
+        // registry. The five optional composite slots ({{ paramsLine }},
+        // {{ followUpNote }}, {{ anomalyNote }}, {{ preRegSection }},
+        // {{ conclusionSpec }}) follow the pre-carve %s%s%s + %s%s + %s
+        // patterns. All other slots are direct value substitutions.
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        String domain        = "MATHEMATICS";
+        String topicName     = "collatz";
+        String methodology   = "EMPIRICAL";
+        String title         = "Bounded-depth Collatz traces at scale";
+        int    generation    = 5;
+        String paramsLine    = "Computation parameters: starting position 47, scale 5.3\n";
+        String followUpNote  = "IMPORTANT: This paper is a deliberate follow-up investigation — "
+                             + "the author's prior conclusion suggested this exact parameter region.\n";
+        String anomalyNote   = "NOTE: This result sits at z=+1.7 σ from the room baseline — "
+                             + "moderately noteworthy.\n";
+        String rawFindings   = "mean_steps=88.3 ± 4.1 across the sampled range";
+        String scaffoldHyp   = "Collatz depth grows logarithmically with seed";
+        String scaffoldCon   = "Consistent with the conjectured log-bound at this scale";
+        String priorPapers   = "  P-1 [score 0.81]: collatz steps grow modestly";
+        String preRegSection = "\nPre-registered hypothesis (locked before computation ran): log(n)\n"
+                             + "Pre-registered prediction: monotonic\n"
+                             + "Falsification condition: linear blowup\n";
+        String conclusionSpec = "\"conclusion\":\"1-2 sentences: assess whether the pre-registered "
+                              + "prediction was met (if applicable); what this result implies; one "
+                              + "concrete open question it raises\"";
+
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         domain);
+        params.put("topicName",      topicName);
+        params.put("methodology",    methodology);
+        params.put("title",          title);
+        params.put("generation",     String.valueOf(generation));
+        params.put("paramsLine",     paramsLine);
+        params.put("followUpNote",   followUpNote);
+        params.put("anomalyNote",    anomalyNote);
+        params.put("rawFindings",    rawFindings);
+        params.put("scaffoldHyp",    scaffoldHyp);
+        params.put("scaffoldCon",    scaffoldCon);
+        params.put("priorPapers",    priorPapers);
+        params.put("preRegSection",  preRegSection);
+        params.put("conclusionSpec", conclusionSpec);
+
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_PRIMARY_ID, params);
+
+        // Reproduce the pre-migration template body byte-for-byte.
+        String inlineExpected = """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: %s | Topic: %s | Methodology: %s
+                Title: "%s"
+                Bot generation: %d
+                %s%s%s
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
+                %s
+
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                %s
+
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                %s
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
+                %s%s
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
+                interpreting the pattern or trend — its significance and what it suggests; \
+                cite a prior paper by ID if relevant",%s,\
+                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
+
+                followUp rules: ONLY include followUp if the prior papers reveal a specific \
+                unexplored parameter region worth targeting next. param1 is an integer 10–99 \
+                (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
+                predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
+                result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
+                confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
+                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain). \
+                For a null result, confidenceScore should reflect confidence that the result is \
+                genuinely null, not confidence in a positive claim.
+                cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
+                you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
+                Optionally — instead of (or in addition to) cited_paper_ids, you may emit a \
+                cited_papers array with typed relationships. Each entry: {"id":"P-xxxx-N",\
+                "type":"SUPPORTS|CONTRADICTS|EXTENDS|REPLICATES|CRITICIZES|DERIVES_FROM",\
+                "confidence":0.0-1.0}. Use SUPPORTS when your findings confirm the cited paper; \
+                CONTRADICTS when they disagree; EXTENDS when you build on it without disputing; \
+                REPLICATES when you ran the same experiment; CRITICIZES when you question its method; \
+                DERIVES_FROM when you inherit its framework. Only include cited_papers when you have \
+                high enough confidence to pick a specific type — otherwise stick with cited_paper_ids.
+                Optional formal_findings array — emit one entry per quantitative relationship the \
+                results support. Each entry: {"relation_type":"PROPORTIONAL|INVERSE|THRESHOLD|NULL",\
+                "dependent_variable":"name","independent_variables":["x1","x2"],\
+                "equation_form":"optional symbolic form","claim_status":"SUPPORTED|PARTIAL|REFUTED|OBSERVATIONAL",\
+                "confidence":0.0-1.0,"valid_region_min":N,"valid_region_max":M}. Use PROPORTIONAL/INVERSE \
+                only when the relationship is clearly monotone; THRESHOLD for step changes; NULL when the \
+                paper found no reliable relationship. Omit the array when nothing is structurally extractable.
+                All text values under 120 words each. Plain prose inside JSON strings only — \
+                no bullet points, no sub-headers, no markdown formatting.
+                """.formatted(
+                        domain, topicName, methodology,
+                        title, generation,
+                        paramsLine, followUpNote, anomalyNote,
+                        rawFindings,
+                        scaffoldHyp, scaffoldCon,
+                        priorPapers, preRegSection,
+                        conclusionSpec);
+
+        assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
     private static PromptTemplateRegistry freshSeededRegistry() {
         PromptTemplateRegistry r = new PromptTemplateRegistry();
         r.seedDefaults();   // package-private, invoked here exactly like @PostConstruct would.
