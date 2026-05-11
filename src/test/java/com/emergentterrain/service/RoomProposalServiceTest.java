@@ -19,7 +19,11 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class RoomProposalServiceTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final RoomProposalService svc = new RoomProposalService(objectMapper);
+    // Phase 1 tests only exercise the codec + tile-math surface, which has no
+    // dependencies on the injected services / repos. Null is safe for them here;
+    // Phase 2 tests in a sibling class wire the bot-vote dependencies properly.
+    private final RoomProposalService svc = new RoomProposalService(
+            objectMapper, null, null, null, null, null, null, false, 0.0);
 
     // ---------- proposalDeltaType ----------
 

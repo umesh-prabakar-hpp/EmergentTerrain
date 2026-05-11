@@ -1,14 +1,24 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.domain.Room;
+import com.emergentterrain.domain.RoomBot;
 import com.emergentterrain.domain.RoomProposal;
+import com.emergentterrain.repo.RoomBotRepository;
+import com.emergentterrain.repo.RoomProposalRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 /**
  * Phase 2.5 carve (Phase 1 — codec + tile-math helpers): pure helpers that
@@ -51,9 +61,33 @@ import java.util.Map;
 public class RoomProposalService {
 
     private final ObjectMapper objectMapper;
+    private final RoomProposalRepository proposalRepository;
+    private final RoomBotRepository botRepository;
+    private final BotArchetypeBehaviorService archetypes;
+    private final TileValidatorService validator;
+    private final BotMovementService movement;
+    private final OccupancyService occupancy;
+    private final boolean botRuleChecksEnabled;
+    private final double botApproveBias;
 
-    public RoomProposalService(ObjectMapper objectMapper) {
+    public RoomProposalService(ObjectMapper objectMapper,
+                               RoomProposalRepository proposalRepository,
+                               RoomBotRepository botRepository,
+                               BotArchetypeBehaviorService archetypes,
+                               TileValidatorService validator,
+                               BotMovementService movement,
+                               OccupancyService occupancy,
+                               @Value("${app.consensus.botRuleChecksEnabled:false}") boolean botRuleChecksEnabled,
+                               @Value("${app.consensus.botApproveBias:0.0}") double botApproveBias) {
         this.objectMapper = objectMapper;
+        this.proposalRepository = proposalRepository;
+        this.botRepository = botRepository;
+        this.archetypes = archetypes;
+        this.validator = validator;
+        this.movement = movement;
+        this.occupancy = occupancy;
+        this.botRuleChecksEnabled = botRuleChecksEnabled;
+        this.botApproveBias = Math.max(0.0, Math.min(0.95, botApproveBias));
     }
 
     /**
@@ -312,5 +346,263 @@ public class RoomProposalService {
             case "clear" -> 0;
             default -> null;
         };
+    }
+
+    // ---------------------------------------------------------------------
+    // Phase 2 — bot-vote machinery (lifted from RoomService in a follow-up).
+    // ---------------------------------------------------------------------
+
+    /**
+     * Aggregate tile-share statistics over the viewport around an anchor.
+     * Pure; reads only from the supplied {@code tiles} / {@code highways}
+     * arrays and the {@link OccupancyService} viewport math. Empty viewport
+     * (no tiles) returns an all-zeros snapshot with {@code total == 0}.
+     */
+    public LocalStats localStats(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
+        int[] view = occupancy.computeViewBounds(anchorX, anchorY, tiles);
+        int viewX = view[0];
+        int viewY = view[1];
+        int viewW = view[2];
+        int viewH = view[3];
+        int total = 0;
+        int forest = 0;
+        int water = 0;
+        int industry = 0;
+        int clear = 0;
+        int road = 0;
+        for (int y = viewY; y < viewY + viewH; y++) {
+            for (int x = viewX; x < viewX + viewW; x++) {
+                int v = tiles[y][x];
+                total++;
+                if (v == 1) forest++;
+                else if (v == 2) water++;
+                else if (v == 3) industry++;
+                else clear++;
+                if ((highways.length > 0 && highways[y][x]) || v == 4) {
+                    road++;
+                }
+            }
+        }
+        if (total == 0) {
+            return new LocalStats(0, 0, 0, 0, 0, 0);
+        }
+        return new LocalStats(
+            total,
+            (double) forest / total,
+            (double) water / total,
+            (double) clear / total,
+            (double) industry / total,
+            (double) road / total
+        );
+    }
+
+    /**
+     * Reads the room's most recent proposals (top 10 by createdAt) and
+     * returns the resolved delta types (in the same order; nulls preserved
+     * for proposals with absent or unparsable delta types). Used by the
+     * rapid-oscillation rule inside {@code violatesCommunityRules}.
+     */
+    public List<Integer> recentProposalDeltaTypes(Room room) {
+        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
+        List<Integer> types = new ArrayList<>(recent.size());
+        for (RoomProposal proposal : recent) {
+            types.add(proposalDeltaType(proposal));
+        }
+        return types;
+    }
+
+    /**
+     * True when at least 2 of the 3 most recent typed proposals in the room
+     * propose the same tile {@code type}. The 3-sample cap matches the
+     * pre-carve heuristic: enough for a "trend" signal, short enough that a
+     * single counterexample resets it. Used to flip CONTRARIAN bots into
+     * always-reject mode when the herd is moving in one direction.
+     */
+    public boolean isTrendMajority(Room room, int type) {
+        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
+        if (recent.isEmpty()) {
+            return false;
+        }
+        int same = 0;
+        int total = 0;
+        for (RoomProposal proposal : recent) {
+            Integer t = proposalDeltaType(proposal);
+            if (t == null) continue;
+            total++;
+            if (t == type) same++;
+            if (total >= 3) break;
+        }
+        return total > 0 && same >= 2;
+    }
+
+    /**
+     * Returns the tile type of the most recent human (non-bot) proposal in
+     * the room, or null when no human has proposed in the last 10. Used by
+     * NEIGHBOR_MIRROR bots to mirror the most recent human direction.
+     */
+    public Integer lastHumanProposalType(Room room) {
+        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
+        for (RoomProposal proposal : recent) {
+            if (Boolean.TRUE.equals(proposal.isBotGenerated())) {
+                continue;
+            }
+            return proposalDeltaType(proposal);
+        }
+        return null;
+    }
+
+    /**
+     * Decides how a single bot would vote on a proposed change, given the
+     * bot's pre-resolved profile + the (base, proposed) tile arrays
+     * straddling exactly one tile change. The {@code driftCallback} is
+     * invoked (with the bot and the pre-change {@code LocalStats}) so the
+     * caller can perform the side-effecting profile drift + DB save that
+     * follows a vote — when null, no drift fires.
+     *
+     * The pre-carve {@code Math.random()} call ordering is preserved
+     * verbatim. Five archetypes have special-case logic that runs before
+     * the general-rule fan-out: NEIGHBOR_MIRROR mirrors the most recent
+     * human, CONTRARIAN rejects when the herd is moving, the
+     * archetype-dislikes-this-type rule rejects unconditionally, the
+     * community-rules gate rejects probabilistically, and the
+     * archetype-prefers-this-type rule approves on improvement. Everything
+     * else falls through to {@link BotMovementService#tilePreferenceScore}
+     * with a risk-flip and conflict-flip on top.
+     */
+    public BotVote botVoteDecision(Room room,
+                                   RoomBot bot,
+                                   Map<String, Double> profile,
+                                   int[][] baseTiles,
+                                   int[][] proposedTiles,
+                                   boolean[][] highways,
+                                   boolean proposalBotGenerated,
+                                   BiConsumer<RoomBot, LocalStats> driftCallback) {
+        int[] change = findChangeType(baseTiles, proposedTiles);
+        if (change == null) {
+            return BotVote.ABSTAIN;
+        }
+        int type = change[2];
+        String archetype = archetypes.archetypeFor(bot);
+        LocalStats before = localStats(baseTiles, highways, change[0], change[1]);
+        LocalStats after = localStats(proposedTiles, highways, change[0], change[1]);
+        double beforeScore = archetypes.prosperityScore(before, archetype);
+        double afterScore = archetypes.prosperityScore(after, archetype);
+        double improvement = beforeScore - afterScore;
+        double risk = profile.getOrDefault("risk", 0.5);
+        double abstainProb = profile.getOrDefault("abstain", 0.08);
+        double conflictProb = profile.getOrDefault("conflict", 0.08);
+        double consensus = profile.getOrDefault("consensus", 0.5);
+        double community = Math.min(1.0, Math.max(0.1, consensus * 0.8 + profile.getOrDefault("mobility", 0.5) * 0.2));
+
+        boolean prefers = archetypes.prefersType(archetype, type);
+        boolean dislikes = archetypes.dislikesType(archetype, type, before);
+        boolean contrarian = "CONTRARIAN".equals(archetype) && isTrendMajority(room, type);
+        boolean mirror = "NEIGHBOR_MIRROR".equals(archetype);
+
+        if (mirror) {
+            Integer lastHuman = lastHumanProposalType(room);
+            if (lastHuman != null) {
+                return lastHuman == type ? BotVote.APPROVE : BotVote.REJECT;
+            }
+        }
+
+        if (contrarian) {
+            return BotVote.REJECT;
+        }
+
+        if (dislikes) {
+            return BotVote.REJECT;
+        }
+
+        if (!proposalBotGenerated || botRuleChecksEnabled) {
+            if (validator.violatesCommunityRules(after, highways, proposedTiles, change[0], change[1], community,
+                    () -> recentProposalDeltaTypes(room))) {
+                return BotVote.REJECT;
+            }
+        }
+
+        if (Math.abs(improvement) < 0.01 && Math.random() < abstainProb) {
+            return BotVote.ABSTAIN;
+        }
+
+        if (prefers && improvement >= -0.02) {
+            return BotVote.APPROVE;
+        }
+
+        if ("PRAGMATIST".equals(archetype)) {
+            if (improvement > 0.02) return BotVote.APPROVE;
+            if (improvement < -0.02) return BotVote.REJECT;
+        }
+
+        double preference = movement.tilePreferenceScore(type, profile);
+        boolean approve = improvement >= 0 ? preference >= 0.35 * (1 - consensus) : preference >= 0.55;
+        if (!approve && improvement > -0.05 && Math.random() < risk) {
+            approve = true;
+        }
+        if (Math.random() < conflictProb) {
+            approve = !approve;
+        }
+        if (driftCallback != null) {
+            driftCallback.accept(bot, before);
+        }
+        return approve ? BotVote.APPROVE : BotVote.REJECT;
+    }
+
+    /**
+     * Tallies bot votes on a proposal: fetches the room's bots, restricts
+     * to the proposal's neighbour set, calls {@link #botVoteDecision} for
+     * each, and writes the running totals onto {@code proposal} (the bean
+     * setters update {@code approvals} / {@code rejections} /
+     * {@code botVoteSummaryJson}). {@code botApproveBias} (a configurable
+     * fraction in {@code [0, 0.95]}) flips a REJECT to APPROVE
+     * probabilistically — the lever that lets the bot population act more
+     * cooperatively without changing the underlying decision logic.
+     */
+    public void applyBotVotes(Room room,
+                              RoomProposal proposal,
+                              int[][] baseTiles,
+                              int[][] proposedTiles,
+                              boolean[][] highways,
+                              Function<RoomBot, Map<String, Double>> profileReader,
+                              BiConsumer<RoomBot, LocalStats> driftCallback) {
+        Set<String> neighborIds = new HashSet<>(readNeighborIds(proposal));
+        if (neighborIds.isEmpty()) {
+            return;
+        }
+        int botYes = 0;
+        int botNo = 0;
+        List<RoomBot> bots = botRepository.findByRoom(room);
+        for (RoomBot bot : bots) {
+            String key = "B:" + bot.getId();
+            if (!neighborIds.contains(key)) {
+                continue;
+            }
+            Map<String, Double> profile = profileReader.apply(bot);
+            BotVote vote = botVoteDecision(room, bot, profile, baseTiles, proposedTiles, highways,
+                    Boolean.TRUE.equals(proposal.isBotGenerated()), driftCallback);
+            if (vote == BotVote.REJECT && botApproveBias > 0 && Math.random() < botApproveBias) {
+                vote = BotVote.APPROVE;
+            }
+            if (vote == BotVote.ABSTAIN) {
+                continue;
+            }
+            if (vote == BotVote.APPROVE) {
+                proposal.setApprovals(proposal.getApprovals() + 1);
+                botYes++;
+            } else {
+                proposal.setRejections(proposal.getRejections() + 1);
+                botNo++;
+            }
+        }
+        if (botYes > 0 || botNo > 0) {
+            Map<String, Integer> summary = new HashMap<>();
+            summary.put("botYes", botYes);
+            summary.put("botNo", botNo);
+            try {
+                proposal.setBotVoteSummaryJson(objectMapper.writeValueAsString(summary));
+            } catch (JsonProcessingException e) {
+                // Summary is advisory; persisting a missing summary is fine.
+            }
+        }
     }
 }

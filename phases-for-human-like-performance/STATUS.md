@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 481 (+346) |
+| Tests | 135 → 496 (+361) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -129,12 +129,12 @@ design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.m
 have now shipped, plus a dead-audit-code deletion that preceded the
 RoomStateOrchestrator carve and three additional second-wave carves
 (`TileValidatorService`, `OccupancyService`, `BotSimulationGpuService`),
-plus the first wave of the fourth second-wave carve
-(`RoomProposalService` Phase 1 — codec + tile-math helpers; the
-behavioural pipeline stays for follow-up sessions). RoomService is down
-4,746 → 3,466 lines (−1,280, −27%) cumulatively. A second wave of
-extractions has been identified beyond the original plan — see "Next
-planned carves" at the end of this section.
+plus the first two waves of the fourth second-wave carve
+(`RoomProposalService` Phase 1 — codec + tile-math helpers; Phase 2 —
+bot-vote machinery; the evaluate/apply pipeline stays for follow-up
+sessions). RoomService is down 4,746 → 3,294 lines (−1,452, −31%)
+cumulatively. A second wave of extractions has been identified beyond
+the original plan — see "Next planned carves" at the end of this section.
 
 - ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
   dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
@@ -426,13 +426,60 @@ planned carves" at the end of this section.
   changes / multi-tile rejections, and `validateProposalDelta` out-
   of-bounds and unknown-type rejections).
 
+- ✅ **`RoomProposalService` Phase 2 — bot-vote machinery** — extended
+  [RoomProposalService.java](../src/main/java/com/emergentterrain/service/RoomProposalService.java)
+  with the bot-side vote machinery that used to live inline in
+  RoomService. Surface added: `localStats(tiles, highways, anchorX,
+  anchorY)` (pure viewport tile-share aggregation, now a public method
+  the response-builder side of RoomService also delegates to);
+  DB-fetching trend helpers `recentProposalDeltaTypes(room)` /
+  `isTrendMajority(room, type)` / `lastHumanProposalType(room)` (the
+  pre-carve in-RoomService callers of these were thin wrappers around
+  `proposalRepository.findTop10ByRoomOrderByCreatedAtDesc`, so the
+  whole trio moved together); `botVoteDecision(room, bot, profile,
+  baseTiles, proposedTiles, highways, proposalBotGenerated,
+  driftCallback)` (the seven-archetype dispatch with NEIGHBOR_MIRROR /
+  CONTRARIAN / dislikes / community-rules short-circuits and the
+  preference-score fall-through, byte-for-byte preserving the
+  pre-carve `Math.random()` call ordering); and `applyBotVotes(room,
+  proposal, baseTiles, proposedTiles, highways, profileReader,
+  driftCallback)` (the neighbour-set-restricted vote tally that writes
+  approvals/rejections + the bot vote summary JSON onto the
+  proposal). Profile reads (`readBotProfile`) and the side-effecting
+  profile drift (`maybeDriftProfile` + `localRole` / `adjustProfile` /
+  `clampProfile`) stay in RoomService — `readBotProfile` has 8+ other
+  callsites in RoomService and is also passed as a `Function` reference
+  into the government simulation, so moving it would be disruptive;
+  `maybeDriftProfile` does a bot.profileJson write + `botRepository.save`
+  that's tied to RoomService's broader bot-lifecycle. The carved
+  `botVoteDecision` accepts an optional `BiConsumer<RoomBot,
+  LocalStats>` drift callback so RoomService can pass `this::driftBotProfile`
+  through without re-introducing the coupling. `BotVote` promoted to a
+  top-level public enum
+  ([BotVote.java](../src/main/java/com/emergentterrain/service/BotVote.java))
+  because the `shouldRelocate` bot-lifecycle check in RoomService also
+  reads the returned enum (it stays put — its job is rejection-counting
+  for relocation decisions, not proposal handling). RoomService dropped
+  a further 3,466 → 3,294 lines (−172). Pinned by
+  [RoomProposalServicePhase2Test.java](../src/test/java/com/emergentterrain/service/RoomProposalServicePhase2Test.java)
+  (15 tests covering `localStats` tile-share math + highway counting,
+  `recentProposalDeltaTypes` order + null-preservation,
+  `isTrendMajority` empty-history / 2-of-first-3 / null-skipping
+  branches, `lastHumanProposalType` bot-skip + all-bots-returns-null,
+  the abstain-on-no-change short-circuit, NEIGHBOR_MIRROR matches-vs-
+  differs-from-last-human dispatch, CONTRARIAN herd-reject, the drift
+  callback firing on the preference-score fall-through path,
+  null-callback tolerance, `applyBotVotes` empty-neighbour-list early
+  return, and the neighbour-set filter preventing profile reads on
+  non-neighbour bots).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, RoomStateOrchestrator, MapIndexService,
 TileValidatorService, OccupancyService, BotSimulationGpuService, plus
-RoomProposalService Phase 1 and the CachedRoomState/TileCounts/
+RoomProposalService Phase 1 + Phase 2 and the CachedRoomState/TileCounts/
 OccupantSnapshot/BotMotionState/CachedMap/IntegralMaps/CoarseCell/
-GpuWorldCache promotions and the dead-audit deletion, `RoomService` is
-down **4,746 → 3,466 lines (−1,280, −27%)**.
+GpuWorldCache/BotVote promotions and the dead-audit deletion, `RoomService`
+is down **4,746 → 3,294 lines (−1,452, −31%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -445,21 +492,10 @@ worth doing without a stronger forcing function.
 
 **Next planned carves (in order, picked 2026-05-11 after the
 MapIndexService landing; TileValidatorService, OccupancyService,
-BotSimulationGpuService and RoomProposalService Phase 1 all shipped
-same day):**
+BotSimulationGpuService and RoomProposalService Phase 1 + Phase 2 all
+shipped same day):**
 
-1. **`RoomProposalService` Phase 2 — bot-vote machinery** —
-   `botVoteDecision`, `applyBotVotes`, the DB-fetching variants of
-   `isTrendMajority` and `lastHumanProposalType` (currently kept in
-   RoomService as thin wrappers above `recentProposalDeltaTypes`), and
-   the `localStats` viewport helper that `botVoteDecision` consumes.
-   ~200 lines. Service deps already injected (archetypes, validator,
-   movement, occupancy) so the carve is mostly a "lift and shift" with
-   the bot-side helpers passed in or fetched via the existing
-   abstractions. Note: `maybeDriftProfile` (called inside
-   `botVoteDecision`) has a side-effecting bot.profileJson write
-   through `botRepository.save` — needs care.
-2. **`RoomProposalService` Phase 3 — evaluate/apply pipeline** —
+1. **`RoomProposalService` Phase 3 — evaluate/apply pipeline** —
    `evaluateProposal`, `applyProposal`, `applyProposalPatch`,
    `tryApplyProposalPatchWithGpu`, `applyNoParticipation`,
    `evaluatePendingProposals`, plus `canVoteNow` and `buildProposals`
@@ -619,7 +655,7 @@ RoomProposalService) + 14 entities. Refreshed against the working tree
 | TileValidatorService | 192 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
 | OccupancyService | 187 | viewport math + canOccupy density rule + occupancy snapshot build/codec (Phase 2.5) |
 | BotSimulationGpuService | 254 | GPU bot-sim primitives + per-room world cache + bot-state codec (Phase 2.5) |
-| RoomProposalService | 316 | proposal-record JSON codec + tile-delta math + invariant validators (Phase 2.5 Phase 1) |
+| RoomProposalService | 608 | proposal-record JSON codec + tile-delta math + bot-vote machinery (Phase 2.5 Phase 1 + Phase 2) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |

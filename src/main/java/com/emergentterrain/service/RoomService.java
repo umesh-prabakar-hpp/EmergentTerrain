@@ -1252,7 +1252,9 @@ public class RoomService {
             voteRepository.save(vote);
 
             int[][] proposedTiles = proposals.applyDeltaToTiles(baseTiles, proposal);
-            applyBotVotes(room, proposal, baseTiles, proposedTiles);
+            boolean[][] highways = getHighwaysForRoom(room, state);
+            proposals.applyBotVotes(room, proposal, baseTiles, proposedTiles, highways,
+                    this::readBotProfile, this::driftBotProfile);
             evaluateProposal(room, proposal);
             if ("PENDING".equals(proposal.getStatus())) {
                 proposalRepository.save(proposal);
@@ -1670,7 +1672,7 @@ public class RoomService {
             info.setProfile(profile);
             info.setCivicState(governmentSimulationService.readBotCivicState(bot.getCivicStateJson()));
             if (bot.getX() != null && bot.getY() != null && tiles.length > 0) {
-                LocalStats stats = localStats(tiles, highways, bot.getX(), bot.getY());
+                LocalStats stats = proposals.localStats(tiles, highways, bot.getX(), bot.getY());
                 info.setRole(localRole(stats));
             } else {
                 info.setRole("UNKNOWN");
@@ -2059,85 +2061,12 @@ public class RoomService {
         return profile;
     }
 
-    private LocalStats localStats(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
-        int[] view = occupancy.computeViewBounds(anchorX, anchorY, tiles);
-        int viewX = view[0];
-        int viewY = view[1];
-        int viewW = view[2];
-        int viewH = view[3];
-        int total = 0;
-        int forest = 0;
-        int water = 0;
-        int industry = 0;
-        int clear = 0;
-        int road = 0;
-        for (int y = viewY; y < viewY + viewH; y++) {
-            for (int x = viewX; x < viewX + viewW; x++) {
-                int v = tiles[y][x];
-                total++;
-                if (v == 1) forest++;
-                else if (v == 2) water++;
-                else if (v == 3) industry++;
-                else clear++;
-                if ((highways.length > 0 && highways[y][x]) || v == 4) {
-                    road++;
-                }
-            }
-        }
-        if (total == 0) {
-            return new LocalStats(0, 0, 0, 0, 0, 0);
-        }
-        return new LocalStats(
-            total,
-            (double) forest / total,
-            (double) water / total,
-            (double) clear / total,
-            (double) industry / total,
-            (double) road / total
-        );
-    }
+    // localStats moved to RoomProposalService (Phase 2.5 Phase 2 — bot-vote machinery).
 
     // violatesCommunityRules, hasAccessConnectivity, floodAccess, isAccessTile and
-    // isRapidOscillation moved to TileValidatorService (Phase 2.5). botVoteDecision
-    // now calls validator.violatesCommunityRules(...) directly, passing a lazy
-    // supplier for the recent proposal delta-type list so the DB lookup only fires
-    // when the rapid-oscillation rule is actually reached.
-    private List<Integer> recentProposalDeltaTypes(Room room) {
-        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
-        List<Integer> types = new ArrayList<>(recent.size());
-        for (RoomProposal proposal : recent) {
-            types.add(proposals.proposalDeltaType(proposal));
-        }
-        return types;
-    }
-
-    private boolean isTrendMajority(Room room, int type) {
-        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
-        if (recent.isEmpty()) {
-            return false;
-        }
-        int same = 0;
-        int total = 0;
-        for (RoomProposal proposal : recent) {
-            Integer t = proposals.proposalDeltaType(proposal);
-            if (t == null) continue;
-            total++;
-            if (t == type) same++;
-            if (total >= 3) break;
-        }
-        return total > 0 && same >= 2;
-    }
-
-    private Integer lastHumanProposalType(Room room) {
-        List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
-        for (RoomProposal proposal : recent) {
-            if (Boolean.TRUE.equals(proposal.isBotGenerated())) {
-                continue;
-            }
-            return proposals.proposalDeltaType(proposal);
-        }
-        return null;
-    }
+    // isRapidOscillation moved to TileValidatorService (Phase 2.5). The
+    // DB-fetching trend / last-human / recent-delta-types helpers were moved to
+    // RoomProposalService (Phase 2.5 Phase 2 — bot-vote machinery).
 
     // proposalDeltaType and readBotVoteSummary moved to RoomProposalService (Phase 2.5).
 
@@ -2193,6 +2122,19 @@ public class RoomService {
         clampProfile(profile);
         bot.setProfileJson(toJson(profile));
         botRepository.save(bot);
+    }
+
+    /**
+     * BiConsumer-shaped wrapper for {@link #maybeDriftProfile}, passed as
+     * the {@code driftCallback} into
+     * {@link RoomProposalService#botVoteDecision} so the bot-vote machinery
+     * can stay free of the side-effecting DB write. Re-reads the profile to
+     * stay in step with what the bot has on disk now (the in-call profile
+     * map inside botVoteDecision is about to be discarded).
+     */
+    private void driftBotProfile(RoomBot bot, LocalStats stats) {
+        Map<String, Double> profile = readBotProfile(bot);
+        maybeDriftProfile(bot, profile, stats);
     }
 
     private String localRole(LocalStats stats) {
@@ -2531,7 +2473,8 @@ public class RoomService {
             if (!proposals.readNeighborIds(proposal).contains("B:" + bot.getId())) continue;
             int[][] baseTiles = tiles;
             int[][] proposed = proposals.applyDeltaToTiles(baseTiles, proposal);
-            BotVote vote = botVoteDecision(room, bot, baseTiles, proposed, Boolean.TRUE.equals(proposal.isBotGenerated()));
+            BotVote vote = proposals.botVoteDecision(room, bot, readBotProfile(bot), baseTiles, proposed, highways,
+                    Boolean.TRUE.equals(proposal.isBotGenerated()), this::driftBotProfile);
             if (vote == BotVote.ABSTAIN) {
                 continue;
             }
@@ -2581,124 +2524,9 @@ public class RoomService {
     }
 
 
-    private void applyBotVotes(Room room, RoomProposal proposal, int[][] baseTiles, int[][] proposedTiles) {
-        Set<String> neighborIds = new HashSet<>(proposals.readNeighborIds(proposal));
-        if (neighborIds.isEmpty()) {
-            return;
-        }
-        int botYes = 0;
-        int botNo = 0;
-        List<RoomBot> bots = botRepository.findByRoom(room);
-        for (RoomBot bot : bots) {
-            String key = "B:" + bot.getId();
-            if (!neighborIds.contains(key)) {
-                continue;
-            }
-            BotVote vote = botVoteDecision(room, bot, baseTiles, proposedTiles, Boolean.TRUE.equals(proposal.isBotGenerated()));
-            if (vote == BotVote.REJECT && botApproveBias > 0 && Math.random() < botApproveBias) {
-                vote = BotVote.APPROVE;
-            }
-            if (vote == BotVote.ABSTAIN) {
-                continue;
-            }
-            if (vote == BotVote.APPROVE) {
-                proposal.setApprovals(proposal.getApprovals() + 1);
-            } else {
-                proposal.setRejections(proposal.getRejections() + 1);
-            }
-            if (vote == BotVote.APPROVE) {
-                botYes++;
-            } else {
-                botNo++;
-            }
-        }
-        if (botYes > 0 || botNo > 0) {
-            Map<String, Integer> summary = new HashMap<>();
-            summary.put("botYes", botYes);
-            summary.put("botNo", botNo);
-            proposal.setBotVoteSummaryJson(toJson(summary));
-        }
-    }
-
-    private enum BotVote { APPROVE, REJECT, ABSTAIN }
-
-    private BotVote botVoteDecision(Room room, RoomBot bot, int[][] baseTiles, int[][] proposedTiles, boolean proposalBotGenerated) {
-        Map<String, Double> profile = readBotProfile(bot);
-        int[] change = proposals.findChangeType(baseTiles, proposedTiles);
-        if (change == null) {
-            return BotVote.ABSTAIN;
-        }
-        int type = change[2];
-        String archetype = archetypes.archetypeFor(bot);
-        RoomState state = stateRepository.findByRoom(room).orElse(null);
-        boolean[][] highways = new boolean[0][0];
-        if (state != null) {
-            highways = getHighwaysForRoom(room, state);
-        }
-        LocalStats before = localStats(baseTiles, highways, change[0], change[1]);
-        LocalStats after = localStats(proposedTiles, highways, change[0], change[1]);
-        double beforeScore = archetypes.prosperityScore(before, archetype);
-        double afterScore = archetypes.prosperityScore(after, archetype);
-        double improvement = beforeScore - afterScore;
-        double risk = profile.getOrDefault("risk", 0.5);
-        double abstainProb = profile.getOrDefault("abstain", 0.08);
-        double conflictProb = profile.getOrDefault("conflict", 0.08);
-        double consensus = profile.getOrDefault("consensus", 0.5);
-        double community = Math.min(1.0, Math.max(0.1, consensus * 0.8 + profile.getOrDefault("mobility", 0.5) * 0.2));
-
-        boolean prefers = archetypes.prefersType(archetype, type);
-        boolean dislikes = archetypes.dislikesType(archetype, type, before);
-        boolean contrarian = "CONTRARIAN".equals(archetype) && isTrendMajority(room, type);
-        boolean mirror = "NEIGHBOR_MIRROR".equals(archetype);
-
-        if (mirror) {
-            Integer lastHuman = lastHumanProposalType(room);
-            if (lastHuman != null) {
-                return lastHuman == type ? BotVote.APPROVE : BotVote.REJECT;
-            }
-        }
-
-        if (contrarian) {
-            return BotVote.REJECT;
-        }
-
-        if (dislikes) {
-            return BotVote.REJECT;
-        }
-
-        if (!proposalBotGenerated || botRuleChecksEnabled) {
-            if (validator.violatesCommunityRules(after, highways, proposedTiles, change[0], change[1], community,
-                    () -> recentProposalDeltaTypes(room))) {
-                return BotVote.REJECT;
-            }
-        }
-
-        if (Math.abs(improvement) < 0.01 && Math.random() < abstainProb) {
-            return BotVote.ABSTAIN;
-        }
-
-        if (prefers && improvement >= -0.02) {
-            return BotVote.APPROVE;
-        }
-
-        if ("PRAGMATIST".equals(archetype)) {
-            if (improvement > 0.02) return BotVote.APPROVE;
-            if (improvement < -0.02) return BotVote.REJECT;
-        }
-
-        double preference = movement.tilePreferenceScore(type, profile);
-        boolean approve = improvement >= 0 ? preference >= 0.35 * (1 - consensus) : preference >= 0.55;
-        if (!approve && improvement > -0.05 && Math.random() < risk) {
-            approve = true;
-        }
-        if (Math.random() < conflictProb) {
-            approve = !approve;
-        }
-        maybeDriftProfile(bot, profile, before);
-        return approve ? BotVote.APPROVE : BotVote.REJECT;
-    }
-
-    // findChangeType moved to RoomProposalService.
+    // applyBotVotes and botVoteDecision moved to RoomProposalService (Phase 2.5
+    // Phase 2 — bot-vote machinery). BotVote enum promoted to a top-level public
+    // type in BotVote.java. findChangeType is now in RoomProposalService too.
 
     private void maybeCreateBotProposal(Room room, RoomState state) {
         long totalStart = System.nanoTime();
