@@ -399,7 +399,11 @@ Per the phase doc's ordering (ascending risk):
    room. Gated by `app.research.exploration-tuning.enabled`.
 4. **Prompt-template evolution** — versioned templates, A/B testing,
    automatic rollback if downstream replication rates degrade. Highest
-   risk; needs guardrails.
+   risk; needs guardrails. Scoping doc:
+   [phase-4c-prompt-template-evolution.md](phase-4c-prompt-template-evolution.md).
+   Three pieces (memo / registry refactor / evolution loop); only the
+   first can start immediately. The evolution loop is gated on 2–4
+   weeks of observed runtime with the existing Phase 4b flags on.
 
 ### Refactoring deferral
 
@@ -419,6 +423,7 @@ phase-2-active-experimentation.md            ← surprise + planner
 phase-2-5-roomservice-refactor.md            ← deferred RoomService refactor
 phase-3-world-integration.md                 ← world + institutions + markets
 phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
+phase-4c-prompt-template-evolution.md        ← scoping doc for the last Phase 4b deferral
 ```
 
 Each phase doc retains its full design content. `STATUS.md` is the live
