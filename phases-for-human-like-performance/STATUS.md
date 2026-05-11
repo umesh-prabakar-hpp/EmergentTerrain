@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 234 (+99) |
+| Tests | 135 → 249 (+114) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -127,8 +127,9 @@ Closes two explicit deferrals from Phase 1/2:
 Pre-Phase-3 refactor. All five extractions originally enumerated by the
 design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
 have now shipped, plus a dead-audit-code deletion that preceded the
-RoomStateOrchestrator carve. RoomService is down 4,746 → 3,946 lines
-(−800, −17%) cumulatively. A second wave of extractions has been
+RoomStateOrchestrator carve and an additional `TileValidatorService` carve
+from the second-wave list. RoomService is down 4,746 → 3,851 lines
+(−895, −19%) cumulatively. A second wave of extractions has been
 identified beyond the original plan — see "Next planned carves" at the
 end of this section.
 
@@ -257,11 +258,47 @@ end of this section.
   profile escapes the forest half on a 60×60 board, distance bias
   pulls toward current position when scores tie).
 
+- ✅ **`TileValidatorService`** — extracted the five pure game-rule
+  predicates that gate a proposed tile change from passing bot voting
+  into
+  [TileValidatorService.java](../src/main/java/com/emergentterrain/service/TileValidatorService.java).
+  Surface area: `violatesCommunityRules` (the composite gate with the
+  same `Math.random() < gate` call order as the pre-carve
+  implementation, so observable rejection rates are unchanged with the
+  same RNG seed), `hasAccessConnectivity` (largest connected component
+  of access tiles in the viewport must cover ≥ 25% of total access
+  tiles), `isAccessTile` (clear / road / highway), and
+  `isRapidOscillation` (do the two most recent typed proposals disagree
+  on type). `floodAccess` is the internal BFS that
+  `hasAccessConnectivity` uses; it does not appear on the public
+  surface. The service is stateless and has no Spring-injected
+  dependencies — all I/O (proposal lookups, JSON parsing) stays with
+  the caller, which passes the resolved delta-type list in via a
+  `Supplier<List<Integer>>` so the DB lookup fires only when earlier
+  rules in `violatesCommunityRules` have not already short-circuited.
+  The viewport constants `VISIBLE_WIDTH` / `VISIBLE_HEIGHT` are
+  duplicated from `RoomService` for now; the upcoming `OccupancyService`
+  carve consolidates viewport math. `proposalDeltaType` stays in
+  `RoomService` because three other RoomService callsites
+  (`info.setTileType`, `isTrendMajority`, `lastHumanProposalType`) read
+  it; a small private helper `recentProposalDeltaTypes(Room)` maps the
+  recent proposals to types for the validator's supplier.
+  `RoomService` dropped a further 3,946 → 3,851 lines (−95). Pinned by
+  [TileValidatorServiceTest.java](../src/test/java/com/emergentterrain/service/TileValidatorServiceTest.java)
+  (15 tests covering `isAccessTile` for clear/road/highway/non-access,
+  empty highway arrays, `hasAccessConnectivity` for no-access /
+  one-cluster / under-25% fragmentation / dominant-cluster cases,
+  `isRapidOscillation` for null/empty/single-typed/matching/differing
+  histories with null skipping, `violatesCommunityRules` for the
+  empty-viewport short-circuit, the adherence-zero gate disabling, the
+  share-extreme rule firing reachability, the supplier short-circuiting
+  when an earlier rule wins, and the balanced-stats no-violation path).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, RoomStateOrchestrator, MapIndexService, plus the
-CachedRoomState/TileCounts/OccupantSnapshot/BotMotionState/CachedMap/
-IntegralMaps/CoarseCell promotions and the dead-audit deletion,
-`RoomService` is down **4,746 → 3,946 lines (−800, −17%)**.
+BotMovementService, RoomStateOrchestrator, MapIndexService,
+TileValidatorService, plus the CachedRoomState/TileCounts/OccupantSnapshot/
+BotMotionState/CachedMap/IntegralMaps/CoarseCell promotions and the
+dead-audit deletion, `RoomService` is down **4,746 → 3,851 lines (−895, −19%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -273,25 +310,23 @@ or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
 
 **Next planned carves (in order, picked 2026-05-11 after the
-MapIndexService landing):**
+MapIndexService landing; TileValidatorService shipped same day):**
 
-1. **`TileValidatorService`** — pure game-rule predicates:
-   `violatesCommunityRules`, `hasAccessConnectivity`, `floodAccess`,
-   `isAccessTile`, `isRapidOscillation`. ~150 lines, no deps. Lowest
-   risk; restarts the carve cadence with a clean win.
-2. **`OccupancyService`** — `canOccupy` + occupancy snapshot helpers
+1. **`OccupancyService`** — `canOccupy` + occupancy snapshot helpers
    (`refreshOccupancySnapshot`, `getCachedOccupancy`,
    `buildOccupancySnapshot`, `readOccupancyJson`) + viewport math
    (`computeViewBounds`, `inView`, `withinRadius`). ~150 lines. Once
    shipped, `assignBotSpawn` (which only needs `canOccupy`) becomes
-   trivially movable into `BotMovementService`.
-3. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
+   trivially movable into `BotMovementService`. This carve also
+   consolidates the `VISIBLE_WIDTH` / `VISIBLE_HEIGHT` constants that
+   TileValidatorService currently duplicates from RoomService.
+2. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
    `buildGpuBotParams`, `applyGpuBotProfile` (×2), `nudgedWeight`,
    `collectGpuTileDiffs`, `applyTileEditsToCache`,
    `applyGpuEditsToCachedState`, `gpuWorldCache`, plus the
    `BotMotionState` GPU codecs (`encodeBotMotionStateBytes`,
    `decodeBotMotionStateBytes`). ~400 lines. Clean tech boundary.
-4. **`RoomProposalService`** — the proposal/vote/evaluate/apply
+3. **`RoomProposalService`** — the proposal/vote/evaluate/apply
    pipeline + bot-vote logic + validation + neighbor finding. ~860
    lines — by far the biggest single concern remaining, larger than
    anything Phase 2.5 originally enumerated. Phase 2.5 was scoped
@@ -414,12 +449,13 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and five
-Phase 2.5 carves), the research package is 17 specialist services + 5
+After Phase 0 + four behavioural phases (plus Phase 4b and six
+Phase 2.5 carves), the research package is 17 specialist services + 6
 RoomService-derived services in `com.emergentterrain.service`
 (BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, MapIndexService, RoomStateOrchestrator) +
-14 entities. Refreshed against the working tree (post-`ab42534`):
+BotMovementService, MapIndexService, RoomStateOrchestrator,
+TileValidatorService) + 14 entities. Refreshed against the working
+tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -446,6 +482,7 @@ BotMovementService, MapIndexService, RoomStateOrchestrator) +
 | HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
 | RoomStateOrchestrator | 149 | dirty-cache → RoomState persist with flush-threshold gating (Phase 2.5) |
 | MapIndexService | 143 | per-room coarse-grid + integral-maps spatial index for relocation targeting (Phase 2.5) |
+| TileValidatorService | 197 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |

@@ -111,6 +111,7 @@ public class RoomService {
     private final BotMovementService movement;
     private final HighwayEmergenceService highways;
     private final MapIndexService mapIndex;
+    private final TileValidatorService validator;
     private final RoomStateOrchestrator orchestrator;
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
@@ -201,6 +202,7 @@ public class RoomService {
                        BotMovementService movement,
                        HighwayEmergenceService highways,
                        MapIndexService mapIndex,
+                       TileValidatorService validator,
                        RoomStateOrchestrator orchestrator,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
@@ -267,6 +269,7 @@ public class RoomService {
         this.movement = movement;
         this.highways = highways;
         this.mapIndex = mapIndex;
+        this.validator = validator;
         this.orchestrator = orchestrator;
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
@@ -2088,117 +2091,18 @@ public class RoomService {
         );
     }
 
-    private boolean violatesCommunityRules(Room room, LocalStats after, boolean[][] highways, int[][] tiles, int anchorX, int anchorY, double adherence) {
-        if (after.total() == 0) {
-            return false;
-        }
-        double maxShare = Math.max(Math.max(after.forest(), after.water()), Math.max(after.clear(), after.industry()));
-        double gate = adherence * 0.6;
-        if (maxShare > 0.55 && Math.random() < gate) {
-            return true;
-        }
-        double nature = after.forest() + after.water();
-        if (nature < 0.18 && Math.random() < gate) {
-            return true;
-        }
-        if (after.industry() < 0.04 && Math.random() < gate) {
-            return true;
-        }
-        if (!hasAccessConnectivity(tiles, highways, anchorX, anchorY) && Math.random() < gate) {
-            return true;
-        }
-        if (isRapidOscillation(room) && Math.random() < gate) {
-            return true;
-        }
-        return false;
-    }
-
-    private boolean hasAccessConnectivity(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
-        int[] view = computeViewBounds(anchorX, anchorY, tiles);
-        int viewX = view[0];
-        int viewY = view[1];
-        int viewW = view[2];
-        int viewH = view[3];
-        boolean[][] visited = new boolean[viewH][viewW];
-        int totalAccess = 0;
-        int largest = 0;
-        for (int y = 0; y < viewH; y++) {
-            for (int x = 0; x < viewW; x++) {
-                int gx = viewX + x;
-                int gy = viewY + y;
-                if (!isAccessTile(tiles, highways, gx, gy)) {
-                    continue;
-                }
-                totalAccess++;
-                if (visited[y][x]) {
-                    continue;
-                }
-                int size = floodAccess(tiles, highways, viewX, viewY, viewW, viewH, x, y, visited);
-                largest = Math.max(largest, size);
-            }
-        }
-        if (totalAccess == 0) {
-            return true;
-        }
-        double ratio = (double) largest / totalAccess;
-        return ratio >= 0.25;
-    }
-
-    private int floodAccess(int[][] tiles, boolean[][] highways, int viewX, int viewY, int viewW, int viewH, int sx, int sy, boolean[][] visited) {
-        int[][] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        ArrayDeque<int[]> queue = new ArrayDeque<>();
-        queue.add(new int[] { sx, sy });
-        visited[sy][sx] = true;
-        int count = 0;
-        while (!queue.isEmpty()) {
-            int[] cur = queue.poll();
-            count++;
-            for (int[] d : dirs) {
-                int nx = cur[0] + d[0];
-                int ny = cur[1] + d[1];
-                if (nx < 0 || ny < 0 || nx >= viewW || ny >= viewH) {
-                    continue;
-                }
-                if (visited[ny][nx]) {
-                    continue;
-                }
-                int gx = viewX + nx;
-                int gy = viewY + ny;
-                if (!isAccessTile(tiles, highways, gx, gy)) {
-                    continue;
-                }
-                visited[ny][nx] = true;
-                queue.add(new int[] { nx, ny });
-            }
-        }
-        return count;
-    }
-
-    private boolean isAccessTile(int[][] tiles, boolean[][] highways, int x, int y) {
-        int v = tiles[y][x];
-        return v == 0 || v == 4 || (highways.length > 0 && highways[y][x]);
-    }
-
-    private boolean isRapidOscillation(Room room) {
+    // violatesCommunityRules, hasAccessConnectivity, floodAccess, isAccessTile and
+    // isRapidOscillation moved to TileValidatorService (Phase 2.5). botVoteDecision
+    // now calls validator.violatesCommunityRules(...) directly, passing a lazy
+    // supplier for the recent proposal delta-type list so the DB lookup only fires
+    // when the rapid-oscillation rule is actually reached.
+    private List<Integer> recentProposalDeltaTypes(Room room) {
         List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
-        int found = 0;
-        Integer a = null;
-        Integer b = null;
+        List<Integer> types = new ArrayList<>(recent.size());
         for (RoomProposal proposal : recent) {
-            Integer t = proposalDeltaType(proposal);
-            if (t == null) continue;
-            found++;
-            if (a == null) {
-                a = t;
-            } else {
-                b = t;
-                break;
-            }
+            types.add(proposalDeltaType(proposal));
         }
-        if (a == null || b == null) {
-            return false;
-        }
-        return !a.equals(b);
+        return types;
     }
 
     private boolean isTrendMajority(Room room, int type) {
@@ -2843,7 +2747,8 @@ public class RoomService {
         }
 
         if (!proposalBotGenerated || botRuleChecksEnabled) {
-            if (violatesCommunityRules(room, after, highways, proposedTiles, change[0], change[1], community)) {
+            if (validator.violatesCommunityRules(after, highways, proposedTiles, change[0], change[1], community,
+                    () -> recentProposalDeltaTypes(room))) {
                 return BotVote.REJECT;
             }
         }
