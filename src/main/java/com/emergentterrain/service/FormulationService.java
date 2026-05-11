@@ -3,6 +3,8 @@ package com.emergentterrain.service;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.PromptTemplateIds;
+import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResearchIdentity;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
@@ -17,6 +19,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Semaphore;
 
 /**
@@ -48,11 +51,14 @@ public class FormulationService {
 
     private final LlmRouter router;
     private final ObjectMapper objectMapper;
+    private final PromptTemplateRegistry promptRegistry;
     private final Semaphore formulationSlot = new Semaphore(1);
 
-    public FormulationService(LlmRouter router, ObjectMapper objectMapper) {
-        this.router       = router;
-        this.objectMapper = objectMapper;
+    public FormulationService(LlmRouter router, ObjectMapper objectMapper,
+                              PromptTemplateRegistry promptRegistry) {
+        this.router         = router;
+        this.objectMapper   = objectMapper;
+        this.promptRegistry = promptRegistry;
     }
 
     /** Wire the formulation callback into UniversityService once the context is ready. */
@@ -286,8 +292,11 @@ public class FormulationService {
         }
     }
 
-    private static String buildNoveltyPrompt(String domain, String topicName,
-                                              List<ResearchPaper> papers, long totalCount) {
+    private String buildNoveltyPrompt(String domain, String topicName,
+                                       List<ResearchPaper> papers, long totalCount) {
+        // The "recent papers" pre-format stays here: the renderer is intentionally
+        // narrow (no loops, no number formatting), so the caller assembles the
+        // multi-line block and the registered template substitutes it as one slot.
         StringBuilder recent = new StringBuilder();
         papers.stream()
                 .filter(p -> p.domain().equalsIgnoreCase(domain) && p.topic().equalsIgnoreCase(topicName))
@@ -297,20 +306,11 @@ public class FormulationService {
                             ? p.findings().substring(0, 100) + "…" : p.findings();
                     recent.append("  %s [score %.2f]: %s\n".formatted(p.paperId(), p.peerScore(), snippet));
                 });
-        return """
-                You are assessing how much computational novelty remains in a research topic.
-
-                Domain: %s | Topic: %s
-                Total papers published in this topic so far: %d
-
-                Most recent papers (findings summaries):
-                %s
-                Rate how much unexplored territory remains: 1.0 = completely fresh, 0.0 = fully saturated.
-                Note which parameter regions or angles have NOT been tried yet.
-
-                Reply with ONLY this JSON — no other text:
-                {"novelty_score":0.7,"coverage_note":"brief note on what has been covered","unexplored_hint":"specific suggestion for an unexplored region or angle; empty string if no clear gap"}
-                """.formatted(domain, topicName, totalCount, recent.toString().trim());
+        return promptRegistry.render(PromptTemplateIds.FORMULATION_NOVELTY_ID, Map.of(
+                "domain",       domain,
+                "topicName",    topicName,
+                "totalCount",   String.valueOf(totalCount),
+                "recentPapers", recent.toString().trim()));
     }
 
     public NoveltyAssessment parseNoveltyAssessment(String response) {

@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 541 (+406) |
+| Tests | 135 → 556 (+421) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -926,6 +926,38 @@ Per the phase doc's ordering (ascending risk):
      `UniversityService.publishPaper` copies the provenance onto the
      persisted row. Removes the data-backfill step Piece 3 would
      otherwise need. See the memo's "Pre-conditions" section.
+   - ⏳ **Piece 2 (registry refactor) — first wave landed.** New
+     `PromptTemplateRegistry` service in
+     [PromptTemplateRegistry.java](../src/main/java/com/emergentterrain/research/PromptTemplateRegistry.java)
+     with the memo's locked design verbatim: `(id, version)`-keyed
+     `PromptTemplate` records, `{{ name }}` named-slot syntax rendered
+     by a 20-line in-house substitutor (no Mustache / Jinja dep),
+     Java-initialiser seeding in `@PostConstruct`, in-memory only.
+     {@code FORMULATION_NOVELTY} migrated as the proof-of-concept —
+     {@link FormulationService#buildNoveltyPrompt} now calls
+     `registry.render(id, namedParams)` instead of the inline
+     `"...".formatted(...)`. The renderer throws on missing slots
+     (typo-catching contract), tolerates inner whitespace
+     (`{{name}}` vs `{{ name }}`), does not recurse, and treats null
+     values as empty strings. `PromptTemplateRegistry.pickActive`
+     returns the last-registered variant for an id, ready for Piece 3
+     to swap in an epsilon-greedy selector when A/B counters exist.
+     Pinned by 15 new tests in
+     [PromptTemplateRegistryTest.java](../src/test/java/com/emergentterrain/research/PromptTemplateRegistryTest.java),
+     including a byte-for-byte equivalence test that compares the
+     registry-rendered output to the old inline
+     `String.format(...)` for the same inputs (the regression contract
+     the memo asked for: "rendered output, not template body").
+     **Remaining migrations (10 templates):** `NARRATION_PRIMARY`,
+     `NARRATION_REFINEMENT`, `NARRATION_CRITIQUE`, `NARRATION_AUDIT`,
+     `NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
+     `NARRATION_REVISION`, `NARRATION_STATISTICAL_FRAMING`,
+     `FORMULATION_MAIN`, `MENTORING_GENOME`. Each is mechanical but
+     non-trivial (some are 100+ line prompts with conditional context
+     blocks); future commits migrate one or two at a time, each with
+     its own equivalence test. Piece 3 is still gated on 2–4 weeks of
+     observed runtime — these migrations don't accelerate that gate
+     but eliminate the per-callsite refactor cost when Piece 3 lands.
 
 ### Refactoring deferral
 
