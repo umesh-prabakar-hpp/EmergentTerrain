@@ -61,7 +61,15 @@ public class EpistemicMarketService {
      */
     private static final double PAYOUT_MULTIPLIER = 1.0;
 
+    /** Phase 4b — max same-domain bots that auto-stake per market per tick. */
+    private static final int MAX_AUTO_STAKERS_PER_MARKET = 3;
+    /** Phase 4b — fraction of reputation each auto-staker risks. Well under {@link #MAX_STAKE_FRACTION}. */
+    private static final double AUTO_STAKE_FRACTION = 0.02;
+    /** Phase 4b — reputation threshold above which an auto-staker bets CONFIRMS. */
+    private static final double AUTO_STAKE_CONFIRMS_REPUTATION = 0.6;
+
     private final boolean enabled;
+    private final boolean autoStakingEnabled;
     private final EpistemicMarketRepository markets;
     private final MarketStakeRepository     stakes;
     private final BotCalibrationRepository  calibrations;
@@ -70,20 +78,30 @@ public class EpistemicMarketService {
 
     public EpistemicMarketService(
             @Value("${app.research.markets.enabled:false}") boolean enabled,
+            @Value("${app.research.auto-staking.enabled:false}") boolean autoStakingEnabled,
             EpistemicMarketRepository markets,
             MarketStakeRepository stakes,
             BotCalibrationRepository calibrations,
             RoomBotRepository botRepository,
             ObjectMapper objectMapper) {
-        this.enabled       = enabled;
-        this.markets       = markets;
-        this.stakes        = stakes;
-        this.calibrations  = calibrations;
-        this.botRepository = botRepository;
-        this.objectMapper  = objectMapper;
+        this.enabled            = enabled;
+        this.autoStakingEnabled = autoStakingEnabled;
+        this.markets            = markets;
+        this.stakes             = stakes;
+        this.calibrations       = calibrations;
+        this.botRepository      = botRepository;
+        this.objectMapper       = objectMapper;
         if (enabled) {
             log.info("EpistemicMarketService: ENABLED — prediction markets open on "
                     + "papers with PreRegistration; stakes use reputation as currency.");
+        }
+        if (autoStakingEnabled) {
+            log.info("EpistemicMarketService: auto-staking ENABLED — up to {} same-domain "
+                    + "bots per open market auto-stake {}% of reputation per tick. "
+                    + "Bots with rep > {} bet CONFIRMS, others bet REFUTES.",
+                    MAX_AUTO_STAKERS_PER_MARKET,
+                    (int) (AUTO_STAKE_FRACTION * 100),
+                    AUTO_STAKE_CONFIRMS_REPUTATION);
         }
     }
 
@@ -149,6 +167,58 @@ public class EpistemicMarketService {
             log.warn("market stake placement failed market={} bot={}: {}", marketId, botId, e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Phase 4b — auto-stake heuristic. For every OPEN market in this room, picks
+     * up to {@value #MAX_AUTO_STAKERS_PER_MARKET} random same-domain bots from
+     * the pool and has them place a small {@value #AUTO_STAKE_FRACTION}-fraction
+     * stake. Bots with reputation above {@value #AUTO_STAKE_CONFIRMS_REPUTATION}
+     * back CONFIRMS (they trust the field's predictions); the rest back REFUTES.
+     *
+     * Skips bots that already staked on the market and bots without a parseable
+     * UUID id. Returns the number of new stakes placed. No-op when either the
+     * markets flag or the auto-staking flag is off.
+     *
+     * Called once per room per {@code maybeTick}; the small stake fraction means
+     * a bot can stake on many markets without depleting reputation.
+     */
+    public int maybeAutoStake(UUID roomId, java.util.List<Researcher> pool, java.util.Random rng) {
+        if (!enabled || !autoStakingEnabled || roomId == null || pool == null
+                || pool.isEmpty() || rng == null) return 0;
+        java.util.List<EpistemicMarket> open = markets.findByRoomIdAndStatus(
+                roomId, EpistemicMarket.Status.OPEN);
+        if (open.isEmpty()) return 0;
+        int placed = 0;
+        Instant now = Instant.now();
+        for (EpistemicMarket m : open) {
+            if (now.isAfter(m.getClosesAt())) continue;
+            java.util.List<Researcher> sameDomain = pool.stream()
+                    .filter(r -> m.getDomain() != null
+                            && m.getDomain().equalsIgnoreCase(r.getDomain()))
+                    .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+            if (sameDomain.isEmpty()) continue;
+            java.util.Collections.shuffle(sameDomain, rng);
+            int picked = Math.min(MAX_AUTO_STAKERS_PER_MARKET, sameDomain.size());
+            for (int i = 0; i < picked; i++) {
+                Researcher r = sameDomain.get(i);
+                UUID botId;
+                try { botId = UUID.fromString(r.getBotId()); }
+                catch (IllegalArgumentException ignored) { continue; }
+                if (stakes.existsByMarketIdAndBotId(m.getId(), botId)) continue;
+                EpistemicMarket.StakeSide side =
+                        r.getReputation() > AUTO_STAKE_CONFIRMS_REPUTATION
+                                ? EpistemicMarket.StakeSide.CONFIRMS
+                                : EpistemicMarket.StakeSide.REFUTES;
+                if (placeStake(m.getId(), botId, side, AUTO_STAKE_FRACTION).isPresent()) {
+                    placed++;
+                }
+            }
+        }
+        if (placed > 0) {
+            log.info("market auto-staking placed {} stakes roomId={}", placed, roomId);
+        }
+        return placed;
     }
 
     /**

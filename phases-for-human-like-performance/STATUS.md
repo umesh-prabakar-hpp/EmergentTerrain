@@ -213,6 +213,7 @@ app.research.funding-allocation.enabled # Phase 4b — periodic grants from agen
 app.research.journal-review.enabled  # Phase 4b — reviewers drawn from journal editor pool
 app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recomputed from citation counts
 app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations force replication + council counters
+app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake on open markets each tick
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -244,7 +245,7 @@ specialist services + 14 entities. Sizes as of `ab42534`:
 | BotLifecycleService | 324 | aging + competency + dating + elder merges |
 | FormulationService | 288 | pre-computation hypothesis + novelty assessment |
 | ExperimentPlannerService | 264 | algorithmic param selection (4 strategies, flag-gated) |
-| EpistemicMarketService | 263 | reputation-staked prediction markets |
+| EpistemicMarketService | 325 | reputation-staked prediction markets + auto-staking heuristic |
 | LlmService | 209 | digest + consultation + streaming |
 | MetaResearchService | 192 | self-observation stats (path/bot/method) |
 | KnowledgeBaseService | 169 | formal finding persistence + contradiction detection |
@@ -276,9 +277,15 @@ These need stateful integration with existing services:
 - **Reviewer-orthogonality routing** (Phase 4 Iter 10 evolution target
   #1) — needs `BotCivicState.ideologyVector` threaded through
   `ResearchCycleService.pickReviewer`.
-- **Auto-staking heuristic** (Phase 3 Iter 7) — every bot currently
-  expects a manual `placeStake` call; the auto-stake loop is the
-  natural behaviour to add next.
+- ✅ **Auto-staking heuristic** (Phase 3 Iter 7) — shipped (Phase 4b
+  sixth commit). `EpistemicMarketService.maybeAutoStake` fires from
+  `UniversityService.maybeTick` for each room: picks up to 3 random
+  same-domain bots per open market, has bots with reputation > 0.6
+  back CONFIRMS and the rest back REFUTES at a 2% stake fraction.
+  Skips bots that already staked (`existsByMarketIdAndBotId`) and
+  markets past their `closesAt`. Gated by
+  `app.research.auto-staking.enabled` independently of the markets
+  flag — auto-staking implicitly requires markets to be on too.
 - **Cross-bot surprise broadcast** (Phase 2 Iter 1) — needs rate-limit
   infrastructure to avoid flooding neighbours' prompts.
 

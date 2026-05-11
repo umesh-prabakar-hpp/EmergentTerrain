@@ -680,6 +680,9 @@ public class UniversityService {
                     params.educationFactor())) {
                 institutionService.recordReplicationCompleted(roomId);
             }
+            // Phase 4b: auto-staking — sample same-domain bots to stake on open
+            // markets. No-op when the auto-staking flag is off.
+            epistemicMarketService.maybeAutoStake(roomId, poolForReplication, rng2);
         }
 
         // Dating pass with dynamic K and cooldown

@@ -37,7 +37,7 @@ class MetaResearchServiceTest {
         papers    = mock(ResearchPaperRepository.class);
         citations = mock(PaperCitationRepository.class);
         markets   = new EpistemicMarketService(
-                false,
+                false, false,
                 mock(EpistemicMarketRepository.class),
                 mock(MarketStakeRepository.class),
                 mock(BotCalibrationRepository.class),

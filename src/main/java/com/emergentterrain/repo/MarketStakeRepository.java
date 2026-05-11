@@ -11,4 +11,7 @@ public interface MarketStakeRepository extends JpaRepository<MarketStake, UUID> 
     List<MarketStake> findByMarketId(UUID marketId);
 
     List<MarketStake> findByBotId(UUID botId);
+
+    /** Phase 4b — used by auto-staking to skip bots that already staked on this market. */
+    boolean existsByMarketIdAndBotId(UUID marketId, UUID botId);
 }

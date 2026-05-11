@@ -51,7 +51,7 @@ class FundingAllocationServiceTest {
         meta         = new MetaResearchService(false,
                 mock(ResearchPaperRepository.class),
                 mock(PaperCitationRepository.class),
-                new EpistemicMarketService(false,
+                new EpistemicMarketService(false, false,
                         mock(EpistemicMarketRepository.class),
                         mock(MarketStakeRepository.class),
                         mock(BotCalibrationRepository.class),
