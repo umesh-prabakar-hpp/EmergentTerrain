@@ -179,35 +179,24 @@ public class FormulationService {
 
         String identitySection = identityHint(identity);
 
-        return """
-                You are a research advisor choosing where a computational researcher should focus next.
-
-                Domain: %s | Topic: %s
-                Researcher's learned search region: param1 center=%d (±%d), param2 center=%.1f (±%.1f)
-                param1 is an integer 10–99 (controls the starting position of the search space).
-                param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
-                %s%s%s
-                Prior papers in this topic:
-                %s%s
-                Based on the prior work, choose a specific unexplored or promising parameter region
-                within or near the researcher's learned search region. Explain the research question
-                this choice targets in one sentence.
-
-                Before any computation runs, pre-register your hypothesis. This is locked and \
-                cannot be revised once results are seen.
-
-                Reply with ONLY this JSON, no other text:
-                {"param1":N,"param2":X.X,"question":"one sentence research question",\
-                "pre_registration":{"hypothesis":"one testable claim this parameter choice will investigate",\
-                "prediction":"expected direction or magnitude (e.g. monotone increase, value near 0.3)",\
-                "falsification_condition":"what outcome would contradict this (e.g. no correlation, 0 exceedance)",\
-                "mapping_notes":"if crossing domains: state any constants or analogies and their justification; empty string otherwise"}}
-
-                param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
-                Choose values that differ from or extend what prior papers have already explored.
-                """.formatted(domain, topicName, center1, radius1, center2, radius2,
-                        identitySection, hypothesisSection, noveltyContext,
-                        priorSection.trim(), anomalyContext);
+        // The three optional context blocks (identity / hypothesis / novelty) are
+        // pre-carve concatenated by the positional "%s%s%s" pattern; the new
+        // template uses a single composite slot {{ optionalContext }} so the
+        // renderer stays free of conditional logic. priorSection is trimmed
+        // before concatenation with anomalyContext into the {{ priorPapers }}
+        // + {{ anomalyContext }} pair, matching pre-carve byte-for-byte.
+        String optionalContext = identitySection + hypothesisSection + noveltyContext;
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",          domain);
+        params.put("topicName",       topicName);
+        params.put("center1",         String.valueOf(center1));
+        params.put("radius1",         String.valueOf(radius1));
+        params.put("center2",         String.format("%.1f", center2));
+        params.put("radius2",         String.format("%.1f", radius2));
+        params.put("optionalContext", optionalContext);
+        params.put("priorPapers",     priorSection.trim());
+        params.put("anomalyContext",  anomalyContext);
+        return promptRegistry.render(PromptTemplateIds.FORMULATION_MAIN_ID, params);
     }
 
     /**

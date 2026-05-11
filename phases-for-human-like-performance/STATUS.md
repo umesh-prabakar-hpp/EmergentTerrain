@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 556 (+421) |
+| Tests | 135 → 558 (+423) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -948,16 +948,27 @@ Per the phase doc's ordering (ascending risk):
      registry-rendered output to the old inline
      `String.format(...)` for the same inputs (the regression contract
      the memo asked for: "rendered output, not template body").
-     **Remaining migrations (10 templates):** `NARRATION_PRIMARY`,
+     **Migrations shipped so far:** `FORMULATION_NOVELTY`,
+     `MENTORING_GENOME`, `FORMULATION_MAIN`. The latter two used the
+     positional `%s%s%s` pattern to splice optional context blocks; the
+     migrated templates expose those as a composite `{{ optionalContext }}`
+     slot (FORMULATION_MAIN) or as individually-named slots
+     (MENTORING_GENOME's 19 args), keeping the renderer free of
+     conditional logic per the memo's "no loops, no number formatting"
+     stance. Numeric pre-formatting (`%.2f`, `%.1f`, `%d`) moves into
+     the caller as `String.format(...)` so the rendered output matches
+     the pre-carve byte-for-byte; pinned by an equivalence test per
+     template.
+     **Remaining migrations (8 templates, all in
+     `ResearchNarrationService`):** `NARRATION_PRIMARY`,
      `NARRATION_REFINEMENT`, `NARRATION_CRITIQUE`, `NARRATION_AUDIT`,
      `NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
-     `NARRATION_REVISION`, `NARRATION_STATISTICAL_FRAMING`,
-     `FORMULATION_MAIN`, `MENTORING_GENOME`. Each is mechanical but
-     non-trivial (some are 100+ line prompts with conditional context
-     blocks); future commits migrate one or two at a time, each with
-     its own equivalence test. Piece 3 is still gated on 2–4 weeks of
-     observed runtime — these migrations don't accelerate that gate
-     but eliminate the per-callsite refactor cost when Piece 3 lands.
+     `NARRATION_REVISION`, `NARRATION_STATISTICAL_FRAMING`. Each is
+     mechanical but non-trivial (some are 100+ line prompts); future
+     commits migrate one or two at a time, each with its own
+     equivalence test. Piece 3 is still gated on 2–4 weeks of observed
+     runtime — these migrations don't accelerate that gate but
+     eliminate the per-callsite refactor cost when Piece 3 lands.
 
 ### Refactoring deferral
 

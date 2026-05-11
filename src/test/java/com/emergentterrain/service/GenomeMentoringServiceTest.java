@@ -3,6 +3,7 @@ package com.emergentterrain.service;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.EpistemicMarketService;
+import com.emergentterrain.research.PromptTemplateRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,8 @@ class GenomeMentoringServiceTest {
                 mock(RoomUpdateBroadcaster.class),
                 mock(RoomBotRepository.class),
                 new ObjectMapper().findAndRegisterModules(),
-                market);
+                market,
+                new PromptTemplateRegistry());
         botId = UUID.randomUUID();
     }
 

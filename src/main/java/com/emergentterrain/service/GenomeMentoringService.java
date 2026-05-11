@@ -6,6 +6,8 @@ import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.EpistemicMarketService;
+import com.emergentterrain.research.PromptTemplateIds;
+import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,7 +21,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -76,6 +80,7 @@ public class GenomeMentoringService {
     private final RoomBotRepository botRepository;
     private final ObjectMapper objectMapper;
     private final EpistemicMarketService epistemicMarketService;
+    private final PromptTemplateRegistry promptRegistry;
 
     private final Semaphore genomeSlot = new Semaphore(2);
     private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue = new ConcurrentLinkedQueue<>();
@@ -86,12 +91,14 @@ public class GenomeMentoringService {
                                   RoomUpdateBroadcaster broadcaster,
                                   RoomBotRepository botRepository,
                                   ObjectMapper objectMapper,
-                                  EpistemicMarketService epistemicMarketService) {
+                                  EpistemicMarketService epistemicMarketService,
+                                  PromptTemplateRegistry promptRegistry) {
         this.router                 = router;
         this.broadcaster            = broadcaster;
         this.botRepository          = botRepository;
         this.objectMapper           = objectMapper;
         this.epistemicMarketService = epistemicMarketService;
+        this.promptRegistry         = promptRegistry;
     }
 
     /** Wire the mentoring callback into UniversityService once the context is ready. */
@@ -219,62 +226,31 @@ public class GenomeMentoringService {
                 : "\nAnomalous findings in OTHER domains (cross-domain inspiration from peers):\n"
                   + crossDomainAnom.toString().trim() + "\n";
 
-        return """
-                You are a research advisor in a simulation. A researcher bot has just published \
-                notable work and is eligible for a mentoring session.
-
-                Researcher: %s  |  Domain: %s  |  Methodology: %s
-                Generation: %d  (evolution and mentoring cycles completed)
-
-                Research personality (genome):
-                  Step size:             %.2f  — spacing between candidate regions (0.05=narrow, 1.0=wide)
-                  Restart willingness:   %.2f  — reserved, not yet active
-                  Candidate breadth:     %.2f  — regions explored per paper (20–80; key quality driver)
-                  Peer tolerance:        %.2f  — reviewer strictness (low=strict 0.02, high=lenient 0.12)
-                  Acceptance threshold:  %.2f  — reserved for future gating
-                  Curiosity:             %.2f  — overall openness to new directions
-
-                Parameter search region (learned from publication history):
-                  Center: [param1=%d, param2=%.1f]  — where they focus searches
-                  Radius: [±%d, ±%.1f]              — how broadly they explore around that center
-                  (narrowing radius = deepening specialisation; wider = more exploratory)
-
-                Career so far: %d papers published, %d drafts not accepted
-                Their own recent work:
-                %s
-                Recent work by peers in the same domain:
-                %s%s
-                As their advisor, consider what the peer findings reveal about this domain. \
-                Pay particular attention to results marked [ANOMALOUS] — these deviate significantly \
-                from the room's historical distribution for that topic and may indicate unexplored \
-                territory or a structural pattern worth investigating. \
-                If cross-domain anomalies are shown above, consider whether any structural pattern \
-                (e.g. a mathematical property, a scale threshold, a domain boundary) might transfer \
-                to this researcher's domain — if so, incorporate that into the directive or search \
-                center adjustment. Suggest one or two small genome adjustments.
-
-                Reply with only this JSON and nothing else:
-                {"identity":"one sentence on their emerging research identity","edits":[{"gene":"w0","delta":0.05}],"directive":{"description":"your description","rangeStart":N,"rangeEnd":M,"predicate":"your predicate","metric":"your metric","baseline":0.0,"hypothesis":"your hypothesis"}}
-                Gene rules: gene must be one of w0 w1 w2 w3 w4 explorationRate paramCenter1 paramCenter2. \
-                delta between -0.15 and 0.15. Include 1 or 2 edits. \
-                For paramCenter1: delta ±0.15 shifts the center by ±6 units (range 10–99). \
-                For paramCenter2: delta ±0.15 shifts by ±0.75 (range 1.0–9.0).
-                Directive rules: predicate uses isPrime, isHappy, collatzTerminates, isAbundant, isPerfect joined with AND or OR. \
-                metric is one of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum. \
-                rangeEnd - rangeStart must not exceed 500. baseline is your predicted numeric value for the metric. \
-                Base the directive on what the ACTUAL peer papers above reveal — target a specific unexplored range \
-                or combination that their results point toward. \
-                Only include directive if the peer papers reveal a specific unexplored range worth targeting. Omit directive entirely otherwise.
-                Example directives (DO NOT copy these — generate your own based on the actual papers shown above):
-                  {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"hypothesis":"About 25%% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
-                  {"description":"mean Collatz depth for happy primes near 800","rangeStart":780,"rangeEnd":950,"predicate":"isPrime AND isHappy","metric":"mean_of:collatzSteps","baseline":75.0,"hypothesis":"Happy primes near 800 require about 75 Collatz steps to terminate, deeper than the general average."}
-                  {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"hypothesis":"Roughly 24%% of integers below 302 are abundant or perfect."}
-                """.formatted(
-                        botIdStr.substring(0, 8),
-                        domain, method, gen,
-                        w0, w1, w2, w3, w4, er,
-                        pc1, pc2, pr1, pr2,
-                        pub, rej, ownSection.trim(), peerSection.trim(), crossDomainSection);
+        // Numeric pre-formatting matches the pre-carve "%.2f"/"%d"/"%.1f"/"±%d"/"±%.1f"
+        // patterns exactly so the rendered prompt is byte-for-byte identical to
+        // what String.format would have produced. The PromptTemplateRegistryTest
+        // equivalence test pins this.
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("botId8",                  botIdStr.substring(0, 8));
+        params.put("domain",                  domain);
+        params.put("methodology",             method);
+        params.put("generation",              String.valueOf(gen));
+        params.put("w0",                      String.format("%.2f", w0));
+        params.put("w1",                      String.format("%.2f", w1));
+        params.put("w2",                      String.format("%.2f", w2));
+        params.put("w3",                      String.format("%.2f", w3));
+        params.put("w4",                      String.format("%.2f", w4));
+        params.put("explorationRate",         String.format("%.2f", er));
+        params.put("paramCenter1",            String.valueOf(pc1));
+        params.put("paramCenter2",            String.format("%.1f", pc2));
+        params.put("paramRadius1",            String.valueOf(pr1));
+        params.put("paramRadius2",            String.format("%.1f", pr2));
+        params.put("publishedCount",          String.valueOf(pub));
+        params.put("rejectedCount",           String.valueOf(rej));
+        params.put("ownWork",                 ownSection.trim());
+        params.put("peerWork",                peerSection.trim());
+        params.put("crossDomainAnomalies",    crossDomainSection);
+        return promptRegistry.render(PromptTemplateIds.MENTORING_GENOME_ID, params);
     }
 
     private void applyGenomeMentoringResult(RoomBot bot, String response) {
