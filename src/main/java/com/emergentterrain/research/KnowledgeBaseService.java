@@ -276,13 +276,19 @@ public class KnowledgeBaseService {
     }
 
     /**
-     * Composition table for the four supported {@link RelationType} pairs.
-     * Returns null when the pair shouldn't compose (THRESHOLD or NULL involved).
+     * Composition table for {@link RelationType} pairs. Returns null when
+     * the pair shouldn't compose — THRESHOLD, LOGARITHMIC, CATEGORICAL,
+     * and NULL all skip composition. Only PROPORTIONAL × PROPORTIONAL /
+     * INVERSE pairs produce a derived type today; the rest are persisted
+     * and surfaced but don't fuel theory composition (see
+     * {@link RelationType} javadoc for the rationale).
      */
     static RelationType composeRelationTypes(RelationType ab, RelationType bc) {
         if (ab == null || bc == null) return null;
-        if (ab == RelationType.THRESHOLD || bc == RelationType.THRESHOLD) return null;
-        if (ab == RelationType.NULL || bc == RelationType.NULL) return null;
+        if (ab == RelationType.THRESHOLD   || bc == RelationType.THRESHOLD)   return null;
+        if (ab == RelationType.NULL        || bc == RelationType.NULL)        return null;
+        if (ab == RelationType.LOGARITHMIC || bc == RelationType.LOGARITHMIC) return null;
+        if (ab == RelationType.CATEGORICAL || bc == RelationType.CATEGORICAL) return null;
         if (ab == RelationType.PROPORTIONAL && bc == RelationType.PROPORTIONAL) return RelationType.PROPORTIONAL;
         if (ab == RelationType.PROPORTIONAL && bc == RelationType.INVERSE) return RelationType.INVERSE;
         if (ab == RelationType.INVERSE && bc == RelationType.PROPORTIONAL) return RelationType.INVERSE;
@@ -311,9 +317,21 @@ public class KnowledgeBaseService {
         if (a == b) return false;
         if ((a == RelationType.PROPORTIONAL && b == RelationType.INVERSE) ||
             (a == RelationType.INVERSE && b == RelationType.PROPORTIONAL)) return true;
+        // LOGARITHMIC is monotonic-increasing (sub-linear); paired with INVERSE
+        // (monotonic-decreasing) it's the same kind of direct contradiction as
+        // PROPORTIONAL vs INVERSE — opposite-direction claims about the same
+        // dependent variable.
+        if ((a == RelationType.LOGARITHMIC && b == RelationType.INVERSE) ||
+            (a == RelationType.INVERSE && b == RelationType.LOGARITHMIC)) return true;
+        // NULL vs any non-NULL counts as a disagreement (one paper says no
+        // relationship, the other claims a structural one — categorical,
+        // logarithmic, threshold, monotonic — they all contradict NULL).
         if (a == RelationType.NULL || b == RelationType.NULL) return true;
-        // THRESHOLD vs PROPORTIONAL/INVERSE is a softer disagreement; for now
-        // skip — Phase 4b can refine with threshold-location comparison.
+        // CATEGORICAL is about discrete class structure, not direction; it
+        // doesn't disagree with continuous monotonic types — they're describing
+        // different things, not the same thing differently. Skip.
+        // THRESHOLD vs PROPORTIONAL/INVERSE is also a softer disagreement; skip
+        // for now and refine when threshold-location comparison lands.
         return false;
     }
 }

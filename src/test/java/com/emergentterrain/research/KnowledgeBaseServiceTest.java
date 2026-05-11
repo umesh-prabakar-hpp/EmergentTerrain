@@ -226,6 +226,114 @@ class KnowledgeBaseServiceTest {
     }
 
     @Test
+    void composeRelationTypesSkipsLogarithmicAndCategoricalOnBothSides() {
+        // Composition through a logarithmic step loses information; categorical
+        // can't compose with continuous monotonic types at all. Both skip,
+        // matching THRESHOLD's behaviour.
+        for (RelationType continuous : new RelationType[]{
+                RelationType.PROPORTIONAL, RelationType.INVERSE, RelationType.THRESHOLD}) {
+            assertThat(KnowledgeBaseService.composeRelationTypes(continuous, RelationType.LOGARITHMIC))
+                    .as(continuous + " × LOGARITHMIC").isNull();
+            assertThat(KnowledgeBaseService.composeRelationTypes(RelationType.LOGARITHMIC, continuous))
+                    .as("LOGARITHMIC × " + continuous).isNull();
+            assertThat(KnowledgeBaseService.composeRelationTypes(continuous, RelationType.CATEGORICAL))
+                    .as(continuous + " × CATEGORICAL").isNull();
+            assertThat(KnowledgeBaseService.composeRelationTypes(RelationType.CATEGORICAL, continuous))
+                    .as("CATEGORICAL × " + continuous).isNull();
+        }
+        // Self-pairs also skip.
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.LOGARITHMIC, RelationType.LOGARITHMIC)).isNull();
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.CATEGORICAL, RelationType.CATEGORICAL)).isNull();
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.LOGARITHMIC, RelationType.CATEGORICAL)).isNull();
+    }
+
+    @Test
+    void logarithmicAgainstInverseIsACanonicalContradiction() {
+        // LOGARITHMIC is monotonic-increasing (sub-linear); paired with INVERSE
+        // (monotonic-decreasing) it's the same direction-conflict as
+        // PROPORTIONAL vs INVERSE.
+        KnowledgeBaseService svc = enabled();
+        store.put(UUID.randomUUID(), finding("P-1", "MATHEMATICS",
+                RelationType.LOGARITHMIC, "trust", List.of("density"), 0.8));
+        store.put(UUID.randomUUID(), finding("P-2", "MATHEMATICS",
+                RelationType.INVERSE,    "trust", List.of("density"), 0.6));
+
+        List<KnowledgeBaseService.ContradictionPair> pairs =
+                svc.detectContradictionsInDomain("MATHEMATICS");
+
+        assertThat(pairs).hasSize(1);
+    }
+
+    @Test
+    void logarithmicAgainstProportionalIsNotAContradiction() {
+        // Both are monotonic-increasing; the system doesn't flag them as
+        // disagreeing even though their curves differ. Future refinement
+        // could compare validity regions, but Iter 9's contract is "same
+        // direction → agreement".
+        KnowledgeBaseService svc = enabled();
+        store.put(UUID.randomUUID(), finding("P-1", "MATHEMATICS",
+                RelationType.LOGARITHMIC, "trust", List.of("density")));
+        store.put(UUID.randomUUID(), finding("P-2", "MATHEMATICS",
+                RelationType.PROPORTIONAL, "trust", List.of("density")));
+
+        assertThat(svc.detectContradictionsInDomain("MATHEMATICS")).isEmpty();
+    }
+
+    @Test
+    void categoricalDoesNotContradictContinuousMonotonicTypes() {
+        // Categorical describes discrete class structure; comparing it to a
+        // continuous monotonic claim describes different things, not
+        // disagreement. Persisted and queryable, but not flagged.
+        KnowledgeBaseService svc = enabled();
+        store.put(UUID.randomUUID(), finding("P-1", "MATHEMATICS",
+                RelationType.CATEGORICAL, "trust", List.of("density")));
+        store.put(UUID.randomUUID(), finding("P-2", "MATHEMATICS",
+                RelationType.PROPORTIONAL, "trust", List.of("density")));
+        store.put(UUID.randomUUID(), finding("P-3", "MATHEMATICS",
+                RelationType.INVERSE, "trust", List.of("density")));
+        store.put(UUID.randomUUID(), finding("P-4", "MATHEMATICS",
+                RelationType.LOGARITHMIC, "trust", List.of("density")));
+
+        List<KnowledgeBaseService.ContradictionPair> pairs =
+                svc.detectContradictionsInDomain("MATHEMATICS");
+
+        // The PROPORTIONAL × INVERSE and PROPORTIONAL × LOGARITHMIC pairs are
+        // not flagged (the latter agrees in direction). PROPORTIONAL × INVERSE
+        // IS flagged (canonical contradiction). LOGARITHMIC × INVERSE is
+        // flagged too (new rule). CATEGORICAL pairs with continuous types are
+        // ALL skipped.
+        assertThat(pairs).allSatisfy(pair -> {
+            assertThat(pair.a().getRelationType()).isNotEqualTo(RelationType.CATEGORICAL);
+            assertThat(pair.b().getRelationType()).isNotEqualTo(RelationType.CATEGORICAL);
+        });
+    }
+
+    @Test
+    void nullStillContradictsLogarithmicAndCategorical() {
+        // NULL means "we looked and found no relationship." A LOGARITHMIC or
+        // CATEGORICAL claim disputes that just as surely as PROPORTIONAL would.
+        KnowledgeBaseService svc = enabled();
+        store.put(UUID.randomUUID(), finding("P-1", "MATHEMATICS",
+                RelationType.LOGARITHMIC, "x", List.of("y")));
+        store.put(UUID.randomUUID(), finding("P-2", "MATHEMATICS",
+                RelationType.NULL,        "x", List.of("y")));
+
+        assertThat(svc.detectContradictionsInDomain("MATHEMATICS")).hasSize(1);
+
+        KnowledgeBaseService svc2 = enabled();
+        store.clear();
+        store.put(UUID.randomUUID(), finding("P-3", "PHYSICS",
+                RelationType.CATEGORICAL, "x", List.of("y")));
+        store.put(UUID.randomUUID(), finding("P-4", "PHYSICS",
+                RelationType.NULL,        "x", List.of("y")));
+
+        assertThat(svc2.detectContradictionsInDomain("PHYSICS")).hasSize(1);
+    }
+
+    @Test
     void compositionNoOpWhenFlagOff() {
         KnowledgeBaseService svc = enabled();  // findings on, composition off
         ResearchProgramService programs = mock(ResearchProgramService.class);

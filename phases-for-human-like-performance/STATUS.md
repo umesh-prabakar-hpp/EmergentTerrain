@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 536 (+401) |
+| Tests | 135 → 541 (+406) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -855,8 +855,19 @@ not their full behaviour:
   key. Circular compositions (A→A) skipped. Cap of 5 derived
   questions per call, highest-confidence first. Gated by
   `app.research.theory-composition.enabled`.
-- **LOGARITHMIC / CATEGORICAL relation types** (Phase 4 Iter 9) — narrow
-  to PROPORTIONAL / INVERSE / THRESHOLD / NULL initially.
+- ✅ **LOGARITHMIC / CATEGORICAL relation types** (Phase 4 Iter 9) —
+  shipped. Both values added to `RelationType` enum alongside the
+  original PROPORTIONAL / INVERSE / THRESHOLD / NULL. Semantic
+  integration is deliberately limited so the contradiction-detection
+  rules stay legible: composition skips both (same treatment THRESHOLD
+  already gets — these types are persisted and surfaced but don't fuel
+  derived theory questions); contradiction detection adds one new rule
+  (LOGARITHMIC ↔ INVERSE → contradiction, since both are monotonic
+  with opposite directions); CATEGORICAL doesn't compare with
+  continuous monotonic types (it's about discrete class structure, not
+  direction). NULL vs LOGARITHMIC and NULL vs CATEGORICAL still count
+  as contradictions through the existing any-vs-NULL rule. Pinned by
+  5 new tests in `KnowledgeBaseServiceTest`.
 
 ### Meta-science evolution targets
 
