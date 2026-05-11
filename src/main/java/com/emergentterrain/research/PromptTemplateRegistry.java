@@ -50,7 +50,7 @@ public class PromptTemplateRegistry {
     private final Map<String, List<PromptTemplate>> variantsById = new HashMap<>();
 
     @PostConstruct
-    void seedDefaults() {
+    public void seedDefaults() {
         // FORMULATION_NOVELTY — picks a novelty score for a (domain, topic) so the
         // formulation prompt can warn the bot when the topic is saturating. Single
         // round-trip, JSON-shaped reply. Migrated in Piece 2's first wave.
@@ -135,6 +135,93 @@ public class PromptTemplateRegistry {
                   {"description":"abundant numbers in range 200-400","rangeStart":200,"rangeEnd":400,"predicate":"isAbundant","metric":"fraction_satisfying","baseline":0.25,"hypothesis":"About 25% of integers in 200-400 are abundant, consistent with the known asymptotic density."}
                   {"description":"mean Collatz depth for happy primes near 800","rangeStart":780,"rangeEnd":950,"predicate":"isPrime AND isHappy","metric":"mean_of:collatzSteps","baseline":75.0,"hypothesis":"Happy primes near 800 require about 75 Collatz steps to terminate, deeper than the general average."}
                   {"description":"perfect or abundant numbers below 300","rangeStart":2,"rangeEnd":302,"predicate":"isAbundant OR isPerfect","metric":"fraction_satisfying","baseline":0.24,"hypothesis":"Roughly 24% of integers below 302 are abundant or perfect."}
+                """));
+
+        // NARRATION_STATISTICAL_FRAMING — second-pass editor that takes raw
+        // computational findings and re-shapes them into precision-aware
+        // scientific prose. Single round-trip, free-form text reply (NOT JSON).
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_STATISTICAL_FRAMING_ID,
+                PromptTemplateIds.NARRATION_STATISTICAL_FRAMING_VERSION,
+                """
+                You are a scientific editor improving precision reporting in a computational paper.
+
+                Domain: {{ domain }} | Topic: {{ topicName }}
+
+                Raw computational output:
+                {{ rawFindings }}
+
+                Rewrite this for the findings section of a scientific paper. Rules:
+                1. Replace exact decimals beyond 3 significant figures with rounded values.
+                2. Add appropriate uncertainty qualifiers: "approximately", "roughly", "within ~X%", "±" estimates.
+                3. For very small (<0.001) or very large (>10000) values use scientific notation.
+                4. Do NOT change any facts, trends, relationships, or physical quantities — only the precision framing.
+                5. Keep the same length and structure. Plain prose only, no bullet points, no headers.
+
+                Reply with ONLY the rewritten findings text — no preamble, no JSON, no explanation.
+                """));
+
+        // NARRATION_AUDIT — fast quality audit that flags structural issues
+        // in a draft (cross-domain mapping, degenerate results, duplicates,
+        // missing uncertainty, overclaiming). Reply is a small JSON {gaps:[…]}.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_AUDIT_ID,
+                PromptTemplateIds.NARRATION_AUDIT_VERSION,
+                """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Classification: {{ classification }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """));
+
+        // NARRATION_PROFESSOR_SYSTEM — system message for the tool-calling
+        // professor agent. Optional {{ auditSection }} slot is populated only
+        // when a prior quality audit found gaps; pre-carve used a positional
+        // %s for the same conditional.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION,
+                """
+                You are a professor reviewing a student's computational research paper.
+                You have access to mathematical tools to investigate gaps you identify.
+                Use tools when they would provide new evidence that materially changes what can be claimed.
+                You do not need to use tools if the paper is already well-supported.
+                {{ auditSection }}
+                After any tool calls, write a concise synthesis:
+                  1. List specific textual weaknesses (overclaiming, missing error bounds,
+                     inconsistency with pre-registration, unsupported leaps). Omit if none.
+                  2. Summarise what your experiments revealed and how they bear on the claims.
+                Be direct and specific. If the paper is fundamentally sound, say so briefly.
+                If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
+                and submit again — you have additional tool rounds available.
+                """));
+
+        // NARRATION_PROFESSOR_USER — user message companion to the professor
+        // system prompt. Optional pre-registration and result-classification
+        // lines fold into the {{ preRegAndClassLines }} composite slot.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION,
+                """
+                Paper for review:
+                Domain: {{ domain }} | Topic: {{ topicName }}
+                {{ preRegAndClassLines }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
                 """));
 
         // FORMULATION_MAIN — pre-computation hypothesis + parameter selection.

@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 558 (+423) |
+| Tests | 135 → 562 (+427) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -948,27 +948,33 @@ Per the phase doc's ordering (ascending risk):
      registry-rendered output to the old inline
      `String.format(...)` for the same inputs (the regression contract
      the memo asked for: "rendered output, not template body").
-     **Migrations shipped so far:** `FORMULATION_NOVELTY`,
-     `MENTORING_GENOME`, `FORMULATION_MAIN`. The latter two used the
-     positional `%s%s%s` pattern to splice optional context blocks; the
-     migrated templates expose those as a composite `{{ optionalContext }}`
-     slot (FORMULATION_MAIN) or as individually-named slots
+     **Migrations shipped so far (7 of 11):** `FORMULATION_NOVELTY`,
+     `MENTORING_GENOME`, `FORMULATION_MAIN`, `NARRATION_AUDIT`,
+     `NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
+     `NARRATION_STATISTICAL_FRAMING`. Several used the positional
+     `%s%s%s` pattern to splice optional context blocks; the migrated
+     templates expose those as a composite slot (e.g. `{{ optionalContext }}`
+     in FORMULATION_MAIN, `{{ preRegAndClassLines }}` in
+     NARRATION_PROFESSOR_USER, `{{ auditSection }}` in
+     NARRATION_PROFESSOR_SYSTEM) or as individually-named slots
      (MENTORING_GENOME's 19 args), keeping the renderer free of
      conditional logic per the memo's "no loops, no number formatting"
      stance. Numeric pre-formatting (`%.2f`, `%.1f`, `%d`) moves into
      the caller as `String.format(...)` so the rendered output matches
      the pre-carve byte-for-byte; pinned by an equivalence test per
-     template.
-     **Remaining migrations (8 templates, all in
+     template. `ResearchNarrationService`'s migrated build methods take
+     the registry as their first argument (preserving them as static
+     helpers callable from `LlmServiceQualityPipelineTest`); the
+     production callsites pass `promptRegistry` (a new ctor-injected
+     field on the service). `seedDefaults()` was promoted to `public`
+     so cross-package tests can stand up a freshly-seeded registry.
+     **Remaining migrations (4 templates, all in
      `ResearchNarrationService`):** `NARRATION_PRIMARY`,
-     `NARRATION_REFINEMENT`, `NARRATION_CRITIQUE`, `NARRATION_AUDIT`,
-     `NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
-     `NARRATION_REVISION`, `NARRATION_STATISTICAL_FRAMING`. Each is
-     mechanical but non-trivial (some are 100+ line prompts); future
-     commits migrate one or two at a time, each with its own
-     equivalence test. Piece 3 is still gated on 2–4 weeks of observed
-     runtime — these migrations don't accelerate that gate but
-     eliminate the per-callsite refactor cost when Piece 3 lands.
+     `NARRATION_REFINEMENT`, `NARRATION_CRITIQUE`, `NARRATION_REVISION`
+     (the last has two variants — synthesis vs critique paths).
+     Each is mechanical but non-trivial (some are 100+ line prompts
+     with conditional context blocks). Piece 3 is still gated on 2–4
+     weeks of observed runtime.
 
 ### Refactoring deferral
 

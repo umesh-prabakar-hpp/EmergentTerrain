@@ -366,6 +366,153 @@ class PromptTemplateRegistryTest {
         assertThat(registryRendered).isEqualTo(inlineExpected);
     }
 
+    @Test
+    void narrationAuditRendersToSameStringAsOldInlineFormat() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        String domain         = "PHYSICS";
+        String topicName      = "two-body";
+        String classification = "POSITIVE_RESULT";
+        String hypothesis     = "energy is conserved";
+        String findings       = "deviation < 0.5% across all runs";
+        String conclusion     = "supports the conservation hypothesis";
+
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         domain);
+        params.put("topicName",      topicName);
+        params.put("classification", classification);
+        params.put("hypothesis",     hypothesis);
+        params.put("findings",       findings);
+        params.put("conclusion",     conclusion);
+
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+
+        String inlineExpected = """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: %s | Topic: %s | Classification: %s
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """.formatted(domain, topicName, classification, hypothesis, findings, conclusion);
+
+        assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
+    @Test
+    void professorSystemRendersToSameStringAsOldInlineFormat() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        // Pre-carve buildProfessorSystemPrompt has two branches: empty audit
+        // → empty section; non-empty audit → a "\nA quality audit identified
+        // ..." block. The migrated body uses {{ auditSection }} for both.
+        String auditSection = "\nA quality audit identified these specific gaps. Address them with your tools:\n"
+                            + "- [CRITICAL] overclaiming: claims exceed evidence\n\n";
+
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                Map.of("auditSection", auditSection));
+
+        String inlineExpected = """
+                You are a professor reviewing a student's computational research paper.
+                You have access to mathematical tools to investigate gaps you identify.
+                Use tools when they would provide new evidence that materially changes what can be claimed.
+                You do not need to use tools if the paper is already well-supported.
+                %s
+                After any tool calls, write a concise synthesis:
+                  1. List specific textual weaknesses (overclaiming, missing error bounds,
+                     inconsistency with pre-registration, unsupported leaps). Omit if none.
+                  2. Summarise what your experiments revealed and how they bear on the claims.
+                Be direct and specific. If the paper is fundamentally sound, say so briefly.
+                If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
+                and submit again — you have additional tool rounds available.
+                """.formatted(auditSection);
+
+        assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
+    @Test
+    void professorUserRendersToSameStringAsOldInlineFormat() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        String domain        = "MATHEMATICS";
+        String topicName     = "collatz";
+        // preRegLine + classLine concatenated by the caller into one composite slot.
+        String preRegLine    = "Pre-registered prediction: depth grows logarithmically\n";
+        String classLine     = "Result classification: POSITIVE_RESULT\n";
+        String composite     = preRegLine + classLine;
+        String hypothesis    = "log(n) growth";
+        String findings      = "fit r=0.91 on n<10k";
+        String conclusion    = "weak evidence for log law";
+
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",              domain);
+        params.put("topicName",           topicName);
+        params.put("preRegAndClassLines", composite);
+        params.put("hypothesis",          hypothesis);
+        params.put("findings",            findings);
+        params.put("conclusion",          conclusion);
+
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID, params);
+
+        String inlineExpected = """
+                Paper for review:
+                Domain: %s | Topic: %s
+                %s%s
+                Hypothesis: %s
+                Findings: %s
+                Conclusion: %s
+                """.formatted(domain, topicName, preRegLine, classLine, hypothesis, findings, conclusion);
+
+        assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
+    @Test
+    void statisticalFramingRendersToSameStringAsOldInlineFormat() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        String domain        = "MATERIALS";
+        String topicName     = "composite-failure";
+        String rawFindings   = "Matrix yield σ_ym=200.0000 MPa, fibre strength σ_f=3000.000 MPa.";
+
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_STATISTICAL_FRAMING_ID, Map.of(
+                "domain",      domain,
+                "topicName",   topicName,
+                "rawFindings", rawFindings));
+
+        // Pre-carve template used "within ~X%%" for a literal "within ~X%"; the
+        // migrated body uses a single literal "%" and produces the same output.
+        String inlineExpected = """
+                You are a scientific editor improving precision reporting in a computational paper.
+
+                Domain: %s | Topic: %s
+
+                Raw computational output:
+                %s
+
+                Rewrite this for the findings section of a scientific paper. Rules:
+                1. Replace exact decimals beyond 3 significant figures with rounded values.
+                2. Add appropriate uncertainty qualifiers: "approximately", "roughly", "within ~X%%", "±" estimates.
+                3. For very small (<0.001) or very large (>10000) values use scientific notation.
+                4. Do NOT change any facts, trends, relationships, or physical quantities — only the precision framing.
+                5. Keep the same length and structure. Plain prose only, no bullet points, no headers.
+
+                Reply with ONLY the rewritten findings text — no preamble, no JSON, no explanation.
+                """.formatted(domain, topicName, rawFindings);
+
+        assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
     private static PromptTemplateRegistry freshSeededRegistry() {
         PromptTemplateRegistry r = new PromptTemplateRegistry();
         r.seedDefaults();   // package-private, invoked here exactly like @PostConstruct would.

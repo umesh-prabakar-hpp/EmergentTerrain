@@ -5,6 +5,8 @@ import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.PromptTemplateIds;
+import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResultClassification;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -19,7 +21,9 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
@@ -44,6 +48,7 @@ public class ResearchNarrationService {
     private final LlmRouter router;
     private final MathToolSuite toolSuite;
     private final ObjectMapper objectMapper;
+    private final PromptTemplateRegistry promptRegistry;
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore narrationSlot;
     private final Semaphore refinementSlot = new Semaphore(2);
@@ -51,11 +56,13 @@ public class ResearchNarrationService {
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
-    public ResearchNarrationService(LlmRouter router, ObjectMapper objectMapper) {
-        this.router        = router;
-        this.toolSuite     = new MathToolSuite(router, objectMapper);
-        this.objectMapper  = objectMapper;
-        this.narrationSlot = new Semaphore(router.primaryPoolSize());
+    public ResearchNarrationService(LlmRouter router, ObjectMapper objectMapper,
+                                    PromptTemplateRegistry promptRegistry) {
+        this.router         = router;
+        this.toolSuite      = new MathToolSuite(router, objectMapper);
+        this.objectMapper   = objectMapper;
+        this.promptRegistry = promptRegistry;
+        this.narrationSlot  = new Semaphore(router.primaryPoolSize());
         log.info("ResearchNarrationService: narrationSlots={}", narrationSlot.availablePermits());
     }
 
@@ -209,8 +216,8 @@ public class ResearchNarrationService {
             boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
                     || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain());
             String toolsJson    = toolSuite.toolsJson(includeDynamic);
-            String systemPrompt = buildProfessorSystemPrompt(auditSummary);
-            String userPrompt   = buildProfessorUserPrompt(draft, firstPass);
+            String systemPrompt = buildProfessorSystemPrompt(promptRegistry, auditSummary);
+            String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass);
 
             String professorSynthesis = router.callPrimaryWithTools(
                     systemPrompt, userPrompt, toolsJson,
@@ -340,7 +347,7 @@ public class ResearchNarrationService {
             String findings = result.findings();
             try {
                 String framed = parseStatisticalFraming(router.callFast(
-                        buildStatisticalFramingPrompt(findings, draft.domain(), draft.topicName())));
+                        buildStatisticalFramingPrompt(promptRegistry, findings, draft.domain(), draft.topicName())));
                 if (framed != null) findings = framed;
             } catch (Exception ignored) {}
 
@@ -432,7 +439,7 @@ public class ResearchNarrationService {
                                     List<String> callPath) {
         try {
             long t = System.currentTimeMillis();
-            String raw = router.callFast(buildAuditPrompt(draft, firstPass));
+            String raw = router.callFast(buildAuditPrompt(promptRegistry, draft, firstPass));
             List<AuditGap> gaps = parseAuditGaps(objectMapper, raw);
             if (gaps.isEmpty()) {
                 callPath.add("audit:4b:0gaps");
@@ -456,28 +463,17 @@ public class ResearchNarrationService {
         }
     }
 
-    static String buildAuditPrompt(PaperDraft draft, NarrationResult narration) {
-        return """
-                Assess this computational research paper for quality gaps.
-                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
-
-                Domain: %s | Topic: %s | Classification: %s
-                Hypothesis: %s
-                Findings: %s
-                Conclusion: %s
-
-                Check only these dimensions (skip if not problematic):
-                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
-                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
-                - duplicate_computation: two or more computations tested identical parameter values
-                - uncertainty: quantitative claims lack uncertainty language or error bounds
-                - overclaiming: conclusion asserts more than the data demonstrates
-
-                Reply with ONLY valid JSON:
-                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
-                """.formatted(draft.domain(), draft.topicName(),
-                draft.resultClassification() != null ? draft.resultClassification() : "UNKNOWN",
-                narration.hypothesis(), narration.findings(), narration.conclusion());
+    static String buildAuditPrompt(PromptTemplateRegistry registry,
+                                    PaperDraft draft, NarrationResult narration) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",         draft.domain());
+        params.put("topicName",      draft.topicName());
+        params.put("classification", draft.resultClassification() != null
+                ? draft.resultClassification() : "UNKNOWN");
+        params.put("hypothesis",     narration.hypothesis());
+        params.put("findings",       narration.findings());
+        params.put("conclusion",     narration.conclusion());
+        return registry.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
     }
 
     static List<AuditGap> parseAuditGaps(ObjectMapper mapper, String response) {
@@ -506,46 +502,35 @@ public class ResearchNarrationService {
         return model.substring(0, 18);
     }
 
-    static String buildProfessorSystemPrompt() {
-        return buildProfessorSystemPrompt("");
+    static String buildProfessorSystemPrompt(PromptTemplateRegistry registry) {
+        return buildProfessorSystemPrompt(registry, "");
     }
 
-    static String buildProfessorSystemPrompt(String auditSummary) {
+    static String buildProfessorSystemPrompt(PromptTemplateRegistry registry, String auditSummary) {
         String auditSection = (auditSummary != null && !auditSummary.isBlank())
                 ? "\nA quality audit identified these specific gaps. Address them with your tools:\n"
                   + auditSummary + "\n"
                 : "";
-        return """
-                You are a professor reviewing a student's computational research paper.
-                You have access to mathematical tools to investigate gaps you identify.
-                Use tools when they would provide new evidence that materially changes what can be claimed.
-                You do not need to use tools if the paper is already well-supported.
-                %s
-                After any tool calls, write a concise synthesis:
-                  1. List specific textual weaknesses (overclaiming, missing error bounds,
-                     inconsistency with pre-registration, unsupported leaps). Omit if none.
-                  2. Summarise what your experiments revealed and how they bear on the claims.
-                Be direct and specific. If the paper is fundamentally sound, say so briefly.
-                If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
-                and submit again — you have additional tool rounds available.
-                """.formatted(auditSection);
+        return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                Map.of("auditSection", auditSection));
     }
 
-    static String buildProfessorUserPrompt(PaperDraft draft, NarrationResult narration) {
+    static String buildProfessorUserPrompt(PromptTemplateRegistry registry,
+                                            PaperDraft draft, NarrationResult narration) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
         String classLine  = draft.resultClassification() != null
                 ? "Result classification: " + draft.resultClassification() + "\n" : "";
-        return """
-                Paper for review:
-                Domain: %s | Topic: %s
-                %s%s
-                Hypothesis: %s
-                Findings: %s
-                Conclusion: %s
-                """.formatted(draft.domain(), draft.topicName(),
-                preRegLine, classLine,
-                narration.hypothesis(), narration.findings(), narration.conclusion());
+        // preRegLine + classLine concatenated into a single composite slot; both
+        // may be empty independently. Pre-carve used positional %s%s for the same.
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",                draft.domain());
+        params.put("topicName",             draft.topicName());
+        params.put("preRegAndClassLines",   preRegLine + classLine);
+        params.put("hypothesis",            narration.hypothesis());
+        params.put("findings",              narration.findings());
+        params.put("conclusion",            narration.conclusion());
+        return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID, params);
     }
 
     static String buildRevisionPromptFromSynthesis(PaperDraft draft, NarrationResult firstPass,
@@ -878,7 +863,7 @@ public class ResearchNarrationService {
         if (raw == null || raw.isBlank()) return draft;
         try {
             long start = System.currentTimeMillis();
-            String response = router.callFast(buildStatisticalFramingPrompt(raw, draft.domain(), draft.topicName()));
+            String response = router.callFast(buildStatisticalFramingPrompt(promptRegistry, raw, draft.domain(), draft.topicName()));
             String framed = parseStatisticalFraming(response);
             if (framed != null) {
                 log.info("LLM statistical framing done paperId={} ms={}", draft.paperId(),
@@ -903,25 +888,13 @@ public class ResearchNarrationService {
         return draft;
     }
 
-    static String buildStatisticalFramingPrompt(String rawFindings, String domain, String topicName) {
+    static String buildStatisticalFramingPrompt(PromptTemplateRegistry registry,
+                                                 String rawFindings, String domain, String topicName) {
         String trimmed = rawFindings.length() > 500 ? rawFindings.substring(0, 500) + "…" : rawFindings;
-        return """
-                You are a scientific editor improving precision reporting in a computational paper.
-
-                Domain: %s | Topic: %s
-
-                Raw computational output:
-                %s
-
-                Rewrite this for the findings section of a scientific paper. Rules:
-                1. Replace exact decimals beyond 3 significant figures with rounded values.
-                2. Add appropriate uncertainty qualifiers: "approximately", "roughly", "within ~X%%", "±" estimates.
-                3. For very small (<0.001) or very large (>10000) values use scientific notation.
-                4. Do NOT change any facts, trends, relationships, or physical quantities — only the precision framing.
-                5. Keep the same length and structure. Plain prose only, no bullet points, no headers.
-
-                Reply with ONLY the rewritten findings text — no preamble, no JSON, no explanation.
-                """.formatted(domain, topicName, trimmed);
+        return registry.render(PromptTemplateIds.NARRATION_STATISTICAL_FRAMING_ID, Map.of(
+                "domain",      domain,
+                "topicName",   topicName,
+                "rawFindings", trimmed));
     }
 
     static String parseStatisticalFraming(String response) {

@@ -3,6 +3,7 @@ package com.emergentterrain.service;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResultClassification;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 class LlmServiceQualityPipelineTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final PromptTemplateRegistry REGISTRY = freshSeededRegistry();
+
+    private static PromptTemplateRegistry freshSeededRegistry() {
+        PromptTemplateRegistry r = new PromptTemplateRegistry();
+        r.seedDefaults();   // package-private — invoked here exactly like @PostConstruct would.
+        return r;
+    }
 
     // ==========================================================================
     // parseNoveltyAssessment
@@ -120,7 +128,7 @@ class LlmServiceQualityPipelineTest {
 
     @Test
     void framingPromptContainsDomainAndRawFindings() {
-        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt(
+        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt(REGISTRY,
                 "Matrix yield σ_ym=200.0000 MPa, fibre strength σ_f=3000.000 MPa.",
                 "MATERIALS", "composite-failure");
         assertThat(prompt).contains("MATERIALS").contains("composite-failure");
@@ -130,7 +138,7 @@ class LlmServiceQualityPipelineTest {
     @Test
     void framingPromptTruncatesVeryLongFindings() {
         String longFindings = "x".repeat(600);
-        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt(longFindings, "PHYSICS", "pendulum");
+        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt(REGISTRY, longFindings, "PHYSICS", "pendulum");
         assertThat(prompt).contains("…");
         // Original 600-char finding should be truncated to 500; prompt not huge
         assertThat(prompt.length()).isLessThan(1500);
@@ -138,7 +146,7 @@ class LlmServiceQualityPipelineTest {
 
     @Test
     void framingPromptInstructsNoPreamble() {
-        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt("v=9.81 m/s^2", "PHYSICS", "gravity");
+        String prompt = ResearchNarrationService.buildStatisticalFramingPrompt(REGISTRY, "v=9.81 m/s^2", "PHYSICS", "gravity");
         assertThat(prompt).containsIgnoringCase("no preamble");
     }
 
