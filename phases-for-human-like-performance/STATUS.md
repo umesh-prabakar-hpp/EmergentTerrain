@@ -164,12 +164,43 @@ ranked as lowest-risk have shipped:
   low-mobility no-op, endpoint multipliers, decay+removal, promotion above
   threshold, water-tile skip, empty/null inputs, and the `seedPressure()`
   getter).
+- ✅ **`BotMovementService`** — pulled the pure path-planning + per-step
+  scoring helpers out of `RoomService` into
+  [BotMovementService.java](../src/main/java/com/emergentterrain/service/BotMovementService.java).
+  All four `app.bots.{planLength,reverseCooldownTicks,reversePenalty,headingBias}`
+  tunables migrated to the new service. `BotMotionState` was promoted
+  to its own top-level package-private class
+  ([BotMotionState.java](../src/main/java/com/emergentterrain/service/BotMotionState.java))
+  so the new service can mutate it without depending on a `RoomService`
+  inner class. Methods extracted: `pickStep`, `stepTowardTarget`,
+  `tilePreferenceScore`, `isInBounds`, `recordMoveOnMotion`, plus the
+  three internal helpers `planPath`, `chooseBestNeighbor`,
+  `antiOscillationAdjustment`. `RoomService` retains the orchestration
+  (`tickBots`, `applyBotMove`, `addRoadDemandForMove`, the JSON / GPU
+  codecs for `BotMotionState`, `assignBotSpawn`, `shouldRelocate`,
+  `findBestProfileLocation`) — these still touch the room cache map,
+  bot/participant repositories, and the proposal-vote machinery, none of
+  which belong with movement math. `botVoteDecision` delegates
+  `tilePreferenceScore` through the service. `RoomService` dropped a
+  further 4,540 → 4,181 lines (−359). Pinned by
+  [BotMovementServiceTest.java](../src/test/java/com/emergentterrain/service/BotMovementServiceTest.java)
+  (14 tests covering bounds, profile scoring with defaults,
+  `recordMoveOnMotion` cooldown application, `stepTowardTarget` corners
+  including null/at-target/highway-bonus paths, `pickStep` planned-path
+  reuse vs replan, surrounded-out-of-bounds, tunable accessors, the
+  reverse-penalty discouraging back-into-last-tile behaviour).
+
+**Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
+BotMovementService, plus the CachedRoomState/TileCounts/OccupantSnapshot/
+BotMotionState promotions, `RoomService` is down **4,746 → 4,181 lines
+(−565, −12%)**.
 
 Still deferred (need Phase 3 Iter 6 design pressure to pick the right
-seams): `BotMovementService`, `RoomStateOrchestrator`,
-`BotRoomLifecycleService`. The `BotMovementService` carve in particular
-will likely require promoting `RoomService.CachedRoomState` to a
-top-level class — the same pattern this carve applied to `LocalStats`.
+seams): `RoomStateOrchestrator`, `BotRoomLifecycleService`. The
+relocation-decision logic (`shouldRelocate`, `findBestProfileLocation`)
+also stays for now — both depend on the participant/bot repositories
+and the proposal-vote machinery, which are themselves orchestrator
+concerns.
 
 ---
 
@@ -274,11 +305,12 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and the first
-two Phase 2.5 carves), the research package is 17 specialist services
-+ 2 RoomService-derived services in `com.emergentterrain.service`
-(BotArchetypeBehaviorService, HighwayEmergenceService) + 14 entities.
-Refreshed against the working tree (post-`ab42534`):
+After Phase 0 + four behavioural phases (plus Phase 4b and three
+Phase 2.5 carves), the research package is 17 specialist services + 3
+RoomService-derived services in `com.emergentterrain.service`
+(BotArchetypeBehaviorService, HighwayEmergenceService,
+BotMovementService) + 14 entities. Refreshed against the working tree
+(post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -301,6 +333,7 @@ Refreshed against the working tree (post-`ab42534`):
 | PaperGraphService | 129 | citation queries + contradiction clusters |
 | ExpectationModelService | 126 | Welford priors + surprise scoring |
 | SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
+| BotMovementService | 211 | path planning + per-step scoring + tile-preference (Phase 2.5) |
 | HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |

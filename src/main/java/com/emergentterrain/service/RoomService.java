@@ -109,10 +109,7 @@ public class RoomService {
     private final int initialRoomCreateTarget;
     private final int botSeedMinimum;
     private final int maxBotsTickedPerMaintenance;
-    private final double botReversePenalty;
-    private final double botHeadingBias;
-    private final int botPlanLength;
-    private final int botReverseCooldownTicks;
+    private final BotMovementService movement;
     private final HighwayEmergenceService highways;
     private final int flushMinChanges;
     private final long flushMaxIntervalMs;
@@ -204,10 +201,7 @@ public class RoomService {
                        @Value("${app.bots.initialRoomCreateTarget:200}") int initialRoomCreateTarget,
                        @Value("${app.bots.seedMinimum:50}") int botSeedMinimum,
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
-                       @Value("${app.bots.reversePenalty:0.6}") double botReversePenalty,
-                       @Value("${app.bots.headingBias:0.18}") double botHeadingBias,
-                       @Value("${app.bots.planLength:3}") int botPlanLength,
-                       @Value("${app.bots.reverseCooldownTicks:2}") int botReverseCooldownTicks,
+                       BotMovementService movement,
                        HighwayEmergenceService highways,
                        @Value("${app.world.flushMinChanges:1}") int flushMinChanges,
                        @Value("${app.world.flushMaxIntervalMs:30000}") long flushMaxIntervalMs,
@@ -274,10 +268,7 @@ public class RoomService {
         this.initialRoomCreateTarget = Math.max(minNeighbors, initialRoomCreateTarget);
         this.botSeedMinimum = Math.max(10, botSeedMinimum);
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
-        this.botReversePenalty = Math.max(0d, botReversePenalty);
-        this.botHeadingBias = Math.max(0d, botHeadingBias);
-        this.botPlanLength = Math.max(1, botPlanLength);
-        this.botReverseCooldownTicks = Math.max(0, botReverseCooldownTicks);
+        this.movement = movement;
         this.highways = highways;
         this.flushMinChanges = Math.max(1, flushMinChanges);
         this.flushMaxIntervalMs = Math.max(250, flushMaxIntervalMs);
@@ -2865,7 +2856,7 @@ public class RoomService {
                 if (shouldRelocate(bot, room, tiles, highways, recentProposals)) {
                     int[] bestTarget = findBestProfileLocation(bot, tiles, highways, cached);
                     int travelDistance = bestTarget == null ? 0 : Math.abs(bestTarget[0] - bot.getX()) + Math.abs(bestTarget[1] - bot.getY());
-                    int[] step = stepTowardProfileTarget(bot, tiles, highways, cached, motion, profile, bestTarget);
+                    int[] step = movement.stepTowardTarget(bot, tiles, highways, motion, profile, bestTarget);
                     if (step != null && canOccupy(room, step[0], step[1], bot.getId().toString())) {
                         int currentX = bot.getX();
                         int currentY = bot.getY();
@@ -2882,7 +2873,7 @@ public class RoomService {
                     writeBotMotionState(bot, motion);
                     continue;
                 }
-                int[] next = pickBotStep(bot, tiles, highways, profile, motion);
+                int[] next = movement.pickStep(bot, tiles, highways, profile, motion);
                 if (next != null && canOccupy(room, next[0], next[1], bot.getId().toString())) {
                     int currentX = bot.getX();
                     int currentY = bot.getY();
@@ -2903,22 +2894,10 @@ public class RoomService {
         }
     }
 
-    private int[] pickBotStep(RoomBot bot,
-                              int[][] tiles,
-                              boolean[][] highways,
-                              Map<String, Double> profile,
-                              BotMotionState motion) {
-        if (motion.hasPlannedStep()) {
-            int[] planned = motion.peekPlannedStep();
-            if (isInBounds(planned[0], planned[1], tiles)) {
-                return planned;
-            }
-            motion.clearPlan();
-        }
-        List<int[]> plannedPath = planBotPath(bot.getX(), bot.getY(), tiles, highways, profile, motion, botPlanLength);
-        motion.setPlan(plannedPath);
-        return motion.peekPlannedStep();
-    }
+    // Phase 2.5 carve: pickBotStep, planBotPath, chooseBestBotNeighbor,
+    // antiOscillationAdjustment, stepTowardProfileTarget, tilePreferenceScore,
+    // and isInBounds moved to BotMovementService. Callers above delegate via
+    // `movement.pickStep / stepTowardTarget / tilePreferenceScore / isInBounds`.
 
     private boolean shouldRelocate(RoomBot bot, Room room, int[][] tiles, List<RoomProposal> recent) {
         int cx = bot.getX();
@@ -2979,141 +2958,13 @@ public class RoomService {
         return false;
     }
 
-    private int[] stepTowardProfileTarget(RoomBot bot,
-                                          int[][] tiles,
-                                          boolean[][] highways,
-                                          CachedMap cached,
-                                          BotMotionState motion,
-                                          Map<String, Double> profile,
-                                          int[] best) {
-        if (best == null) {
-            return null;
-        }
-        int dx = best[0] - bot.getX();
-        int dy = best[1] - bot.getY();
-        int stepX = bot.getX();
-        int stepY = bot.getY();
-        if (dx == 0 && dy == 0) {
-            return null;
-        }
-        List<int[]> candidates = new ArrayList<>();
-        if (dx != 0) {
-            candidates.add(new int[] { bot.getX() + Integer.signum(dx), bot.getY() });
-        }
-        if (dy != 0) {
-            candidates.add(new int[] { bot.getX(), bot.getY() + Integer.signum(dy) });
-        }
-        int[] bestStep = null;
-        double bestScore = -Double.MAX_VALUE;
-        for (int[] c : candidates) {
-            if (c[0] < 0 || c[0] >= tiles[0].length || c[1] < 0 || c[1] >= tiles.length) {
-                continue;
-            }
-            double score = tilePreferenceScore(tiles[c[1]][c[0]], profile);
-            score += antiOscillationAdjustment(c[0], c[1], tiles, highways, motion);
-            if ((highways.length > 0 && highways[c[1]][c[0]]) || tiles[c[1]][c[0]] == 4) {
-                score += 0.25;
-            }
-            if (score > bestScore) {
-                bestScore = score;
-                bestStep = c;
-            }
-        }
-        if (bestStep != null) {
-            stepX = bestStep[0];
-            stepY = bestStep[1];
-        }
-        return new int[] { stepX, stepY };
-    }
-
-    private List<int[]> planBotPath(int startX,
-                                    int startY,
-                                    int[][] tiles,
-                                    boolean[][] highways,
-                                    Map<String, Double> profile,
-                                    BotMotionState motion,
-                                    int maxSteps) {
-        List<int[]> path = new ArrayList<>();
-        int currentX = startX;
-        int currentY = startY;
-        BotMotionState scratch = motion.copy();
-        for (int i = 0; i < maxSteps; i++) {
-            int[] next = chooseBestBotNeighbor(currentX, currentY, tiles, highways, profile, scratch);
-            if (next == null || (next[0] == currentX && next[1] == currentY)) {
-                break;
-            }
-            path.add(next);
-            scratch.recordMove(currentX, currentY, next[0], next[1], botReverseCooldownTicks);
-            currentX = next[0];
-            currentY = next[1];
-        }
-        return path;
-    }
-
-    private int[] chooseBestBotNeighbor(int x,
-                                        int y,
-                                        int[][] tiles,
-                                        boolean[][] highways,
-                                        Map<String, Double> profile,
-                                        BotMotionState motion) {
-        int[][] dirs = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        double best = -Double.MAX_VALUE;
-        int[] bestPos = null;
-        for (int[] d : dirs) {
-            int nx = x + d[0];
-            int ny = y + d[1];
-            if (!isInBounds(nx, ny, tiles)) {
-                continue;
-            }
-            int type = tiles[ny][nx];
-            double score = tilePreferenceScore(type, profile);
-            if ((highways.length > 0 && highways[ny][nx]) || type == 4) {
-                score += 0.2;
-            }
-            score += antiOscillationAdjustment(nx, ny, tiles, highways, motion);
-            if (score > best) {
-                best = score;
-                bestPos = new int[] { nx, ny };
-            }
-        }
-        return bestPos;
-    }
-
-    private double antiOscillationAdjustment(int nx,
-                                             int ny,
-                                             int[][] tiles,
-                                             boolean[][] highways,
-                                             BotMotionState motion) {
-        double score = 0d;
-        if (motion.lastX != null && motion.lastY != null && motion.lastX == nx && motion.lastY == ny) {
-            score -= botReversePenalty;
-            if (motion.reverseCooldownTicks > 0) {
-                score -= botReversePenalty;
-            }
-        }
-        if (motion.headingX != 0 || motion.headingY != 0) {
-            int dx = nx - motion.currentX;
-            int dy = ny - motion.currentY;
-            if (dx == motion.headingX && dy == motion.headingY) {
-                score += botHeadingBias;
-            } else if (dx == -motion.headingX && dy == -motion.headingY) {
-                score -= botHeadingBias;
-            }
-        }
-        return score;
-    }
-
-    private boolean isInBounds(int x, int y, int[][] tiles) {
-        return y >= 0 && y < tiles.length && x >= 0 && x < tiles[0].length;
-    }
-
     private void applyBotMove(RoomBot bot, BotMotionState motion, int nextX, int nextY) {
         int currentX = bot.getX() == null ? nextX : bot.getX();
         int currentY = bot.getY() == null ? nextY : bot.getY();
         bot.setX(nextX);
         bot.setY(nextY);
         motion.consumePlannedStep();
-        motion.recordMove(currentX, currentY, nextX, nextY, botReverseCooldownTicks);
+        movement.recordMoveOnMotion(motion, currentX, currentY, nextX, nextY);
         writeBotMotionState(bot, motion);
     }
 
@@ -3128,32 +2979,18 @@ public class RoomService {
                                       int travelDistance,
                                       boolean relocating) {
         if (cached == null || cached.roadPressure.length == 0) return;
-        if (!isInBounds(fromX, fromY, tiles) || !isInBounds(toX, toY, tiles)) return;
+        if (!movement.isInBounds(fromX, fromY, tiles) || !movement.isInBounds(toX, toY, tiles)) return;
         if (tiles[fromY][fromX] == 2 || tiles[toY][toX] == 2) return;
         boolean fromIsHwy = highwayMap.length > 0 && highwayMap[fromY][fromX];
         boolean toIsHwy   = highwayMap.length > 0 && highwayMap[toY][toX];
         HighwayEmergenceService.MoveDeposit deposit = highways.computeMoveDeposit(
-                profile, travelDistance, relocating, botPlanLength, fromIsHwy, toIsHwy);
+                profile, travelDistance, relocating, movement.planLength(), fromIsHwy, toIsHwy);
         if (deposit.isZero()) return;
         cached.roadPressure[fromY][fromX] += deposit.fromDeposit();
         cached.roadPressure[toY][toX]     += deposit.toDeposit();
         cached.dirty = true;
     }
 
-    private double tilePreferenceScore(int type, Map<String, Double> profile) {
-        switch (type) {
-            case 1:
-                return profile.getOrDefault("forest", 0.5);
-            case 2:
-                return profile.getOrDefault("water", 0.5);
-            case 3:
-                return profile.getOrDefault("industry", 0.5);
-            case 4:
-                return profile.getOrDefault("clear", 0.5);
-            default:
-                return profile.getOrDefault("clear", 0.5);
-        }
-    }
 
     private void applyBotVotes(Room room, RoomProposal proposal, int[][] baseTiles, int[][] proposedTiles) {
         Set<String> neighborIds = new HashSet<>(readNeighborIds(proposal));
@@ -3259,7 +3096,7 @@ public class RoomService {
             if (improvement < -0.02) return BotVote.REJECT;
         }
 
-        double preference = tilePreferenceScore(type, profile);
+        double preference = movement.tilePreferenceScore(type, profile);
         boolean approve = improvement >= 0 ? preference >= 0.35 * (1 - consensus) : preference >= 0.55;
         if (!approve && improvement > -0.05 && Math.random() < risk) {
             approve = true;
@@ -4305,96 +4142,8 @@ public class RoomService {
         }
     }
 
-    private static class BotMotionState {
-        public Integer currentX;
-        public Integer currentY;
-        public Integer lastX;
-        public Integer lastY;
-        public int headingX;
-        public int headingY;
-        public int reverseCooldownTicks;
-        public List<int[]> plannedSteps = new ArrayList<>();
-
-        void tick() {
-            if (reverseCooldownTicks > 0) {
-                reverseCooldownTicks--;
-            }
-        }
-
-        void normalize() {
-            if (plannedSteps == null) {
-                plannedSteps = new ArrayList<>();
-            }
-            if (plannedSteps.size() > 2) {
-                plannedSteps = new ArrayList<>(plannedSteps.subList(0, 2));
-            }
-        }
-
-        void resetAt(Integer x, Integer y) {
-            currentX = x;
-            currentY = y;
-            lastX = null;
-            lastY = null;
-            headingX = 0;
-            headingY = 0;
-            reverseCooldownTicks = 0;
-            clearPlan();
-        }
-
-        void recordMove(int fromX, int fromY, int toX, int toY, int cooldownTicks) {
-            lastX = fromX;
-            lastY = fromY;
-            currentX = toX;
-            currentY = toY;
-            headingX = Integer.compare(toX, fromX);
-            headingY = Integer.compare(toY, fromY);
-            reverseCooldownTicks = cooldownTicks;
-        }
-
-        void setPlan(List<int[]> nextSteps) {
-            plannedSteps = new ArrayList<>();
-            if (nextSteps == null) {
-                return;
-            }
-            for (int i = 0; i < Math.min(2, nextSteps.size()); i++) {
-                int[] step = nextSteps.get(i);
-                if (step != null && step.length >= 2) {
-                    plannedSteps.add(new int[] { step[0], step[1] });
-                }
-            }
-        }
-
-        boolean hasPlannedStep() {
-            return plannedSteps != null && !plannedSteps.isEmpty();
-        }
-
-        int[] peekPlannedStep() {
-            return hasPlannedStep() ? plannedSteps.get(0) : null;
-        }
-
-        void consumePlannedStep() {
-            if (hasPlannedStep()) {
-                plannedSteps.remove(0);
-            }
-        }
-
-        void clearPlan() {
-            plannedSteps = new ArrayList<>();
-        }
-
-        BotMotionState copy() {
-            BotMotionState copy = new BotMotionState();
-            copy.currentX = currentX;
-            copy.currentY = currentY;
-            copy.lastX = lastX;
-            copy.lastY = lastY;
-            copy.headingX = headingX;
-            copy.headingY = headingY;
-            copy.reverseCooldownTicks = reverseCooldownTicks;
-            copy.setPlan(plannedSteps);
-            return copy;
-        }
-    }
+    // Phase 2.5 carve: BotMotionState promoted to a top-level package-private
+    // class. See BotMotionState.java in this package.
 
     private record CachedSystemToken(String token) {
     }
