@@ -114,6 +114,7 @@ public class RoomService {
     private final TileValidatorService validator;
     private final OccupancyService occupancy;
     private final BotSimulationGpuService gpuSimulation;
+    private final RoomProposalService proposals;
     private final RoomStateOrchestrator orchestrator;
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
@@ -204,6 +205,7 @@ public class RoomService {
                        TileValidatorService validator,
                        OccupancyService occupancy,
                        BotSimulationGpuService gpuSimulation,
+                       RoomProposalService proposals,
                        RoomStateOrchestrator orchestrator,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
@@ -273,6 +275,7 @@ public class RoomService {
         this.validator = validator;
         this.occupancy = occupancy;
         this.gpuSimulation = gpuSimulation;
+        this.proposals = proposals;
         this.orchestrator = orchestrator;
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
@@ -1221,8 +1224,8 @@ public class RoomService {
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
             int[][] baseTiles = getTilesForRoom(room, state);
-            int[] delta = extractAnchor(request.getDelta());
-            validateProposalDelta(baseTiles, delta, request.getDelta());
+            int[] delta = proposals.extractAnchor(request.getDelta());
+            proposals.validateProposalDelta(baseTiles, delta, request.getDelta());
             proposal.setDeltaJson(toJson(request.getDelta()));
             proposal.setTilesJson(toJson(request.getDelta()));
             int[] anchor = delta;
@@ -1248,7 +1251,7 @@ public class RoomService {
             vote.setApprove(true);
             voteRepository.save(vote);
 
-            int[][] proposedTiles = applyDeltaToTiles(baseTiles, proposal);
+            int[][] proposedTiles = proposals.applyDeltaToTiles(baseTiles, proposal);
             applyBotVotes(room, proposal, baseTiles, proposedTiles);
             evaluateProposal(room, proposal);
             if ("PENDING".equals(proposal.getStatus())) {
@@ -1693,7 +1696,7 @@ public class RoomService {
             info.setRejections(proposal.getRejections());
             info.setCreatedAt(proposal.getCreatedAt());
             info.setRequiredVotes(proposal.getRequiredVotes());
-            info.setNeighborCount(readNeighborIds(proposal).size());
+            info.setNeighborCount(proposals.readNeighborIds(proposal).size());
             info.setExpiresAt(proposal.getExpiresAt());
             info.setAnchorX(proposal.getAnchorX());
             info.setAnchorY(proposal.getAnchorY());
@@ -1702,12 +1705,12 @@ public class RoomService {
             if (proposal.getBotProposer() != null) {
                 info.setBotId(proposal.getBotProposer().getId().toString());
             }
-            Map<String, Integer> summary = readBotVoteSummary(proposal);
+            Map<String, Integer> summary = proposals.readBotVoteSummary(proposal);
             if (summary != null) {
                 info.setBotYes(summary.getOrDefault("botYes", 0));
                 info.setBotNo(summary.getOrDefault("botNo", 0));
             }
-            info.setTileType(proposalDeltaType(proposal));
+            info.setTileType(proposals.proposalDeltaType(proposal));
             if (participantKey != null) {
                 info.setCanVote(canVoteNow(room, proposal, participant));
                 info.setOwner(proposal.getProposer() != null && proposal.getProposer().getId().equals(participant.getId()));
@@ -2103,7 +2106,7 @@ public class RoomService {
         List<RoomProposal> recent = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
         List<Integer> types = new ArrayList<>(recent.size());
         for (RoomProposal proposal : recent) {
-            types.add(proposalDeltaType(proposal));
+            types.add(proposals.proposalDeltaType(proposal));
         }
         return types;
     }
@@ -2116,7 +2119,7 @@ public class RoomService {
         int same = 0;
         int total = 0;
         for (RoomProposal proposal : recent) {
-            Integer t = proposalDeltaType(proposal);
+            Integer t = proposals.proposalDeltaType(proposal);
             if (t == null) continue;
             total++;
             if (t == type) same++;
@@ -2131,46 +2134,12 @@ public class RoomService {
             if (Boolean.TRUE.equals(proposal.isBotGenerated())) {
                 continue;
             }
-            return proposalDeltaType(proposal);
+            return proposals.proposalDeltaType(proposal);
         }
         return null;
     }
 
-    private Integer proposalDeltaType(RoomProposal proposal) {
-        if (proposal.getDeltaJson() == null || proposal.getDeltaJson().isBlank()) {
-            return null;
-        }
-        try {
-            Map<String, Object> map = objectMapper.readValue(proposal.getDeltaJson(), new TypeReference<Map<String, Object>>() {});
-            Object type = map.get("type");
-            if (type instanceof Number) {
-                return ((Number) type).intValue();
-            }
-            if (type instanceof String s) {
-                return switch (s) {
-                    case "forest" -> 1;
-                    case "water" -> 2;
-                    case "industry" -> 3;
-                    case "highway" -> 4;
-                    case "clear" -> 0;
-                    default -> null;
-                };
-            }
-        } catch (Exception ignored) {
-        }
-        return null;
-    }
-
-    private Map<String, Integer> readBotVoteSummary(RoomProposal proposal) {
-        if (proposal.getBotVoteSummaryJson() == null || proposal.getBotVoteSummaryJson().isBlank()) {
-            return null;
-        }
-        try {
-            return objectMapper.readValue(proposal.getBotVoteSummaryJson(), new TypeReference<Map<String, Integer>>() {});
-        } catch (Exception ignored) {
-            return null;
-        }
-    }
+    // proposalDeltaType and readBotVoteSummary moved to RoomProposalService (Phase 2.5).
 
     private Map<String, Double> readBotProfile(RoomBot bot) {
         if (bot.getProfileJson() == null || bot.getProfileJson().isBlank()) {
@@ -2559,9 +2528,9 @@ public class RoomService {
             Integer ay = proposal.getAnchorY();
             if (ax == null || ay == null) continue;
             if (!occupancy.inView(viewX, viewY, viewW, viewH, ax, ay)) continue;
-            if (!readNeighborIds(proposal).contains("B:" + bot.getId())) continue;
+            if (!proposals.readNeighborIds(proposal).contains("B:" + bot.getId())) continue;
             int[][] baseTiles = tiles;
-            int[][] proposed = applyDeltaToTiles(baseTiles, proposal);
+            int[][] proposed = proposals.applyDeltaToTiles(baseTiles, proposal);
             BotVote vote = botVoteDecision(room, bot, baseTiles, proposed, Boolean.TRUE.equals(proposal.isBotGenerated()));
             if (vote == BotVote.ABSTAIN) {
                 continue;
@@ -2613,7 +2582,7 @@ public class RoomService {
 
 
     private void applyBotVotes(Room room, RoomProposal proposal, int[][] baseTiles, int[][] proposedTiles) {
-        Set<String> neighborIds = new HashSet<>(readNeighborIds(proposal));
+        Set<String> neighborIds = new HashSet<>(proposals.readNeighborIds(proposal));
         if (neighborIds.isEmpty()) {
             return;
         }
@@ -2655,7 +2624,7 @@ public class RoomService {
 
     private BotVote botVoteDecision(Room room, RoomBot bot, int[][] baseTiles, int[][] proposedTiles, boolean proposalBotGenerated) {
         Map<String, Double> profile = readBotProfile(bot);
-        int[] change = findChangeType(baseTiles, proposedTiles);
+        int[] change = proposals.findChangeType(baseTiles, proposedTiles);
         if (change == null) {
             return BotVote.ABSTAIN;
         }
@@ -2729,16 +2698,7 @@ public class RoomService {
         return approve ? BotVote.APPROVE : BotVote.REJECT;
     }
 
-    private int[] findChangeType(int[][] baseTiles, int[][] proposedTiles) {
-        for (int y = 0; y < baseTiles.length; y++) {
-            for (int x = 0; x < baseTiles[0].length; x++) {
-                if (baseTiles[y][x] != proposedTiles[y][x]) {
-                    return new int[] { x, y, proposedTiles[y][x] };
-                }
-            }
-        }
-        return null;
-    }
+    // findChangeType moved to RoomProposalService.
 
     private void maybeCreateBotProposal(Room room, RoomState state) {
         long totalStart = System.nanoTime();
@@ -2792,9 +2752,9 @@ public class RoomService {
                 continue;
             }
             int targetType = dominantTileType(readBotProfile(bot));
-            int[][] proposed = applyBotChange(baseTiles, anchor[0], anchor[1], targetType);
+            int[][] proposed = proposals.applyBotChange(baseTiles, anchor[0], anchor[1], targetType);
             try {
-                validateProposalChange(baseTiles, proposed);
+                proposals.validateProposalChange(baseTiles, proposed);
             } catch (IllegalStateException e) {
                 skippedInvalid++;
                 selectionNs += System.nanoTime() - selectionStart;
@@ -2913,44 +2873,7 @@ public class RoomService {
         return type;
     }
 
-    private int[][] applyBotChange(int[][] baseTiles, int x0, int y0, int type) {
-        int[][] out = new int[baseTiles.length][baseTiles[0].length];
-        for (int y = 0; y < baseTiles.length; y++) {
-            System.arraycopy(baseTiles[y], 0, out[y], 0, baseTiles[0].length);
-        }
-        out[y0][x0] = type;
-        return out;
-    }
-
-    private int[] extractAnchor(Object delta) {
-        if (delta == null) {
-            return null;
-        }
-        if (delta instanceof String json && !json.isBlank()) {
-            try {
-                Map<String, Object> map = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
-                return extractAnchor(map);
-            } catch (Exception ignored) {
-            }
-        }
-        if (delta instanceof Map<?, ?> map) {
-            Object x = map.get("x");
-            Object y = map.get("y");
-            if (x instanceof Number && y instanceof Number) {
-                return new int[] { ((Number) x).intValue(), ((Number) y).intValue() };
-            }
-        }
-        try {
-            Map<String, Object> map = objectMapper.convertValue(delta, new TypeReference<Map<String, Object>>() {});
-            Object x = map.get("x");
-            Object y = map.get("y");
-            if (x instanceof Number && y instanceof Number) {
-                return new int[] { ((Number) x).intValue(), ((Number) y).intValue() };
-            }
-        } catch (IllegalArgumentException ignored) {
-        }
-        return null;
-    }
+    // applyBotChange and extractAnchor moved to RoomProposalService.
 
     private void evaluatePendingProposals(Room room) {
         for (RoomProposal proposal : proposalRepository.findTop200ByRoomAndStatusOrderByCreatedAtDesc(room, "PENDING")) {
@@ -3037,15 +2960,15 @@ public class RoomService {
         if (normalizedHighways.length == 0 && baseTiles.length > 0) {
             normalizedHighways = new boolean[baseTiles.length][baseTiles[0].length];
         }
-        int[] anchor = proposalAnchor(proposal);
-        int type = extractDeltaTypeFromProposal(proposal);
+        int[] anchor = proposals.proposalAnchor(proposal);
+        int type = proposals.extractDeltaTypeFromProposal(proposal);
         if (gpuEnabled && anchor != null && type >= 0 && gpuPatchMinArea <= 1) {
             ProposalApplyResult gpuResult = tryApplyProposalPatchWithGpu(room, proposal, baseTiles, normalizedHighways, anchor, type);
             if (gpuResult != null) {
                 return gpuResult;
             }
         }
-        int[][] tiles = applyDeltaToTiles(baseTiles, proposal);
+        int[][] tiles = proposals.applyDeltaToTiles(baseTiles, proposal);
         boolean[][] highways = copyHighways(normalizedHighways, tiles.length, tiles[0].length);
         if (anchor != null && type >= 0) {
             int x = anchor[0];
@@ -3058,12 +2981,7 @@ public class RoomService {
         return summarizeProposalApply(baseTiles, normalizedHighways, tiles, highways);
     }
 
-    private int[] proposalAnchor(RoomProposal proposal) {
-        if (proposal.getAnchorX() != null && proposal.getAnchorY() != null) {
-            return new int[] { proposal.getAnchorX(), proposal.getAnchorY() };
-        }
-        return extractAnchor(proposal.getDeltaJson());
-    }
+    // proposalAnchor moved to RoomProposalService.
 
     private ProposalApplyResult tryApplyProposalPatchWithGpu(Room room,
                                                              RoomProposal proposal,
@@ -3132,7 +3050,7 @@ public class RoomService {
     }
 
     private void applyNoParticipation(Room room, RoomProposal proposal) {
-        List<String> neighborIds = readNeighborIds(proposal);
+        List<String> neighborIds = proposals.readNeighborIds(proposal);
         Set<String> voted = new HashSet<>();
         for (RoomProposalVote vote : voteRepository.findByProposal(proposal)) {
             if (vote.getParticipant() != null) {
@@ -3197,111 +3115,15 @@ public class RoomService {
         return occupancy.inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
     }
 
-    private List<String> readNeighborIds(RoomProposal proposal) {
-        if (proposal.getNeighborIdsJson() == null || proposal.getNeighborIdsJson().isBlank()) {
-            return new ArrayList<>();
-        }
-        try {
-            return objectMapper.readValue(proposal.getNeighborIdsJson(), new TypeReference<List<String>>() {});
-        } catch (JsonProcessingException e) {
-            return new ArrayList<>();
-        }
-    }
-
-    private void validateProposalChange(int[][] baseTiles, int[][] proposedTiles) {
-        if (baseTiles.length != proposedTiles.length || baseTiles[0].length != proposedTiles[0].length) {
-            throw new IllegalStateException("Invalid change shape");
-        }
-        List<int[]> changed = new ArrayList<>();
-        for (int y = 0; y < baseTiles.length; y++) {
-            for (int x = 0; x < baseTiles[0].length; x++) {
-                if (baseTiles[y][x] != proposedTiles[y][x]) {
-                    changed.add(new int[] { x, y, proposedTiles[y][x] });
-                }
-            }
-        }
-        if (changed.size() != 1) {
-            throw new IllegalStateException("Change must be exactly 1x1 tile");
-        }
-        int minX = changed.stream().mapToInt(c -> c[0]).min().orElse(0);
-        int minY = changed.stream().mapToInt(c -> c[1]).min().orElse(0);
-        int maxX = changed.stream().mapToInt(c -> c[0]).max().orElse(0);
-        int maxY = changed.stream().mapToInt(c -> c[1]).max().orElse(0);
-        if (maxX != minX || maxY != minY) {
-            throw new IllegalStateException("Change must be a contiguous 1x1 block");
-        }
-        int type = changed.get(0)[2];
-        for (int[] c : changed) {
-            if (c[2] != type) {
-                throw new IllegalStateException("1x1 tile must be a single tile type");
-            }
-        }
-    }
-
-    private void validateProposalDelta(int[][] baseTiles, int[] delta, Object deltaObj) {
-        if (delta == null || deltaObj == null) {
-            throw new IllegalStateException("No tiles specified");
-        }
-        int x = delta[0];
-        int y = delta[1];
-        if (x < 0 || y < 0 || y >= baseTiles.length || x >= baseTiles[0].length) {
-            throw new IllegalStateException("Change out of bounds");
-        }
-        int type = extractDeltaType(deltaObj);
-        if (type < 0 || type > 4) {
-            throw new IllegalStateException("Invalid tile type");
-        }
-    }
-
-    private int extractDeltaType(Object deltaObj) {
-        if (deltaObj instanceof Map<?, ?> map) {
-            Object type = map.get("type");
-            if (type instanceof Number) {
-                return ((Number) type).intValue();
-            }
-            if (type instanceof String s) {
-                return switch (s) {
-                    case "forest" -> 1;
-                    case "water" -> 2;
-                    case "industry" -> 3;
-                    case "highway" -> 4;
-                    case "clear" -> 0;
-                    default -> -1;
-                };
-            }
-        }
-        return -1;
-    }
-
-    private int[][] applyDeltaToTiles(int[][] baseTiles, RoomProposal proposal) {
-        int[][] out = new int[baseTiles.length][baseTiles[0].length];
-        for (int y = 0; y < baseTiles.length; y++) {
-            System.arraycopy(baseTiles[y], 0, out[y], 0, baseTiles[0].length);
-        }
-        int[] anchor = proposalAnchor(proposal);
-        int type = extractDeltaTypeFromProposal(proposal);
-        if (anchor != null && type >= 0) {
-            out[anchor[1]][anchor[0]] = type;
-        }
-        return out;
-    }
-
-    private int extractDeltaTypeFromProposal(RoomProposal proposal) {
-        if (proposal.getDeltaJson() == null) return -1;
-        try {
-            Map<String, Object> map = objectMapper.readValue(proposal.getDeltaJson(), new TypeReference<Map<String, Object>>() {});
-            return extractDeltaType(map);
-        } catch (Exception ignored) {
-        }
-        return -1;
-    }
+    // readNeighborIds, validateProposalChange, validateProposalDelta, extractDeltaType,
+    // applyDeltaToTiles, extractDeltaTypeFromProposal all moved to RoomProposalService.
 
     private List<String> findNeighbors(Room room, RoomParticipant proposer, int[][] proposedTiles) {
         int[][] tiles = fromJsonTiles(stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing")).getTilesJson());
         int cx = proposer != null && proposer.getX() != null ? proposer.getX() : 0;
         int cy = proposer != null && proposer.getY() != null ? proposer.getY() : 0;
-        int[] change = findChangeType(tiles, proposedTiles);
+        int[] change = proposals.findChangeType(tiles, proposedTiles);
         if (change != null) {
             cx = change[0];
             cy = change[1];
