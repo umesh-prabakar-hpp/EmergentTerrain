@@ -83,6 +83,7 @@ public class UniversityService {
     private final InstitutionService institutionService;
     private final EpistemicMarketService epistemicMarketService;
     private final KnowledgeBaseService knowledgeBaseService;
+    private final FundingAllocationService fundingAllocationService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -130,6 +131,7 @@ public class UniversityService {
             InstitutionService institutionService,
             EpistemicMarketService epistemicMarketService,
             KnowledgeBaseService knowledgeBaseService,
+            FundingAllocationService fundingAllocationService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -149,6 +151,7 @@ public class UniversityService {
         this.institutionService       = institutionService;
         this.epistemicMarketService   = epistemicMarketService;
         this.knowledgeBaseService     = knowledgeBaseService;
+        this.fundingAllocationService = fundingAllocationService;
         this.objectMapper             = objectMapper;
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
@@ -663,6 +666,11 @@ public class UniversityService {
 
         // Dating pass with dynamic K and cooldown
         botLifecycleService.processDating(bots, states, dirty, gameTick, params);
+
+        // Phase 4b — funding allocation. Self-paced (every 30 ticks per room),
+        // no-op when the flag is off. Runs after publication so this tick's
+        // BotMetaStats reflect the just-published papers.
+        fundingAllocationService.maybeAllocate(roomId, govState, gameTick);
 
         // Persist lifecycle state into each bot's lifecycleJson before saving
         botLifecycleService.persistStates(bots, states);

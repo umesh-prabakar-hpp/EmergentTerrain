@@ -209,6 +209,7 @@ app.research.markets.enabled        # Phase 3 Iter 7 — reputation-staked marke
 app.research.findings.enabled       # Phase 4 Iter 9 — formal-finding persistence
 app.research.meta.enabled           # Phase 4 Iter 10 — self-observation stats
 app.research.reviewer-routing.enabled  # Phase 4b — adversarial reviewer picking
+app.research.funding-allocation.enabled # Phase 4b — periodic grants from agency → university
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -312,9 +313,13 @@ Per the phase doc's ordering (ascending risk):
    `ResearchCycleService.pickReviewer` now picks the candidate with the
    highest topic-weight orthogonality to the author instead of a random
    same-domain pick, gated by `app.research.reviewer-routing.enabled`.
-2. **Funding allocation weighting** — `FundingAgency.GrantPolicy` already
-   carries the three weights; reading `BotMetaStats.hallucinationRate`
-   and `MethodMetaStats.meanLongTermStability` is the next step.
+2. ✅ **Funding allocation weighting** — shipped (Phase 4b second commit).
+   `FundingAllocationService` self-paces every 30 ticks per room: tops
+   up the agency from `BudgetState.education`, scores the room's bots
+   using `GrantPolicy.{trackRecord, calibration, novelty}Weight ×
+   {reputation, calibrationScore, 1 - hallucinationRate}`, and credits
+   `University.computeBudget`. Persists a `Grant` row capturing the
+   score breakdown. Gated by `app.research.funding-allocation.enabled`.
 3. **Exploration-heuristic auto-tuning** — `ExperimentPlannerService`
    thresholds become dynamic, driven by `MetaResearchService`'s false-
    positive rate observation.
