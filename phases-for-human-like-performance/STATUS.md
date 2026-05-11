@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 265 (+130) |
+| Tests | 135 → 282 (+147) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -127,11 +127,11 @@ Closes two explicit deferrals from Phase 1/2:
 Pre-Phase-3 refactor. All five extractions originally enumerated by the
 design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
 have now shipped, plus a dead-audit-code deletion that preceded the
-RoomStateOrchestrator carve and two additional second-wave carves
-(`TileValidatorService`, `OccupancyService`). RoomService is down
-4,746 → 3,780 lines (−966, −20%) cumulatively. A second wave of
-extractions has been identified beyond the original plan — see "Next
-planned carves" at the end of this section.
+RoomStateOrchestrator carve and three additional second-wave carves
+(`TileValidatorService`, `OccupancyService`, `BotSimulationGpuService`).
+RoomService is down 4,746 → 3,644 lines (−1,102, −23%) cumulatively. A
+second wave of extractions has been identified beyond the original plan
+— see "Next planned carves" at the end of this section.
 
 - ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
   dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
@@ -334,12 +334,61 @@ planned carves" at the end of this section.
   before bots) and missing/negative-coord skipping, and
   `readOccupancyJson` empty/blank/bad-JSON tolerance + a round-trip).
 
+- ✅ **`BotSimulationGpuService`** — extracted the GPU bot-simulation
+  primitives into
+  [BotSimulationGpuService.java](../src/main/java/com/emergentterrain/service/BotSimulationGpuService.java).
+  Owns the per-room `gpuWorldCache` map (via `getOrCreateCache(roomId)`
+  + `clearCache(roomId)`); provides the pure helpers `buildGpuBotParams`
+  (room-level JSON param builder, now takes the tunables as parameters
+  so the service has no `@Value` dependencies), `applyGpuBotProfile`
+  (stamps profile weights + nudges onto a {@code BotState.Builder},
+  with the implicit nudge-then-clamp at 1.0), `collectGpuTileDiffs`
+  (incremental world diff, returns `null` when over the edit budget),
+  `applyTileEditsToCache` (in-place mutator that folds highway bits
+  into type-4 edits), and `encodeBotMotionStateBytes` /
+  `decodeBotMotionStateBytes` (the 40-byte little-endian buffer codec
+  the GPU engine consumes). The decode signature now takes a seed
+  `BotMotionState` instead of a `RoomBot` so the codec stays pure —
+  the caller passes the result of `readBotMotionState(bot)` and the
+  current bot (x, y). `GpuWorldCache` promoted to a top-level
+  package-private class
+  ([GpuWorldCache.java](../src/main/java/com/emergentterrain/service/GpuWorldCache.java))
+  so the service can own the cache map without depending on a
+  RoomService inner class. Also dropped a dead 2-arg
+  `applyGpuBotProfile` overload that no production code called.
+  Scope deliberately narrower than the design doc's enumerated list:
+  `trySimulateBotsWithGpu` (the orchestrator) and
+  `applyGpuEditsToCachedState` (the cached-state writer) stay in
+  `RoomService`. The orchestrator threads many RoomService internals —
+  bot/profile codecs, cached-state retrieval, road-pressure deposit,
+  shared-tokens / shared-quests updates — that don't move cleanly
+  without dragging the cache map across services. The cached-state
+  writer hashes tiles, updates shared tokens / shared quests, and
+  marks the cache dirty, all of which entangle with RoomService's
+  broader state management. Same scope-reduction pattern as the
+  `RoomStateOrchestrator` and `OccupancyService` carves. RoomService
+  keeps both methods as thin orchestrators that delegate their pure
+  operations to this service. `RoomService` dropped a further
+  3,780 → 3,644 lines (−136). Pinned by
+  [BotSimulationGpuServiceTest.java](../src/test/java/com/emergentterrain/service/BotSimulationGpuServiceTest.java)
+  (17 tests covering cache-idempotency + clear-rotates-worldId,
+  `buildGpuBotParams` JSON key coverage, `applyGpuBotProfile` base /
+  nudged / clamped-to-one / missing-key-defaults-to-0.5 branches,
+  `collectGpuTileDiffs` no-change / highway-folded-as-type-4 /
+  exceed-budget-returns-null / zero-grid cases,
+  `applyTileEditsToCache` in-place writes + highway clears underlying
+  tile / out-of-bounds-and-null tolerance, the 40-byte little-endian
+  encode layout asserted slot-by-slot, null-last-marshals-as-MIN_VALUE,
+  encode/decode round-trip with currentX/Y snapped to engine-declared
+  coords, short-buffer returns the seed unchanged, and the
+  negative-cooldown floor clamp).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, RoomStateOrchestrator, MapIndexService,
-TileValidatorService, OccupancyService, plus the CachedRoomState/TileCounts/
-OccupantSnapshot/BotMotionState/CachedMap/IntegralMaps/CoarseCell promotions
-and the dead-audit deletion, `RoomService` is down **4,746 → 3,780 lines
-(−966, −20%)**.
+TileValidatorService, OccupancyService, BotSimulationGpuService, plus the
+CachedRoomState/TileCounts/OccupantSnapshot/BotMotionState/CachedMap/
+IntegralMaps/CoarseCell/GpuWorldCache promotions and the dead-audit
+deletion, `RoomService` is down **4,746 → 3,644 lines (−1,102, −23%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -351,16 +400,10 @@ or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
 
 **Next planned carves (in order, picked 2026-05-11 after the
-MapIndexService landing; TileValidatorService and OccupancyService
-shipped same day):**
+MapIndexService landing; TileValidatorService, OccupancyService and
+BotSimulationGpuService shipped same day):**
 
-1. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
-   `buildGpuBotParams`, `applyGpuBotProfile` (×2), `nudgedWeight`,
-   `collectGpuTileDiffs`, `applyTileEditsToCache`,
-   `applyGpuEditsToCachedState`, `gpuWorldCache`, plus the
-   `BotMotionState` GPU codecs (`encodeBotMotionStateBytes`,
-   `decodeBotMotionStateBytes`). ~400 lines. Clean tech boundary.
-2. **`RoomProposalService`** — the proposal/vote/evaluate/apply
+1. **`RoomProposalService`** — the proposal/vote/evaluate/apply
    pipeline + bot-vote logic + validation + neighbor finding. ~860
    lines — by far the biggest single concern remaining, larger than
    anything Phase 2.5 originally enumerated. Phase 2.5 was scoped
@@ -483,13 +526,13 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and seven
-Phase 2.5 carves), the research package is 17 specialist services + 7
+After Phase 0 + four behavioural phases (plus Phase 4b and eight
+Phase 2.5 carves), the research package is 17 specialist services + 8
 RoomService-derived services in `com.emergentterrain.service`
 (BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, MapIndexService, RoomStateOrchestrator,
-TileValidatorService, OccupancyService) + 14 entities. Refreshed
-against the working tree (post-`ab42534`):
+TileValidatorService, OccupancyService, BotSimulationGpuService) + 14
+entities. Refreshed against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -518,6 +561,7 @@ against the working tree (post-`ab42534`):
 | MapIndexService | 143 | per-room coarse-grid + integral-maps spatial index for relocation targeting (Phase 2.5) |
 | TileValidatorService | 192 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
 | OccupancyService | 187 | viewport math + canOccupy density rule + occupancy snapshot build/codec (Phase 2.5) |
+| BotSimulationGpuService | 254 | GPU bot-sim primitives + per-room world cache + bot-state codec (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
