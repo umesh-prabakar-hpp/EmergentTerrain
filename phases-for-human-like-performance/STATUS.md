@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 513 (+378) |
+| Tests | 135 → 526 (+391) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -577,9 +577,32 @@ Iter 7              EpistemicMarketService                              0309225
 
 - **Iter 6 (read-only)** — bots can query the running simulation as
   experimental variables (`federal.public_trust`, budgets, mean state
-  trust). The write side (`WorldInterventionService`, routing bot
-  proposals through the constitutional process) is deferred until
-  Phase 2.5 ships.
+  trust). The write side (`WorldInterventionService`) shipped after
+  Phase 2.5; see the bullet below.
+- ✅ **Iter 6 (write side, `WorldInterventionService`)** — shipped
+  after Phase 2.5 closed. Bots file an `InterventionProposal` (hypothesis
+  + `PolicyTarget` enum + duration) and the service translates it into
+  a `GovernmentState.GovernmentBill` with a real `policyDomain` that
+  `GovernmentSimulationService.applyBudgetEffects` already recognises
+  (`SERVICES` → "services" → health+education bumps, `HOUSING` →
+  "housing" → welfare bump, `LABOR` / `INFRASTRUCTURE` /
+  `RIGHTS_PROCESS` similarly). The bill is added to
+  `governmentState.bills` at index 0 and the rolling 12-bill cap is
+  honoured — `GovernmentSimulationService.advanceBills` picks it up on
+  the next tick and runs it through the same committee → vote →
+  executive → judicial pipeline as auto-generated bills. The
+  `InterventionHandle` returned to the caller carries the
+  before-snapshot of all `WorldDataQueryService` variables so a later
+  `observe(handle, govState, tick)` call can compute deltas without
+  the service needing persistent storage. Bots polling early see
+  `BillStatus.IN_PROGRESS` and re-observe later; outcomes resolve to
+  `ENACTED`, `BLOCKED`, or `NOT_FOUND` (when the bill ages out of the
+  12-bill window). Gated externally by
+  `app.research.world-intervention.enabled` at the integration point
+  — the planner-side wire-up (the design doc's
+  `ExperimentPlannerService` `WORLD_INTERVENTION` strategy) is a
+  follow-up. The phase-3 Iter 6 completion checklist is now satisfied
+  except for the sandbox-room flag and the planner integration.
 - **Iter 8 (MVP)** — four institution entities + lazy bootstrap on
   first publish per room. Deeper behaviours (journal-mediated review,
   impact-factor accumulation from citations, FundingAgency grant
@@ -646,6 +669,7 @@ app.research.dominant-methodology.enabled # Phase 4b — University.dominantMeth
 app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise events to per-room in-memory buffer (rate-limited)
 app.research.exploration-tuning.enabled # Phase 4b — per-room z-threshold + EXPLORATION trigger adjust from replication failure rate
 app.research.theory-composition.enabled # Phase 4b — A~f(B) ^ B~g(C) chains emit derived ProgramOpenQuestions
+app.research.world-intervention.enabled # Phase 3 Iter 6 write side — bots file GovernmentBill via WorldInterventionService; integration point checks the flag
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -704,6 +728,7 @@ RoomProposalService) + 14 entities. Refreshed against the working tree
 | BotSimulationGpuService | 254 | GPU bot-sim primitives + per-room world cache + bot-state codec (Phase 2.5) |
 | RoomProposalService | 797 | proposal-record JSON codec + tile-delta math + bot-vote machinery + evaluate/apply decisions (Phase 2.5 Phases 1-3) |
 | WorldDataQueryService | 106 | read-only simulation variables |
+| WorldInterventionService | 272 | bot-filed interventions routed through the constitutional process (Phase 3 Iter 6 write side) |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
 
@@ -722,8 +747,12 @@ Everything below was explicitly called out in a phase doc as "deferred"
 
 These need stateful integration with existing services:
 
-- **`WorldInterventionService`** (Phase 3 Iter 6 write side) — bots
-  propose world changes via `GovernmentBill`; needs Phase 2.5 first.
+- ✅ **`WorldInterventionService`** (Phase 3 Iter 6 write side) —
+  shipped. See the bullet under "Phase 3 — World + institutions +
+  markets" above for the full design. The planner-side wire-up (the
+  design doc's `ExperimentPlannerService` `WORLD_INTERVENTION`
+  strategy) is the remaining piece — that's where the
+  `app.research.world-intervention.enabled` flag is checked.
 - **Reviewer-orthogonality routing** (Phase 4 Iter 10 evolution target
   #1) — needs `BotCivicState.ideologyVector` threaded through
   `ResearchCycleService.pickReviewer`.
