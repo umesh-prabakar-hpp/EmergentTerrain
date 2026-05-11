@@ -1,13 +1,15 @@
 # Phases for Human-Like Performance — Implementation Status
 
-This README is the rolling index of what's been shipped against the original
+This file is the rolling index of what's been shipped against the original
 design docs in this directory. The phase docs ([phase-0](phase-0-prerequisites.md)
 through [phase-4](phase-4-formal-knowledge-and-meta-science.md)) describe the
-intended architecture; this file tracks what's actually in `main`.
+intended architecture; `STATUS.md` tracks what's actually in `main`.
 
-The original 10-iteration design lives in [readme.md](readme.md) (lowercase)
-for historical reference — that doc has not been edited since the design
-phase.
+The original 10-iteration design lives in [readme.md](readme.md) for
+historical reference — that doc has not been edited since the design
+phase. Named `STATUS.md` rather than `README.md` because git's
+`core.ignorecase=true` on this checkout would collide `README.md` with the
+existing lowercase `readme.md` and effectively hide one of the two files.
 
 ---
 
@@ -326,7 +328,7 @@ Per the phase doc's ordering (ascending risk):
 ## How to read this directory
 
 ```
-README.md                                    ← you are here (status)
+STATUS.md                                    ← you are here (shipped vs deferred)
 readme.md                                    ← original 10-iteration design doc
 phase-0-prerequisites.md                     ← JPA migration + service carves
 phase-1-foundation.md                        ← identity + graph + programs
@@ -336,6 +338,6 @@ phase-3-world-integration.md                 ← world + institutions + markets
 phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
 ```
 
-Each phase doc retains its full design content. This file (`README.md`)
-is the live tracker of what's been shipped; the per-phase docs are the
-shape of intent against which to evaluate the shipped state.
+Each phase doc retains its full design content. `STATUS.md` is the live
+tracker of what's been shipped; the per-phase docs are the shape of
+intent against which to evaluate the shipped state.
