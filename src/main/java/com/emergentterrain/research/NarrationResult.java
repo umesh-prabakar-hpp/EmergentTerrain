@@ -18,12 +18,20 @@ import java.util.List;
  * publish path writes typed PaperCitation rows instead of the default
  * {@link RelationshipType#EXTENDS}. Empty list = caller should fall back to
  * the untyped {@link #citedPaperIds} (heuristic EXTENDS edges).
+ *
+ * Phase 4c Piece 2 gate 3 — {@code templateId} and {@code templateVersion}
+ * identify which prompt template variant produced this narration. Stamped at
+ * pipeline emission so {@link UniversityService#publishPaper} can copy the
+ * provenance onto the persisted {@link ResearchPaper}. Both null when the
+ * narration came from a path that has not yet been instrumented (e.g. fallback
+ * suppression results); the publish path treats null as "unattributed."
  */
 public record NarrationResult(String hypothesis, String findings, String conclusion,
                                FollowUpParams followUp, String aiModel,
                                double confidenceScore, List<String> citedPaperIds,
                                String callPath, List<TypedCitation> typedCitations,
-                               List<ExtractedFinding> formalFindings) {
+                               List<ExtractedFinding> formalFindings,
+                               String templateId, String templateVersion) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
@@ -45,29 +53,46 @@ public record NarrationResult(String hypothesis, String findings, String conclus
             double validRegionMin,
             double validRegionMax) {}
 
-    /** 9-arg backward-compatible constructor — empty formalFindings. */
+    /** 10-arg backward-compatible — null template provenance. */
+    public NarrationResult(String hypothesis, String findings, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations,
+                           List<ExtractedFinding> formalFindings) {
+        this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
+                citedPaperIds, callPath, typedCitations, formalFindings, null, null);
+    }
+
+    /** 9-arg backward-compatible constructor — empty formalFindings, null template provenance. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds,
                            String callPath, List<TypedCitation> typedCitations) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, typedCitations, List.of());
+                citedPaperIds, callPath, typedCitations, List.of(), null, null);
     }
 
-    /** 8-arg backward-compatible — empty typed citations, empty findings. */
+    /** 8-arg backward-compatible — empty typed citations, empty findings, null template provenance. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds,
                            String callPath) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, List.of(), List.of());
+                citedPaperIds, callPath, List.of(), List.of(), null, null);
     }
 
-    /** 7-arg backward-compatible — null callPath, empty extras. */
+    /** 7-arg backward-compatible — null callPath, empty extras, null template provenance. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, null, List.of(), List.of());
+                citedPaperIds, null, List.of(), List.of(), null, null);
+    }
+
+    /** Return a copy of this result with template provenance stamped on. */
+    public NarrationResult withTemplateProvenance(String templateId, String templateVersion) {
+        return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion);
     }
 }

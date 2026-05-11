@@ -288,6 +288,12 @@ public class UniversityService {
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel(), narration.callPath());
 
+        // Phase 4c Piece 2 gate 3: copy narration template provenance onto the persisted
+        // paper. Null when the narration came from an uninstrumented path; treated by
+        // Piece 3 as "unattributed" and excluded from per-variant rollback statistics.
+        paper.setNarrationTemplateId(narration.templateId());
+        paper.setNarrationTemplateVersion(narration.templateVersion());
+
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
         // it lands in the cache + DB. No-op when the institutions flag is off.
         InstitutionService.BootstrapResult institutions =

@@ -73,6 +73,7 @@ public class RoomService {
             new java.util.concurrent.ConcurrentHashMap<>();
     private final GovernmentSimulationService governmentSimulationService;
     private final GovernmentTimelineService governmentTimelineService;
+    private final BotArchetypeBehaviorService archetypes;
     private final GpuEngineAdapter gpuEngineAdapter;
     private final ObjectMapper objectMapper;
     private final boolean gpuEnabled;
@@ -138,10 +139,6 @@ public class RoomService {
     private final String defaultRoomSystemPasswordHash;
     private static final int VISIBLE_WIDTH = 48;
     private static final int VISIBLE_HEIGHT = 36;
-    private static final List<String> BOT_ARCHETYPES = List.of(
-        "STEWARD", "BUILDER", "FLOW_KEEPER", "PRESERVATIONIST",
-        "PRAGMATIST", "CONTRARIAN", "NEIGHBOR_MIRROR"
-    );
     private final ConcurrentHashMap<UUID, ReentrantLock> botLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ReentrantLock> proposalLocks = new ConcurrentHashMap<>();
     private final ReentrantLock proposalTableLock = new ReentrantLock();
@@ -182,6 +179,7 @@ public class RoomService {
                        WorldService worldService,
                        GovernmentSimulationService governmentSimulationService,
                        GovernmentTimelineService governmentTimelineService,
+                       BotArchetypeBehaviorService archetypes,
                        GpuEngineAdapter gpuEngineAdapter,
                        ObjectMapper objectMapper,
                        ActivityMetrics metrics,
@@ -260,6 +258,7 @@ public class RoomService {
         this.worldService = worldService;
         this.governmentSimulationService = governmentSimulationService;
         this.governmentTimelineService = governmentTimelineService;
+        this.archetypes = archetypes;
         this.gpuEngineAdapter = gpuEngineAdapter;
         this.objectMapper = objectMapper;
         this.metrics = metrics;
@@ -2179,11 +2178,6 @@ public class RoomService {
         return type.substring(0, 1) + type.substring(1).toLowerCase();
     }
 
-    private String botArchetype(RoomBot bot) {
-        int idx = Math.abs(Objects.hash(bot.getId(), bot.getType())) % BOT_ARCHETYPES.size();
-        return BOT_ARCHETYPES.get(idx);
-    }
-
     private Map<String, Double> randomBotProfile(int seed) {
         Random rand = new Random(seed);
         double forest = 0.2 + rand.nextDouble() * 0.6;
@@ -2208,24 +2202,6 @@ public class RoomService {
         profile.put("conflict", conflict);
         profile.put("drift", drift);
         return profile;
-    }
-
-    private static class LocalStats {
-        final int total;
-        final double forest;
-        final double water;
-        final double clear;
-        final double industry;
-        final double road;
-
-        LocalStats(int total, double forest, double water, double clear, double industry, double road) {
-            this.total = total;
-            this.forest = forest;
-            this.water = water;
-            this.clear = clear;
-            this.industry = industry;
-            this.road = road;
-        }
     }
 
     private LocalStats localStats(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
@@ -2266,85 +2242,20 @@ public class RoomService {
         );
     }
 
-    private double prosperityScore(LocalStats stats, String archetype) {
-        double[] targets = targetsFor(archetype);
-        double delta =
-            Math.abs(stats.forest - targets[0]) +
-            Math.abs(stats.water - targets[1]) +
-            Math.abs(stats.clear - targets[2]) +
-            Math.abs(stats.industry - targets[3]) +
-            Math.abs(stats.road - targets[4]);
-        return delta;
-    }
-
-    private double[] targetsFor(String archetype) {
-        switch (archetype) {
-            case "STEWARD":
-                return new double[] { 0.36, 0.16, 0.32, 0.12, 0.04 };
-            case "BUILDER":
-                return new double[] { 0.22, 0.10, 0.30, 0.30, 0.08 };
-            case "FLOW_KEEPER":
-                return new double[] { 0.24, 0.20, 0.36, 0.16, 0.04 };
-            case "PRESERVATIONIST":
-                return new double[] { 0.42, 0.18, 0.26, 0.10, 0.04 };
-            case "PRAGMATIST":
-                return new double[] { 0.30, 0.15, 0.34, 0.17, 0.04 };
-            case "CONTRARIAN":
-                return new double[] { 0.28, 0.16, 0.34, 0.18, 0.04 };
-            case "NEIGHBOR_MIRROR":
-                return new double[] { 0.30, 0.14, 0.36, 0.16, 0.04 };
-            default:
-                return new double[] { 0.30, 0.15, 0.34, 0.17, 0.04 };
-        }
-    }
-
-    private boolean prefersType(String archetype, int type) {
-        return switch (archetype) {
-            case "STEWARD" -> (type == 1 || type == 2);
-            case "BUILDER" -> (type == 3 || type == 0);
-            case "FLOW_KEEPER" -> (type == 2 || type == 0);
-            case "PRESERVATIONIST" -> (type == 1);
-            case "PRAGMATIST" -> true;
-            case "CONTRARIAN" -> true;
-            case "NEIGHBOR_MIRROR" -> true;
-            default -> true;
-        };
-    }
-
-    private boolean dislikesType(String archetype, int type, LocalStats before) {
-        switch (archetype) {
-            case "STEWARD":
-                return type == 3 && (before.forest < 0.25 || before.water < 0.10);
-            case "BUILDER":
-                return (type == 1 || type == 2) && before.industry < 0.18;
-            case "FLOW_KEEPER":
-                return type == 3 && before.water < 0.12;
-            case "PRESERVATIONIST":
-                return (type == 0 || type == 3) && before.forest < 0.32;
-            case "CONTRARIAN":
-                return false;
-            case "NEIGHBOR_MIRROR":
-                return false;
-            case "PRAGMATIST":
-            default:
-                return false;
-        }
-    }
-
     private boolean violatesCommunityRules(Room room, LocalStats after, boolean[][] highways, int[][] tiles, int anchorX, int anchorY, double adherence) {
-        if (after.total == 0) {
+        if (after.total() == 0) {
             return false;
         }
-        double maxShare = Math.max(Math.max(after.forest, after.water), Math.max(after.clear, after.industry));
+        double maxShare = Math.max(Math.max(after.forest(), after.water()), Math.max(after.clear(), after.industry()));
         double gate = adherence * 0.6;
         if (maxShare > 0.55 && Math.random() < gate) {
             return true;
         }
-        double nature = after.forest + after.water;
+        double nature = after.forest() + after.water();
         if (nature < 0.18 && Math.random() < gate) {
             return true;
         }
-        if (after.industry < 0.04 && Math.random() < gate) {
+        if (after.industry() < 0.04 && Math.random() < gate) {
             return true;
         }
         if (!hasAccessConnectivity(tiles, highways, anchorX, anchorY) && Math.random() < gate) {
@@ -2608,10 +2519,10 @@ public class RoomService {
     }
 
     private String localRole(LocalStats stats) {
-        double fNeed = Math.max(0, 0.30 - stats.forest);
-        double wNeed = Math.max(0, 0.14 - stats.water);
-        double cNeed = Math.max(0, 0.34 - stats.clear);
-        double iNeed = Math.max(0, 0.14 - stats.industry);
+        double fNeed = Math.max(0, 0.30 - stats.forest());
+        double wNeed = Math.max(0, 0.14 - stats.water());
+        double cNeed = Math.max(0, 0.34 - stats.clear());
+        double iNeed = Math.max(0, 0.14 - stats.industry());
         double max = fNeed;
         String role = "FOREST";
         if (wNeed > max) { max = wNeed; role = "WATER"; }
@@ -3517,7 +3428,7 @@ public class RoomService {
             return BotVote.ABSTAIN;
         }
         int type = change[2];
-        String archetype = botArchetype(bot);
+        String archetype = archetypes.archetypeFor(bot);
         RoomState state = stateRepository.findByRoom(room).orElse(null);
         boolean[][] highways = new boolean[0][0];
         if (state != null) {
@@ -3525,8 +3436,8 @@ public class RoomService {
         }
         LocalStats before = localStats(baseTiles, highways, change[0], change[1]);
         LocalStats after = localStats(proposedTiles, highways, change[0], change[1]);
-        double beforeScore = prosperityScore(before, archetype);
-        double afterScore = prosperityScore(after, archetype);
+        double beforeScore = archetypes.prosperityScore(before, archetype);
+        double afterScore = archetypes.prosperityScore(after, archetype);
         double improvement = beforeScore - afterScore;
         double risk = profile.getOrDefault("risk", 0.5);
         double abstainProb = profile.getOrDefault("abstain", 0.08);
@@ -3534,8 +3445,8 @@ public class RoomService {
         double consensus = profile.getOrDefault("consensus", 0.5);
         double community = Math.min(1.0, Math.max(0.1, consensus * 0.8 + profile.getOrDefault("mobility", 0.5) * 0.2));
 
-        boolean prefers = prefersType(archetype, type);
-        boolean dislikes = dislikesType(archetype, type, before);
+        boolean prefers = archetypes.prefersType(archetype, type);
+        boolean dislikes = archetypes.dislikesType(archetype, type, before);
         boolean contrarian = "CONTRARIAN".equals(archetype) && isTrendMajority(room, type);
         boolean mirror = "NEIGHBOR_MIRROR".equals(archetype);
 

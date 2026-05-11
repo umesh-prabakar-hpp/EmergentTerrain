@@ -5,6 +5,7 @@ import com.emergentterrain.repo.RoomBotRepository;
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.DynamicProblem;
+import com.emergentterrain.research.EpistemicMarketService;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -61,10 +62,20 @@ public class GenomeMentoringService {
     private static final Set<String> VALID_METRICS = Set.of(
             "fraction_satisfying", "mean_of:collatzSteps", "max_of:collatzSteps", "mean_of:sigmaSum");
 
+    /**
+     * Phase 1 Iter 2: per-session drift rate when nudging skepticismLevel toward
+     * the bot's epistemic-market calibration score. ~50-min mentoring cooldown
+     * × 0.1 = ~7 sessions to half-converge ≈ 6 hours of game time. "Slow."
+     */
+    private static final double SKEPTICISM_DRIFT_RATE = 0.1;
+    /** Cap per-session change so a single outlier session can't whip the value. */
+    private static final double SKEPTICISM_DRIFT_MAX  = 0.05;
+
     private final LlmRouter router;
     private final RoomUpdateBroadcaster broadcaster;
     private final RoomBotRepository botRepository;
     private final ObjectMapper objectMapper;
+    private final EpistemicMarketService epistemicMarketService;
 
     private final Semaphore genomeSlot = new Semaphore(2);
     private final ConcurrentLinkedQueue<GenomeMentoringRequest> genomeQueue = new ConcurrentLinkedQueue<>();
@@ -74,11 +85,13 @@ public class GenomeMentoringService {
     public GenomeMentoringService(LlmRouter router,
                                   RoomUpdateBroadcaster broadcaster,
                                   RoomBotRepository botRepository,
-                                  ObjectMapper objectMapper) {
-        this.router        = router;
-        this.broadcaster   = broadcaster;
-        this.botRepository = botRepository;
-        this.objectMapper  = objectMapper;
+                                  ObjectMapper objectMapper,
+                                  EpistemicMarketService epistemicMarketService) {
+        this.router                 = router;
+        this.broadcaster            = broadcaster;
+        this.botRepository          = botRepository;
+        this.objectMapper           = objectMapper;
+        this.epistemicMarketService = epistemicMarketService;
     }
 
     /** Wire the mentoring callback into UniversityService once the context is ready. */
@@ -290,8 +303,8 @@ public class GenomeMentoringService {
         DynamicProblem   directive = parseDirectiveFromRoot(root, bot.getId());
 
         if (edits.isEmpty() && directive == null) {
-            log.warn("LLM genome mentor: no parseable edits or directive for bot={}", bot.getId());
-            return;
+            log.warn("LLM genome mentor: no parseable edits or directive for bot={}; "
+                    + "applying skepticism drift only", bot.getId());
         }
 
         String lifecycleJson = bot.getLifecycleJson();
@@ -299,23 +312,53 @@ public class GenomeMentoringService {
         try {
             BotLifecycleState ls     = objectMapper.readValue(lifecycleJson, BotLifecycleState.class);
             BotGenome         genome = ls.getGenome();
-            if (genome != null) {
+            boolean           dirty  = false;
+            if (genome != null && !edits.isEmpty()) {
                 for (GenomeEdit edit : edits) {
                     genome.applyDelta(edit.gene(), edit.delta());
                     log.info("LLM genome mentor applied: bot={} gene={} delta={}",
                             bot.getId(), edit.gene(), edit.delta());
                 }
+                dirty = true;
             }
             if (directive != null) {
                 ls.setPendingDirective(directive);
                 log.info("LLM genome mentor directive queued: bot={} description=\"{}\" range=[{},{})",
                         bot.getId(), directive.description(), directive.rangeStart(), directive.rangeEnd());
+                dirty = true;
             }
-            bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
-            botRepository.save(bot);
+            if (driftSkepticismLevel(bot.getId(), ls)) dirty = true;
+            if (dirty) {
+                bot.setLifecycleJson(objectMapper.writeValueAsString(ls));
+                botRepository.save(bot);
+            }
         } catch (Exception e) {
             log.warn("LLM genome mentor write-back failed for bot={}: {}", bot.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * Phase 1 Iter 2 wiring: nudge {@link BotLifecycleState#getSkepticismLevel} toward
+     * the bot's epistemic-market calibration score. A bot whose stake outcomes have been
+     * accurate (calibration &gt; 0.5) earns a stricter peer-review tolerance over time;
+     * an inaccurate bot drifts back toward the neutral 0.5 default. Returns true when
+     * the value actually moved (so the caller knows to persist).
+     */
+    boolean driftSkepticismLevel(UUID botId, BotLifecycleState ls) {
+        double current     = ls.getSkepticismLevel();
+        double calibration = epistemicMarketService.calibrationScore(botId);
+        double rawDelta    = (calibration - current) * SKEPTICISM_DRIFT_RATE;
+        double delta       = Math.max(-SKEPTICISM_DRIFT_MAX, Math.min(SKEPTICISM_DRIFT_MAX, rawDelta));
+        if (Math.abs(delta) < 1e-4) return false;
+        double next = Math.max(0.0, Math.min(1.0, current + delta));
+        ls.setSkepticismLevel(next);
+        log.info("skepticism drift bot={} from={} target={} delta={} new={}",
+                botId,
+                "%.3f".formatted(current),
+                "%.3f".formatted(calibration),
+                "%+.4f".formatted(delta),
+                "%.3f".formatted(next));
+        return true;
     }
 
     private List<GenomeEdit> parseEditsFromRoot(JsonNode root, UUID botId) {

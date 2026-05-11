@@ -161,7 +161,8 @@ public class ResearchCycleService {
                     ? formCb.apply(new Object[]{
                             domain, topicNameForFormulation,
                             author.getState().getGenome(), recentForFormulation,
-                            author.getState().getResearchHypothesis()})
+                            author.getState().getResearchHypothesis(),
+                            author.getState()})
                     : null;
             if (formResult instanceof com.emergentterrain.service.FormulationService.FormulationResult fr) {
                 param1 = fr.param1();

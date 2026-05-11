@@ -122,17 +122,35 @@ Closes two explicit deferrals from Phase 1/2:
 
 ---
 
-### Phase 2.5 — RoomService refactor ⏳ deferred
+### Phase 2.5 — RoomService refactor ⏳ partially shipped
 
-Pre-Phase-3 refactor placeholder. Recommended before the Phase 3 Iter 6
-write side ships. See [phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md)
-for the design.
+Pre-Phase-3 refactor. The bulk remains deferred until Phase 3 Iter 6
+design crystallises (see [phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md)
+for the broader carve plan), but the one extraction the design doc
+called "almost certainly correct regardless of how Phase 3 design
+lands" has shipped:
 
-`RoomService` at 4,746 lines is the largest service in the codebase.
-Carving it cleanly requires Phase 3 design pressure to identify the right
-seams — premature extraction would create the wrong abstractions.
-`BotArchetypeBehaviorService` is the one extraction that is almost
-certainly correct regardless of how Phase 3 design lands.
+- ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
+  dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
+  prefers-type and dislikes-type rules out of `RoomService` into
+  [BotArchetypeBehaviorService.java](../src/main/java/com/emergentterrain/service/BotArchetypeBehaviorService.java).
+  The extraction also promoted the previously-private
+  `RoomService.LocalStats` nested class to a top-level package-private
+  record in [LocalStats.java](../src/main/java/com/emergentterrain/service/LocalStats.java)
+  so the new service can take it as input without depending on a
+  `RoomService` inner class. Pure refactor — `RoomService` now
+  delegates to `archetypes.archetypeFor / prosperityScore / prefersType
+  / dislikesType` from `botVoteDecision`. `RoomService` dropped from
+  4,746 → 4,657 lines (−89). Pinned by
+  [BotArchetypeBehaviorServiceTest.java](../src/test/java/com/emergentterrain/service/BotArchetypeBehaviorServiceTest.java)
+  (8 tests covering deterministic assignment, distribution across all
+  7 archetypes, target shape, prosperity-score L1 metric, prefers-type
+  rules per archetype, contextual dislikes-type vetoes).
+
+Still deferred (need Phase 3 Iter 6 design pressure to pick the right
+seams): `BotMovementService`, `HighwayEmergenceService`,
+`RoomStateOrchestrator`, `BotRoomLifecycleService`. Premature extraction
+of any of these would create the wrong abstractions.
 
 ---
 
@@ -237,29 +255,34 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases, the research package is 15
-specialist services + 14 entities. Sizes as of `ab42534`:
+After Phase 0 + four behavioural phases (plus Phase 4b and the first
+Phase 2.5 carve), the research package is 17 specialist services +
+1 archetype service in `com.emergentterrain.service` + 14 entities.
+Refreshed against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
-| ResearchNarrationService | 1273 | narration pipeline + critique + audit + professor experiments |
-| UniversityService | 939 | orchestrator + citation tracking + bridging + classification + paper persistence |
-| SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
-| GenomeMentoringService | 427 | LLM genome deltas + dynamic directives |
-| ResearchCycleService | 425 | author selection + computation + peer review + drafts |
-| BotLifecycleService | 324 | aging + competency + dating + elder merges |
-| FormulationService | 288 | pre-computation hypothesis + novelty assessment |
-| ExperimentPlannerService | 264 | algorithmic param selection (4 strategies, flag-gated) |
-| EpistemicMarketService | 325 | reputation-staked prediction markets + auto-staking heuristic |
-| LlmService | 209 | digest + consultation + streaming |
-| MetaResearchService | 192 | self-observation stats (path/bot/method) |
-| KnowledgeBaseService | 319 | formal finding persistence + contradiction detection + theory composition |
-| ReplicationService | 168 | replication queue + dispute marking |
-| ResearchProgramService | 167 | longitudinal programs (flag-gated) |
+| ResearchNarrationService | 1304 | narration pipeline + critique + audit + professor experiments |
+| UniversityService | 954 | orchestrator + citation tracking + bridging + classification + paper persistence |
+| ResearchCycleService | 529 | author selection + computation + peer review + drafts |
+| GenomeMentoringService | 427 | LLM genome deltas + dynamic directives + skepticism drift |
 | InstitutionService | 326 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering + dominant-methodology |
+| EpistemicMarketService | 325 | reputation-staked prediction markets + auto-staking heuristic |
+| BotLifecycleService | 324 | aging + competency + dating + elder merges |
+| KnowledgeBaseService | 319 | formal finding persistence + contradiction detection + theory composition |
+| FormulationService | 288 | pre-computation hypothesis + novelty assessment + identity-biased framing |
+| ExperimentPlannerService | 278 | algorithmic param selection (4 strategies, flag-gated) |
+| ReplicationService | 221 | replication queue + dispute marking |
+| LlmService | 209 | digest + consultation + streaming |
+| FundingAllocationService | 209 | per-room periodic grants from agency → university (Phase 4b) |
+| MetaResearchService | 193 | self-observation stats (path/bot/method) |
+| ResearchProgramService | 167 | longitudinal programs (flag-gated) |
+| ExplorationTuningService | 139 | per-room z-threshold + EXPLORATION trigger auto-tuning (Phase 4b) |
 | PaperGraphService | 129 | citation queries + contradiction clusters |
 | ExpectationModelService | 126 | Welford priors + surprise scoring |
+| SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
 | WorldDataQueryService | 106 | read-only simulation variables |
+| BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
 
 The Phase 0 carve dropped `LlmService` from 1988 lines and
@@ -321,9 +344,10 @@ not their full behaviour:
   `PaperCitationRepository.countByCitedPaperId`). Fires from the publish
   path's `recordJournalAcceptance` / `recordJournalRejection` branches.
   Gated by `app.research.impact-factor.enabled`.
-- **FundingAgency grant allocation** — the policy weights are stored;
-  the allocation loop that reads them and credits universities is the
-  next step.
+- ✅ **FundingAgency grant allocation** — shipped. See "Funding
+  allocation weighting" under *Meta-science evolution targets* below
+  (`FundingAllocationService`, gated by
+  `app.research.funding-allocation.enabled`).
 - ✅ **ReplicationCouncil triggering** — shipped (Phase 4b fifth commit).
   Any paper whose narration asserts a `CONTRADICTS` typed citation is
   queued for replication regardless of z-score; the council's
@@ -404,6 +428,23 @@ Per the phase doc's ordering (ascending risk):
    Three pieces (memo / registry refactor / evolution loop); only the
    first can start immediately. The evolution loop is gated on 2–4
    weeks of observed runtime with the existing Phase 4b flags on.
+   - ✅ **Piece 1 (memo)** shipped — see
+     [phase-4c-piece-1-memo.md](phase-4c-piece-1-memo.md). Locks
+     decisions on slot syntax (`{{ name }}`), allocation
+     (epsilon-greedy ε=0.10), per-paper split stratified by bot,
+     1000-paper rolling window, two-proportion z-test α=0.01 with
+     5pp MDE, per-domain isolation, hand-curated variant pool only
+     (no LLM-driven mutation in 4c.1). Piece 2 (registry refactor)
+     can start whenever; Piece 3 (evolution loop) still gated on
+     observed runtime.
+   - ✅ **Piece 2 gate 3 — per-paper template provenance** shipped.
+     `ResearchPaper` carries `narrationTemplateId` /
+     `narrationTemplateVersion` columns; constants for all twelve
+     prompt templates live in `PromptTemplateIds`; `NarrationResult`
+     stamps the primary narration template on every emitted result;
+     `UniversityService.publishPaper` copies the provenance onto the
+     persisted row. Removes the data-backfill step Piece 3 would
+     otherwise need. See the memo's "Pre-conditions" section.
 
 ### Refactoring deferral
 
@@ -423,6 +464,8 @@ phase-2-active-experimentation.md            ← surprise + planner
 phase-2-5-roomservice-refactor.md            ← deferred RoomService refactor
 phase-3-world-integration.md                 ← world + institutions + markets
 phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
+phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template evolution
+phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
 phase-4c-prompt-template-evolution.md        ← scoping doc for the last Phase 4b deferral
 ```
 

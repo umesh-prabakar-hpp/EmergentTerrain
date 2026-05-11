@@ -154,11 +154,17 @@ public class ResearchNarrationService {
         String pathStr = String.join(" → ", callPath);
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
 
-        // null means professor blank or all-TPD — pass null so queue counter is decremented
+        // null means professor blank or all-TPD — pass null so queue counter is decremented.
+        // Phase 4c Piece 2 gate 3: every emitted result is stamped with the primary
+        // narration template id so the persisted ResearchPaper carries provenance.
+        // Refinement / critique / revision steps are tracked separately via callPath.
         NarrationResult result = finalResult == null ? null : new NarrationResult(
                 finalResult.hypothesis(), finalResult.findings(), finalResult.conclusion(),
                 finalResult.followUp(), router.primaryModel(),
-                finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr);
+                finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
+                finalResult.typedCitations(), finalResult.formalFindings(),
+                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
+                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_VERSION);
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }

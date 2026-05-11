@@ -94,6 +94,24 @@ public class ResearchPaper {
     @Column(name = "kind", nullable = false, length = 16)
     private PaperKind kind = PaperKind.DOMAIN;
 
+    /**
+     * Phase 4c Piece 2 gate 3 — identifier of the prompt template variant whose
+     * narration produced this paper's findings. Stable across template body
+     * mutations: {@code narration.primary} stays the same when {@code v1 → v2}.
+     * Null on legacy rows persisted before this column was added.
+     */
+    @Column(name = "narration_template_id", length = 64)
+    private String narrationTemplateId;
+
+    /**
+     * Phase 4c Piece 2 gate 3 — version tag of the prompt template variant. Used
+     * with {@link #narrationTemplateId} as the {@code (id, version)} pair Phase
+     * 4c Piece 3 will key per-variant rollback statistics on. Null on legacy
+     * rows.
+     */
+    @Column(name = "narration_template_version", length = 32)
+    private String narrationTemplateVersion;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -166,6 +184,8 @@ public class ResearchPaper {
     public UUID         universityId()   { return universityId; }
     public UUID         journalId()      { return journalId; }
     public PaperKind    kind()           { return kind; }
+    public String       narrationTemplateId()      { return narrationTemplateId; }
+    public String       narrationTemplateVersion() { return narrationTemplateVersion; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -174,4 +194,6 @@ public class ResearchPaper {
     public void setUniversityId(UUID universityId)   { this.universityId = universityId; }
     public void setJournalId(UUID journalId)         { this.journalId = journalId; }
     public void setKind(PaperKind kind)              { this.kind = kind != null ? kind : PaperKind.DOMAIN; }
+    public void setNarrationTemplateId(String id)           { this.narrationTemplateId = id; }
+    public void setNarrationTemplateVersion(String version) { this.narrationTemplateVersion = version; }
 }

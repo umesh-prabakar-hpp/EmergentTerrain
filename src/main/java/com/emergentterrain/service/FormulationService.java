@@ -1,7 +1,9 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.research.BotGenome;
+import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.ResearchIdentity;
 import com.emergentterrain.research.ResearchPaper;
 import com.emergentterrain.research.UniversityService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -67,15 +69,24 @@ public class FormulationService {
                 @SuppressWarnings("unchecked")
                 List<ResearchPaper> papers = (List<ResearchPaper>) args[3];
                 String hypothesis     = (args.length > 4) ? (String) args[4] : null;
-                return formulateResearch(domain, topicName, genome, papers, hypothesis);
+                BotLifecycleState ls  = (args.length > 5 && args[5] instanceof BotLifecycleState s) ? s : null;
+                return formulateResearch(domain, topicName, genome, papers, hypothesis, ls);
             });
             log.info("FormulationService: formulation callback wired to UniversityService");
         }
     }
 
+    /** Backwards-compatible overload: callers without a lifecycle state fall back to no identity bias. */
     public FormulationResult formulateResearch(String domain, String topicName,
                                                BotGenome genome, List<ResearchPaper> priorPapers,
                                                String researchHypothesis) {
+        return formulateResearch(domain, topicName, genome, priorPapers, researchHypothesis, null);
+    }
+
+    public FormulationResult formulateResearch(String domain, String topicName,
+                                               BotGenome genome, List<ResearchPaper> priorPapers,
+                                               String researchHypothesis,
+                                               BotLifecycleState lifecycleState) {
         if (!formulationSlot.tryAcquire()) {
             log.debug("LLM formulation slot busy — falling back to genome sampling");
             return null;
@@ -83,7 +94,11 @@ public class FormulationService {
         long start = System.currentTimeMillis();
         try {
             NoveltyAssessment novelty = checkNovelty(domain, topicName, priorPapers);
-            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers, researchHypothesis, novelty);
+            ResearchIdentity identity = (lifecycleState != null)
+                    ? ResearchIdentity.from(lifecycleState, null, null)
+                    : null;
+            String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers,
+                    researchHypothesis, novelty, identity);
             String response = router.callFast(prompt);
             log.info("LLM formulation done domain={} topic={} novelty={} ms={}", domain, topicName,
                     String.format("%.2f", novelty.score()), System.currentTimeMillis() - start);
@@ -99,7 +114,8 @@ public class FormulationService {
 
     private String buildFormulationPrompt(String domain, String topicName,
                                           BotGenome genome, List<ResearchPaper> priorPapers,
-                                          String researchHypothesis, NoveltyAssessment novelty) {
+                                          String researchHypothesis, NoveltyAssessment novelty,
+                                          ResearchIdentity identity) {
         int center1 = genome.getParamCenter1();
         double center2 = genome.getParamCenter2();
         int radius1 = genome.getParamRadius1();
@@ -155,6 +171,8 @@ public class FormulationService {
                     .formatted(novelty.score(), novelty.unexploredHint());
         }
 
+        String identitySection = identityHint(identity);
+
         return """
                 You are a research advisor choosing where a computational researcher should focus next.
 
@@ -162,7 +180,7 @@ public class FormulationService {
                 Researcher's learned search region: param1 center=%d (±%d), param2 center=%.1f (±%.1f)
                 param1 is an integer 10–99 (controls the starting position of the search space).
                 param2 is a decimal 1.0–9.0 (controls depth/scale of the search).
-                %s%s
+                %s%s%s
                 Prior papers in this topic:
                 %s%s
                 Based on the prior work, choose a specific unexplored or promising parameter region
@@ -182,7 +200,36 @@ public class FormulationService {
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
                 """.formatted(domain, topicName, center1, radius1, center2, radius2,
-                        hypothesisSection, noveltyContext, priorSection.trim(), anomalyContext);
+                        identitySection, hypothesisSection, noveltyContext,
+                        priorSection.trim(), anomalyContext);
+    }
+
+    /**
+     * Phase 1 Iter 2 wiring: render a short "Researcher style" preamble derived from
+     * {@link ResearchIdentity}. Returns "" when identity is null so callers via the
+     * legacy callback signature get the original prompt unchanged. The skepticism /
+     * risk-tolerance guidance biases hypothesis framing without dictating params.
+     */
+    static String identityHint(ResearchIdentity identity) {
+        if (identity == null) return "";
+        String skepticismGuidance = identity.skepticismLevel() > 0.65
+                ? "Frame the hypothesis as a sharply falsifiable claim with a precise quantitative prediction."
+                : identity.skepticismLevel() < 0.35
+                        ? "Frame the hypothesis as exploratory: broad qualitative directions are acceptable."
+                        : "Frame the hypothesis as a moderately specific testable claim.";
+        String riskGuidance = identity.riskTolerance() >= 0.30
+                ? "Bias param choices toward the edge of the learned search radius — bolder bets are encouraged."
+                : "Bias param choices closer to the learned search center — conservative steps are preferred.";
+        return ("Researcher style — methodology=%s, risk=%.2f, skepticism=%.2f, reputation=%.2f "
+                + "(career: %d published / %d rejected).\n%s %s\n")
+                .formatted(identity.favoredMethod(),
+                        identity.riskTolerance(),
+                        identity.skepticismLevel(),
+                        identity.reputation(),
+                        identity.publishedCount(),
+                        identity.rejectedCount(),
+                        skepticismGuidance,
+                        riskGuidance);
     }
 
     public FormulationResult parseFormulationResult(String response) {
