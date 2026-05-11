@@ -196,7 +196,7 @@ class MathPhysicsEngineTest {
                         mock(com.emergentterrain.repo.MarketStakeRepository.class),
                         mock(com.emergentterrain.repo.BotCalibrationRepository.class),
                         botRepo, mapper),
-                new KnowledgeBaseService(false,
+                new KnowledgeBaseService(false, false,
                         mock(com.emergentterrain.repo.FormalFindingRepository.class)),
                 new FundingAllocationService(false,
                         mock(com.emergentterrain.repo.FundingAgencyRepository.class),

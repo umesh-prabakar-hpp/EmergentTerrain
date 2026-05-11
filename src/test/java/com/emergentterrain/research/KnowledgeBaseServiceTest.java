@@ -58,7 +58,7 @@ class KnowledgeBaseServiceTest {
 
     @Test
     void disabledServicePersistsNothing() {
-        KnowledgeBaseService svc = new KnowledgeBaseService(false, repo);
+        KnowledgeBaseService svc = new KnowledgeBaseService(false, false, repo);
         ResearchPaper p = paper("P-1", "MATHEMATICS");
 
         int count = svc.persistFindings(p, List.of(extracted(RelationType.PROPORTIONAL,
@@ -200,10 +200,205 @@ class KnowledgeBaseServiceTest {
         assertThat(svc.findingsForPaper("P-2")).hasSize(1);
     }
 
+    // ---- Phase 4b: theory composition ----
+
+    @Test
+    void composeRelationTypesTableMatchesSpec() {
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.PROPORTIONAL, RelationType.PROPORTIONAL))
+                .isEqualTo(RelationType.PROPORTIONAL);
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.PROPORTIONAL, RelationType.INVERSE))
+                .isEqualTo(RelationType.INVERSE);
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.INVERSE, RelationType.PROPORTIONAL))
+                .isEqualTo(RelationType.INVERSE);
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.INVERSE, RelationType.INVERSE))
+                .isEqualTo(RelationType.PROPORTIONAL);
+        // THRESHOLD and NULL never compose.
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.PROPORTIONAL, RelationType.THRESHOLD)).isNull();
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.PROPORTIONAL, RelationType.NULL)).isNull();
+        assertThat(KnowledgeBaseService.composeRelationTypes(
+                RelationType.NULL, RelationType.PROPORTIONAL)).isNull();
+    }
+
+    @Test
+    void compositionNoOpWhenFlagOff() {
+        KnowledgeBaseService svc = enabled();  // findings on, composition off
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B")));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C")));
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+        verify(programs, never()).recordOpenQuestion(any(), any(), any());
+    }
+
+    @Test
+    void compositionNoOpWhenProgramServiceNotWired() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B")));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C")));
+
+        // Composition flag on but no program service wired → no-op.
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+    }
+
+    @Test
+    void compositionEmitsDerivedQuestionForChainedFindings() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B"), 0.8));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C"), 0.6));
+
+        int emitted = svc.maybeComposeTheories("PHYSICS");
+
+        assertThat(emitted).isEqualTo(1);
+        verify(programs).recordOpenQuestion(any(),
+                eq("PHYSICS"),
+                org.mockito.ArgumentMatchers.contains("A ~ PROPORTIONAL(C)"));
+    }
+
+    @Test
+    void compositionSkipsBelowConfidenceFloor() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        // 0.4 confidence is below COMPOSITION_MIN_CONFIDENCE = 0.5.
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B"), 0.4));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C"), 0.9));
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+        verify(programs, never()).recordOpenQuestion(any(), any(), any());
+    }
+
+    @Test
+    void compositionSkipsThresholdAndNullRelationTypes() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.THRESHOLD, "A", List.of("B"), 0.9));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C"), 0.9));
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+    }
+
+    @Test
+    void compositionIsIdempotentForSamePair() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B"), 0.8));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("C"), 0.8));
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isEqualTo(1);
+        // Second call: pair already composed → no emission.
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+        verify(programs).recordOpenQuestion(any(), eq("PHYSICS"), any());
+    }
+
+    @Test
+    void compositionSkipsCircularAEqualsC() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        // A→B and B→A: composition would yield A→A which is circular and useless.
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.PROPORTIONAL, "A", List.of("B"), 0.9));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.PROPORTIONAL, "B", List.of("A"), 0.9));
+
+        // Both directions of composition would yield A→A or B→B; both are skipped.
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+    }
+
+    @Test
+    void compositionRespectsEmissionCap() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        // 7 chained findings producing many composable pairs. Cap is 5.
+        for (int i = 0; i < 7; i++) {
+            String dep   = "V" + i;
+            String indep = "V" + (i + 1);
+            store.put(UUID.randomUUID(), finding("P-" + i, "PHYSICS",
+                    RelationType.PROPORTIONAL, dep, List.of(indep), 0.8));
+        }
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isEqualTo(5);
+    }
+
+    @Test
+    void compositionInverseTimesInverseGivesProportional() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        store.put(UUID.randomUUID(), finding("P-1", "PHYSICS",
+                RelationType.INVERSE, "A", List.of("B"), 0.9));
+        store.put(UUID.randomUUID(), finding("P-2", "PHYSICS",
+                RelationType.INVERSE, "B", List.of("C"), 0.9));
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isEqualTo(1);
+        verify(programs).recordOpenQuestion(any(),
+                eq("PHYSICS"),
+                org.mockito.ArgumentMatchers.contains("A ~ PROPORTIONAL(C)"));
+    }
+
+    @Test
+    void compositionSkipsWhenValidRegionsDisjoint() {
+        KnowledgeBaseService svc = enabledWithComposition();
+        ResearchProgramService programs = mock(ResearchProgramService.class);
+        svc.setResearchProgramService(programs);
+
+        FormalFinding f1 = new FormalFinding(
+                "P-1", UUID.randomUUID(), RelationType.PROPORTIONAL, "A", List.of("B"),
+                null, MathPhysicsEngine.ClaimStatus.SUPPORTED, 0.9,
+                /* min = */ 0.0, /* max = */ 1.0,
+                "PHYSICS", Instant.now());
+        FormalFinding f2 = new FormalFinding(
+                "P-2", UUID.randomUUID(), RelationType.PROPORTIONAL, "B", List.of("C"),
+                null, MathPhysicsEngine.ClaimStatus.SUPPORTED, 0.9,
+                /* min = */ 5.0, /* max = */ 10.0,   // disjoint from f1's region
+                "PHYSICS", Instant.now());
+        store.put(UUID.randomUUID(), f1);
+        store.put(UUID.randomUUID(), f2);
+
+        assertThat(svc.maybeComposeTheories("PHYSICS")).isZero();
+        verify(programs, never()).recordOpenQuestion(any(), any(), any());
+    }
+
     // ---- helpers ----
 
     private KnowledgeBaseService enabled() {
-        return new KnowledgeBaseService(true, repo);
+        return new KnowledgeBaseService(true, false, repo);
+    }
+
+    private KnowledgeBaseService enabledWithComposition() {
+        return new KnowledgeBaseService(true, true, repo);
     }
 
     private static ResearchPaper paper(String paperId, String domain) {

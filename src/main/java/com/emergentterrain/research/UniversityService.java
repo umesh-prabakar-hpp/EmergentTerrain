@@ -163,6 +163,9 @@ public class UniversityService {
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
         this.experimentPlannerService.setExplorationTuningService(explorationTuningService);
+        // Phase 4b — let the knowledge base emit derived ProgramOpenQuestions
+        // via the program service. Setter avoids a constructor cycle.
+        this.knowledgeBaseService.setResearchProgramService(researchProgramService);
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
         this.researchCycleService.setExperimentPlannerService(experimentPlannerService);
@@ -358,6 +361,10 @@ public class UniversityService {
         // produce a formal_findings block.
         knowledgeBaseService.persistFindings(
                 paper, narration.formalFindings(), authorBotIdForSurprise);
+        // Phase 4b: theory composition — after a fresh batch of findings lands
+        // in this domain, look for A~f(B) ^ B~g(C) chains and emit derived
+        // ProgramOpenQuestions. No-op when the composition flag is off.
+        knowledgeBaseService.maybeComposeTheories(draft.domain());
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();

@@ -217,6 +217,7 @@ app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake 
 app.research.dominant-methodology.enabled # Phase 4b — University.dominantMethodology emerges from member modes
 app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise events to per-room in-memory buffer (rate-limited)
 app.research.exploration-tuning.enabled # Phase 4b — per-room z-threshold + EXPLORATION trigger adjust from replication failure rate
+app.research.theory-composition.enabled # Phase 4b — A~f(B) ^ B~g(C) chains emit derived ProgramOpenQuestions
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -252,7 +253,7 @@ specialist services + 14 entities. Sizes as of `ab42534`:
 | EpistemicMarketService | 325 | reputation-staked prediction markets + auto-staking heuristic |
 | LlmService | 209 | digest + consultation + streaming |
 | MetaResearchService | 192 | self-observation stats (path/bot/method) |
-| KnowledgeBaseService | 169 | formal finding persistence + contradiction detection |
+| KnowledgeBaseService | 319 | formal finding persistence + contradiction detection + theory composition |
 | ReplicationService | 168 | replication queue + dispute marking |
 | ResearchProgramService | 167 | longitudinal programs (flag-gated) |
 | InstitutionService | 326 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering + dominant-methodology |
@@ -344,9 +345,22 @@ not their full behaviour:
 
 ### Knowledge-substrate deferrals
 
-- **Theory composition** (Phase 4 Iter 9) — A→B and B→C imply A→C; this
-  generates derived hypotheses that become `ProgramOpenQuestion` entries.
-  Genuinely hard and easy to get wrong; deferred per the phase doc.
+- ✅ **Theory composition** (Phase 4 Iter 9) — shipped (Phase 4b tenth
+  commit). `KnowledgeBaseService.maybeComposeTheories(domain)` fires
+  from `UniversityService.publishPaper` after `persistFindings`. For
+  each pair of single-IV findings `A~f(B)` and `B~g(C)` with both
+  confidences ≥ 0.5 and overlapping valid regions, emits a derived
+  hypothesis as a `ProgramOpenQuestion` on the bot that extracted
+  f1 — letting the next bot to investigate produce a real
+  `FormalFinding` through normal experimentation. The simulation
+  verifies, the LLM doesn't.
+
+  Composition table: PROP×PROP=PROP, PROP×INV=INV, INV×PROP=INV,
+  INV×INV=PROP. THRESHOLD and NULL never compose. Confidence
+  propagates multiplicatively. Pairs deduped by sorted paperId-pair
+  key. Circular compositions (A→A) skipped. Cap of 5 derived
+  questions per call, highest-confidence first. Gated by
+  `app.research.theory-composition.enabled`.
 - **LOGARITHMIC / CATEGORICAL relation types** (Phase 4 Iter 9) — narrow
   to PROPORTIONAL / INVERSE / THRESHOLD / NULL initially.
 
