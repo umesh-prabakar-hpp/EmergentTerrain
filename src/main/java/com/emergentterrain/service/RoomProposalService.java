@@ -2,21 +2,27 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.domain.Room;
 import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.domain.RoomParticipant;
 import com.emergentterrain.domain.RoomProposal;
+import com.emergentterrain.domain.RoomProposalVote;
 import com.emergentterrain.repo.RoomBotRepository;
+import com.emergentterrain.repo.RoomParticipantRepository;
 import com.emergentterrain.repo.RoomProposalRepository;
+import com.emergentterrain.repo.RoomProposalVoteRepository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
 
@@ -63,31 +69,55 @@ public class RoomProposalService {
     private final ObjectMapper objectMapper;
     private final RoomProposalRepository proposalRepository;
     private final RoomBotRepository botRepository;
+    private final RoomProposalVoteRepository voteRepository;
+    private final RoomParticipantRepository participantRepository;
     private final BotArchetypeBehaviorService archetypes;
     private final TileValidatorService validator;
     private final BotMovementService movement;
     private final OccupancyService occupancy;
     private final boolean botRuleChecksEnabled;
     private final double botApproveBias;
+    private final int minVotesToResolve;
+    private final int minProposalLiveSeconds;
+    private final boolean approveOnTieAfterExpiry;
+    private final int noParticipationLockSeconds;
+    private final int neighborRadius;
+    private final int quorumCap;
 
     public RoomProposalService(ObjectMapper objectMapper,
                                RoomProposalRepository proposalRepository,
                                RoomBotRepository botRepository,
+                               RoomProposalVoteRepository voteRepository,
+                               RoomParticipantRepository participantRepository,
                                BotArchetypeBehaviorService archetypes,
                                TileValidatorService validator,
                                BotMovementService movement,
                                OccupancyService occupancy,
                                @Value("${app.consensus.botRuleChecksEnabled:false}") boolean botRuleChecksEnabled,
-                               @Value("${app.consensus.botApproveBias:0.0}") double botApproveBias) {
+                               @Value("${app.consensus.botApproveBias:0.0}") double botApproveBias,
+                               @Value("${app.consensus.minVotesToResolve:3}") int minVotesToResolve,
+                               @Value("${app.consensus.minProposalLiveSeconds:3}") int minProposalLiveSeconds,
+                               @Value("${app.consensus.approveOnTieAfterExpiry:false}") boolean approveOnTieAfterExpiry,
+                               @Value("${app.consensus.noParticipationLockSeconds:300}") int noParticipationLockSeconds,
+                               @Value("${app.consensus.neighborRadius:8}") int neighborRadius,
+                               @Value("${app.consensus.quorumCap:0}") int quorumCap) {
         this.objectMapper = objectMapper;
         this.proposalRepository = proposalRepository;
         this.botRepository = botRepository;
+        this.voteRepository = voteRepository;
+        this.participantRepository = participantRepository;
         this.archetypes = archetypes;
         this.validator = validator;
         this.movement = movement;
         this.occupancy = occupancy;
         this.botRuleChecksEnabled = botRuleChecksEnabled;
         this.botApproveBias = Math.max(0.0, Math.min(0.95, botApproveBias));
+        this.minVotesToResolve = minVotesToResolve;
+        this.minProposalLiveSeconds = minProposalLiveSeconds;
+        this.approveOnTieAfterExpiry = approveOnTieAfterExpiry;
+        this.noParticipationLockSeconds = noParticipationLockSeconds;
+        this.neighborRadius = neighborRadius;
+        this.quorumCap = Math.max(0, quorumCap);
     }
 
     /**
@@ -604,5 +634,164 @@ public class RoomProposalService {
                 // Summary is advisory; persisting a missing summary is fine.
             }
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Phase 3 — vote/evaluate decisions. The actual apply-to-state side
+    // (`applyProposal`, `applyProposalPatch`, `tryApplyProposalPatchWithGpu`)
+    // stays in RoomService because it threads cache write, tile hashing,
+    // shared-tokens / shared-quests updates, the GPU adapter, and the
+    // room-lock side effects. Callers (RoomService) pass `this::applyProposal`
+    // through as the {@code applyProposal} {@link BiConsumer} so the decision
+    // side stays free of those entanglements. Same callback pattern as the
+    // Phase 2 drift callback.
+    // ---------------------------------------------------------------------
+
+    /**
+     * Clamps a quorum threshold to a configured maximum (or returns the
+     * raw value when no cap is set). The {@code app.consensus.quorumCap}
+     * lets large rooms cap how many neighbour votes are demanded before a
+     * proposal can resolve; without it, a 50-neighbour proposal would
+     * stall waiting for 26 votes.
+     */
+    public int capQuorum(int rawQuorum) {
+        int normalized = Math.max(1, rawQuorum);
+        if (quorumCap <= 0) {
+            return normalized;
+        }
+        return Math.min(quorumCap, normalized);
+    }
+
+    /**
+     * Eligibility check for a participant casting a human vote on
+     * {@code proposal}. Returns true when both the proposal and the
+     * participant have coordinates and the participant sits inside the
+     * proposal's anchor viewport. Caller supplies the {@code tiles}
+     * snapshot so the same lookup can be reused across many proposals in
+     * the build-proposal-info path without re-querying state.
+     */
+    public boolean canVoteNow(int[][] tiles, RoomProposal proposal, RoomParticipant participant) {
+        if (proposal.getAnchorX() == null || proposal.getAnchorY() == null) {
+            return false;
+        }
+        if (participant.getX() == null || participant.getY() == null) {
+            return false;
+        }
+        int[] view = occupancy.computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
+        return occupancy.inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
+    }
+
+    /**
+     * Walks the room's PENDING proposals (top 200 by createdAt) and runs
+     * {@link #evaluateProposal} on each. Used by the maintenance loop's
+     * periodic resolve pass.
+     */
+    public void evaluatePendingProposals(Room room, BiConsumer<Room, RoomProposal> applyProposal) {
+        for (RoomProposal proposal : proposalRepository.findTop200ByRoomAndStatusOrderByCreatedAtDesc(room, "PENDING")) {
+            evaluateProposal(room, proposal, applyProposal);
+        }
+    }
+
+    /**
+     * Three-way decision for a PENDING proposal:
+     * <ol>
+     *   <li>If the total votes meet the (clamped) quorum and one side
+     *       wins, transition to APPLIED (delegating the actual state
+     *       write to {@code applyProposal}) or REJECTED.</li>
+     *   <li>If the proposal hasn't been alive long enough to expire yet
+     *       ({@code minProposalLiveSeconds}), do nothing — quorum may
+     *       still come in.</li>
+     *   <li>If the proposal has expired, fall into
+     *       {@link #applyNoParticipation} which locks no-show neighbours
+     *       and either applies or rejects based on the existing votes
+     *       (with an optional tie → approve toggle).</li>
+     * </ol>
+     * Pre-carve behaviour preserved verbatim; the only structural change
+     * is that {@code applyProposal} runs through the supplied callback
+     * instead of an inline RoomService method call.
+     */
+    public void evaluateProposal(Room room, RoomProposal proposal, BiConsumer<Room, RoomProposal> applyProposal) {
+        if (!"PENDING".equals(proposal.getStatus())) {
+            return;
+        }
+        int approvals = proposal.getApprovals();
+        int rejections = proposal.getRejections();
+        int totalVotes = approvals + rejections;
+        int quorum = capQuorum(Math.max(minVotesToResolve, proposal.getRequiredVotes()));
+        if (totalVotes >= quorum) {
+            if (approvals > rejections) {
+                applyProposal.accept(room, proposal);
+                return;
+            }
+            if (rejections > approvals) {
+                proposal.setStatus("REJECTED");
+                proposalRepository.save(proposal);
+                return;
+            }
+        }
+        if (proposal.getCreatedAt() != null) {
+            Instant earliest = proposal.getCreatedAt().plusSeconds(minProposalLiveSeconds);
+            if (Instant.now().isBefore(earliest)) {
+                return;
+            }
+        }
+        if (proposal.getExpiresAt() != null && proposal.getExpiresAt().isBefore(Instant.now())) {
+            applyNoParticipation(room, proposal, applyProposal);
+        }
+    }
+
+    /**
+     * Expiry resolution path: walks the proposal's neighbour set, locks
+     * any human neighbour who didn't vote and is within
+     * {@code app.consensus.neighborRadius} of the anchor (after 2 missed
+     * votes), then either applies or rejects the proposal based on its
+     * existing approval / rejection counts. The
+     * {@code app.consensus.approveOnTieAfterExpiry} toggle decides what
+     * happens when approvals equal rejections — by default a tie rejects;
+     * if the toggle is on AND there's at least one approval, the
+     * proposal applies.
+     */
+    public void applyNoParticipation(Room room, RoomProposal proposal, BiConsumer<Room, RoomProposal> applyProposal) {
+        List<String> neighborIds = readNeighborIds(proposal);
+        Set<String> voted = new HashSet<>();
+        for (RoomProposalVote vote : voteRepository.findByProposal(proposal)) {
+            if (vote.getParticipant() != null) {
+                voted.add("P:" + vote.getParticipant().getId());
+            }
+        }
+        Integer anchorX = proposal.getAnchorX();
+        Integer anchorY = proposal.getAnchorY();
+        if (anchorX == null || anchorY == null) {
+            return;
+        }
+        for (String neighbor : neighborIds) {
+            if (neighbor.startsWith("P:") && !voted.contains(neighbor)) {
+                UUID pid = UUID.fromString(neighbor.substring(2));
+                participantRepository.findById(pid).ifPresent(p -> {
+                    if (anchorX != null && anchorY != null && p.getX() != null && p.getY() != null) {
+                        if (!occupancy.withinRadius(anchorX, anchorY, p.getX(), p.getY(), neighborRadius)) {
+                            return;
+                        }
+                    }
+                    p.setMissedVotes(p.getMissedVotes() + 1);
+                    if (p.getMissedVotes() >= 2) {
+                        p.setLockedUntil(Instant.now().plusSeconds(noParticipationLockSeconds));
+                        p.setMissedVotes(0);
+                    }
+                    participantRepository.save(p);
+                });
+            }
+        }
+        int approvals = proposal.getApprovals();
+        int rejections = proposal.getRejections();
+        boolean approve = approvals > rejections
+            || (approveOnTieAfterExpiry && approvals == rejections && approvals > 0);
+        if (approve) {
+            applyProposal.accept(room, proposal);
+        } else {
+            proposal.setStatus("REJECTED");
+            proposalRepository.save(proposal);
+        }
+        proposalRepository.save(proposal);
     }
 }

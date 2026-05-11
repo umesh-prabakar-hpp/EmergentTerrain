@@ -44,15 +44,19 @@ class RoomProposalServicePhase2Test {
     private final OccupancyService occupancy = new OccupancyService(null, null, null);
     private final TileValidatorService validator = new TileValidatorService(occupancy);
     private final BotMovementService movement = new BotMovementService(
-            // BotMovementService uses 4 @Value tunables — pass the production defaults
-            // verbatim so the test surface matches what the real Spring config wires.
-            3, 8, 0.4, 0.25);
+            // BotMovementService uses 4 @Value tunables (planLength, reverseCooldownTicks,
+            // reversePenalty, headingBias). Production defaults from the @Value annotations.
+            3, 2, 0.6, 0.18);
 
     private final RoomProposalService svc = new RoomProposalService(
             objectMapper, proposalRepo, botRepo,
+            /* voteRepo */ null, /* participantRepo */ null,
             archetypes, validator, movement, occupancy,
             /* botRuleChecksEnabled */ false,
-            /* botApproveBias */ 0.0);
+            /* botApproveBias */ 0.0,
+            /* minVotesToResolve */ 3, /* minProposalLiveSeconds */ 3,
+            /* approveOnTieAfterExpiry */ false, /* noParticipationLockSeconds */ 300,
+            /* neighborRadius */ 8, /* quorumCap */ 0);
 
     // ---------- localStats ----------
 

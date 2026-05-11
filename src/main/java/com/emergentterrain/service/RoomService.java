@@ -937,7 +937,7 @@ public class RoomService {
                 log.debug("maintenance step=maybeCreateBotProposal end roomId={}", room.getId());
                 boolean flushed = orchestrator.persistIfDirty(room, state, roomStateCache.get(room.getId()));
                 log.debug("maintenance step=evaluatePendingProposals start roomId={}", room.getId());
-                evaluatePendingProposals(room);
+                proposals.evaluatePendingProposals(room, this::applyProposal);
                 log.debug("maintenance step=evaluatePendingProposals end roomId={}", room.getId());
                 if (metadataDirty && !flushed) {
                     stateRepository.save(state);
@@ -1239,7 +1239,7 @@ public class RoomService {
                 throw new IllegalStateException("Not enough neighbors nearby to vote");
             }
             proposal.setNeighborIdsJson(toJson(neighbors));
-            proposal.setRequiredVotes(capQuorum(neighbors.size() / 2 + 1));
+            proposal.setRequiredVotes(proposals.capQuorum(neighbors.size() / 2 + 1));
             proposal.setExpiresAt(Instant.now().plusSeconds(voteWindowSeconds));
             proposal.setApprovals(1);
             proposal.setRejections(0);
@@ -1255,7 +1255,7 @@ public class RoomService {
             boolean[][] highways = getHighwaysForRoom(room, state);
             proposals.applyBotVotes(room, proposal, baseTiles, proposedTiles, highways,
                     this::readBotProfile, this::driftBotProfile);
-            evaluateProposal(room, proposal);
+            proposals.evaluateProposal(room, proposal, this::applyProposal);
             if ("PENDING".equals(proposal.getStatus())) {
                 proposalRepository.save(proposal);
             }
@@ -1287,7 +1287,10 @@ public class RoomService {
             if (!proposal.getRoom().getId().equals(room.getId())) {
                 throw new IllegalStateException("Proposal mismatch");
             }
-            if (!canVoteNow(room, proposal, participant)) {
+            RoomState voteState = stateRepository.findByRoom(room)
+                .orElseThrow(() -> new IllegalStateException("Room state missing"));
+            int[][] voteTiles = getTilesForRoom(room, voteState);
+            if (!proposals.canVoteNow(voteTiles, proposal, participant)) {
                 throw new IllegalStateException("Only nearby neighbors can vote");
             }
             if (voteRepository.findByProposalAndParticipant(proposal, participant).isPresent()) {
@@ -1305,7 +1308,7 @@ public class RoomService {
                 proposal.setRejections(proposal.getRejections() + 1);
             }
             proposalRepository.save(proposal);
-            evaluateProposal(room, proposal);
+            proposals.evaluateProposal(room, proposal, this::applyProposal);
 
             RoomState state = stateRepository.findByRoom(room)
                 .orElseThrow(() -> new IllegalStateException("Room state missing"));
@@ -1685,6 +1688,12 @@ public class RoomService {
     private List<RoomProposalInfo> buildProposals(Room room, RoomParticipant participant) {
         List<RoomProposalInfo> infos = new ArrayList<>();
         String participantKey = participant == null ? null : "P:" + participant.getId();
+        // Fetch tiles once before the loop — pre-carve canVoteNow fetched per-call inside RoomService.
+        int[][] tilesForCanVote = null;
+        if (participant != null) {
+            RoomState s = stateRepository.findByRoom(room).orElse(null);
+            tilesForCanVote = s == null ? null : getTilesForRoom(room, s);
+        }
         for (RoomProposal proposal : proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room)) {
             RoomProposalInfo info = new RoomProposalInfo();
             info.setId(proposal.getId().toString());
@@ -1714,7 +1723,8 @@ public class RoomService {
             }
             info.setTileType(proposals.proposalDeltaType(proposal));
             if (participantKey != null) {
-                info.setCanVote(canVoteNow(room, proposal, participant));
+                info.setCanVote(tilesForCanVote != null
+                        && proposals.canVoteNow(tilesForCanVote, proposal, participant));
                 info.setOwner(proposal.getProposer() != null && proposal.getProposer().getId().equals(participant.getId()));
             }
             infos.add(info);
@@ -2703,41 +2713,10 @@ public class RoomService {
 
     // applyBotChange and extractAnchor moved to RoomProposalService.
 
-    private void evaluatePendingProposals(Room room) {
-        for (RoomProposal proposal : proposalRepository.findTop200ByRoomAndStatusOrderByCreatedAtDesc(room, "PENDING")) {
-            evaluateProposal(room, proposal);
-        }
-    }
-
-    private void evaluateProposal(Room room, RoomProposal proposal) {
-        if (!"PENDING".equals(proposal.getStatus())) {
-            return;
-        }
-        int approvals = proposal.getApprovals();
-        int rejections = proposal.getRejections();
-        int totalVotes = approvals + rejections;
-        int quorum = capQuorum(Math.max(minVotesToResolve, proposal.getRequiredVotes()));
-        if (totalVotes >= quorum) {
-            if (approvals > rejections) {
-                applyProposal(room, proposal);
-                return;
-            }
-            if (rejections > approvals) {
-                proposal.setStatus("REJECTED");
-                proposalRepository.save(proposal);
-                return;
-            }
-        }
-        if (proposal.getCreatedAt() != null) {
-            Instant earliest = proposal.getCreatedAt().plusSeconds(minProposalLiveSeconds);
-            if (Instant.now().isBefore(earliest)) {
-                return;
-            }
-        }
-        if (proposal.getExpiresAt() != null && proposal.getExpiresAt().isBefore(Instant.now())) {
-            applyNoParticipation(room, proposal);
-        }
-    }
+    // evaluatePendingProposals and evaluateProposal moved to RoomProposalService
+    // (Phase 2.5 Phase 3 — vote/evaluate decisions). The actual apply-to-state side
+    // (`applyProposal` below) stays here and is passed through to the carved
+    // service as a BiConsumer callback. Same pattern as the Phase 2 drift callback.
 
     private void applyProposal(Room room, RoomProposal proposal) {
         RoomState state = stateRepository.findByRoom(room)
@@ -2877,71 +2856,9 @@ public class RoomService {
         return out;
     }
 
-    private void applyNoParticipation(Room room, RoomProposal proposal) {
-        List<String> neighborIds = proposals.readNeighborIds(proposal);
-        Set<String> voted = new HashSet<>();
-        for (RoomProposalVote vote : voteRepository.findByProposal(proposal)) {
-            if (vote.getParticipant() != null) {
-                voted.add("P:" + vote.getParticipant().getId());
-            }
-        }
-        Integer anchorX = proposal.getAnchorX();
-        Integer anchorY = proposal.getAnchorY();
-        if (anchorX == null || anchorY == null) {
-            return;
-        }
-        for (String neighbor : neighborIds) {
-            if (neighbor.startsWith("P:") && !voted.contains(neighbor)) {
-                UUID pid = UUID.fromString(neighbor.substring(2));
-                participantRepository.findById(pid).ifPresent(p -> {
-                    if (anchorX != null && anchorY != null && p.getX() != null && p.getY() != null) {
-                        if (!occupancy.withinRadius(anchorX, anchorY, p.getX(), p.getY(), neighborRadius)) {
-                            return;
-                        }
-                    }
-                    p.setMissedVotes(p.getMissedVotes() + 1);
-                    if (p.getMissedVotes() >= 2) {
-                        p.setLockedUntil(Instant.now().plusSeconds(noParticipationLockSeconds));
-                        p.setMissedVotes(0);
-                    }
-                    participantRepository.save(p);
-                });
-            }
-        }
-        int approvals = proposal.getApprovals();
-        int rejections = proposal.getRejections();
-        boolean approve = approvals > rejections
-            || (approveOnTieAfterExpiry && approvals == rejections && approvals > 0);
-        if (approve) {
-            applyProposal(room, proposal);
-        } else {
-            proposal.setStatus("REJECTED");
-            proposalRepository.save(proposal);
-        }
-        proposalRepository.save(proposal);
-    }
-
-    private int capQuorum(int rawQuorum) {
-        int normalized = Math.max(1, rawQuorum);
-        if (quorumCap <= 0) {
-            return normalized;
-        }
-        return Math.min(quorumCap, normalized);
-    }
-
-    private boolean canVoteNow(Room room, RoomProposal proposal, RoomParticipant participant) {
-        if (proposal.getAnchorX() == null || proposal.getAnchorY() == null) {
-            return false;
-        }
-        if (participant.getX() == null || participant.getY() == null) {
-            return false;
-        }
-        RoomState state = stateRepository.findByRoom(room)
-            .orElseThrow(() -> new IllegalStateException("Room state missing"));
-        int[][] tiles = getTilesForRoom(room, state);
-        int[] view = occupancy.computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
-        return occupancy.inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
-    }
+    // applyNoParticipation, capQuorum, and canVoteNow moved to RoomProposalService
+    // (Phase 2.5 Phase 3). canVoteNow now takes the tiles array as input — the
+    // sole caller below in buildProposals fetches once before the loop.
 
     // readNeighborIds, validateProposalChange, validateProposalDelta, extractDeltaType,
     // applyDeltaToTiles, extractDeltaTypeFromProposal all moved to RoomProposalService.

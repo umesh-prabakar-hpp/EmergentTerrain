@@ -17,11 +17,11 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 6 of 6 (0, 1, 2, 2b, 3, 4) |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 496 (+361) |
+| Tests | 135 → 513 (+378) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -122,17 +122,18 @@ Closes two explicit deferrals from Phase 1/2:
 
 ---
 
-### Phase 2.5 — RoomService refactor ⏳ in progress
+### Phase 2.5 — RoomService refactor ✅
 
 Pre-Phase-3 refactor. All five extractions originally enumerated by the
 design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
 have now shipped, plus a dead-audit-code deletion that preceded the
 RoomStateOrchestrator carve and three additional second-wave carves
 (`TileValidatorService`, `OccupancyService`, `BotSimulationGpuService`),
-plus the first two waves of the fourth second-wave carve
+plus the three waves of the fourth second-wave carve
 (`RoomProposalService` Phase 1 — codec + tile-math helpers; Phase 2 —
-bot-vote machinery; the evaluate/apply pipeline stays for follow-up
-sessions). RoomService is down 4,746 → 3,294 lines (−1,452, −31%)
+bot-vote machinery; Phase 3 — vote/evaluate decisions). The
+`applyProposal` cache-write side stays in RoomService as a callback
+passed through. RoomService is down 4,746 → 3,211 lines (−1,535, −32%)
 cumulatively. A second wave of extractions has been identified beyond
 the original plan — see "Next planned carves" at the end of this section.
 
@@ -473,13 +474,45 @@ the original plan — see "Next planned carves" at the end of this section.
   return, and the neighbour-set filter preventing profile reads on
   non-neighbour bots).
 
+- ✅ **`RoomProposalService` Phase 3 — vote/evaluate decisions** —
+  extended
+  [RoomProposalService.java](../src/main/java/com/emergentterrain/service/RoomProposalService.java)
+  with the proposal evaluation pipeline. Surface added: `capQuorum`
+  (clamps quorum to `app.consensus.quorumCap`), `canVoteNow(tiles,
+  proposal, participant)` (now takes the tiles array as input — the sole
+  buildProposals caller fetches once before the loop, eliminating a
+  pre-carve N+1 state lookup), `evaluateProposal(room, proposal,
+  applyProposal)` (the three-way quorum / min-live-gate / expiry
+  decision), `evaluatePendingProposals(room, applyProposal)`
+  (maintenance-loop pass over PENDING proposals), and
+  `applyNoParticipation(room, proposal, applyProposal)` (expiry
+  resolution: locks no-show neighbours after 2 missed votes, then
+  applies or rejects based on existing votes plus the optional
+  `approveOnTieAfterExpiry` toggle). The actual apply-to-state side
+  (`applyProposal`, `applyProposalPatch`, `tryApplyProposalPatchWithGpu`)
+  stays in RoomService and is passed through as a `BiConsumer<Room,
+  RoomProposal>` callback — same scope-reduction pattern as the Phase 2
+  drift callback. Pre-carve `proposalRepository.save` call ordering
+  preserved verbatim, including the double-save quirk on the reject
+  path of `applyNoParticipation`. RoomService dropped a further
+  3,294 → 3,211 lines (−83). Pinned by
+  [RoomProposalServicePhase3Test.java](../src/test/java/com/emergentterrain/service/RoomProposalServicePhase3Test.java)
+  (17 tests covering `capQuorum` floor + cap clamping, `canVoteNow`
+  missing-coord guards and inside/outside viewport branches,
+  `evaluateProposal` non-pending no-op / approve-quorum / reject-quorum
+  / below-quorum-no-op / expiry-routes-to-applyNoParticipation paths,
+  `applyNoParticipation` reject-on-rejections + approve-on-tie (with
+  the both-zero exception) + locks-on-second-miss / no-lock-on-first-
+  miss / outside-radius-exempt / already-voted-skip branches, and the
+  `evaluatePendingProposals` loop dispatch).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, RoomStateOrchestrator, MapIndexService,
 TileValidatorService, OccupancyService, BotSimulationGpuService, plus
-RoomProposalService Phase 1 + Phase 2 and the CachedRoomState/TileCounts/
+all three RoomProposalService phases and the CachedRoomState/TileCounts/
 OccupantSnapshot/BotMotionState/CachedMap/IntegralMaps/CoarseCell/
 GpuWorldCache/BotVote promotions and the dead-audit deletion, `RoomService`
-is down **4,746 → 3,294 lines (−1,452, −31%)**.
+is down **4,746 → 3,211 lines (−1,535, −32%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -490,19 +523,33 @@ require either dragging the helpers' 4–6 cross-cutting callsites along
 or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
 
-**Next planned carves (in order, picked 2026-05-11 after the
-MapIndexService landing; TileValidatorService, OccupancyService,
-BotSimulationGpuService and RoomProposalService Phase 1 + Phase 2 all
-shipped same day):**
+**Phase 2.5 is functionally complete** for the second-wave plan: all
+four enumerated carves (TileValidatorService, OccupancyService,
+BotSimulationGpuService, RoomProposalService Phases 1+2+3) shipped on
+2026-05-11. RoomService is down 4,746 → 3,211 lines (−32%).
 
-1. **`RoomProposalService` Phase 3 — evaluate/apply pipeline** —
-   `evaluateProposal`, `applyProposal`, `applyProposalPatch`,
-   `tryApplyProposalPatchWithGpu`, `applyNoParticipation`,
-   `evaluatePendingProposals`, plus `canVoteNow` and `buildProposals`
-   (the response builder). ~400 lines. Touches the websocket
-   broadcast, the GPU patch path, and the proposal-lock infrastructure
-   shared with the flush scheduler. Multi-session; HTTP entry points
-   stay in RoomService but delegate.
+What stays in RoomService and was not carved (intentional scope
+reductions, documented in each carve's bullet):
+- `applyProposal` + `applyProposalPatch` + `tryApplyProposalPatchWithGpu`
+  — the cache-coupled state-write side of the proposal pipeline. Passed
+  into the carved evaluate/apply methods as a callback.
+- `buildProposals` — response builder; couples web layer (RoomProposalInfo).
+- `findNeighbors` + `findNeighborsForAnchor` — proposal-creation helpers
+  used by the `propose` HTTP entry point.
+- `getCachedOccupancy` + `refreshOccupancySnapshot` — touch the broader
+  roomStateCache that also holds tiles/highways/road pressure/hash.
+- `trySimulateBotsWithGpu` + `applyGpuEditsToCachedState` — GPU bot
+  simulation orchestrator + cache-write side.
+- HTTP entry points (`propose`, `votePropose`, `joinRoom`, etc.).
+- Bot lifecycle (`tickBots`, `shouldRelocate`, `assignBotSpawn`, etc.)
+  and the maintenance scheduler.
+- The `readBotProfile` / `maybeDriftProfile` / `localRole` / `clamp01` /
+  `adjustProfile` / `clampProfile` profile-codec cluster.
+
+These could be the seeds of further carves (`ProposalApplyService`,
+`BotLifecycleRoomService`, etc.) but none are blocking Phase 3 of the
+broader project — the Phase 3 Iter 6 write side (`WorldInterventionService`)
+that was gated on Phase 2.5 is now unblocked.
 
 Two carves explicitly *not* on the next-up list:
 - **`BotRoomLifecycleService`** (the design doc's last enumerated
@@ -655,7 +702,7 @@ RoomProposalService) + 14 entities. Refreshed against the working tree
 | TileValidatorService | 192 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
 | OccupancyService | 187 | viewport math + canOccupy density rule + occupancy snapshot build/codec (Phase 2.5) |
 | BotSimulationGpuService | 254 | GPU bot-sim primitives + per-room world cache + bot-state codec (Phase 2.5) |
-| RoomProposalService | 608 | proposal-record JSON codec + tile-delta math + bot-vote machinery (Phase 2.5 Phase 1 + Phase 2) |
+| RoomProposalService | 797 | proposal-record JSON codec + tile-delta math + bot-vote machinery + evaluate/apply decisions (Phase 2.5 Phases 1-3) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |

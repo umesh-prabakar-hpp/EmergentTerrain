@@ -21,9 +21,10 @@ class RoomProposalServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     // Phase 1 tests only exercise the codec + tile-math surface, which has no
     // dependencies on the injected services / repos. Null is safe for them here;
-    // Phase 2 tests in a sibling class wire the bot-vote dependencies properly.
+    // Phase 2 + Phase 3 tests in sibling classes wire the dependencies properly.
     private final RoomProposalService svc = new RoomProposalService(
-            objectMapper, null, null, null, null, null, null, false, 0.0);
+            objectMapper, null, null, null, null, null, null, null, null,
+            false, 0.0, 3, 3, false, 300, 8, 0);
 
     // ---------- proposalDeltaType ----------
 
