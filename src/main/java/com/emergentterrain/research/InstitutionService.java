@@ -104,7 +104,36 @@ public class InstitutionService {
         });
     }
 
-    /** Record a journal rejection (deferred — caller path will wire this once review routes through journals). */
+    /**
+     * Phase 4b — pick the top-{@code limit} journal editors for the given
+     * (room, domain) journal, drawn from the supplied researcher pool.
+     *
+     * "Editor" means: a researcher whose genome.domain matches the journal's
+     * focusDomain, ranked by reputation descending. Returns an empty list when
+     * institutions are disabled, no journal exists for this (room, domain),
+     * or no pool member qualifies.
+     *
+     * Callers are responsible for falling back gracefully when the result is
+     * empty (e.g. the existing same-domain pool in ResearchCycleService).
+     */
+    public java.util.List<Researcher> journalEditorsFor(
+            UUID roomId, String domain,
+            java.util.List<Researcher> pool, int limit) {
+        if (!enabled || roomId == null || domain == null || pool == null || pool.isEmpty()
+                || limit <= 0) {
+            return java.util.List.of();
+        }
+        if (journals.findFirstByRoomIdAndFocusDomain(roomId, domain).isEmpty()) {
+            return java.util.List.of();
+        }
+        return pool.stream()
+                .filter(r -> domain.equalsIgnoreCase(r.getDomain()))
+                .sorted(java.util.Comparator.comparingDouble(Researcher::getReputation).reversed())
+                .limit(limit)
+                .toList();
+    }
+
+    /** Record a journal rejection — fires from the publish path's review-failure branch. */
     public void recordJournalRejection(UUID journalId) {
         if (!enabled || journalId == null) return;
         journals.findById(journalId).ifPresent(j -> {

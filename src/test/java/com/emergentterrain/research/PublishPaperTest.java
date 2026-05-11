@@ -86,6 +86,7 @@ class PublishPaperTest {
                                         botRepo, mapper)),
                         mapper),
                 /* reviewerRoutingEnabled = */ false,
+                /* journalReviewEnabled =   */ false,
                 mapper);
         roomId = UUID.randomUUID();
     }

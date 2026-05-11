@@ -80,6 +80,25 @@ public class ResearchCycleService {
         this.reviewerOrthogonalityEnabled = enabled;
     }
 
+    /**
+     * Phase 4b — when true, pickReviewer narrows the candidate pool to journal
+     * editors (top-reputation same-domain researchers) before applying the
+     * existing routing. Requires {@link #institutionService} to be wired.
+     */
+    private volatile boolean journalReviewEnabled = false;
+    private volatile InstitutionService institutionService;
+
+    /** Maximum journal editor pool size; reviewers are drawn from these. */
+    private static final int JOURNAL_EDITOR_LIMIT = 5;
+
+    public void setJournalReviewEnabled(boolean enabled) {
+        this.journalReviewEnabled = enabled;
+    }
+
+    public void setInstitutionService(InstitutionService institutionService) {
+        this.institutionService = institutionService;
+    }
+
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
     public int draftQueueSize()                  { return draftQueueSize.get(); }
@@ -188,7 +207,7 @@ public class ResearchCycleService {
 
         if (peerReviewEnabled) {
             for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-                Researcher reviewer      = pickReviewer(pool, author, usedReviewerIds, rng);
+                Researcher reviewer      = pickReviewer(roomId, pool, author, usedReviewerIds, rng);
                 usedReviewerIds.add(reviewer.getBotId());
                 boolean    reviewerError = rng.nextDouble() < reviewer.errorRate();
 
@@ -281,7 +300,7 @@ public class ResearchCycleService {
 
         if (peerReviewEnabled) {
             for (int i = 0; i < REVIEWERS_PER_PAPER && reviewPassed; i++) {
-                Researcher reviewer = pickReviewer(pool, author, usedIds, rng);
+                Researcher reviewer = pickReviewer(roomId, pool, author, usedIds, rng);
                 usedIds.add(reviewer.getBotId());
                 MathPhysicsEngine.ResearchResult reviewResult = DynamicComputeEngine.compute(directive);
                 boolean reviewerError = rng.nextDouble() < reviewer.errorRate();
@@ -378,7 +397,7 @@ public class ResearchCycleService {
         return best;
     }
 
-    private Researcher pickReviewer(List<Researcher> pool, Researcher author,
+    private Researcher pickReviewer(UUID roomId, List<Researcher> pool, Researcher author,
                                     Set<String> alreadyPicked, Random rng) {
         List<Researcher> candidates = pool.stream()
                 .filter(r -> !r.getBotId().equals(author.getBotId())
@@ -394,6 +413,24 @@ public class ResearchCycleService {
                 .filter(r -> r.getDomain().equals(author.getDomain()))
                 .collect(Collectors.toList());
         List<Researcher> pick = sameDomain.isEmpty() ? candidates : sameDomain;
+
+        // Phase 4b — journal-mediated review narrows the candidate pool to the
+        // journal's editor cohort (top-reputation same-domain researchers).
+        // Empty editor list means no journal exists for this (room, domain),
+        // so we fall through to the existing same-domain pick.
+        if (journalReviewEnabled && institutionService != null) {
+            List<Researcher> editors = institutionService.journalEditorsFor(
+                    roomId, author.getDomain(), pick, JOURNAL_EDITOR_LIMIT);
+            if (!editors.isEmpty()) {
+                List<String> alreadyPickedSnapshot = List.copyOf(alreadyPicked);
+                List<Researcher> editorCandidates = editors.stream()
+                        .filter(r -> !r.getBotId().equals(author.getBotId())
+                                  && !alreadyPickedSnapshot.contains(r.getBotId()))
+                        .collect(Collectors.toList());
+                if (!editorCandidates.isEmpty()) pick = editorCandidates;
+            }
+        }
+
         // Phase 4b — when reviewer-routing is on, pick the reviewer whose
         // research bias is most adversarial to the author. Maximises peer-
         // review pressure (the phase doc's "highest adversarial pressure").

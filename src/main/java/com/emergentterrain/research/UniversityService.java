@@ -133,6 +133,7 @@ public class UniversityService {
             KnowledgeBaseService knowledgeBaseService,
             FundingAllocationService fundingAllocationService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
+            @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -161,6 +162,15 @@ public class UniversityService {
         if (reviewerRoutingEnabled) {
             log.info("UniversityService: reviewer-routing ENABLED — pickReviewer scores "
                     + "by topic-weight orthogonality instead of random within-domain pick.");
+        }
+        // Phase 4b — enable journal-mediated review when the flag is set. Hands
+        // the cycle a reference to InstitutionService so it can look up the
+        // journal's editor cohort during pickReviewer.
+        this.researchCycleService.setInstitutionService(institutionService);
+        this.researchCycleService.setJournalReviewEnabled(journalReviewEnabled);
+        if (journalReviewEnabled) {
+            log.info("UniversityService: journal-review ENABLED — pickReviewer narrows "
+                    + "candidates to the top-{} journal editors first.", 5);
         }
         try {
             Files.createDirectories(this.researchOutputDir);

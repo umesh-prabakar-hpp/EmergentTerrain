@@ -210,6 +210,7 @@ class MathPhysicsEngineTest {
                                         botRepo, mapper)),
                         mapper),
                 /* reviewerRoutingEnabled = */ false,
+                /* journalReviewEnabled =   */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

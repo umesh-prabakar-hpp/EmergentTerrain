@@ -210,6 +210,7 @@ app.research.findings.enabled       # Phase 4 Iter 9 — formal-finding persiste
 app.research.meta.enabled           # Phase 4 Iter 10 — self-observation stats
 app.research.reviewer-routing.enabled  # Phase 4b — adversarial reviewer picking
 app.research.funding-allocation.enabled # Phase 4b — periodic grants from agency → university
+app.research.journal-review.enabled  # Phase 4b — reviewers drawn from journal editor pool
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -284,9 +285,12 @@ These need stateful integration with existing services:
 The Phase 3 Iter 8 institutions MVP ships the entities + bootstrap but
 not their full behaviour:
 
-- **Journal-mediated review** — papers currently still route through
-  the existing `peerReviewEnabled` gate; promoting `Journal` to the
-  reviewer authority is the next step.
+- ✅ **Journal-mediated review** — shipped (Phase 4b third commit).
+  `ResearchCycleService.pickReviewer` now consults
+  `InstitutionService.journalEditorsFor` to narrow the candidate pool
+  to the top-5 reputation same-domain bots when
+  `app.research.journal-review.enabled` is set. Falls back to the
+  existing pool when no journal exists for the (room, domain).
 - **Impact-factor accumulation** — `Journal.impactFactor` is a column
   the `PaperGraphService` citation counts can drive.
 - **FundingAgency grant allocation** — the policy weights are stored;
