@@ -85,6 +85,7 @@ public class UniversityService {
     private final KnowledgeBaseService knowledgeBaseService;
     private final FundingAllocationService fundingAllocationService;
     private final SurpriseBroadcastService surpriseBroadcastService;
+    private final ExplorationTuningService explorationTuningService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -134,6 +135,7 @@ public class UniversityService {
             KnowledgeBaseService knowledgeBaseService,
             FundingAllocationService fundingAllocationService,
             SurpriseBroadcastService surpriseBroadcastService,
+            ExplorationTuningService explorationTuningService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
             ObjectMapper objectMapper) {
@@ -156,7 +158,11 @@ public class UniversityService {
         this.knowledgeBaseService     = knowledgeBaseService;
         this.fundingAllocationService = fundingAllocationService;
         this.surpriseBroadcastService = surpriseBroadcastService;
+        this.explorationTuningService = explorationTuningService;
         this.objectMapper             = objectMapper;
+        // Phase 4b — let the planner consult the per-room exploration-trigger
+        // threshold from this service. Setter wiring avoids a constructor cycle.
+        this.experimentPlannerService.setExplorationTuningService(explorationTuningService);
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
         this.researchCycleService.setExperimentPlannerService(experimentPlannerService);
@@ -394,7 +400,8 @@ public class UniversityService {
         // Anomaly replication: only queue positive results — null results have no claim to verify.
         // The council can also force replication for any paper asserting a CONTRADICTS citation,
         // regardless of z-score, when app.research.replication-council.enabled is set.
-        boolean anomalyTrigger = Math.abs(draft.anomalyZScore()) >= ReplicationService.ANOMALY_REPLICATION_Z;
+        double zThreshold      = explorationTuningService.getZThreshold(draft.roomId());
+        boolean anomalyTrigger = Math.abs(draft.anomalyZScore()) >= zThreshold;
         boolean councilTrigger = institutionService.councilWantsReplication(narration);
         if (!isNullResult && (anomalyTrigger || councilTrigger) && draft.param1() != null) {
             int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
@@ -685,6 +692,7 @@ public class UniversityService {
             if (replicationService.processOne(roomId, poolForReplication, rng2,
                     params.educationFactor())) {
                 institutionService.recordReplicationCompleted(roomId);
+                explorationTuningService.onReplicationProcessed(roomId);
             }
             // Phase 4b: auto-staking — sample same-domain bots to stake on open
             // markets. No-op when the auto-staking flag is off.

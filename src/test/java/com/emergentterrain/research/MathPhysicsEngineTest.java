@@ -160,13 +160,14 @@ class MathPhysicsEngineTest {
                 mock(com.emergentterrain.repo.ResearchPaperRepository.class);
         RoomBotRepository botRepo = mock(RoomBotRepository.class);
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        ReplicationService replicationService = new ReplicationService(papersRepo, botRepo, mapper);
         UniversityService service = new UniversityService(
                 0L, tempDir.toString(), 3, true,
                 botRepo,
                 papersRepo,
                 mock(com.emergentterrain.repo.PaperCitationRepository.class),
                 new PopulationEcologyService(),
-                new ReplicationService(papersRepo, botRepo, mapper),
+                replicationService,
                 new BotLifecycleService(botRepo,
                         mock(com.emergentterrain.repo.ReputationHistoryRepository.class), mapper),
                 new ResearchCycleService(),
@@ -212,6 +213,7 @@ class MathPhysicsEngineTest {
                                         botRepo, mapper)),
                         mapper),
                 new SurpriseBroadcastService(false, 30),
+                new ExplorationTuningService(false, replicationService),
                 /* reviewerRoutingEnabled = */ false,
                 /* journalReviewEnabled =   */ false,
                 mapper);

@@ -36,13 +36,14 @@ class PublishPaperTest {
         ResearchPaperRepository papersRepo = mock(ResearchPaperRepository.class);
         RoomBotRepository botRepo = mock(RoomBotRepository.class);
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        ReplicationService replicationService = new ReplicationService(papersRepo, botRepo, mapper);
         service = new UniversityService(
                 0L, tempDir.toString(), 3, false,
                 botRepo,
                 papersRepo,
                 mock(PaperCitationRepository.class),
                 new PopulationEcologyService(),
-                new ReplicationService(papersRepo, botRepo, mapper),
+                replicationService,
                 new BotLifecycleService(botRepo,
                         mock(com.emergentterrain.repo.ReputationHistoryRepository.class), mapper),
                 new ResearchCycleService(),
@@ -88,6 +89,7 @@ class PublishPaperTest {
                                         botRepo, mapper)),
                         mapper),
                 new SurpriseBroadcastService(false, 30),
+                new ExplorationTuningService(false, replicationService),
                 /* reviewerRoutingEnabled = */ false,
                 /* journalReviewEnabled =   */ false,
                 mapper);

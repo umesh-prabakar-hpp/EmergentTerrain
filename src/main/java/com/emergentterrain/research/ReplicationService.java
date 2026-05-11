@@ -67,6 +67,17 @@ public class ReplicationService {
     /** Side-effect listener for paper-dispute events (markdown rewrite, etc.). */
     private volatile Consumer<ResearchPaper> disputeListener = p -> {};
 
+    /**
+     * Phase 4b — per-room sliding window of recent replication outcomes. Each entry
+     * is true when the replication failed (paper marked DISPUTED), false when it
+     * confirmed. {@link ExplorationTuningService} reads {@link #recentFailureRate}
+     * to decide whether the anomaly z-threshold should be tightened or loosened.
+     * Capped at {@link #FAILURE_WINDOW_SIZE} per room — older outcomes drop off.
+     */
+    private static final int FAILURE_WINDOW_SIZE = 30;
+    private final java.util.concurrent.ConcurrentMap<UUID, java.util.Deque<Boolean>>
+            recentOutcomesByRoom = new java.util.concurrent.ConcurrentHashMap<>();
+
     public ReplicationService(ResearchPaperRepository papersRepository,
                               RoomBotRepository botRepository,
                               ObjectMapper objectMapper) {
@@ -74,6 +85,42 @@ public class ReplicationService {
         this.botRepository    = botRepository;
         this.objectMapper     = objectMapper;
         this.paperLookup      = papersRepository::findByPaperId;
+    }
+
+    /**
+     * Phase 4b — fraction of recent replications in this room that failed
+     * (paper marked DISPUTED). Returns -1.0 when the window has fewer than
+     * {@link #FAILURE_WINDOW_MIN_SAMPLES} samples — callers should fall back
+     * to the static threshold during cold-start.
+     */
+    public static final int FAILURE_WINDOW_MIN_SAMPLES = 10;
+    public double recentFailureRate(UUID roomId) {
+        if (roomId == null) return -1.0;
+        java.util.Deque<Boolean> window = recentOutcomesByRoom.get(roomId);
+        if (window == null) return -1.0;
+        synchronized (window) {
+            if (window.size() < FAILURE_WINDOW_MIN_SAMPLES) return -1.0;
+            long failed = window.stream().filter(Boolean::booleanValue).count();
+            return (double) failed / window.size();
+        }
+    }
+
+    /** For tests: how many outcomes are currently tracked for this room. */
+    public int recentOutcomeCount(UUID roomId) {
+        if (roomId == null) return 0;
+        java.util.Deque<Boolean> w = recentOutcomesByRoom.get(roomId);
+        if (w == null) return 0;
+        synchronized (w) { return w.size(); }
+    }
+
+    private void recordOutcome(UUID roomId, boolean failed) {
+        if (roomId == null) return;
+        java.util.Deque<Boolean> window = recentOutcomesByRoom.computeIfAbsent(
+                roomId, k -> new java.util.ArrayDeque<>());
+        synchronized (window) {
+            window.addLast(failed);
+            while (window.size() > FAILURE_WINDOW_SIZE) window.removeFirst();
+        }
     }
 
     public void setPaperLookup(Function<String, Optional<ResearchPaper>> lookup) {
@@ -128,6 +175,7 @@ public class ReplicationService {
         if (failed) {
             markPaperDisputed(req.paperId(), replicator.getBotId(), replicaScore);
         }
+        recordOutcome(req.roomId(), failed);
         return true;
     }
 

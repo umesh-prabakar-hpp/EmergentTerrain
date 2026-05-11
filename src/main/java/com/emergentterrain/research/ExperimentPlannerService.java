@@ -68,6 +68,14 @@ public class ExperimentPlannerService {
     private final PaperCitationRepository       citations;
     private final SurpriseEventRepository       surprises;
 
+    /**
+     * Phase 4b — optional source of dynamic per-room exploration triggers. When
+     * null (or when its flag is off) {@link #planExploration} falls back to the
+     * static {@link #EXPLORATION_TRIGGER_UNCERTAINTY}. Set via setter from
+     * UniversityService to avoid a constructor cycle.
+     */
+    private volatile ExplorationTuningService explorationTuningService;
+
     public ExperimentPlannerService(
             @Value("${app.research.planner.enabled:false}") boolean enabled,
             ResearchProgramRepository programs,
@@ -86,6 +94,11 @@ public class ExperimentPlannerService {
     }
 
     public boolean isEnabled() { return enabled; }
+
+    /** Phase 4b — wired from UniversityService after both services are constructed. */
+    public void setExplorationTuningService(ExplorationTuningService svc) {
+        this.explorationTuningService = svc;
+    }
 
     /**
      * Plan the next experiment for the bot's active program in this domain.
@@ -229,8 +242,11 @@ public class ExperimentPlannerService {
                                                      BotGenome genome, Random rng) {
         List<ProgramOpenQuestion> open = openQuestions.findByProgramIdAndStatus(
                 program.getId(), ProgramOpenQuestion.Status.OPEN);
+        double trigger = explorationTuningService != null
+                ? explorationTuningService.getExplorationTrigger(program.getRoomId())
+                : EXPLORATION_TRIGGER_UNCERTAINTY;
         boolean allLowUncertainty = !open.isEmpty() && open.stream()
-                .allMatch(q -> q.getUncertainty() < EXPLORATION_TRIGGER_UNCERTAINTY);
+                .allMatch(q -> q.getUncertainty() < trigger);
         if (!allLowUncertainty) return Optional.empty();
 
         // Sample outside the genome's comfortable radius. Use the explorationRate

@@ -216,6 +216,7 @@ app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations fo
 app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake on open markets each tick
 app.research.dominant-methodology.enabled # Phase 4b — University.dominantMethodology emerges from member modes
 app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise events to per-room in-memory buffer (rate-limited)
+app.research.exploration-tuning.enabled # Phase 4b — per-room z-threshold + EXPLORATION trigger adjust from replication failure rate
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -364,9 +365,24 @@ Per the phase doc's ordering (ascending risk):
    {reputation, calibrationScore, 1 - hallucinationRate}`, and credits
    `University.computeBudget`. Persists a `Grant` row capturing the
    score breakdown. Gated by `app.research.funding-allocation.enabled`.
-3. **Exploration-heuristic auto-tuning** — `ExperimentPlannerService`
-   thresholds become dynamic, driven by `MetaResearchService`'s false-
-   positive rate observation.
+3. ✅ **Exploration-heuristic auto-tuning** — shipped (Phase 4b ninth
+   commit). New `ExplorationTuningService` adjusts two knobs per room
+   every 10 replications, driven by the replication failure rate
+   tracked in `ReplicationService.recentFailureRate`:
+   - Replication z-threshold (previously the static
+     `ANOMALY_REPLICATION_Z = 3.0`), now read via
+     `getZThreshold(roomId)` in `UniversityService.publishPaper`.
+     Clamped to `[1.5, 5.0]`.
+   - `ExperimentPlannerService` EXPLORATION trigger (previously the
+     static `EXPLORATION_TRIGGER_UNCERTAINTY = 0.25`), now read via
+     `getExplorationTrigger(roomId)` in `planExploration`. Clamped
+     to `[0.10, 0.50]`. Setter-wired to avoid constructor cycle.
+
+   Failure rate below 10% raises both thresholds (push toward
+   persistence — Ramsdell's "stubborn"). Above 40% lowers both (push
+   toward broader search). Mid-range = no change. Cold-start uses
+   static defaults until 10 replications have accumulated in the
+   room. Gated by `app.research.exploration-tuning.enabled`.
 4. **Prompt-template evolution** — versioned templates, A/B testing,
    automatic rollback if downstream replication rates degrade. Highest
    risk; needs guardrails.
