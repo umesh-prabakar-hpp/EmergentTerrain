@@ -85,6 +85,15 @@ public class ResearchPaper {
     @Column(name = "journal_id")
     private UUID journalId;
 
+    /**
+     * Phase 4 Iter 10 — DOMAIN papers are the simulation's actual research
+     * output; META papers are analyses of the system itself. Defaults to
+     * DOMAIN so existing rows read back unchanged.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "kind", nullable = false, length = 16)
+    private PaperKind kind = PaperKind.DOMAIN;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -156,6 +165,7 @@ public class ResearchPaper {
     public UUID         programId()      { return programId; }
     public UUID         universityId()   { return universityId; }
     public UUID         journalId()      { return journalId; }
+    public PaperKind    kind()           { return kind; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -163,4 +173,5 @@ public class ResearchPaper {
     public void setProgramId(UUID programId)         { this.programId = programId; }
     public void setUniversityId(UUID universityId)   { this.universityId = universityId; }
     public void setJournalId(UUID journalId)         { this.journalId = journalId; }
+    public void setKind(PaperKind kind)              { this.kind = kind != null ? kind : PaperKind.DOMAIN; }
 }

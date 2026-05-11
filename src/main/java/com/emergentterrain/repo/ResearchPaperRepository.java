@@ -32,4 +32,13 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
     long maxPaperNumberForRoom(@Param("roomId") UUID roomId);
 
     Optional<ResearchPaper> findByPaperId(String paperId);
+
+    /** Phase 4 Iter 10 — all papers a bot has authored. */
+    List<ResearchPaper> findByAuthorBotId(String authorBotId);
+
+    /** Phase 4 Iter 10 — all papers narrated through a given LLM call path. */
+    List<ResearchPaper> findByLlmCallPath(String llmCallPath);
+
+    /** Phase 4 Iter 10 — all papers using a given methodology (THEORETICAL/COMPUTATIONAL/EMPIRICAL). */
+    List<ResearchPaper> findByMethodology(String methodology);
 }
