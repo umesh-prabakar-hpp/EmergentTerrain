@@ -48,7 +48,7 @@ class ExperimentPlannerServiceTest {
     @Test
     void disabledPlannerReturnsEmpty() {
         ExperimentPlannerService planner = new ExperimentPlannerService(
-                false, programs, openQuestions, citations, surprises);
+                false, false, programs, openQuestions, citations, surprises, new WorldDataQueryService());
         assertThat(planner.planNext(UUID.randomUUID(), "MATHEMATICS", genome, rng))
                 .isEmpty();
     }
@@ -193,10 +193,167 @@ class ExperimentPlannerServiceTest {
         assertThat(saved.get().getUncertainty()).isLessThan(0.9);
     }
 
+    // ---- planWorldIntervention ----
+
+    @Test
+    void planWorldInterventionReturnsEmptyWhenFlagOff() {
+        ExperimentPlannerService planner = enabled();   // planner on, world flag off
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "GOVERNANCE");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "GOVERNANCE",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+
+        assertThat(planner.planWorldIntervention(author, "GOVERNANCE")).isEmpty();
+    }
+
+    @Test
+    void planWorldInterventionReturnsEmptyWhenPlannerDisabled() {
+        // Even with world flag on, the planner-off short-circuit takes precedence.
+        ExperimentPlannerService planner = new ExperimentPlannerService(
+                false, true, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+        UUID author = UUID.randomUUID();
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(any(), any(), any()))
+                .thenReturn(Optional.of(activeProgram(author, "GOVERNANCE")));
+
+        assertThat(planner.planWorldIntervention(author, "GOVERNANCE")).isEmpty();
+    }
+
+    @Test
+    void planWorldInterventionReturnsEmptyWhenNoProgramExists() {
+        ExperimentPlannerService planner = worldInterventionEnabled();
+        UUID author = UUID.randomUUID();
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(any(), any(), any()))
+                .thenReturn(Optional.empty());
+
+        assertThat(planner.planWorldIntervention(author, "GOVERNANCE")).isEmpty();
+    }
+
+    @Test
+    void planWorldInterventionReturnsEmptyWhenNoOpenQuestionMentionsWorldVariable() {
+        ExperimentPlannerService planner = worldInterventionEnabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "GOVERNANCE");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "GOVERNANCE",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestionWithText(program.getId(), 0.9, "Does X cause Y?")));
+
+        assertThat(planner.planWorldIntervention(author, "GOVERNANCE")).isEmpty();
+    }
+
+    @Test
+    void planWorldInterventionMapsEducationVariableToServicesPolicy() {
+        ExperimentPlannerService planner = worldInterventionEnabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "GOVERNANCE");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "GOVERNANCE",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestionWithText(program.getId(), 0.9,
+                                "Does increasing federal.budget.education raise public trust?")));
+
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                planner.planWorldIntervention(author, "GOVERNANCE");
+
+        assertThat(proposal).isPresent();
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.SERVICES);
+        assertThat(proposal.get().proposingBotId()).isEqualTo(author);
+        assertThat(proposal.get().researchProgramId()).isEqualTo(program.getId());
+        assertThat(proposal.get().hypothesis())
+                .contains("federal.budget.education");
+    }
+
+    @Test
+    void planWorldInterventionMapsInfrastructureBudgetToInfrastructurePolicy() {
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                proposalForQuestion("Will higher federal.budget.infrastructure lift service access?");
+
+        assertThat(proposal).isPresent();
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.INFRASTRUCTURE);
+    }
+
+    @Test
+    void planWorldInterventionMapsWelfareBudgetToHousingPolicy() {
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                proposalForQuestion("Does federal.budget.welfare affect mean state trust?");
+
+        assertThat(proposal).isPresent();
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.HOUSING);
+    }
+
+    @Test
+    void planWorldInterventionMapsJusticeBudgetToRightsProcessPolicy() {
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                proposalForQuestion("Does federal.budget.justice raise institutional trust?");
+
+        assertThat(proposal).isPresent();
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.RIGHTS_PROCESS);
+    }
+
+    @Test
+    void planWorldInterventionFallsBackToServicesForNonBudgetWorldVariables() {
+        // federal.public_trust is a known variable but not a budget axis →
+        // SERVICES is the default lever (it bumps health+education which feed
+        // public_trust aggregates).
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                proposalForQuestion("Can we shift federal.public_trust by policy alone?");
+
+        assertThat(proposal).isPresent();
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.SERVICES);
+    }
+
+    @Test
+    void planWorldInterventionPicksHighestUncertaintyQuestionFirst() {
+        ExperimentPlannerService planner = worldInterventionEnabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "GOVERNANCE");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "GOVERNANCE",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+
+        ProgramOpenQuestion low = openQuestionWithText(program.getId(), 0.20,
+                "Does federal.budget.infrastructure raise civic outcomes?");
+        ProgramOpenQuestion high = openQuestionWithText(program.getId(), 0.95,
+                "Does federal.budget.welfare lift mean state trust?");
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(low, high));
+
+        Optional<WorldInterventionService.InterventionProposal> proposal =
+                planner.planWorldIntervention(author, "GOVERNANCE");
+
+        assertThat(proposal).isPresent();
+        // High-uncertainty question wins → maps to HOUSING (welfare bump).
+        assertThat(proposal.get().policyTarget())
+                .isEqualTo(WorldInterventionService.PolicyTarget.HOUSING);
+        assertThat(proposal.get().hypothesis()).contains("welfare");
+    }
+
     // ---- helpers ----
 
     private ExperimentPlannerService enabled() {
-        return new ExperimentPlannerService(true, programs, openQuestions, citations, surprises);
+        return new ExperimentPlannerService(true, false, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+    }
+
+    private ExperimentPlannerService worldInterventionEnabled() {
+        return new ExperimentPlannerService(true, true, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+    }
+
+    private Optional<WorldInterventionService.InterventionProposal> proposalForQuestion(String questionText) {
+        ExperimentPlannerService planner = worldInterventionEnabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "GOVERNANCE");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "GOVERNANCE",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestionWithText(program.getId(), 0.9, questionText)));
+        return planner.planWorldIntervention(author, "GOVERNANCE");
     }
 
     private static ResearchProgram activeProgram(UUID owner, String domain) {
@@ -212,7 +369,11 @@ class ExperimentPlannerServiceTest {
     }
 
     private static ProgramOpenQuestion openQuestion(UUID programId, double uncertainty) {
-        ProgramOpenQuestion q = new ProgramOpenQuestion(programId, "test question?", Instant.now());
+        return openQuestionWithText(programId, uncertainty, "test question?");
+    }
+
+    private static ProgramOpenQuestion openQuestionWithText(UUID programId, double uncertainty, String text) {
+        ProgramOpenQuestion q = new ProgramOpenQuestion(programId, text, Instant.now());
         q.setUncertainty(uncertainty);
         try {
             java.lang.reflect.Field f = ProgramOpenQuestion.class.getDeclaredField("id");

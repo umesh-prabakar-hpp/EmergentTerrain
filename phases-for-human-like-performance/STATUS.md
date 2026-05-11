@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 526 (+391) |
+| Tests | 135 → 536 (+401) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -579,6 +579,25 @@ Iter 7              EpistemicMarketService                              0309225
   experimental variables (`federal.public_trust`, budgets, mean state
   trust). The write side (`WorldInterventionService`) shipped after
   Phase 2.5; see the bullet below.
+- ✅ **Iter 6 (planner integration)** — `ExperimentPlannerService` gained
+  a `planWorldIntervention(ownerBotId, domain)` method that scans the
+  program's open questions for any
+  `WorldDataQueryService.knownVariableNames()` match (lowercase substring),
+  picks the highest-uncertainty matching question, and returns a
+  `WorldInterventionService.InterventionProposal` whose `PolicyTarget`
+  is mapped from the matched variable: budget axes map to their natural
+  policy domains (`education`/`health` → `SERVICES`, `welfare` →
+  `HOUSING`, `infrastructure` → `INFRASTRUCTURE`, `justice` →
+  `RIGHTS_PROCESS`), non-budget world variables fall back to `SERVICES`
+  as the broadest lever. The planner exposes this as a parallel surface
+  to `planNext` (not as a `Strategy` enum value) because the output
+  type is genuinely different from the math/physics `ExperimentPlan` —
+  a world-intervention "experiment" is filing a bill, not picking
+  numerical parameters. Caller pipes the proposal into
+  `WorldInterventionService.propose(...)`. Gated by
+  `app.research.world-intervention.enabled`; off by default; planner's
+  own `app.research.planner.enabled` is also required (a world-flag-on
+  / planner-off configuration short-circuits to empty).
 - ✅ **Iter 6 (write side, `WorldInterventionService`)** — shipped
   after Phase 2.5 closed. Bots file an `InterventionProposal` (hypothesis
   + `PolicyTarget` enum + duration) and the service translates it into
@@ -709,7 +728,7 @@ RoomProposalService) + 14 entities. Refreshed against the working tree
 | BotLifecycleService | 324 | aging + competency + dating + elder merges |
 | KnowledgeBaseService | 319 | formal finding persistence + contradiction detection + theory composition |
 | FormulationService | 288 | pre-computation hypothesis + novelty assessment + identity-biased framing |
-| ExperimentPlannerService | 278 | algorithmic param selection (4 strategies, flag-gated) |
+| ExperimentPlannerService | 392 | algorithmic param selection (4 strategies, flag-gated) + planWorldIntervention surface for Phase 3 Iter 6 |
 | ReplicationService | 221 | replication queue + dispute marking |
 | LlmService | 209 | digest + consultation + streaming |
 | FundingAllocationService | 209 | per-room periodic grants from agency → university (Phase 4b) |

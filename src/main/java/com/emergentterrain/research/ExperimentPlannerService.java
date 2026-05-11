@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Random;
 import java.util.UUID;
@@ -63,10 +64,12 @@ public class ExperimentPlannerService {
     ) {}
 
     private final boolean enabled;
+    private final boolean worldInterventionEnabled;
     private final ResearchProgramRepository programs;
     private final ProgramOpenQuestionRepository openQuestions;
     private final PaperCitationRepository       citations;
     private final SurpriseEventRepository       surprises;
+    private final WorldDataQueryService         worldData;
 
     /**
      * Phase 4b — optional source of dynamic per-room exploration triggers. When
@@ -78,18 +81,27 @@ public class ExperimentPlannerService {
 
     public ExperimentPlannerService(
             @Value("${app.research.planner.enabled:false}") boolean enabled,
+            @Value("${app.research.world-intervention.enabled:false}") boolean worldInterventionEnabled,
             ResearchProgramRepository programs,
             ProgramOpenQuestionRepository openQuestions,
             PaperCitationRepository citations,
-            SurpriseEventRepository surprises) {
-        this.enabled       = enabled;
+            SurpriseEventRepository surprises,
+            WorldDataQueryService worldData) {
+        this.enabled                  = enabled;
+        this.worldInterventionEnabled = worldInterventionEnabled;
         this.programs      = programs;
         this.openQuestions = openQuestions;
         this.citations     = citations;
         this.surprises     = surprises;
+        this.worldData     = worldData;
         if (enabled) {
             log.info("ExperimentPlannerService: ENABLED — algorithmic parameter selection "
                     + "will be consulted before LLM formulation when a research program exists.");
+        }
+        if (worldInterventionEnabled) {
+            log.info("ExperimentPlannerService: WORLD_INTERVENTION ENABLED — planWorldIntervention "
+                    + "will scan program open questions for world-variable hypotheses and propose "
+                    + "GovernmentBill-routed interventions.");
         }
     }
 
@@ -138,6 +150,108 @@ public class ExperimentPlannerService {
 
         // Default: adaptive sweep over the highest-uncertainty open question.
         return planAdaptiveSweep(program, genome, rng);
+    }
+
+    /**
+     * Phase 3 Iter 6 (write-side wire-up) — generates a
+     * {@link WorldInterventionService.InterventionProposal} when the program's
+     * highest-uncertainty open question references one of
+     * {@link WorldDataQueryService}'s known variable names. The caller is
+     * expected to pass the returned proposal to
+     * {@link WorldInterventionService#propose} and store the handle.
+     *
+     * The match strategy is intentionally simple: lowercase substring search
+     * over each open question's text for any variable name from
+     * {@code worldData.knownVariableNames()}. A budget-axis match is mapped
+     * to its corresponding {@link WorldInterventionService.PolicyTarget};
+     * a non-budget variable falls back to {@link
+     * WorldInterventionService.PolicyTarget#SERVICES} as the broadest lever.
+     *
+     * This method is a parallel surface to {@link #planNext}, not a
+     * {@link Strategy} value, because the output type
+     * ({@link WorldInterventionService.InterventionProposal}) is genuinely
+     * different from the math/physics {@link ExperimentPlan}: a
+     * world-intervention "experiment" is filing a bill, not picking
+     * numerical parameters. Callers gate via
+     * {@code app.research.world-intervention.enabled}; when the flag is
+     * off this always returns empty.
+     *
+     * Returns empty when:
+     *  - the planner is disabled or the world-intervention flag is off,
+     *  - no ACTIVE program exists for (bot, domain),
+     *  - no open question contains a known world-variable name,
+     *  - {@link WorldDataQueryService} dependency is null (test wiring).
+     */
+    public Optional<WorldInterventionService.InterventionProposal> planWorldIntervention(
+            UUID ownerBotId, String domain) {
+        if (!enabled || !worldInterventionEnabled
+                || ownerBotId == null || domain == null || worldData == null) {
+            return Optional.empty();
+        }
+        ResearchProgram program = programs.findFirstByOwnerBotIdAndDomainAndStatus(
+                ownerBotId, domain, ResearchProgram.Status.ACTIVE).orElse(null);
+        if (program == null) {
+            return Optional.empty();
+        }
+        List<ProgramOpenQuestion> open = openQuestions.findByProgramIdAndStatus(
+                program.getId(), ProgramOpenQuestion.Status.OPEN);
+        if (open.isEmpty()) {
+            return Optional.empty();
+        }
+        List<String> variableNames = worldData.knownVariableNames();
+        // Walk highest-uncertainty first so the most-open question gets first dibs.
+        ProgramOpenQuestion target = null;
+        String matchedVariable = null;
+        for (ProgramOpenQuestion q : open.stream()
+                .sorted(Comparator.comparingDouble(ProgramOpenQuestion::getUncertainty).reversed())
+                .toList()) {
+            String text = q.getQuestion() == null ? "" : q.getQuestion().toLowerCase(Locale.ROOT);
+            for (String name : variableNames) {
+                if (text.contains(name.toLowerCase(Locale.ROOT))) {
+                    target = q;
+                    matchedVariable = name;
+                    break;
+                }
+            }
+            if (target != null) break;
+        }
+        if (target == null) {
+            return Optional.empty();
+        }
+        WorldInterventionService.PolicyTarget policy = policyTargetForVariable(matchedVariable);
+        log.debug("planner: WORLD_INTERVENTION program={} questionId={} variable={} policy={}",
+                program.getId(), target.getId(), matchedVariable, policy);
+        return Optional.of(new WorldInterventionService.InterventionProposal(
+                ownerBotId,
+                program.getId(),
+                target.getQuestion(),
+                policy,
+                /* durationTicks = */ 30L));
+    }
+
+    /**
+     * Map a {@link WorldDataQueryService} variable name to the
+     * {@link WorldInterventionService.PolicyTarget} whose
+     * {@code policyDomain} bumps the corresponding budget axis in
+     * {@code GovernmentSimulationService.applyBudgetEffects}.
+     * Non-budget variables fall back to {@code SERVICES} as the broadest
+     * lever (it bumps both education and health, which propagate to
+     * trust + service-access aggregates).
+     */
+    static WorldInterventionService.PolicyTarget policyTargetForVariable(String variableName) {
+        if (variableName == null) return WorldInterventionService.PolicyTarget.SERVICES;
+        return switch (variableName) {
+            case WorldDataQueryService.NAME_BUDGET_EDUCATION,
+                 WorldDataQueryService.NAME_BUDGET_HEALTH ->
+                    WorldInterventionService.PolicyTarget.SERVICES;
+            case WorldDataQueryService.NAME_BUDGET_WELFARE ->
+                    WorldInterventionService.PolicyTarget.HOUSING;
+            case WorldDataQueryService.NAME_BUDGET_INFRASTRUCTURE ->
+                    WorldInterventionService.PolicyTarget.INFRASTRUCTURE;
+            case WorldDataQueryService.NAME_BUDGET_JUSTICE ->
+                    WorldInterventionService.PolicyTarget.RIGHTS_PROCESS;
+            default -> WorldInterventionService.PolicyTarget.SERVICES;
+        };
     }
 
     /**
