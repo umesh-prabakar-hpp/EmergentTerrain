@@ -683,6 +683,9 @@ public class UniversityService {
             // Phase 4b: auto-staking — sample same-domain bots to stake on open
             // markets. No-op when the auto-staking flag is off.
             epistemicMarketService.maybeAutoStake(roomId, poolForReplication, rng2);
+            // Phase 4b: dominant-methodology emergence — set University.dominantMethodology
+            // to the modal methodology across the pool. No-op when the flag is off.
+            institutionService.maybeRecomputeDominantMethodology(roomId, poolForReplication);
         }
 
         // Dating pass with dynamic K and cooldown

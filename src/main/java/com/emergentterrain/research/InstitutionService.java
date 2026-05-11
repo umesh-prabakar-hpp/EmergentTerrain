@@ -38,6 +38,7 @@ public class InstitutionService {
     private final boolean                       enabled;
     private final boolean                       impactFactorEnabled;
     private final boolean                       replicationCouncilEnabled;
+    private final boolean                       dominantMethodologyEnabled;
     private final UniversityRepository          universities;
     private final JournalRepository             journals;
     private final FundingAgencyRepository       fundingAgencies;
@@ -49,21 +50,23 @@ public class InstitutionService {
             @Value("${app.research.institutions.enabled:false}") boolean enabled,
             @Value("${app.research.impact-factor.enabled:false}") boolean impactFactorEnabled,
             @Value("${app.research.replication-council.enabled:false}") boolean replicationCouncilEnabled,
+            @Value("${app.research.dominant-methodology.enabled:false}") boolean dominantMethodologyEnabled,
             UniversityRepository universities,
             JournalRepository journals,
             FundingAgencyRepository fundingAgencies,
             ReplicationCouncilRepository councils,
             com.emergentterrain.repo.ResearchPaperRepository papers,
             com.emergentterrain.repo.PaperCitationRepository citations) {
-        this.enabled                   = enabled;
-        this.impactFactorEnabled       = impactFactorEnabled;
-        this.replicationCouncilEnabled = replicationCouncilEnabled;
-        this.universities              = universities;
-        this.journals                  = journals;
-        this.fundingAgencies           = fundingAgencies;
-        this.councils                  = councils;
-        this.papers                    = papers;
-        this.citations                 = citations;
+        this.enabled                    = enabled;
+        this.impactFactorEnabled        = impactFactorEnabled;
+        this.replicationCouncilEnabled  = replicationCouncilEnabled;
+        this.dominantMethodologyEnabled = dominantMethodologyEnabled;
+        this.universities               = universities;
+        this.journals                   = journals;
+        this.fundingAgencies            = fundingAgencies;
+        this.councils                   = councils;
+        this.papers                     = papers;
+        this.citations                  = citations;
         if (enabled) {
             log.info("InstitutionService: ENABLED — universities, journals, funding "
                     + "agencies, and replication councils will be bootstrapped lazily.");
@@ -78,6 +81,11 @@ public class InstitutionService {
                     + "papers asserting a CONTRADICTS citation are queued for replication "
                     + "regardless of anomaly z-score, and active/completed counters are "
                     + "tracked on the per-room council.");
+        }
+        if (dominantMethodologyEnabled) {
+            log.info("InstitutionService: dominant-methodology emergence ENABLED — "
+                    + "University.dominantMethodology is recomputed from the modal "
+                    + "BotGenome.methodology across the room's bots once per tick.");
         }
     }
 
@@ -252,6 +260,51 @@ public class InstitutionService {
                         roomId, e.getMessage());
             }
         });
+    }
+
+    /**
+     * Phase 4b — recompute {@code University.dominantMethodology} as the modal
+     * {@code BotGenome.methodology} across the room's qualified researcher pool.
+     * Ties are broken by alphabetic order of the methodology name (deterministic).
+     *
+     * Idempotent: only saves when the computed mode differs from the value
+     * currently on the entity. No-op when institutions are disabled, the
+     * dominant-methodology flag is off, the pool is empty, or no University
+     * exists for the room.
+     *
+     * Returns the new value (or the existing one when unchanged); null when
+     * the operation was a no-op.
+     */
+    public String maybeRecomputeDominantMethodology(UUID roomId, java.util.List<Researcher> pool) {
+        if (!enabled || !dominantMethodologyEnabled || roomId == null
+                || pool == null || pool.isEmpty()) return null;
+        University u = universities.findFirstByRoomId(roomId).orElse(null);
+        if (u == null) return null;
+
+        java.util.Map<String, Long> counts = new java.util.HashMap<>();
+        for (Researcher r : pool) {
+            String m = r.getMethodology();
+            if (m == null || m.isBlank()) continue;
+            counts.merge(m, 1L, Long::sum);
+        }
+        if (counts.isEmpty()) return null;
+        String mode = counts.entrySet().stream()
+                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed()
+                        .thenComparing(java.util.Map.Entry.comparingByKey()))
+                .findFirst().map(java.util.Map.Entry::getKey).orElse(null);
+        if (mode == null) return null;
+
+        if (mode.equals(u.getDominantMethodology())) return mode;
+        u.setDominantMethodology(mode);
+        try {
+            universities.save(u);
+            log.info("institution: dominant methodology updated roomId={} methodology={}",
+                    roomId, mode);
+        } catch (Exception e) {
+            log.warn("institution: dominantMethodology save failed roomId={}: {}",
+                    roomId, e.getMessage());
+        }
+        return mode;
     }
 
     private void ensureFundingAgency(UUID roomId) {

@@ -49,8 +49,8 @@ class InstitutionServiceTest {
     @Test
     void disabledServiceWritesNothing() {
         InstitutionService svc = new InstitutionService(
-                false, false, false, universities, journals, fundingAgencies, councils,
-                papers, citations);
+                false, false, false, false, universities, journals, fundingAgencies,
+                councils, papers, citations);
 
         InstitutionService.BootstrapResult result =
                 svc.bootstrapForPaper(UUID.randomUUID(), "MATHEMATICS");
@@ -160,8 +160,8 @@ class InstitutionServiceTest {
     @Test
     void journalEditorsForReturnsEmptyWhenDisabled() {
         InstitutionService svc = new InstitutionService(
-                false, false, false, universities, journals, fundingAgencies, councils,
-                papers, citations);
+                false, false, false, false, universities, journals, fundingAgencies,
+                councils, papers, citations);
         UUID room = UUID.randomUUID();
 
         java.util.List<Researcher> editors = svc.journalEditorsFor(
@@ -369,6 +369,98 @@ class InstitutionServiceTest {
         assertThat(c.getCompletedCount()).isEqualTo(1);
     }
 
+    // ---- Phase 4b: dominant methodology emergence ----
+
+    @Test
+    void dominantMethodologyNoOpWhenFlagOff() {
+        InstitutionService svc = enabled();  // institutions on, dominant-methodology off
+        UUID room = UUID.randomUUID();
+        String result = svc.maybeRecomputeDominantMethodology(
+                room, java.util.List.of(researcher("b1", "MATHEMATICS", "THEORETICAL", 0.5)));
+        assertThat(result).isNull();
+        verify(universities, never()).findFirstByRoomId(any());
+        verify(universities, never()).save(any());
+    }
+
+    @Test
+    void dominantMethodologyNoOpWhenNoUniversityForRoom() {
+        InstitutionService svc = enabledWithDominantMethodology();
+        UUID room = UUID.randomUUID();
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.empty());
+
+        String result = svc.maybeRecomputeDominantMethodology(
+                room, java.util.List.of(researcher("b1", "MATHEMATICS", "THEORETICAL", 0.5)));
+
+        assertThat(result).isNull();
+        verify(universities, never()).save(any());
+    }
+
+    @Test
+    void dominantMethodologySetsModeOnFirstCall() {
+        InstitutionService svc = enabledWithDominantMethodology();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+        when(universities.save(any(University.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS",  "THEORETICAL",   0.5),
+                researcher("b2", "PHYSICS",      "EMPIRICAL",     0.5),
+                researcher("b3", "MATHEMATICS",  "EMPIRICAL",     0.5));
+
+        String result = svc.maybeRecomputeDominantMethodology(room, pool);
+
+        assertThat(result).isEqualTo("EMPIRICAL");
+        assertThat(u.getDominantMethodology()).isEqualTo("EMPIRICAL");
+        verify(universities).save(u);
+    }
+
+    @Test
+    void dominantMethodologyIsIdempotentWhenModeUnchanged() {
+        InstitutionService svc = enabledWithDominantMethodology();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        u.setDominantMethodology("EMPIRICAL");
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS", "EMPIRICAL",   0.5),
+                researcher("b2", "PHYSICS",     "EMPIRICAL",   0.5),
+                researcher("b3", "MATHEMATICS", "THEORETICAL", 0.5));
+
+        String result = svc.maybeRecomputeDominantMethodology(room, pool);
+
+        assertThat(result).isEqualTo("EMPIRICAL");
+        verify(universities, never()).save(any());
+    }
+
+    @Test
+    void dominantMethodologyBreaksTiesAlphabetically() {
+        InstitutionService svc = enabledWithDominantMethodology();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+        when(universities.save(any(University.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        // Two each of EMPIRICAL and THEORETICAL — alphabetic tie-break picks EMPIRICAL.
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS", "THEORETICAL", 0.5),
+                researcher("b2", "PHYSICS",     "EMPIRICAL",   0.5),
+                researcher("b3", "MATHEMATICS", "EMPIRICAL",   0.5),
+                researcher("b4", "PHYSICS",     "THEORETICAL", 0.5));
+
+        assertThat(svc.maybeRecomputeDominantMethodology(room, pool)).isEqualTo("EMPIRICAL");
+    }
+
+    @Test
+    void dominantMethodologyEmptyPoolIsNoOp() {
+        InstitutionService svc = enabledWithDominantMethodology();
+        UUID room = UUID.randomUUID();
+
+        assertThat(svc.maybeRecomputeDominantMethodology(room, java.util.List.of())).isNull();
+        verify(universities, never()).findFirstByRoomId(any());
+    }
+
     @Test
     void rejectionRateClampedWhenAllRejected() {
         Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
@@ -380,17 +472,22 @@ class InstitutionServiceTest {
     // ---- helpers ----
 
     private InstitutionService enabled() {
-        return new InstitutionService(true, false, false, universities, journals,
+        return new InstitutionService(true, false, false, false, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithImpactFactor() {
-        return new InstitutionService(true, true, false, universities, journals,
+        return new InstitutionService(true, true, false, false, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithCouncil() {
-        return new InstitutionService(true, false, true, universities, journals,
+        return new InstitutionService(true, false, true, false, universities, journals,
+                fundingAgencies, councils, papers, citations);
+    }
+
+    private InstitutionService enabledWithDominantMethodology() {
+        return new InstitutionService(true, false, false, true, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
@@ -412,6 +509,17 @@ class InstitutionServiceTest {
         BotLifecycleState ls = new BotLifecycleState();
         BotGenome g = BotGenome.initialise(UUID.randomUUID(), 0);
         g.setDomain(domain);
+        ls.setGenome(g);
+        ls.setReputation(reputation);
+        return new Researcher(botId, ls);
+    }
+
+    private static Researcher researcher(String botId, String domain,
+                                         String methodology, double reputation) {
+        BotLifecycleState ls = new BotLifecycleState();
+        BotGenome g = BotGenome.initialise(UUID.randomUUID(), 0);
+        g.setDomain(domain);
+        g.setMethodology(methodology);
         ls.setGenome(g);
         ls.setReputation(reputation);
         return new Researcher(botId, ls);

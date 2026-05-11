@@ -214,6 +214,7 @@ app.research.journal-review.enabled  # Phase 4b — reviewers drawn from journal
 app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recomputed from citation counts
 app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations force replication + council counters
 app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake on open markets each tick
+app.research.dominant-methodology.enabled # Phase 4b — University.dominantMethodology emerges from member modes
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -251,7 +252,7 @@ specialist services + 14 entities. Sizes as of `ab42534`:
 | KnowledgeBaseService | 169 | formal finding persistence + contradiction detection |
 | ReplicationService | 168 | replication queue + dispute marking |
 | ResearchProgramService | 167 | longitudinal programs (flag-gated) |
-| InstitutionService | 273 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering |
+| InstitutionService | 326 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering + dominant-methodology |
 | PaperGraphService | 129 | citation queries + contradiction clusters |
 | ExpectationModelService | 126 | Welford priors + surprise scoring |
 | WorldDataQueryService | 106 | read-only simulation variables |
@@ -319,8 +320,15 @@ not their full behaviour:
   processed). Gated by `app.research.replication-council.enabled`. The
   high-surprise (z ≥ 3) path was already covered by ReplicationService
   itself, so the council only adds the contradiction trigger.
-- **DominantMethodology emergence** — should aggregate from member
-  bots' `ResearchIdentity.favoredMethod` over time.
+- ✅ **DominantMethodology emergence** — shipped (Phase 4b seventh
+  commit). `InstitutionService.maybeRecomputeDominantMethodology`
+  fires from `UniversityService.maybeTick` per room: counts each
+  bot's `BotGenome.methodology`, picks the mode (alphabetic tie-break
+  for determinism), and writes it to `University.dominantMethodology`
+  when changed. Idempotent — no save when the mode is unchanged.
+  Gated by `app.research.dominant-methodology.enabled`. Reputation
+  weighting was deliberately left out of the MVP; a future iteration
+  can replace plain counts with reputation-weighted counts.
 
 ### Knowledge-substrate deferrals
 
