@@ -190,17 +190,59 @@ ranked as lowest-risk have shipped:
   reuse vs replan, surrounded-out-of-bounds, tunable accessors, the
   reverse-penalty discouraging back-into-last-tile behaviour).
 
-**Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, plus the CachedRoomState/TileCounts/OccupantSnapshot/
-BotMotionState promotions, `RoomService` is down **4,746 → 4,181 lines
-(−565, −12%)**.
+- ✅ **Dead `RoomStateSnapshot` audit code removed** (preceding the
+  RoomStateOrchestrator carve). The entity + repo wrote one row per
+  cache flush but no production code ever read them back; the repo
+  had zero custom finders and the snapshot only stored aggregate tile
+  counts (not the actual tile arrays) so it couldn't have been used
+  for restore even in principle. Two integration tests asserted on
+  the row count but were guarding an implementation behaviour with no
+  consumer; their asserts were dropped while keeping their broader
+  rapid-change persistence coverage. The Phase 2.5 design doc's
+  framing of RoomStateOrchestrator as "snapshot/restore is risky" was
+  describing risk that didn't exist in the actual code; the next
+  carve was therefore tractable.
+- ✅ **`RoomStateOrchestrator`** — extracted the cache→state
+  persistence step into
+  [RoomStateOrchestrator.java](../src/main/java/com/emergentterrain/service/RoomStateOrchestrator.java).
+  `persistIfDirty(Room, RoomState, CachedRoomState) → boolean` owns
+  the four-branch decision (cache null/not-dirty no-op, no-material-
+  change fast-clear, below-min-changes-not-overdue skip, live write)
+  plus the `state.set*Json(...)` mapping and the JPA write. Two flush
+  tunables (`app.world.flushMinChanges`, `app.world.flushMaxIntervalMs`)
+  migrated to the new service; RoomService's @Scheduled flush loop
+  reads them via `orchestrator.flushMinChanges()` /
+  `flushMaxIntervalMs()`. Internal `toJson` and `hashTiles` helpers
+  live on the new service alongside their lone consumer.
+  Scope deliberately narrower than the design doc's "state transitions"
+  vision — the deserialization side (`getCachedRoomState`,
+  `updateCacheFromState`, `fromJsonTiles`, etc.) stays in `RoomService`
+  because those helpers have 4–6 non-cache callsites (visual responses,
+  GPU adapter, snapshot endpoints) and dragging them along would
+  exceed the carve's value. The flush scheduler also stays in
+  `RoomService` because it owns the `proposalLocks` infrastructure
+  shared with the proposal-vote path. `RoomService` dropped a further
+  4,181 → 4,120 lines (−61). Pinned by
+  [RoomStateOrchestratorTest.java](../src/test/java/com/emergentterrain/service/RoomStateOrchestratorTest.java)
+  (9 tests covering all four decision branches, the live-write field
+  copy + repo `save`, the SHA-256 stateHash compute when cached hash
+  is null, the overdue-overrides-min-changes branch, tunable
+  accessors, and the constructor floor clamps).
 
-Still deferred (need Phase 3 Iter 6 design pressure to pick the right
-seams): `RoomStateOrchestrator`, `BotRoomLifecycleService`. The
-relocation-decision logic (`shouldRelocate`, `findBestProfileLocation`)
-also stays for now — both depend on the participant/bot repositories
-and the proposal-vote machinery, which are themselves orchestrator
-concerns.
+**Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
+BotMovementService, RoomStateOrchestrator, plus the
+CachedRoomState/TileCounts/OccupantSnapshot/BotMotionState promotions
+and the dead-audit deletion, `RoomService` is down **4,746 → 4,120 lines
+(−626, −13%)**.
+
+Still deferred: `BotRoomLifecycleService` (spawning + retirement at
+the room level — the design doc notes it may collapse into the
+orchestrator now that lifecycle stays small). The deeper deserialization
+extraction (`getCachedRoomState`, `updateCacheFromState`, the
+`fromJson*` helpers) is also still in RoomService — pulling it would
+require either dragging the helpers' 4–6 cross-cutting callsites along
+or accepting duplicate JSON-codec helpers in two services. Neither is
+worth doing without a stronger forcing function.
 
 ---
 
@@ -305,12 +347,12 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and three
-Phase 2.5 carves), the research package is 17 specialist services + 3
+After Phase 0 + four behavioural phases (plus Phase 4b and four
+Phase 2.5 carves), the research package is 17 specialist services + 4
 RoomService-derived services in `com.emergentterrain.service`
 (BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService) + 14 entities. Refreshed against the working tree
-(post-`ab42534`):
+BotMovementService, RoomStateOrchestrator) + 14 entities. Refreshed
+against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -335,6 +377,7 @@ BotMovementService) + 14 entities. Refreshed against the working tree
 | SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
 | BotMovementService | 211 | path planning + per-step scoring + tile-preference (Phase 2.5) |
 | HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
+| RoomStateOrchestrator | 149 | dirty-cache → RoomState persist with flush-threshold gating (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |

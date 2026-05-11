@@ -110,8 +110,7 @@ public class RoomService {
     private final int maxBotsTickedPerMaintenance;
     private final BotMovementService movement;
     private final HighwayEmergenceService highways;
-    private final int flushMinChanges;
-    private final long flushMaxIntervalMs;
+    private final RoomStateOrchestrator orchestrator;
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
     private final int maintenanceWorkers;
@@ -201,8 +200,7 @@ public class RoomService {
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
                        BotMovementService movement,
                        HighwayEmergenceService highways,
-                       @Value("${app.world.flushMinChanges:1}") int flushMinChanges,
-                       @Value("${app.world.flushMaxIntervalMs:30000}") long flushMaxIntervalMs,
+                       RoomStateOrchestrator orchestrator,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
                        @Value("${app.consensus.maintenanceWorkers:1}") int maintenanceWorkers,
@@ -267,8 +265,7 @@ public class RoomService {
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
         this.movement = movement;
         this.highways = highways;
-        this.flushMinChanges = Math.max(1, flushMinChanges);
-        this.flushMaxIntervalMs = Math.max(250, flushMaxIntervalMs);
+        this.orchestrator = orchestrator;
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
         this.maintenanceWorkers = Math.max(1, maintenanceWorkers);
@@ -927,7 +924,7 @@ public class RoomService {
                 log.debug("maintenance step=maybeCreateBotProposal start roomId={}", room.getId());
                 maybeCreateBotProposal(room, state);
                 log.debug("maintenance step=maybeCreateBotProposal end roomId={}", room.getId());
-                boolean flushed = persistDirtyRoomState(room, state, roomStateCache.get(room.getId()));
+                boolean flushed = orchestrator.persistIfDirty(room, state, roomStateCache.get(room.getId()));
                 log.debug("maintenance step=evaluatePendingProposals start roomId={}", room.getId());
                 evaluatePendingProposals(room);
                 log.debug("maintenance step=evaluatePendingProposals end roomId={}", room.getId());
@@ -1017,8 +1014,8 @@ public class RoomService {
             }
             int changesSinceFlush = cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush;
             boolean overdue = cached.lastFlushAt == null
-                || now.toEpochMilli() - cached.lastFlushAt.toEpochMilli() >= flushMaxIntervalMs;
-            if (changesSinceFlush < flushMinChanges && !overdue) {
+                || now.toEpochMilli() - cached.lastFlushAt.toEpochMilli() >= orchestrator.flushMaxIntervalMs();
+            if (changesSinceFlush < orchestrator.flushMinChanges() && !overdue) {
                 continue;
             }
             ReentrantLock lock = proposalLocks.computeIfAbsent(roomId, id -> new ReentrantLock());
@@ -1050,60 +1047,16 @@ public class RoomService {
                 if (state == null) {
                     continue;
                 }
-                persistDirtyRoomState(room, state, cached);
+                orchestrator.persistIfDirty(room, state, cached);
             } finally {
                 lock.unlock();
             }
         }
     }
 
-    private boolean persistDirtyRoomState(Room room, RoomState state, CachedRoomState cached) {
-        if (cached == null || !cached.dirty) {
-            return false;
-        }
-        Instant now = Instant.now();
-        int changesSinceFlush = cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush;
-        boolean overdue = cached.lastFlushAt == null
-            || now.toEpochMilli() - cached.lastFlushAt.toEpochMilli() >= flushMaxIntervalMs;
-        boolean noMaterialChange = changesSinceFlush <= 0
-            && Objects.equals(cached.stateHash, cached.previousStateHash);
-        if (noMaterialChange) {
-            cached.dirty = false;
-            cached.lastFlushAt = now;
-            cached.changesSinceFlush = 0;
-            return false;
-        }
-        if (changesSinceFlush < flushMinChanges && !overdue) {
-            return false;
-        }
-        state.setTilesJson(toJson(cached.tiles));
-        state.setHighwaysJson(toJson(cached.highways));
-        state.setRoadPressureJson(toJson(cached.roadPressure));
-        state.setSharedTokensJson(cached.sharedTokensJson);
-        state.setSharedQuestsJson(cached.sharedQuestsJson);
-        state.setMemoryMarkersJson(cached.memoryMarkersJson);
-        state.setGovernmentStateJson(cached.governmentStateJson);
-        if (cached.occupancy != null) {
-            state.setOccupancyJson(toJson(cached.occupancy));
-            state.setOccupancyUpdatedAt(cached.occupancyUpdatedAt);
-        }
-        state.setPreviousStateHash(cached.previousStateHash);
-        state.setStateHash(cached.stateHash == null ? hashTiles(cached.tiles) : cached.stateHash);
-        state.setTotalChangeCount(cached.totalChangeCount == null ? 0 : cached.totalChangeCount);
-        state.setChangesSinceFlush(changesSinceFlush);
-        state.setTileClearCount(cached.tileClearCount);
-        state.setTileForestCount(cached.tileForestCount);
-        state.setTileWaterCount(cached.tileWaterCount);
-        state.setTileIndustryCount(cached.tileIndustryCount);
-        state.setTileHighwayCount(cached.tileHighwayCount);
-        state.setUpdatedAt(now);
-        stateRepository.save(state);
-        cached.dirty = false;
-        cached.lastFlushAt = now;
-        cached.changesSinceFlush = 0;
-        log.info("roomStateFlush roomId={} updatedAt={} stateHash={}", room.getId(), now, state.getStateHash());
-        return true;
-    }
+    // Phase 2.5 carve: persistDirtyRoomState moved to RoomStateOrchestrator.
+    // Callers above invoke `orchestrator.persistIfDirty(room, state, cached)`.
+
     @Transactional
     public RoomStateResponse move(Payload payload, UUID roomId, int x, int y) {
         RoomMoveRequest request = new RoomMoveRequest();
