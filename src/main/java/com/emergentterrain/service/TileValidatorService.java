@@ -31,9 +31,10 @@ import java.util.function.Supplier;
  * resolved input in via a {@link Supplier} so the lookup only fires when
  * earlier rules in {@code violatesCommunityRules} have not already returned.
  *
- * The viewport constants {@code VISIBLE_WIDTH} / {@code VISIBLE_HEIGHT} are
- * duplicated from {@link RoomService} for now; the upcoming
- * {@code OccupancyService} carve consolidates viewport math.
+ * Viewport bounds for the access-connectivity check come from
+ * {@link OccupancyService#computeViewBounds} (its
+ * {@code visibleWidth() × visibleHeight()} window), so the access-rule
+ * viewport stays in sync with proposal-anchor visibility math elsewhere.
  *
  * Pure refactor. No behavioural change — the {@code Math.random()} call order
  * inside {@link #violatesCommunityRules} matches the pre-carve implementation
@@ -42,8 +43,11 @@ import java.util.function.Supplier;
 @Service
 public class TileValidatorService {
 
-    private static final int VISIBLE_WIDTH = 48;
-    private static final int VISIBLE_HEIGHT = 36;
+    private final OccupancyService occupancy;
+
+    public TileValidatorService(OccupancyService occupancy) {
+        this.occupancy = occupancy;
+    }
 
     /**
      * Composite community-rules gate. Each rule fires with probability
@@ -90,7 +94,7 @@ public class TileValidatorService {
      * there's nothing to fragment.
      */
     public boolean hasAccessConnectivity(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
-        int[] view = computeViewBounds(anchorX, anchorY, tiles);
+        int[] view = occupancy.computeViewBounds(anchorX, anchorY, tiles);
         int viewX = view[0];
         int viewY = view[1];
         int viewW = view[2];
@@ -185,13 +189,4 @@ public class TileValidatorService {
         return count;
     }
 
-    private int[] computeViewBounds(int cx, int cy, int[][] tiles) {
-        int h = tiles.length;
-        int w = tiles[0].length;
-        int viewW = Math.min(w, VISIBLE_WIDTH);
-        int viewH = Math.min(h, VISIBLE_HEIGHT);
-        int viewX = Math.max(0, Math.min(w - viewW, cx - viewW / 2));
-        int viewY = Math.max(0, Math.min(h - viewH, cy - viewH / 2));
-        return new int[] { viewX, viewY, viewW, viewH };
-    }
 }

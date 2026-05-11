@@ -112,6 +112,7 @@ public class RoomService {
     private final HighwayEmergenceService highways;
     private final MapIndexService mapIndex;
     private final TileValidatorService validator;
+    private final OccupancyService occupancy;
     private final RoomStateOrchestrator orchestrator;
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
@@ -123,8 +124,6 @@ public class RoomService {
     private final boolean defaultRoomUseWhenAvailable;
     private final String defaultRoomSystemEmail;
     private final String defaultRoomSystemPasswordHash;
-    private static final int VISIBLE_WIDTH = 48;
-    private static final int VISIBLE_HEIGHT = 36;
     private final ConcurrentHashMap<UUID, ReentrantLock> botLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ReentrantLock> proposalLocks = new ConcurrentHashMap<>();
     private final ReentrantLock proposalTableLock = new ReentrantLock();
@@ -203,6 +202,7 @@ public class RoomService {
                        HighwayEmergenceService highways,
                        MapIndexService mapIndex,
                        TileValidatorService validator,
+                       OccupancyService occupancy,
                        RoomStateOrchestrator orchestrator,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
@@ -270,6 +270,7 @@ public class RoomService {
         this.highways = highways;
         this.mapIndex = mapIndex;
         this.validator = validator;
+        this.occupancy = occupancy;
         this.orchestrator = orchestrator;
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
@@ -957,12 +958,12 @@ public class RoomService {
         if (!due) {
             return false;
         }
-        List<OccupantSnapshot> occupancy = buildOccupancySnapshot(room);
-        state.setOccupancyJson(toJson(occupancy));
+        List<OccupantSnapshot> snapshot = occupancy.buildOccupancySnapshot(room);
+        state.setOccupancyJson(toJson(snapshot));
         state.setOccupancyUpdatedAt(now);
         CachedRoomState cached = roomStateCache.get(room.getId());
         if (cached != null) {
-            cached.occupancy = occupancy;
+            cached.occupancy = snapshot;
             cached.occupancyUpdatedAt = now;
         }
         return true;
@@ -1574,7 +1575,7 @@ public class RoomService {
             if (bot.getX() == null || bot.getY() == null) {
                 continue;
             }
-            if (withinRadius(cx, cy, bot.getX(), bot.getY(), neighborRadius)) {
+            if (occupancy.withinRadius(cx, cy, bot.getX(), bot.getY(), neighborRadius)) {
                 near++;
             }
         }
@@ -1590,7 +1591,7 @@ public class RoomService {
                 break;
             }
             if (bot.getX() != null && bot.getY() != null
-                && withinRadius(cx, cy, bot.getX(), bot.getY(), neighborRadius)) {
+                && occupancy.withinRadius(cx, cy, bot.getX(), bot.getY(), neighborRadius)) {
                 continue;
             }
             int[] pos = randomNearbySpot(room, tiles, cx, cy, rand);
@@ -2054,7 +2055,7 @@ public class RoomService {
     }
 
     private LocalStats localStats(int[][] tiles, boolean[][] highways, int anchorX, int anchorY) {
-        int[] view = computeViewBounds(anchorX, anchorY, tiles);
+        int[] view = occupancy.computeViewBounds(anchorX, anchorY, tiles);
         int viewX = view[0];
         int viewY = view[1];
         int viewW = view[2];
@@ -2340,7 +2341,7 @@ public class RoomService {
             counts,
             state.getTotalChangeCount(),
             state.getChangesSinceFlush(),
-            readOccupancyJson(state.getOccupancyJson()),
+            occupancy.readOccupancyJson(state.getOccupancyJson()),
             state.getOccupancyUpdatedAt()
         );
         roomStateCache.put(room.getId(), built);
@@ -2382,7 +2383,7 @@ public class RoomService {
             counts,
             totalChanges,
             changesSinceFlush,
-            readOccupancyJson(state.getOccupancyJson()),
+            occupancy.readOccupancyJson(state.getOccupancyJson()),
             state.getOccupancyUpdatedAt()
         );
         cached.dirty = false;
@@ -2577,7 +2578,7 @@ public class RoomService {
     private boolean shouldRelocate(RoomBot bot, Room room, int[][] tiles, boolean[][] highways, List<RoomProposal> recent) {
         int cx = bot.getX();
         int cy = bot.getY();
-        int[] view = computeViewBounds(cx, cy, tiles);
+        int[] view = occupancy.computeViewBounds(cx, cy, tiles);
         int viewX = view[0];
         int viewY = view[1];
         int viewW = view[2];
@@ -2585,14 +2586,14 @@ public class RoomService {
         int visibleNeighbors = 0;
         for (RoomParticipant participant : participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room)) {
             if (participant.getX() != null && participant.getY() != null
-                && inView(viewX, viewY, viewW, viewH, participant.getX(), participant.getY())) {
+                && occupancy.inView(viewX, viewY, viewW, viewH, participant.getX(), participant.getY())) {
                 visibleNeighbors++;
             }
         }
         for (RoomBot other : botRepository.findByRoom(room)) {
             if (other.getId().equals(bot.getId())) continue;
             if (other.getX() != null && other.getY() != null
-                && inView(viewX, viewY, viewW, viewH, other.getX(), other.getY())) {
+                && occupancy.inView(viewX, viewY, viewW, viewH, other.getX(), other.getY())) {
                 visibleNeighbors++;
             }
         }
@@ -2607,7 +2608,7 @@ public class RoomService {
             Integer ax = proposal.getAnchorX();
             Integer ay = proposal.getAnchorY();
             if (ax == null || ay == null) continue;
-            if (!inView(viewX, viewY, viewW, viewH, ax, ay)) continue;
+            if (!occupancy.inView(viewX, viewY, viewW, viewH, ax, ay)) continue;
             if (!readNeighborIds(proposal).contains("B:" + bot.getId())) continue;
             int[][] baseTiles = tiles;
             int[][] proposed = applyDeltaToTiles(baseTiles, proposal);
@@ -3198,7 +3199,7 @@ public class RoomService {
                 UUID pid = UUID.fromString(neighbor.substring(2));
                 participantRepository.findById(pid).ifPresent(p -> {
                     if (anchorX != null && anchorY != null && p.getX() != null && p.getY() != null) {
-                        if (!withinRadius(anchorX, anchorY, p.getX(), p.getY(), neighborRadius)) {
+                        if (!occupancy.withinRadius(anchorX, anchorY, p.getX(), p.getY(), neighborRadius)) {
                             return;
                         }
                     }
@@ -3242,8 +3243,8 @@ public class RoomService {
         RoomState state = stateRepository.findByRoom(room)
             .orElseThrow(() -> new IllegalStateException("Room state missing"));
         int[][] tiles = getTilesForRoom(room, state);
-        int[] view = computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
-        return inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
+        int[] view = occupancy.computeViewBounds(proposal.getAnchorX(), proposal.getAnchorY(), tiles);
+        return occupancy.inView(view[0], view[1], view[2], view[3], participant.getX(), participant.getY());
     }
 
     private List<String> readNeighborIds(RoomProposal proposal) {
@@ -3373,7 +3374,7 @@ public class RoomService {
                                                 int cy,
                                                 List<RoomParticipant> participants,
                                                 List<RoomBot> bots) {
-        int[] view = computeViewBounds(cx, cy, tiles);
+        int[] view = occupancy.computeViewBounds(cx, cy, tiles);
         int viewX = view[0];
         int viewY = view[1];
         int viewW = view[2];
@@ -3381,64 +3382,26 @@ public class RoomService {
         List<String> neighbors = new ArrayList<>();
         for (RoomParticipant participant : participants) {
             if (participant.getX() != null && participant.getY() != null
-                && inView(viewX, viewY, viewW, viewH, participant.getX(), participant.getY())) {
+                && occupancy.inView(viewX, viewY, viewW, viewH, participant.getX(), participant.getY())) {
                 neighbors.add("P:" + participant.getId());
             }
         }
         for (RoomBot bot : bots) {
             if (bot.getX() != null && bot.getY() != null
-                && inView(viewX, viewY, viewW, viewH, bot.getX(), bot.getY())) {
+                && occupancy.inView(viewX, viewY, viewW, viewH, bot.getX(), bot.getY())) {
                 neighbors.add("B:" + bot.getId());
             }
         }
         return neighbors;
     }
 
-    private int[] computeViewBounds(int cx, int cy, int[][] tiles) {
-        int h = tiles.length;
-        int w = tiles[0].length;
-        int viewW = Math.min(w, VISIBLE_WIDTH);
-        int viewH = Math.min(h, VISIBLE_HEIGHT);
-        int viewX = Math.max(0, Math.min(w - viewW, cx - viewW / 2));
-        int viewY = Math.max(0, Math.min(h - viewH, cy - viewH / 2));
-        return new int[] { viewX, viewY, viewW, viewH };
-    }
-
-    private boolean inView(int viewX, int viewY, int viewW, int viewH, int x, int y) {
-        return x >= viewX && x < viewX + viewW && y >= viewY && y < viewY + viewH;
-    }
-
-    private boolean withinRadius(int cx, int cy, int x, int y, int radius) {
-        int dx = x - cx;
-        int dy = y - cy;
-        return dx * dx + dy * dy <= radius * radius;
-    }
-
+    // computeViewBounds, inView, withinRadius, buildOccupancySnapshot, readOccupancyJson and
+    // the canOccupy rule check moved to OccupancyService (Phase 2.5). The cache-coupled
+    // getCachedOccupancy and refreshOccupancySnapshot stay here because they touch
+    // roomStateCache (which also holds tiles/highways/road pressure/hash/dirty bookkeeping
+    // unrelated to occupancy). Same scope-reduction pattern as RoomStateOrchestrator.
     private boolean canOccupy(Room room, int x, int y, String ignoreId) {
-        List<OccupantSnapshot> occupants = getCachedOccupancy(room);
-        int half = densityAreaSize / 2;
-        int minX = x - half;
-        int maxX = x + half - 1;
-        int minY = y - half;
-        int maxY = y + half - 1;
-        int count = 0;
-        for (OccupantSnapshot occ : occupants) {
-            if (occ == null) {
-                continue;
-            }
-            String id = occ.getId();
-            if (id != null && ignoreId != null && !ignoreId.isBlank()) {
-                if (id.equals(ignoreId) || id.endsWith(ignoreId)) {
-                    continue;
-                }
-            }
-            int ox = occ.getX();
-            int oy = occ.getY();
-            if (ox >= minX && ox <= maxX && oy >= minY && oy <= maxY) {
-                count++;
-            }
-        }
-        return count < maxOccupants;
+        return occupancy.canOccupy(x, y, ignoreId, getCachedOccupancy(room), densityAreaSize, maxOccupants);
     }
 
     private List<OccupantSnapshot> getCachedOccupancy(Room room) {
@@ -3450,46 +3413,12 @@ public class RoomService {
         if (state == null) {
             return new ArrayList<>();
         }
-        List<OccupantSnapshot> occupancy = readOccupancyJson(state.getOccupancyJson());
+        List<OccupantSnapshot> snapshot = occupancy.readOccupancyJson(state.getOccupancyJson());
         if (cached != null) {
-            cached.occupancy = occupancy;
+            cached.occupancy = snapshot;
             cached.occupancyUpdatedAt = state.getOccupancyUpdatedAt();
         }
-        return occupancy;
-    }
-
-    private List<OccupantSnapshot> buildOccupancySnapshot(Room room) {
-        List<OccupantSnapshot> occupants = new ArrayList<>();
-        for (RoomParticipant participant : participantRepository.findByRoomAndActiveTrueOrderByJoinedAt(room)) {
-            if (participant.getId() == null || participant.getX() == null || participant.getY() == null) {
-                continue;
-            }
-            if (participant.getX() < 0 || participant.getY() < 0) {
-                continue;
-            }
-            occupants.add(new OccupantSnapshot("P:" + participant.getId(), participant.getX(), participant.getY()));
-        }
-        for (RoomBot bot : botRepository.findByRoom(room)) {
-            if (bot.getId() == null || bot.getX() == null || bot.getY() == null) {
-                continue;
-            }
-            if (bot.getX() < 0 || bot.getY() < 0) {
-                continue;
-            }
-            occupants.add(new OccupantSnapshot("B:" + bot.getId(), bot.getX(), bot.getY()));
-        }
-        return occupants;
-    }
-
-    private List<OccupantSnapshot> readOccupancyJson(String json) {
-        if (json == null || json.isBlank()) {
-            return new ArrayList<>();
-        }
-        try {
-            return objectMapper.readValue(json, new TypeReference<List<OccupantSnapshot>>() {});
-        } catch (JsonProcessingException e) {
-            return new ArrayList<>();
-        }
+        return snapshot;
     }
 
     private boolean trySimulateBotsWithGpu(Room room, RoomState state) {

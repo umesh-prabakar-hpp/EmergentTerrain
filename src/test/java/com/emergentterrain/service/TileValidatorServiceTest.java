@@ -22,7 +22,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class TileValidatorServiceTest {
 
-    private final TileValidatorService svc = new TileValidatorService();
+    private final OccupancyService occupancy = new OccupancyService(null, null, null);
+    private final TileValidatorService svc = new TileValidatorService(occupancy);
 
     // ---------- isAccessTile ----------
 

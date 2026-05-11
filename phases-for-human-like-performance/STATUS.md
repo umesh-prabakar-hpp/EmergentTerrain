@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 249 (+114) |
+| Tests | 135 → 265 (+130) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -127,11 +127,11 @@ Closes two explicit deferrals from Phase 1/2:
 Pre-Phase-3 refactor. All five extractions originally enumerated by the
 design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
 have now shipped, plus a dead-audit-code deletion that preceded the
-RoomStateOrchestrator carve and an additional `TileValidatorService` carve
-from the second-wave list. RoomService is down 4,746 → 3,851 lines
-(−895, −19%) cumulatively. A second wave of extractions has been
-identified beyond the original plan — see "Next planned carves" at the
-end of this section.
+RoomStateOrchestrator carve and two additional second-wave carves
+(`TileValidatorService`, `OccupancyService`). RoomService is down
+4,746 → 3,780 lines (−966, −20%) cumulatively. A second wave of
+extractions has been identified beyond the original plan — see "Next
+planned carves" at the end of this section.
 
 - ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
   dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
@@ -294,11 +294,52 @@ end of this section.
   share-extreme rule firing reachability, the supplier short-circuiting
   when an earlier rule wins, and the balanced-stats no-violation path).
 
+- ✅ **`OccupancyService`** — extracted occupancy primitives + viewport
+  math into
+  [OccupancyService.java](../src/main/java/com/emergentterrain/service/OccupancyService.java).
+  Surface: `computeViewBounds` / `inView` / `withinRadius` (pure
+  viewport geometry, now the single source of truth for the fixed-size
+  `VISIBLE_WIDTH × VISIBLE_HEIGHT` window — its constants previously
+  lived inline in RoomService and were duplicated by
+  TileValidatorService); `canOccupy(x, y, ignoreId, occupants,
+  densityAreaSize, maxOccupants)` (density rule check given a
+  precomputed occupant list, so the service stays free of the
+  `roomStateCache` entanglement); `buildOccupancySnapshot(room)`
+  (assembles the participant + bot snapshot from repos); and
+  `readOccupancyJson(json)` (Jackson codec for the persisted
+  `occupancyJson`). Scope deliberately narrower than the design doc's
+  enumerated list: `getCachedOccupancy` and `refreshOccupancySnapshot`
+  stay in RoomService because they read/write `roomStateCache` (whose
+  other fields — tiles, highways, road pressure, state hash, dirty flag
+  — are owned by RoomService's broader state-management responsibilities
+  and have nothing to do with occupancy). Pulling them out would
+  require threading the cache map across services. Same scope-reduction
+  pattern as the RoomStateOrchestrator carve. RoomService keeps those
+  two methods as thin cache orchestrators that delegate their
+  primitives (`readOccupancyJson`, `buildOccupancySnapshot`) to this
+  service. Also picked up TileValidatorService's previously-duplicated
+  `VISIBLE_WIDTH` / `VISIBLE_HEIGHT` constants — TileValidatorService
+  now takes OccupancyService in its constructor and calls
+  `occupancy.computeViewBounds(...)` from `hasAccessConnectivity`,
+  closing out the "consolidates viewport math" promise made when
+  TileValidatorService shipped. RoomService dropped a further
+  3,851 → 3,780 lines (−71). Pinned by
+  [OccupancyServiceTest.java](../src/test/java/com/emergentterrain/service/OccupancyServiceTest.java)
+  (16 tests covering the visible-constant accessors, viewport
+  shrink/clamp/centre branches in `computeViewBounds`, the half-open
+  `inView` rectangle, the inclusive Euclidean `withinRadius`,
+  `canOccupy` happy path / density-cap / out-of-box / exact-id-skip /
+  endsWith-id-skip / null-tolerance / blank-and-null-ignore-id /
+  density-area math, `buildOccupancySnapshot` ordering (participants
+  before bots) and missing/negative-coord skipping, and
+  `readOccupancyJson` empty/blank/bad-JSON tolerance + a round-trip).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, RoomStateOrchestrator, MapIndexService,
-TileValidatorService, plus the CachedRoomState/TileCounts/OccupantSnapshot/
-BotMotionState/CachedMap/IntegralMaps/CoarseCell promotions and the
-dead-audit deletion, `RoomService` is down **4,746 → 3,851 lines (−895, −19%)**.
+TileValidatorService, OccupancyService, plus the CachedRoomState/TileCounts/
+OccupantSnapshot/BotMotionState/CachedMap/IntegralMaps/CoarseCell promotions
+and the dead-audit deletion, `RoomService` is down **4,746 → 3,780 lines
+(−966, −20%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -310,23 +351,16 @@ or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
 
 **Next planned carves (in order, picked 2026-05-11 after the
-MapIndexService landing; TileValidatorService shipped same day):**
+MapIndexService landing; TileValidatorService and OccupancyService
+shipped same day):**
 
-1. **`OccupancyService`** — `canOccupy` + occupancy snapshot helpers
-   (`refreshOccupancySnapshot`, `getCachedOccupancy`,
-   `buildOccupancySnapshot`, `readOccupancyJson`) + viewport math
-   (`computeViewBounds`, `inView`, `withinRadius`). ~150 lines. Once
-   shipped, `assignBotSpawn` (which only needs `canOccupy`) becomes
-   trivially movable into `BotMovementService`. This carve also
-   consolidates the `VISIBLE_WIDTH` / `VISIBLE_HEIGHT` constants that
-   TileValidatorService currently duplicates from RoomService.
-2. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
+1. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
    `buildGpuBotParams`, `applyGpuBotProfile` (×2), `nudgedWeight`,
    `collectGpuTileDiffs`, `applyTileEditsToCache`,
    `applyGpuEditsToCachedState`, `gpuWorldCache`, plus the
    `BotMotionState` GPU codecs (`encodeBotMotionStateBytes`,
    `decodeBotMotionStateBytes`). ~400 lines. Clean tech boundary.
-3. **`RoomProposalService`** — the proposal/vote/evaluate/apply
+2. **`RoomProposalService`** — the proposal/vote/evaluate/apply
    pipeline + bot-vote logic + validation + neighbor finding. ~860
    lines — by far the biggest single concern remaining, larger than
    anything Phase 2.5 originally enumerated. Phase 2.5 was scoped
@@ -449,13 +483,13 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and six
-Phase 2.5 carves), the research package is 17 specialist services + 6
+After Phase 0 + four behavioural phases (plus Phase 4b and seven
+Phase 2.5 carves), the research package is 17 specialist services + 7
 RoomService-derived services in `com.emergentterrain.service`
 (BotArchetypeBehaviorService, HighwayEmergenceService,
 BotMovementService, MapIndexService, RoomStateOrchestrator,
-TileValidatorService) + 14 entities. Refreshed against the working
-tree (post-`ab42534`):
+TileValidatorService, OccupancyService) + 14 entities. Refreshed
+against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -482,7 +516,8 @@ tree (post-`ab42534`):
 | HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
 | RoomStateOrchestrator | 149 | dirty-cache → RoomState persist with flush-threshold gating (Phase 2.5) |
 | MapIndexService | 143 | per-room coarse-grid + integral-maps spatial index for relocation targeting (Phase 2.5) |
-| TileValidatorService | 197 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
+| TileValidatorService | 192 | community-rules gate + access-connectivity + rapid-oscillation pure predicates (Phase 2.5) |
+| OccupancyService | 187 | viewport math + canOccupy density rule + occupancy snapshot build/codec (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
