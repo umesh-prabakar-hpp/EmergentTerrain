@@ -211,6 +211,7 @@ app.research.meta.enabled           # Phase 4 Iter 10 — self-observation stats
 app.research.reviewer-routing.enabled  # Phase 4b — adversarial reviewer picking
 app.research.funding-allocation.enabled # Phase 4b — periodic grants from agency → university
 app.research.journal-review.enabled  # Phase 4b — reviewers drawn from journal editor pool
+app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recomputed from citation counts
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -291,8 +292,13 @@ not their full behaviour:
   to the top-5 reputation same-domain bots when
   `app.research.journal-review.enabled` is set. Falls back to the
   existing pool when no journal exists for the (room, domain).
-- **Impact-factor accumulation** — `Journal.impactFactor` is a column
-  the `PaperGraphService` citation counts can drive.
+- ✅ **Impact-factor accumulation** — shipped (Phase 4b fourth commit).
+  `InstitutionService.maybeRecomputeImpactFactor` recomputes
+  `Journal.impactFactor` as the mean citation count across its papers
+  (read via `ResearchPaperRepository.findByJournalId` + per-paper
+  `PaperCitationRepository.countByCitedPaperId`). Fires from the publish
+  path's `recordJournalAcceptance` / `recordJournalRejection` branches.
+  Gated by `app.research.impact-factor.enabled`.
 - **FundingAgency grant allocation** — the policy weights are stored;
   the allocation loop that reads them and credits universities is the
   next step.

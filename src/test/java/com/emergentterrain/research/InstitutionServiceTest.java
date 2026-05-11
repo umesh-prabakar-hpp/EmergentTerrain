@@ -2,7 +2,9 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.repo.FundingAgencyRepository;
 import com.emergentterrain.repo.JournalRepository;
+import com.emergentterrain.repo.PaperCitationRepository;
 import com.emergentterrain.repo.ReplicationCouncilRepository;
+import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.UniversityRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +33,8 @@ class InstitutionServiceTest {
     private JournalRepository            journals;
     private FundingAgencyRepository      fundingAgencies;
     private ReplicationCouncilRepository councils;
+    private ResearchPaperRepository      papers;
+    private PaperCitationRepository      citations;
 
     @BeforeEach
     void setUp() {
@@ -38,12 +42,15 @@ class InstitutionServiceTest {
         journals        = mock(JournalRepository.class);
         fundingAgencies = mock(FundingAgencyRepository.class);
         councils        = mock(ReplicationCouncilRepository.class);
+        papers          = mock(ResearchPaperRepository.class);
+        citations       = mock(PaperCitationRepository.class);
     }
 
     @Test
     void disabledServiceWritesNothing() {
         InstitutionService svc = new InstitutionService(
-                false, universities, journals, fundingAgencies, councils);
+                false, false, universities, journals, fundingAgencies, councils,
+                papers, citations);
 
         InstitutionService.BootstrapResult result =
                 svc.bootstrapForPaper(UUID.randomUUID(), "MATHEMATICS");
@@ -153,7 +160,8 @@ class InstitutionServiceTest {
     @Test
     void journalEditorsForReturnsEmptyWhenDisabled() {
         InstitutionService svc = new InstitutionService(
-                false, universities, journals, fundingAgencies, councils);
+                false, false, universities, journals, fundingAgencies, councils,
+                papers, citations);
         UUID room = UUID.randomUUID();
 
         java.util.List<Researcher> editors = svc.journalEditorsFor(
@@ -217,6 +225,79 @@ class InstitutionServiceTest {
     }
 
     @Test
+    void recordAcceptanceDoesNotRecomputeImpactFactorWhenFlagOff() {
+        InstitutionService svc = enabled();  // institutions on, impact-factor off
+        UUID journalId = UUID.randomUUID();
+        Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
+        j.setImpactFactor(7.5);  // pre-existing value should be preserved
+        when(journals.findById(journalId)).thenReturn(Optional.of(j));
+        when(journals.save(any(Journal.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        svc.recordJournalAcceptance(journalId);
+
+        verify(papers, never()).findByJournalId(any());
+        assertThat(j.getImpactFactor()).isEqualTo(7.5);
+    }
+
+    @Test
+    void recordAcceptanceWithImpactFactorOnAndEmptyJournalSetsZero() {
+        InstitutionService svc = enabledWithImpactFactor();
+        UUID journalId = UUID.randomUUID();
+        Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
+        j.setImpactFactor(3.0);
+        when(journals.findById(journalId)).thenReturn(Optional.of(j));
+        when(journals.save(any(Journal.class))).thenAnswer(inv -> inv.getArgument(0));
+        when(papers.findByJournalId(any())).thenReturn(java.util.List.of());
+
+        svc.recordJournalAcceptance(journalId);
+
+        assertThat(j.getImpactFactor()).isEqualTo(0.0);
+    }
+
+    @Test
+    void recordAcceptanceWithImpactFactorOnComputesMeanCitationCount() {
+        InstitutionService svc = enabledWithImpactFactor();
+        UUID journalId = UUID.randomUUID();
+        Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
+        when(journals.findById(journalId)).thenReturn(Optional.of(j));
+        when(journals.save(any(Journal.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ResearchPaper p1 = mock(ResearchPaper.class);
+        ResearchPaper p2 = mock(ResearchPaper.class);
+        ResearchPaper p3 = mock(ResearchPaper.class);
+        when(p1.paperId()).thenReturn("P-aaaa-1");
+        when(p2.paperId()).thenReturn("P-aaaa-2");
+        when(p3.paperId()).thenReturn("P-aaaa-3");
+        when(papers.findByJournalId(any())).thenReturn(java.util.List.of(p1, p2, p3));
+        when(citations.countByCitedPaperId("P-aaaa-1")).thenReturn(4L);
+        when(citations.countByCitedPaperId("P-aaaa-2")).thenReturn(2L);
+        when(citations.countByCitedPaperId("P-aaaa-3")).thenReturn(0L);
+
+        svc.recordJournalAcceptance(journalId);
+
+        // (4 + 2 + 0) / 3 = 2.0
+        assertThat(j.getImpactFactor()).isCloseTo(2.0, within(1e-9));
+    }
+
+    @Test
+    void recordRejectionAlsoRecomputesImpactFactorWhenFlagOn() {
+        InstitutionService svc = enabledWithImpactFactor();
+        UUID journalId = UUID.randomUUID();
+        Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
+        when(journals.findById(journalId)).thenReturn(Optional.of(j));
+        when(journals.save(any(Journal.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ResearchPaper p1 = mock(ResearchPaper.class);
+        when(p1.paperId()).thenReturn("P-bbbb-1");
+        when(papers.findByJournalId(any())).thenReturn(java.util.List.of(p1));
+        when(citations.countByCitedPaperId("P-bbbb-1")).thenReturn(5L);
+
+        svc.recordJournalRejection(journalId);
+
+        assertThat(j.getImpactFactor()).isCloseTo(5.0, within(1e-9));
+    }
+
+    @Test
     void rejectionRateClampedWhenAllRejected() {
         Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
         j.recordRejection();
@@ -227,7 +308,13 @@ class InstitutionServiceTest {
     // ---- helpers ----
 
     private InstitutionService enabled() {
-        return new InstitutionService(true, universities, journals, fundingAgencies, councils);
+        return new InstitutionService(true, false, universities, journals, fundingAgencies,
+                councils, papers, citations);
+    }
+
+    private InstitutionService enabledWithImpactFactor() {
+        return new InstitutionService(true, true, universities, journals, fundingAgencies,
+                councils, papers, citations);
     }
 
     private static org.assertj.core.data.Offset<Double> within(double delta) {

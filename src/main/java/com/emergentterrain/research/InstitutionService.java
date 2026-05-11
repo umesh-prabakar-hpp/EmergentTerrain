@@ -36,25 +36,39 @@ public class InstitutionService {
     private static final Logger log = LoggerFactory.getLogger(InstitutionService.class);
 
     private final boolean                       enabled;
+    private final boolean                       impactFactorEnabled;
     private final UniversityRepository          universities;
     private final JournalRepository             journals;
     private final FundingAgencyRepository       fundingAgencies;
     private final ReplicationCouncilRepository  councils;
+    private final com.emergentterrain.repo.ResearchPaperRepository papers;
+    private final com.emergentterrain.repo.PaperCitationRepository citations;
 
     public InstitutionService(
             @Value("${app.research.institutions.enabled:false}") boolean enabled,
+            @Value("${app.research.impact-factor.enabled:false}") boolean impactFactorEnabled,
             UniversityRepository universities,
             JournalRepository journals,
             FundingAgencyRepository fundingAgencies,
-            ReplicationCouncilRepository councils) {
-        this.enabled         = enabled;
-        this.universities    = universities;
-        this.journals        = journals;
-        this.fundingAgencies = fundingAgencies;
-        this.councils        = councils;
+            ReplicationCouncilRepository councils,
+            com.emergentterrain.repo.ResearchPaperRepository papers,
+            com.emergentterrain.repo.PaperCitationRepository citations) {
+        this.enabled             = enabled;
+        this.impactFactorEnabled = impactFactorEnabled;
+        this.universities        = universities;
+        this.journals            = journals;
+        this.fundingAgencies     = fundingAgencies;
+        this.councils            = councils;
+        this.papers              = papers;
+        this.citations           = citations;
         if (enabled) {
             log.info("InstitutionService: ENABLED — universities, journals, funding "
                     + "agencies, and replication councils will be bootstrapped lazily.");
+        }
+        if (impactFactorEnabled) {
+            log.info("InstitutionService: impact-factor accumulation ENABLED — each "
+                    + "journal's impactFactor is recomputed on accept/reject as the mean "
+                    + "citation count across its papers.");
         }
     }
 
@@ -96,12 +110,41 @@ public class InstitutionService {
         if (!enabled || journalId == null) return;
         journals.findById(journalId).ifPresent(j -> {
             j.recordAcceptance();
+            maybeRecomputeImpactFactor(j);
             try { journals.save(j); }
             catch (Exception e) {
                 log.warn("institution: journal acceptance save failed id={}: {}",
                         journalId, e.getMessage());
             }
         });
+    }
+
+    /**
+     * Phase 4b — recompute {@code j.impactFactor} as the mean citation count
+     * across its papers. No-op when the impact-factor flag is off.
+     *
+     * Reads ResearchPaper rows by journalId and PaperCitation counts by
+     * cited_paper_id. Cost is O(N) lookups per journal — small for current
+     * per-journal volumes, but if journals grow to thousands of papers a
+     * cached running sum on Journal would be more efficient.
+     */
+    void maybeRecomputeImpactFactor(Journal j) {
+        if (!impactFactorEnabled || j == null) return;
+        try {
+            java.util.List<ResearchPaper> journalPapers = papers.findByJournalId(j.getId());
+            if (journalPapers.isEmpty()) {
+                j.setImpactFactor(0.0);
+                return;
+            }
+            double totalCitations = 0;
+            for (ResearchPaper p : journalPapers) {
+                totalCitations += citations.countByCitedPaperId(p.paperId());
+            }
+            j.setImpactFactor(totalCitations / journalPapers.size());
+        } catch (Exception e) {
+            log.warn("institution: impact-factor recompute failed journalId={}: {}",
+                    j.getId(), e.getMessage());
+        }
     }
 
     /**
@@ -138,6 +181,7 @@ public class InstitutionService {
         if (!enabled || journalId == null) return;
         journals.findById(journalId).ifPresent(j -> {
             j.recordRejection();
+            maybeRecomputeImpactFactor(j);
             try { journals.save(j); }
             catch (Exception e) {
                 log.warn("institution: journal rejection save failed id={}: {}",

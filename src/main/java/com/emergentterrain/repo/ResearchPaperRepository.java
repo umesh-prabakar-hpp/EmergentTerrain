@@ -41,4 +41,7 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
 
     /** Phase 4 Iter 10 — all papers using a given methodology (THEORETICAL/COMPUTATIONAL/EMPIRICAL). */
     List<ResearchPaper> findByMethodology(String methodology);
+
+    /** Phase 4b — all papers attached to a journal (impact-factor accumulation). */
+    List<ResearchPaper> findByJournalId(UUID journalId);
 }
