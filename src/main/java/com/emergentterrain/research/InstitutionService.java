@@ -37,6 +37,7 @@ public class InstitutionService {
 
     private final boolean                       enabled;
     private final boolean                       impactFactorEnabled;
+    private final boolean                       replicationCouncilEnabled;
     private final UniversityRepository          universities;
     private final JournalRepository             journals;
     private final FundingAgencyRepository       fundingAgencies;
@@ -47,20 +48,22 @@ public class InstitutionService {
     public InstitutionService(
             @Value("${app.research.institutions.enabled:false}") boolean enabled,
             @Value("${app.research.impact-factor.enabled:false}") boolean impactFactorEnabled,
+            @Value("${app.research.replication-council.enabled:false}") boolean replicationCouncilEnabled,
             UniversityRepository universities,
             JournalRepository journals,
             FundingAgencyRepository fundingAgencies,
             ReplicationCouncilRepository councils,
             com.emergentterrain.repo.ResearchPaperRepository papers,
             com.emergentterrain.repo.PaperCitationRepository citations) {
-        this.enabled             = enabled;
-        this.impactFactorEnabled = impactFactorEnabled;
-        this.universities        = universities;
-        this.journals            = journals;
-        this.fundingAgencies     = fundingAgencies;
-        this.councils            = councils;
-        this.papers              = papers;
-        this.citations           = citations;
+        this.enabled                   = enabled;
+        this.impactFactorEnabled       = impactFactorEnabled;
+        this.replicationCouncilEnabled = replicationCouncilEnabled;
+        this.universities              = universities;
+        this.journals                  = journals;
+        this.fundingAgencies           = fundingAgencies;
+        this.councils                  = councils;
+        this.papers                    = papers;
+        this.citations                 = citations;
         if (enabled) {
             log.info("InstitutionService: ENABLED — universities, journals, funding "
                     + "agencies, and replication councils will be bootstrapped lazily.");
@@ -69,6 +72,12 @@ public class InstitutionService {
             log.info("InstitutionService: impact-factor accumulation ENABLED — each "
                     + "journal's impactFactor is recomputed on accept/reject as the mean "
                     + "citation count across its papers.");
+        }
+        if (replicationCouncilEnabled) {
+            log.info("InstitutionService: replication-council triggering ENABLED — "
+                    + "papers asserting a CONTRADICTS citation are queued for replication "
+                    + "regardless of anomaly z-score, and active/completed counters are "
+                    + "tracked on the per-room council.");
         }
     }
 
@@ -186,6 +195,61 @@ public class InstitutionService {
             catch (Exception e) {
                 log.warn("institution: journal rejection save failed id={}: {}",
                         journalId, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Phase 4b — true when the council wants this paper replicated regardless
+     * of its anomaly z-score. The trigger is: any typed citation with
+     * {@link RelationshipType#CONTRADICTS} — a paper asserting a refutation
+     * deserves independent verification even if the underlying experiment
+     * wasn't anomalous by itself.
+     *
+     * No-op (returns false) when institutions are disabled or the council
+     * flag is off. Callers should OR this with the existing z-score check.
+     */
+    public boolean councilWantsReplication(NarrationResult narration) {
+        if (!enabled || !replicationCouncilEnabled || narration == null) return false;
+        java.util.List<NarrationResult.TypedCitation> tc = narration.typedCitations();
+        if (tc == null || tc.isEmpty()) return false;
+        for (NarrationResult.TypedCitation c : tc) {
+            if (c.type() == RelationshipType.CONTRADICTS) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Phase 4b — fires when a paper is enqueued for replication, regardless
+     * of trigger. Increments the council's activeReplicationCount.
+     * No-op when institutions or the council flag is off.
+     */
+    public void recordReplicationEnqueued(UUID roomId) {
+        if (!enabled || !replicationCouncilEnabled || roomId == null) return;
+        councils.findFirstByRoomId(roomId).ifPresent(c -> {
+            c.setActiveReplicationCount(c.getActiveReplicationCount() + 1);
+            try { councils.save(c); }
+            catch (Exception e) {
+                log.warn("institution: council enqueue counter save failed roomId={}: {}",
+                        roomId, e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Phase 4b — fires after {@link ReplicationService#processOne} reports it
+     * processed a request. Decrements active and increments completed on the
+     * council. No-op when institutions or the council flag is off.
+     */
+    public void recordReplicationCompleted(UUID roomId) {
+        if (!enabled || !replicationCouncilEnabled || roomId == null) return;
+        councils.findFirstByRoomId(roomId).ifPresent(c -> {
+            c.setActiveReplicationCount(c.getActiveReplicationCount() - 1);
+            c.setCompletedCount(c.getCompletedCount() + 1);
+            try { councils.save(c); }
+            catch (Exception e) {
+                log.warn("institution: council completion counter save failed roomId={}: {}",
+                        roomId, e.getMessage());
             }
         });
     }

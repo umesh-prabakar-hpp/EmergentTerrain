@@ -95,11 +95,15 @@ public class ReplicationService {
     /**
      * Process at most one queued replication request whose room matches the given
      * roomId. No-op when the queue is empty or the head is for a different room.
+     *
+     * @return true if a request was processed (regardless of pass/fail outcome),
+     *         false when the queue head didn't match this room. Callers use the
+     *         return value to update {@code ReplicationCouncil} counters.
      */
-    public void processOne(UUID roomId, List<Researcher> pool, Random rng,
-                           double educationFactor) {
+    public boolean processOne(UUID roomId, List<Researcher> pool, Random rng,
+                              double educationFactor) {
         ReplicationRequest req = queue.peek();
-        if (req == null || !req.roomId().equals(roomId)) return;
+        if (req == null || !req.roomId().equals(roomId)) return false;
         queue.poll();
 
         String originalAuthor = paperLookup.apply(req.paperId())
@@ -124,6 +128,7 @@ public class ReplicationService {
         if (failed) {
             markPaperDisputed(req.paperId(), replicator.getBotId(), replicaScore);
         }
+        return true;
     }
 
     private void markPaperDisputed(String paperId, String replicatorBotId, double replicaScore) {

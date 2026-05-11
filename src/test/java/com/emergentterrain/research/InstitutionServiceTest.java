@@ -49,7 +49,7 @@ class InstitutionServiceTest {
     @Test
     void disabledServiceWritesNothing() {
         InstitutionService svc = new InstitutionService(
-                false, false, universities, journals, fundingAgencies, councils,
+                false, false, false, universities, journals, fundingAgencies, councils,
                 papers, citations);
 
         InstitutionService.BootstrapResult result =
@@ -160,7 +160,7 @@ class InstitutionServiceTest {
     @Test
     void journalEditorsForReturnsEmptyWhenDisabled() {
         InstitutionService svc = new InstitutionService(
-                false, false, universities, journals, fundingAgencies, councils,
+                false, false, false, universities, journals, fundingAgencies, councils,
                 papers, citations);
         UUID room = UUID.randomUUID();
 
@@ -297,6 +297,78 @@ class InstitutionServiceTest {
         assertThat(j.getImpactFactor()).isCloseTo(5.0, within(1e-9));
     }
 
+    // ---- Phase 4b: ReplicationCouncil triggering ----
+
+    @Test
+    void councilDoesNotWantReplicationWhenFlagOff() {
+        InstitutionService svc = enabled();  // institutions on, council off
+        NarrationResult n = narrationWithTypedCitation(RelationshipType.CONTRADICTS);
+        assertThat(svc.councilWantsReplication(n)).isFalse();
+    }
+
+    @Test
+    void councilWantsReplicationOnContradictsCitation() {
+        InstitutionService svc = enabledWithCouncil();
+        NarrationResult n = narrationWithTypedCitation(RelationshipType.CONTRADICTS);
+        assertThat(svc.councilWantsReplication(n)).isTrue();
+    }
+
+    @Test
+    void councilDoesNotWantReplicationOnSupportsCitation() {
+        InstitutionService svc = enabledWithCouncil();
+        NarrationResult n = narrationWithTypedCitation(RelationshipType.SUPPORTS);
+        assertThat(svc.councilWantsReplication(n)).isFalse();
+    }
+
+    @Test
+    void councilDoesNotWantReplicationOnNullOrEmptyNarration() {
+        InstitutionService svc = enabledWithCouncil();
+        assertThat(svc.councilWantsReplication(null)).isFalse();
+        NarrationResult empty = new NarrationResult(
+                "hyp", "find", "conc", null, "model", 0.5,
+                java.util.List.of(), "callpath", java.util.List.of());
+        assertThat(svc.councilWantsReplication(empty)).isFalse();
+    }
+
+    @Test
+    void recordReplicationEnqueuedIsNoOpWhenCouncilFlagOff() {
+        InstitutionService svc = enabled();  // council flag off
+        UUID room = UUID.randomUUID();
+        svc.recordReplicationEnqueued(room);
+        verify(councils, never()).findFirstByRoomId(any());
+        verify(councils, never()).save(any());
+    }
+
+    @Test
+    void recordReplicationEnqueuedIncrementsActiveCount() {
+        InstitutionService svc = enabledWithCouncil();
+        UUID room = UUID.randomUUID();
+        ReplicationCouncil c = new ReplicationCouncil(room, "C", java.time.Instant.now());
+        when(councils.findFirstByRoomId(room)).thenReturn(Optional.of(c));
+        when(councils.save(any(ReplicationCouncil.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        svc.recordReplicationEnqueued(room);
+        svc.recordReplicationEnqueued(room);
+
+        assertThat(c.getActiveReplicationCount()).isEqualTo(2);
+        assertThat(c.getCompletedCount()).isZero();
+    }
+
+    @Test
+    void recordReplicationCompletedDecrementsActiveAndIncrementsCompleted() {
+        InstitutionService svc = enabledWithCouncil();
+        UUID room = UUID.randomUUID();
+        ReplicationCouncil c = new ReplicationCouncil(room, "C", java.time.Instant.now());
+        c.setActiveReplicationCount(3);
+        when(councils.findFirstByRoomId(room)).thenReturn(Optional.of(c));
+        when(councils.save(any(ReplicationCouncil.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        svc.recordReplicationCompleted(room);
+
+        assertThat(c.getActiveReplicationCount()).isEqualTo(2);
+        assertThat(c.getCompletedCount()).isEqualTo(1);
+    }
+
     @Test
     void rejectionRateClampedWhenAllRejected() {
         Journal j = new Journal(UUID.randomUUID(), "J", "MATHEMATICS", java.time.Instant.now());
@@ -308,17 +380,32 @@ class InstitutionServiceTest {
     // ---- helpers ----
 
     private InstitutionService enabled() {
-        return new InstitutionService(true, false, universities, journals, fundingAgencies,
-                councils, papers, citations);
+        return new InstitutionService(true, false, false, universities, journals,
+                fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithImpactFactor() {
-        return new InstitutionService(true, true, universities, journals, fundingAgencies,
-                councils, papers, citations);
+        return new InstitutionService(true, true, false, universities, journals,
+                fundingAgencies, councils, papers, citations);
+    }
+
+    private InstitutionService enabledWithCouncil() {
+        return new InstitutionService(true, false, true, universities, journals,
+                fundingAgencies, councils, papers, citations);
     }
 
     private static org.assertj.core.data.Offset<Double> within(double delta) {
         return org.assertj.core.data.Offset.offset(delta);
+    }
+
+    private static NarrationResult narrationWithTypedCitation(RelationshipType type) {
+        return new NarrationResult(
+                "hyp", "find", "conc",
+                /* followUp = */ null, /* aiModel = */ "model",
+                /* confidenceScore = */ 0.5,
+                java.util.List.of("P-zzzz-1"),
+                /* callPath = */ "callpath",
+                java.util.List.of(new NarrationResult.TypedCitation("P-zzzz-1", type, 0.9)));
     }
 
     private static Researcher researcher(String botId, String domain, double reputation) {

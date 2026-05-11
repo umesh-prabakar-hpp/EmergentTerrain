@@ -212,6 +212,7 @@ app.research.reviewer-routing.enabled  # Phase 4b — adversarial reviewer picki
 app.research.funding-allocation.enabled # Phase 4b — periodic grants from agency → university
 app.research.journal-review.enabled  # Phase 4b — reviewers drawn from journal editor pool
 app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recomputed from citation counts
+app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations force replication + council counters
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -249,7 +250,7 @@ specialist services + 14 entities. Sizes as of `ab42534`:
 | KnowledgeBaseService | 169 | formal finding persistence + contradiction detection |
 | ReplicationService | 168 | replication queue + dispute marking |
 | ResearchProgramService | 167 | longitudinal programs (flag-gated) |
-| InstitutionService | 158 | University/Journal/FundingAgency/Council bootstrap |
+| InstitutionService | 273 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering |
 | PaperGraphService | 129 | citation queries + contradiction clusters |
 | ExpectationModelService | 126 | Welford priors + surprise scoring |
 | WorldDataQueryService | 106 | read-only simulation variables |
@@ -302,8 +303,15 @@ not their full behaviour:
 - **FundingAgency grant allocation** — the policy weights are stored;
   the allocation loop that reads them and credits universities is the
   next step.
-- **ReplicationCouncil triggering** — should fire on high-surprise
-  events or contradiction clusters; currently passive.
+- ✅ **ReplicationCouncil triggering** — shipped (Phase 4b fifth commit).
+  Any paper whose narration asserts a `CONTRADICTS` typed citation is
+  queued for replication regardless of z-score; the council's
+  `activeReplicationCount` / `completedCount` counters are updated on
+  enqueue and on each successful `ReplicationService.processOne` call
+  (which now returns a boolean signalling whether a request was actually
+  processed). Gated by `app.research.replication-council.enabled`. The
+  high-surprise (z ≥ 3) path was already covered by ReplicationService
+  itself, so the council only adds the contradiction trigger.
 - **DominantMethodology emergence** — should aggregate from member
   bots' `ResearchIdentity.favoredMethod` over time.
 

@@ -385,15 +385,21 @@ public class UniversityService {
                 parseBotIdSafely(draft.authorBotId()),
                 hypothesis, findings, conclusion);
 
-        // Anomaly replication: only queue positive results — null results have no claim to verify
-        if (!isNullResult && Math.abs(draft.anomalyZScore()) >= ReplicationService.ANOMALY_REPLICATION_Z
-                && draft.param1() != null) {
+        // Anomaly replication: only queue positive results — null results have no claim to verify.
+        // The council can also force replication for any paper asserting a CONTRADICTS citation,
+        // regardless of z-score, when app.research.replication-council.enabled is set.
+        boolean anomalyTrigger = Math.abs(draft.anomalyZScore()) >= ReplicationService.ANOMALY_REPLICATION_Z;
+        boolean councilTrigger = institutionService.councilWantsReplication(narration);
+        if (!isNullResult && (anomalyTrigger || councilTrigger) && draft.param1() != null) {
             int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
             if (topicIndex >= 0) {
                 replicationService.enqueue(new ReplicationService.ReplicationRequest(
                         draft.roomId(), draft.paperId(), draft.domain(), topicIndex,
                         draft.param1(), draft.param2(), draft.peerScore()));
-                log.info("university replication queued paperId={} z={}", draft.paperId(), draft.anomalyZScore());
+                institutionService.recordReplicationEnqueued(draft.roomId());
+                log.info("university replication queued paperId={} z={} trigger={}",
+                        draft.paperId(), draft.anomalyZScore(),
+                        councilTrigger && !anomalyTrigger ? "council" : "anomaly");
             }
         }
 
@@ -670,8 +676,10 @@ public class UniversityService {
         List<Researcher> poolForReplication = botLifecycleService.buildResearcherPool(bots, states);
         if (!poolForReplication.isEmpty()) {
             Random rng2 = new Random(gameTick * 7919L + roomId.getMostSignificantBits());
-            replicationService.processOne(roomId, poolForReplication, rng2,
-                    params.educationFactor());
+            if (replicationService.processOne(roomId, poolForReplication, rng2,
+                    params.educationFactor())) {
+                institutionService.recordReplicationCompleted(roomId);
+            }
         }
 
         // Dating pass with dynamic K and cooldown
