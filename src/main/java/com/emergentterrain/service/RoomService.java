@@ -113,18 +113,7 @@ public class RoomService {
     private final double botHeadingBias;
     private final int botPlanLength;
     private final int botReverseCooldownTicks;
-    private final boolean emergentHighwaysEnabled;
-    private final int highwayLongTripMinDistance;
-    private final double highwayTravelPressure;
-    private final double highwayExplorationPressure;
-    private final double highwayDecayPerMaintenance;
-    private final double highwayPromoteThreshold;
-    private final double highwayPreserveThreshold;
-    private final double highwayRemoveThreshold;
-    private final double highwayMaxCoverageRatio;
-    private final double highwayLocalDensityCap;
-    private final int highwayLocalDensityRadius;
-    private final double highwaySeedPressure;
+    private final HighwayEmergenceService highways;
     private final int flushMinChanges;
     private final long flushMaxIntervalMs;
     private final long flushOverdueLockTimeoutMs;
@@ -219,18 +208,7 @@ public class RoomService {
                        @Value("${app.bots.headingBias:0.18}") double botHeadingBias,
                        @Value("${app.bots.planLength:3}") int botPlanLength,
                        @Value("${app.bots.reverseCooldownTicks:2}") int botReverseCooldownTicks,
-                       @Value("${app.highways.emergent.enabled:true}") boolean emergentHighwaysEnabled,
-                       @Value("${app.highways.emergent.longTripMinDistance:12}") int highwayLongTripMinDistance,
-                       @Value("${app.highways.emergent.travelPressure:0.35}") double highwayTravelPressure,
-                       @Value("${app.highways.emergent.explorationPressure:0.08}") double highwayExplorationPressure,
-                       @Value("${app.highways.emergent.decayPerMaintenance:0.002}") double highwayDecayPerMaintenance,
-                       @Value("${app.highways.emergent.promoteThreshold:1.0}") double highwayPromoteThreshold,
-                       @Value("${app.highways.emergent.preserveThreshold:0.35}") double highwayPreserveThreshold,
-                       @Value("${app.highways.emergent.removeThreshold:0.12}") double highwayRemoveThreshold,
-                       @Value("${app.highways.emergent.maxCoverageRatio:0.08}") double highwayMaxCoverageRatio,
-                       @Value("${app.highways.emergent.localDensityCap:0.4}") double highwayLocalDensityCap,
-                       @Value("${app.highways.emergent.localDensityRadius:3}") int highwayLocalDensityRadius,
-                       @Value("${app.highways.emergent.seedPressure:0.65}") double highwaySeedPressure,
+                       HighwayEmergenceService highways,
                        @Value("${app.world.flushMinChanges:1}") int flushMinChanges,
                        @Value("${app.world.flushMaxIntervalMs:30000}") long flushMaxIntervalMs,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
@@ -300,18 +278,7 @@ public class RoomService {
         this.botHeadingBias = Math.max(0d, botHeadingBias);
         this.botPlanLength = Math.max(1, botPlanLength);
         this.botReverseCooldownTicks = Math.max(0, botReverseCooldownTicks);
-        this.emergentHighwaysEnabled = emergentHighwaysEnabled;
-        this.highwayLongTripMinDistance = Math.max(2, highwayLongTripMinDistance);
-        this.highwayTravelPressure = Math.max(0d, highwayTravelPressure);
-        this.highwayExplorationPressure = Math.max(0d, highwayExplorationPressure);
-        this.highwayDecayPerMaintenance = Math.max(0d, highwayDecayPerMaintenance);
-        this.highwayPromoteThreshold = Math.max(0.1d, highwayPromoteThreshold);
-        this.highwayPreserveThreshold = Math.max(0d, highwayPreserveThreshold);
-        this.highwayRemoveThreshold = Math.max(0d, Math.min(this.highwayPreserveThreshold, highwayRemoveThreshold));
-        this.highwayMaxCoverageRatio = Math.max(0.01d, Math.min(0.5d, highwayMaxCoverageRatio));
-        this.highwayLocalDensityCap = Math.max(0.05d, Math.min(1d, highwayLocalDensityCap));
-        this.highwayLocalDensityRadius = Math.max(1, highwayLocalDensityRadius);
-        this.highwaySeedPressure = Math.max(0d, highwaySeedPressure);
+        this.highways = highways;
         this.flushMinChanges = Math.max(1, flushMinChanges);
         this.flushMaxIntervalMs = Math.max(250, flushMaxIntervalMs);
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
@@ -394,7 +361,7 @@ public class RoomService {
         state.setRoom(room);
         state.setTilesJson(toJson(world.getTiles()));
         state.setHighwaysJson(toJson(world.getHighways()));
-        state.setRoadPressureJson(toJson(seedRoadPressure(world.getHighways())));
+        state.setRoadPressureJson(toJson(highways.seedRoadPressure(world.getHighways())));
         state.setSharedTokensJson(toJson(new SharedTokens(0, 0, 0)));
         state.setSharedQuestsJson(toJson(defaultSharedQuests()));
         state.setMemoryMarkersJson(toJson(new ArrayList<>()));
@@ -1012,52 +979,13 @@ public class RoomService {
     }
 
     private boolean evolveHighwaysFromDemand(Room room, RoomState state) {
-        if (!emergentHighwaysEnabled) {
-            return false;
-        }
         CachedRoomState cached = roomStateCache.get(room.getId());
-        if (cached == null || cached.tiles.length == 0 || cached.highways.length == 0 || cached.roadPressure.length == 0) {
+        if (cached == null) return false;
+        if (!highways.evolve(cached.tiles, cached.highways, cached.roadPressure)) {
             return false;
         }
-        int height = cached.tiles.length;
-        int width = cached.tiles[0].length;
-        boolean changed = false;
-        int maxHighways = Math.max(1, (int) Math.round(width * height * highwayMaxCoverageRatio));
-        int highwayCount = cached.tileHighwayCount;
-        for (int y = 0; y < height; y++) {
-            for (int x = 0; x < width; x++) {
-                cached.roadPressure[y][x] = Math.max(0d, cached.roadPressure[y][x] - highwayDecayPerMaintenance);
-                if (cached.highways[y][x] && cached.roadPressure[y][x] < highwayRemoveThreshold) {
-                    cached.highways[y][x] = false;
-                    highwayCount--;
-                    changed = true;
-                }
-            }
-        }
-        for (int y = 0; y < height && highwayCount < maxHighways; y++) {
-            for (int x = 0; x < width && highwayCount < maxHighways; x++) {
-                if (cached.highways[y][x]) {
-                    cached.roadPressure[y][x] = Math.max(cached.roadPressure[y][x], highwayPreserveThreshold);
-                    continue;
-                }
-                if (cached.tiles[y][x] == 2) {
-                    continue;
-                }
-                if (cached.roadPressure[y][x] < highwayPromoteThreshold) {
-                    continue;
-                }
-                if (localHighwayDensity(cached.highways, x, y, highwayLocalDensityRadius) >= highwayLocalDensityCap) {
-                    continue;
-                }
-                cached.highways[y][x] = true;
-                cached.roadPressure[y][x] = Math.max(cached.roadPressure[y][x], highwayPreserveThreshold);
-                highwayCount++;
-                changed = true;
-            }
-        }
-        if (!changed) {
-            return false;
-        }
+        // The pure evolve mutated tiles/highways/roadPressure in place; refresh the
+        // cache bookkeeping that lived alongside the inline algorithm before the carve.
         cached.previousStateHash = cached.stateHash;
         cached.stateHash = hashTiles(cached.tiles);
         TileCounts counts = computeTileCounts(cached.tiles, cached.highways);
@@ -1070,20 +998,6 @@ public class RoomService {
         cached.changesSinceFlush = (cached.changesSinceFlush == null ? 0 : cached.changesSinceFlush) + 1;
         cached.dirty = true;
         return true;
-    }
-
-    private double localHighwayDensity(boolean[][] highways, int cx, int cy, int radius) {
-        int total = 0;
-        int roads = 0;
-        for (int y = Math.max(0, cy - radius); y <= Math.min(highways.length - 1, cy + radius); y++) {
-            for (int x = Math.max(0, cx - radius); x <= Math.min(highways[0].length - 1, cx + radius); x++) {
-                total++;
-                if (highways[y][x]) {
-                    roads++;
-                }
-            }
-        }
-        return total == 0 ? 0d : roads / (double) total;
     }
 
     private void maybeBroadcast(Room room, RoomState state) {
@@ -3000,51 +2914,31 @@ public class RoomService {
         }
     }
 
-    private double[][] fromJsonRoadPressure(String json, boolean[][] highways, int height, int width) {
+    private double[][] fromJsonRoadPressure(String json, boolean[][] highwayMap, int height, int width) {
         if (height <= 0 || width <= 0) {
             return new double[0][0];
         }
         if (json == null || json.isBlank()) {
-            return seedRoadPressure(highways, height, width);
+            return highways.seedRoadPressure(highwayMap, height, width);
         }
         try {
             double[][] parsed = objectMapper.readValue(json, double[][].class);
             if (parsed.length != height || parsed.length == 0 || parsed[0].length != width) {
-                return seedRoadPressure(highways, height, width);
+                return highways.seedRoadPressure(highwayMap, height, width);
             }
             double[][] pressure = copyRoadPressure(parsed);
+            double seed = highways.seedPressure();
             for (int y = 0; y < height; y++) {
                 for (int x = 0; x < width; x++) {
-                    if (highways.length > 0 && highways[y][x]) {
-                        pressure[y][x] = Math.max(pressure[y][x], highwaySeedPressure);
+                    if (highwayMap.length > 0 && highwayMap[y][x]) {
+                        pressure[y][x] = Math.max(pressure[y][x], seed);
                     }
                 }
             }
             return pressure;
         } catch (Exception e) {
-            return seedRoadPressure(highways, height, width);
+            return highways.seedRoadPressure(highwayMap, height, width);
         }
-    }
-
-    private double[][] seedRoadPressure(boolean[][] highways) {
-        int height = highways == null ? 0 : highways.length;
-        int width = height == 0 || highways[0] == null ? 0 : highways[0].length;
-        return seedRoadPressure(highways, height, width);
-    }
-
-    private double[][] seedRoadPressure(boolean[][] highways, int height, int width) {
-        double[][] pressure = new double[height][width];
-        if (highways == null || highways.length == 0) {
-            return pressure;
-        }
-        for (int y = 0; y < Math.min(height, highways.length); y++) {
-            for (int x = 0; x < Math.min(width, highways[y].length); x++) {
-                if (highways[y][x]) {
-                    pressure[y][x] = highwaySeedPressure;
-                }
-            }
-        }
-        return pressure;
     }
 
     private void tickBots(Room room, RoomState state) {
@@ -3333,7 +3227,7 @@ public class RoomService {
 
     private void addRoadDemandForMove(CachedRoomState cached,
                                       int[][] tiles,
-                                      boolean[][] highways,
+                                      boolean[][] highwayMap,
                                       Map<String, Double> profile,
                                       int fromX,
                                       int fromY,
@@ -3341,27 +3235,16 @@ public class RoomService {
                                       int toY,
                                       int travelDistance,
                                       boolean relocating) {
-        if (!emergentHighwaysEnabled || cached == null || cached.roadPressure.length == 0) {
-            return;
-        }
-        if (!isInBounds(fromX, fromY, tiles) || !isInBounds(toX, toY, tiles)) {
-            return;
-        }
-        if (tiles[fromY][fromX] == 2 || tiles[toY][toX] == 2) {
-            return;
-        }
-        double mobility = profile.getOrDefault("mobility", 0.5d);
-        double pressure = 0d;
-        if (relocating && travelDistance >= highwayLongTripMinDistance) {
-            pressure = highwayTravelPressure * (1d + Math.min(1.5d, travelDistance / (double) highwayLongTripMinDistance));
-        } else if (mobility > 0.55d && travelDistance >= Math.max(2, botPlanLength)) {
-            pressure = highwayExplorationPressure * (0.5d + mobility);
-        }
-        if (pressure <= 0d) {
-            return;
-        }
-        cached.roadPressure[fromY][fromX] += pressure * ((highways.length > 0 && highways[fromY][fromX]) ? 0.65d : 1d);
-        cached.roadPressure[toY][toX] += pressure * ((highways.length > 0 && highways[toY][toX]) ? 0.8d : 1.2d);
+        if (cached == null || cached.roadPressure.length == 0) return;
+        if (!isInBounds(fromX, fromY, tiles) || !isInBounds(toX, toY, tiles)) return;
+        if (tiles[fromY][fromX] == 2 || tiles[toY][toX] == 2) return;
+        boolean fromIsHwy = highwayMap.length > 0 && highwayMap[fromY][fromX];
+        boolean toIsHwy   = highwayMap.length > 0 && highwayMap[toY][toX];
+        HighwayEmergenceService.MoveDeposit deposit = highways.computeMoveDeposit(
+                profile, travelDistance, relocating, botPlanLength, fromIsHwy, toIsHwy);
+        if (deposit.isZero()) return;
+        cached.roadPressure[fromY][fromX] += deposit.fromDeposit();
+        cached.roadPressure[toY][toX]     += deposit.toDeposit();
         cached.dirty = true;
     }
 

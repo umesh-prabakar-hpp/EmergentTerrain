@@ -126,9 +126,8 @@ Closes two explicit deferrals from Phase 1/2:
 
 Pre-Phase-3 refactor. The bulk remains deferred until Phase 3 Iter 6
 design crystallises (see [phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md)
-for the broader carve plan), but the one extraction the design doc
-called "almost certainly correct regardless of how Phase 3 design
-lands" has shipped:
+for the broader carve plan), but the two extractions the design doc
+ranked as lowest-risk have shipped:
 
 - ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
   dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
@@ -146,11 +145,31 @@ lands" has shipped:
   (8 tests covering deterministic assignment, distribution across all
   7 archetypes, target shape, prosperity-score L1 metric, prefers-type
   rules per archetype, contextual dislikes-type vetoes).
+- ✅ **`HighwayEmergenceService`** — pulled the emergent-highway
+  promotion / decay loop, the per-move pressure deposit, and the
+  pressure-seeding helper out of `RoomService` into
+  [HighwayEmergenceService.java](../src/main/java/com/emergentterrain/service/HighwayEmergenceService.java).
+  All twelve `app.highways.emergent.*` `@Value` tunables migrated to
+  the new service. The pure `evolve(int[][], boolean[][], double[][])`
+  mutates the highways and road-pressure arrays in place; `RoomService`'s
+  `evolveHighwaysFromDemand` is now a thin wrapper that delegates to
+  `evolve` and refreshes its own `CachedRoomState` bookkeeping
+  afterwards. `addRoadDemandForMove` delegates to
+  `highways.computeMoveDeposit(...)` and applies the returned `MoveDeposit`
+  to the cache. `seedRoadPressure` callsites all delegate too.
+  `RoomService` dropped a further 4,657 → 4,540 lines (−117). Pinned
+  by [HighwayEmergenceServiceTest.java](../src/test/java/com/emergentterrain/service/HighwayEmergenceServiceTest.java)
+  (13 tests covering pressure seeding, disabled-mode no-op, long-relocation
+  pressure, the 1.5× cap on travel-distance scaling, exploration pressure,
+  low-mobility no-op, endpoint multipliers, decay+removal, promotion above
+  threshold, water-tile skip, empty/null inputs, and the `seedPressure()`
+  getter).
 
 Still deferred (need Phase 3 Iter 6 design pressure to pick the right
-seams): `BotMovementService`, `HighwayEmergenceService`,
-`RoomStateOrchestrator`, `BotRoomLifecycleService`. Premature extraction
-of any of these would create the wrong abstractions.
+seams): `BotMovementService`, `RoomStateOrchestrator`,
+`BotRoomLifecycleService`. The `BotMovementService` carve in particular
+will likely require promoting `RoomService.CachedRoomState` to a
+top-level class — the same pattern this carve applied to `LocalStats`.
 
 ---
 
@@ -256,8 +275,9 @@ so existing rooms pick up the feature without a data migration.
 ## Service map
 
 After Phase 0 + four behavioural phases (plus Phase 4b and the first
-Phase 2.5 carve), the research package is 17 specialist services +
-1 archetype service in `com.emergentterrain.service` + 14 entities.
+two Phase 2.5 carves), the research package is 17 specialist services
++ 2 RoomService-derived services in `com.emergentterrain.service`
+(BotArchetypeBehaviorService, HighwayEmergenceService) + 14 entities.
 Refreshed against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
@@ -281,6 +301,7 @@ Refreshed against the working tree (post-`ab42534`):
 | PaperGraphService | 129 | citation queries + contradiction clusters |
 | ExpectationModelService | 126 | Welford priors + surprise scoring |
 | SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
+| HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
