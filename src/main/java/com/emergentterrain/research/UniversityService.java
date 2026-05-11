@@ -130,6 +130,7 @@ public class UniversityService {
             InstitutionService institutionService,
             EpistemicMarketService epistemicMarketService,
             KnowledgeBaseService knowledgeBaseService,
+            @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -152,6 +153,12 @@ public class UniversityService {
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
         this.researchCycleService.setExperimentPlannerService(experimentPlannerService);
+        // Phase 4b — enable adversarial-reviewer routing when the flag is set.
+        this.researchCycleService.setReviewerOrthogonalityEnabled(reviewerRoutingEnabled);
+        if (reviewerRoutingEnabled) {
+            log.info("UniversityService: reviewer-routing ENABLED — pickReviewer scores "
+                    + "by topic-weight orthogonality instead of random within-domain pick.");
+        }
         try {
             Files.createDirectories(this.researchOutputDir);
         } catch (IOException e) {

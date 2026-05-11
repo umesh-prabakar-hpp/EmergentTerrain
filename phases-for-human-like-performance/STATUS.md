@@ -208,6 +208,7 @@ app.research.institutions.enabled   # Phase 3 Iter 8 — universities/journals/f
 app.research.markets.enabled        # Phase 3 Iter 7 — reputation-staked markets
 app.research.findings.enabled       # Phase 4 Iter 9 — formal-finding persistence
 app.research.meta.enabled           # Phase 4 Iter 10 — self-observation stats
+app.research.reviewer-routing.enabled  # Phase 4b — adversarial reviewer picking
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -307,7 +308,10 @@ not their full behaviour:
 
 Per the phase doc's ordering (ascending risk):
 
-1. ~~Reviewer-orthogonality routing~~ (above)
+1. ✅ **Reviewer-orthogonality routing** — shipped (Phase 4b first commit).
+   `ResearchCycleService.pickReviewer` now picks the candidate with the
+   highest topic-weight orthogonality to the author instead of a random
+   same-domain pick, gated by `app.research.reviewer-routing.enabled`.
 2. **Funding allocation weighting** — `FundingAgency.GrantPolicy` already
    carries the three weights; reading `BotMetaStats.hallucinationRate`
    and `MethodMetaStats.meanLongTermStability` is the next step.

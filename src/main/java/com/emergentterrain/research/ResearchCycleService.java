@@ -68,6 +68,18 @@ public class ResearchCycleService {
         this.planner = planner;
     }
 
+    /**
+     * Phase 4b — when true, pickReviewer scores candidates by topic-weight
+     * orthogonality to the author and picks the most adversarial one rather
+     * than a random same-domain candidate. Wired by UniversityService from
+     * {@code app.research.reviewer-routing.enabled}.
+     */
+    private volatile boolean reviewerOrthogonalityEnabled = false;
+
+    public void setReviewerOrthogonalityEnabled(boolean enabled) {
+        this.reviewerOrthogonalityEnabled = enabled;
+    }
+
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
     public int draftQueueSize()                  { return draftQueueSize.get(); }
@@ -382,7 +394,66 @@ public class ResearchCycleService {
                 .filter(r -> r.getDomain().equals(author.getDomain()))
                 .collect(Collectors.toList());
         List<Researcher> pick = sameDomain.isEmpty() ? candidates : sameDomain;
+        // Phase 4b — when reviewer-routing is on, pick the reviewer whose
+        // research bias is most adversarial to the author. Maximises peer-
+        // review pressure (the phase doc's "highest adversarial pressure").
+        // Falls back to random pick on ties or when scores are inconclusive.
+        if (reviewerOrthogonalityEnabled && pick.size() > 1) {
+            Researcher mostOrthogonal = pickMostOrthogonal(author, pick);
+            if (mostOrthogonal != null) return mostOrthogonal;
+        }
         return pick.get(rng.nextInt(pick.size()));
+    }
+
+    /**
+     * Phase 4b helper — score each candidate by 1 - cosine_similarity of the
+     * author's and candidate's BotGenome.topicWeights vectors (the
+     * research-bias proxy from Phase 1 Iter 2's ResearchIdentity). Returns
+     * the candidate with the highest orthogonality, or null if no candidate
+     * has a non-zero score (e.g. all topic weights identical or zero).
+     */
+    static Researcher pickMostOrthogonal(Researcher author, List<Researcher> candidates) {
+        double[] authorWeights = topicWeightsOf(author);
+        if (authorWeights == null) return null;
+        Researcher best = null;
+        double bestScore = -1.0;
+        for (Researcher c : candidates) {
+            double[] cw = topicWeightsOf(c);
+            if (cw == null) continue;
+            double sim = cosineSimilarity(authorWeights, cw);
+            // NaN means at least one vector had zero norm — no signal.
+            if (Double.isNaN(sim)) continue;
+            double score = 1.0 - sim;
+            if (score > bestScore) {
+                bestScore = score;
+                best = c;
+            }
+        }
+        // Treat "all candidates identically aligned with author" as no preference.
+        return bestScore > 1e-6 ? best : null;
+    }
+
+    private static double[] topicWeightsOf(Researcher r) {
+        if (r == null || r.getState() == null) return null;
+        BotGenome g = r.getState().getGenome();
+        return g != null ? g.getTopicWeights() : null;
+    }
+
+    /**
+     * Cosine similarity in [0,1] for non-negative topic weights. Returns
+     * {@code NaN} when either vector has zero norm — caller should treat that
+     * as "no signal" rather than maximum orthogonality.
+     */
+    private static double cosineSimilarity(double[] a, double[] b) {
+        if (a == null || b == null || a.length == 0 || a.length != b.length) return Double.NaN;
+        double dot = 0, normA = 0, normB = 0;
+        for (int i = 0; i < a.length; i++) {
+            dot   += a[i] * b[i];
+            normA += a[i] * a[i];
+            normB += b[i] * b[i];
+        }
+        if (normA <= 0 || normB <= 0) return Double.NaN;
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
     // ---- Dynamic paper naming helpers ----

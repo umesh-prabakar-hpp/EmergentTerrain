@@ -195,6 +195,7 @@ class MathPhysicsEngineTest {
                         botRepo, mapper),
                 new KnowledgeBaseService(false,
                         mock(com.emergentterrain.repo.FormalFindingRepository.class)),
+                /* reviewerRoutingEnabled = */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

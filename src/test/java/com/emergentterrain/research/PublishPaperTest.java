@@ -71,6 +71,7 @@ class PublishPaperTest {
                         botRepo, mapper),
                 new KnowledgeBaseService(false,
                         mock(com.emergentterrain.repo.FormalFindingRepository.class)),
+                /* reviewerRoutingEnabled = */ false,
                 mapper);
         roomId = UUID.randomUUID();
     }
