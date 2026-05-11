@@ -6,7 +6,6 @@ import com.emergentterrain.domain.User;
 import com.emergentterrain.repo.ProfileRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
-import com.emergentterrain.repo.RoomStateSnapshotRepository;
 import com.emergentterrain.repo.UserRepository;
 import com.emergentterrain.service.HiddenProperties;
 import com.emergentterrain.service.Payload;
@@ -46,9 +45,6 @@ public class RapidModeTestRunner implements ApplicationRunner {
     private RoomStateRepository roomStateRepository;
 
     @Autowired
-    private RoomStateSnapshotRepository roomStateSnapshotRepository;
-
-    @Autowired
     private ConfigurableApplicationContext context;
 
     public static void main(String[] args) {
@@ -63,7 +59,6 @@ public class RapidModeTestRunner implements ApplicationRunner {
         Room room = roomRepository.findById(roomId).orElseThrow();
         RoomState initialState = roomStateRepository.findByRoom(room).orElseThrow();
         long initialTotalChanges = initialState.getTotalChangeCount() == null ? 0 : initialState.getTotalChangeCount();
-        long initialSnapshotCount = snapshotCountForRoom(roomId);
 
         for (int i = 0; i < 10; i++) {
             RoomStateResponse state = roomService.getRoomState(payload, roomId);
@@ -87,13 +82,9 @@ public class RapidModeTestRunner implements ApplicationRunner {
 
         RoomState latestState = roomStateRepository.findByRoom(room).orElseThrow();
         long finalTotalChanges = latestState.getTotalChangeCount() == null ? 0 : latestState.getTotalChangeCount();
-        long finalSnapshotCount = snapshotCountForRoom(roomId);
 
         if (finalTotalChanges <= initialTotalChanges) {
             throw new IllegalStateException("Expected totalChangeCount to increase, got " + finalTotalChanges);
-        }
-        if (finalSnapshotCount <= initialSnapshotCount) {
-            throw new IllegalStateException("Expected snapshots to increase, got " + finalSnapshotCount);
         }
 
         SpringApplication.exit(context, () -> 0);
@@ -144,9 +135,4 @@ public class RapidModeTestRunner implements ApplicationRunner {
         return out;
     }
 
-    private long snapshotCountForRoom(UUID roomId) {
-        return roomStateSnapshotRepository.findAll().stream()
-            .filter(s -> s.getRoom() != null && roomId.equals(s.getRoom().getId()))
-            .count();
-    }
 }

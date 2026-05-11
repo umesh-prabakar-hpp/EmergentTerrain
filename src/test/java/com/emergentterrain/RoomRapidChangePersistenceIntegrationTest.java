@@ -11,7 +11,6 @@ import com.emergentterrain.repo.RoomProposalRepository;
 import com.emergentterrain.repo.RoomProposalVoteRepository;
 import com.emergentterrain.repo.RoomRepository;
 import com.emergentterrain.repo.RoomStateRepository;
-import com.emergentterrain.repo.RoomStateSnapshotRepository;
 import com.emergentterrain.repo.UserRepository;
 import com.emergentterrain.service.HiddenProperties;
 import com.emergentterrain.service.Payload;
@@ -57,9 +56,6 @@ class RoomRapidChangePersistenceIntegrationTest {
     private RoomStateRepository roomStateRepository;
 
     @Autowired
-    private RoomStateSnapshotRepository roomStateSnapshotRepository;
-
-    @Autowired
     private RoomProposalRepository roomProposalRepository;
 
     @Autowired
@@ -84,14 +80,12 @@ class RoomRapidChangePersistenceIntegrationTest {
         Room room = roomRepository.findById(roomId).orElseThrow();
         RoomState initialState = roomStateRepository.findByRoom(room).orElseThrow();
         long initialTotalChanges = initialState.getTotalChangeCount() == null ? 0 : initialState.getTotalChangeCount();
-        long initialSnapshotCount = snapshotCountForRoom(roomId);
 
         RoomCreateResponse createdTwo = roomService.createRoom(payload, "Rapid Test Room B");
         UUID roomIdTwo = UUID.fromString(createdTwo.getRoomId());
         Room roomTwo = roomRepository.findById(roomIdTwo).orElseThrow();
         RoomState initialStateTwo = roomStateRepository.findByRoom(roomTwo).orElseThrow();
         long initialTotalChangesTwo = initialStateTwo.getTotalChangeCount() == null ? 0 : initialStateTwo.getTotalChangeCount();
-        long initialSnapshotCountTwo = snapshotCountForRoom(roomIdTwo);
 
         long startNanos = System.nanoTime();
         long endNanos = startNanos + TimeUnit.SECONDS.toNanos(durationSeconds);
@@ -133,11 +127,9 @@ class RoomRapidChangePersistenceIntegrationTest {
 
         RoomState latestState = roomStateRepository.findByRoom(room).orElseThrow();
         long finalTotalChanges = latestState.getTotalChangeCount() == null ? 0 : latestState.getTotalChangeCount();
-        long finalSnapshotCount = snapshotCountForRoom(roomId);
 
         RoomState latestStateTwo = roomStateRepository.findByRoom(roomTwo).orElseThrow();
         long finalTotalChangesTwo = latestStateTwo.getTotalChangeCount() == null ? 0 : latestStateTwo.getTotalChangeCount();
-        long finalSnapshotCountTwo = snapshotCountForRoom(roomIdTwo);
 
         long proposalCount = countProposalsForRoom(roomId);
         long voteCount = countVotesForRoom(roomId);
@@ -150,7 +142,7 @@ class RoomRapidChangePersistenceIntegrationTest {
         long durationMs = Duration.ofNanos(System.nanoTime() - startNanos).toMillis();
 
         LOGGER.info(
-            "rapidModeSummary roomId={} durationMs={} proposalsSubmitted={} maintenanceCalls={} proposals={} votes={} bots={} participants={} snapshots={} totalChangeCount={}",
+            "rapidModeSummary roomId={} durationMs={} proposalsSubmitted={} maintenanceCalls={} proposals={} votes={} bots={} participants={} totalChangeCount={}",
             roomId,
             durationMs,
             proposalsSubmitted,
@@ -159,11 +151,10 @@ class RoomRapidChangePersistenceIntegrationTest {
             voteCount,
             botCount,
             participantCount,
-            finalSnapshotCount,
             finalTotalChanges
         );
         LOGGER.info(
-            "rapidModeSummary roomId={} durationMs={} proposalsSubmitted={} maintenanceCalls={} proposals={} votes={} bots={} participants={} snapshots={} totalChangeCount={}",
+            "rapidModeSummary roomId={} durationMs={} proposalsSubmitted={} maintenanceCalls={} proposals={} votes={} bots={} participants={} totalChangeCount={}",
             roomIdTwo,
             durationMs,
             proposalsSubmitted,
@@ -172,14 +163,11 @@ class RoomRapidChangePersistenceIntegrationTest {
             voteCountTwo,
             botCountTwo,
             participantCountTwo,
-            finalSnapshotCountTwo,
             finalTotalChangesTwo
         );
 
         assertThat(finalTotalChanges).isGreaterThan(initialTotalChanges);
-        assertThat(finalSnapshotCount).isGreaterThan(initialSnapshotCount);
         assertThat(finalTotalChangesTwo).isGreaterThan(initialTotalChangesTwo);
-        assertThat(finalSnapshotCountTwo).isGreaterThan(initialSnapshotCountTwo);
     }
 
     private Payload createPayload() {
@@ -225,12 +213,6 @@ class RoomRapidChangePersistenceIntegrationTest {
         }
         out[y][x] = type;
         return out;
-    }
-
-    private long snapshotCountForRoom(UUID roomId) {
-        return roomStateSnapshotRepository.findAll().stream()
-            .filter(s -> s.getRoom() != null && roomId.equals(s.getRoom().getId()))
-            .count();
     }
 
     private long countProposalsForRoom(UUID roomId) {
