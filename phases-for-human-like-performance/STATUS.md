@@ -122,12 +122,15 @@ Closes two explicit deferrals from Phase 1/2:
 
 ---
 
-### Phase 2.5 — RoomService refactor ⏳ partially shipped
+### Phase 2.5 — RoomService refactor ⏳ in progress
 
-Pre-Phase-3 refactor. The bulk remains deferred until Phase 3 Iter 6
-design crystallises (see [phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md)
-for the broader carve plan), but the two extractions the design doc
-ranked as lowest-risk have shipped:
+Pre-Phase-3 refactor. All five extractions originally enumerated by the
+design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
+have now shipped, plus a dead-audit-code deletion that preceded the
+RoomStateOrchestrator carve. RoomService is down 4,746 → 3,946 lines
+(−800, −17%) cumulatively. A second wave of extractions has been
+identified beyond the original plan — see "Next planned carves" at the
+end of this section.
 
 - ✅ **`BotArchetypeBehaviorService`** — pulled the seven-archetype
   dispatch (`STEWARD` … `NEIGHBOR_MIRROR`) plus its prosperity-score,
@@ -269,15 +272,44 @@ require either dragging the helpers' 4–6 cross-cutting callsites along
 or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
 
-Beyond the original Phase 2.5 plan, three more concerns are now visible
-as natural future seams: a `RoomProposalService` (~860 lines: the
-proposal/vote/evaluate/apply pipeline + bot-vote logic + validation),
-a `BotSimulationGpuService` (~400 lines: GPU integration + bot motion
-codecs), and `OccupancyService` / `TileValidatorService` (~150 each:
-the smaller cohesive groups). The proposal pipeline in particular is
-larger than anything Phase 2.5 originally enumerated — Phase 2.5 was
-scoped before Phase 3's institution work surfaced how many distinct
-concerns RoomService was carrying.
+**Next planned carves (in order, picked 2026-05-11 after the
+MapIndexService landing):**
+
+1. **`TileValidatorService`** — pure game-rule predicates:
+   `violatesCommunityRules`, `hasAccessConnectivity`, `floodAccess`,
+   `isAccessTile`, `isRapidOscillation`. ~150 lines, no deps. Lowest
+   risk; restarts the carve cadence with a clean win.
+2. **`OccupancyService`** — `canOccupy` + occupancy snapshot helpers
+   (`refreshOccupancySnapshot`, `getCachedOccupancy`,
+   `buildOccupancySnapshot`, `readOccupancyJson`) + viewport math
+   (`computeViewBounds`, `inView`, `withinRadius`). ~150 lines. Once
+   shipped, `assignBotSpawn` (which only needs `canOccupy`) becomes
+   trivially movable into `BotMovementService`.
+3. **`BotSimulationGpuService`** — `trySimulateBotsWithGpu`,
+   `buildGpuBotParams`, `applyGpuBotProfile` (×2), `nudgedWeight`,
+   `collectGpuTileDiffs`, `applyTileEditsToCache`,
+   `applyGpuEditsToCachedState`, `gpuWorldCache`, plus the
+   `BotMotionState` GPU codecs (`encodeBotMotionStateBytes`,
+   `decodeBotMotionStateBytes`). ~400 lines. Clean tech boundary.
+4. **`RoomProposalService`** — the proposal/vote/evaluate/apply
+   pipeline + bot-vote logic + validation + neighbor finding. ~860
+   lines — by far the biggest single concern remaining, larger than
+   anything Phase 2.5 originally enumerated. Phase 2.5 was scoped
+   before Phase 3's institution work surfaced how many distinct
+   concerns RoomService was carrying. Saved for last so RoomService
+   is at its smallest going in. Multi-session scope; HTTP entry points
+   touched.
+
+Two carves explicitly *not* on the next-up list:
+- **`BotRoomLifecycleService`** (the design doc's last enumerated
+  extraction) — at ~150 lines after the prior carves, it's small
+  enough to fold into `BotMovementService` (where `assignBotSpawn`
+  already wants to live) once `OccupancyService` ships its
+  `canOccupy` callable.
+- **Room-membership / lifecycle CRUD** (`createRoom`, `joinRoom`,
+  `ensureDefaultRoom`, `populateRoomForPerf`, etc.) — mostly HTTP
+  plumbing rather than gameplay logic; not the highest-value next
+  step.
 
 ---
 
