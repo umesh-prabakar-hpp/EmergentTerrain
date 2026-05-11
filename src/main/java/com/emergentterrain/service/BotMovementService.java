@@ -140,6 +140,84 @@ public class BotMovementService {
         motion.recordMove(fromX, fromY, toX, toY, reverseCooldownTicks);
     }
 
+    /**
+     * Pick a relocation target tile for a bot whose current viewport no longer
+     * fits its profile. Two-stage search: first scan the coarse cells produced
+     * by {@link MapIndexService#getCachedMap} for the cell whose tile-share
+     * mix best matches the profile (with a small distance bias toward the
+     * current position), then refine with a tile-by-tile sweep within the
+     * coarse cell's viewport using the integral maps for O(1) window sums.
+     *
+     * Returns {@code [bestX, bestY]}; never null. When the bot is already at
+     * the optimum (or no candidate beats the starting position), the bot's
+     * current position is returned, which {@link #stepTowardTarget} treats
+     * as a no-op.
+     */
+    public int[] findBestProfileTarget(int currentX,
+                                        int currentY,
+                                        int[][] tiles,
+                                        Map<String, Double> profile,
+                                        CachedMap cached,
+                                        MapIndexService mapIndex) {
+        double tForest   = profile.getOrDefault("forest",   0.25);
+        double tWater    = profile.getOrDefault("water",    0.15);
+        double tClear    = profile.getOrDefault("clear",    0.35);
+        double tIndustry = profile.getOrDefault("industry", 0.15);
+        double tRoad     = 0.02 + profile.getOrDefault("mobility", 0.5) * 0.15;
+        int h = tiles.length;
+        int w = tiles[0].length;
+        double bestScore = Double.MAX_VALUE;
+        int bestX = currentX;
+        int bestY = currentY;
+        for (CoarseCell cell : cached.cells) {
+            double score = Math.abs(cell.forest   - tForest)
+                         + Math.abs(cell.water    - tWater)
+                         + Math.abs(cell.clear    - tClear)
+                         + Math.abs(cell.industry - tIndustry)
+                         + Math.abs(cell.road     - tRoad);
+            int dist = Math.abs(cell.x - currentX) + Math.abs(cell.y - currentY);
+            score += dist * 0.001;
+            if (score < bestScore) {
+                bestScore = score;
+                bestX = cell.x;
+                bestY = cell.y;
+            }
+        }
+        int refine = Math.max(4, cached.step);
+        int viewW = cached.viewW;
+        int viewH = cached.viewH;
+        for (int y = Math.max(0, bestY - refine); y <= Math.min(h - 1, bestY + refine); y++) {
+            for (int x = Math.max(0, bestX - refine); x <= Math.min(w - 1, bestX + refine); x++) {
+                int viewX = Math.max(0, Math.min(w - viewW, x - viewW / 2));
+                int viewY = Math.max(0, Math.min(h - viewH, y - viewH / 2));
+                int x0 = viewX;
+                int y0 = viewY;
+                int x1 = viewX + viewW;
+                int y1 = viewY + viewH;
+                int total = viewW * viewH;
+                if (total == 0) continue;
+                double forest   = mapIndex.rectSum(cached.integrals.forest,   x0, y0, x1, y1) / (double) total;
+                double water    = mapIndex.rectSum(cached.integrals.water,    x0, y0, x1, y1) / (double) total;
+                double clear    = mapIndex.rectSum(cached.integrals.clear,    x0, y0, x1, y1) / (double) total;
+                double industry = mapIndex.rectSum(cached.integrals.industry, x0, y0, x1, y1) / (double) total;
+                double road     = mapIndex.rectSum(cached.integrals.road,     x0, y0, x1, y1) / (double) total;
+                double score = Math.abs(forest   - tForest)
+                             + Math.abs(water    - tWater)
+                             + Math.abs(clear    - tClear)
+                             + Math.abs(industry - tIndustry)
+                             + Math.abs(road     - tRoad);
+                int dist = Math.abs(x - currentX) + Math.abs(y - currentY);
+                score += dist * 0.001;
+                if (score < bestScore) {
+                    bestScore = score;
+                    bestX = x;
+                    bestY = y;
+                }
+            }
+        }
+        return new int[] { bestX, bestY };
+    }
+
     // ---- internals ----
 
     private List<int[]> planPath(int startX,

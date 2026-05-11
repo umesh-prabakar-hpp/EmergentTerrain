@@ -110,6 +110,7 @@ public class RoomService {
     private final int maxBotsTickedPerMaintenance;
     private final BotMovementService movement;
     private final HighwayEmergenceService highways;
+    private final MapIndexService mapIndex;
     private final RoomStateOrchestrator orchestrator;
     private final long flushOverdueLockTimeoutMs;
     private final long broadcastMinIntervalMs;
@@ -126,7 +127,6 @@ public class RoomService {
     private final ConcurrentHashMap<UUID, ReentrantLock> botLocks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, ReentrantLock> proposalLocks = new ConcurrentHashMap<>();
     private final ReentrantLock proposalTableLock = new ReentrantLock();
-    private final ConcurrentHashMap<UUID, CachedMap> mapCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, CachedRoomState> roomStateCache = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, GpuWorldCache> gpuWorldCache = new ConcurrentHashMap<>();
     private final AtomicInteger maintenanceCursor = new AtomicInteger();
@@ -200,6 +200,7 @@ public class RoomService {
                        @Value("${app.bots.maxTickPerMaintenance:0}") int maxBotsTickedPerMaintenance,
                        BotMovementService movement,
                        HighwayEmergenceService highways,
+                       MapIndexService mapIndex,
                        RoomStateOrchestrator orchestrator,
                        @Value("${app.world.flushOverdueLockTimeoutMs:10}") long flushOverdueLockTimeoutMs,
                        @Value("${app.consensus.broadcastMinIntervalMs:0}") long broadcastMinIntervalMs,
@@ -265,6 +266,7 @@ public class RoomService {
         this.maxBotsTickedPerMaintenance = Math.max(0, maxBotsTickedPerMaintenance);
         this.movement = movement;
         this.highways = highways;
+        this.mapIndex = mapIndex;
         this.orchestrator = orchestrator;
         this.flushOverdueLockTimeoutMs = Math.max(1, flushOverdueLockTimeoutMs);
         this.broadcastMinIntervalMs = Math.max(0, broadcastMinIntervalMs);
@@ -2406,91 +2408,11 @@ public class RoomService {
         }
     }
 
-    private static class IntegralMaps {
-        final int[][] forest;
-        final int[][] water;
-        final int[][] clear;
-        final int[][] industry;
-        final int[][] road;
-
-        IntegralMaps(int[][] forest, int[][] water, int[][] clear, int[][] industry, int[][] road) {
-            this.forest = forest;
-            this.water = water;
-            this.clear = clear;
-            this.industry = industry;
-            this.road = road;
-        }
-    }
-
-    private IntegralMaps buildIntegrals(int[][] tiles, boolean[][] highways) {
-        int h = tiles.length;
-        int w = tiles[0].length;
-        int[][] forest = new int[h + 1][w + 1];
-        int[][] water = new int[h + 1][w + 1];
-        int[][] clear = new int[h + 1][w + 1];
-        int[][] industry = new int[h + 1][w + 1];
-        int[][] road = new int[h + 1][w + 1];
-        for (int y = 1; y <= h; y++) {
-            for (int x = 1; x <= w; x++) {
-                int v = tiles[y - 1][x - 1];
-                int f = (v == 1) ? 1 : 0;
-                int wa = (v == 2) ? 1 : 0;
-                int c = (v == 0) ? 1 : 0;
-                int i = (v == 3) ? 1 : 0;
-                int r = ((highways.length > 0 && highways[y - 1][x - 1]) || v == 4) ? 1 : 0;
-                forest[y][x] = forest[y - 1][x] + forest[y][x - 1] - forest[y - 1][x - 1] + f;
-                water[y][x] = water[y - 1][x] + water[y][x - 1] - water[y - 1][x - 1] + wa;
-                clear[y][x] = clear[y - 1][x] + clear[y][x - 1] - clear[y - 1][x - 1] + c;
-                industry[y][x] = industry[y - 1][x] + industry[y][x - 1] - industry[y - 1][x - 1] + i;
-                road[y][x] = road[y - 1][x] + road[y][x - 1] - road[y - 1][x - 1] + r;
-            }
-        }
-        return new IntegralMaps(forest, water, clear, industry, road);
-    }
-
-    private int rectSum(int[][] integral, int x0, int y0, int x1, int y1) {
-        return integral[y1][x1] - integral[y0][x1] - integral[y1][x0] + integral[y0][x0];
-    }
-
-    private CachedMap getCachedMap(Room room, RoomState state, int[][] tiles, boolean[][] highways) {
-        String key = hashTiles(tiles) + "|" + Arrays.deepHashCode(highways);
-        CachedMap cached = mapCache.get(room.getId());
-        if (cached != null && key.equals(cached.key)) {
-            return cached;
-        }
-        CachedMap built = buildCachedMap(tiles, highways, key);
-        mapCache.put(room.getId(), built);
-        return built;
-    }
-
-    private CachedMap buildCachedMap(int[][] tiles, boolean[][] highways, String key) {
-        int h = tiles.length;
-        int w = tiles[0].length;
-        IntegralMaps integrals = buildIntegrals(tiles, highways);
-        int viewW = Math.min(w, VISIBLE_WIDTH);
-        int viewH = Math.min(h, VISIBLE_HEIGHT);
-        int step = Math.max(4, Math.min(12, Math.min(w, h) / 12));
-        List<CoarseCell> cells = new ArrayList<>();
-        for (int y = 0; y < h; y += step) {
-            for (int x = 0; x < w; x += step) {
-                int viewX = Math.max(0, Math.min(w - viewW, x - viewW / 2));
-                int viewY = Math.max(0, Math.min(h - viewH, y - viewH / 2));
-                int x0 = viewX;
-                int y0 = viewY;
-                int x1 = viewX + viewW;
-                int y1 = viewY + viewH;
-                int total = viewW * viewH;
-                if (total == 0) continue;
-                double forest = rectSum(integrals.forest, x0, y0, x1, y1) / (double) total;
-                double water = rectSum(integrals.water, x0, y0, x1, y1) / (double) total;
-                double clear = rectSum(integrals.clear, x0, y0, x1, y1) / (double) total;
-                double industry = rectSum(integrals.industry, x0, y0, x1, y1) / (double) total;
-                double road = rectSum(integrals.road, x0, y0, x1, y1) / (double) total;
-                cells.add(new CoarseCell(x, y, forest, water, clear, industry, road));
-            }
-        }
-        return new CachedMap(key, integrals, cells, viewW, viewH, step);
-    }
+    // Phase 2.5 carve: IntegralMaps, CoarseCell, CachedMap promoted to top-level
+    // package-private classes; buildIntegrals, rectSum, getCachedMap, buildCachedMap
+    // moved to MapIndexService. tickBots above calls mapIndex.getCachedMap(...) and
+    // movement.findBestProfileTarget(...) instead of the inline versions that used
+    // to live here.
 
     private CachedRoomState getCachedRoomState(Room room, RoomState state) {
         CachedRoomState cached = roomStateCache.get(room.getId());
@@ -2606,44 +2528,6 @@ public class RoomService {
         return new TileCounts(clear, forest, water, industry, road);
     }
 
-    private static class CoarseCell {
-        final int x;
-        final int y;
-        final double forest;
-        final double water;
-        final double clear;
-        final double industry;
-        final double road;
-
-        CoarseCell(int x, int y, double forest, double water, double clear, double industry, double road) {
-            this.x = x;
-            this.y = y;
-            this.forest = forest;
-            this.water = water;
-            this.clear = clear;
-            this.industry = industry;
-            this.road = road;
-        }
-    }
-
-    private static class CachedMap {
-        final String key;
-        final IntegralMaps integrals;
-        final List<CoarseCell> cells;
-        final int viewW;
-        final int viewH;
-        final int step;
-
-        CachedMap(String key, IntegralMaps integrals, List<CoarseCell> cells, int viewW, int viewH, int step) {
-            this.key = key;
-            this.integrals = integrals;
-            this.cells = cells;
-            this.viewW = viewW;
-            this.viewH = viewH;
-            this.step = step;
-        }
-    }
-
     private static class ProposalApplyResult {
         final int[][] tiles;
         final boolean[][] highways;
@@ -2662,68 +2546,9 @@ public class RoomService {
     // without depending on a RoomService inner class. See OccupantSnapshot.java,
     // CachedRoomState.java, TileCounts.java in this package.
 
-    private int[] findBestProfileLocation(RoomBot bot, int[][] tiles, boolean[][] highways, CachedMap cached) {
-        Map<String, Double> profile = readBotProfile(bot);
-        double tForest = profile.getOrDefault("forest", 0.25);
-        double tWater = profile.getOrDefault("water", 0.15);
-        double tClear = profile.getOrDefault("clear", 0.35);
-        double tIndustry = profile.getOrDefault("industry", 0.15);
-        double tRoad = 0.02 + profile.getOrDefault("mobility", 0.5) * 0.15;
-        int h = tiles.length;
-        int w = tiles[0].length;
-        double bestScore = Double.MAX_VALUE;
-        int bestX = bot.getX();
-        int bestY = bot.getY();
-        for (CoarseCell cell : cached.cells) {
-            double score =
-                Math.abs(cell.forest - tForest) +
-                Math.abs(cell.water - tWater) +
-                Math.abs(cell.clear - tClear) +
-                Math.abs(cell.industry - tIndustry) +
-                Math.abs(cell.road - tRoad);
-            int dist = Math.abs(cell.x - bot.getX()) + Math.abs(cell.y - bot.getY());
-            score += dist * 0.001;
-            if (score < bestScore) {
-                bestScore = score;
-                bestX = cell.x;
-                bestY = cell.y;
-            }
-        }
-        int refine = Math.max(4, cached.step);
-        int viewW = cached.viewW;
-        int viewH = cached.viewH;
-        for (int y = Math.max(0, bestY - refine); y <= Math.min(h - 1, bestY + refine); y++) {
-            for (int x = Math.max(0, bestX - refine); x <= Math.min(w - 1, bestX + refine); x++) {
-                int viewX = Math.max(0, Math.min(w - viewW, x - viewW / 2));
-                int viewY = Math.max(0, Math.min(h - viewH, y - viewH / 2));
-                int x0 = viewX;
-                int y0 = viewY;
-                int x1 = viewX + viewW;
-                int y1 = viewY + viewH;
-                int total = viewW * viewH;
-                if (total == 0) continue;
-                double forest = rectSum(cached.integrals.forest, x0, y0, x1, y1) / (double) total;
-                double water = rectSum(cached.integrals.water, x0, y0, x1, y1) / (double) total;
-                double clear = rectSum(cached.integrals.clear, x0, y0, x1, y1) / (double) total;
-                double industry = rectSum(cached.integrals.industry, x0, y0, x1, y1) / (double) total;
-                double road = rectSum(cached.integrals.road, x0, y0, x1, y1) / (double) total;
-                double score =
-                    Math.abs(forest - tForest) +
-                    Math.abs(water - tWater) +
-                    Math.abs(clear - tClear) +
-                    Math.abs(industry - tIndustry) +
-                    Math.abs(road - tRoad);
-                int dist = Math.abs(x - bot.getX()) + Math.abs(y - bot.getY());
-                score += dist * 0.001;
-                if (score < bestScore) {
-                    bestScore = score;
-                    bestX = x;
-                    bestY = y;
-                }
-            }
-        }
-        return new int[] { bestX, bestY };
-    }
+    // Phase 2.5 carve: findBestProfileLocation moved to BotMovementService as
+    // findBestProfileTarget(currentX, currentY, tiles, profile, cached, mapIndex).
+    // Caller in tickBots above invokes the new signature.
 
     private boolean[][] fromJsonHighways(String json) {
         if (json == null || json.isBlank()) {
@@ -2773,7 +2598,7 @@ public class RoomService {
             CachedRoomState cachedState = getCachedRoomState(room, state);
             int[][] tiles = cachedState.tiles;
             boolean[][] highways = cachedState.highways;
-            CachedMap cached = getCachedMap(room, state, tiles, highways);
+            CachedMap cached = mapIndex.getCachedMap(room, tiles, highways);
             List<RoomProposal> recentProposals = proposalRepository.findTop10ByRoomOrderByCreatedAtDesc(room);
             List<RoomBot> moved = new ArrayList<>();
             List<RoomBot> bots = new ArrayList<>(botRepository.findByRoom(room));
@@ -2793,7 +2618,8 @@ public class RoomService {
                     continue;
                 }
                 if (shouldRelocate(bot, room, tiles, highways, recentProposals)) {
-                    int[] bestTarget = findBestProfileLocation(bot, tiles, highways, cached);
+                    int[] bestTarget = movement.findBestProfileTarget(
+                            bot.getX(), bot.getY(), tiles, profile, cached, mapIndex);
                     int travelDistance = bestTarget == null ? 0 : Math.abs(bestTarget[0] - bot.getX()) + Math.abs(bestTarget[1] - bot.getY());
                     int[] step = movement.stepTowardTarget(bot, tiles, highways, motion, profile, bestTarget);
                     if (step != null && canOccupy(room, step[0], step[1], bot.getId().toString())) {

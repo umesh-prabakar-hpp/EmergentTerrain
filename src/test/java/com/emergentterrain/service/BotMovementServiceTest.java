@@ -203,6 +203,62 @@ class BotMovementServiceTest {
         assertThat(motion.reverseCooldownTicks).isZero();
     }
 
+    // ---- findBestProfileTarget ----
+
+    @Test
+    void findBestProfileTargetPicksClearRegionForClearLovingProfile() {
+        BotMovementService svc = defaults();
+        // 60×60 grid: top half all clear (type 0), bottom half all forest (type 1).
+        // Board must be larger than the 48×36 viewport so different anchor positions
+        // produce genuinely different windowed averages — otherwise every coarse cell
+        // sees the same view of the world and the algorithm degrades to a distance
+        // tiebreak.
+        int size = 60;
+        int[][] tiles = new int[size][size];
+        for (int y = size / 2; y < size; y++) {
+            for (int x = 0; x < size; x++) tiles[y][x] = 1;
+        }
+        boolean[][] highways = new boolean[size][size];
+        MapIndexService mapIndex = new MapIndexService(
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules());
+        com.emergentterrain.domain.Room room = mock(com.emergentterrain.domain.Room.class);
+        when(room.getId()).thenReturn(java.util.UUID.randomUUID());
+        CachedMap cached = mapIndex.getCachedMap(room, tiles, highways);
+        // Bot starts deep in the forest half; profile prefers clear tiles strongly.
+        Map<String, Double> clearLover = Map.of(
+                "forest",   0.0,
+                "water",    0.0,
+                "clear",    1.0,
+                "industry", 0.0,
+                "mobility", 0.0);
+
+        int[] target = svc.findBestProfileTarget(size / 2, size - 5, tiles, clearLover, cached, mapIndex);
+
+        assertThat(target).isNotNull();
+        assertThat(target.length).isEqualTo(2);
+        // Target should be in the upper (clear) half of the board.
+        assertThat(target[1]).isLessThan(size / 2);
+    }
+
+    @Test
+    void findBestProfileTargetPrefersLessTravelWhenScoresTie() {
+        BotMovementService svc = defaults();
+        // Uniformly clear board: every cell scores identically against any profile.
+        // The 0.001 × manhattan distance bias should pull the result toward the bot.
+        int[][] tiles = new int[20][20];
+        boolean[][] highways = new boolean[20][20];
+        MapIndexService mapIndex = new MapIndexService(
+                new com.fasterxml.jackson.databind.ObjectMapper().findAndRegisterModules());
+        com.emergentterrain.domain.Room room = mock(com.emergentterrain.domain.Room.class);
+        when(room.getId()).thenReturn(java.util.UUID.randomUUID());
+        CachedMap cached = mapIndex.getCachedMap(room, tiles, highways);
+
+        int[] target = svc.findBestProfileTarget(10, 10, tiles, Map.of(), cached, mapIndex);
+
+        // The current position (10, 10) wins on the distance tiebreak.
+        assertThat(target).containsExactly(10, 10);
+    }
+
     @Test
     void reversePenaltyDiscouragesBackingIntoLastTile() {
         BotMovementService svc = defaults();

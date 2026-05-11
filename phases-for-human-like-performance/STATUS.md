@@ -229,11 +229,36 @@ ranked as lowest-risk have shipped:
   is null, the overdue-overrides-min-changes branch, tunable
   accessors, and the constructor floor clamps).
 
+- ✅ **`MapIndexService`** — extracted the per-room coarse-grid
+  spatial index used for bot relocation targeting into
+  [MapIndexService.java](../src/main/java/com/emergentterrain/service/MapIndexService.java).
+  `getCachedMap(Room, int[][], boolean[][])` returns a {@code CachedMap}
+  with content-hashed reuse (rebuilds when (tiles, highways) change),
+  built from {@code IntegralMaps} (summed-area tables for O(1)
+  rectangle sums) plus a stride-sampled list of {@code CoarseCell}s.
+  All three nested classes promoted to top-level package-private files
+  (`IntegralMaps.java`, `CoarseCell.java`, `CachedMap.java`).
+  This carve also unblocked completing the earlier `BotMovementService`
+  extraction: `findBestProfileLocation` (which used to live in
+  `RoomService` because `CachedMap` was a private inner class) moved
+  into `BotMovementService` as
+  `findBestProfileTarget(currentX, currentY, tiles, profile, cached, mapIndex)`,
+  decoupled from `RoomBot` and `readBotProfile`. Caller in `tickBots`
+  now reads the profile once and passes it through.
+  `RoomService` dropped 4,120 → 3,946 lines (−174). Pinned by
+  [MapIndexServiceTest.java](../src/test/java/com/emergentterrain/service/MapIndexServiceTest.java)
+  (6 tests covering integral-map correctness with mixed tile types,
+  rectSum on a hand-built table, content-hashed reuse, rebuild on
+  tile change, rebuild on highway change) plus 2 new tests in
+  `BotMovementServiceTest` for `findBestProfileTarget` (clear-loving
+  profile escapes the forest half on a 60×60 board, distance bias
+  pulls toward current position when scores tie).
+
 **Cumulative**: across BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, RoomStateOrchestrator, plus the
-CachedRoomState/TileCounts/OccupantSnapshot/BotMotionState promotions
-and the dead-audit deletion, `RoomService` is down **4,746 → 4,120 lines
-(−626, −13%)**.
+BotMovementService, RoomStateOrchestrator, MapIndexService, plus the
+CachedRoomState/TileCounts/OccupantSnapshot/BotMotionState/CachedMap/
+IntegralMaps/CoarseCell promotions and the dead-audit deletion,
+`RoomService` is down **4,746 → 3,946 lines (−800, −17%)**.
 
 Still deferred: `BotRoomLifecycleService` (spawning + retirement at
 the room level — the design doc notes it may collapse into the
@@ -243,6 +268,16 @@ extraction (`getCachedRoomState`, `updateCacheFromState`, the
 require either dragging the helpers' 4–6 cross-cutting callsites along
 or accepting duplicate JSON-codec helpers in two services. Neither is
 worth doing without a stronger forcing function.
+
+Beyond the original Phase 2.5 plan, three more concerns are now visible
+as natural future seams: a `RoomProposalService` (~860 lines: the
+proposal/vote/evaluate/apply pipeline + bot-vote logic + validation),
+a `BotSimulationGpuService` (~400 lines: GPU integration + bot motion
+codecs), and `OccupancyService` / `TileValidatorService` (~150 each:
+the smaller cohesive groups). The proposal pipeline in particular is
+larger than anything Phase 2.5 originally enumerated — Phase 2.5 was
+scoped before Phase 3's institution work surfaced how many distinct
+concerns RoomService was carrying.
 
 ---
 
@@ -347,12 +382,12 @@ so existing rooms pick up the feature without a data migration.
 
 ## Service map
 
-After Phase 0 + four behavioural phases (plus Phase 4b and four
-Phase 2.5 carves), the research package is 17 specialist services + 4
+After Phase 0 + four behavioural phases (plus Phase 4b and five
+Phase 2.5 carves), the research package is 17 specialist services + 5
 RoomService-derived services in `com.emergentterrain.service`
 (BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, RoomStateOrchestrator) + 14 entities. Refreshed
-against the working tree (post-`ab42534`):
+BotMovementService, MapIndexService, RoomStateOrchestrator) +
+14 entities. Refreshed against the working tree (post-`ab42534`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
@@ -378,6 +413,7 @@ against the working tree (post-`ab42534`):
 | BotMovementService | 211 | path planning + per-step scoring + tile-preference (Phase 2.5) |
 | HighwayEmergenceService | 210 | highway promotion/decay + per-move pressure deposit + seeding (Phase 2.5) |
 | RoomStateOrchestrator | 149 | dirty-cache → RoomState persist with flush-threshold gating (Phase 2.5) |
+| MapIndexService | 143 | per-room coarse-grid + integral-maps spatial index for relocation targeting (Phase 2.5) |
 | WorldDataQueryService | 106 | read-only simulation variables |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
