@@ -215,6 +215,7 @@ app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recompu
 app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations force replication + council counters
 app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake on open markets each tick
 app.research.dominant-methodology.enabled # Phase 4b — University.dominantMethodology emerges from member modes
+app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise events to per-room in-memory buffer (rate-limited)
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -240,7 +241,8 @@ specialist services + 14 entities. Sizes as of `ab42534`:
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
 | ResearchNarrationService | 1273 | narration pipeline + critique + audit + professor experiments |
-| UniversityService | 880 | orchestrator + citation tracking + bridging + classification + paper persistence |
+| UniversityService | 939 | orchestrator + citation tracking + bridging + classification + paper persistence |
+| SurpriseBroadcastService | 126 | rate-limited per-room cross-bot surprise fan-out (in-memory buffer) |
 | GenomeMentoringService | 427 | LLM genome deltas + dynamic directives |
 | ResearchCycleService | 425 | author selection + computation + peer review + drafts |
 | BotLifecycleService | 324 | aging + competency + dating + elder merges |
@@ -287,8 +289,17 @@ These need stateful integration with existing services:
   markets past their `closesAt`. Gated by
   `app.research.auto-staking.enabled` independently of the markets
   flag — auto-staking implicitly requires markets to be on too.
-- **Cross-bot surprise broadcast** (Phase 2 Iter 1) — needs rate-limit
-  infrastructure to avoid flooding neighbours' prompts.
+- ✅ **Cross-bot surprise broadcast** (Phase 2 Iter 1) — shipped
+  (Phase 4b eighth commit). New `SurpriseBroadcastService` maintains
+  an in-memory per-room buffer (max 5 retained, newest-first). Every
+  `SurpriseEvent` persisted by `ExpectationModelService` is routed
+  through `maybeBroadcast` from the publish path, subject to a
+  per-room cooldown (default 30s, configurable via
+  `app.research.surprise-broadcast.cooldown-seconds`). The read-side
+  surface `recentBroadcasts(roomId, excludeBotId, limit)` lets future
+  LLM-prompt builders inject the room's recent high-surprise findings
+  into a neighbour's context without re-querying the SurpriseEvent
+  table. Gated by `app.research.surprise-broadcast.enabled`.
 
 ### Service-deepening deferrals
 

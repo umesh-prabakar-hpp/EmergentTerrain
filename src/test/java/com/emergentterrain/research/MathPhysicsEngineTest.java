@@ -211,6 +211,7 @@ class MathPhysicsEngineTest {
                                         mock(com.emergentterrain.repo.BotCalibrationRepository.class),
                                         botRepo, mapper)),
                         mapper),
+                new SurpriseBroadcastService(false, 30),
                 /* reviewerRoutingEnabled = */ false,
                 /* journalReviewEnabled =   */ false,
                 mapper);

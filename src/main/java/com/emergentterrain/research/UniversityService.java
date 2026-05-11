@@ -84,6 +84,7 @@ public class UniversityService {
     private final EpistemicMarketService epistemicMarketService;
     private final KnowledgeBaseService knowledgeBaseService;
     private final FundingAllocationService fundingAllocationService;
+    private final SurpriseBroadcastService surpriseBroadcastService;
     private final ObjectMapper  objectMapper;
 
     /** Adapter that lets the cycle call back into this orchestrator. */
@@ -132,6 +133,7 @@ public class UniversityService {
             EpistemicMarketService epistemicMarketService,
             KnowledgeBaseService knowledgeBaseService,
             FundingAllocationService fundingAllocationService,
+            SurpriseBroadcastService surpriseBroadcastService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
             ObjectMapper objectMapper) {
@@ -153,6 +155,7 @@ public class UniversityService {
         this.epistemicMarketService   = epistemicMarketService;
         this.knowledgeBaseService     = knowledgeBaseService;
         this.fundingAllocationService = fundingAllocationService;
+        this.surpriseBroadcastService = surpriseBroadcastService;
         this.objectMapper             = objectMapper;
         // Phase 2 Iter 5 — hand the planner to the cycle so it can be consulted
         // before the formulation callback when the planner flag is on.
@@ -322,6 +325,9 @@ public class UniversityService {
                         "Investigate surprise at paperId=" + paper.paperId()
                         + " (residual=" + String.format("%.3f", surprise.getResidual())
                         + ", score=" + String.format("%.2f", surprise.getSurpriseScore()) + ")");
+                // Phase 4b — fan out to the room's broadcast buffer, rate-limited
+                // by SurpriseBroadcastService. No-op when the broadcast flag is off.
+                surpriseBroadcastService.maybeBroadcast(surprise);
             }
             expectationModelService.updatePrior(authorBotIdForSurprise, paper);
         }
