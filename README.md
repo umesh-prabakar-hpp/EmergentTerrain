@@ -48,7 +48,7 @@ export PATH="$JAVA_HOME/bin:$PATH"
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn spring-boot:run
 ```
-Open `http://localhost:8080/`
+Open `http://localhost:8081/`
 
 ## Fedora Bootstrap
 If you want one native Fedora setup path for both repos, use:
@@ -181,7 +181,7 @@ java -jar target/emergent-terrain-0.0.1-SNAPSHOT-benchmarks.jar ".*GovernmentSim
 ### Two-app integration check
 A real Java app + Rust GPU engine smoke check is expected to run from Fedora with the repos living under `/opt/apps/ide/eclipse/workspace-web/`:
 - Start the Rust engine on `127.0.0.1:50051`
-- Start the Java app on `127.0.0.1:8080`
+- Start the Java app on `127.0.0.1:8081`
 - Call `GET /game/test` to obtain a token
 - Call `POST /game/state`
 

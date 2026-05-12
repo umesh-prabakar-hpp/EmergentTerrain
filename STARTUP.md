@@ -129,7 +129,7 @@ mvn clean package -DskipTests
 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 ```
 
-The app starts on **http://localhost:8080**.
+The app starts on **http://localhost:8081**.
 
 ### With multiple Ollama backends
 
