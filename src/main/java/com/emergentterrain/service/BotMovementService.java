@@ -7,6 +7,10 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Random;
+import java.util.UUID;
+import java.util.function.BiPredicate;
 
 /**
  * Phase 2.5 carve: pure path-planning + scoring helpers, lifted out of
@@ -63,6 +67,38 @@ public class BotMovementService {
     /** True when (x, y) is inside the {@code tiles} grid. */
     public boolean isInBounds(int x, int y, int[][] tiles) {
         return y >= 0 && y < tiles.length && x >= 0 && x < tiles[0].length;
+    }
+
+    /**
+     * Phase 2.5 follow-up — place {@code bot} at a random valid coordinate in
+     * the world. Tries up to 1000 random positions, accepting the first one
+     * that passes {@code canOccupy}; falls back to the world centre if no
+     * candidate qualifies (e.g. densely populated rooms). The RNG is seeded
+     * deterministically from {@code (roomId, botType, height, width)} so the
+     * same bot always lands in the same spot under identical world state —
+     * matches the pre-carve behaviour.
+     *
+     * The {@code canOccupy} predicate is supplied by the caller so this
+     * service stays free of the {@code roomStateCache} / occupancy-snapshot
+     * machinery. {@link RoomService}'s thin wrapper passes
+     * {@code (x, y) -> canOccupy(bot.getRoom(), x, y, botIdString)}.
+     */
+    public void assignBotSpawn(RoomBot bot, int[][] tiles, BiPredicate<Integer, Integer> canOccupy) {
+        int h = tiles.length;
+        int w = tiles[0].length;
+        UUID roomId = bot.getRoom() == null ? null : bot.getRoom().getId();
+        Random rand = new Random(Objects.hash(roomId, bot.getType(), h, w));
+        for (int i = 0; i < 1000; i++) {
+            int x = rand.nextInt(w);
+            int y = rand.nextInt(h);
+            if (canOccupy.test(x, y)) {
+                bot.setX(x);
+                bot.setY(y);
+                return;
+            }
+        }
+        bot.setX(w / 2);
+        bot.setY(h / 2);
     }
 
     /** Profile-driven preference score for placing on a tile of the given type. */

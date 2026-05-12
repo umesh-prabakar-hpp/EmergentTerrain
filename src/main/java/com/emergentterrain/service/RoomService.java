@@ -2023,22 +2023,13 @@ public class RoomService {
         participant.setY(h / 2);
     }
 
+    // assignBotSpawn moved to BotMovementService. The thin wrapper below
+    // bridges the canOccupy machinery (cache + occupancy snapshot + density
+    // tunables) into the BiPredicate the carved method expects.
     private void assignBotSpawn(RoomBot bot, int[][] tiles) {
-        int h = tiles.length;
-        int w = tiles[0].length;
-        UUID roomId = bot.getRoom() == null ? null : bot.getRoom().getId();
-        Random rand = new Random(Objects.hash(roomId, bot.getType(), h, w));
-        for (int i = 0; i < 1000; i++) {
-            int x = rand.nextInt(w);
-            int y = rand.nextInt(h);
-            if (canOccupy(bot.getRoom(), x, y, bot.getId() == null ? "" : bot.getId().toString())) {
-                bot.setX(x);
-                bot.setY(y);
-                return;
-            }
-        }
-        bot.setX(w / 2);
-        bot.setY(h / 2);
+        String botIdString = bot.getId() == null ? "" : bot.getId().toString();
+        movement.assignBotSpawn(bot, tiles,
+                (x, y) -> canOccupy(bot.getRoom(), x, y, botIdString));
     }
 
     private String botDisplayName(RoomBot bot) {

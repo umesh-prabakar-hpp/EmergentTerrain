@@ -7,7 +7,9 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -280,6 +282,90 @@ class BotMovementServiceTest {
 
         assertThat(step).isNotNull();
         assertThat(step).isNotEqualTo(new int[]{1, 2});
+    }
+
+    // ---- assignBotSpawn ----
+
+    @Test
+    void assignBotSpawnPlacesBotAtFirstValidRandomCoord() {
+        // canOccupy is always-true → the first random coord wins. RNG seed is
+        // deterministic from (roomId, botType, h, w), so the same bot lands
+        // in the same spot under identical inputs.
+        BotMovementService svc = defaults();
+        RoomBot bot = mock(RoomBot.class);
+        java.util.UUID roomId = java.util.UUID.randomUUID();
+        com.emergentterrain.domain.Room room = mock(com.emergentterrain.domain.Room.class);
+        when(room.getId()).thenReturn(roomId);
+        when(bot.getRoom()).thenReturn(room);
+        when(bot.getType()).thenReturn("researcher");
+        when(bot.getId()).thenReturn(java.util.UUID.randomUUID());
+        int[][] tiles = new int[10][10];
+
+        svc.assignBotSpawn(bot, tiles, (x, y) -> true);
+
+        // Bot got placed somewhere inside the grid.
+        verify(bot, atLeastOnce()).setX(intArgInRange(0, 10));
+        verify(bot, atLeastOnce()).setY(intArgInRange(0, 10));
+    }
+
+    @Test
+    void assignBotSpawnFallsBackToCenterWhenNoCoordPasses() {
+        // canOccupy never accepts → the 1000-try loop bottoms out and the
+        // fallback places at (w/2, h/2).
+        BotMovementService svc = defaults();
+        RoomBot bot = mock(RoomBot.class);
+        com.emergentterrain.domain.Room room = mock(com.emergentterrain.domain.Room.class);
+        when(room.getId()).thenReturn(java.util.UUID.randomUUID());
+        when(bot.getRoom()).thenReturn(room);
+        when(bot.getType()).thenReturn("researcher");
+        int[][] tiles = new int[10][10];
+
+        svc.assignBotSpawn(bot, tiles, (x, y) -> false);
+
+        verify(bot).setX(5);
+        verify(bot).setY(5);
+    }
+
+    @Test
+    void assignBotSpawnIsDeterministicForSameInputs() {
+        // Same (roomId, botType, h, w) → same starting random sequence →
+        // same first-accepting coord.
+        BotMovementService svc = defaults();
+        java.util.UUID roomId = java.util.UUID.fromString("00000000-0000-0000-0000-000000000001");
+        int[][] tiles = new int[7][13];
+
+        RoomBot b1 = mock(RoomBot.class);
+        com.emergentterrain.domain.Room r1 = mock(com.emergentterrain.domain.Room.class);
+        when(r1.getId()).thenReturn(roomId);
+        when(b1.getRoom()).thenReturn(r1);
+        when(b1.getType()).thenReturn("researcher");
+
+        RoomBot b2 = mock(RoomBot.class);
+        com.emergentterrain.domain.Room r2 = mock(com.emergentterrain.domain.Room.class);
+        when(r2.getId()).thenReturn(roomId);
+        when(b2.getRoom()).thenReturn(r2);
+        when(b2.getType()).thenReturn("researcher");
+
+        // Capture chosen coords via an answer.
+        int[] coord1 = new int[2];
+        int[] coord2 = new int[2];
+        org.mockito.Mockito.doAnswer(inv -> { coord1[0] = inv.getArgument(0); return null; })
+                .when(b1).setX(org.mockito.ArgumentMatchers.anyInt());
+        org.mockito.Mockito.doAnswer(inv -> { coord1[1] = inv.getArgument(0); return null; })
+                .when(b1).setY(org.mockito.ArgumentMatchers.anyInt());
+        org.mockito.Mockito.doAnswer(inv -> { coord2[0] = inv.getArgument(0); return null; })
+                .when(b2).setX(org.mockito.ArgumentMatchers.anyInt());
+        org.mockito.Mockito.doAnswer(inv -> { coord2[1] = inv.getArgument(0); return null; })
+                .when(b2).setY(org.mockito.ArgumentMatchers.anyInt());
+
+        svc.assignBotSpawn(b1, tiles, (x, y) -> true);
+        svc.assignBotSpawn(b2, tiles, (x, y) -> true);
+
+        assertThat(coord1).isEqualTo(coord2);
+    }
+
+    private static int intArgInRange(int min, int max) {
+        return org.mockito.ArgumentMatchers.intThat(v -> v >= min && v < max);
     }
 
     private static RoomBot botAt(int x, int y) {
