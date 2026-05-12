@@ -772,9 +772,6 @@ These need stateful integration with existing services:
   design doc's `ExperimentPlannerService` `WORLD_INTERVENTION`
   strategy) is the remaining piece — that's where the
   `app.research.world-intervention.enabled` flag is checked.
-- **Reviewer-orthogonality routing** (Phase 4 Iter 10 evolution target
-  #1) — needs `BotCivicState.ideologyVector` threaded through
-  `ResearchCycleService.pickReviewer`.
 - ✅ **Auto-staking heuristic** (Phase 3 Iter 7) — shipped (Phase 4b
   sixth commit). `EpistemicMarketService.maybeAutoStake` fires from
   `UniversityService.maybeTick` for each room: picks up to 3 random

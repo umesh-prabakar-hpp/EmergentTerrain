@@ -596,7 +596,11 @@ public class RoomService {
         if (defaultId != null) {
             return defaultId;
         }
-        return roomRepository.findTopByOrderByCreatedAtAsc()
+        // Phase 3 Iter 6: sandbox rooms are excluded from the default-room
+        // picker so research experiments don't pull human players into a
+        // sandbox by accident. Sandbox-flagged rooms still receive
+        // maintenance and bot lifecycles; they're just not the fallback.
+        return roomRepository.findTopBySandboxFalseOrderByCreatedAtAsc()
             .map(Room::getId)
             .orElse(null);
     }

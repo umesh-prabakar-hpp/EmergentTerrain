@@ -26,6 +26,20 @@ public class Room {
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 
+    /**
+     * Phase 3 Iter 6 (sandbox flag): when true, this room is a research
+     * sandbox isolated from live player rooms. Bots in sandbox rooms may
+     * file intervention bills via {@code WorldInterventionService} without
+     * the experiments disrupting human-visible state elsewhere — the
+     * sandbox sits alongside live rooms but is not surfaced in
+     * default room listings to players.
+     *
+     * Default false so existing rooms keep their current visibility. New
+     * rooms opt in at creation; once set, the flag is not reset.
+     */
+    @Column(name = "sandbox", nullable = false)
+    private boolean sandbox = false;
+
     public UUID getId() {
         return id;
     }
@@ -72,5 +86,13 @@ public class Room {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public boolean isSandbox() {
+        return sandbox;
+    }
+
+    public void setSandbox(boolean sandbox) {
+        this.sandbox = sandbox;
     }
 }
