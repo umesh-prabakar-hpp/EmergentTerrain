@@ -17,7 +17,7 @@ read -rp "This will delete all game data and generated files. Continue? [y/N] " 
 [[ "$confirm" =~ ^[Yy]$ ]] || { echo "Aborted."; exit 0; }
 
 echo ""
-echo "--- Truncating game tables ---"
+echo "--- Truncating game + research tables ---"
 PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER" -h "$PG_HOST" -d "$PG_DB" -v ON_ERROR_STOP=1 <<'SQL'
 TRUNCATE
     room_bots,
@@ -25,13 +25,29 @@ TRUNCATE
     room_proposal_votes,
     room_proposals,
     room_state,
-    room_state_history,
     game_confirmations,
     game_snapshots,
     government_timeline_event,
     government_timeline_sample,
     profile_quest_state,
-    rooms
+    rooms,
+    bot_calibrations,
+    epistemic_markets,
+    expectation_priors,
+    formal_findings,
+    funding_agencies,
+    grants,
+    journals,
+    market_stakes,
+    paper_citations,
+    program_failed_approaches,
+    program_open_questions,
+    replication_councils,
+    reputation_history,
+    research_papers,
+    research_programs,
+    surprise_events,
+    universities
 RESTART IDENTITY CASCADE;
 SQL
 echo "Done."
