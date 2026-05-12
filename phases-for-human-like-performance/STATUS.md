@@ -21,7 +21,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 |
 | Net new code | ~10,000 lines |
-| Tests | 135 → 563 (+428) |
+| Tests | 135 → 577 (+442) |
 | Behaviour-changing iterations | 6, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
@@ -94,7 +94,9 @@ Iter 5  ExperimentPlannerService (4 strategies, flag-gated)           03bdcf3
 - **Iter 5** lets the planner replace LLM-suggested follow-ups with
   algorithmic parameter selection, behind `app.research.planner.enabled`.
   Strategy priority: CONTRADICTION_TARGET → REPLICATION → EXPLORATION →
-  ADAPTIVE_SWEEP. BAYESIAN_OPTIMIZATION is the deferred Phase 2b strategy.
+  ADAPTIVE_SWEEP. BAYESIAN_OPTIMIZATION shipped as a Phase 2b MVP that
+  uses recent-paper peerScore to scale the sweep radius — exploits the
+  bot's learned region when the recent track record is strong.
 
 See [phase-2-active-experimentation.md](phase-2-active-experimentation.md).
 
@@ -514,9 +516,15 @@ OccupantSnapshot/BotMotionState/CachedMap/IntegralMaps/CoarseCell/
 GpuWorldCache/BotVote promotions and the dead-audit deletion, `RoomService`
 is down **4,746 → 3,211 lines (−1,535, −32%)**.
 
-Still deferred: `BotRoomLifecycleService` (spawning + retirement at
-the room level — the design doc notes it may collapse into the
-orchestrator now that lifecycle stays small). The deeper deserialization
+✅ **`BotRoomLifecycleService`** (the design doc's last enumerated
+extraction) — `assignBotSpawn` folded into `BotMovementService` with
+the canOccupy logic threaded through as a `BiPredicate` (RoomService
+keeps a 4-line thin wrapper for its 5 internal callers). The
+spawn-positioning RNG seed and 1000-try fallback semantics are
+byte-for-byte preserved; pinned by 3 new tests in
+`BotMovementServiceTest`.
+
+The deeper deserialization
 extraction (`getCachedRoomState`, `updateCacheFromState`, the
 `fromJson*` helpers) is also still in RoomService — pulling it would
 require either dragging the helpers' 4–6 cross-cutting callsites along
@@ -551,12 +559,7 @@ These could be the seeds of further carves (`ProposalApplyService`,
 broader project — the Phase 3 Iter 6 write side (`WorldInterventionService`)
 that was gated on Phase 2.5 is now unblocked.
 
-Two carves explicitly *not* on the next-up list:
-- **`BotRoomLifecycleService`** (the design doc's last enumerated
-  extraction) — at ~150 lines after the prior carves, it's small
-  enough to fold into `BotMovementService` (where `assignBotSpawn`
-  already wants to live) once `OccupancyService` ships its
-  `canOccupy` callable.
+One carve explicitly *not* on the next-up list:
 - **Room-membership / lifecycle CRUD** (`createRoom`, `joinRoom`,
   `ensureDefaultRoom`, `populateRoomForPerf`, etc.) — mostly HTTP
   plumbing rather than gameplay logic; not the highest-value next
@@ -617,11 +620,12 @@ Iter 7              EpistemicMarketService                              0309225
   `BillStatus.IN_PROGRESS` and re-observe later; outcomes resolve to
   `ENACTED`, `BLOCKED`, or `NOT_FOUND` (when the bill ages out of the
   12-bill window). Gated externally by
-  `app.research.world-intervention.enabled` at the integration point
-  — the planner-side wire-up (the design doc's
-  `ExperimentPlannerService` `WORLD_INTERVENTION` strategy) is a
-  follow-up. The phase-3 Iter 6 completion checklist is now satisfied
-  except for the sandbox-room flag and the planner integration.
+  `app.research.world-intervention.enabled` at the integration point.
+  The planner-side wire-up (`ExperimentPlannerService.planWorldIntervention`)
+  shipped alongside, and the sandbox-room flag (`Room.sandbox` column
+  + `findTopBySandboxFalseOrderByCreatedAtAsc` for the default-room
+  picker) shipped after that — the phase-3 Iter 6 completion checklist
+  is now fully closed.
 - **Iter 8 (MVP)** — four institution entities + lazy bootstrap on
   first publish per room. Deeper behaviours (journal-mediated review,
   impact-factor accumulation from citations, FundingAgency grant
@@ -685,6 +689,7 @@ app.research.impact-factor.enabled   # Phase 4b — Journal.impactFactor recompu
 app.research.replication-council.enabled # Phase 4b — CONTRADICTS citations force replication + council counters
 app.research.auto-staking.enabled    # Phase 4b — same-domain bots auto-stake on open markets each tick
 app.research.dominant-methodology.enabled # Phase 4b — University.dominantMethodology emerges from member modes
+app.research.dominant-methodology.reputation-weighted # Phase 4b refinement — bot reputation (clamped [0,1]) weights the methodology count instead of a flat 1
 app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise events to per-room in-memory buffer (rate-limited)
 app.research.exploration-tuning.enabled # Phase 4b — per-room z-threshold + EXPLORATION trigger adjust from replication failure rate
 app.research.theory-composition.enabled # Phase 4b — A~f(B) ^ B~g(C) chains emit derived ProgramOpenQuestions
