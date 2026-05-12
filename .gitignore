@@ -40,5 +40,8 @@ Thumbs.db
 !/simulation-history/**/.gitkeep
 scratch.txt
 
+# Claude Code per-session state (lockfile + local permission overrides)
+/.claude/
+
 # Maven Shade
 dependency-reduced-pom.xml
