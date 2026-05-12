@@ -16,6 +16,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -32,6 +33,7 @@ class ExperimentPlannerServiceTest {
     private ProgramOpenQuestionRepository   openQuestions;
     private PaperCitationRepository         citations;
     private SurpriseEventRepository         surprises;
+    private com.emergentterrain.repo.ResearchPaperRepository papers;
     private BotGenome                       genome;
     private Random                          rng;
 
@@ -41,6 +43,7 @@ class ExperimentPlannerServiceTest {
         openQuestions = mock(ProgramOpenQuestionRepository.class);
         citations     = mock(PaperCitationRepository.class);
         surprises     = mock(SurpriseEventRepository.class);
+        papers        = mock(com.emergentterrain.repo.ResearchPaperRepository.class);
         genome        = BotGenome.initialise(UUID.randomUUID(), 0);
         rng           = new Random(42);
     }
@@ -48,7 +51,7 @@ class ExperimentPlannerServiceTest {
     @Test
     void disabledPlannerReturnsEmpty() {
         ExperimentPlannerService planner = new ExperimentPlannerService(
-                false, false, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+                false, false, programs, openQuestions, citations, surprises, papers, new WorldDataQueryService());
         assertThat(planner.planNext(UUID.randomUUID(), "MATHEMATICS", genome, rng))
                 .isEmpty();
     }
@@ -210,7 +213,7 @@ class ExperimentPlannerServiceTest {
     void planWorldInterventionReturnsEmptyWhenPlannerDisabled() {
         // Even with world flag on, the planner-off short-circuit takes precedence.
         ExperimentPlannerService planner = new ExperimentPlannerService(
-                false, true, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+                false, true, programs, openQuestions, citations, surprises, papers, new WorldDataQueryService());
         UUID author = UUID.randomUUID();
         when(programs.findFirstByOwnerBotIdAndDomainAndStatus(any(), any(), any()))
                 .thenReturn(Optional.of(activeProgram(author, "GOVERNANCE")));
@@ -334,14 +337,133 @@ class ExperimentPlannerServiceTest {
         assertThat(proposal.get().hypothesis()).contains("welfare");
     }
 
+    // ---- planBayesianOptimization (Phase 2b MVP) ----
+
+    @Test
+    void bayesianOptimizationFiresWhenBotHasStrongDomainHistory() {
+        ExperimentPlannerService planner = enabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "MATHEMATICS");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "MATHEMATICS",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        // One open question so planAdaptiveSweep also has a target — we test
+        // that BO wins by checking the strategy on the returned plan.
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestion(program.getId(), 0.7)));
+        // No contradictions, no surprises, no all-low-uncertainty exploration.
+        when(citations.findByRoomIdAndRelationshipType(any(), any())).thenReturn(List.of());
+        when(surprises.findByRoomIdAndSurpriseScoreGreaterThanEqualOrderBySurpriseScoreDesc(any(), anyDouble()))
+                .thenReturn(List.of());
+        // Bot has 4 recent papers in MATHEMATICS with mean peerScore well
+        // above the 0.65 exploit threshold. Build the paper list OUTSIDE the
+        // when(...).thenReturn(...) call so Mockito doesn't see nested stubbing.
+        List<ResearchPaper> strongHistory = List.of(
+                paperWithScore(author, "MATHEMATICS", 0.80),
+                paperWithScore(author, "MATHEMATICS", 0.72),
+                paperWithScore(author, "MATHEMATICS", 0.85),
+                paperWithScore(author, "MATHEMATICS", 0.78));
+        when(papers.findByAuthorBotId(author.toString())).thenReturn(strongHistory);
+
+        Optional<ExperimentPlannerService.ExperimentPlan> plan =
+                planner.planNext(author, "MATHEMATICS", genome, rng);
+
+        assertThat(plan).isPresent();
+        assertThat(plan.get().strategy())
+                .isEqualTo(ExperimentPlannerService.Strategy.BAYESIAN_OPTIMIZATION);
+    }
+
+    @Test
+    void bayesianOptimizationFallsThroughWhenMeanScoreBelowThreshold() {
+        // Same setup as above but with weak peer scores → BO declines,
+        // ADAPTIVE_SWEEP takes over (the default fallback).
+        ExperimentPlannerService planner = enabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "MATHEMATICS");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "MATHEMATICS",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestion(program.getId(), 0.7)));
+        when(citations.findByRoomIdAndRelationshipType(any(), any())).thenReturn(List.of());
+        when(surprises.findByRoomIdAndSurpriseScoreGreaterThanEqualOrderBySurpriseScoreDesc(any(), anyDouble()))
+                .thenReturn(List.of());
+        List<ResearchPaper> weakHistory = List.of(
+                paperWithScore(author, "MATHEMATICS", 0.40),
+                paperWithScore(author, "MATHEMATICS", 0.55),
+                paperWithScore(author, "MATHEMATICS", 0.50));
+        when(papers.findByAuthorBotId(author.toString())).thenReturn(weakHistory);
+
+        Optional<ExperimentPlannerService.ExperimentPlan> plan =
+                planner.planNext(author, "MATHEMATICS", genome, rng);
+
+        assertThat(plan).isPresent();
+        assertThat(plan.get().strategy())
+                .isEqualTo(ExperimentPlannerService.Strategy.ADAPTIVE_SWEEP);
+    }
+
+    @Test
+    void bayesianOptimizationFallsThroughBelowMinPaperCount() {
+        // Bot has only 2 strong papers — below the 3-paper minimum.
+        ExperimentPlannerService planner = enabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "MATHEMATICS");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "MATHEMATICS",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestion(program.getId(), 0.7)));
+        when(citations.findByRoomIdAndRelationshipType(any(), any())).thenReturn(List.of());
+        when(surprises.findByRoomIdAndSurpriseScoreGreaterThanEqualOrderBySurpriseScoreDesc(any(), anyDouble()))
+                .thenReturn(List.of());
+        List<ResearchPaper> tooFewPapers = List.of(
+                paperWithScore(author, "MATHEMATICS", 0.85),
+                paperWithScore(author, "MATHEMATICS", 0.90));
+        when(papers.findByAuthorBotId(author.toString())).thenReturn(tooFewPapers);
+
+        Optional<ExperimentPlannerService.ExperimentPlan> plan =
+                planner.planNext(author, "MATHEMATICS", genome, rng);
+
+        assertThat(plan.get().strategy())
+                .isEqualTo(ExperimentPlannerService.Strategy.ADAPTIVE_SWEEP);
+    }
+
+    @Test
+    void bayesianOptimizationSkipsPapersFromOtherDomains() {
+        // 4 strong papers but they're all in PHYSICS, not the MATHEMATICS
+        // program — domain filter should reject them, BO declines.
+        ExperimentPlannerService planner = enabled();
+        UUID author = UUID.randomUUID();
+        ResearchProgram program = activeProgram(author, "MATHEMATICS");
+        when(programs.findFirstByOwnerBotIdAndDomainAndStatus(author, "MATHEMATICS",
+                ResearchProgram.Status.ACTIVE)).thenReturn(Optional.of(program));
+        when(openQuestions.findByProgramIdAndStatus(program.getId(),
+                ProgramOpenQuestion.Status.OPEN)).thenReturn(List.of(
+                        openQuestion(program.getId(), 0.7)));
+        when(citations.findByRoomIdAndRelationshipType(any(), any())).thenReturn(List.of());
+        when(surprises.findByRoomIdAndSurpriseScoreGreaterThanEqualOrderBySurpriseScoreDesc(any(), anyDouble()))
+                .thenReturn(List.of());
+        List<ResearchPaper> wrongDomainHistory = List.of(
+                paperWithScore(author, "PHYSICS", 0.85),
+                paperWithScore(author, "PHYSICS", 0.90),
+                paperWithScore(author, "PHYSICS", 0.80));
+        when(papers.findByAuthorBotId(author.toString())).thenReturn(wrongDomainHistory);
+
+        Optional<ExperimentPlannerService.ExperimentPlan> plan =
+                planner.planNext(author, "MATHEMATICS", genome, rng);
+
+        assertThat(plan.get().strategy())
+                .isEqualTo(ExperimentPlannerService.Strategy.ADAPTIVE_SWEEP);
+    }
+
     // ---- helpers ----
 
     private ExperimentPlannerService enabled() {
-        return new ExperimentPlannerService(true, false, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+        return new ExperimentPlannerService(true, false, programs, openQuestions, citations, surprises, papers, new WorldDataQueryService());
     }
 
     private ExperimentPlannerService worldInterventionEnabled() {
-        return new ExperimentPlannerService(true, true, programs, openQuestions, citations, surprises, new WorldDataQueryService());
+        return new ExperimentPlannerService(true, true, programs, openQuestions, citations, surprises, papers, new WorldDataQueryService());
     }
 
     private Optional<WorldInterventionService.InterventionProposal> proposalForQuestion(String questionText) {
@@ -370,6 +492,15 @@ class ExperimentPlannerServiceTest {
 
     private static ProgramOpenQuestion openQuestion(UUID programId, double uncertainty) {
         return openQuestionWithText(programId, uncertainty, "test question?");
+    }
+
+    private static ResearchPaper paperWithScore(UUID authorBotId, String domain, double peerScore) {
+        ResearchPaper p = mock(ResearchPaper.class);
+        when(p.authorBotId()).thenReturn(authorBotId.toString());
+        when(p.domain()).thenReturn(domain);
+        when(p.peerScore()).thenReturn(peerScore);
+        when(p.publishedAt()).thenReturn(Instant.now());
+        return p;
     }
 
     private static ProgramOpenQuestion openQuestionWithText(UUID programId, double uncertainty, String text) {

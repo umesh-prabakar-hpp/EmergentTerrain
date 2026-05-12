@@ -2,6 +2,7 @@ package com.emergentterrain.research;
 
 import com.emergentterrain.repo.PaperCitationRepository;
 import com.emergentterrain.repo.ProgramOpenQuestionRepository;
+import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.ResearchProgramRepository;
 import com.emergentterrain.repo.SurpriseEventRepository;
 import org.slf4j.Logger;
@@ -32,11 +33,12 @@ import java.util.UUID;
  *   CONTRADICTION_TARGET  — implemented (basic: midpoint disambiguation)
  *   REPLICATION           — implemented (basic: re-run highest-surprise paper)
  *   EXPLORATION           — implemented (basic: escape the genome radius)
- *   BAYESIAN_OPTIMIZATION — deferred (Phase 2b)
+ *   BAYESIAN_OPTIMIZATION — implemented (MVP: outcome-aware radius scaling)
  *
  * Strategy selection priority (descending): CONTRADICTION_TARGET > REPLICATION
- * > EXPLORATION (when uncertainty is low) > ADAPTIVE_SWEEP. The first strategy
- * with a viable plan wins.
+ * > EXPLORATION (when uncertainty is low) > BAYESIAN_OPTIMIZATION (when the
+ * bot has at least 3 recent papers in this domain with mean peerScore >= 0.65)
+ * > ADAPTIVE_SWEEP. The first strategy with a viable plan wins.
  */
 @Service
 public class ExperimentPlannerService {
@@ -52,7 +54,16 @@ public class ExperimentPlannerService {
     /** Each completed paper reduces the target question's uncertainty by 1 / (n+1). */
     private static final double UNCERTAINTY_DECAY_BASE = 1.0;
 
-    public enum Strategy { ADAPTIVE_SWEEP, CONTRADICTION_TARGET, REPLICATION, EXPLORATION }
+    public enum Strategy { ADAPTIVE_SWEEP, CONTRADICTION_TARGET, REPLICATION, EXPLORATION, BAYESIAN_OPTIMIZATION }
+
+    /** Min papers in a bot's domain history before BAYESIAN_OPTIMIZATION can fire. */
+    private static final int BAYESIAN_MIN_PAPERS = 3;
+
+    /** Min mean peerScore over the recent window before BAYESIAN_OPTIMIZATION exploits. */
+    private static final double BAYESIAN_MIN_MEAN_SCORE = 0.65;
+
+    /** Recent-papers window size for the BAYESIAN_OPTIMIZATION fitness signal. */
+    private static final int BAYESIAN_RECENT_WINDOW = 8;
 
     public record ExperimentPlan(
             UUID programId,
@@ -69,6 +80,7 @@ public class ExperimentPlannerService {
     private final ProgramOpenQuestionRepository openQuestions;
     private final PaperCitationRepository       citations;
     private final SurpriseEventRepository       surprises;
+    private final ResearchPaperRepository       papers;
     private final WorldDataQueryService         worldData;
 
     /**
@@ -86,6 +98,7 @@ public class ExperimentPlannerService {
             ProgramOpenQuestionRepository openQuestions,
             PaperCitationRepository citations,
             SurpriseEventRepository surprises,
+            ResearchPaperRepository papers,
             WorldDataQueryService worldData) {
         this.enabled                  = enabled;
         this.worldInterventionEnabled = worldInterventionEnabled;
@@ -93,6 +106,7 @@ public class ExperimentPlannerService {
         this.openQuestions = openQuestions;
         this.citations     = citations;
         this.surprises     = surprises;
+        this.papers        = papers;
         this.worldData     = worldData;
         if (enabled) {
             log.info("ExperimentPlannerService: ENABLED — algorithmic parameter selection "
@@ -146,6 +160,13 @@ public class ExperimentPlannerService {
 
         // Strategy 3: exploration — once uncertainty is broadly low, escape the genome region.
         p = planExploration(program, genome, rng);
+        if (p.isPresent()) return p;
+
+        // Strategy 4: Bayesian optimization (MVP) — when the bot's recent papers in
+        // this domain are doing well on average, exploit by narrowing the search
+        // radius around the genome center. Falls through to ADAPTIVE_SWEEP when
+        // there's not enough outcome data or the recent run has been weak.
+        p = planBayesianOptimization(program, genome, rng);
         if (p.isPresent()) return p;
 
         // Default: adaptive sweep over the highest-uncertainty open question.
@@ -376,6 +397,68 @@ public class ExperimentPlannerService {
 
         return Optional.of(new ExperimentPlan(program.getId(), null,
                 Strategy.EXPLORATION, param1, param2, 0.2));
+    }
+
+    /**
+     * Phase 2b MVP — outcome-aware "exploit known good" strategy. Looks at
+     * the bot's recent published papers in this domain and, when the mean
+     * peerScore over the last {@value #BAYESIAN_RECENT_WINDOW} papers is
+     * at least {@value #BAYESIAN_MIN_MEAN_SCORE}, returns a tighter
+     * sweep around the genome center. The radius scales inversely with
+     * the mean score: a stronger track record narrows the sweep further,
+     * pushing the planner toward exploiting the genome's learned region.
+     *
+     * Strategy is intentionally narrow — true Gaussian-process Bayesian
+     * optimization would need persisted per-paper {@code (param1, param2)}
+     * pairs on {@link ResearchPaper} (currently they're only on
+     * {@code PaperDraft}). When that history is captured, this method
+     * upgrades to "sample near the best observed param region with a
+     * variance-aware acquisition function." Today's MVP uses the available
+     * peerScore signal only and falls through to ADAPTIVE_SWEEP when the
+     * data isn't yet there.
+     *
+     * Returns empty when:
+     *  - the bot has fewer than {@value #BAYESIAN_MIN_PAPERS} domain papers,
+     *  - the recent mean peerScore is below the exploit threshold,
+     *  - no open questions exist (ADAPTIVE_SWEEP's contract too).
+     */
+    private Optional<ExperimentPlan> planBayesianOptimization(ResearchProgram program,
+                                                              BotGenome genome, Random rng) {
+        if (papers == null || program.getOwnerBotId() == null) return Optional.empty();
+        ProgramOpenQuestion target = highestUncertaintyOpen(program.getId());
+        if (target == null) return Optional.empty();
+
+        List<ResearchPaper> own = papers.findByAuthorBotId(program.getOwnerBotId().toString());
+        if (own == null || own.size() < BAYESIAN_MIN_PAPERS) return Optional.empty();
+        List<ResearchPaper> recentDomain = own.stream()
+                .filter(p -> program.getDomain().equalsIgnoreCase(p.domain()))
+                .sorted(Comparator.comparing(ResearchPaper::publishedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())).reversed())
+                .limit(BAYESIAN_RECENT_WINDOW)
+                .toList();
+        if (recentDomain.size() < BAYESIAN_MIN_PAPERS) return Optional.empty();
+
+        double meanScore = recentDomain.stream()
+                .mapToDouble(ResearchPaper::peerScore)
+                .average().orElse(0.0);
+        if (meanScore < BAYESIAN_MIN_MEAN_SCORE) return Optional.empty();
+
+        // Radius shrinks as meanScore rises above the threshold: at the
+        // threshold we use 60% of the standard radius; at 1.0 we use 30%.
+        double exploit = Math.max(0.30, 0.60 - (meanScore - BAYESIAN_MIN_MEAN_SCORE));
+        int    p1Radius = Math.max(1, (int) Math.round(genome.getParamRadius1() * exploit));
+        double p2Radius = Math.max(0.1, genome.getParamRadius2() * exploit);
+
+        int    param1 = clamp1(genome.getParamCenter1()
+                + (int) Math.round((rng.nextDouble() * 2 - 1) * p1Radius));
+        double param2 = clamp2(genome.getParamCenter2()
+                + (rng.nextDouble() * 2 - 1) * p2Radius);
+
+        log.debug("planner: BAYESIAN_OPTIMIZATION program={} meanScore={} exploit={}",
+                program.getId(), meanScore, exploit);
+        return Optional.of(new ExperimentPlan(program.getId(), target.getId(),
+                Strategy.BAYESIAN_OPTIMIZATION, param1, param2,
+                /* expectedUncertaintyReduction = */ 0.45 * target.getUncertainty()));
     }
 
     // ---- Helpers ----
