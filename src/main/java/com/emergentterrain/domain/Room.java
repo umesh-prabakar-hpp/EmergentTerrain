@@ -3,6 +3,7 @@ package com.emergentterrain.domain;
 import jakarta.persistence.*;
 import java.time.Instant;
 import java.util.UUID;
+import org.hibernate.annotations.ColumnDefault;
 
 @Entity
 @Table(name = "rooms")
@@ -38,6 +39,7 @@ public class Room {
      * rooms opt in at creation; once set, the flag is not reset.
      */
     @Column(name = "sandbox", nullable = false)
+    @ColumnDefault("false")
     private boolean sandbox = false;
 
     public UUID getId() {
