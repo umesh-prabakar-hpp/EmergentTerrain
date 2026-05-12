@@ -262,6 +262,64 @@ health events (marked unhealthy / recovered) log at WARN/INFO from `OllamaPool` 
 
 ---
 
+## Reviewing published papers (Claude Code skill)
+
+A `paper-review` skill is installed at `~/.claude/skills/paper-review/SKILL.md`. It
+audits any directory of LLM-generated paper markdown files for human quality and
+maintains a single persistent `REVIEW_REPORT.md` that grows incrementally with each
+run — only papers not already listed in the per-paper table are re-read.
+
+**One-shot review** — open Claude Code in this repo and run:
+
+```
+/paper-review research/<room-id>
+```
+
+Defaults: paper pattern `P-*.md`, report at `<dir>/REVIEW_REPORT.md`, no log section.
+
+**With operational-log correlation** — point at the live application log to surface
+WARN/ERROR root causes and map every `prof:error→fp` paper to its upstream Groq 429:
+
+```
+/paper-review research/<room-id> --logs /tmp/et-app.log
+```
+
+**Periodic refresh every 15 minutes** — pair with the `loop` skill:
+
+```
+/loop 15m /paper-review research/<room-id> --logs /tmp/et-app.log
+```
+
+The cron job lives only for the current Claude Code session (auto-expires after 7 days).
+For a durable cloud-based loop, use `/schedule` instead.
+
+**What the report contains** (sections, in order):
+
+1. Recommendations to raise the batch to human quality (numbered, growing list).
+2. Strongest papers — ranked top 10–15.
+3. Worst papers — clustered by failure mode.
+4. Per-paper rating table — one row per paper, monotonically appended.
+5. Batch summary — counts, acceptance rate, top peer score, trajectory table.
+6. Quality and novelty assessment — refreshed every cycle.
+7. Operational logs — only when `--logs` is provided. Lists WARN/ERROR root-cause
+   distribution and correlates to specific paper IDs (e.g. which `prof:error→fp`
+   paper IDs hit Groq token-per-day quotas).
+
+**Skill arguments:**
+
+| Arg | Default | Notes |
+|---|---|---|
+| `<dir>` | required | Directory containing the paper markdown files. |
+| `--report <path>` | `<dir>/REVIEW_REPORT.md` | Where to write the persistent report. |
+| `--pattern <glob>` | `P-*.md` | Override if your paper-ID convention differs. |
+| `--logs <path>` | none | If given, parse this log file's current run only. |
+
+> **Note:** Skills are loaded at Claude Code session start. If you just installed
+> `paper-review` in an existing session, restart `claude` for `/paper-review` to
+> appear in the slash-command list.
+
+---
+
 ## Switching models
 
 **Groq model** — either set `preferredModel` to skip auto-discovery, or leave blank
