@@ -49,7 +49,7 @@ class InstitutionServiceTest {
     @Test
     void disabledServiceWritesNothing() {
         InstitutionService svc = new InstitutionService(
-                false, false, false, false, universities, journals, fundingAgencies,
+                false, false, false, false, false, universities, journals, fundingAgencies,
                 councils, papers, citations);
 
         InstitutionService.BootstrapResult result =
@@ -160,7 +160,7 @@ class InstitutionServiceTest {
     @Test
     void journalEditorsForReturnsEmptyWhenDisabled() {
         InstitutionService svc = new InstitutionService(
-                false, false, false, false, universities, journals, fundingAgencies,
+                false, false, false, false, false, universities, journals, fundingAgencies,
                 councils, papers, citations);
         UUID room = UUID.randomUUID();
 
@@ -453,6 +453,69 @@ class InstitutionServiceTest {
     }
 
     @Test
+    void dominantMethodologyReputationWeightedFavoursHighReputationBots() {
+        // Pool: 3 bots with EMPIRICAL methodology and low reputation (0.2 each),
+        // 1 bot with THEORETICAL and high reputation (0.9). Plain-mode picks
+        // EMPIRICAL (3-1 vote). Reputation-weighted: EMPIRICAL = 0.6,
+        // THEORETICAL = 0.9 → THEORETICAL wins.
+        InstitutionService svc = enabledWithDominantMethodologyReputationWeighted();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+        when(universities.save(any(University.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS", "EMPIRICAL",   0.2),
+                researcher("b2", "MATHEMATICS", "EMPIRICAL",   0.2),
+                researcher("b3", "PHYSICS",     "EMPIRICAL",   0.2),
+                researcher("b4", "MATHEMATICS", "THEORETICAL", 0.9));
+
+        String result = svc.maybeRecomputeDominantMethodology(room, pool);
+
+        assertThat(result).isEqualTo("THEORETICAL");
+        assertThat(u.getDominantMethodology()).isEqualTo("THEORETICAL");
+    }
+
+    @Test
+    void dominantMethodologyReputationWeightedClampsToZeroOneRange() {
+        // Bot with reputation 2.5 (out of range) should be clamped to 1.0 —
+        // they still influence but not unboundedly. Bot with negative
+        // reputation contributes 0.0 and is effectively ignored.
+        InstitutionService svc = enabledWithDominantMethodologyReputationWeighted();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+        when(universities.save(any(University.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS", "EMPIRICAL",   2.5),   // clamps to 1.0
+                researcher("b2", "PHYSICS",     "THEORETICAL", 0.5),
+                researcher("b3", "PHYSICS",     "THEORETICAL", -1.0)); // clamps to 0.0 → skipped
+
+        String result = svc.maybeRecomputeDominantMethodology(room, pool);
+
+        // EMPIRICAL (1.0) > THEORETICAL (0.5 + 0.0 contribution from skipped bot)
+        assertThat(result).isEqualTo("EMPIRICAL");
+    }
+
+    @Test
+    void dominantMethodologyReputationWeightedNoOpWhenAllReputationsZero() {
+        // All bots have 0 reputation under the reputation-weighted flag → no
+        // valid votes → no-op. Plain mode would have produced a value.
+        InstitutionService svc = enabledWithDominantMethodologyReputationWeighted();
+        UUID room = UUID.randomUUID();
+        University u = new University(room, "U", null, java.time.Instant.now());
+        when(universities.findFirstByRoomId(room)).thenReturn(Optional.of(u));
+
+        java.util.List<Researcher> pool = java.util.List.of(
+                researcher("b1", "MATHEMATICS", "EMPIRICAL",   0.0),
+                researcher("b2", "PHYSICS",     "THEORETICAL", 0.0));
+
+        assertThat(svc.maybeRecomputeDominantMethodology(room, pool)).isNull();
+        verify(universities, never()).save(any());
+    }
+
+    @Test
     void dominantMethodologyEmptyPoolIsNoOp() {
         InstitutionService svc = enabledWithDominantMethodology();
         UUID room = UUID.randomUUID();
@@ -472,22 +535,27 @@ class InstitutionServiceTest {
     // ---- helpers ----
 
     private InstitutionService enabled() {
-        return new InstitutionService(true, false, false, false, universities, journals,
+        return new InstitutionService(true, false, false, false, false, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithImpactFactor() {
-        return new InstitutionService(true, true, false, false, universities, journals,
+        return new InstitutionService(true, true, false, false, false, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithCouncil() {
-        return new InstitutionService(true, false, true, false, universities, journals,
+        return new InstitutionService(true, false, true, false, false, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 
     private InstitutionService enabledWithDominantMethodology() {
-        return new InstitutionService(true, false, false, true, universities, journals,
+        return new InstitutionService(true, false, false, true, false, universities, journals,
+                fundingAgencies, councils, papers, citations);
+    }
+
+    private InstitutionService enabledWithDominantMethodologyReputationWeighted() {
+        return new InstitutionService(true, false, false, true, true, universities, journals,
                 fundingAgencies, councils, papers, citations);
     }
 

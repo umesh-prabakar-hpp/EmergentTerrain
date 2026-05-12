@@ -104,7 +104,7 @@ class Phase4bIntegrationSmokeTest {
         wireUniversityRepo(); wireJournalRepo(); wireAgencyRepo(); wireCouncilRepo();
         wireMarketRepo(); wireStakeRepo(); wireFindingRepo(); wirePaperRepo();
 
-        institutions = new InstitutionService(true, true, true, true,
+        institutions = new InstitutionService(true, true, true, true, false,
                 universities, journals, agencies, councils, papers, citations);
         marketsService = new EpistemicMarketService(true, true,
                 markets, stakes, calibrations, bots, mapper);

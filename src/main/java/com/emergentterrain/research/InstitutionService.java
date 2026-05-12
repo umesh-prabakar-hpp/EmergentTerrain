@@ -39,6 +39,7 @@ public class InstitutionService {
     private final boolean                       impactFactorEnabled;
     private final boolean                       replicationCouncilEnabled;
     private final boolean                       dominantMethodologyEnabled;
+    private final boolean                       dominantMethodologyReputationWeighted;
     private final UniversityRepository          universities;
     private final JournalRepository             journals;
     private final FundingAgencyRepository       fundingAgencies;
@@ -51,6 +52,7 @@ public class InstitutionService {
             @Value("${app.research.impact-factor.enabled:false}") boolean impactFactorEnabled,
             @Value("${app.research.replication-council.enabled:false}") boolean replicationCouncilEnabled,
             @Value("${app.research.dominant-methodology.enabled:false}") boolean dominantMethodologyEnabled,
+            @Value("${app.research.dominant-methodology.reputation-weighted:false}") boolean dominantMethodologyReputationWeighted,
             UniversityRepository universities,
             JournalRepository journals,
             FundingAgencyRepository fundingAgencies,
@@ -61,6 +63,7 @@ public class InstitutionService {
         this.impactFactorEnabled        = impactFactorEnabled;
         this.replicationCouncilEnabled  = replicationCouncilEnabled;
         this.dominantMethodologyEnabled = dominantMethodologyEnabled;
+        this.dominantMethodologyReputationWeighted = dominantMethodologyReputationWeighted;
         this.universities               = universities;
         this.journals                   = journals;
         this.fundingAgencies            = fundingAgencies;
@@ -86,6 +89,11 @@ public class InstitutionService {
             log.info("InstitutionService: dominant-methodology emergence ENABLED — "
                     + "University.dominantMethodology is recomputed from the modal "
                     + "BotGenome.methodology across the room's bots once per tick.");
+        }
+        if (dominantMethodologyReputationWeighted) {
+            log.info("InstitutionService: dominant-methodology REPUTATION-WEIGHTED — "
+                    + "each bot's vote is its reputation (clamped to [0,1]) rather than 1, so "
+                    + "high-reputation bots influence the room's dominant methodology more.");
         }
     }
 
@@ -267,6 +275,13 @@ public class InstitutionService {
      * {@code BotGenome.methodology} across the room's qualified researcher pool.
      * Ties are broken by alphabetic order of the methodology name (deterministic).
      *
+     * When {@code app.research.dominant-methodology.reputation-weighted} is on,
+     * each bot's vote is its {@code reputation} (clamped to {@code [0, 1]})
+     * rather than a flat 1. High-reputation bots influence the room's dominant
+     * methodology more — a small group of established researchers can sway it
+     * even when newer bots are more numerous. When the flag is off, the count
+     * is the pre-carve plain-mode.
+     *
      * Idempotent: only saves when the computed mode differs from the value
      * currently on the entity. No-op when institutions are disabled, the
      * dominant-methodology flag is off, the pool is empty, or no University
@@ -281,15 +296,22 @@ public class InstitutionService {
         University u = universities.findFirstByRoomId(roomId).orElse(null);
         if (u == null) return null;
 
-        java.util.Map<String, Long> counts = new java.util.HashMap<>();
+        java.util.Map<String, Double> counts = new java.util.HashMap<>();
         for (Researcher r : pool) {
             String m = r.getMethodology();
             if (m == null || m.isBlank()) continue;
-            counts.merge(m, 1L, Long::sum);
+            double vote = dominantMethodologyReputationWeighted
+                    ? Math.max(0.0, Math.min(1.0, r.getReputation()))
+                    : 1.0;
+            // A 0-reputation bot has no influence under reputation-weighted counts.
+            // Skip the merge so a methodology held only by 0-rep bots doesn't
+            // accumulate a phantom 0.0 entry that the tie-break could pick.
+            if (vote <= 0.0) continue;
+            counts.merge(m, vote, Double::sum);
         }
         if (counts.isEmpty()) return null;
         String mode = counts.entrySet().stream()
-                .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed()
+                .sorted(java.util.Map.Entry.<String, Double>comparingByValue().reversed()
                         .thenComparing(java.util.Map.Entry.comparingByKey()))
                 .findFirst().map(java.util.Map.Entry::getKey).orElse(null);
         if (mode == null) return null;

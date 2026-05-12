@@ -186,7 +186,7 @@ class MathPhysicsEngineTest {
                         mock(com.emergentterrain.repo.SurpriseEventRepository.class),
                         mock(com.emergentterrain.repo.ResearchPaperRepository.class),
                         new WorldDataQueryService()),
-                new InstitutionService(false, false, false, false,
+                new InstitutionService(false, false, false, false, false,
                         mock(com.emergentterrain.repo.UniversityRepository.class),
                         mock(com.emergentterrain.repo.JournalRepository.class),
                         mock(com.emergentterrain.repo.FundingAgencyRepository.class),
