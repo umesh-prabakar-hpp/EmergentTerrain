@@ -410,22 +410,29 @@ public class UniversityService {
                 parseBotIdSafely(draft.authorBotId()),
                 hypothesis, findings, conclusion);
 
-        // Anomaly replication: only queue positive results — null results have no claim to verify.
-        // The council can also force replication for any paper asserting a CONTRADICTS citation,
-        // regardless of z-score, when app.research.replication-council.enabled is set.
-        double zThreshold      = explorationTuningService.getZThreshold(draft.roomId());
-        boolean anomalyTrigger = Math.abs(draft.anomalyZScore()) >= zThreshold;
-        boolean councilTrigger = institutionService.councilWantsReplication(narration);
-        if (!isNullResult && (anomalyTrigger || councilTrigger) && draft.param1() != null) {
+        // Anomaly replication: queue positive results when z is high or a CONTRADICTS
+        // citation appears. Phase 4b refinement: high-confidence NULL_RESULTs also
+        // qualify — a confident no-relationship claim is itself a scientific
+        // assertion that deserves verification (absence of evidence is not
+        // evidence of absence without replication). Both council triggers require
+        // app.research.replication-council.enabled.
+        double zThreshold       = explorationTuningService.getZThreshold(draft.roomId());
+        boolean anomalyTrigger  = Math.abs(draft.anomalyZScore()) >= zThreshold;
+        boolean councilTrigger  = institutionService.councilWantsReplication(narration);
+        boolean nullCouncilTrigger = isNullResult
+                && institutionService.councilWantsNullVerification(narration);
+        boolean queueAsPositive = !isNullResult && (anomalyTrigger || councilTrigger);
+        if ((queueAsPositive || nullCouncilTrigger) && draft.param1() != null) {
             int topicIndex = resolveTopicIndex(draft.domain(), draft.topicName());
             if (topicIndex >= 0) {
                 replicationService.enqueue(new ReplicationService.ReplicationRequest(
                         draft.roomId(), draft.paperId(), draft.domain(), topicIndex,
                         draft.param1(), draft.param2(), draft.peerScore()));
                 institutionService.recordReplicationEnqueued(draft.roomId());
+                String trigger = nullCouncilTrigger ? "null-council"
+                        : (councilTrigger && !anomalyTrigger ? "council" : "anomaly");
                 log.info("university replication queued paperId={} z={} trigger={}",
-                        draft.paperId(), draft.anomalyZScore(),
-                        councilTrigger && !anomalyTrigger ? "council" : "anomaly");
+                        draft.paperId(), draft.anomalyZScore(), trigger);
             }
         }
 

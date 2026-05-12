@@ -215,6 +215,9 @@ public class InstitutionService {
         });
     }
 
+    /** Confidence threshold above which a NULL_RESULT triggers council verification. */
+    private static final double COUNCIL_NULL_CONFIDENCE_THRESHOLD = 0.7;
+
     /**
      * Phase 4b — true when the council wants this paper replicated regardless
      * of its anomaly z-score. The trigger is: any typed citation with
@@ -233,6 +236,29 @@ public class InstitutionService {
             if (c.type() == RelationshipType.CONTRADICTS) return true;
         }
         return false;
+    }
+
+    /**
+     * Phase 4b refinement — true when the council wants this NULL_RESULT
+     * paper replicated. A NULL claim with high narration confidence is a
+     * scientific assertion ("there is no relationship") that deserves
+     * verification just like a strong positive result; absence of evidence
+     * is not evidence of absence without replication. The pre-refinement
+     * trigger logic skipped NULL_RESULTs entirely — they were treated as
+     * having "no claim to verify," but the Phase 4 Iter 9 work made NULL
+     * relation-types first-class structured findings, so this trigger
+     * brings replication into alignment with that framing.
+     *
+     * Fires when:
+     *  - institutions are enabled, the council flag is on,
+     *  - {@code narration.confidenceScore() >= COUNCIL_NULL_CONFIDENCE_THRESHOLD}.
+     *
+     * Caller is responsible for checking that the paper is actually a
+     * {@code NULL_RESULT} — this method only checks the confidence gate.
+     */
+    public boolean councilWantsNullVerification(NarrationResult narration) {
+        if (!enabled || !replicationCouncilEnabled || narration == null) return false;
+        return narration.confidenceScore() >= COUNCIL_NULL_CONFIDENCE_THRESHOLD;
     }
 
     /**

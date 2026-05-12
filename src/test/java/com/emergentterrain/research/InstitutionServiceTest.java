@@ -331,6 +331,37 @@ class InstitutionServiceTest {
     }
 
     @Test
+    void councilWantsNullVerificationForHighConfidenceNullClaim() {
+        // NULL_RESULT with confidence >= 0.7 trips the new trigger.
+        InstitutionService svc = enabledWithCouncil();
+        NarrationResult highConf = narrationWithConfidence(0.85);
+        assertThat(svc.councilWantsNullVerification(highConf)).isTrue();
+    }
+
+    @Test
+    void councilDoesNotWantNullVerificationBelowThreshold() {
+        // Below 0.7 → not a confident enough null claim to spend replication
+        // budget on (an honest low-confidence null is fine to leave alone).
+        InstitutionService svc = enabledWithCouncil();
+        NarrationResult lowConf = narrationWithConfidence(0.60);
+        assertThat(svc.councilWantsNullVerification(lowConf)).isFalse();
+    }
+
+    @Test
+    void councilDoesNotWantNullVerificationWhenFlagOff() {
+        // Same high-confidence narration but with council flag off → no-op.
+        InstitutionService svc = enabled();
+        NarrationResult highConf = narrationWithConfidence(0.85);
+        assertThat(svc.councilWantsNullVerification(highConf)).isFalse();
+    }
+
+    @Test
+    void councilDoesNotWantNullVerificationOnNullNarration() {
+        InstitutionService svc = enabledWithCouncil();
+        assertThat(svc.councilWantsNullVerification(null)).isFalse();
+    }
+
+    @Test
     void recordReplicationEnqueuedIsNoOpWhenCouncilFlagOff() {
         InstitutionService svc = enabled();  // council flag off
         UUID room = UUID.randomUUID();
@@ -561,6 +592,16 @@ class InstitutionServiceTest {
 
     private static org.assertj.core.data.Offset<Double> within(double delta) {
         return org.assertj.core.data.Offset.offset(delta);
+    }
+
+    private static NarrationResult narrationWithConfidence(double confidence) {
+        return new NarrationResult(
+                "hyp", "find", "conc",
+                /* followUp = */ null, /* aiModel = */ "model",
+                confidence,
+                java.util.List.of(),
+                /* callPath = */ "callpath",
+                java.util.List.of());
     }
 
     private static NarrationResult narrationWithTypedCitation(RelationshipType type) {
