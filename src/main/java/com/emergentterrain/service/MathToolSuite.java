@@ -291,20 +291,40 @@ public class MathToolSuite {
         }
     }
 
-    // ── 4b code review ────────────────────────────────────────────────────────
+    // ── Code review ───────────────────────────────────────────────────────────
 
+    /**
+     * Two-stage code review: a deterministic static check (whitelist + parse
+     * validity) followed by a narrowed LLM intent check (does the code attempt
+     * what the description claims).
+     *
+     * <p>The static stage replaces what the 4b reviewer was supposed to enforce
+     * but could not — a May-2026 corpus run showed the model rejecting 100% of
+     * valid sandbox attempts by hallucinating rules (claiming a variable named
+     * {@code x} was "string manipulation", denying {@code sigmaSum} despite it
+     * being on the whitelist, calling bisection non-convergent). Deterministic
+     * checks remove that failure mode.
+     *
+     * <p>The LLM stage is intentionally advisory: a clear "REJECTED:" prefix
+     * blocks execution, but any ambiguity defaults to approve. The runtime
+     * sandbox enforces {@link com.emergentterrain.research.SandboxEngine#MAX_ITERATIONS}
+     * and {@link com.emergentterrain.research.SandboxEngine#MAX_STMTS} as the
+     * load-bearing safety boundary.
+     */
     private String reviewCodeWith4b(String code, String description) {
+        // Stage 1 — deterministic static check (parse + whitelist).
+        com.emergentterrain.research.SandboxStaticChecker.Result staticResult =
+                com.emergentterrain.research.SandboxStaticChecker.check(code);
+        if (staticResult instanceof com.emergentterrain.research.SandboxStaticChecker.Result.Rejected r) {
+            return "REJECTED (static): " + r.reason();
+        }
+
+        // Stage 2 — narrowed LLM intent check. Asks one question only: does the
+        // code attempt what the description claims? No rule recitation that the
+        // model can hallucinate against. Default-approve on any ambiguity.
         String prompt = """
-                Review the following mathematical pseudocode for safety and correctness.
-                Check:
-                1. No file I/O, network calls, class instantiation, imports, or reflection.
-                2. No strings, arrays, or object manipulation — only numbers and arithmetic.
-                3. Only whitelisted functions: isPrime, isHappy, collatzTerminates, isAbundant,
-                   isPerfect, collatzSteps, sigmaSum, abs, sqrt, pow, floor, ceil, log, log2,
-                   min, max, gcd, sin, cos, tan, asin, acos, atan, atan2, exp.
-                   Math constants PI and E are also available as bare identifiers.
-                4. The code logically computes what the description claims.
-                5. No infinite loops (loops must have a finite upper bound from 'end').
+                Does the following pseudocode attempt to compute what the description claims?
+                Ignore style, error handling, and convergence theory — judge intent only.
 
                 Description: %s
 
@@ -313,16 +333,15 @@ public class MathToolSuite {
 
                 Reply with EXACTLY one of:
                 APPROVED
-                REJECTED: <one-sentence reason>
+                REJECTED: <one-sentence reason explaining how the code is unrelated to the description>
                 """.formatted(description, code);
         try {
             String response = router.callFast(prompt).trim();
-            // Be permissive: only reject on explicit REJECTED
             if (response.toUpperCase().startsWith("REJECTED")) return response;
             return "APPROVED";
         } catch (Exception e) {
-            log.warn("MathToolSuite: 4b code review failed ({}), approving conservatively", e.getMessage());
-            return "APPROVED"; // fail-open: interpreter itself enforces the hard limits
+            log.warn("MathToolSuite: intent review failed ({}), approving conservatively", e.getMessage());
+            return "APPROVED"; // fail-open: static check + runtime limits are the real safety boundary
         }
     }
 }
