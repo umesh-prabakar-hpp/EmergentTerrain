@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–3 |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 |
-| Net new code | ~10,000 lines |
-| Tests | 135 → 577 (+442) |
-| Behaviour-changing iterations | 6, all behind feature flags |
+| Commits | 24 + 8 Phase 5 |
+| Net new code | ~10,000 + ~900 (Phase 5) lines |
+| Tests | 135 → 577 → 633 (+498) |
+| Behaviour-changing iterations | 6 + 3 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist), all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -694,6 +694,8 @@ app.research.surprise-broadcast.enabled # Phase 4b — fan out high-surprise eve
 app.research.exploration-tuning.enabled # Phase 4b — per-room z-threshold + EXPLORATION trigger adjust from replication failure rate
 app.research.theory-composition.enabled # Phase 4b — A~f(B) ^ B~g(C) chains emit derived ProgramOpenQuestions
 app.research.world-intervention.enabled # Phase 3 Iter 6 write side — bots file GovernmentBill via WorldInterventionService; integration point checks the flag
+app.research.truncation-guard.enabled   # Phase 5 A1 — papers whose findings/conclusion end mid-sentence publish as NEEDS_REVISION
+app.research.harness-leak-filter.enabled # Phase 5 A4 — strip "starting at position N" / "uses a scale of M" / "quality score of X" leak phrases from prose
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -991,6 +993,42 @@ Per the phase doc's ordering (ascending risk):
 
 - **Phase 2.5 RoomService refactor** — 4,746-line carve. Unlocks Phase
   3 Iter 6 write side. See its dedicated design doc.
+
+---
+
+## Phase 5 — Quality Pipeline ✅ (Waves 0–3 shipped 2026-05-12)
+
+Lifts the 27% acceptance-rate plateau the automated peer review
+([REVIEW_REPORT.md](../research/a3289005-archive/REVIEW_REPORT.md))
+identified across 91 papers + 13 refreshes. Each piece is anchored to
+the specific recommendation # it addresses. See
+[phase-5-quality-pipeline.md](phase-5-quality-pipeline.md) for the
+full scoping doc.
+
+```
+Wave 0 (diagnostics)
+  C4  Closed-form regression suite (MathPhysicsEngineRegressionTest)   869a110
+  C5  Pendulum series uses θ= prefix to keep narrator labels aligned   dbfabc4
+Wave 1 (quick wins)
+  A2  NEEDS_REVISION / PUBLISHED_NO_PROFESSOR status mapping           e6b1f42
+  A3  Sandbox whitelist: sin/cos/tan/exp/PI/E + 9 trig + Math constants cf70584
+  A5  Drop canned "no prior theoretical bound" boilerplate              f3130f0
+Wave 2 (guards)
+  A1  Truncation guard downgrades mid-sentence papers                  177b160
+  A4  PromptSanitizer strips harness-parameter leak phrases            a1aac8e
+Wave 3 (telemetry)
+  C3  Surface sandbox_reject=N on the persisted LLM Call Path          828efca
+```
+
+Wave 0 pinned the simulator before behaviour changes landed. Wave 1's
+three quick wins each hit a top-frequency failure mode. Wave 2 added
+opt-in guards behind two new flags (`app.research.truncation-guard.enabled`,
+`app.research.harness-leak-filter.enabled`). Wave 3 surfaced previously
+log-only telemetry onto the persisted paper row.
+
+Waves 4 (B1–B5 validators), 5 (citation-aware scoring + dispute
+reconciliation), and 6 (D1/D2 scoping docs) remain. See the phase doc
+§"Suggested execution order" and §"Pre-conditions for the validators".
 
 ---
 
