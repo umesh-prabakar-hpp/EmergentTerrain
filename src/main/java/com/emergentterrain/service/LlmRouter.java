@@ -72,31 +72,31 @@ public class LlmRouter {
     public String fastModel()     { return fastPool.selectedModel(); }
     public int    primaryPoolSize() { return Math.max(1, primaryPool.selectedModels().size()); }
 
-    /** True when the primary pool is Groq and supports multi-turn tool-calling. */
+    /** True when the primary pool supports multi-turn tool-calling. */
     public boolean supportsProfessorTools() {
-        return primaryPool instanceof GroqPool;
+        return primaryPool.supportsTools();
     }
 
-    /** True when the primary pool is Groq and every model has an active TPD block. */
+    /** True when every model in the primary pool has an active rate-limit / quota block. */
     public boolean primaryFullyExhausted() {
-        return primaryPool instanceof GroqPool gp && gp.allModelsTpdBlocked();
+        return primaryPool.allBlocked();
     }
 
-    /** Earliest time any primary-pool model recovers from TPD exhaustion. */
+    /** Earliest time any primary-pool model recovers from its block. */
     public java.time.Instant earliestPrimaryRecovery() {
-        if (primaryPool instanceof GroqPool gp) return gp.earliestRecovery();
-        return java.time.Instant.now();
+        return primaryPool.earliestRecovery();
     }
 
     /**
      * Tool-enabled primary call. The professor LLM may invoke tools to gather evidence,
-     * then writes a synthesis. Falls back to a plain primary call if Groq is not configured.
+     * then writes a synthesis. Falls back to a plain primary call when the pool doesn't
+     * support tools (e.g. Ollama).
      */
     public String callPrimaryWithTools(String systemPrompt, String userPrompt,
                                         String toolsJson,
                                         java.util.function.Function<String, String> executor) {
-        if (primaryPool instanceof GroqPool groq) {
-            return groq.callWithTools(systemPrompt, userPrompt, toolsJson, executor);
+        if (primaryPool.supportsTools()) {
+            return primaryPool.callWithTools(systemPrompt, userPrompt, toolsJson, executor);
         }
         return primaryPool.callSync(systemPrompt + "\n\n" + userPrompt);
     }

@@ -169,6 +169,11 @@ public class GroqPool implements LlmPool {
     @Override public int backendCount()            { return 1; }
     @Override public int healthyCount()            { return 1; }
 
+    // Phase 7 E1.0 — LlmPool provider-pluralised surface
+    @Override public String providerKey()          { return "groq"; }
+    @Override public boolean supportsTools()       { return true; }
+    @Override public boolean allBlocked()          { return allModelsTpdBlocked(); }
+
     /** True when every model in the active list has an unexpired TPD block. */
     public boolean allModelsTpdBlocked() {
         if (activeModels.isEmpty()) return false;
@@ -180,6 +185,7 @@ public class GroqPool implements LlmPool {
     }
 
     /** Epoch-millis of the earliest TPD expiry across all active models. */
+    @Override
     public java.time.Instant earliestRecovery() {
         long now = System.currentTimeMillis();
         return activeModels.stream()
@@ -195,6 +201,7 @@ public class GroqPool implements LlmPool {
      * MAX_TOOL_ROUNDS times; each call is executed via {@code executor} and the
      * result added to the conversation. Returns the model's final synthesis text.
      */
+    @Override
     public String callWithTools(String systemPrompt, String userPrompt,
                                  String toolsJson,
                                  java.util.function.Function<String, String> executor) {
