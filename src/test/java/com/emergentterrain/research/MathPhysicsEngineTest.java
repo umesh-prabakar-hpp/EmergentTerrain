@@ -216,9 +216,10 @@ class MathPhysicsEngineTest {
                         mapper),
                 new SurpriseBroadcastService(false, 30),
                 new ExplorationTuningService(false, replicationService),
-                /* reviewerRoutingEnabled = */ false,
-                /* journalReviewEnabled =   */ false,
-                /* truncationGuardEnabled = */ false,
+                /* reviewerRoutingEnabled =   */ false,
+                /* journalReviewEnabled =     */ false,
+                /* truncationGuardEnabled =   */ false,
+                /* harnessLeakFilterEnabled = */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

@@ -32,6 +32,8 @@ class PublishPaperTest {
     private UUID roomId;
     /** Phase 5 A1: tests that exercise the truncation guard set this to true via {@link #enableTruncationGuard()}. */
     private boolean truncationGuardEnabled = false;
+    /** Phase 5 A4: tests that exercise the harness-leak filter set this via {@link #enableHarnessLeakFilter()}. */
+    private boolean harnessLeakFilterEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -94,9 +96,10 @@ class PublishPaperTest {
                         mapper),
                 new SurpriseBroadcastService(false, 30),
                 new ExplorationTuningService(false, replicationService),
-                /* reviewerRoutingEnabled = */ false,
-                /* journalReviewEnabled =   */ false,
-                /* truncationGuardEnabled = */ truncationGuardEnabled,
+                /* reviewerRoutingEnabled =   */ false,
+                /* journalReviewEnabled =     */ false,
+                /* truncationGuardEnabled =   */ truncationGuardEnabled,
+                /* harnessLeakFilterEnabled = */ harnessLeakFilterEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -273,6 +276,48 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
+    // ---- Phase 5 A4: harness-parameter leak filter ----
+
+    @Test
+    void harnessLeakFilterOffLeavesLeakPhraseIntact() {
+        // Default setup: flag off. Leak phrase rides through to the persisted paper.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Aliquot sequences in [10, 50) starting at position 10 will terminate.",
+                "f", "c", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().hypothesis()).contains("starting at position 10");
+    }
+
+    @Test
+    void harnessLeakFilterOnStripsStartingAtPositionFromHypothesis() {
+        enableHarnessLeakFilter();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Aliquot sequences in [10, 50), starting at position 10, will terminate.",
+                "f", "c", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.hypothesis())
+                .doesNotContain("starting at position")
+                .contains("Aliquot sequences")
+                .contains("will terminate");
+    }
+
+    @Test
+    void harnessLeakFilterOnStripsScaleAndQualityScore() {
+        enableHarnessLeakFilter();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Search uses a scale of 7.0 and finds nothing.",
+                "Result is X. The actual quality score of 0.23 remained unaffected by sampling.",
+                "c", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.hypothesis()).doesNotContain("scale of 7.0");
+        assertThat(paper.findings()).doesNotContain("quality score");
+    }
+
     // ---- Phase 5 A2: status reflects narration-pipeline health ----
 
     @Test
@@ -444,6 +489,12 @@ class PublishPaperTest {
     /** Phase 5 A1 — rebuilds the service with the truncation-guard flag set. */
     private void enableTruncationGuard() {
         truncationGuardEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 A4 — rebuilds the service with the harness-leak-filter flag set. */
+    private void enableHarnessLeakFilter() {
+        harnessLeakFilterEnabled = true;
         setUp();
     }
 

@@ -53,6 +53,7 @@ public class UniversityService {
     private final int     maxDraftBacklog;
     private final boolean peerReviewEnabled;
     private final boolean truncationGuardEnabled;
+    private final boolean harnessLeakFilterEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -140,6 +141,7 @@ public class UniversityService {
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
             @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
+            @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -162,10 +164,15 @@ public class UniversityService {
         this.surpriseBroadcastService = surpriseBroadcastService;
         this.explorationTuningService = explorationTuningService;
         this.truncationGuardEnabled   = truncationGuardEnabled;
+        this.harnessLeakFilterEnabled = harnessLeakFilterEnabled;
         this.objectMapper             = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
                     + "or conclusion end mid-sentence will publish as NEEDS_REVISION.");
+        }
+        if (harnessLeakFilterEnabled) {
+            log.info("UniversityService: harness-leak-filter ENABLED — Hypothesis text "
+                    + "is scrubbed of simulator-internal phrases before persistence.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -278,6 +285,14 @@ public class UniversityService {
                 ? narration.findings()  : draft.rawFindings();
         String conclusion = (narration.conclusion() != null && !narration.conclusion().isBlank())
                 ? narration.conclusion() : draft.templateConclusion();
+
+        // Phase 5 A4 — strip harness-parameter leak phrases (≥11 papers in the May 2026
+        // corpus had simulator coords or internal peer-score values bleed into prose).
+        if (harnessLeakFilterEnabled) {
+            hypothesis = PromptSanitizer.sanitize(hypothesis);
+            findings   = PromptSanitizer.sanitize(findings);
+            conclusion = PromptSanitizer.sanitize(conclusion);
+        }
 
         // Null results get no confidence boost (fixed ×0.92); others range ×0.92–×1.08
         boolean isNullResult = draft.resultClassification() == ResultClassification.NULL_RESULT;
