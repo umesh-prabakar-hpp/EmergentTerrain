@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D1.3 |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 15 Phase 5 + 4 Phase 6 |
-| Net new code | ~10,000 + ~2,300 (Phase 5) + ~900 (Phase 6) lines |
-| Tests | 135 → 577 → 690 → 704 → 709 (+574) |
-| Behaviour-changing iterations | 6 + 10 Phase 5 + 1 Phase 6 (literature-search prompt integration), all behind feature flags |
+| Commits | 24 + 15 Phase 5 + 5 Phase 6 |
+| Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) lines |
+| Tests | 135 → 577 → 690 → 704 → 709 → 717 (+582) |
+| Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 (literature-search prompt integration, Discussion / Related-Work sections), all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -703,6 +703,7 @@ app.research.cross-domain-gate.enabled  # Phase 5 B4 — flag papers whose Hypot
 app.research.dispute-reconciliation.enabled # Phase 5 C2 — DISPUTED papers emit a typed ProgramOpenQuestion on both bots' programs
 app.research.citation-aware-scoring.enabled # Phase 5 C1 — peer score gains +0.02 per high-quality cited prior, -0.04 per critique:skip cited prior
 app.research.literature-search.enabled  # Phase 6 D1.3 — professor stage sees a curated literature block (v2-with-literature templates)
+app.research.discussion-section.enabled # Phase 6 D2 — first-pass narrator emits discussion + related_work JSON keys (v2-with-discussion template)
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -1082,10 +1083,22 @@ flag is on, the professor-tool path renders a
 (`NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
 `NARRATION_REVISION` `v2-from-synthesis-with-literature`). The v2
 system prompt also asks the professor to flag whether the paper's
-claims align with or extend the cited closed-forms. v1 templates
-remain registered for the flag-off path and for Phase 4c Piece 3's
-eventual A/B. D2 (Discussion / Related-Work section) remains the
-last Phase 6 piece.
+claims align with or extend the cited closed-forms.
+
+D2 (Discussion / Related-Work section) has shipped behind
+`app.research.discussion-section.enabled` (default false).
+`NarrationResult` and `ResearchPaper` gain `discussion` +
+`relatedWork` fields; the parser picks up `discussion` and
+`related_work` JSON keys with null/blank/non-string tolerance; the
+first-pass narrator renders `NARRATION_PRIMARY v2-with-discussion`
+which asks the LLM for the two extra sections in the same JSON
+shape. The student-revision step preserves the fields across the
+revision so they survive the professor stage. Markdown writer
+appends `## Discussion` and `## Related Work` sections when set,
+omits both when null. v1 templates remain registered for the
+flag-off path and for Phase 4c Piece 3's eventual A/B.
+
+Phase 6 is complete.
 
 ---
 
