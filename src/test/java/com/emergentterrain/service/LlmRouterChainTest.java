@@ -175,6 +175,75 @@ class LlmRouterChainTest {
         assertThat(router.primaryProviderChain()).containsExactly("groq");
     }
 
+    // ── Phase 7 E1.6 — role-based routing ───────────────────────────────────
+
+    @Test
+    void callForRole_routesToTaggedPoolWhenAvailable() {
+        FakePool ollama   = new FakePool("ollama", false, false, "ollama-response");
+        FakePool cerebras = new FakePool("cerebras", true, false, "cerebras-fast-response")
+                .withRole("fast-audit");
+
+        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+
+        String out = router.callForRole("fast-audit", "audit this");
+        assertThat(out).isEqualTo("cerebras-fast-response");
+        assertThat(cerebras.syncCallCount).isEqualTo(1);
+        assertThat(ollama.syncCallCount).isEqualTo(0);
+    }
+
+    @Test
+    void callForRole_fallsBackToFastWhenRolePoolBlocked() {
+        FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
+        FakePool cerebras = new FakePool("cerebras", true, true,  "cerebras-blocked")
+                .withRole("fast-audit");
+
+        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+
+        String out = router.callForRole("fast-audit", "audit this");
+        assertThat(out).isEqualTo("ollama-fallback");
+        assertThat(cerebras.syncCallCount).isEqualTo(0);  // skipped (blocked)
+        assertThat(ollama.syncCallCount).isEqualTo(1);
+    }
+
+    @Test
+    void callForRole_fallsBackToFastWhenRolePoolThrows() {
+        FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
+        FakePool cerebras = new FakePool("cerebras", true, false, null).withRole("fast-audit");
+        cerebras.throwOnSync = new RuntimeException("transient cerebras failure");
+
+        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+
+        String out = router.callForRole("fast-audit", "audit this");
+        assertThat(out).isEqualTo("ollama-fallback");
+        assertThat(cerebras.syncCallCount).isEqualTo(1);   // tried, threw
+        assertThat(ollama.syncCallCount).isEqualTo(1);     // fallback
+    }
+
+    @Test
+    void callForRole_fallsBackToFastWhenNoPoolTaggedForRole() {
+        FakePool ollama = new FakePool("ollama", false, false, "ollama-only");
+        FakePool groq   = new FakePool("groq", true, false, "groq-only");
+
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        String out = router.callForRole("fast-audit", "audit this");
+        assertThat(out).isEqualTo("ollama-only");
+    }
+
+    @Test
+    void roleAvailable_reportsCorrectly() {
+        FakePool ollama   = new FakePool("ollama", false, false, "x");
+        FakePool cerebras = new FakePool("cerebras", true, false, "x").withRole("fast-audit");
+
+        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+
+        assertThat(router.roleAvailable("fast-audit")).isTrue();
+        assertThat(router.roleAvailable("nonexistent-role")).isFalse();
+
+        cerebras.blocked = true;
+        assertThat(router.roleAvailable("fast-audit")).isFalse();
+    }
+
     // ── Fake pool + router builder ──────────────────────────────────────────
 
     private static class FakePool implements LlmPool {
@@ -182,6 +251,7 @@ class LlmRouterChainTest {
         final boolean tools;
         boolean blocked;
         final String syncResponse;
+        String roleTag = "";
         RuntimeException throwOnSync;
         int syncCallCount = 0;
         int toolCallCount = 0;
@@ -192,6 +262,8 @@ class LlmRouterChainTest {
             this.blocked = blocked;
             this.syncResponse = syncResponse;
         }
+
+        FakePool withRole(String role) { this.roleTag = role; return this; }
 
         @Override public String callSync(String prompt) {
             syncCallCount++;
@@ -210,6 +282,7 @@ class LlmRouterChainTest {
         @Override public boolean supportsTools() { return tools; }
         @Override public boolean allBlocked()    { return blocked; }
         @Override public Instant earliestRecovery() { return Instant.now(); }
+        @Override public String role()           { return roleTag; }
         @Override public String callWithTools(String sys, String user, String tools,
                                               Function<String, String> exec) {
             toolCallCount++;

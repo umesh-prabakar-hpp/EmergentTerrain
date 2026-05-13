@@ -530,13 +530,17 @@ public class ResearchNarrationService {
     // ── Audit gap record ─────────────────────────────────────────────────────
     private record AuditGap(String dimension, String severity, String description) {}
 
-    // ── Quality audit (fast Ollama) ──────────────────────────────────────────
+    // ── Quality audit (Cerebras when available, else fast Ollama) ────────────
 
     private String runQualityAudit(PaperDraft draft, NarrationResult firstPass,
                                     List<String> callPath) {
         try {
             long t = System.currentTimeMillis();
-            String raw = router.callFast(buildAuditPrompt(promptRegistry, draft, firstPass));
+            // Phase 7 E1.6 — direct audit at the "fast-audit" role pool (Cerebras WSE-3
+            // delivers ~14 ms inference vs Ollama's ~100-500 ms). Falls back to the
+            // configured fast pool when Cerebras is disabled, RPM-blocked, or throws.
+            String raw = router.callForRole("fast-audit",
+                    buildAuditPrompt(promptRegistry, draft, firstPass));
             List<AuditGap> gaps = parseAuditGaps(objectMapper, raw);
             if (gaps.isEmpty()) {
                 callPath.add("audit:4b:0gaps");

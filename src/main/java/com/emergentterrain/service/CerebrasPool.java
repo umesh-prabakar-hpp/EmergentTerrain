@@ -66,6 +66,7 @@ public class CerebrasPool implements LlmPool {
     private final String baseUrl;
     private final int    maxTokens;
     private final int    toolMaxTokens;
+    private final String role;
     private final List<String> activeModels;
     private final ConcurrentHashMap<String, Long> rateLimitExpiry = new ConcurrentHashMap<>();
     private final Semaphore slots;
@@ -83,6 +84,7 @@ public class CerebrasPool implements LlmPool {
             @Value("${app.ai.cerebras.toolMaxTokens:1500}") int toolMaxTokens,
             @Value("${app.ai.cerebras.parallelism:2}") int parallelism,
             @Value("${app.ai.cerebras.preferredModels:}") String preferredModels,
+            @Value("${app.ai.cerebras.role:fast-audit}") String role,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -98,6 +100,7 @@ public class CerebrasPool implements LlmPool {
         this.baseUrl        = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.maxTokens      = maxTokens;
         this.toolMaxTokens  = toolMaxTokens;
+        this.role           = role == null ? "" : role.trim();
         this.mapper         = mapper;
         this.slots          = new Semaphore(parallelism);
         this.http           = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
@@ -105,7 +108,8 @@ public class CerebrasPool implements LlmPool {
         this.activeModels = Arrays.stream(preferredModels.split(","))
                 .map(String::trim).filter(s -> !s.isBlank()).toList();
 
-        log.info("CerebrasPool: models={} parallelism={}", activeModels, parallelism);
+        log.info("CerebrasPool: models={} parallelism={} role={}",
+                activeModels, parallelism, this.role.isEmpty() ? "(none)" : this.role);
     }
 
     // --- LlmPool ---
@@ -133,6 +137,7 @@ public class CerebrasPool implements LlmPool {
 
     @Override public String providerKey()          { return PROVIDER_ID; }
     @Override public boolean supportsTools()       { return true; }
+    @Override public String role()                 { return role; }
 
     @Override
     public boolean allBlocked() {

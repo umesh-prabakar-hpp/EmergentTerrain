@@ -59,6 +59,17 @@ class CerebrasPoolParseTest {
         assertThat(pool.supportsTools()).isTrue();
         assertThat(pool.selectedModel()).isEqualTo("qwen-3-235b-a22b-instruct-2507");
         assertThat(pool.allBlocked()).isFalse();
+        assertThat(pool.role()).isEqualTo("fast-audit");
+    }
+
+    @Test
+    void roleEmpty_whenConfiguredBlank() {
+        CerebrasPool pool = new CerebrasPool(
+                "csk-test-key", "https://api.cerebras.ai/v1",
+                2000, 1500, 2,
+                "qwen-3-235b-a22b-instruct-2507",
+                "", mapper);
+        assertThat(pool.role()).isEmpty();
     }
 
     private CerebrasPool buildPool() {
@@ -67,6 +78,7 @@ class CerebrasPoolParseTest {
                 "https://api.cerebras.ai/v1",
                 2000, 1500, 2,
                 "qwen-3-235b-a22b-instruct-2507",
+                "fast-audit",
                 mapper);
     }
 }

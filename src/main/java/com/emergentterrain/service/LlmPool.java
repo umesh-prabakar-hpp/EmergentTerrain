@@ -41,4 +41,18 @@ public interface LlmPool {
 
     /** Earliest time any model in this pool recovers from a block (or "now" if none blocked). */
     default Instant earliestRecovery() { return Instant.now(); }
+
+    /**
+     * Optional role tag — lets the router direct specific narration stages at specific
+     * providers. Empty string means "general purpose; participate in primaryChain only".
+     *
+     * <p>Phase 7 E1.6 — defined roles:
+     * <ul>
+     *   <li>{@code "fast-audit"} — Cerebras's WSE-3 inference (~14 ms per call). Used by
+     *       {@code ResearchNarrationService.runQualityAudit} to cut professor-stage
+     *       latency. When the role-tagged pool is blocked, the router transparently
+     *       falls back to the configured fast pool (Ollama by default).</li>
+     * </ul>
+     */
+    default String role() { return ""; }
 }

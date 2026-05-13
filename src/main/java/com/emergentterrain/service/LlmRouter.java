@@ -47,6 +47,8 @@ public class LlmRouter {
     final LlmPool       fastPool;
     /** Preserved for backward-compat: first pool in primaryChain. */
     final LlmPool       primaryPool;
+    /** Pools indexed by their {@link LlmPool#role()} tag — first-registered wins. */
+    final Map<String, LlmPool> poolsByRole;
 
     public LlmRouter(ApplicationContext ctx,
                      @org.springframework.beans.factory.annotation.Value(
@@ -88,9 +90,21 @@ public class LlmRouter {
         }
         this.fastPool = fast;
 
-        log.info("LlmRouter: primaryChain={} fast={} [{}]",
+        // Phase 7 E1.6 — index pools by their declared role (e.g. "fast-audit").
+        // First-registered wins on duplicate roles; pools with empty role() are skipped.
+        Map<String, LlmPool> roleMap = new LinkedHashMap<>();
+        for (LlmPool p : beans.values()) {
+            String r = p.role();
+            if (r != null && !r.isBlank()) roleMap.putIfAbsent(r, p);
+        }
+        this.poolsByRole = Collections.unmodifiableMap(roleMap);
+
+        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={}",
                 primaryChain.stream().map(LlmPool::providerKey).toList(),
-                fastPool.providerKey(), fastPool.selectedModel());
+                fastPool.providerKey(), fastPool.selectedModel(),
+                poolsByRole.entrySet().stream()
+                        .map(e -> e.getKey() + "→" + e.getValue().providerKey())
+                        .toList());
     }
 
     // ── Pool selection ──────────────────────────────────────────────────────
@@ -145,6 +159,31 @@ public class LlmRouter {
     /** Synchronous call routed to the fast (local) pool. */
     public String callFast(String prompt) {
         return fastPool.callSync(prompt);
+    }
+
+    /**
+     * Phase 7 E1.6 — synchronous call routed to the pool tagged with the given role,
+     * with transparent fallback to {@link #callFast(String)} when the role-tagged
+     * pool is absent, blocked, or throws. Intended for stages like
+     * {@code runQualityAudit} that want a specific provider (Cerebras's 14 ms
+     * inference) but must remain available when that provider is rate-limited.
+     */
+    public String callForRole(String role, String prompt) {
+        LlmPool p = poolsByRole.get(role);
+        if (p != null && !p.allBlocked()) {
+            try { return p.callSync(prompt); }
+            catch (RuntimeException e) {
+                log.warn("LlmRouter: role={} provider={} failed, falling back to fast: {}",
+                        role, p.providerKey(), e.getMessage());
+            }
+        }
+        return callFast(prompt);
+    }
+
+    /** True when a pool is registered against the given role and is currently usable. */
+    public boolean roleAvailable(String role) {
+        LlmPool p = poolsByRole.get(role);
+        return p != null && !p.allBlocked();
     }
 
     /** Streaming call routed to the fast pool. */
