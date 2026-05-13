@@ -34,6 +34,8 @@ class PublishPaperTest {
     private boolean truncationGuardEnabled = false;
     /** Phase 5 A4: tests that exercise the harness-leak filter set this via {@link #enableHarnessLeakFilter()}. */
     private boolean harnessLeakFilterEnabled = false;
+    /** Phase 5 B1: tests that exercise the numerical-consistency validator set this via {@link #enableNumericalConsistency()}. */
+    private boolean numericalConsistencyEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -96,10 +98,11 @@ class PublishPaperTest {
                         mapper),
                 new SurpriseBroadcastService(false, 30),
                 new ExplorationTuningService(false, replicationService),
-                /* reviewerRoutingEnabled =   */ false,
-                /* journalReviewEnabled =     */ false,
-                /* truncationGuardEnabled =   */ truncationGuardEnabled,
-                /* harnessLeakFilterEnabled = */ harnessLeakFilterEnabled,
+                /* reviewerRoutingEnabled =     */ false,
+                /* journalReviewEnabled =       */ false,
+                /* truncationGuardEnabled =     */ truncationGuardEnabled,
+                /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
+                /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -272,6 +275,46 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", "Findings end with a period.",
                 "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 5 B1: numerical-consistency validator ----
+
+    @Test
+    void numericalConsistencyOffLeavesInconsistentPaperAsPublished() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void numericalConsistencyOnDowngradesP_a328_14Pattern() {
+        enableNumericalConsistency();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void numericalConsistencyOnPassesConsistentPaper() {
+        enableNumericalConsistency();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Pendulum 1% threshold predicted near 22°.",
+                "θ=20°→0.76% θ=25°→1.19%.",
+                "Threshold lands at θ ≈ 25°. The 1.19% value at 25° verifies this.",
+                null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
@@ -495,6 +538,12 @@ class PublishPaperTest {
     /** Phase 5 A4 — rebuilds the service with the harness-leak-filter flag set. */
     private void enableHarnessLeakFilter() {
         harnessLeakFilterEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 B1 — rebuilds the service with the numerical-consistency-validator flag set. */
+    private void enableNumericalConsistency() {
+        numericalConsistencyEnabled = true;
         setUp();
     }
 

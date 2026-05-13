@@ -54,6 +54,7 @@ public class UniversityService {
     private final boolean peerReviewEnabled;
     private final boolean truncationGuardEnabled;
     private final boolean harnessLeakFilterEnabled;
+    private final boolean numericalConsistencyEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -142,6 +143,7 @@ public class UniversityService {
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
             @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
+            @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -164,8 +166,9 @@ public class UniversityService {
         this.surpriseBroadcastService = surpriseBroadcastService;
         this.explorationTuningService = explorationTuningService;
         this.truncationGuardEnabled   = truncationGuardEnabled;
-        this.harnessLeakFilterEnabled = harnessLeakFilterEnabled;
-        this.objectMapper             = objectMapper;
+        this.harnessLeakFilterEnabled    = harnessLeakFilterEnabled;
+        this.numericalConsistencyEnabled = numericalConsistencyEnabled;
+        this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
                     + "or conclusion end mid-sentence will publish as NEEDS_REVISION.");
@@ -173,6 +176,11 @@ public class UniversityService {
         if (harnessLeakFilterEnabled) {
             log.info("UniversityService: harness-leak-filter ENABLED — Hypothesis text "
                     + "is scrubbed of simulator-internal phrases before persistence.");
+        }
+        if (numericalConsistencyEnabled) {
+            log.info("UniversityService: numerical-consistency ENABLED — papers whose "
+                    + "Conclusion contradicts its Hypothesis or Findings on a numerical "
+                    + "claim publish as NEEDS_REVISION.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -318,9 +326,22 @@ public class UniversityService {
         String callPath = narration.callPath();
         boolean truncated = truncationGuardEnabled
                 && (!endsWithSentenceTerminator(findings) || !endsWithSentenceTerminator(conclusion));
+        // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
+        // Findings on a numerical claim. The validator returns a list of textual
+        // reasons; non-empty list means the paper failed at least one check.
+        List<String> consistencyFailures = numericalConsistencyEnabled
+                ? NumericalConsistencyValidator.validate(hypothesis, findings, conclusion)
+                : List.of();
+        boolean numericallyInconsistent = !consistencyFailures.isEmpty();
+        if (numericallyInconsistent) {
+            log.warn("numerical-consistency check failed paperId={} reasons={}",
+                    draft.paperId(), consistencyFailures);
+        }
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (truncated) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (numericallyInconsistent) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
