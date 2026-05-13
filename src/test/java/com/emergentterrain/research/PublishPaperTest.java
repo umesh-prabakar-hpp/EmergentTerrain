@@ -47,6 +47,7 @@ class PublishPaperTest {
     private boolean crossDomainGateEnabled = false;
     /** Phase 5 C1: tests that exercise citation-aware scoring set this via {@link #enableCitationAwareScoring()}. */
     private boolean citationAwareScoringEnabled = false;
+    private boolean disputeReconciliationEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -117,7 +118,8 @@ class PublishPaperTest {
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 /* dedupEnabled =               */ dedupEnabled,
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
-                /* disputeReconciliationEnabled */ false,
+                /* disputeReconciliationEnabled */ disputeReconciliationEnabled,
+                /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 mapper);
         roomId = UUID.randomUUID();
@@ -162,6 +164,26 @@ class PublishPaperTest {
         service.publishPaper(draft, narration);
 
         assertThat(firstPaper().peerScore()).isEqualTo(0.0);
+    }
+
+    // ---- Phase 7 G10 — orphan-dispute scan ----
+
+    @Test
+    void phase7_G10_scanOrphanedDisputes_isNoOpWhenFlagDisabled() {
+        // disputeReconciliationEnabled is `false` in the default setUp() — the scan
+        // must early-return without touching researchProgramService.
+        // Just verify it doesn't throw when there's nothing to do (cache may be empty).
+        service.scanOrphanedDisputes();
+        // No assertion needed — the test passes if the method returns cleanly.
+    }
+
+    @Test
+    void phase7_G10_scanOrphanedDisputes_handlesEmptyCache() {
+        // With dispute reconciliation enabled but no DISPUTED papers in cache,
+        // the scan should iterate cleanly and log nothing.
+        enableDisputeReconciliation();
+        service.scanOrphanedDisputes();
+        // Method returns void; the test verifies no crash.
     }
 
     @Test
@@ -933,6 +955,12 @@ class PublishPaperTest {
     /** Phase 5 C1 — rebuilds the service with citation-aware scoring on. */
     private void enableCitationAwareScoring() {
         citationAwareScoringEnabled = true;
+        setUp();
+    }
+
+    /** Phase 7 G10 — rebuilds the service with dispute reconciliation on. */
+    private void enableDisputeReconciliation() {
+        disputeReconciliationEnabled = true;
         setUp();
     }
 

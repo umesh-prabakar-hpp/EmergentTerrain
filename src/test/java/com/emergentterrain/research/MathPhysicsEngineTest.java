@@ -225,6 +225,7 @@ class MathPhysicsEngineTest {
                 /* dedupEnabled =               */ false,
                 /* crossDomainGateEnabled =     */ false,
                 /* disputeReconciliationEnabled */ false,
+                /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ false,
                 mapper);
 

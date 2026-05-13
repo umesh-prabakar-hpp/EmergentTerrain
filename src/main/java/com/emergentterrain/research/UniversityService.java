@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -59,6 +60,8 @@ public class UniversityService {
     private final boolean dedupEnabled;
     private final boolean crossDomainGateEnabled;
     private final boolean disputeReconciliationEnabled;
+    /** Phase 7 G10 — age (hours) at which a DISPUTED paper counts as orphaned. */
+    private final long    orphanAgeHours;
     private final boolean citationAwareScoringEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
@@ -153,6 +156,7 @@ public class UniversityService {
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
             @Value("${app.research.dispute-reconciliation.enabled:false}") boolean disputeReconciliationEnabled,
+            @Value("${app.research.disputeOrphanAgeHours:6}") long orphanAgeHours,
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -182,6 +186,7 @@ public class UniversityService {
         this.dedupEnabled                = dedupEnabled;
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
         this.disputeReconciliationEnabled = disputeReconciliationEnabled;
+        this.orphanAgeHours = orphanAgeHours;
         this.citationAwareScoringEnabled = citationAwareScoringEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
@@ -1129,6 +1134,62 @@ public class UniversityService {
                 UUID replicatorId = UUID.fromString(replicatorBotId);
                 researchProgramService.recordOpenQuestion(replicatorId, paper.domain(), questionText);
             } catch (IllegalArgumentException ignored) {}
+        }
+    }
+
+    /**
+     * Phase 7 G10 — periodic scan for orphaned DISPUTED papers. REVIEW_REPORT.md
+     * refresh #1-#12 documented P-220 as "DISPUTED since refresh #1 with no
+     * reconciliation note in any subsequent paper". The synchronous
+     * {@link #enqueueReconciliation} that fires on the DISPUTED transition
+     * records open questions on both authors' programs — but if neither bot
+     * authors another paper in the time window before the open question ages
+     * out of the prompt window, the dispute effectively orphans.
+     *
+     * <p>This scheduled scan iterates the cached papers, finds any in DISPUTED
+     * status older than {@code app.research.dispute-orphan-age-hours} (default
+     * 6 hours), logs them at WARN level so operators see them, and re-fires
+     * {@link #enqueueReconciliation} so the open question is refreshed on the
+     * bots' programs. The reconciliation is idempotent — {@code recordOpenQuestion}
+     * upserts on (botId, domain, question) so duplicate calls don't multiply.
+     *
+     * <p>Disabled when {@code app.research.dispute-reconciliation.enabled=false}
+     * (the master Phase 5 C2 flag) — the scan piggybacks on that toggle since
+     * its only purpose is to keep the reconciliation pipeline fresh.
+     */
+    @Scheduled(fixedDelayString = "${app.research.disputeOrphanScanIntervalMs:300000}")
+    public void scanOrphanedDisputes() {
+        if (!disputeReconciliationEnabled) return;
+        long ageThresholdMs = orphanAgeHours * 3600_000L;
+        long now = System.currentTimeMillis();
+        int orphaned = 0;
+        int refreshed = 0;
+        for (Map.Entry<UUID, List<ResearchPaper>> entry : published.entrySet()) {
+            UUID roomId = entry.getKey();
+            List<ResearchPaper> bucket = entry.getValue();
+            if (bucket == null) continue;
+            // Snapshot to avoid concurrent-modification while iterating.
+            List<ResearchPaper> snapshot;
+            synchronized (bucket) { snapshot = new ArrayList<>(bucket); }
+            for (ResearchPaper p : snapshot) {
+                if (p == null || !"DISPUTED".equals(p.status())) continue;
+                Instant publishedAt = p.publishedAt();
+                if (publishedAt == null) continue;
+                long ageMs = now - publishedAt.toEpochMilli();
+                if (ageMs < ageThresholdMs) continue;
+                orphaned++;
+                log.warn("dispute orphan paperId={} roomId={} domain={} topic={} age_h={}",
+                        p.paperId(), roomId, p.domain(), p.topic(),
+                        ageMs / 3600_000L);
+                // Re-fire the reconciliation so the open question stays visible.
+                // We don't know the replicator bot's id from the cached paper (it
+                // wasn't persisted), so refresh just the original author's program.
+                enqueueReconciliation(p, null);
+                refreshed++;
+            }
+        }
+        if (orphaned > 0) {
+            log.info("dispute-orphan scan: orphaned={} refreshed={}", orphaned, refreshed);
         }
     }
 
