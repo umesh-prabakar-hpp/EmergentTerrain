@@ -112,6 +112,7 @@ class PublishPaperTest {
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 /* dedupEnabled =               */ dedupEnabled,
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
+                /* disputeReconciliationEnabled */ false,
                 mapper);
         roomId = UUID.randomUUID();
     }

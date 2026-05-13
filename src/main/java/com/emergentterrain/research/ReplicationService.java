@@ -68,6 +68,15 @@ public class ReplicationService {
     private volatile Consumer<ResearchPaper> disputeListener = p -> {};
 
     /**
+     * Phase 5 C2 — optional reconciliation listener receiving (disputedPaper,
+     * replicatorBotId). UniversityService wires it to queue a typed
+     * {@link ProgramOpenQuestion} on both bots' programs so the next paper
+     * from either author must address the divergent peer scores.
+     */
+    private volatile java.util.function.BiConsumer<ResearchPaper, String>
+            reconciliationListener = (p, r) -> {};
+
+    /**
      * Phase 4b — per-room sliding window of recent replication outcomes. Each entry
      * is true when the replication failed (paper marked DISPUTED), false when it
      * confirmed. {@link ExplorationTuningService} reads {@link #recentFailureRate}
@@ -129,6 +138,11 @@ public class ReplicationService {
 
     public void setDisputeListener(Consumer<ResearchPaper> listener) {
         this.disputeListener = listener != null ? listener : p -> {};
+    }
+
+    /** Phase 5 C2 — optional reconciliation listener; defaults to a no-op. */
+    public void setReconciliationListener(java.util.function.BiConsumer<ResearchPaper, String> listener) {
+        this.reconciliationListener = listener != null ? listener : (p, r) -> {};
     }
 
     public void enqueue(ReplicationRequest request) {
@@ -199,6 +213,10 @@ public class ReplicationService {
 
         // Side-effect: e.g. UniversityService overwrites the markdown file.
         disputeListener.accept(paper);
+
+        // Phase 5 C2 — emit a typed ProgramOpenQuestion on both bots' programs
+        // (no-op when the flag is off or no listener is wired).
+        reconciliationListener.accept(paper, replicatorBotId);
 
         // Penalise original author's reputation.
         try {

@@ -58,6 +58,7 @@ public class UniversityService {
     private final boolean magnitudeRangeEnabled;
     private final boolean dedupEnabled;
     private final boolean crossDomainGateEnabled;
+    private final boolean disputeReconciliationEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -150,6 +151,7 @@ public class UniversityService {
             @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
+            @Value("${app.research.dispute-reconciliation.enabled:false}") boolean disputeReconciliationEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -177,6 +179,7 @@ public class UniversityService {
         this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
         this.dedupEnabled                = dedupEnabled;
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
+        this.disputeReconciliationEnabled = disputeReconciliationEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -203,6 +206,10 @@ public class UniversityService {
         if (crossDomainGateEnabled) {
             log.info("UniversityService: cross-domain-gate ENABLED — papers whose hypothesis "
                     + "drifts out of its declared domain publish as NEEDS_REVISION.");
+        }
+        if (disputeReconciliationEnabled) {
+            log.info("UniversityService: dispute-reconciliation ENABLED — DISPUTED papers "
+                    + "emit a typed ProgramOpenQuestion on both bots' programs.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -239,6 +246,11 @@ public class UniversityService {
         // dispute listener so the markdown file stays in sync.
         this.replicationService.setPaperLookup(this::findCachedPaper);
         this.replicationService.setDisputeListener(p -> overwritePaperFile(p.roomId(), p));
+        // Phase 5 C2 — DISPUTED papers emit a typed ProgramOpenQuestion on both
+        // bots so the divergent peer scores get addressed in their next paper.
+        if (disputeReconciliationEnabled) {
+            this.replicationService.setReconciliationListener(this::enqueueReconciliation);
+        }
     }
 
     /** Defensively parse an authorBotId string; returns null on malformed input. */
@@ -991,6 +1003,37 @@ public class UniversityService {
             log.warn("Failed to scan existing research papers for room {}: {}", roomId, e.getMessage());
         }
         return max;
+    }
+
+    /**
+     * Phase 5 C2 — fires from {@link ReplicationService} when a paper transitions
+     * to DISPUTED. Emits a typed {@link ProgramOpenQuestion} on both the original
+     * author's and the replicator's programs so the divergent peer scores must
+     * be addressed in the next paper from either bot. No-op when programs
+     * are not enabled — recordOpenQuestion guards on its own flag.
+     */
+    private void enqueueReconciliation(ResearchPaper paper, String replicatorBotId) {
+        if (paper == null) return;
+        // The conclusion already carries a "Independent replication by bot-XXXXXX
+        // produced score X vs original Y" note; the question text references the
+        // peer scores so the open-question reader can see the divergence verbatim.
+        String questionText = String.format(
+                "Reconcile DISPUTED paper %s: original peer score %.3f diverged from "
+                        + "an independent replication. Address the divergence before "
+                        + "publishing a follow-up in this domain/topic.",
+                paper.paperId(), paper.peerScore());
+        if (paper.authorBotId() != null) {
+            try {
+                UUID authorId = UUID.fromString(paper.authorBotId());
+                researchProgramService.recordOpenQuestion(authorId, paper.domain(), questionText);
+            } catch (IllegalArgumentException ignored) {}
+        }
+        if (replicatorBotId != null && !replicatorBotId.isBlank()) {
+            try {
+                UUID replicatorId = UUID.fromString(replicatorBotId);
+                researchProgramService.recordOpenQuestion(replicatorId, paper.domain(), questionText);
+            } catch (IllegalArgumentException ignored) {}
+        }
     }
 
     /** Overwrite a paper's markdown file in-place — used when status changes to DISPUTED. */

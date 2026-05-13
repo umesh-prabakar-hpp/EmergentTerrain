@@ -127,6 +127,53 @@ class ReplicationServiceTest {
     }
 
     @Test
+    void reconciliationListenerFiresWithReplicatorBotIdOnDispute() {
+        UUID room = UUID.randomUUID();
+        ResearchPaper paper = paper(room, "P-bbbb-1", "bot-author", "MATHEMATICS",
+                "Prime Constellation Search", 0.10);
+        service.setPaperLookup(id -> Optional.of(paper));
+
+        // Phase 5 C2: reconciliation listener receives the disputed paper plus the
+        // replicator's bot id. UniversityService binds this to enqueueReconciliation
+        // which queues a ProgramOpenQuestion on both bots.
+        AtomicReference<ResearchPaper> recPaper  = new AtomicReference<>();
+        AtomicReference<String>        recReplicator = new AtomicReference<>();
+        service.setReconciliationListener((p, r) -> { recPaper.set(p); recReplicator.set(r); });
+
+        Researcher replicator = researcher("bot-replicator");
+        service.enqueue(new ReplicationService.ReplicationRequest(
+                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0, /* originalScore = */ 0.95));
+
+        service.processOne(room, List.of(replicator), new Random(1), 0.5);
+
+        assertThat(paper.status()).isEqualTo("DISPUTED");
+        assertThat(recPaper.get()).as("reconciliation listener received the paper").isSameAs(paper);
+        assertThat(recReplicator.get()).as("reconciliation listener received the replicator id")
+                .isEqualTo("bot-replicator");
+    }
+
+    @Test
+    void reconciliationListenerDoesNotFireOnSuccessfulReplication() {
+        UUID room = UUID.randomUUID();
+        ResearchPaper paper = paper(room, "P-bbbb-1", "bot-author", "MATHEMATICS",
+                "Prime Constellation Search", 0.10);
+        service.setPaperLookup(id -> Optional.of(paper));
+
+        AtomicReference<ResearchPaper> recPaper = new AtomicReference<>();
+        service.setReconciliationListener((p, r) -> recPaper.set(p));
+
+        Researcher replicator = researcher("bot-replicator");
+        // originalScore close to what the replicator will produce — no dispute.
+        service.enqueue(new ReplicationService.ReplicationRequest(
+                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0, /* originalScore = */ 0.10));
+
+        service.processOne(room, List.of(replicator), new Random(1), 0.5);
+
+        assertThat(paper.status()).isNotEqualTo("DISPUTED");
+        assertThat(recPaper.get()).as("reconciliation listener must not fire on confirmation").isNull();
+    }
+
+    @Test
     void replicationOnMissingPaperIsTolerated() {
         UUID room = UUID.randomUUID();
         // Lookup returns empty — paper was deleted/never persisted. The cycle should
