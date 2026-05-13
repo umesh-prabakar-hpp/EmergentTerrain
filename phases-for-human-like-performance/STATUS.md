@@ -1050,7 +1050,13 @@ papers cited (+0.02 per high-quality citation, −0.04 per critique-skip
 citation).
 
 Wave 6 (D1 LiteratureSearchService + D2 Discussion/Related-Work
-section) remains as separate scoping docs.
+section) has been **scoped** as [phase-6-novelty-levers.md](phase-6-novelty-levers.md);
+no code lands until the phase doc's pre-conditions (≥ 2 weeks of
+Phase 5 runtime, fresh REVIEW_REPORT.md confirming the quality lift
+has held) are met. Phase 6 is the first phase that attempts to lift
+*novelty* rather than *correctness* — D1's curated literature corpus
+crosses the boundary from "verify known closed-forms" to "extend
+beyond them" and is the single largest lever the review report names.
 
 ---
 
@@ -1068,6 +1074,7 @@ phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
 phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template evolution
 phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
 phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
+phase-6-novelty-levers.md                    ← scoping doc for literature search + Discussion section
 ```
 
 Each phase doc retains its full design content. `STATUS.md` is the live
