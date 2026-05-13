@@ -1,0 +1,186 @@
+# Phase 6 D1.2 — Curated literature references per (domain, topic).
+#
+# Per the D1.1 memo (phase-6-piece-1-memo.md):
+#  - Six fields are prompt-visible: domain, topic, citation, closed_form,
+#    valid_region, magnitude_estimate.
+#  - `notes` is operator-only commentary; never reaches the LLM.
+#  - `priority` is an integer (default 0); higher wins when multiple entries
+#    share a (domain, topic). Tie-break alphabetically by citation.
+#
+# Coverage: 15 non-INTERDISCIPLINARY engine topics each get one curated
+# reference; the 5 INTERDISCIPLINARY topics get sentinel entries documenting
+# that no real-world literature applies (the bridges are engine-constructed).
+#
+# Curation policy: humans only. Every change to this file should go through
+# operator review. A wrong reference here propagates as if it were ground
+# truth into every paper that touches the topic.
+
+references:
+
+  # ──────── MATHEMATICS ────────
+
+  - domain: MATHEMATICS
+    topic: Prime Constellation Search
+    citation: "Hardy & Littlewood (1923), 'Some Problems of Partitio Numerorum III: On the Expression of a Number as a Sum of Primes'"
+    closed_form: "π₂(N) ~ 2·C₂·N / ln²(N), with twin-prime constant C₂ ≈ 0.66016"
+    valid_region: "Asymptotic conjecture; finite-interval deviations of ±15% common in [10², 10⁴]"
+    magnitude_estimate: "Twin density ≈ 1.32/ln²(N); the Phase 5 B5 strong-support band is ≤ 15% deviation"
+    notes: "Hardy-Littlewood prime k-tuple conjecture; remains open in general"
+
+  - domain: MATHEMATICS
+    topic: Collatz Stopping Time
+    citation: "Lagarias (1985), 'The 3x+1 Problem and Its Generalizations', American Mathematical Monthly 92(1)"
+    closed_form: "No closed form (3n+1 conjecture remains open). Empirical: max stopping time grows ~O(log² N)"
+    valid_region: "Verified for all n < 2⁶⁸ by Barina (2020); no counterexample known"
+    magnitude_estimate: "Stopping times typically 10²–10³ for n < 10⁶; rare extreme trajectories exceed 1000 steps"
+    notes: "Active conjecture; the engine's role is to scan local ranges for counterexamples that have never been found"
+
+  - domain: MATHEMATICS
+    topic: Goldbach Partition Survey
+    citation: "OEIS A002375 (tabulated values for n ≤ 10⁵); cf. Hardy & Littlewood (1923) for the asymptotic"
+    closed_form: "r₂(n) ~ 2C₂·n / ln²(n) by analogy with Hardy-Littlewood; n always decomposable as p+q for even n > 2 (binary Goldbach conjecture, open)"
+    valid_region: "Verified for all even n < 4·10¹⁸ (Oliveira e Silva, Herzog, Pardi 2014)"
+    magnitude_estimate: "Mean partition count ≈ 15–17 for even n in [400, 600); grows roughly linearly with n/ln²(n)"
+    notes: "The simulation regime is well below the verification frontier; the engine cannot find a Goldbach counterexample"
+
+  - domain: MATHEMATICS
+    topic: Aliquot Sequence Behaviour
+    citation: "Guy (1981), 'Unsolved Problems in Number Theory' §B6 (Catalan-Dickson conjecture)"
+    closed_form: "No closed form; conjecture: every aliquot sequence eventually terminates at 1, joins a perfect number, or enters a sociable cycle. Open for the 'Lehmer five' (n = 276, 552, 564, 660, 966)"
+    valid_region: "Termination rates ≈ 80–95% empirically observed in small ranges; the Lehmer five remain inconclusive past 10⁷ iterations"
+    magnitude_estimate: "Sequences in [500, 600) terminate predominantly within 50 steps; outliers rare"
+    notes: "Open conjecture; engine produces empirical termination rates, not theoretical bounds"
+
+  - domain: MATHEMATICS
+    topic: Happy Number Distribution
+    citation: "Guy (2004), 'Unsolved Problems in Number Theory' §E34 (Honaker conjecture). Cf. OEIS A007770 for happy-number enumeration"
+    closed_form: "Density ≈ 14.3% asymptotic (no published proof); the digit-square iteration either terminates at 1 (happy) or enters the 4 → 16 → 37 → 58 → 89 → 145 → 42 → 20 → 4 cycle (unhappy)"
+    valid_region: "Empirical density converges to ≈ 0.14–0.16 for windows of width ≥ 200; convergence is non-monotone"
+    magnitude_estimate: "Window densities in [10⁴, 10⁶) cluster between 0.13 and 0.16"
+    notes: "Conjectured density unproven; engine should treat asymptotic 14.3% as a heuristic, not a hard bound"
+
+  # ──────── PHYSICS ────────
+
+  - domain: PHYSICS
+    topic: Projectile Drag Optimisation
+    citation: "Marion & Thornton (2003), 'Classical Dynamics of Particles and Systems' 5e §4.4; cf. Parker (1977), 'What is the capture cross section of two charged particles?'"
+    closed_form: "No closed form for quadratic drag F_d = ½ρC_d A v². Optimum launch angle < 45° always; falls toward 0° as k → ∞"
+    valid_region: "Numerical only; the engine's RK4 / Euler integration captures the optimum within ±1° at moderate v₀"
+    magnitude_estimate: "Optimum 35°–42° at k ≤ 0.01 s/m; 20°–30° at k ≈ 0.05; below 15° at k > 0.1"
+    notes: "The 45° vacuum-range optimum is the small-k limit; departure from 45° is the engine's reportable signal"
+
+  - domain: PHYSICS
+    topic: Pendulum Breakdown Angle
+    citation: "Huygens (1673), 'Horologium Oscillatorium'. Modern: Beléndez et al. (2007), 'Exact solution for the nonlinear pendulum', Revista Brasileira de Ensino de Física 29(4)"
+    closed_form: "T(θ) = T₀·[1 + sin²(θ/2)/4 + 9·sin⁴(θ/2)/64 + 25·sin⁶(θ/2)/256 + …] (elliptic integral series); T₀ = 2π√(L/g)"
+    valid_region: "Series converges for all θ < 180°; small-angle expansion (T ≈ T₀) accurate within 1% for θ ≤ 22.85°"
+    magnitude_estimate: "1% threshold at θ ≈ 22.85°; 5% at ≈ 50°; 10% at ≈ 70°"
+    notes: "The engine emits a per-degree table (θ, error%); the 1% threshold lands at θ = 25° due to the 5° grid step"
+
+  - domain: PHYSICS
+    topic: Van der Waals Crossover
+    citation: "Van der Waals (1873), 'Over de Continuiteit van den Gas- en Vloeistoftoestand' (PhD thesis); cf. Atkins (2019), 'Physical Chemistry' 11e §1C"
+    closed_form: "(P + a/V²)·(V − b) = RT. For CO₂: a = 3.640 atm·L²/mol², b = 0.04267 L/mol. Critical T_c ≈ 304 K, P_c ≈ 73 atm"
+    valid_region: "Quantitatively accurate for moderate P and T > T_c; degrades sharply near the critical point and below T_c"
+    magnitude_estimate: "Deviation from ideal-gas V exceeds 1% above P ≈ 5–10 atm at T = 300 K; > 50% at P = 100 atm below T_c"
+    notes: "The engine's Newton-Raphson solver may struggle near T_c; results from runs with T ≈ T_c should be treated with caution"
+
+  - domain: PHYSICS
+    topic: Diffraction Order Survey
+    citation: "Fraunhofer (1821), 'Bestimmung des Brechungs- und des Farbenzerstreuungs-Vermögens verschiedener Glasarten'; cf. Hecht (2017), 'Optics' 5e Ch 10"
+    closed_form: "Grating equation: d·sin(θₘ) = m·λ. Maximum visible order: m_max = floor(d/λ); first-order angle θ₁ = arcsin(λ/d)"
+    valid_region: "Valid for d > λ (else no orders); fails for non-normal incidence or strong intensity asymmetry"
+    magnitude_estimate: "For d = 2 µm: 5 orders at λ = 400 nm, 2 orders at λ = 700 nm. For d = 1 µm: 2 orders at 400 nm, 1 at 700 nm"
+    notes: "Pinned by MathPhysicsEngineRegressionTest.diffractionMaxOrdersEqualsFloorDOverLambda"
+
+  - domain: PHYSICS
+    topic: RLC Damping Transition
+    citation: "Maxwell (1873), 'A Treatise on Electricity and Magnetism' Vol I §784; standard textbook EE (e.g. Hayt, Kemmerly, Durbin 'Engineering Circuit Analysis' 8e Ch 9)"
+    closed_form: "R_crit = 2·√(L/C); ω₀ = 1/√(LC); Q-factor Q(R) = ω₀·L/R; Q = ½ at critical damping (R = R_crit)"
+    valid_region: "Series RLC topology; ideal components. Real circuits diverge ~1% per ESR ohm and per dielectric-loss percent"
+    magnitude_estimate: "For L = 10 mH, C = 1 µF: f₀ ≈ 1.59 kHz, R_crit ≈ 200 Ω. Q ≤ 0.5 above R_crit (overdamped)"
+    notes: "Q values at multiples of R_crit are textbook reciprocals (Q = ½ at R_crit, Q = 5 at R = 0.1·R_crit). The P-a328-47/49/57/59 cluster mislabelled these"
+
+  # ──────── MATERIALS ────────
+
+  - domain: MATERIALS
+    topic: Composite Failure Mode
+    citation: "Voigt (1889), 'Über die Beziehung zwischen den beiden Elasticitätsconstanten…'; Hashin & Shtrikman (1963), 'A variational approach to the elastic behavior of multiphase materials', J. Mech. Phys. Solids 11"
+    closed_form: "Voigt rule of mixtures (longitudinal): σ_L = Vf·Ef·ε_y + (1−Vf)·σ_ym. Fibre yield ≈ 2–3 GPa for high-strength steel; matrix yield σ_ym typical 30–200 MPa for polymer matrices"
+    valid_region: "Linear up to matrix yield; post-yield behaviour requires fibre-fracture criterion (not in this engine)"
+    magnitude_estimate: "Longitudinal stress at matrix yield σ_L ≤ 3 GPa for any real polymer-matrix composite (matches Phase 5 B2 bound)"
+    notes: "Engine omits fibre-strength criterion; high-Vf predictions look unphysical without it. P-a328-2/8/12/42/63/84/86 hit this limit"
+
+  - domain: MATERIALS
+    topic: Binary Sphere Packing
+    citation: "Hudson (1949), 'Density and packing in an aggregate of mixed spheres', J. Appl. Phys. 20"
+    closed_form: "FCC base packing η₀ = π/(3·√2) ≈ 0.7405. Binary peak ≈ 0.793 when r ≈ 0.414 (small sphere fills octahedral void)"
+    valid_region: "Idealised hard-sphere model; real granular materials reach η ≈ 0.64 (RCP) without intervention"
+    magnitude_estimate: "Peak η in [0.78, 0.83]; r_optimal in [0.40, 0.45]"
+    notes: "Hales (2005) proved Kepler's conjecture (FCC = optimal mono-sphere packing); the binary case remains an active research area"
+
+  - domain: MATERIALS
+    topic: Stiffness Crossover Volume Fraction
+    citation: "Reuss (1929), 'Berechnung der Fließgrenze von Mischkristallen auf Grund der Plastizitätsbedingung für Einkristalle', ZAMM 9"
+    closed_form: "Reuss (lower) bound for transverse stiffness: 1/E_T = Vf/Ef + (1−Vf)/Em. Crossover Vf at which E_T = m·Em: Vf = (m−1)·Ef / (m·(Ef − Em))"
+    valid_region: "Lower bound; Voigt (upper) bound gives E_T = Vf·Ef + (1−Vf)·Em. Real composites fall between"
+    magnitude_estimate: "For Ef/Em = 10, the 2× crossover sits at Vf ≈ 0.56; for Ef/Em = 100, at Vf ≈ 0.51; converges toward 0.5 as Ef/Em → ∞"
+    notes: "Pinned by MathPhysicsEngineRegressionTest.reussBoundSeriesMatchesClosedForm"
+
+  - domain: MATERIALS
+    topic: Arrhenius Rule Validity
+    citation: "Arrhenius (1889), 'Über die Reaktionsgeschwindigkeit bei der Inversion von Rohrzucker durch Säuren', Z. Phys. Chem. 4"
+    closed_form: "Rate constant k(T) = A·exp(−Ea/RT); diffusion D(T) = D₀·exp(−Ea/RT). +10K ratio = exp(Ea/R · (1/T − 1/(T+10)))"
+    valid_region: "Single-barrier reactions; the Van't Hoff 'doubling per 10K' heuristic holds within ±10% only for narrow Ea·T pairs"
+    magnitude_estimate: "+10K ratio ≈ 2× at Ea ≈ 50 kJ/mol around T = 300 K; >10× when Ea > 200 kJ/mol at T < 300 K"
+    notes: "P-a328-19 returned 1.18× at T = 1139 K (correct for that T); P-a328-31 returned 6.7× at T = 342 K (also correct). The 'rule' is fragile, not the simulator"
+
+  - domain: MATERIALS
+    topic: Thermal Stress Safety Window
+    citation: "Timoshenko (1956), 'Strength of Materials' 3e, D. Van Nostrand, Ch 14. First-year mechanics of materials"
+    closed_form: "Fully constrained thermal stress: σ_thermal = E·α·ΔT. Critical CTE α_c = σ_Y / (E·ΔT)"
+    valid_region: "Assumes zero strain; partially constrained members carry less stress proportional to constraint factor"
+    magnitude_estimate: "For steel (E = 200 GPa, σ_Y = 100–400 MPa): α_c ≈ 1–10 µm/(m·K) at ΔT = 100 K. Steel α ≈ 12, so most regimes fail"
+    notes: "Common engineering materials cluster near α = 10–25 µm/(m·K); the engine's per-material table (Invar, Cu, Al…) is from standard handbooks"
+
+  # ──────── INTERDISCIPLINARY (sentinel entries) ────────
+
+  - domain: INTERDISCIPLINARY
+    topic: Collatz-RLC Depth Resonance
+    citation: "(engine-constructed bridge)"
+    closed_form: "No real-world closed form. The engine maps Collatz depth at n=k to an RLC inductance L, then computes the resulting f₀ and R_crit"
+    valid_region: "Bridge is fabricated; no physical mechanism connects 3n+1 trajectories to circuit inductance"
+    magnitude_estimate: "Engine-internal only; no literature constraint applies"
+    notes: "Bot hypotheses that claim physical resonance are non-sequiturs; the Phase 5 B4 cross-domain gate is the correct response"
+
+  - domain: INTERDISCIPLINARY
+    topic: Prime-Gap Defect Thermal Loading
+    citation: "(engine-constructed bridge)"
+    closed_form: "No real-world closed form. The engine maps prime-gap spacing to crystal defect periodicity → CTE → thermal stress via σ = E·α·ΔT"
+    valid_region: "Bridge is fabricated; defect periodicity in real crystals does not derive from prime gaps"
+    magnitude_estimate: "Engine-internal only; the σ = E·α·ΔT half is real (Timoshenko), the α-from-prime-gap half is not"
+    notes: "Five corpus papers (P-a328-1/23/44/50/61) hypothesised a physical mechanism; none exists"
+
+  - domain: INTERDISCIPLINARY
+    topic: Resonant Thermal Fatigue Window
+    citation: "(engine-constructed bridge)"
+    closed_form: "No real-world closed form. The engine maps RLC f₀ to a composite fatigue cycle rate, then computes a fatigue fraction"
+    valid_region: "Bridge is fabricated; circuit oscillation does not drive composite fatigue absent inductive coupling that the model omits"
+    magnitude_estimate: "Engine-internal only; no literature constraint applies"
+    notes: "Treat any 'resonant fatigue' claim as engine artefact, not physics"
+
+  - domain: INTERDISCIPLINARY
+    topic: Happy-Number Packing Anomaly
+    citation: "(engine-constructed bridge)"
+    closed_form: "No real-world closed form. The engine modulates a sphere-packing efficiency by local happy-number density"
+    valid_region: "Bridge is fabricated; happy-number density has no documented effect on physical packing"
+    magnitude_estimate: "Engine-internal only; no literature constraint applies"
+    notes: "P-a328-6, 41 wrote pseudo-physical conclusions on this bridge"
+
+  - domain: INTERDISCIPLINARY
+    topic: Van-der-Waals Composite Crossover
+    citation: "(engine-constructed bridge)"
+    closed_form: "No real-world closed form. The engine treats the VdW crossover pressure as a mechanical loading on a composite, then runs σ_thermal-style math"
+    valid_region: "Bridge is fabricated; VdW pressure crossover in a gas does not load a solid composite by this mechanism"
+    magnitude_estimate: "Engine-internal only; the >3 GPa stresses (P-a328-7) are unphysical regardless"
+    notes: "Treat all 'VdW composite stress' claims as engine artefact; Phase 5 B2 bounds the magnitudes anyway"
