@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D1.2 |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 15 Phase 5 |
-| Net new code | ~10,000 + ~2,300 (Phase 5) lines |
-| Tests | 135 → 577 → 690 (+555) |
-| Behaviour-changing iterations | 6 + 10 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist, 5 Group B validators, dispute reconciliation, citation-aware scoring), all behind feature flags |
+| Commits | 24 + 15 Phase 5 + 3 Phase 6 |
+| Net new code | ~10,000 + ~2,300 (Phase 5) + ~600 (Phase 6) lines |
+| Tests | 135 → 577 → 690 → 704 (+569) |
+| Behaviour-changing iterations | 6 + 10 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist, 5 Group B validators, dispute reconciliation, citation-aware scoring), all behind feature flags. Phase 6 D1.2 is read-only — no behaviour change yet |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -1058,12 +1058,21 @@ has held) are met. Phase 6 is the first phase that attempts to lift
 crosses the boundary from "verify known closed-forms" to "extend
 beyond them" and is the single largest lever the review report names.
 
-D1.1 (the corpus scoping memo) has also landed —
+D1.1 (the corpus scoping memo) has landed —
 [phase-6-piece-1-memo.md](phase-6-piece-1-memo.md). It carries the
 per-topic bibliography for all 15 non-INTERDISCIPLINARY engine methods
 plus the record-shape, prompt-integration, coverage, and curation
-decisions D1.2 will execute against. D1.2 (the corpus + read-only
-service) is the next code step; the memo's pre-conditions §9 gate it.
+decisions D1.2 will execute against.
+
+D1.2 (corpus YAML + read-only `LiteratureSearchService`) has also
+landed. [literature-corpus.yml](../src/main/resources/literature-corpus.yml)
+carries 20 references — 15 real-world citations matching each engine
+`*At` method + 5 sentinel entries marking the INTERDISCIPLINARY
+bridges as engine-constructed. The service exposes
+`findFor(domain, topic)` with exact case-insensitive matching, ranks
+multi-entry lookups by priority + alphabetical citation, and fails
+open on corpus-load errors. **Not consumed by the narrator yet** —
+D1.3 is the next code step and gated on observed Phase 5 runtime.
 
 ---
 
