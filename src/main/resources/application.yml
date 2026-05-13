@@ -187,12 +187,51 @@ app:
     # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
     backendParallelism: 3
 
-  # Phase 5 + Phase 6 quality + novelty levers — all 10 flipped on 2026-05-13.
-  # Earlier Phase 1-4b flags remain at their @Value defaults (mostly off);
-  # add them here individually if the operator wants them on too.
+  # All research flags enabled on 2026-05-13. Phases ship chronologically;
+  # later phases sometimes depend on earlier ones being on (Phase 5 C2 needs
+  # programs.enabled; Phase 4b auto-staking needs markets.enabled; etc.).
   research:
+    # ── Phase 1 — identity + graph + programs ──
     programs:
       enabled: true        # Phase 1 Iter 4 — longitudinal research programs (also a hard dep for C2 dispute-reconciliation)
+    # ── Phase 2 — surprise + planner ──
+    planner:
+      enabled: true        # Phase 2 Iter 5 — algorithmic experiment plans (4 strategies)
+    # ── Phase 3 — world + institutions + markets ──
+    institutions:
+      enabled: true        # Phase 3 Iter 8 — universities / journals / funding / council bootstrap
+    markets:
+      enabled: true        # Phase 3 Iter 7 — reputation-staked prediction markets
+    world-intervention:
+      enabled: true        # Phase 3 Iter 6 write side — bots file GovernmentBills via WorldInterventionService
+    # ── Phase 4 — formal findings + meta-science ──
+    findings:
+      enabled: true        # Phase 4 Iter 9 — FormalFinding persistence + KnowledgeBaseService
+    meta:
+      enabled: true        # Phase 4 Iter 10 — MetaResearchService self-observation stats
+    # ── Phase 4b — meta-science evolution targets ──
+    reviewer-routing:
+      enabled: true        # Phase 4b — adversarial reviewer picking by topic-weight orthogonality
+    funding-allocation:
+      enabled: true        # Phase 4b — periodic grants from FundingAgency → University
+    journal-review:
+      enabled: true        # Phase 4b — reviewers drawn from journal editor pool
+    impact-factor:
+      enabled: true        # Phase 4b — Journal.impactFactor recomputed from citation counts
+    replication-council:
+      enabled: true        # Phase 4b — CONTRADICTS citations force replication; pairs naturally with Phase 5 C2
+    auto-staking:
+      enabled: true        # Phase 4b — same-domain bots auto-stake on open markets (needs markets.enabled)
+    dominant-methodology:
+      enabled: true        # Phase 4b — University.dominantMethodology emerges from member modes
+      reputation-weighted: true  # Phase 4b refinement — bot reputation weights the methodology count
+    surprise-broadcast:
+      enabled: true        # Phase 4b — per-room cross-bot surprise fan-out (rate-limited)
+    exploration-tuning:
+      enabled: true        # Phase 4b — per-room z-threshold + EXPLORATION trigger auto-tune
+    theory-composition:
+      enabled: true        # Phase 4b — A~f(B) ^ B~g(C) chains emit derived ProgramOpenQuestions (needs findings.enabled)
+    # ── Phase 5 — quality pipeline ──
     truncation-guard:
       enabled: true        # Phase 5 A1 — mid-sentence papers publish as NEEDS_REVISION
     harness-leak-filter:
@@ -206,9 +245,10 @@ app:
     cross-domain-gate:
       enabled: true        # Phase 5 B4 — MATHEMATICS bots drifting into materials prose flagged; INTERDISCIPLINARY exempt
     dispute-reconciliation:
-      enabled: true        # Phase 5 C2 — DISPUTED papers queue reconciliation questions (needs programs.enabled to actually fire)
+      enabled: true        # Phase 5 C2 — DISPUTED papers queue reconciliation questions
     citation-aware-scoring:
       enabled: true        # Phase 5 C1 — +0.02 / −0.04 per high-quality / critique-skip citation
+    # ── Phase 6 — novelty levers ──
     literature-search:
       enabled: true        # Phase 6 D1.3 — professor stage sees curated literature block
     discussion-section:
