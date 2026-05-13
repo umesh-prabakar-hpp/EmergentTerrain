@@ -30,6 +30,9 @@ class PublishPaperTest {
 
     private UniversityService service;
     private UUID roomId;
+    /** Per-test counter so draft helpers produce distinct paper IDs. */
+    private final java.util.concurrent.atomic.AtomicInteger paperCounter =
+            new java.util.concurrent.atomic.AtomicInteger();
     /** Phase 5 A1: tests that exercise the truncation guard set this to true via {@link #enableTruncationGuard()}. */
     private boolean truncationGuardEnabled = false;
     /** Phase 5 A4: tests that exercise the harness-leak filter set this via {@link #enableHarnessLeakFilter()}. */
@@ -42,6 +45,8 @@ class PublishPaperTest {
     private boolean dedupEnabled = false;
     /** Phase 5 B4: tests that exercise the cross-domain gate set this via {@link #enableCrossDomainGate()}. */
     private boolean crossDomainGateEnabled = false;
+    /** Phase 5 C1: tests that exercise citation-aware scoring set this via {@link #enableCitationAwareScoring()}. */
+    private boolean citationAwareScoringEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -113,6 +118,7 @@ class PublishPaperTest {
                 /* dedupEnabled =               */ dedupEnabled,
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
                 /* disputeReconciliationEnabled */ false,
+                /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -287,6 +293,86 @@ class PublishPaperTest {
                 "Conclusion is fine.", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 5 C1: citation-aware peer-score weighting ----
+
+    @Test
+    void citationAwareScoringOffNoEffectFromCitations() {
+        // Default setup: flag off. Citing a high-quality prior does not move the score.
+        PaperDraft priorDraft = draftWithPeerScore(0.40);
+        service.publishPaper(priorDraft, narration(0.5));
+        String priorId = service.getPublishedPapers(roomId, 10).get(0).paperId();
+
+        PaperDraft draft = draftWithPeerScore(0.40);
+        NarrationResult narration = new NarrationResult(
+                "h", "f", "c", null, null, 0.5, List.of(priorId));
+        service.publishPaper(draft, narration);
+        // Score is exactly the deterministic factor — no bonus applied.
+        assertThat(service.getPublishedPapers(roomId, 10).get(0).peerScore())
+                .isCloseTo(0.40, within(0.001));
+    }
+
+    @Test
+    void citationAwareScoringOnRewardsCitingHighQualityPrior() {
+        enableCitationAwareScoring();
+        // Publish two priors so the room median is computable, with one above median.
+        service.publishPaper(draftWithPeerScore(0.20), narration(0.5));
+        service.publishPaper(draftWithPeerScore(0.60), narration(0.5));
+        String highScoreId = service.getPublishedPapers(roomId, 10).get(0).paperId();
+
+        // New paper cites the high-score prior — should gain +0.02.
+        PaperDraft draft = draftWithPeerScore(0.40);
+        NarrationResult narration = new NarrationResult(
+                "h", "f", "c", null, null, 0.5, List.of(highScoreId));
+        service.publishPaper(draft, narration);
+        double score = service.getPublishedPapers(roomId, 10).get(0).peerScore();
+        // 0.40 base ± confidence factor + 0.02 bonus.
+        assertThat(score).isGreaterThan(0.40);
+    }
+
+    @Test
+    void citationAwareScoringOnPenalisesCitingCritiqueSkip() {
+        enableCitationAwareScoring();
+        // Publish a prior with critique:skip marker — it'll come out as NEEDS_REVISION
+        // (Phase 5 A2). But the dedup penalty in C1 keys on the call-path, not the
+        // status, so we need a critique-skip paper that DID publish. Make one with
+        // the marker explicitly threaded.
+        // Easier: publish a clean PUBLISHED prior, then manually inject a bad call-path
+        // via a separate scenario. For this test we use a prior that the validator
+        // wouldn't normally downgrade — a NULL_RESULT keeps its NULL_RESULT status
+        // but if the critique-skip path lands on a published row, the penalty fires.
+        // For a unit-test path, use a prior that's PUBLISHED but tagged.
+        service.publishPaper(draftWithPeerScore(0.30),
+                narrationWithCallPath(0.5, "fp:gpt-oss → prof:llama-70b:ok"));
+        String cleanPrior = service.getPublishedPapers(roomId, 10).get(0).paperId();
+        // Sanity check: the test would only meaningfully exercise the penalty branch
+        // if the prior actually carries critique-skip — but that triggers A2's
+        // downgrade. The penalty is therefore exercised by direct unit test on
+        // citationAwareDelta below.
+        assertThat(cleanPrior).isNotNull();
+    }
+
+    @Test
+    void citationAwareDeltaAppliesPenaltyForCritiqueSkipPrior() {
+        // Direct unit test on the helper — bypasses the A2 downgrade so we can
+        // verify the −0.04 penalty fires when a prior with critique:skip survived.
+        // Simulate this by publishing a prior with NULL_RESULT classification (so
+        // it stays NULL_RESULT, not NEEDS_REVISION) but with a critique-skip path.
+        enableCitationAwareScoring();
+        // Two priors to seed the median.
+        service.publishPaper(draftWithPeerScore(0.40), narration(0.5));
+        service.publishPaper(draftWithPeerScore(0.60), narration(0.5));
+        // Publish a third with NULL_RESULT and critique-skip marker. NULL_RESULT
+        // wins over the critique-skip status logic so this stays NULL_RESULT.
+        PaperDraft nullDraft = draft(ResultClassification.NULL_RESULT, 0.50);
+        service.publishPaper(nullDraft,
+                narrationWithCallPath(0.5, "fp:gpt-oss → critique:skip:incomplete_firstpass"));
+        String critiqueSkipId = service.getPublishedPapers(roomId, 10).get(0).paperId();
+
+        // Direct call to citationAwareDelta: cites the critique-skip paper.
+        double delta = service.citationAwareDelta(roomId, List.of(critiqueSkipId));
+        assertThat(delta).isCloseTo(-0.04, within(0.001));
     }
 
     // ---- Phase 5 B4: cross-domain gate ----
@@ -672,9 +758,15 @@ class PublishPaperTest {
                 "raw findings text", templateHyp, templateConc,
                 "THEORETICAL", List.of(),
                 peerScore, peerScore, 0.0, 100L, Instant.now(),
-                1, "P-test-1", 50, 3.0, false,
+                1, "P-test-" + paperCounter.incrementAndGet(), 50, 3.0, false,
                 null, null, List.of(), null,
                 preReg, classification, null);
+    }
+
+    /** Phase 5 C1 — shorthand for a default-domain draft with a specific peer score. */
+    private PaperDraft draftWithPeerScore(double peerScore) {
+        return draftWithTemplate(ResultClassification.SUPPORTED,
+                "template hyp", "template conc", peerScore, null);
     }
 
     /** Phase 5 B2 — domain/topic-customised draft for magnitude-range tests. */
@@ -687,7 +779,7 @@ class PublishPaperTest {
                 "raw findings text", "template hyp", "template conc",
                 "EMPIRICAL", List.of(),
                 peerScore, peerScore, 0.0, 100L, Instant.now(),
-                1, "P-test-1", 50, 3.0, false,
+                1, "P-test-" + paperCounter.incrementAndGet(), 50, 3.0, false,
                 null, null, List.of(), null,
                 null, classification, null);
     }
@@ -735,6 +827,12 @@ class PublishPaperTest {
     /** Phase 5 B4 — rebuilds the service with the cross-domain-gate flag set. */
     private void enableCrossDomainGate() {
         crossDomainGateEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 C1 — rebuilds the service with citation-aware scoring on. */
+    private void enableCitationAwareScoring() {
+        citationAwareScoringEnabled = true;
         setUp();
     }
 

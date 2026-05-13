@@ -225,6 +225,7 @@ class MathPhysicsEngineTest {
                 /* dedupEnabled =               */ false,
                 /* crossDomainGateEnabled =     */ false,
                 /* disputeReconciliationEnabled */ false,
+                /* citationAwareScoringEnabled  */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

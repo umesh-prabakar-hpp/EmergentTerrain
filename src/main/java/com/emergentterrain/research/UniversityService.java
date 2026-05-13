@@ -59,6 +59,7 @@ public class UniversityService {
     private final boolean dedupEnabled;
     private final boolean crossDomainGateEnabled;
     private final boolean disputeReconciliationEnabled;
+    private final boolean citationAwareScoringEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -152,6 +153,7 @@ public class UniversityService {
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
             @Value("${app.research.dispute-reconciliation.enabled:false}") boolean disputeReconciliationEnabled,
+            @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -180,6 +182,7 @@ public class UniversityService {
         this.dedupEnabled                = dedupEnabled;
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
         this.disputeReconciliationEnabled = disputeReconciliationEnabled;
+        this.citationAwareScoringEnabled = citationAwareScoringEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -210,6 +213,11 @@ public class UniversityService {
         if (disputeReconciliationEnabled) {
             log.info("UniversityService: dispute-reconciliation ENABLED — DISPUTED papers "
                     + "emit a typed ProgramOpenQuestion on both bots' programs.");
+        }
+        if (citationAwareScoringEnabled) {
+            log.info("UniversityService: citation-aware-scoring ENABLED — papers earn a "
+                    + "bonus for citing high-quality priors and a penalty for citing "
+                    + "critique:skip papers.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -342,6 +350,18 @@ public class UniversityService {
                 ? 0.92
                 : (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
         double adjustedScore = draft.peerScore() * confidenceFactor;
+
+        // Phase 5 C1 — citation-aware score adjustment. The May 2026 corpus's
+        // first three cross-paper citations (P-a328-34→30, 54→49, 73→69) showed
+        // the room can do this — one of them cited a Reject paper. Reward
+        // citations of high-quality priors; penalise citations of papers whose
+        // call path shows the peer-review stage was skipped.
+        //   +0.02 per citation of (PUBLISHED, peerScore > room median)
+        //   -0.04 per citation of a critique:skip paper
+        // Total bonus capped at +0.10; total penalty at -0.20.
+        if (citationAwareScoringEnabled) {
+            adjustedScore += citationAwareDelta(draft.roomId(), narration.citedPaperIds());
+        }
 
         // Phase 5 A2 — status reflects what actually happened in the narration pipeline.
         // NULL_RESULT stays NULL_RESULT regardless (it's the result classification,
@@ -1003,6 +1023,63 @@ public class UniversityService {
             log.warn("Failed to scan existing research papers for room {}: {}", roomId, e.getMessage());
         }
         return max;
+    }
+
+    /**
+     * Phase 5 C1 — citation-aware adjustment to a publishing paper's peer score.
+     *
+     * <p>Looks up each cited paperId in the room cache. Each citation contributes:
+     * <ul>
+     *   <li>+0.02 if the cited paper has {@code Status: PUBLISHED} and a peer score
+     *       strictly above the room median (computed once per call).</li>
+     *   <li>−0.04 if the cited paper's call path contains
+     *       {@code critique:skip:incomplete_firstpass} — the cited paper bypassed
+     *       peer review, so citing it should hurt rather than help.</li>
+     * </ul>
+     *
+     * <p>The cumulative bonus is capped at +0.10 (no infinite gaming from citing
+     * 50 priors); the penalty is capped at −0.20 (a single bad citation still
+     * costs less than four).
+     */
+    double citationAwareDelta(UUID roomId, java.util.List<String> citedPaperIds) {
+        if (citedPaperIds == null || citedPaperIds.isEmpty()) return 0.0;
+        java.util.List<ResearchPaper> roomBucket = roomPapers(roomId);
+        if (roomBucket.isEmpty()) return 0.0;
+
+        // Median peer score over PUBLISHED papers only — NEEDS_REVISION / NULL_RESULT
+        // / DISPUTED papers skew the baseline. For an even-sized population we
+        // average the two middle values; odd-sized, take the middle. With zero
+        // PUBLISHED priors the median falls to 0.0 (everything is "above").
+        double[] sorted = roomBucket.stream()
+                .filter(p -> "PUBLISHED".equals(p.status()))
+                .mapToDouble(ResearchPaper::peerScore)
+                .sorted()
+                .toArray();
+        double median;
+        if (sorted.length == 0)        median = 0.0;
+        else if (sorted.length % 2 == 1) median = sorted[sorted.length / 2];
+        else                            median = (sorted[sorted.length / 2 - 1]
+                                                + sorted[sorted.length / 2]) / 2.0;
+
+        double bonus = 0.0;
+        double penalty = 0.0;
+        for (String citedId : citedPaperIds) {
+            if (citedId == null) continue;
+            ResearchPaper cited = roomBucket.stream()
+                    .filter(p -> citedId.equals(p.paperId()))
+                    .findFirst().orElse(null);
+            if (cited == null) continue;
+            if ("PUBLISHED".equals(cited.status()) && cited.peerScore() > median) {
+                bonus += 0.02;
+            }
+            String path = cited.llmCallPath();
+            if (path != null && path.contains("critique:skip:incomplete_firstpass")) {
+                penalty -= 0.04;
+            }
+        }
+        bonus   = Math.min(bonus,   0.10);
+        penalty = Math.max(penalty, -0.20);
+        return bonus + penalty;
     }
 
     /**
