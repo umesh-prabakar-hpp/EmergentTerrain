@@ -123,6 +123,104 @@ class ContentHashDeduplicatorTest {
         assertThat(clones).containsExactlyInAnyOrder("P-prior-1", "P-prior-2");
     }
 
+    // ---- Phase 7 G2 — Jaccard fallback for near-clones ----
+
+    @Test
+    void phase7_G2_jaccardCatchesTruncatedClone() {
+        // P-284 vs P-244 from REVIEW_REPORT.md refresh #9 — same composite-failure-mode
+        // template, but the new paper was truncated at Vf=60% (missing the last 3
+        // Vf-stress data points). Exact fingerprint diverges; Jaccard catches it.
+        String priorFull =
+                "Composite failure (Ef=200 GPa, Em=3 GPa, σym=200 MPa, εy=0.0667): "
+                + "Vf=10%→1513 MPa, Vf=20%→2827 MPa, Vf=30%→4140 MPa, Vf=40%→5453 MPa, "
+                + "Vf=50%→6767 MPa, Vf=60%→8080 MPa, Vf=70%→9393 MPa, Vf=80%→10707 MPa, "
+                + "Vf=90%→12020 MPa.";
+        String newTruncated =
+                "Composite failure (Ef=200 GPa, Em=3 GPa, σym=200 MPa, εy=0.0667): "
+                + "Vf=10%→1513 MPa, Vf=20%→2827 MPa, Vf=30%→4140 MPa, Vf=40%→5453 MPa, "
+                + "Vf=50%→6767 MPa, Vf=60%→8080 MPa.";
+
+        ResearchPaper prior = paper("P-prior-244", "MATERIALS", "Composite Failure Mode",
+                priorFull, "REJECTED");
+
+        List<String> clones = ContentHashDeduplicator.findClones(
+                "MATERIALS", "Composite Failure Mode", newTruncated, List.of(prior));
+
+        assertThat(clones).containsExactly("P-prior-244");
+    }
+
+    @Test
+    void phase7_G2_jaccardCatchesComputation2ExtendedClone() {
+        // P-276 vs REJECTED P-255 from REVIEW_REPORT.md refresh #8 — Collatz template,
+        // new paper added a Computation-2 stub with extra numeric tokens that the
+        // prior didn't have. Exact fingerprint diverges; Jaccard catches it.
+        String priorShort =
+                "Collatz (270,330): max 143 steps at n=327, avg 55 ± 5 (n=60), "
+                + "fraction > 100 steps: 20% ± 10%. All 60 terminated at 1.";
+        String newWithExtras =
+                "Collatz (270,330): max 143 steps at n=327, avg 55 ± 5 (n=60), "
+                + "fraction > 100 steps: 20% ± 10%. All 60 terminated at 1. "
+                + "Computation 2 — exploring around n=85 with scale 3.1.";
+
+        ResearchPaper prior = paper("P-prior-255", "MATHEMATICS", "Collatz Stopping Time",
+                priorShort, "REJECTED");
+
+        List<String> clones = ContentHashDeduplicator.findClones(
+                "MATHEMATICS", "Collatz Stopping Time", newWithExtras, List.of(prior));
+
+        assertThat(clones).containsExactly("P-prior-255");
+    }
+
+    @Test
+    void phase7_G2_jaccardDoesNotFireAcrossDifferentTopics() {
+        // Even with matching numeric tokens, papers on DIFFERENT topics aren't
+        // clones. The (domain, topic) gate prevents Jaccard false-positives.
+        String findings = "Values 1513, 2827, 4140, 5453, 6767, 8080, 9393, 10707, 12020.";
+        ResearchPaper prior = paper("P-other-topic", "MATERIALS", "Thermal Stress Safety Window",
+                findings, "PUBLISHED");
+
+        List<String> clones = ContentHashDeduplicator.findClones(
+                "MATERIALS", "Composite Failure Mode", findings, List.of(prior));
+
+        assertThat(clones).isEmpty();
+    }
+
+    @Test
+    void phase7_G2_jaccardDoesNotFireForUnrelatedTokenSets() {
+        // Same topic but completely different numbers — Jaccard correctly returns 0.
+        String priorFindings = "Values 1, 2, 3, 4, 5, 6, 7.";
+        String newFindings   = "Values 100, 200, 300, 400, 500, 600, 700.";
+        ResearchPaper prior = paper("P-unrelated", "MATERIALS", "Composite Failure Mode",
+                priorFindings, "PUBLISHED");
+
+        List<String> clones = ContentHashDeduplicator.findClones(
+                "MATERIALS", "Composite Failure Mode", newFindings, List.of(prior));
+
+        assertThat(clones).isEmpty();
+    }
+
+    @Test
+    void phase7_G2_jaccardSimilarityIsZeroForDisjointMultisets() {
+        double sim = ContentHashDeduplicator.jaccardSimilarity(
+                List.of("1", "2", "3"), List.of("4", "5", "6"));
+        assertThat(sim).isEqualTo(0.0);
+    }
+
+    @Test
+    void phase7_G2_jaccardSimilarityIsOneForSubsetMatch() {
+        double sim = ContentHashDeduplicator.jaccardSimilarity(
+                List.of("1", "2", "3"), List.of("1", "2", "3", "4", "5"));
+        assertThat(sim).isEqualTo(1.0);  // |∩| / min(3, 5) = 3/3
+    }
+
+    @Test
+    void phase7_G2_jaccardRespectsMultiplicity() {
+        // [a, a] ∩ [a] should have size 1, not 2.
+        double sim = ContentHashDeduplicator.jaccardSimilarity(
+                List.of("a", "a"), List.of("a"));
+        assertThat(sim).isEqualTo(1.0);  // |∩| / min(2, 1) = 1/1
+    }
+
     // -------- helper --------
 
     private static ResearchPaper paper(String id, String domain, String topic, String findings, String status) {
