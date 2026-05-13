@@ -794,7 +794,11 @@ public class MathPhysicsEngine {
             double k2 = k * k;
             double T  = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256);
             double err = (T - T0) / T0 * 100;
-            sb.append("%.0f°→%.2f%% ".formatted((double) deg, err));
+            // Self-contained tuple `θ=Nº→V%`: the angle is bound to its value within each
+            // pair so the narration LLM can't shift row labels by ignoring the small leading
+            // entry. P-a328-60 / P-a328-87 misread the prior unprefixed format and produced
+            // a 5°-shifted table (0.77% at 25° rather than 1.19%). Phase 5 C5.
+            sb.append("θ=%.0f°→%.2f%% ".formatted((double) deg, err));
             if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
         }
         ClaimStatus status = breakdownAngle < 20 ? ClaimStatus.SUPPORTED

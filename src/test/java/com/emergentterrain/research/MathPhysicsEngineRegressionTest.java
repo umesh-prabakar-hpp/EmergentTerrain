@@ -43,7 +43,8 @@ class MathPhysicsEngineRegressionTest {
         MathPhysicsEngine.ResearchResult r =
                 MathPhysicsEngine.compute("PHYSICS", 1, 100, 1.0, SINGLE_POINT);
 
-        // The engine emits "5°→0.05% 10°→0.19% 15°→0.43% 20°→0.76% 25°→1.19% 30°→1.72% …"
+        // The engine emits "θ=5°→0.05% θ=10°→0.19% θ=15°→0.43% θ=20°→0.76% θ=25°→1.19% …"
+        // (Phase 5 C5 — `θ=` prefix makes each pair self-contained for the narrator.)
         for (int deg = 5; deg <= 30; deg += 5) {
             double observed = parseDegreeEntry(r.findings(), deg);
             double k        = Math.sin(Math.toRadians(deg) / 2.0);
@@ -261,9 +262,9 @@ class MathPhysicsEngineRegressionTest {
 
     // -------- helpers --------
 
-    /** Parses "{deg}°→{pct}% " token out of the pendulum findings string. */
+    /** Parses "θ={deg}°→{pct}% " token out of the pendulum findings string. */
     private static double parseDegreeEntry(String findings, int deg) {
-        Matcher m = Pattern.compile(deg + "°→([0-9.]+)%").matcher(findings);
+        Matcher m = Pattern.compile("θ=" + deg + "°→([0-9.]+)%").matcher(findings);
         assertThat(m.find()).as("pendulum series contains entry for %d°", deg).isTrue();
         return Double.parseDouble(m.group(1));
     }
