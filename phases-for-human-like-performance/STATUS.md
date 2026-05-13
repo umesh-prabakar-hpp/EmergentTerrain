@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–3 |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–4 |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 8 Phase 5 |
-| Net new code | ~10,000 + ~900 (Phase 5) lines |
-| Tests | 135 → 577 → 633 (+498) |
-| Behaviour-changing iterations | 6 + 3 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist), all behind feature flags |
+| Commits | 24 + 13 Phase 5 |
+| Net new code | ~10,000 + ~2,000 (Phase 5) lines |
+| Tests | 135 → 577 → 684 (+549) |
+| Behaviour-changing iterations | 6 + 8 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist, 5 Group B validators), all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -696,6 +696,10 @@ app.research.theory-composition.enabled # Phase 4b — A~f(B) ^ B~g(C) chains em
 app.research.world-intervention.enabled # Phase 3 Iter 6 write side — bots file GovernmentBill via WorldInterventionService; integration point checks the flag
 app.research.truncation-guard.enabled   # Phase 5 A1 — papers whose findings/conclusion end mid-sentence publish as NEEDS_REVISION
 app.research.harness-leak-filter.enabled # Phase 5 A4 — strip "starting at position N" / "uses a scale of M" / "quality score of X" leak phrases from prose
+app.research.numerical-consistency.enabled # Phase 5 B1 — flag papers whose Conclusion contradicts its Hypothesis or Findings on a numerical claim
+app.research.magnitude-range.enabled    # Phase 5 B2 — flag papers whose findings carry magnitudes outside per-(domain,topic) physical bounds
+app.research.dedup.enabled              # Phase 5 B3 — flag near-byte-identical reruns of prior room papers that don't cite the prior
+app.research.cross-domain-gate.enabled  # Phase 5 B4 — flag papers whose Hypothesis drifts out of its declared (non-INTERDISCIPLINARY) domain
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -996,7 +1000,7 @@ Per the phase doc's ordering (ascending risk):
 
 ---
 
-## Phase 5 — Quality Pipeline ✅ (Waves 0–3 shipped 2026-05-12)
+## Phase 5 — Quality Pipeline ✅ (Waves 0–4 shipped 2026-05-12)
 
 Lifts the 27% acceptance-rate plateau the automated peer review
 ([REVIEW_REPORT.md](../research/a3289005-archive/REVIEW_REPORT.md))
@@ -1018,17 +1022,28 @@ Wave 2 (guards)
   A4  PromptSanitizer strips harness-parameter leak phrases            a1aac8e
 Wave 3 (telemetry)
   C3  Surface sandbox_reject=N on the persisted LLM Call Path          828efca
+Wave 4 (validators)
+  B1  NumericalConsistencyValidator (close-to-N + range mismatch)      83862db
+  B2  MagnitudeRangeValidator (per-domain physical bounds)              74d76af
+  B3  ContentHashDeduplicator (uncited-clone NEEDS_REVISION)           77f0f45
+  B4  CrossDomainHypothesisGate (in-lane domain drift)                 4437c0c
+  B5  Tighten Hardy-Littlewood asymptotic support band                 f0d0ac3
 ```
 
 Wave 0 pinned the simulator before behaviour changes landed. Wave 1's
 three quick wins each hit a top-frequency failure mode. Wave 2 added
 opt-in guards behind two new flags (`app.research.truncation-guard.enabled`,
 `app.research.harness-leak-filter.enabled`). Wave 3 surfaced previously
-log-only telemetry onto the persisted paper row.
+log-only telemetry onto the persisted paper row. Wave 4 added four new
+flag-gated validators (`numerical-consistency`, `magnitude-range`,
+`dedup`, `cross-domain-gate`) that flow into the same NEEDS_REVISION
+status path the A1/A2 guards established, plus B5 tightened the H-L
+asymptotic band unconditionally.
 
-Waves 4 (B1–B5 validators), 5 (citation-aware scoring + dispute
-reconciliation), and 6 (D1/D2 scoping docs) remain. See the phase doc
-§"Suggested execution order" and §"Pre-conditions for the validators".
+Wave 5 (C1 citation-aware scoring + C2 dispute reconciliation) and
+Wave 6 (D1/D2 scoping docs) remain. See the phase doc §"Suggested
+execution order" and §"Pre-conditions for the validators". Per the
+pre-conditions, Wave 5 should wait until Wave 4 has runtime data.
 
 ---
 
