@@ -30,6 +30,8 @@ class PublishPaperTest {
 
     private UniversityService service;
     private UUID roomId;
+    /** Phase 5 A1: tests that exercise the truncation guard set this to true via {@link #enableTruncationGuard()}. */
+    private boolean truncationGuardEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -94,6 +96,7 @@ class PublishPaperTest {
                 new ExplorationTuningService(false, replicationService),
                 /* reviewerRoutingEnabled = */ false,
                 /* journalReviewEnabled =   */ false,
+                /* truncationGuardEnabled = */ truncationGuardEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -193,6 +196,81 @@ class PublishPaperTest {
         assertThat((long) stats.get("nullResults")).isEqualTo(2L);
         assertThat((long) stats.get("positiveResults")).isEqualTo(1L);
         assertThat((int) stats.get("totalPublished")).isEqualTo(3);
+    }
+
+    // ---- Phase 5 A1: truncation guard ----
+
+    @Test
+    void endsWithSentenceTerminatorAcceptsCanonicalEndings() {
+        assertThat(UniversityService.endsWithSentenceTerminator("Done.")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("Done!")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("Done?")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("Done…")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("Done.  ")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("Done.*")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("(Done.)")).isTrue();
+    }
+
+    @Test
+    void endsWithSentenceTerminatorRejectsMidSentenceCutoffs() {
+        // Real cutoffs observed in the corpus
+        assertThat(UniversityService.endsWithSentenceTerminator("Van der Waals CO₂ (")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator("Vf=20% yielding")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator("displayed a")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator("reached approximately")).isFalse();
+    }
+
+    @Test
+    void endsWithSentenceTerminatorAcceptsNullAndBlank() {
+        // Null/blank pass through to the template fallback in publishPaper.
+        assertThat(UniversityService.endsWithSentenceTerminator(null)).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator("   ")).isTrue();
+    }
+
+    @Test
+    void truncationGuardOffLeavesIncompleteFindingsAsPublished() {
+        // Default setup: flag off. Even with truncated findings the paper publishes.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Findings end mid-sentence with no terminator",
+                "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void truncationGuardOnDowngradesTruncatedFindings() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Findings end mid-sentence with no terminator",
+                "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void truncationGuardOnDowngradesTruncatedConclusion() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Findings end with a period.",
+                "Conclusion runs out mid-sente",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void truncationGuardOnPassesProperlyTerminatedPaper() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Findings end with a period.",
+                "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
     // ---- Phase 5 A2: status reflects narration-pipeline health ----
@@ -361,6 +439,12 @@ class PublishPaperTest {
     private NarrationResult narrationWithCallPath(double confidenceScore, String callPath) {
         return new NarrationResult(null, null, null, null, null,
                 confidenceScore, List.of(), callPath);
+    }
+
+    /** Phase 5 A1 — rebuilds the service with the truncation-guard flag set. */
+    private void enableTruncationGuard() {
+        truncationGuardEnabled = true;
+        setUp();
     }
 
     private ResearchPaper firstPaper() {

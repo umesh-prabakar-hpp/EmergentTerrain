@@ -52,6 +52,7 @@ public class UniversityService {
     // Keeps paper output naturally paced to LLM throughput with no build-up.
     private final int     maxDraftBacklog;
     private final boolean peerReviewEnabled;
+    private final boolean truncationGuardEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -138,6 +139,7 @@ public class UniversityService {
             ExplorationTuningService explorationTuningService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
+            @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -159,7 +161,12 @@ public class UniversityService {
         this.fundingAllocationService = fundingAllocationService;
         this.surpriseBroadcastService = surpriseBroadcastService;
         this.explorationTuningService = explorationTuningService;
+        this.truncationGuardEnabled   = truncationGuardEnabled;
         this.objectMapper             = objectMapper;
+        if (truncationGuardEnabled) {
+            log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
+                    + "or conclusion end mid-sentence will publish as NEEDS_REVISION.");
+        }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
         this.experimentPlannerService.setExplorationTuningService(explorationTuningService);
@@ -288,11 +295,18 @@ public class UniversityService {
         //     Groq token-per-day exhaustion) and we fell back to the first pass; the paper
         //     is published but explicitly without the tool-calling professor's input, so
         //     telemetry can distinguish infrastructure quota issues from algorithmic ones.
+        //   - Phase 5 A1: when the truncation-guard flag is on and either findings or
+        //     conclusion ends mid-sentence → NEEDS_REVISION. ~55% of corpus papers hit
+        //     this mode.
         //   - otherwise → PUBLISHED.
         String paperStatus;
         String callPath = narration.callPath();
+        boolean truncated = truncationGuardEnabled
+                && (!endsWithSentenceTerminator(findings) || !endsWithSentenceTerminator(conclusion));
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
+        } else if (truncated) {
+            paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("prof:error→fp")) {
@@ -995,6 +1009,34 @@ public class UniversityService {
         } catch (Exception e) {
             throw new IllegalStateException("Failed to serialise lifecycle state", e);
         }
+    }
+
+    /**
+     * Phase 5 A1 — true if the text ends in a sentence terminator (after stripping
+     * trailing whitespace and common closing markup). Used by the truncation guard
+     * to flag papers whose findings or conclusion ends mid-sentence.
+     *
+     * <p>~55% of papers in the May 2026 corpus hit this mode — the narrator's
+     * "Computation 2" branch runs over the token budget and the response gets
+     * sent verbatim. With the flag on, such papers publish as NEEDS_REVISION
+     * instead of PUBLISHED.
+     */
+    static boolean endsWithSentenceTerminator(String text) {
+        if (text == null) return true;  // null is handled separately by the template fallback
+        // Strip trailing whitespace and a small set of closing markdown / quote chars.
+        int i = text.length() - 1;
+        while (i >= 0) {
+            char c = text.charAt(i);
+            if (Character.isWhitespace(c) || c == ')' || c == ']' || c == '"' || c == '\''
+                    || c == '*' || c == '_' || c == '`') {
+                i--;
+            } else {
+                break;
+            }
+        }
+        if (i < 0) return true;  // blank text — caught by the upstream isBlank check
+        char last = text.charAt(i);
+        return last == '.' || last == '!' || last == '?' || last == '…';
     }
 
 }

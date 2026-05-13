@@ -218,6 +218,7 @@ class MathPhysicsEngineTest {
                 new ExplorationTuningService(false, replicationService),
                 /* reviewerRoutingEnabled = */ false,
                 /* journalReviewEnabled =   */ false,
+                /* truncationGuardEnabled = */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
