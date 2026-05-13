@@ -420,7 +420,10 @@ class PromptTemplateRegistryTest {
         String auditSection = "\nA quality audit identified these specific gaps. Address them with your tools:\n"
                             + "- [CRITICAL] overclaiming: claims exceed evidence\n\n";
 
+        // Phase 6 D1.3 added a v2-with-literature variant; this regression test
+        // continues to pin the v1 body explicitly.
         String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION,
                 Map.of("auditSection", auditSection));
 
         String inlineExpected = """
@@ -463,7 +466,9 @@ class PromptTemplateRegistryTest {
         params.put("findings",            findings);
         params.put("conclusion",          conclusion);
 
-        String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID, params);
+        // Phase 6 D1.3: pin v1 explicitly; v2-with-literature renders a different body.
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION, params);
 
         String inlineExpected = """
                 Paper for review:

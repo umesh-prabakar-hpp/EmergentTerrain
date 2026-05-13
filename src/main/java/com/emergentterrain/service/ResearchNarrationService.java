@@ -1,6 +1,8 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.research.FollowUpParams;
+import com.emergentterrain.research.LiteratureReference;
+import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
@@ -52,18 +54,34 @@ public class ResearchNarrationService {
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore narrationSlot;
     private final Semaphore refinementSlot = new Semaphore(2);
+    /** Phase 6 D1.3 — optional. Null when the literature service bean isn't on the context. */
+    private final LiteratureSearchService literatureSearch;
+    private final boolean literatureSearchEnabled;
 
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
-    public ResearchNarrationService(LlmRouter router, ObjectMapper objectMapper,
-                                    PromptTemplateRegistry promptRegistry) {
-        this.router         = router;
-        this.toolSuite      = new MathToolSuite(router, objectMapper);
-        this.objectMapper   = objectMapper;
-        this.promptRegistry = promptRegistry;
-        this.narrationSlot  = new Semaphore(router.primaryPoolSize());
-        log.info("ResearchNarrationService: narrationSlots={}", narrationSlot.availablePermits());
+    public ResearchNarrationService(
+            LlmRouter router,
+            ObjectMapper objectMapper,
+            PromptTemplateRegistry promptRegistry,
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            LiteratureSearchService literatureSearch,
+            @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
+            boolean literatureSearchEnabled) {
+        this.router                  = router;
+        this.toolSuite               = new MathToolSuite(router, objectMapper);
+        this.objectMapper            = objectMapper;
+        this.promptRegistry          = promptRegistry;
+        this.literatureSearch        = literatureSearch;
+        this.literatureSearchEnabled = literatureSearchEnabled;
+        this.narrationSlot           = new Semaphore(router.primaryPoolSize());
+        log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={}",
+                narrationSlot.availablePermits(), literatureSearchEnabled);
+        if (literatureSearchEnabled && literatureSearch == null) {
+            log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
+                    + "but no LiteratureSearchService bean on the context; degrading to off");
+        }
     }
 
     /** Wire the narration callback into UniversityService once the context is ready. */
@@ -216,8 +234,12 @@ public class ResearchNarrationService {
             boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
                     || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain());
             String toolsJson    = toolSuite.toolsJson(includeDynamic);
-            String systemPrompt = buildProfessorSystemPrompt(promptRegistry, auditSummary);
-            String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass);
+            // Phase 6 D1.3 — fetch curated literature for this (domain, topic).
+            // Empty / null context means the prompts render their v1 variants
+            // verbatim; non-empty context switches to v2-with-literature.
+            String literatureContext = renderLiteratureContext(draft);
+            String systemPrompt = buildProfessorSystemPrompt(promptRegistry, auditSummary, literatureContext);
+            String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass, literatureContext);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
             // the persisted LLM Call Path. Reviewers can then tell whether a Findings
@@ -244,7 +266,8 @@ public class ResearchNarrationService {
             // Phase 3 — Student revision incorporating professor's findings
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass, professorSynthesis),
+            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
+                            professorSynthesis, literatureContext),
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -493,21 +516,73 @@ public class ResearchNarrationService {
         return model.substring(0, 18);
     }
 
+    /**
+     * Phase 6 D1.3 — fetches the curated references for this draft's (domain, topic)
+     * and renders them as a slot-ready block. Returns the empty string when the
+     * literature flag is off, when no service is wired, or when the corpus has
+     * no entries for the key. Empty input → empty slot → v1 template renders
+     * verbatim (memo §3.3 — no "no literature found" annotation).
+     */
+    String renderLiteratureContext(PaperDraft draft) {
+        if (!literatureSearchEnabled || literatureSearch == null) return "";
+        java.util.List<LiteratureReference> refs =
+                literatureSearch.findFor(draft.domain(), draft.topicName());
+        if (refs.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\nPRIOR LITERATURE FOR THIS REGION:\n");
+        for (LiteratureReference r : refs) {
+            sb.append("- ").append(r.citation()).append(": ").append(r.closedForm());
+            if (r.validRegion() != null && !r.validRegion().isBlank()) {
+                sb.append(" Region: ").append(r.validRegion()).append('.');
+            }
+            if (r.magnitudeEstimate() != null && !r.magnitudeEstimate().isBlank()) {
+                sb.append(" Magnitude: ").append(r.magnitudeEstimate()).append('.');
+            }
+            sb.append('\n');
+        }
+        return sb.toString();
+    }
+
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry) {
-        return buildProfessorSystemPrompt(registry, "");
+        return buildProfessorSystemPrompt(registry, "", null);
     }
 
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry, String auditSummary) {
+        return buildProfessorSystemPrompt(registry, auditSummary, null);
+    }
+
+    /**
+     * Phase 6 D1.3 — {@code literatureContext} is a rendered block of curated
+     * references (or null/empty when the flag is off or the lookup found
+     * nothing). Non-null/non-empty value switches the render to the
+     * {@code v2-with-literature} template variant; otherwise the original v1
+     * template renders verbatim.
+     */
+    static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
+                                              String auditSummary, String literatureContext) {
         String auditSection = (auditSummary != null && !auditSummary.isBlank())
                 ? "\nA quality audit identified these specific gaps. Address them with your tools:\n"
                   + auditSummary + "\n"
                 : "";
+        if (literatureContext != null && !literatureContext.isEmpty()) {
+            return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                    "v2-with-literature",
+                    Map.of("auditSection", auditSection,
+                           "literatureContext", literatureContext));
+        }
         return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION,
                 Map.of("auditSection", auditSection));
     }
 
     static String buildProfessorUserPrompt(PromptTemplateRegistry registry,
                                             PaperDraft draft, NarrationResult narration) {
+        return buildProfessorUserPrompt(registry, draft, narration, null);
+    }
+
+    /** Phase 6 D1.3 — see {@link #buildProfessorSystemPrompt(PromptTemplateRegistry, String, String)}. */
+    static String buildProfessorUserPrompt(PromptTemplateRegistry registry,
+                                            PaperDraft draft, NarrationResult narration,
+                                            String literatureContext) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
         String classLine  = draft.resultClassification() != null
@@ -521,12 +596,28 @@ public class ResearchNarrationService {
         params.put("hypothesis",            narration.hypothesis());
         params.put("findings",              narration.findings());
         params.put("conclusion",            narration.conclusion());
-        return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID, params);
+        if (literatureContext != null && !literatureContext.isEmpty()) {
+            params.put("literatureContext", literatureContext);
+            return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
+                    "v2-with-literature", params);
+        }
+        return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION, params);
     }
 
     static String buildRevisionPromptFromSynthesis(PromptTemplateRegistry registry,
                                                     PaperDraft draft, NarrationResult firstPass,
                                                     String professorSynthesis) {
+        return buildRevisionPromptFromSynthesis(registry, draft, firstPass, professorSynthesis, null);
+    }
+
+    /** Phase 6 D1.3 — when {@code literatureContext} is non-null/non-empty the
+     *  {@code v2-from-synthesis-with-literature} variant carries it through to the
+     *  student-revision step so the revised text can reference the cited closed-form. */
+    static String buildRevisionPromptFromSynthesis(PromptTemplateRegistry registry,
+                                                    PaperDraft draft, NarrationResult firstPass,
+                                                    String professorSynthesis,
+                                                    String literatureContext) {
         boolean isNull = draft.resultClassification() == ResultClassification.NULL_RESULT;
         String conclusionSpec = isNull
                 ? "\"conclusion\":\"explicitly state the pre-registered prediction was NOT confirmed; "
@@ -544,6 +635,11 @@ public class ResearchNarrationService {
         params.put("findings",           firstPass.findings());
         params.put("conclusion",         firstPass.conclusion());
         params.put("conclusionSpec",     conclusionSpec);
+        if (literatureContext != null && !literatureContext.isEmpty()) {
+            params.put("literatureContext", literatureContext);
+            return registry.render(PromptTemplateIds.NARRATION_REVISION_ID,
+                    "v2-from-synthesis-with-literature", params);
+        }
         return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params);
     }
 

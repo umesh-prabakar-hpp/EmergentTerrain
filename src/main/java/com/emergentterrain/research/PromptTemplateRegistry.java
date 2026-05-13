@@ -296,6 +296,35 @@ public class PromptTemplateRegistry {
                  "confidenceScore":0.0-1.0}
                 Reply with ONLY the JSON.
                 """));
+        // Phase 6 D1.3 — v2-from-synthesis variant carrying a {{ literatureContext }}
+        // slot. The synthesis path is what the professor-tool flow uses; the
+        // student revision step also gets the literature context so the revised
+        // text can cite the closed-form.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_REVISION_ID,
+                "v2-from-synthesis-with-literature",
+                """
+                You are a student revising your computational research paper based on your professor's review.
+                Incorporate the professor's experimental findings naturally into the revised text.
+                Address the identified weaknesses. Do not introduce new claims beyond what the data supports.
+
+                {{ paramsLine }}Domain: {{ domain }} | Topic: {{ topicName }}
+                {{ literatureContext }}
+                PROFESSOR'S REVIEW:
+                {{ professorSynthesis }}
+
+                CURRENT DRAFT:
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Rewrite the paper as:
+                {"hypothesis":"...",
+                 "findings":"2-3 sentences with appropriate precision; incorporate new experimental evidence",
+                 {{ conclusionSpec }},
+                 "confidenceScore":0.0-1.0}
+                Reply with ONLY the JSON.
+                """));
 
         // NARRATION_CRITIQUE — self-critique before revision. The {{ experimentSpec }}
         // composite slot folds in one of three pre-carve branches: a "dynamic +
@@ -414,6 +443,43 @@ public class PromptTemplateRegistry {
                 Paper for review:
                 Domain: {{ domain }} | Topic: {{ topicName }}
                 {{ preRegAndClassLines }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+                """));
+
+        // Phase 6 D1.3 — v2 variants of the three professor-path templates with
+        // a {{ literatureContext }} slot. Used when
+        // app.research.literature-search.enabled is on; the v1 variants remain
+        // for the default flag-off path and for Phase 4c Piece 3's eventual A/B.
+        // The slot renders to either a literature block or the empty string
+        // (no "no literature found" annotation per memo §3.3).
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
+                "v2-with-literature",
+                """
+                You are a professor reviewing a student's computational research paper.
+                You have access to mathematical tools to investigate gaps you identify.
+                Use tools when they would provide new evidence that materially changes what can be claimed.
+                You do not need to use tools if the paper is already well-supported.
+                {{ literatureContext }}{{ auditSection }}
+                After any tool calls, write a concise synthesis:
+                  1. List specific textual weaknesses (overclaiming, missing error bounds,
+                     inconsistency with pre-registration, unsupported leaps). Omit if none.
+                  2. Summarise what your experiments revealed and how they bear on the claims.
+                  3. If prior literature was supplied above, note whether the paper's claims align
+                     with or extend the cited closed-forms — flag any contradiction.
+                Be direct and specific. If the paper is fundamentally sound, say so briefly.
+                If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
+                and submit again — you have additional tool rounds available.
+                """));
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
+                "v2-with-literature",
+                """
+                Paper for review:
+                Domain: {{ domain }} | Topic: {{ topicName }}
+                {{ preRegAndClassLines }}{{ literatureContext }}
                 Hypothesis: {{ hypothesis }}
                 Findings: {{ findings }}
                 Conclusion: {{ conclusion }}
