@@ -57,6 +57,8 @@ public class ResearchNarrationService {
     /** Phase 6 D1.3 — optional. Null when the literature service bean isn't on the context. */
     private final LiteratureSearchService literatureSearch;
     private final boolean literatureSearchEnabled;
+    /** Phase 6 D2 — when on, the narrator emits two extra JSON keys via the v2 template. */
+    private final boolean discussionSectionEnabled;
 
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
@@ -68,16 +70,20 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Autowired(required = false)
             LiteratureSearchService literatureSearch,
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
-            boolean literatureSearchEnabled) {
-        this.router                  = router;
-        this.toolSuite               = new MathToolSuite(router, objectMapper);
-        this.objectMapper            = objectMapper;
-        this.promptRegistry          = promptRegistry;
-        this.literatureSearch        = literatureSearch;
-        this.literatureSearchEnabled = literatureSearchEnabled;
-        this.narrationSlot           = new Semaphore(router.primaryPoolSize());
-        log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={}",
-                narrationSlot.availablePermits(), literatureSearchEnabled);
+            boolean literatureSearchEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
+            boolean discussionSectionEnabled) {
+        this.router                   = router;
+        this.toolSuite                = new MathToolSuite(router, objectMapper);
+        this.objectMapper             = objectMapper;
+        this.promptRegistry           = promptRegistry;
+        this.literatureSearch         = literatureSearch;
+        this.literatureSearchEnabled  = literatureSearchEnabled;
+        this.discussionSectionEnabled = discussionSectionEnabled;
+        this.narrationSlot            = new Semaphore(router.primaryPoolSize());
+        log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
+                + "discussionSectionEnabled={}",
+                narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
@@ -276,10 +282,16 @@ public class ResearchNarrationService {
                         System.currentTimeMillis() - revStart);
                 com.emergentterrain.research.FollowUpParams followUp =
                         revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
+                // Phase 6 D2 — preserve Discussion + Related-Work across the revision
+                // step. If the revision didn't emit them (v1 revision template), fall
+                // back to the first-pass values rather than dropping them.
+                String discussion  = revParsed.discussion()  != null ? revParsed.discussion()  : firstPass.discussion();
+                String relatedWork = revParsed.relatedWork() != null ? revParsed.relatedWork() : firstPass.relatedWork();
                 return new NarrationResult(
                         revParsed.hypothesis(), revParsed.findings(), revParsed.conclusion(),
                         followUp, router.primaryModel(),
-                        revParsed.confidenceScore(), revParsed.citedPaperIds());
+                        revParsed.confidenceScore(), revParsed.citedPaperIds(),
+                        null, List.of(), List.of(), null, null, discussion, relatedWork);
             }
             callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
@@ -1068,7 +1080,14 @@ public class ResearchNarrationService {
         params.put("priorPapers",    priorSection.trim());
         params.put("preRegSection",  preRegSection);
         params.put("conclusionSpec", conclusionSpec);
-        return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID, params);
+        // Phase 6 D2 — pick v2-with-discussion when the flag is on; otherwise v1.
+        // Both variants take identical slots.
+        if (discussionSectionEnabled) {
+            return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID,
+                    "v2-with-discussion", params);
+        }
+        return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID,
+                PromptTemplateIds.NARRATION_PRIMARY_VERSION, params);
     }
 
     private static String compactRawFindings(String raw) {
@@ -1200,16 +1219,30 @@ public class ResearchNarrationService {
                 }
             }
 
+            // Phase 6 D2 — optional Discussion + Related-Work fields. Null when the
+            // narrator did not emit the keys (D2 flag off, or v1 template); the
+            // markdown writer omits the sections in that case.
+            String discussion = optionalText(root, "discussion");
+            String relatedWork = optionalText(root, "related_work");
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
                     root.path("findings").asText(null),
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
-                    null, List.copyOf(typedCitations), List.copyOf(formalFindings));
+                    null, List.copyOf(typedCitations), List.copyOf(formalFindings),
+                    null, null, discussion, relatedWork);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
         }
+    }
+
+    /** Phase 6 D2 — returns the JSON string at {@code key}, or null when absent / blank / non-string. */
+    private static String optionalText(com.fasterxml.jackson.databind.JsonNode root, String key) {
+        com.fasterxml.jackson.databind.JsonNode node = root.get(key);
+        if (node == null || node.isNull() || node.isMissingNode() || !node.isTextual()) return null;
+        String value = node.asText();
+        return value.isBlank() ? null : value;
     }
 
     /**

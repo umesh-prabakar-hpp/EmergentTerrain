@@ -458,6 +458,10 @@ public class UniversityService {
         // Piece 3 as "unattributed" and excluded from per-variant rollback statistics.
         paper.setNarrationTemplateId(narration.templateId());
         paper.setNarrationTemplateVersion(narration.templateVersion());
+        // Phase 6 D2 — Discussion + Related-Work fields. Both null when the
+        // narrator didn't emit them (flag off or v1 template).
+        paper.setDiscussion(narration.discussion());
+        paper.setRelatedWork(narration.relatedWork());
 
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
         // it lands in the cache + DB. No-op when the institutions flag is off.
@@ -1171,6 +1175,15 @@ public class UniversityService {
                 ? "\n> ⓘ **PUBLISHED WITHOUT PROFESSOR REVIEW** — The tool-calling professor stage failed "
                   + "(commonly upstream LLM quota exhaustion) and this paper kept its first-pass narration.\n"
                 : "";
+        // Phase 6 D2 — optional Discussion + Related-Work sections, rendered when
+        // the narrator's JSON emitted the keys. Both default to empty strings so
+        // pre-D2 papers (and D2 flag-off papers) print identically to before.
+        String discussionSection = paper.discussion() != null && !paper.discussion().isBlank()
+                ? "\n\n## Discussion\n\n" + paper.discussion()
+                : "";
+        String relatedWorkSection = paper.relatedWork() != null && !paper.relatedWork().isBlank()
+                ? "\n\n## Related Work\n\n" + paper.relatedWork()
+                : "";
         return """
                 # %s
 
@@ -1199,7 +1212,7 @@ public class UniversityService {
 
                 ## Conclusion
 
-                %s
+                %s%s%s
                 """.formatted(
                 paper.title(),
                 paper.paperId(),
@@ -1219,7 +1232,9 @@ public class UniversityService {
                 disputedBanner,
                 paper.hypothesis(),
                 paper.findings(),
-                paper.conclusion());
+                paper.conclusion(),
+                discussionSection,
+                relatedWorkSection);
     }
 
     private String toJson(Object value) {

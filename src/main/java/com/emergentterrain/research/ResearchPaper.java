@@ -112,6 +112,22 @@ public class ResearchPaper {
     @Column(name = "narration_template_version", length = 32)
     private String narrationTemplateVersion;
 
+    /**
+     * Phase 6 D2 — optional Discussion section. Null when D2 was disabled at
+     * narration time or when the narrator's JSON did not include the field.
+     * Same nullability semantics as {@link #narrationTemplateId} — legacy
+     * rows persisted before this column existed remain null.
+     */
+    @Column(name = "discussion", columnDefinition = "text")
+    private String discussion;
+
+    /**
+     * Phase 6 D2 — optional Related Work section. Null when D2 was disabled
+     * at narration time or when the narrator's JSON did not include the field.
+     */
+    @Column(name = "related_work", columnDefinition = "text")
+    private String relatedWork;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -186,6 +202,8 @@ public class ResearchPaper {
     public PaperKind    kind()           { return kind; }
     public String       narrationTemplateId()      { return narrationTemplateId; }
     public String       narrationTemplateVersion() { return narrationTemplateVersion; }
+    public String       discussion()               { return discussion; }
+    public String       relatedWork()              { return relatedWork; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -196,4 +214,6 @@ public class ResearchPaper {
     public void setKind(PaperKind kind)              { this.kind = kind != null ? kind : PaperKind.DOMAIN; }
     public void setNarrationTemplateId(String id)           { this.narrationTemplateId = id; }
     public void setNarrationTemplateVersion(String version) { this.narrationTemplateVersion = version; }
+    public void setDiscussion(String discussion)     { this.discussion = discussion; }
+    public void setRelatedWork(String relatedWork)   { this.relatedWork = relatedWork; }
 }

@@ -375,6 +375,74 @@ class PublishPaperTest {
         assertThat(delta).isCloseTo(-0.04, within(0.001));
     }
 
+    // ---- Phase 6 D2: Discussion + Related-Work persistence + markdown ----
+
+    @Test
+    void discussionAndRelatedWorkFieldsPersistOnPaperWhenSupplied() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "h", "f", "c", null, null, 0.6, List.of(),
+                null, List.of(), List.of(), null, null,
+                "This work raises questions about asymptotic stability.",
+                "Builds on Hardy & Littlewood (1923).");
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.discussion()).contains("asymptotic stability");
+        assertThat(paper.relatedWork()).contains("Hardy & Littlewood");
+    }
+
+    @Test
+    void discussionAndRelatedWorkRemainNullWhenNarratorDidNotEmitThem() {
+        // Default 7-arg ctor leaves discussion + relatedWork null.
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5), narration(0.5));
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.discussion()).isNull();
+        assertThat(paper.relatedWork()).isNull();
+    }
+
+    @Test
+    void publishedMarkdownIncludesDiscussionAndRelatedWorkSectionsWhenSet() throws Exception {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "h", "f", "c", null, null, 0.6, List.of(),
+                null, List.of(), List.of(), null, null,
+                "Pendulum periods remain elliptic in the strong-amplitude regime.",
+                "Huygens (1673) and Beléndez (2007) establish the closed-form expansion.");
+        service.publishPaper(draft, narration);
+
+        // Find the room directory (first 8 chars of roomId) and the markdown file
+        // the publish path just wrote.
+        java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
+        java.util.List<java.nio.file.Path> md = java.util.stream.Stream.of(
+                roomDir.toFile().listFiles())
+                .filter(f -> f.getName().endsWith(".md"))
+                .map(java.io.File::toPath)
+                .toList();
+        assertThat(md).hasSize(1);
+        String content = java.nio.file.Files.readString(md.get(0));
+        assertThat(content)
+                .contains("## Discussion")
+                .contains("Pendulum periods remain elliptic")
+                .contains("## Related Work")
+                .contains("Huygens (1673)");
+    }
+
+    @Test
+    void publishedMarkdownOmitsDiscussionAndRelatedWorkSectionsWhenNull() throws Exception {
+        service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5), narration(0.6));
+        java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
+        java.util.List<java.nio.file.Path> md = java.util.stream.Stream.of(
+                roomDir.toFile().listFiles())
+                .filter(f -> f.getName().endsWith(".md"))
+                .map(java.io.File::toPath)
+                .toList();
+        assertThat(md).hasSize(1);
+        String content = java.nio.file.Files.readString(md.get(0));
+        assertThat(content)
+                .doesNotContain("## Discussion")
+                .doesNotContain("## Related Work");
+    }
+
     // ---- Phase 5 B4: cross-domain gate ----
 
     @Test

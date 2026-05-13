@@ -205,6 +205,53 @@ public class PromptTemplateRegistry {
                 no bullet points, no sub-headers, no markdown formatting.
                 """));
 
+        // Phase 6 D2 — v2-with-discussion variant of NARRATION_PRIMARY. Adds a
+        // {{ discussionInstruction }} slot near the JSON shape spec so the
+        // narrator emits two extra keys (discussion, related_work). Used when
+        // app.research.discussion-section.enabled is on; v1 stays untouched.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PRIMARY_ID,
+                "v2-with-discussion",
+                """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
+                Title: "{{ title }}"
+                Bot generation: {{ generation }}
+                {{ paramsLine }}{{ followUpNote }}{{ anomalyNote }}
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
+                {{ rawFindings }}
+
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                {{ scaffoldHyp }}
+
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                {{ scaffoldCon }}
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
+                {{ priorPapers }}{{ preRegSection }}
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)","findings":"2-3 sentences \
+                interpreting the pattern or trend — its significance and what it suggests; \
+                cite a prior paper by ID if relevant",{{ conclusionSpec }},\
+                "discussion":"2-3 sentences interpreting what the result implies for the broader \
+                research direction; honest about limitations and what remains uncertain",\
+                "related_work":"1-2 sentences pointing to adjacent prior work — either the \
+                cited Paper IDs above or the established literature for this topic; acknowledge \
+                what is already known","followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
+
+                followUp / confidenceScore / cited_paper_ids rules — same as v1.
+                discussion: under 100 words; honest about what stays unsettled; do not over-claim novelty.
+                related_work: under 80 words; ground the work against priors. If no priors apply
+                explicitly say so rather than fabricating references.
+                All text values plain prose inside JSON strings only — no markdown.
+                """));
+
         // NARRATION_REFINEMENT — refinement-loop "should I run another step"
         // decider. Single round-trip with a small JSON reply
         // ({"action":"refine|done", ...}).

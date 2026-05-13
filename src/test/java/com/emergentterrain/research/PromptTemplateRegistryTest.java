@@ -564,7 +564,10 @@ class PromptTemplateRegistryTest {
         params.put("preRegSection",  preRegSection);
         params.put("conclusionSpec", conclusionSpec);
 
-        String registryRendered = r.render(PromptTemplateIds.NARRATION_PRIMARY_ID, params);
+        // Phase 6 D2 added a v2-with-discussion variant; this regression test
+        // continues to pin the v1 body byte-for-byte.
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_PRIMARY_ID,
+                PromptTemplateIds.NARRATION_PRIMARY_VERSION, params);
 
         // Reproduce the pre-migration template body byte-for-byte.
         String inlineExpected = """
