@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D1.2 |
+| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D1.3 |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 15 Phase 5 + 3 Phase 6 |
-| Net new code | ~10,000 + ~2,300 (Phase 5) + ~600 (Phase 6) lines |
-| Tests | 135 → 577 → 690 → 704 (+569) |
-| Behaviour-changing iterations | 6 + 10 Phase 5 (truncation guard, harness-leak filter, sandbox whitelist, 5 Group B validators, dispute reconciliation, citation-aware scoring), all behind feature flags. Phase 6 D1.2 is read-only — no behaviour change yet |
+| Commits | 24 + 15 Phase 5 + 4 Phase 6 |
+| Net new code | ~10,000 + ~2,300 (Phase 5) + ~900 (Phase 6) lines |
+| Tests | 135 → 577 → 690 → 704 → 709 (+574) |
+| Behaviour-changing iterations | 6 + 10 Phase 5 + 1 Phase 6 (literature-search prompt integration), all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -702,6 +702,7 @@ app.research.dedup.enabled              # Phase 5 B3 — flag near-byte-identica
 app.research.cross-domain-gate.enabled  # Phase 5 B4 — flag papers whose Hypothesis drifts out of its declared (non-INTERDISCIPLINARY) domain
 app.research.dispute-reconciliation.enabled # Phase 5 C2 — DISPUTED papers emit a typed ProgramOpenQuestion on both bots' programs
 app.research.citation-aware-scoring.enabled # Phase 5 C1 — peer score gains +0.02 per high-quality cited prior, -0.04 per critique:skip cited prior
+app.research.literature-search.enabled  # Phase 6 D1.3 — professor stage sees a curated literature block (v2-with-literature templates)
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -1071,8 +1072,20 @@ carries 20 references — 15 real-world citations matching each engine
 bridges as engine-constructed. The service exposes
 `findFor(domain, topic)` with exact case-insensitive matching, ranks
 multi-entry lookups by priority + alphabetical citation, and fails
-open on corpus-load errors. **Not consumed by the narrator yet** —
-D1.3 is the next code step and gated on observed Phase 5 runtime.
+open on corpus-load errors.
+
+D1.3 (narrator-prompt integration) has shipped behind
+`app.research.literature-search.enabled` (default false). When the
+flag is on, the professor-tool path renders a
+`PRIOR LITERATURE FOR THIS REGION:` block from the corpus into a
+`{{ literatureContext }}` slot on three new v2 template variants
+(`NARRATION_PROFESSOR_SYSTEM`, `NARRATION_PROFESSOR_USER`,
+`NARRATION_REVISION` `v2-from-synthesis-with-literature`). The v2
+system prompt also asks the professor to flag whether the paper's
+claims align with or extend the cited closed-forms. v1 templates
+remain registered for the flag-off path and for Phase 4c Piece 3's
+eventual A/B. D2 (Discussion / Related-Work section) remains the
+last Phase 6 piece.
 
 ---
 
