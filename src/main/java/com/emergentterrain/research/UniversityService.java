@@ -279,7 +279,27 @@ public class UniversityService {
                 : (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
         double adjustedScore = draft.peerScore() * confidenceFactor;
 
-        String paperStatus = isNullResult ? "NULL_RESULT" : "PUBLISHED";
+        // Phase 5 A2 — status reflects what actually happened in the narration pipeline.
+        // NULL_RESULT stays NULL_RESULT regardless (it's the result classification,
+        // independent of narration health). For positive results:
+        //   - `critique:skip:incomplete_firstpass` → NEEDS_REVISION. The first pass was
+        //     incomplete so the peer-review path never ran; the paper is not peer-reviewed.
+        //   - `prof:error→fp` → PUBLISHED_NO_PROFESSOR. The professor stage failed (often
+        //     Groq token-per-day exhaustion) and we fell back to the first pass; the paper
+        //     is published but explicitly without the tool-calling professor's input, so
+        //     telemetry can distinguish infrastructure quota issues from algorithmic ones.
+        //   - otherwise → PUBLISHED.
+        String paperStatus;
+        String callPath = narration.callPath();
+        if (isNullResult) {
+            paperStatus = "NULL_RESULT";
+        } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (callPath != null && callPath.contains("prof:error→fp")) {
+            paperStatus = "PUBLISHED_NO_PROFESSOR";
+        } else {
+            paperStatus = "PUBLISHED";
+        }
 
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
@@ -757,13 +777,17 @@ public class UniversityService {
         List<ResearchPaper> papers = roomPapers(roomId);
         Map<String, Long> byDomain = papers.stream()
                 .collect(Collectors.groupingBy(ResearchPaper::domain, Collectors.counting()));
-        long disputed    = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
-        long nullResults = papers.stream().filter(p -> "NULL_RESULT".equals(p.status())).count();
-        long positive    = papers.size() - nullResults - disputed;
+        long disputed       = papers.stream().filter(p -> "DISPUTED".equals(p.status())).count();
+        long nullResults    = papers.stream().filter(p -> "NULL_RESULT".equals(p.status())).count();
+        long needsRevision  = papers.stream().filter(p -> "NEEDS_REVISION".equals(p.status())).count();
+        long positive       = papers.size() - nullResults - disputed - needsRevision;
 
-        // Average score over positive results only — null/disputed papers skew the baseline down
+        // Average score over positive results only — null/disputed/needs-revision papers
+        // skew the baseline down. PUBLISHED_NO_PROFESSOR counts as positive (the result
+        // shipped; only the tool-calling stage was missing).
         OptionalDouble avgScore = papers.stream()
-                .filter(p -> "PUBLISHED".equals(p.status()))
+                .filter(p -> "PUBLISHED".equals(p.status())
+                          || "PUBLISHED_NO_PROFESSOR".equals(p.status()))
                 .mapToDouble(ResearchPaper::peerScore).average();
         int maxGen = states.values().stream()
                 .mapToInt(s -> s.getGenome() != null ? s.getGenome().getGeneration() : 0)
@@ -779,6 +803,7 @@ public class UniversityService {
         stats.put("positiveResults",   positive);
         stats.put("nullResults",       nullResults);
         stats.put("disputed",          disputed);
+        stats.put("needsRevision",     needsRevision);
         stats.put("totalRejected",     totalRej);
         stats.put("researcherCount",   bots.size());
         stats.put("qualifiedCount",    qualified);
@@ -896,14 +921,22 @@ public class UniversityService {
     }
 
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
-        boolean disputed = "DISPUTED".equals(paper.status());
-        boolean nullResult = "NULL_RESULT".equals(paper.status());
+        boolean disputed       = "DISPUTED".equals(paper.status());
+        boolean nullResult     = "NULL_RESULT".equals(paper.status());
+        boolean needsRevision  = "NEEDS_REVISION".equals(paper.status());
+        boolean noProfessor    = "PUBLISHED_NO_PROFESSOR".equals(paper.status());
         String disputedBanner = disputed
                 ? "\n> ⚠ **UNDER DISPUTE** — Independent replication produced a divergent result. "
                   + "This paper's findings are under review.\n"
                 : nullResult
                 ? "\n> ∅ **NULL RESULT** — Computation ran but the pre-registered hypothesis was not supported. "
                   + "Reported for transparency; no positive claim is made.\n"
+                : needsRevision
+                ? "\n> ⏳ **NEEDS REVISION** — The first-pass narration was incomplete and the peer-review "
+                  + "stage was skipped. This paper has not been reviewed.\n"
+                : noProfessor
+                ? "\n> ⓘ **PUBLISHED WITHOUT PROFESSOR REVIEW** — The tool-calling professor stage failed "
+                  + "(commonly upstream LLM quota exhaustion) and this paper kept its first-pass narration.\n"
                 : "";
         return """
                 # %s

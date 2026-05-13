@@ -195,6 +195,57 @@ class PublishPaperTest {
         assertThat((int) stats.get("totalPublished")).isEqualTo(3);
     }
 
+    // ---- Phase 5 A2: status reflects narration-pipeline health ----
+
+    @Test
+    void positiveResultWithCritiqueSkipMarkerDowngradesToNeedsRevision() {
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8, "fp:gpt-oss → critique:skip:incomplete_firstpass"));
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void positiveResultWithProfErrorMarkerStampsPublishedNoProfessor() {
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8, "fp:llama-70b → audit:4b:ok → prof:error→fp"));
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED_NO_PROFESSOR");
+    }
+
+    @Test
+    void positiveResultWithCleanCallPathRemainsPublished() {
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8, "fp:llama-70b → audit:4b:ok → prof:llama-70b:ok → rev:llama-70b:ok"));
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void nullResultStaysNullEvenWhenCritiqueWasSkipped() {
+        service.publishPaper(
+                draft(ResultClassification.NULL_RESULT, 0.2),
+                narrationWithCallPath(0.5, "fp:gpt-oss → critique:skip:incomplete_firstpass"));
+        // Result classification is independent of narration health — a null finding is
+        // still a null finding even if peer review never ran.
+        assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
+    }
+
+    @Test
+    void needsRevisionDoesNotInflatePositiveCountInStats() {
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8, "fp:gpt-oss → critique:skip:incomplete_firstpass"));
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.6),
+                narrationWithCallPath(0.7, "fp:llama-70b → audit:4b:ok → prof:llama-70b:ok"));
+
+        var stats = service.getStats(roomId);
+        assertThat((long) stats.get("needsRevision")).isEqualTo(1L);
+        assertThat((long) stats.get("positiveResults")).isEqualTo(1L);
+        assertThat((int) stats.get("totalPublished")).isEqualTo(2);
+    }
+
     // ---- Template fallback (null narration fields) ----
 
     @Test
@@ -304,6 +355,12 @@ class PublishPaperTest {
 
     private NarrationResult narration(double confidenceScore) {
         return new NarrationResult(null, null, null, null, null, confidenceScore, List.of());
+    }
+
+    /** 8-arg form — stamps a specific LLM call-path string for Phase 5 A2 assertions. */
+    private NarrationResult narrationWithCallPath(double confidenceScore, String callPath) {
+        return new NarrationResult(null, null, null, null, null,
+                confidenceScore, List.of(), callPath);
     }
 
     private ResearchPaper firstPaper() {
