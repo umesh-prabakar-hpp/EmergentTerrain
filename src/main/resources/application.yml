@@ -187,6 +187,34 @@ app:
     # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
     backendParallelism: 3
 
+  # Phase 5 + Phase 6 quality + novelty levers — all 10 flipped on 2026-05-13.
+  # Earlier Phase 1-4b flags remain at their @Value defaults (mostly off);
+  # add them here individually if the operator wants them on too.
+  #
+  # Dependency note: dispute-reconciliation requires app.research.programs.enabled
+  # to actually queue ProgramOpenQuestions; with programs off the C2 hook is a no-op.
+  research:
+    truncation-guard:
+      enabled: true        # Phase 5 A1 — mid-sentence papers publish as NEEDS_REVISION
+    harness-leak-filter:
+      enabled: true        # Phase 5 A4 — strip simulator-coord phrases from prose
+    numerical-consistency:
+      enabled: true        # Phase 5 B1 — catch "close to N×" with no nearby observed; hypothesis-vs-conclusion range mismatch
+    magnitude-range:
+      enabled: true        # Phase 5 B2 — per-(domain, topic) physical bounds (composite ≤ 3 GPa, Arrhenius ≤ 12×, …)
+    dedup:
+      enabled: true        # Phase 5 B3 — uncited near-clones publish as NEEDS_REVISION
+    cross-domain-gate:
+      enabled: true        # Phase 5 B4 — MATHEMATICS bots drifting into materials prose flagged; INTERDISCIPLINARY exempt
+    dispute-reconciliation:
+      enabled: true        # Phase 5 C2 — DISPUTED papers queue reconciliation questions (needs programs.enabled to actually fire)
+    citation-aware-scoring:
+      enabled: true        # Phase 5 C1 — +0.02 / −0.04 per high-quality / critique-skip citation
+    literature-search:
+      enabled: true        # Phase 6 D1.3 — professor stage sees curated literature block
+    discussion-section:
+      enabled: true        # Phase 6 D2 — first-pass narrator emits discussion + related_work sections
+
 logging:
   file:
     name: /tmp/et-app.log
