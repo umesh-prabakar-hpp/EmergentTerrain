@@ -1058,6 +1058,13 @@ has held) are met. Phase 6 is the first phase that attempts to lift
 crosses the boundary from "verify known closed-forms" to "extend
 beyond them" and is the single largest lever the review report names.
 
+D1.1 (the corpus scoping memo) has also landed —
+[phase-6-piece-1-memo.md](phase-6-piece-1-memo.md). It carries the
+per-topic bibliography for all 15 non-INTERDISCIPLINARY engine methods
+plus the record-shape, prompt-integration, coverage, and curation
+decisions D1.2 will execute against. D1.2 (the corpus + read-only
+service) is the next code step; the memo's pre-conditions §9 gate it.
+
 ---
 
 ## How to read this directory
@@ -1075,6 +1082,7 @@ phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template
 phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
 phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
 phase-6-novelty-levers.md                    ← scoping doc for literature search + Discussion section
+phase-6-piece-1-memo.md                      ← D1.1 memo locking literature-corpus decisions
 ```
 
 Each phase doc retains its full design content. `STATUS.md` is the live
