@@ -254,6 +254,29 @@ app:
     discussion-section:
       enabled: true        # Phase 6 D2 — first-pass narrator emits discussion + related_work sections
 
+  # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
+  # token spend crosses pauseThresholdPct of its limit, and reopens after a drop
+  # below resumeThresholdPct (hysteresis). Provider keys are free-form; add any
+  # future top-tier LLM (anthropic, openai, …) by appending an entry — every
+  # model the provider exposes is aggregated under its key. dailyLimit /
+  # minuteLimit = 0 means "unlimited" (use for local / unmetered providers).
+  tokens:
+    # TokenBudgetReporter prints a one-line-per-provider heartbeat every
+    # reportIntervalMs: tokens used/remaining (day + minute), current burn rate,
+    # pause-likelihood ETA. Cheap — only reads in-memory counters.
+    reportIntervalMs: 60000
+    budget:
+      enabled: true
+      pauseThresholdPct: 95
+      resumeThresholdPct: 80
+      providers:
+        groq:
+          dailyLimit: 500000   # aggregate across every Groq model in the round-robin
+          minuteLimit: 8000    # matches observed TPM rate-limit
+        ollama:
+          dailyLimit: 0        # local, unmetered
+          minuteLimit: 0
+
 logging:
   file:
     name: /tmp/et-app.log

@@ -68,6 +68,10 @@ public class RoomService {
     private PolicyConsultationService policyConsultationService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.UniversityService universityService;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.llm.SimulationGate simulationGate;
+    private final java.util.concurrent.atomic.AtomicLong lastGateClosedLogMs =
+            new java.util.concurrent.atomic.AtomicLong(0L);
     private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.Map<String, Double>> roomTileNudges =
             new java.util.concurrent.ConcurrentHashMap<>();
     private final GovernmentSimulationService governmentSimulationService;
@@ -802,6 +806,14 @@ public class RoomService {
     @Transactional
     public void scheduledRoomMaintenance() {
         if (!backgroundMaintenanceEnabled) {
+            return;
+        }
+        if (simulationGate != null && !simulationGate.isOpen()) {
+            long now = System.currentTimeMillis();
+            long last = lastGateClosedLogMs.get();
+            if (now - last > 30_000L && lastGateClosedLogMs.compareAndSet(last, now)) {
+                log.info("maintenance skipped: simulation gate closed — {}", simulationGate.reason());
+            }
             return;
         }
         metrics.increment("room.maintenance");

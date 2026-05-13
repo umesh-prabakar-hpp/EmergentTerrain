@@ -1,11 +1,14 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.TokenAccountant;
+import com.emergentterrain.llm.TokenUsage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -95,6 +98,13 @@ public class GroqPool implements LlmPool {
     // Per-model TPD expiry: when a model exhausts its daily token quota, record when it recovers.
     // Models are skipped until System.currentTimeMillis() passes the expiry epoch.
     private final ConcurrentHashMap<String, Long> tpdExpiry = new ConcurrentHashMap<>();
+
+    private static final String PROVIDER_ID = "groq";
+
+    // Reports every completed Groq call's token spend so SimulationGate can budget.
+    // Optional: null when running tests that don't wire the accountant bean.
+    @Autowired(required = false)
+    private TokenAccountant tokenAccountant;
 
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
@@ -242,6 +252,7 @@ public class GroqPool implements LlmPool {
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
                 String   reason  = choice.path("finish_reason").asText("stop");
+                recordUsage(modelId, body.path("usage"));
 
                 if ("tool_calls".equals(reason) && !lastRound) {
                     messages.add(message);
@@ -725,19 +736,30 @@ public class GroqPool implements LlmPool {
             if (resp.statusCode() != 200) {
                 throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
             }
-            JsonNode message = mapper.readTree(resp.body()).path("choices").get(0).path("message");
+            JsonNode root    = mapper.readTree(resp.body());
+            JsonNode message = root.path("choices").get(0).path("message");
             String content = message.path("content").asText("");
             if (content.isBlank()) {
                 // Reasoning models (e.g. openai/gpt-oss-120b) put chain-of-thought in "reasoning"
                 // and may leave "content" empty when token budget is exhausted mid-reasoning.
                 content = message.path("reasoning").asText("");
             }
+            recordUsage(modelId, root.path("usage"));
             return content;
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new RuntimeException("GroqPool sync call failed", e);
         }
+    }
+
+    private void recordUsage(String model, JsonNode usage) {
+        if (tokenAccountant == null || usage == null || usage.isMissingNode() || usage.isNull()) return;
+        long prompt = usage.path("prompt_tokens").asLong(0);
+        long completion = usage.path("completion_tokens").asLong(0);
+        if (prompt + completion <= 0) return;
+        tokenAccountant.record(new TokenUsage(
+                PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));
     }
 
     private void streamCall(String modelId, String prompt, Consumer<String> tokenConsumer) {
@@ -754,8 +776,15 @@ public class GroqPool implements LlmPool {
                     .forEach(line -> {
                         try {
                             JsonNode chunk = mapper.readTree(line.substring(6));
-                            JsonNode content = chunk.path("choices").get(0)
-                                    .path("delta").path("content");
+                            // With stream_options.include_usage=true, the final chunk has
+                            // an empty choices[] and a populated `usage` field.
+                            JsonNode usage = chunk.path("usage");
+                            if (!usage.isMissingNode() && !usage.isNull()) {
+                                recordUsage(modelId, usage);
+                            }
+                            JsonNode choices = chunk.path("choices");
+                            if (!choices.isArray() || choices.isEmpty()) return;
+                            JsonNode content = choices.get(0).path("delta").path("content");
                             if (!content.isMissingNode() && !content.isNull()) {
                                 String token = content.asText();
                                 if (!token.isEmpty()) tokenConsumer.accept(token);
@@ -776,6 +805,11 @@ public class GroqPool implements LlmPool {
             node.put("stream", stream);
             node.put("max_tokens", tokenLimit);
             node.put("temperature", 0.7);
+            if (stream) {
+                // Groq emits a final SSE chunk with usage.{prompt,completion}_tokens
+                // when stream_options.include_usage=true. Required for budget tracking.
+                node.putObject("stream_options").put("include_usage", true);
+            }
             ArrayNode messages = node.putArray("messages");
             messages.addObject().put("role", "user").put("content", prompt);
             return mapper.writeValueAsString(node);

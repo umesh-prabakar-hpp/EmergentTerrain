@@ -60,6 +60,15 @@ public class ResearchNarrationService {
     /** Phase 6 D2 — when on, the narrator emits two extra JSON keys via the v2 template. */
     private final boolean discussionSectionEnabled;
 
+    /**
+     * SimulationGate consult before each Groq-spending stage (first-pass, professor
+     * tools, student revision, refinement-loop iteration). Optional: null in tests
+     * that don't wire it. When closed, the affected stage short-circuits to a
+     * cheaper fallback (first-pass narration or null-suppress) rather than throwing.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.llm.SimulationGate simulationGate;
+
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
@@ -88,6 +97,21 @@ public class ResearchNarrationService {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
         }
+    }
+
+    /**
+     * Returns true when the simulation gate is wired and currently closed, meaning
+     * the next Groq-spending stage for this paper should short-circuit. Stamps the
+     * callPath with a stage-specific marker so the persisted Call Path explains why
+     * the paper skipped that stage.
+     */
+    private boolean gateClosed(String stage, PaperDraft draft, List<String> callPath) {
+        if (simulationGate == null || simulationGate.isOpen()) return false;
+        String reason = simulationGate.reason();
+        callPath.add("gate:closed:" + stage);
+        log.warn("LLM stage skipped: gate closed paperId={} stage={} reason={}",
+                draft.paperId(), stage, reason);
+        return true;
     }
 
     /** Wire the narration callback into UniversityService once the context is ready. */
@@ -164,6 +188,15 @@ public class ResearchNarrationService {
 
         List<String> callPath = new java.util.ArrayList<>();
 
+        // Pre-emptive: SimulationGate budget tripped. Suppress before spending any
+        // primary tokens on first-pass narration. Same publisher contract as
+        // primaryFullyExhausted (null result → queue counter decrements).
+        if (gateClosed("first-pass", draft, callPath)) {
+            log.info("LLM call path paperId={}: {}", draft.paperId(), String.join(" → ", callPath));
+            if (narrationPublisher != null) narrationPublisher.accept(draft, null);
+            return;
+        }
+
         // First-pass narration (Groq/primary stream)
         String prompt = buildNarrationPrompt(draft);
         long start = System.currentTimeMillis();
@@ -235,6 +268,13 @@ public class ResearchNarrationService {
             // Phase 1 — Quality audit (fast Ollama): identify gaps before professor is invoked
             String auditSummary = runQualityAudit(draft, firstPass, callPath);
 
+            // Pre-emptive gate check before the heaviest call in the pipeline:
+            // professor tools can spend 5+ rounds × toolMaxTokens. Fall back to
+            // first-pass narration if the budget tripped during audit.
+            if (gateClosed("professor", draft, callPath)) {
+                return firstPass;
+            }
+
             // Phase 2 — Professor (Groq tool-calling), directed by audit gaps
             long start = System.currentTimeMillis();
             boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
@@ -268,6 +308,13 @@ public class ResearchNarrationService {
             callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
+
+            // Gate may have tripped during the professor tool loop. The professor's
+            // synthesis is already complete and the tokens already spent; suppress
+            // only the revision stream, keep firstPass as the published narrative.
+            if (gateClosed("revision", draft, callPath)) {
+                return firstPass;
+            }
 
             // Phase 3 — Student revision incorporating professor's findings
             long revStart = System.currentTimeMillis();
@@ -331,6 +378,12 @@ public class ResearchNarrationService {
             String professorExperiment = null;
             if (critique.experimentalGap() != null) {
                 professorExperiment = runProfessorDirectedExperiment(draft, critique.experimentalGap());
+            }
+
+            // Pre-emptive gate check before the primary-stream revision call —
+            // the only remaining Groq-spending stage on this path.
+            if (gateClosed("revision", draft, callPath)) {
+                return firstPass;
             }
 
             long revisionStart = System.currentTimeMillis();
@@ -796,6 +849,14 @@ public class ResearchNarrationService {
         }
 
         for (int iteration = 1; iteration <= MAX_REFINEMENTS; iteration++) {
+            // Break the refinement loop when the gate is closed — refinement is
+            // optional (it improves findings, not paper validity), so spending
+            // any further fast-pool tokens here is wasted under budget pressure.
+            if (simulationGate != null && !simulationGate.isOpen()) {
+                log.info("LLM refinement {}/{} skipped: gate closed paperId={} reason={}",
+                        iteration, MAX_REFINEMENTS, draft.paperId(), simulationGate.reason());
+                break;
+            }
             long start = System.currentTimeMillis();
             try {
                 String prompt = buildRefinementPrompt(
