@@ -79,12 +79,18 @@ class ContentHashDeduplicatorTest {
     }
 
     @Test
-    void findClonesSkipsNeedsRevisionPapers() {
+    void findClonesMatchesNeedsRevisionPriors() {
+        // NEEDS_REVISION priors ARE matched: when the critique:skip funnel dominates and
+        // every prior cluster member is NEEDS_REVISION, skipping that bucket would leave
+        // the match-set empty even though the new paper is a clear duplicate. The
+        // a3289005 May-2026 corpus had 47+ within-run clones all status=NEEDS_REVISION;
+        // the prior filter (which skipped both NULL_RESULT and NEEDS_REVISION) caught
+        // 0 of them and only ever fired on archived cross-run papers (status=PUBLISHED).
         String findings = "RLC: f₀=5344.81 Hz R_crit=31.3 Ω, Q=0.5 at crit.";
         ResearchPaper prior = paper("P-prior-1", "PHYSICS", "RLC Damping Transition", findings, "NEEDS_REVISION");
         List<String> clones = ContentHashDeduplicator.findClones(
                 "PHYSICS", "RLC Damping Transition", findings, List.of(prior));
-        assertThat(clones).isEmpty();
+        assertThat(clones).containsExactly("P-prior-1");
     }
 
     @Test

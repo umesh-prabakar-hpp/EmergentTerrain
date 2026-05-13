@@ -61,8 +61,14 @@ public final class ContentHashDeduplicator {
      * paper IDs only (the caller can resolve to {@link ResearchPaper} via the
      * room cache or repository).
      *
-     * <p>Excludes papers in NULL_RESULT / NEEDS_REVISION status — a clone of a
-     * never-published paper isn't a duplicate publication.
+     * <p>Excludes papers in NULL_RESULT status — a clone of a "computation ran
+     * but hypothesis not supported" paper isn't a duplicate publication. We
+     * intentionally do NOT exclude NEEDS_REVISION here: when the critique-skip
+     * funnel is dominant, the entire prior cluster is NEEDS_REVISION, and
+     * skipping that bucket leaves the fingerprint match-set empty. The
+     * downstream uncited-clone check still publishes the duplicate as
+     * NEEDS_REVISION; whether the prior was peer-reviewed is irrelevant to
+     * "is this paper repeating findings already in the room."
      */
     public static List<String> findClones(String domain, String topic, String findings,
                                            List<ResearchPaper> roomPapers) {
@@ -71,9 +77,8 @@ public final class ContentHashDeduplicator {
         List<String> matches = new ArrayList<>();
         for (ResearchPaper prior : roomPapers) {
             if (prior == null || prior.paperId() == null) continue;
-            // Skip statuses that aren't peer-reviewed final publications.
             String status = prior.status();
-            if ("NEEDS_REVISION".equals(status) || "NULL_RESULT".equals(status)) continue;
+            if ("NULL_RESULT".equals(status)) continue;
             String priorFp = fingerprint(prior.domain(), prior.topic(), prior.findings());
             if (!priorFp.isEmpty() && priorFp.equals(fp)) {
                 matches.add(prior.paperId());
