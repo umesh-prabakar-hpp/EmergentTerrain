@@ -260,6 +260,28 @@ class MathPhysicsEngineRegressionTest {
         assertThat(observed).isCloseTo(expectedTheta1, org.assertj.core.data.Offset.offset(0.5));
     }
 
+    // -------- Phase 5 A5: no canned "no prior theoretical bound" closer --------
+
+    /**
+     * Observational results must no longer assert the canned novelty claim that was
+     * the corpus's most-repeated AI-slop tell (≥5 papers closed with the exact phrase
+     * on textbook-bound problems like RLC, FCC packing, σ=EαΔT).
+     */
+    @Test
+    void observationalConclusionsDoNotClaimNoTheoreticalBound() {
+        // Diffraction returns OBSERVATIONAL via the 4-arg ResearchResult constructor.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 3, 72, 4.0, SINGLE_POINT);
+        assertThat(r.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.OBSERVATIONAL);
+        String conclusion = MathPhysicsEngine.generateConclusion(r, true);
+        assertThat(conclusion)
+                .doesNotContain("no prior theoretical bound")
+                .doesNotContain("no theoretical bound")
+                .contains("observational baseline");
+        assertThat(r.claimAssessment())
+                .doesNotContain("no prior theoretical bound");
+    }
+
     // -------- helpers --------
 
     /** Parses "θ={deg}°→{pct}% " token out of the pendulum findings string. */

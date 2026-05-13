@@ -38,8 +38,13 @@ public class MathPhysicsEngine {
                             : "One or more computed values are non-finite.",
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
                             ? ClaimStatus.OBSERVATIONAL : ClaimStatus.REFUTED,
+                    // Phase 5 A5 — drop the canned "no prior theoretical bound" novelty
+                    // claim for observational results. Many topics (RLC, FCC packing,
+                    // VdW, diffraction) have well-known closed-form bounds; emitting
+                    // this phrase invites the narrator to parrot it verbatim and produces
+                    // the corpus's most visible "AI slop" tell. Stay silent about novelty.
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
-                            ? "The computed values are finite; this region has no prior theoretical bound to compare against."
+                            ? "The computed values are finite and reproduced under the search params declared above."
                             : "The computation produced non-finite values.",
                     null);
         }
@@ -433,7 +438,12 @@ public class MathPhysicsEngine {
                     "Computed values were independently reproduced by peer reviewers, but the topic-specific validator does not support the hypothesis: %s"
                             .formatted(result.claimAssessment());
             case OBSERVATIONAL ->
-                    "Computed values were independently reproduced by peer reviewers. These findings represent an observational baseline; no prior theoretical bound constrains the expected value in this region. %s"
+                    // Phase 5 A5 — observational results no longer assert "no prior
+                    // theoretical bound constrains this region." Many topics emitted under
+                    // OBSERVATIONAL do have closed-form bounds (R_crit=2√(L/C),
+                    // floor(d/λ), Hudson FCC peak); the canned novelty claim was the
+                    // most repeated AI-slop tell in the corpus.
+                    "Computed values were independently reproduced by peer reviewers. These findings represent an observational baseline. %s"
                             .formatted(result.claimAssessment());
         };
     }
