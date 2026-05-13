@@ -1007,7 +1007,7 @@ phase-3-world-integration.md                 ← world + institutions + markets
 phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
 phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template evolution
 phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
-phase-4c-prompt-template-evolution.md        ← scoping doc for the last Phase 4b deferral
+phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
 ```
 
 Each phase doc retains its full design content. `STATUS.md` is the live
