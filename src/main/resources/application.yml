@@ -190,10 +190,9 @@ app:
   # Phase 5 + Phase 6 quality + novelty levers — all 10 flipped on 2026-05-13.
   # Earlier Phase 1-4b flags remain at their @Value defaults (mostly off);
   # add them here individually if the operator wants them on too.
-  #
-  # Dependency note: dispute-reconciliation requires app.research.programs.enabled
-  # to actually queue ProgramOpenQuestions; with programs off the C2 hook is a no-op.
   research:
+    programs:
+      enabled: true        # Phase 1 Iter 4 — longitudinal research programs (also a hard dep for C2 dispute-reconciliation)
     truncation-guard:
       enabled: true        # Phase 5 A1 — mid-sentence papers publish as NEEDS_REVISION
     harness-leak-filter:
