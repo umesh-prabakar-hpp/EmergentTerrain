@@ -40,6 +40,8 @@ class PublishPaperTest {
     private boolean magnitudeRangeEnabled = false;
     /** Phase 5 B3: tests that exercise the content-hash deduplicator set this via {@link #enableDedup()}. */
     private boolean dedupEnabled = false;
+    /** Phase 5 B4: tests that exercise the cross-domain gate set this via {@link #enableCrossDomainGate()}. */
+    private boolean crossDomainGateEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -109,6 +111,7 @@ class PublishPaperTest {
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 /* dedupEnabled =               */ dedupEnabled,
+                /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -281,6 +284,44 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", "Findings end with a period.",
                 "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 5 B4: cross-domain gate ----
+
+    @Test
+    void crossDomainGateOffLeavesMisalignedHypothesisAsPublished() {
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Collatz Stopping Time",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Collatz depth maps to thermal stress on a composite fibre.",
+                "f", "c", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void crossDomainGateOnDowngradesMathHypothesisWithThermalMarker() {
+        enableCrossDomainGate();
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Aliquot Sequence Behaviour",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Aliquot divisor sums correlate with thermal stress in steel layers.",
+                "f", "c", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void crossDomainGateOnSkipsInterdisciplinaryDomain() {
+        enableCrossDomainGate();
+        // INTERDISCIPLINARY is intentionally cross-domain; the gate must not block it.
+        PaperDraft draft = draftForTopic("INTERDISCIPLINARY", "Prime-Gap Defect Thermal Loading",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Prime gap defect spacing produces thermal stress in composite fibres.",
+                "f", "c", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
@@ -687,6 +728,12 @@ class PublishPaperTest {
     /** Phase 5 B3 — rebuilds the service with the dedup flag set. */
     private void enableDedup() {
         dedupEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 B4 — rebuilds the service with the cross-domain-gate flag set. */
+    private void enableCrossDomainGate() {
+        crossDomainGateEnabled = true;
         setUp();
     }
 

@@ -57,6 +57,7 @@ public class UniversityService {
     private final boolean numericalConsistencyEnabled;
     private final boolean magnitudeRangeEnabled;
     private final boolean dedupEnabled;
+    private final boolean crossDomainGateEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -148,6 +149,7 @@ public class UniversityService {
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
             @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
+            @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -174,6 +176,7 @@ public class UniversityService {
         this.numericalConsistencyEnabled = numericalConsistencyEnabled;
         this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
         this.dedupEnabled                = dedupEnabled;
+        this.crossDomainGateEnabled      = crossDomainGateEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -196,6 +199,10 @@ public class UniversityService {
         if (dedupEnabled) {
             log.info("UniversityService: dedup ENABLED — papers whose fingerprint matches "
                     + "a prior room paper they don't cite will publish as NEEDS_REVISION.");
+        }
+        if (crossDomainGateEnabled) {
+            log.info("UniversityService: cross-domain-gate ENABLED — papers whose hypothesis "
+                    + "drifts out of its declared domain publish as NEEDS_REVISION.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -376,6 +383,17 @@ public class UniversityService {
             log.warn("dedup check failed paperId={} clones={} (none cited)",
                     draft.paperId(), cloneIds);
         }
+        // Phase 5 B4 — flag papers whose hypothesis drifts out of its declared domain.
+        // INTERDISCIPLINARY papers intentionally bridge math + materials/physics and
+        // are skipped by the gate.
+        java.util.Optional<String> crossDomainMismatch = crossDomainGateEnabled
+                ? CrossDomainHypothesisGate.validate(draft.domain(), hypothesis)
+                : java.util.Optional.empty();
+        boolean crossDomainDrift = crossDomainMismatch.isPresent();
+        if (crossDomainDrift) {
+            log.warn("cross-domain-gate failed paperId={} reason={}",
+                    draft.paperId(), crossDomainMismatch.get());
+        }
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (truncated) {
@@ -385,6 +403,8 @@ public class UniversityService {
         } else if (magnitudeOutOfRange) {
             paperStatus = "NEEDS_REVISION";
         } else if (uncitedClone) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (crossDomainDrift) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
