@@ -491,13 +491,18 @@ public class MathPhysicsEngine {
         double lnN = Math.log(Math.max(2, start));
         double hlPrediction = 1.320323631693739 / (lnN * lnN) * width;
         double hlDeviation  = Math.abs(twins - hlPrediction) / Math.max(1.0, hlPrediction);
-        ClaimStatus status = hlDeviation <= 0.35 ? ClaimStatus.SUPPORTED
-                : hlDeviation <= 0.75 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        // Phase 5 B5 — tightened bands for asymptotic predictions. The May 2026
+        // corpus had four papers (P-a328-70, 71, 74, 78) report H-L deviations
+        // of 29–35% under the old 35%-supports-the-hypothesis band; the report
+        // (Rec #19) flagged the wider band as systematically overclaiming.
+        // New asymptotic bands: ≤15% strong support, 15–30% suggestive, ≥30% refuted.
+        ClaimStatus status = hlDeviation <= 0.15 ? ClaimStatus.SUPPORTED
+                : hlDeviation <= 0.30 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = "Hardy-Littlewood twin-count deviation is %.1f%% for this finite interval; %s."
                 .formatted(hlDeviation * 100,
-                        status == ClaimStatus.SUPPORTED ? "within the configured support band"
-                                : status == ClaimStatus.PARTIAL ? "suggestive but outside the strong-support band"
-                                : "too large to call the hypothesis supported");
+                        status == ClaimStatus.SUPPORTED ? "within the ≤15%% strong-support band"
+                                : status == ClaimStatus.PARTIAL ? "suggestive but outside the strong-support band (15–30%%)"
+                                : "too large to call the hypothesis supported (≥30%%)");
         String hypothesis = "Consecutive prime pairs in [%d, %d) will exhibit twin prime density consistent with the Hardy-Littlewood finite-interval estimate ~2C₂/ln(N)²."
                 .formatted(start, end);
         return new ResearchResult(
