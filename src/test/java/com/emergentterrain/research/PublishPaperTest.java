@@ -36,6 +36,8 @@ class PublishPaperTest {
     private boolean harnessLeakFilterEnabled = false;
     /** Phase 5 B1: tests that exercise the numerical-consistency validator set this via {@link #enableNumericalConsistency()}. */
     private boolean numericalConsistencyEnabled = false;
+    /** Phase 5 B2: tests that exercise the magnitude-range validator set this via {@link #enableMagnitudeRange()}. */
+    private boolean magnitudeRangeEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -103,6 +105,7 @@ class PublishPaperTest {
                 /* truncationGuardEnabled =     */ truncationGuardEnabled,
                 /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
+                /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -275,6 +278,49 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", "Findings end with a period.",
                 "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 5 B2: magnitude-range validator ----
+
+    @Test
+    void magnitudeRangeOffLeavesCompositeTwelveGPaAsPublished() {
+        PaperDraft draft = draftForTopic("MATERIALS", "Composite Failure Mode",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Composite failure expected.",
+                "Composite failure (Ef=200GPa, Em=3GPa): Vf=90%→12020MPa.",
+                "Stress rises linearly with Vf.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void magnitudeRangeOnDowngradesCompositeTwelveGPa() {
+        enableMagnitudeRange();
+        PaperDraft draft = draftForTopic("MATERIALS", "Composite Failure Mode",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Composite failure expected.",
+                "Composite failure (Ef=200GPa, Em=3GPa): Vf=90%→12020MPa.",
+                "Stress rises linearly with Vf.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void magnitudeRangeOnPassesCompositeUnderThreeGPa() {
+        enableMagnitudeRange();
+        PaperDraft draft = draftForTopic("MATERIALS", "Composite Failure Mode",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Composite failure expected.",
+                "Composite failure: Vf=50%→2020MPa Vf=70%→2820MPa.",
+                "Stress within bounds.",
+                null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
@@ -519,6 +565,21 @@ class PublishPaperTest {
                 preReg, classification, null);
     }
 
+    /** Phase 5 B2 — domain/topic-customised draft for magnitude-range tests. */
+    private PaperDraft draftForTopic(String domain, String topic,
+                                      ResultClassification classification, double peerScore) {
+        String botId = UUID.randomUUID().toString();
+        return new PaperDraft(
+                roomId, botId, domain, topic,
+                "Test Paper Title",
+                "raw findings text", "template hyp", "template conc",
+                "EMPIRICAL", List.of(),
+                peerScore, peerScore, 0.0, 100L, Instant.now(),
+                1, "P-test-1", 50, 3.0, false,
+                null, null, List.of(), null,
+                null, classification, null);
+    }
+
     private NarrationResult narration(double confidenceScore) {
         return new NarrationResult(null, null, null, null, null, confidenceScore, List.of());
     }
@@ -544,6 +605,12 @@ class PublishPaperTest {
     /** Phase 5 B1 — rebuilds the service with the numerical-consistency-validator flag set. */
     private void enableNumericalConsistency() {
         numericalConsistencyEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 B2 — rebuilds the service with the magnitude-range-validator flag set. */
+    private void enableMagnitudeRange() {
+        magnitudeRangeEnabled = true;
         setUp();
     }
 

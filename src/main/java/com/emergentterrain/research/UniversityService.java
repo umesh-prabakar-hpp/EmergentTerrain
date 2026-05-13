@@ -55,6 +55,7 @@ public class UniversityService {
     private final boolean truncationGuardEnabled;
     private final boolean harnessLeakFilterEnabled;
     private final boolean numericalConsistencyEnabled;
+    private final boolean magnitudeRangeEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -144,6 +145,7 @@ public class UniversityService {
             @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
+            @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -168,6 +170,7 @@ public class UniversityService {
         this.truncationGuardEnabled   = truncationGuardEnabled;
         this.harnessLeakFilterEnabled    = harnessLeakFilterEnabled;
         this.numericalConsistencyEnabled = numericalConsistencyEnabled;
+        this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -181,6 +184,11 @@ public class UniversityService {
             log.info("UniversityService: numerical-consistency ENABLED — papers whose "
                     + "Conclusion contradicts its Hypothesis or Findings on a numerical "
                     + "claim publish as NEEDS_REVISION.");
+        }
+        if (magnitudeRangeEnabled) {
+            log.info("UniversityService: magnitude-range ENABLED — papers whose findings "
+                    + "contain physically-unreasonable magnitudes for their (domain, topic) "
+                    + "publish as NEEDS_REVISION.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -337,11 +345,23 @@ public class UniversityService {
             log.warn("numerical-consistency check failed paperId={} reasons={}",
                     draft.paperId(), consistencyFailures);
         }
+        // Phase 5 B2 — flag papers whose findings contain magnitudes outside the
+        // physically-reasonable range for their (domain, topic).
+        List<String> magnitudeFailures = magnitudeRangeEnabled
+                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findings)
+                : List.of();
+        boolean magnitudeOutOfRange = !magnitudeFailures.isEmpty();
+        if (magnitudeOutOfRange) {
+            log.warn("magnitude-range check failed paperId={} reasons={}",
+                    draft.paperId(), magnitudeFailures);
+        }
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (truncated) {
             paperStatus = "NEEDS_REVISION";
         } else if (numericallyInconsistent) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (magnitudeOutOfRange) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
