@@ -323,19 +323,37 @@ public class ResearchNarrationService {
                             professorSynthesis, literatureContext),
                     revised::append);
             NarrationResult revParsed = parseNarrationResult(revised.toString());
-            if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
-                callPath.add("rev:" + abbrev(router.primaryModel()) + ":ok");
-                log.info("LLM student revision done paperId={} ms={}", draft.paperId(),
-                        System.currentTimeMillis() - revStart);
-                com.emergentterrain.research.FollowUpParams followUp =
-                        revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
-                // Phase 6 D2 — preserve Discussion + Related-Work across the revision
-                // step. If the revision didn't emit them (v1 revision template), fall
-                // back to the first-pass values rather than dropping them.
+            // Merge revision with firstPass field-by-field rather than requiring all-or-nothing.
+            // The student-revision LLM under the v2 Discussion+Related-Work template sometimes
+            // emits only the changed sections (discussion, related_work) and omits hypothesis /
+            // findings / conclusion when they're unchanged. Under the prior all-or-nothing check
+            // this dropped the entire revision and the paper fell back to firstPass with a
+            // `rev:parse_failed→fp` marker — 2/2 of the run's prof:ok papers hit it. The fix:
+            // for each field, take the revision's value if present, otherwise the firstPass's.
+            // A revision with NO recoverable content (everything null) is still treated as
+            // parse_failed and falls back to firstPass.
+            boolean revHasContent = revParsed.hypothesis()  != null
+                                 || revParsed.findings()    != null
+                                 || revParsed.conclusion()  != null
+                                 || revParsed.discussion()  != null
+                                 || revParsed.relatedWork() != null;
+            if (revHasContent) {
+                String hypothesis  = revParsed.hypothesis()  != null ? revParsed.hypothesis()  : firstPass.hypothesis();
+                String findings    = revParsed.findings()    != null ? revParsed.findings()    : firstPass.findings();
+                String conclusion  = revParsed.conclusion()  != null ? revParsed.conclusion()  : firstPass.conclusion();
                 String discussion  = revParsed.discussion()  != null ? revParsed.discussion()  : firstPass.discussion();
                 String relatedWork = revParsed.relatedWork() != null ? revParsed.relatedWork() : firstPass.relatedWork();
+                com.emergentterrain.research.FollowUpParams followUp =
+                        revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
+                boolean revFullySupplied = revParsed.hypothesis() != null
+                        && revParsed.findings() != null && revParsed.conclusion() != null;
+                callPath.add(revFullySupplied
+                        ? "rev:" + abbrev(router.primaryModel()) + ":ok"
+                        : "rev:" + abbrev(router.primaryModel()) + ":partial→merged");
+                log.info("LLM student revision done paperId={} ms={} mode={}", draft.paperId(),
+                        System.currentTimeMillis() - revStart, revFullySupplied ? "full" : "partial-merge");
                 return new NarrationResult(
-                        revParsed.hypothesis(), revParsed.findings(), revParsed.conclusion(),
+                        hypothesis, findings, conclusion,
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds(),
                         null, List.of(), List.of(), null, null, discussion, relatedWork);

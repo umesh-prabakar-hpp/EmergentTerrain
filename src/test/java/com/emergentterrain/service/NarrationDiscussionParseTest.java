@@ -60,4 +60,28 @@ class NarrationDiscussionParseTest {
         NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
         assertThat(r.discussion()).isNull();
     }
+
+    @Test
+    void parsesPartialV2RevisionWithOnlyDiscussionAndRelatedWork() {
+        // The student-revision LLM under the v2 template sometimes emits only the
+        // changed sections (discussion, related_work) plus a single core key, and
+        // omits the others when they're unchanged from first-pass. The parser
+        // returns those keys as nulls; the caller in maybeCritiqueAndReviseWithTools
+        // is responsible for merging them with firstPass values rather than
+        // discarding the whole revision. Without this tolerance, 2/2 of the
+        // a3289005 May-2026 corpus prof:ok papers hit rev:parse_failed→fp.
+        String json = """
+                {"hypothesis":"unchanged hypothesis text — same as first-pass",
+                 "confidenceScore":0.8,
+                 "discussion":"The revised analysis suggests asymptotic stability holds locally.",
+                 "related_work":"Hardy & Littlewood (1923) provides the canonical bound."}
+                """;
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.hypothesis()).contains("unchanged hypothesis");
+        assertThat(r.findings()).isNull();   // absent → null, NOT a parse failure
+        assertThat(r.conclusion()).isNull(); // absent → null, NOT a parse failure
+        assertThat(r.discussion()).contains("asymptotic stability");
+        assertThat(r.relatedWork()).contains("Hardy & Littlewood");
+        assertThat(r.confidenceScore()).isEqualTo(0.8);
+    }
 }

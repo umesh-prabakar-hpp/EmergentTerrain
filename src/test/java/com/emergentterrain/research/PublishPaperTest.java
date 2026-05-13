@@ -465,7 +465,9 @@ class PublishPaperTest {
                 "Aliquot divisor sums correlate with thermal stress in steel layers.",
                 "f", "c", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
-        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        // Phase 5 B-series validator failures stamp REJECTED (stronger than NEEDS_REVISION) so
+        // operators can distinguish "validator caught structural defect" from "narration truncated".
+        assertThat(firstPaper().status()).isEqualTo("REJECTED");
     }
 
     @Test
@@ -520,9 +522,10 @@ class PublishPaperTest {
 
         var papers = service.getPublishedPapers(roomId, 10);
         // First publication is the prior; second is the clone — only the second is downgraded.
-        // getPublishedPapers returns newest-first.
+        // getPublishedPapers returns newest-first. The clone gets REJECTED (B3 validator),
+        // not NEEDS_REVISION (which is reserved for truncation/critique-skip failures).
         assertThat(papers).hasSize(2);
-        assertThat(papers.get(0).status()).isEqualTo("NEEDS_REVISION");
+        assertThat(papers.get(0).status()).isEqualTo("REJECTED");
         assertThat(papers.get(1).status()).isEqualTo("PUBLISHED");
     }
 
@@ -574,7 +577,8 @@ class PublishPaperTest {
                 "Stress rises linearly with Vf.",
                 null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
-        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        // B2 magnitude-range failures stamp REJECTED.
+        assertThat(firstPaper().status()).isEqualTo("REJECTED");
     }
 
     @Test
@@ -615,7 +619,8 @@ class PublishPaperTest {
                 "Observed 1.07× is close to the expected 2× value.",
                 null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
-        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        // B1 numerical-consistency failures stamp REJECTED.
+        assertThat(firstPaper().status()).isEqualTo("REJECTED");
     }
 
     @Test

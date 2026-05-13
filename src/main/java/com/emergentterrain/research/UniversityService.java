@@ -426,17 +426,20 @@ public class UniversityService {
             log.warn("cross-domain-gate failed paperId={} reason={}",
                     draft.paperId(), crossDomainMismatch.get());
         }
+        // Status precedence is failure-strength-ordered: NULL_RESULT > REJECTED > NEEDS_REVISION
+        // > PUBLISHED_NO_PROFESSOR > PUBLISHED. NULL_RESULT is "computation ran cleanly but
+        // hypothesis not supported" — an honest negative, kept above REJECTED. REJECTED
+        // means a Phase 5 B-series validator caught a structural defect (wrong magnitudes,
+        // wrong labels, uncited clone, cross-domain non-sequitur); we surface this as a
+        // distinct status from NEEDS_REVISION so operators can tell "validator caught it"
+        // from "narration truncated."
+        boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
+                || uncitedClone || crossDomainDrift;
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
+        } else if (validatorRejected) {
+            paperStatus = "REJECTED";
         } else if (truncated) {
-            paperStatus = "NEEDS_REVISION";
-        } else if (numericallyInconsistent) {
-            paperStatus = "NEEDS_REVISION";
-        } else if (magnitudeOutOfRange) {
-            paperStatus = "NEEDS_REVISION";
-        } else if (uncitedClone) {
-            paperStatus = "NEEDS_REVISION";
-        } else if (crossDomainDrift) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
@@ -1160,6 +1163,7 @@ public class UniversityService {
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
         boolean disputed       = "DISPUTED".equals(paper.status());
         boolean nullResult     = "NULL_RESULT".equals(paper.status());
+        boolean rejected       = "REJECTED".equals(paper.status());
         boolean needsRevision  = "NEEDS_REVISION".equals(paper.status());
         boolean noProfessor    = "PUBLISHED_NO_PROFESSOR".equals(paper.status());
         String disputedBanner = disputed
@@ -1168,6 +1172,10 @@ public class UniversityService {
                 : nullResult
                 ? "\n> ∅ **NULL RESULT** — Computation ran but the pre-registered hypothesis was not supported. "
                   + "Reported for transparency; no positive claim is made.\n"
+                : rejected
+                ? "\n> ✗ **REJECTED** — A Phase 5 B-series validator flagged a structural defect "
+                  + "(unphysical magnitude, numerical inconsistency, uncited near-clone, or cross-domain "
+                  + "non-sequitur). This paper is recorded but should not be cited.\n"
                 : needsRevision
                 ? "\n> ⏳ **NEEDS REVISION** — The first-pass narration was incomplete and the peer-review "
                   + "stage was skipped. This paper has not been reviewed.\n"
