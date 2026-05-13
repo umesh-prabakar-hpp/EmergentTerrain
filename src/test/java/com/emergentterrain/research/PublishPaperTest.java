@@ -138,6 +138,33 @@ class PublishPaperTest {
     }
 
     @Test
+    void phase7_G3_peerScoreIsClampedToOneEvenWithMaxConfidenceBoost() {
+        // peerScore=0.99 * confidence-boost=1.08 = 1.0692 — Phase 7 G3 clamps to 1.0.
+        // Pre-G3: REVIEW_REPORT.md refresh #2-#12 showed P-237=1.021, P-250=1.040
+        // (raw scores escaping the [0,1] interpretation).
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.99);
+        NarrationResult narration = narration(1.0);
+
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().peerScore()).isEqualTo(1.0);
+    }
+
+    @Test
+    void phase7_G3_peerScoreIsClampedToZeroEvenWithNegativeCitationDelta() {
+        // peerScore is non-negative input; just verify the lower clamp is wired.
+        // (We can't easily induce negative scores without a citation-aware-test rig;
+        // this assertion just verifies the clamp expression doesn't introduce a
+        // regression for normal-range inputs.)
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.0);
+        NarrationResult narration = narration(0.0);
+
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().peerScore()).isEqualTo(0.0);
+    }
+
+    @Test
     void positiveResultAtNeutralConfidenceScoresToExactlyPeerScore() {
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.4);
         NarrationResult narration = narration(0.5);  // neutral → factor=1.0

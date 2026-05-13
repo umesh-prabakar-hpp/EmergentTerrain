@@ -363,6 +363,13 @@ public class UniversityService {
             adjustedScore += citationAwareDelta(draft.roomId(), narration.citedPaperIds());
         }
 
+        // Phase 7 G3 — clamp to [0, 1] so peer-score keeps its conventional meaning.
+        // Refresh #2-#12 of REVIEW_REPORT.md showed P-237=1.021, P-250=1.040, plus a
+        // monotonic auto-inflation staircase under single-reviewer rooms — citation +
+        // confidence bonuses can push the raw score above 1.0 with no downstream
+        // subtractor. Clamping restores ranking-by-score as a meaningful signal.
+        adjustedScore = Math.max(0.0, Math.min(1.0, adjustedScore));
+
         // Phase 5 A2 — status reflects what actually happened in the narration pipeline.
         // NULL_RESULT stays NULL_RESULT regardless (it's the result classification,
         // independent of narration health). For positive results:
