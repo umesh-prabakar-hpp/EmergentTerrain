@@ -51,6 +51,46 @@ public final class PromptSanitizer {
             Pattern.compile("\\s*(?:the actual )?quality score of [\\d.]+[^.]*\\.",
                     Pattern.CASE_INSENSITIVE);
 
+    // Phase 7 G4 — additional patterns from REVIEW_REPORT.md refresh #2-#12.
+
+    /**
+     * "as observed from the starting position of 10 and scale of 7.7" — the P-237
+     * leak (rec #14). Same root cause as STARTING_AT_POSITION but a different
+     * phrasing the prior regex didn't catch.
+     */
+    private static final Pattern OBSERVED_FROM_POSITION_AND_SCALE =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:as observed from )?the starting position of \\d+ and scale of [\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /** "with a scale of 1.0" — the P-256 leak (rec #14). */
+    private static final Pattern WITH_A_SCALE_OF =
+            Pattern.compile(CONNECTOR_PREFIX + "with a scale of [\\d.]+", Pattern.CASE_INSENSITIVE);
+
+    /** "starting from parametric index 56" — the P-250 / P-288 leak (rec #14). */
+    private static final Pattern STARTING_FROM_PARAMETRIC_INDEX =
+            Pattern.compile(CONNECTOR_PREFIX + "starting from parametric index \\d+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Dummy citation placeholder: "(see P-xxxx-1)" — the P-300 leak (rec #33). The
+     * narrator emitted the prompt's literal placeholder string instead of a real
+     * citation. Strip the parenthetical entirely; a real citation would have come
+     * through the typed-citations side channel.
+     */
+    private static final Pattern DUMMY_CITATION_PLACEHOLDER =
+            Pattern.compile("\\s*\\(see P-x{2,4}-\\d+\\)", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Numerical formatting bug: "3.89×10^1" — the P-274 / P-287 leak (rec #26). The
+     * LLM emitted scientific notation where a plain decimal was intended, so
+     * "3.89×10^1" reads as 38.9 when it should be 3.89. Strip the spurious
+     * "×10^1" suffix to restore the intended value (capture group 1 is the
+     * decimal; the replacement keeps just that).
+     */
+    private static final Pattern SCIENTIFIC_NOTATION_FORMATTING_BUG =
+            Pattern.compile("(\\d+\\.\\d+)\\s*[×x]\\s*10\\^1\\b");
+
     /** Collapses any whitespace/punctuation debris left behind by removals. */
     private static final Pattern CLEANUP_DOUBLE_COMMA   = Pattern.compile("\\s*,\\s*,");
     private static final Pattern CLEANUP_DOUBLE_PERIOD  = Pattern.compile("\\.\\s*\\.");
@@ -67,9 +107,16 @@ public final class PromptSanitizer {
     public static String sanitize(String text) {
         if (text == null || text.isBlank()) return text;
         String cleaned = text;
+        // Phase 5 A4 patterns
         cleaned = STARTING_AT_POSITION.matcher(cleaned).replaceAll("");
         cleaned = USES_A_SCALE_OF.matcher(cleaned).replaceAll("");
         cleaned = QUALITY_SCORE_SENTENCE.matcher(cleaned).replaceAll("");
+        // Phase 7 G4 patterns
+        cleaned = OBSERVED_FROM_POSITION_AND_SCALE.matcher(cleaned).replaceAll("");
+        cleaned = WITH_A_SCALE_OF.matcher(cleaned).replaceAll("");
+        cleaned = STARTING_FROM_PARAMETRIC_INDEX.matcher(cleaned).replaceAll("");
+        cleaned = DUMMY_CITATION_PLACEHOLDER.matcher(cleaned).replaceAll("");
+        cleaned = SCIENTIFIC_NOTATION_FORMATTING_BUG.matcher(cleaned).replaceAll("$1");
         // Tidy up whatever stripping left behind.
         cleaned = CLEANUP_DOUBLE_COMMA.matcher(cleaned).replaceAll(",");
         cleaned = CLEANUP_DOUBLE_PERIOD.matcher(cleaned).replaceAll(".");
@@ -85,6 +132,11 @@ public final class PromptSanitizer {
         if (text == null || text.isBlank()) return false;
         return STARTING_AT_POSITION.matcher(text).find()
                 || USES_A_SCALE_OF.matcher(text).find()
-                || QUALITY_SCORE_SENTENCE.matcher(text).find();
+                || QUALITY_SCORE_SENTENCE.matcher(text).find()
+                || OBSERVED_FROM_POSITION_AND_SCALE.matcher(text).find()
+                || WITH_A_SCALE_OF.matcher(text).find()
+                || STARTING_FROM_PARAMETRIC_INDEX.matcher(text).find()
+                || DUMMY_CITATION_PLACEHOLDER.matcher(text).find()
+                || SCIENTIFIC_NOTATION_FORMATTING_BUG.matcher(text).find();
     }
 }
