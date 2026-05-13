@@ -55,3 +55,10 @@ app:
     populationFraction: 0.9
     maxPerRoom: 1000
     maxTickPerMaintenance: 500
+  # Integration tests share the production Groq org quota: when prod has already
+  # exhausted the daily TPD, the test's GroqPool init reports primaryFullyExhausted
+  # and the gate would close scheduledRoomMaintenance. Disable the gate in tests
+  # so room-maintenance scheduling stays independent of the org's LLM quota state.
+  tokens:
+    budget:
+      enabled: false
