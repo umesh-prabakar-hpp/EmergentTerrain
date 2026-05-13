@@ -38,6 +38,8 @@ class PublishPaperTest {
     private boolean numericalConsistencyEnabled = false;
     /** Phase 5 B2: tests that exercise the magnitude-range validator set this via {@link #enableMagnitudeRange()}. */
     private boolean magnitudeRangeEnabled = false;
+    /** Phase 5 B3: tests that exercise the content-hash deduplicator set this via {@link #enableDedup()}. */
+    private boolean dedupEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -106,6 +108,7 @@ class PublishPaperTest {
                 /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
+                /* dedupEnabled =               */ dedupEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -280,6 +283,73 @@ class PublishPaperTest {
                 "Conclusion is fine.", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 5 B3: content-hash dedup ----
+
+    @Test
+    void dedupOffLeavesNearByteIdenticalRerunAsPublished() {
+        // First paper publishes with a distinctive findings string.
+        String findings = "RLC circuit (L=0.0080 H, C=1.1e-06 F): f₀=5344.81 Hz, R_crit=31.3 Ω. Q-factor sweep.";
+        PaperDraft draft1 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft1, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of()));
+
+        // Second paper carries identical findings, no citation.
+        PaperDraft draft2 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft2, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of()));
+
+        var papers = service.getPublishedPapers(roomId, 10);
+        assertThat(papers).hasSize(2);
+        assertThat(papers.get(0).status()).isEqualTo("PUBLISHED");
+        assertThat(papers.get(1).status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void dedupOnDowngradesUncitedClone() {
+        enableDedup();
+        String findings = "RLC circuit (L=0.0080 H, C=1.1e-06 F): f₀=5344.81 Hz, R_crit=31.3 Ω. Q-factor sweep.";
+        PaperDraft draft1 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft1, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of()));
+
+        PaperDraft draft2 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft2, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of()));
+
+        var papers = service.getPublishedPapers(roomId, 10);
+        // First publication is the prior; second is the clone — only the second is downgraded.
+        // getPublishedPapers returns newest-first.
+        assertThat(papers).hasSize(2);
+        assertThat(papers.get(0).status()).isEqualTo("NEEDS_REVISION");
+        assertThat(papers.get(1).status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void dedupOnAllowsCitedClone() {
+        enableDedup();
+        String findings = "RLC circuit (L=0.0080 H, C=1.1e-06 F): f₀=5344.81 Hz, R_crit=31.3 Ω. Q-factor sweep.";
+        PaperDraft draft1 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft1, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of()));
+        String priorId = service.getPublishedPapers(roomId, 10).get(0).paperId();
+
+        // Second paper carries identical findings AND cites the prior — should pass.
+        PaperDraft draft2 = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        service.publishPaper(draft2, new NarrationResult(
+                "h", findings, "c", null, null, 0.8, List.of(priorId)));
+
+        var papers = service.getPublishedPapers(roomId, 10);
+        assertThat(papers).hasSize(2);
+        assertThat(papers.get(0).status()).isEqualTo("PUBLISHED");
+        assertThat(papers.get(1).status()).isEqualTo("PUBLISHED");
     }
 
     // ---- Phase 5 B2: magnitude-range validator ----
@@ -611,6 +681,12 @@ class PublishPaperTest {
     /** Phase 5 B2 — rebuilds the service with the magnitude-range-validator flag set. */
     private void enableMagnitudeRange() {
         magnitudeRangeEnabled = true;
+        setUp();
+    }
+
+    /** Phase 5 B3 — rebuilds the service with the dedup flag set. */
+    private void enableDedup() {
+        dedupEnabled = true;
         setUp();
     }
 

@@ -56,6 +56,7 @@ public class UniversityService {
     private final boolean harnessLeakFilterEnabled;
     private final boolean numericalConsistencyEnabled;
     private final boolean magnitudeRangeEnabled;
+    private final boolean dedupEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -146,6 +147,7 @@ public class UniversityService {
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
             @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
+            @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -171,6 +173,7 @@ public class UniversityService {
         this.harnessLeakFilterEnabled    = harnessLeakFilterEnabled;
         this.numericalConsistencyEnabled = numericalConsistencyEnabled;
         this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
+        this.dedupEnabled                = dedupEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -189,6 +192,10 @@ public class UniversityService {
             log.info("UniversityService: magnitude-range ENABLED — papers whose findings "
                     + "contain physically-unreasonable magnitudes for their (domain, topic) "
                     + "publish as NEEDS_REVISION.");
+        }
+        if (dedupEnabled) {
+            log.info("UniversityService: dedup ENABLED — papers whose fingerprint matches "
+                    + "a prior room paper they don't cite will publish as NEEDS_REVISION.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -355,6 +362,20 @@ public class UniversityService {
             log.warn("magnitude-range check failed paperId={} reasons={}",
                     draft.paperId(), magnitudeFailures);
         }
+        // Phase 5 B3 — flag near-byte-identical reruns. A clone that cites the
+        // prior is allowed (the cross-paper-citation behaviour the corpus needs);
+        // an uncited clone publishes as NEEDS_REVISION.
+        List<String> cloneIds = dedupEnabled
+                ? ContentHashDeduplicator.findClones(draft.domain(), draft.topicName(),
+                        findings, roomPapers(draft.roomId()))
+                : List.of();
+        List<String> cited = narration.citedPaperIds() != null ? narration.citedPaperIds() : List.of();
+        boolean uncitedClone = !cloneIds.isEmpty()
+                && cloneIds.stream().noneMatch(cited::contains);
+        if (uncitedClone) {
+            log.warn("dedup check failed paperId={} clones={} (none cited)",
+                    draft.paperId(), cloneIds);
+        }
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (truncated) {
@@ -362,6 +383,8 @@ public class UniversityService {
         } else if (numericallyInconsistent) {
             paperStatus = "NEEDS_REVISION";
         } else if (magnitudeOutOfRange) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (uncitedClone) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
