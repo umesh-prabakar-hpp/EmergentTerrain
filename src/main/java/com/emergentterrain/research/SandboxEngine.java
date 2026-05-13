@@ -30,7 +30,13 @@ public class SandboxEngine {
     static final Set<String> BUILTINS = Set.of(
             "isPrime", "isHappy", "collatzTerminates", "isAbundant", "isPerfect",
             "collatzSteps", "sigmaSum", "abs", "sqrt", "pow", "floor", "ceil",
-            "log", "log2", "min", "max", "gcd");
+            "log", "log2", "min", "max", "gcd",
+            // Phase 5 A3 — bounded, deterministic, side-effect-free trig + exp.
+            // The 4b review whitelist documented in MathToolSuite mirrors this list;
+            // 18 sandbox rejections in the May 2026 corpus came from the narrator
+            // reaching for these and being denied (composite-failure 12 GPa cluster,
+            // prime-gap pseudo-physics).
+            "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "exp");
 
     public record SandboxResult(double value, String summary) {}
 
@@ -389,6 +395,11 @@ public class SandboxEngine {
             env.put("end",    (double) end);
             env.put("param1", (double) param1);
             env.put("param2", param2);
+            // Phase 5 A3 — math constants as read-only env entries (the LLM cannot
+            // overwrite these inside sandboxed code because the script's `var` declarations
+            // shadow rather than mutate the seeded env slots).
+            env.put("PI", Math.PI);
+            env.put("E",  Math.E);
         }
 
         double exec(List<Stmt> stmts) {
@@ -486,6 +497,14 @@ public class SandboxEngine {
                 case "max"               -> a.length > 1 ? Math.max(a[0], a[1]) : a[0];
                 case "gcd"               -> gcd(a.length > 0 ? (long) a[0] : 0L,
                                                 a.length > 1 ? (long) a[1] : 0L);
+                case "sin"               -> Math.sin(a[0]);
+                case "cos"               -> Math.cos(a[0]);
+                case "tan"               -> Math.tan(a[0]);
+                case "asin"              -> Math.asin(a[0]);
+                case "acos"              -> Math.acos(a[0]);
+                case "atan"              -> Math.atan(a[0]);
+                case "atan2"             -> Math.atan2(a[0], a.length > 1 ? a[1] : 1.0);
+                case "exp"               -> Math.exp(a[0]);
                 default -> throw new RuntimeException("Unimplemented builtin: " + name);
             };
         }

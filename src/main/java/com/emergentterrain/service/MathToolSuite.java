@@ -271,7 +271,9 @@ public class MathToolSuite {
                 1. No file I/O, network calls, class instantiation, imports, or reflection.
                 2. No strings, arrays, or object manipulation — only numbers and arithmetic.
                 3. Only whitelisted functions: isPrime, isHappy, collatzTerminates, isAbundant,
-                   isPerfect, collatzSteps, sigmaSum, abs, sqrt, pow, floor, ceil, log, min, max, gcd.
+                   isPerfect, collatzSteps, sigmaSum, abs, sqrt, pow, floor, ceil, log, log2,
+                   min, max, gcd, sin, cos, tan, asin, acos, atan, atan2, exp.
+                   Math constants PI and E are also available as bare identifiers.
                 4. The code logically computes what the description claims.
                 5. No infinite loops (loops must have a finite upper bound from 'end').
 
