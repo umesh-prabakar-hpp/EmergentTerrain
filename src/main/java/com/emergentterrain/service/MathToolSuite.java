@@ -27,6 +27,22 @@ public class MathToolSuite {
 
     private static final Logger log = LoggerFactory.getLogger(MathToolSuite.class);
 
+    /**
+     * Phase 5 C3 — per-paper telemetry collected during professor tool execution
+     * so {@link com.emergentterrain.service.ResearchNarrationService} can surface
+     * the counts onto the persisted LLM Call Path.
+     *
+     * <p>Until this commit, sandbox rejections only emitted WARN log lines — a
+     * reviewer reading the published paper could not tell whether a Findings
+     * claim was computed or hand-waved. 18 sandbox rejections in the May 2026
+     * corpus run mapped 1:1 to vague Findings sections.
+     */
+    public static final class ToolMetrics {
+        private int sandboxRejectCount = 0;
+        public int sandboxRejectCount() { return sandboxRejectCount; }
+        void incrementSandboxRejects()  { sandboxRejectCount++; }
+    }
+
     private static final Set<String> VALID_PREDICATES = Set.of(
             "isPrime", "isHappy", "collatzTerminates", "isAbundant", "isPerfect");
     private static final Set<String> VALID_METRICS = Set.of(
@@ -128,6 +144,15 @@ public class MathToolSuite {
      * the paper's domain, topic, and original parameters.
      */
     public Function<String, String> buildExecutor(PaperDraft draft) {
+        return buildExecutor(draft, new ToolMetrics());
+    }
+
+    /**
+     * Phase 5 C3 — overload that lets the caller collect per-paper sandbox-reject
+     * counts. The metrics object is mutated as tool calls fire; the narration
+     * service reads it after the professor stage completes.
+     */
+    public Function<String, String> buildExecutor(PaperDraft draft, ToolMetrics metrics) {
         return toolCallJson -> {
             try {
                 JsonNode call = mapper.readTree(toolCallJson);
@@ -135,13 +160,17 @@ public class MathToolSuite {
                 JsonNode args = call.path("arguments");
                 // arguments may arrive as a string (Groq sometimes wraps it)
                 if (args.isTextual()) args = mapper.readTree(args.asText());
-                return switch (name) {
+                String result = switch (name) {
                     case "run_param_sweep"    -> runParamSweep(draft, args);
                     case "run_predicate_scan" -> runPredicateScan(args);
                     case "evaluate_symbolic"  -> evaluateSymbolic(args);
                     case "run_sandboxed_code" -> runSandboxedCode(draft, args);
                     default -> "Unknown tool: " + name;
                 };
+                if ("run_sandboxed_code".equals(name) && result.startsWith("REJECTED by safety review")) {
+                    metrics.incrementSandboxRejects();
+                }
+                return result;
             } catch (Exception e) {
                 log.warn("MathToolSuite: tool call failed: {}", e.getMessage());
                 return "Tool execution error: " + e.getMessage();

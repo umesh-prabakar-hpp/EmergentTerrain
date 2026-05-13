@@ -219,9 +219,17 @@ public class ResearchNarrationService {
             String systemPrompt = buildProfessorSystemPrompt(promptRegistry, auditSummary);
             String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass);
 
+            // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
+            // the persisted LLM Call Path. Reviewers can then tell whether a Findings
+            // claim was actually computed or hand-waved after the sandbox denied the
+            // narrator's code attempts.
+            MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
             String professorSynthesis = router.callPrimaryWithTools(
                     systemPrompt, userPrompt, toolsJson,
-                    toolSuite.buildExecutor(draft));
+                    toolSuite.buildExecutor(draft, metrics));
+            if (metrics.sandboxRejectCount() > 0) {
+                callPath.add("sandbox_reject=" + metrics.sandboxRejectCount());
+            }
 
             if (professorSynthesis == null || professorSynthesis.isBlank()) {
                 callPath.add("prof:" + abbrev(router.primaryModel()) + ":blank→suppressed");
