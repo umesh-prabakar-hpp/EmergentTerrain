@@ -127,6 +127,55 @@ public final class PromptSanitizer {
         return cleaned.trim();
     }
 
+    // Phase 7 G5 — boilerplate sentences emitted by the MathPhysicsEngine fallback
+    // path when no peer review actually ran. Per REVIEW_REPORT.md refresh #1-#12,
+    // ~75% of the corpus had critique:skip in the call path yet carried these
+    // three sentences claiming peer review. Suppressing this restores the
+    // rubric's "no-boilerplate" requirement on conclusions.
+    private static final Pattern BOILERPLATE_INDEPENDENTLY_REPRODUCED =
+            Pattern.compile(
+                    "\\s*Computed values were independently reproduced by peer reviewers\\.",
+                    Pattern.CASE_INSENSITIVE);
+    private static final Pattern BOILERPLATE_OBSERVATIONAL_BASELINE =
+            Pattern.compile(
+                    "\\s*These findings represent an observational baseline\\.",
+                    Pattern.CASE_INSENSITIVE);
+    private static final Pattern BOILERPLATE_FINITE_AND_REPRODUCED =
+            Pattern.compile(
+                    "\\s*The computed values are finite and reproduced under the search params declared above\\.",
+                    Pattern.CASE_INSENSITIVE);
+
+    private static final String CRITIQUE_SKIP_DISCLAIMER =
+            " [critique:skip — no peer review performed; this paper has not been validated].";
+
+    /**
+     * Phase 7 G5 — suppress the "independently reproduced by peer reviewers" boilerplate
+     * sentence when the call path indicates peer review actually was skipped. Returns
+     * {@code conclusion} unchanged if peer-review-skipped wasn't indicated; otherwise
+     * removes the boilerplate trio and appends an explicit disclaimer so readers know
+     * the paper was not validated.
+     *
+     * @param conclusion the conclusion prose, possibly already sanitised by {@link #sanitize}
+     * @param callPath   the call path string from {@code NarrationResult.callPath()}
+     * @return the conclusion with boilerplate removed iff peer-review was skipped
+     */
+    public static String suppressBoilerplateOnSkip(String conclusion, String callPath) {
+        if (conclusion == null || conclusion.isBlank()) return conclusion;
+        if (callPath == null || !callPath.contains("critique:skip")) return conclusion;
+        String cleaned = conclusion;
+        cleaned = BOILERPLATE_INDEPENDENTLY_REPRODUCED.matcher(cleaned).replaceAll("");
+        cleaned = BOILERPLATE_OBSERVATIONAL_BASELINE.matcher(cleaned).replaceAll("");
+        cleaned = BOILERPLATE_FINITE_AND_REPRODUCED.matcher(cleaned).replaceAll("");
+        cleaned = CLEANUP_DOUBLE_SPACE.matcher(cleaned).replaceAll(" ").trim();
+        // Append disclaimer once (don't double-stamp if the method is called twice).
+        if (!cleaned.contains("[critique:skip")) {
+            cleaned = cleaned.isEmpty()
+                    ? CRITIQUE_SKIP_DISCLAIMER.trim()
+                    : cleaned + CRITIQUE_SKIP_DISCLAIMER;
+        }
+        return cleaned;
+    }
+
     /** True iff {@link #sanitize} would change the input — useful for telemetry. */
     public static boolean detects(String text) {
         if (text == null || text.isBlank()) return false;

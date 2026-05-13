@@ -195,4 +195,70 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.detects("(see P-xxxx-1)")).isTrue();
         assertThat(PromptSanitizer.detects("3.89×10^1")).isTrue();
     }
+
+    // ---- Phase 7 G5 — boilerplate suppression on critique:skip ----
+
+    @Test
+    void phase7_G5_suppressesBoilerplateWhenCritiqueSkip() {
+        // Verbatim 3-sentence boilerplate observed in 17/19 corpus papers at refresh #1.
+        String input = "Computed values were independently reproduced by peer reviewers. "
+                + "These findings represent an observational baseline. "
+                + "The computed values are finite and reproduced under the search params declared above.";
+        String callPath = "fp:llama-3.3-70b-vers → critique:skip:incomplete_firstpass";
+
+        String output = PromptSanitizer.suppressBoilerplateOnSkip(input, callPath);
+
+        assertThat(output)
+                .doesNotContain("independently reproduced by peer reviewers")
+                .doesNotContain("observational baseline")
+                .doesNotContain("finite and reproduced under the search params")
+                .contains("[critique:skip");
+    }
+
+    @Test
+    void phase7_G5_leavesConclusionUnchangedWhenPeerReviewRan() {
+        String input = "Computed values were independently reproduced by peer reviewers. "
+                + "These findings represent an observational baseline.";
+        String callPath = "fp:llama-3.3-70b-vers → audit:4b:0gaps → rev:openai/gpt-oss-120b:ok";
+
+        // critique:skip absent — leave the conclusion alone (peer review actually ran).
+        assertThat(PromptSanitizer.suppressBoilerplateOnSkip(input, callPath)).isEqualTo(input);
+    }
+
+    @Test
+    void phase7_G5_preservesNonBoilerplateContent() {
+        String input = "The pre-registered hypothesis was confirmed. "
+                + "Computed values were independently reproduced by peer reviewers. "
+                + "An open question is how the bound shifts with temperature.";
+        String callPath = "fp:llama-3.3-70b-vers → critique:skip:incomplete_firstpass";
+
+        String output = PromptSanitizer.suppressBoilerplateOnSkip(input, callPath);
+
+        // Boilerplate sentence removed; surrounding sentences preserved verbatim.
+        assertThat(output)
+                .doesNotContain("independently reproduced")
+                .contains("The pre-registered hypothesis was confirmed.")
+                .contains("An open question is how the bound shifts with temperature.")
+                .contains("[critique:skip");
+    }
+
+    @Test
+    void phase7_G5_handlesNullAndBlankInputs() {
+        assertThat(PromptSanitizer.suppressBoilerplateOnSkip(null, "critique:skip")).isNull();
+        assertThat(PromptSanitizer.suppressBoilerplateOnSkip("", "critique:skip")).isEmpty();
+        assertThat(PromptSanitizer.suppressBoilerplateOnSkip("text", null)).isEqualTo("text");
+    }
+
+    @Test
+    void phase7_G5_doesNotDoubleStampDisclaimer() {
+        String input = "Computed values were independently reproduced by peer reviewers.";
+        String callPath = "critique:skip:incomplete_firstpass";
+
+        // Run twice — disclaimer should appear exactly once.
+        String once  = PromptSanitizer.suppressBoilerplateOnSkip(input, callPath);
+        String twice = PromptSanitizer.suppressBoilerplateOnSkip(once, callPath);
+
+        long count = twice.split("\\[critique:skip", -1).length - 1;
+        assertThat(count).isEqualTo(1);
+    }
 }

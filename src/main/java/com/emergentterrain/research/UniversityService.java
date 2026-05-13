@@ -342,6 +342,11 @@ public class UniversityService {
             hypothesis = PromptSanitizer.sanitize(hypothesis);
             findings   = PromptSanitizer.sanitize(findings);
             conclusion = PromptSanitizer.sanitize(conclusion);
+            // Phase 7 G5 — when the call path shows peer review was skipped, strip the
+            // "independently reproduced by peer reviewers" boilerplate from the
+            // conclusion and stamp an explicit disclaimer. Refresh #1-#12 of
+            // REVIEW_REPORT.md found this falsehood on ~75% of corpus papers.
+            conclusion = PromptSanitizer.suppressBoilerplateOnSkip(conclusion, narration.callPath());
         }
 
         // Null results get no confidence boost (fixed ×0.92); others range ×0.92–×1.08
