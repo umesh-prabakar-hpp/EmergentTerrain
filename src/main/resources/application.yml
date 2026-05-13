@@ -178,6 +178,34 @@ app:
       # Leave blank to auto-discover and rank all Groq models at startup.
       # Comma-separated list to pin specific models (e.g. "llama-3.3-70b-versatile,llama-3.1-70b-versatile")
       preferredModels: ""
+    # Phase 7 E1 — additional free-tier provider scaffolding. Flags stay `false` until each
+    # pool implementation ships; the keys are present so that flipping a flag is a one-line
+    # config change. See phases-for-human-like-performance/phase-7-multi-provider-and-math-expansion.md
+    # for the 2026-05-13 provider test results documenting which models work.
+    openrouter:
+      enabled: false
+      apiKey: ${OPENROUTER_API_KEY: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}
+      baseUrl: "https://openrouter.ai/api/v1"
+      siteReferer: "https://github.com/umesh-prabakar-hpp/EmergentTerrain"
+      siteTitle: "EmergentTerrain"
+      # Only OpenInference / NVIDIA backends are reliable on free tier; Venice is rate-capped.
+      excludedBackends: "Venice"
+      preferredModels: "openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free"
+    nvidia:
+      enabled: false
+      apiKey: ${NVIDIA_API_KEY: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}
+      baseUrl: "https://integrate.api.nvidia.com/v1"
+      # 5 confirmed working free 70B+ models with tools per 2026-05-13 tests.
+      # Excluded paid-tier-only models: nvidia/nemotron-4-340b-instruct, nvidia/llama-3.1-nemotron-70b-instruct
+      preferredModels: "meta/llama-3.3-70b-instruct,openai/gpt-oss-120b,nvidia/nemotron-3-super-120b-a12b,qwen/qwen3-next-80b-a3b-instruct,qwen/qwen3-coder-480b-a35b-instruct"
+    cerebras:
+      enabled: false
+      apiKey: ${CEREBRAS_API_KEY:csk-denhmj335dh2ete5vdcv5n96w9p92hdpvt42f9ynw6yynkpk}
+      baseUrl: "https://api.cerebras.ai/v1"
+      # Single confirmed model; WSE-3 hardware delivers 14ms tool-call inference — best fit
+      # for the runQualityAudit stage. Free tier is ~30 RPM per model.
+      preferredModels: "qwen-3-235b-a22b-instruct-2507"
+      role: "fast-audit"  # Phase 7 E1.4 — direct runQualityAudit at this pool first
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500
