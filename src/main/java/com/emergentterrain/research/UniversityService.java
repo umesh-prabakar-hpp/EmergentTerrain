@@ -475,8 +475,13 @@ public class UniversityService {
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
         // Phase 7 F2 — Map overload concatenates blocks before running the checks.
+        // Phase 7 F5.5 — when a tool-call trace exists, the trace-aware overload also
+        // runs Check C (unsourced salient numbers). Empty / null trace short-circuits
+        // Check C so flag-off / legacy / Ollama-fallback papers behave identically
+        // to the F5.4 baseline.
         List<String> consistencyFailures = numericalConsistencyEnabled
-                ? NumericalConsistencyValidator.validate(hypothesis, findingsBlocks, conclusion)
+                ? NumericalConsistencyValidator.validate(hypothesis, findingsBlocks, conclusion,
+                        narration.toolCallTrace())
                 : List.of();
         boolean numericallyInconsistent = !consistencyFailures.isEmpty();
         if (numericallyInconsistent) {

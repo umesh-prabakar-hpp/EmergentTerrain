@@ -116,4 +116,130 @@ class NumericalConsistencyValidatorTest {
         List<String> reasons = NumericalConsistencyValidator.validate(hypothesis, findings, conclusion);
         assertThat(reasons).isEmpty();
     }
+
+    // ---- Phase 7 F5.5: Check C — unsourced salient numbers vs tool-call trace ----
+
+    @Test
+    void f5_5_traceAwareOverloadFlagsSalientNumberNotInAnySource() {
+        // Findings cites "Q = 42.30" — a precise value not in the hypothesis, not
+        // in the conclusion, and not in any tool result. The new check fires.
+        String hypothesis = "Underdamped RLC resonance near 3500 Hz.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "The sweep reported Q = 42.30 at the resonance peak.");
+        String conclusion = "Q approaches its theoretical maximum.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{\"param1\":\"L\"}",
+                        "{\"peak_q\":18.75,\"argmax_L\":0.0021}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons)
+                .anyMatch(r -> r.contains("42.30") && r.contains("not within ±1%"));
+    }
+
+    @Test
+    void f5_5_traceAwareOverloadPassesWhenSalientNumberMatchesToolResult() {
+        // Same as above but the trace contains 42.30 — the Findings number is
+        // legitimately sourced, no flag.
+        String hypothesis = "Underdamped RLC resonance near 3500 Hz.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "The sweep reported Q = 42.30 at the resonance peak.");
+        String conclusion = "Q approaches its theoretical maximum.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{\"param1\":\"L\"}",
+                        "{\"peak_q\":42.30,\"argmax_L\":0.0021}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("42.30"));
+    }
+
+    @Test
+    void f5_5_traceAwareOverloadPassesWithinOnePercentTolerance() {
+        // Findings cites 1229; trace returned 1230. Within ±1% — pass.
+        String hypothesis = "Prime density expected near 10000.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "The predicate scan found density = 0.1229 over the range.");
+        String conclusion = "Density consistent with prediction.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{\"n_max\":10000}",
+                        "{\"hits\":1230,\"density\":0.1230}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("0.1229"));
+    }
+
+    @Test
+    void f5_5_traceAwareOverloadIgnoresPlainIntegersAsNonSalient() {
+        // "2 of 3 reviewers" / "first 5 iterations" must not fire even though those
+        // integers aren't anywhere in the trace. Plain integers are not "salient".
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "Across 5 trials and 10 sweeps the result held.");
+        String conclusion = "Conclusion text.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{\"peak_q\":42.30}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void f5_5_traceAwareOverloadAllowsScientificNotation() {
+        // 1.23e-3 in findings, 1.23e-3 in trace — pass.
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "Inductance settled at L = 1.23e-3 H.");
+        String conclusion = "Below textbook threshold.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{\"param1\":\"L\"}",
+                        "{\"argmax_L\":1.23e-3,\"peak_q\":18.75}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("1.23"));
+    }
+
+    @Test
+    void f5_5_nullOrEmptyTraceShortCircuitsCheckC() {
+        // No trace → Check C is skipped. Other checks still run, but if hypothesis /
+        // conclusion are clean, the result is empty.
+        String hypothesis = "Resonance near 3500 Hz.";
+        java.util.Map<Integer, String> findings =
+                java.util.Map.of(1, "Observed peak at Q = 42.30 — unsourced if Check C ran.");
+        String conclusion = "Consistent with theory.";
+
+        assertThat(NumericalConsistencyValidator.validate(hypothesis, findings, conclusion, null))
+                .noneMatch(r -> r.contains("42.30"));
+        assertThat(NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, java.util.List.of()))
+                .noneMatch(r -> r.contains("42.30"));
+    }
+
+    @Test
+    void f5_5_traceAwareOverloadFlagsMultipleUnsourcedNumbers() {
+        // Two unsourced values appear — both should be flagged. Hypothesis range
+        // and trace result are deliberately kept far enough apart from the two
+        // findings values that neither falls inside the ±1% match band.
+        String hypothesis = "Resonance near 100.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Q = 42.30 and peak frequency f₀ = 3789.42 Hz (neither in the trace).");
+        String conclusion = "Consistent with prediction.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{\"peak_q\":18.75}", 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons)
+                .anyMatch(r -> r.contains("42.30"))
+                .anyMatch(r -> r.contains("3789.42"));
+    }
 }

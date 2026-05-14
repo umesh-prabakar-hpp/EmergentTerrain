@@ -69,6 +69,22 @@ public final class NumericalConsistencyValidator {
     private static final Pattern NUMERIC_TOKEN = Pattern.compile("\\b([0-9]+(?:\\.[0-9]+)?)");
 
     /**
+     * Phase 7 F5.5 — a "salient" number is one with a decimal point and ≥2 digits
+     * after, OR any value in scientific notation. Plain integers and one-digit
+     * decimals are excluded so the check doesn't fire on prose like "2 of 3
+     * reviewers", "approximately 100", or "the first 5 iterations". Matches:
+     * 3.14, 42.30, 1.2e-3, 2.998e8, 1E10, 1.0e+9. Skips: 1, 100, 1.5.
+     */
+    private static final Pattern SALIENT_NUMBER = Pattern.compile(
+            "\\b("
+                    + "[0-9]+\\.[0-9]{2,}(?:[eE][+-]?[0-9]+)?"  // 3.14 / 42.30 / 1.20e-3
+                    + "|[0-9]+(?:\\.[0-9]+)?[eE][+-]?[0-9]+"     // 1e-3 / 2.998e8 / 1E10
+                    + ")\\b");
+
+    /** Tolerance for Check C numeric matching (1%). */
+    private static final double F5_5_RELATIVE_TOLERANCE = 0.01;
+
+    /**
      * Validates the three checks above. Returns a list of textual reasons for
      * downstream telemetry (one entry per inconsistency).
      */
@@ -95,6 +111,39 @@ public final class NumericalConsistencyValidator {
                                          java.util.Map<Integer, String> findingsMap,
                                          String conclusion) {
         return validate(hypothesis, MagnitudeRangeValidator.joinBlocks(findingsMap), conclusion);
+    }
+
+    /**
+     * Phase 7 F5.5 — trace-aware overload. Runs the F2 String/Map checks AND a new
+     * Check C that catches "salient" numbers in the Findings prose that don't trace
+     * to any source the LLM could legitimately have drawn from:
+     * <ul>
+     *   <li>numbers in the Hypothesis (the bot's pre-registered range / anchor),</li>
+     *   <li>numbers in the Conclusion (so the LLM may propagate its own claim,
+     *       though this is a small loosening),</li>
+     *   <li>numbers in any {@code resultJson} of the agentic professor's tool calls
+     *       (Tier 2 trace persisted from F5.3 / F5.4).</li>
+     * </ul>
+     * A "salient" number is one with a decimal point and at least two digits after
+     * the point, or any value in scientific notation. Plain integers and one-digit
+     * decimals are excluded because they're typically counts / indices / round
+     * references rather than computed quantities. Tolerance ±1% to allow
+     * round-trip formatting drift (1229 in JSON vs "1230" in prose).
+     *
+     * <p>Empty / null trace short-circuits: Check C only fires when the paper has
+     * a non-empty tool-call trace, since for trace-less papers (JSON-path,
+     * Ollama-fallback, legacy rows) the seed engine numbers are the prose's only
+     * source and we have no visibility on those here.
+     */
+    public static List<String> validate(String hypothesis,
+                                         java.util.Map<Integer, String> findingsMap,
+                                         String conclusion,
+                                         java.util.List<com.emergentterrain.llm.ToolInvocation> toolCallTrace) {
+        List<String> reasons = validate(hypothesis, findingsMap, conclusion);
+        if (toolCallTrace == null || toolCallTrace.isEmpty()) return reasons;
+        String findings = MagnitudeRangeValidator.joinBlocks(findingsMap);
+        findUnsourcedFindingsNumbers(hypothesis, findings, conclusion, toolCallTrace, reasons);
+        return reasons;
     }
 
     /**
@@ -161,6 +210,65 @@ public final class NumericalConsistencyValidator {
                         coord, formatList(hypAnchors)));
             }
         }
+    }
+
+    /**
+     * Phase 7 F5.5 — for every salient number in the findings prose, verify that
+     * at least one source (hypothesis, conclusion, or any tool-call result)
+     * contains a number within ±1% of it. Otherwise flag as an "unsourced numeric
+     * claim" — the LLM appears to have introduced a precise value that no
+     * deterministic computation backed.
+     */
+    private static void findUnsourcedFindingsNumbers(
+            String hypothesis, String findings, String conclusion,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (findings == null || findings.isBlank()) return;
+        List<Double> permitted = new ArrayList<>();
+        collectAllNumbers(hypothesis, permitted);
+        collectAllNumbers(conclusion, permitted);
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv != null && inv.resultJson() != null) {
+                collectAllNumbers(inv.resultJson(), permitted);
+            }
+        }
+        if (permitted.isEmpty()) return;
+
+        Matcher m = SALIENT_NUMBER.matcher(findings);
+        while (m.find()) {
+            double n;
+            try { n = Double.parseDouble(m.group(1)); }
+            catch (NumberFormatException ex) { continue; }
+            if (!isPermittedNumber(n, permitted)) {
+                reasons.add(String.format(
+                        "Findings cites salient value '%s' that is not within ±1%% of any number in "
+                                + "the hypothesis, conclusion, or tool-call trace results.",
+                        m.group(1)));
+            }
+        }
+    }
+
+    private static void collectAllNumbers(String text, List<Double> sink) {
+        if (text == null) return;
+        // Use a broader regex than NUMERIC_TOKEN — also picks up scientific notation
+        // in JSON / prose so the "permitted" set matches whatever the LLM might cite.
+        Matcher m = Pattern.compile(
+                "[+-]?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?").matcher(text);
+        while (m.find()) {
+            try { sink.add(Double.parseDouble(m.group())); }
+            catch (NumberFormatException ignored) {}
+        }
+    }
+
+    private static boolean isPermittedNumber(double value, List<Double> permitted) {
+        for (double p : permitted) {
+            if (p == 0.0) {
+                if (value == 0.0) return true;
+                continue;
+            }
+            if (Math.abs(value - p) / Math.abs(p) <= F5_5_RELATIVE_TOLERANCE) return true;
+        }
+        return false;
     }
 
     private static String formatList(List<Double> values) {
