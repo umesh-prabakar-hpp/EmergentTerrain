@@ -185,6 +185,7 @@ class OpenRouterPoolParseTest {
                 2000, 1500, 2,
                 "openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free",
                 excludedBackends,
+                /* selectionTestsEnabled */ false,
                 mapper);
     }
 }

@@ -96,6 +96,7 @@ public class OpenRouterPool implements LlmPool {
             @Value("${app.ai.openrouter.parallelism:2}") int parallelism,
             @Value("${app.ai.openrouter.preferredModels:}") String preferredModels,
             @Value("${app.ai.openrouter.excludedBackends:}") String excludedBackends,
+            @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -118,7 +119,7 @@ public class OpenRouterPool implements LlmPool {
         this.slots          = new Semaphore(parallelism);
         this.http           = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
 
-        this.activeModels = Arrays.stream(preferredModels.split(","))
+        List<String> candidates = Arrays.stream(preferredModels.split(","))
                 .map(String::trim).filter(s -> !s.isBlank()).toList();
         this.excludedBackends = excludedBackends == null || excludedBackends.isBlank()
                 ? Set.of()
@@ -126,8 +127,19 @@ public class OpenRouterPool implements LlmPool {
                         .map(String::trim).filter(s -> !s.isBlank())
                         .collect(Collectors.toUnmodifiableSet());
 
-        log.info("OpenRouterPool: models={} parallelism={} excludedBackends={}",
-                activeModels, parallelism, excludedBackends);
+        // Phase 9 U5b — universal selection tests. Disabled in unit tests via
+        // constructor flag.
+        this.activeModels = selectionTestsEnabled
+                ? ModelSelectionTester.filterPassing(
+                        PROVIDER_ID, candidates,
+                        (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
+                        mid -> (sys, user, toolsJson, exec) ->
+                                runToolLoop(mid, sys, user, toolsJson, exec))
+                : candidates;
+
+        log.info("OpenRouterPool: models={} parallelism={} excludedBackends={} selection-tests={}",
+                activeModels, parallelism, this.excludedBackends,
+                selectionTestsEnabled ? "on" : "off");
     }
 
     // --- LlmPool ---

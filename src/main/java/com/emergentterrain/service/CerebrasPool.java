@@ -85,6 +85,7 @@ public class CerebrasPool implements LlmPool {
             @Value("${app.ai.cerebras.parallelism:2}") int parallelism,
             @Value("${app.ai.cerebras.preferredModels:}") String preferredModels,
             @Value("${app.ai.cerebras.role:fast-audit}") String role,
+            @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -105,11 +106,22 @@ public class CerebrasPool implements LlmPool {
         this.slots          = new Semaphore(parallelism);
         this.http           = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
 
-        this.activeModels = Arrays.stream(preferredModels.split(","))
+        List<String> candidates = Arrays.stream(preferredModels.split(","))
                 .map(String::trim).filter(s -> !s.isBlank()).toList();
 
-        log.info("CerebrasPool: models={} parallelism={} role={}",
-                activeModels, parallelism, this.role.isEmpty() ? "(none)" : this.role);
+        // Phase 9 U5b — universal selection tests. Disabled in unit tests via
+        // constructor flag.
+        this.activeModels = selectionTestsEnabled
+                ? ModelSelectionTester.filterPassing(
+                        PROVIDER_ID, candidates,
+                        (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
+                        mid -> (sys, user, toolsJson, exec) ->
+                                runToolLoop(mid, sys, user, toolsJson, exec))
+                : candidates;
+
+        log.info("CerebrasPool: models={} parallelism={} role={} selection-tests={}",
+                activeModels, parallelism, this.role.isEmpty() ? "(none)" : this.role,
+                selectionTestsEnabled ? "on" : "off");
     }
 
     // --- LlmPool ---

@@ -212,6 +212,18 @@ app:
     # To opt in after the soak: tool-calling.providers: "groq,nvidia,openrouter,cerebras"
     tool-calling:
       providers: "groq"
+    # Phase 9 U5 — startup selection tests for every configured model on every
+    # pool (primary + fast). Three probes per tool-capable model: chat ("reply
+    # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,
+    # good=true"), tool-call (one-arg get_value(key=pi) probe). Two probes for
+    # non-tool pools (Ollama). Models that fail any probe drop from activeModels
+    # at startup with a WARN log line; passes log INFO with per-probe latency.
+    #
+    # No timeout drops per operator direction 2026-05-15 — slow models pass if
+    # they eventually return a valid response. Failures look like HTTP error,
+    # non-JSON response, missing fields, or wrong tool-call shape.
+    selection-tests:
+      enabled: true
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500

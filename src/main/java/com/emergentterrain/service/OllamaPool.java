@@ -102,16 +102,17 @@ public class OllamaPool implements LlmPool {
             @Value("${app.ai.ollama.temperature:${spring.ai.ollama.chat.options.temperature:0.7}}")
             double temperature,
             @Value("${app.ai.ollama.maxTokens:${spring.ai.ollama.chat.options.num-predict:200}}")
-            int maxTokens) {
+            int maxTokens,
+            @Value("${app.ai.selection-tests.enabled:true}")
+            boolean selectionTestsEnabled) {
         this.environment = environment;
 
-        List<String> models = Arrays.stream(preferredModelsCsv.split(","))
+        List<String> candidates = Arrays.stream(preferredModelsCsv.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toList();
-        if (models.isEmpty()) {
+        if (candidates.isEmpty()) {
             throw new IllegalStateException(
                     "OllamaPool: no models configured — set app.ai.ollama.preferredModels");
         }
-        this.modelIds = List.copyOf(models);
 
         List<String> hosts = Arrays.stream(backendHostsCsv.split(","))
                 .map(String::trim).filter(s -> !s.isEmpty()).toList();
@@ -120,12 +121,14 @@ public class OllamaPool implements LlmPool {
                     "OllamaPool: no backend URLs configured — set app.ai.ollama.backendHosts");
         }
 
-        // Build N hosts × M models Backend instances. Each Backend pins a
-        // (host, model) tuple — its ChatClient is configured with that single
-        // model so the round-robin pick fully determines which model serves.
-        Map<String, List<Backend>> byModel = new LinkedHashMap<>();
-        Map<String, AtomicInteger> cursors = new LinkedHashMap<>();
-        for (String modelId : modelIds) {
+        // Build N hosts × M models Backend instances for every candidate. Each
+        // Backend pins a (host, model) tuple — its ChatClient is configured with
+        // that single model so the round-robin pick fully determines which model
+        // serves. Models that fail Phase 9 U5b selection tests are dropped from
+        // the final maps below, leaving their Backend instances unused.
+        Map<String, List<Backend>> candidateByModel = new LinkedHashMap<>();
+        Map<String, AtomicInteger> candidateCursors = new LinkedHashMap<>();
+        for (String modelId : candidates) {
             List<Backend> built = new ArrayList<>();
             for (String host : hosts) {
                 String url = "http://" + host + ":" + port;
@@ -145,11 +148,71 @@ public class OllamaPool implements LlmPool {
                 log.info("OllamaPool: registered backend url={} model={} parallelism={}",
                         url, modelId, parallelism);
             }
-            byModel.put(modelId, List.copyOf(built));
-            cursors.put(modelId, new AtomicInteger(0));
+            candidateByModel.put(modelId, List.copyOf(built));
+            candidateCursors.put(modelId, new AtomicInteger(0));
         }
-        this.backendsByModel = Collections.unmodifiableMap(byModel);
-        this.cursorsByModel  = Collections.unmodifiableMap(cursors);
+
+        // Phase 9 U5b — run chat + JSON probes against each candidate. Ollama
+        // doesn't support tools so the toolDispatch is null; the tester skips
+        // the tool probe accordingly.
+        List<String> passing;
+        if (selectionTestsEnabled) {
+            passing = ModelSelectionTester.filterPassing(
+                    "ollama", candidates,
+                    (mid, prompt) -> probeOllamaModel(
+                            candidateByModel.get(mid), candidateCursors.get(mid), prompt),
+                    null);
+            if (passing.isEmpty()) {
+                // Every model failed — most likely Ollama isn't running. Keep
+                // unverified candidates so the pool doesn't become unusable; the
+                // health-probe scheduler will retry connectivity on its own
+                // cadence. Operator sees the WARN and can investigate.
+                log.warn("OllamaPool: selection tests failed for all candidates {} — "
+                                + "keeping unverified models in activeModels. "
+                                + "Investigate: is Ollama running on {} ? are the models "
+                                + "pulled (`ollama list`)?",
+                        candidates, hosts);
+                passing = candidates;
+            }
+        } else {
+            passing = candidates;
+        }
+
+        // Final maps drop entries for failed models so isModelBlocked + acquire
+        // return correct values for them (model unknown → "blocked").
+        Map<String, List<Backend>> finalByModel = new LinkedHashMap<>();
+        Map<String, AtomicInteger> finalCursors = new LinkedHashMap<>();
+        for (String mid : passing) {
+            finalByModel.put(mid, candidateByModel.get(mid));
+            finalCursors.put(mid, candidateCursors.get(mid));
+        }
+        this.modelIds        = List.copyOf(passing);
+        this.backendsByModel = Collections.unmodifiableMap(finalByModel);
+        this.cursorsByModel  = Collections.unmodifiableMap(finalCursors);
+
+        log.info("OllamaPool: models={} parallelism={} selection-tests={}",
+                modelIds, parallelism, selectionTestsEnabled ? "on" : "off");
+    }
+
+    /**
+     * Phase 9 U5b — single-shot sync call for selection probes. Mirrors the
+     * acquire-and-call pattern of the production path but takes the (backends,
+     * cursor) tuple explicitly so it can run against candidate maps before the
+     * final {@link #backendsByModel} field is assigned.
+     */
+    private String probeOllamaModel(List<Backend> backends, AtomicInteger cursor,
+                                      String prompt) {
+        Backend b = acquireFrom(backends, cursor);
+        try {
+            String result = b.client().prompt().user(prompt).call().content();
+            b.consecutiveFailures().set(0);
+            return result;
+        } catch (RuntimeException e) {
+            recordFailure(b);
+            throw e;
+        } finally {
+            b.slots().release();
+        }
     }
 
     /**
@@ -261,7 +324,14 @@ public class OllamaPool implements LlmPool {
         if (list == null || list.isEmpty()) {
             throw new IllegalArgumentException("OllamaPool: unknown model=" + modelId);
         }
-        AtomicInteger cursor = cursorsByModel.get(modelId);
+        return acquireFrom(list, cursorsByModel.get(modelId));
+    }
+
+    /**
+     * Phase 9 U5b — acquire factored out so selection-test probes can use it
+     * against candidate maps before {@link #backendsByModel} is finalised.
+     */
+    private static Backend acquireFrom(List<Backend> list, AtomicInteger cursor) {
         int n     = list.size();
         int start = Math.abs(cursor.getAndIncrement() % n);
 

@@ -90,6 +90,7 @@ public class NvidiaPool implements LlmPool {
             @Value("${app.ai.nvidia.toolMaxTokens:1500}") int toolMaxTokens,
             @Value("${app.ai.nvidia.parallelism:3}") int parallelism,
             @Value("${app.ai.nvidia.preferredModels:}") String preferredModels,
+            @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -111,11 +112,24 @@ public class NvidiaPool implements LlmPool {
         this.slots          = new Semaphore(parallelism);
         this.http           = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
 
-        this.activeModels = Arrays.stream(preferredModels.split(","))
+        List<String> candidates = Arrays.stream(preferredModels.split(","))
                 .map(String::trim).filter(s -> !s.isBlank())
                 .collect(Collectors.toUnmodifiableList());
 
-        log.info("NvidiaPool: models={} parallelism={}", activeModels, parallelism);
+        // Phase 9 U5b — run the universal selection tests against each candidate
+        // model. Models that fail chat + JSON + tool-call probes drop before
+        // joining activeModels. Disabled in unit tests via the constructor flag
+        // so test pools don't try to hit the real NVIDIA API.
+        this.activeModels = selectionTestsEnabled
+                ? ModelSelectionTester.filterPassing(
+                        PROVIDER_ID, candidates,
+                        (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
+                        mid -> (sys, user, toolsJson, exec) ->
+                                runToolLoop(mid, sys, user, toolsJson, exec))
+                : candidates;
+
+        log.info("NvidiaPool: models={} parallelism={} selection-tests={}",
+                activeModels, parallelism, selectionTestsEnabled ? "on" : "off");
     }
 
     // --- LlmPool ---

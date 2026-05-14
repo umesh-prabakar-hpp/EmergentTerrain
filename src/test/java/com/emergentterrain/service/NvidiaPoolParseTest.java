@@ -163,6 +163,7 @@ class NvidiaPoolParseTest {
                 "https://integrate.api.nvidia.com/v1",
                 2000, 1500, 3,
                 "meta/llama-3.3-70b-instruct,openai/gpt-oss-120b,nvidia/nemotron-3-super-120b-a12b",
+                /* selectionTestsEnabled */ false,
                 mapper);
     }
 }

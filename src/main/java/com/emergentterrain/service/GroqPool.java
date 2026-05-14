@@ -115,6 +115,7 @@ public class GroqPool implements LlmPool {
             @Value("${app.ai.groq.preferredModels:}") String preferredModels,
             @Value("${app.ai.ollamaJudgeUrl:http://localhost:11434}") String ollamaJudgeUrl,
             @Value("${app.ai.ollamaJudgeModel:gemma3:4b}") String ollamaJudgeModel,
+            @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -132,14 +133,31 @@ public class GroqPool implements LlmPool {
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
 
+        List<String> candidates;
         if (preferredModels != null && !preferredModels.isBlank()) {
-            this.activeModels = List.of(preferredModels.split(","))
+            candidates = List.of(preferredModels.split(","))
                     .stream().map(String::trim).filter(s -> !s.isBlank()).toList();
-            log.info("GroqPool: using configured models={} parallelism={}", activeModels, parallelism);
+            log.info("GroqPool: using configured models={} parallelism={}", candidates, parallelism);
         } else {
-            this.activeModels = discoverAndRankModels(primaryModelCount);
-            log.info("GroqPool: selected models={} parallelism={}", activeModels, parallelism);
+            candidates = discoverAndRankModels(primaryModelCount);
+            log.info("GroqPool: selected models={} parallelism={}", candidates, parallelism);
         }
+
+        // Phase 9 U5b — universal selection tests. discoverAndRankModels already
+        // does a Groq-specific ranking probe, but the U5 contract is broader
+        // (chat + JSON + tool with the canonical prompts) and applies to every
+        // pool; running it here surfaces any model that ranks high on Groq's
+        // own ranking but fails the standardised probes.
+        this.activeModels = selectionTestsEnabled
+                ? ModelSelectionTester.filterPassing(
+                        PROVIDER_ID, candidates,
+                        (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
+                        mid -> (sys, user, toolsJson, exec) ->
+                                runToolLoop(mid, sys, user, toolsJson, exec))
+                : candidates;
+
+        log.info("GroqPool: activeModels={} selection-tests={}",
+                activeModels, selectionTestsEnabled ? "on" : "off");
     }
 
     // --- LlmPool ---
