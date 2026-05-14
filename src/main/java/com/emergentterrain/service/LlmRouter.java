@@ -81,9 +81,17 @@ public class LlmRouter {
      * across providers transparently.
      */
     final PrimaryModelRegistry primaryRegistry;
+    /**
+     * Phase 9 U6 — fast-tier registry. Aggregates every non-tool-capable pool
+     * (Ollama today) into a single flat list. {@link #callFast},
+     * {@link #streamFast}, {@link #fastModel}, and {@link #hasFastPool} all
+     * route through it.
+     */
+    final FastModelRegistry fastRegistry;
 
     public LlmRouter(ApplicationContext ctx,
                      PrimaryModelRegistry primaryRegistry,
+                     FastModelRegistry fastRegistry,
                      @org.springframework.beans.factory.annotation.Value(
                              "${app.ai.primaryProviderOrder:" + DEFAULT_PRIMARY_ORDER + "}")
                      String primaryOrder,
@@ -94,6 +102,7 @@ public class LlmRouter {
                              "${app.ai.tool-calling.providers:" + DEFAULT_TOOL_PROVIDERS + "}")
                      String toolProvidersCsv) {
         this.primaryRegistry = primaryRegistry;
+        this.fastRegistry    = fastRegistry;
         this.primaryProviderOrder = Arrays.stream(primaryOrder.split(","))
                 .map(String::trim).filter(s -> !s.isBlank()).toList();
         Map<String, LlmPool> beans = ctx.getBeansOfType(LlmPool.class);
@@ -152,14 +161,16 @@ public class LlmRouter {
         }
         this.toolProviders = Collections.unmodifiableSet(tp);
 
-        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={} toolProviders={} registryHandles={}",
+        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={} toolProviders={} "
+                        + "primaryHandles={} fastHandles={}",
                 primaryChain.stream().map(LlmPool::providerKey).toList(),
                 fastPool.providerKey(), fastPool.selectedModel(),
                 poolsByRole.entrySet().stream()
                         .map(e -> e.getKey() + "→" + e.getValue().providerKey())
                         .toList(),
                 toolProviders.isEmpty() ? "* (all)" : toolProviders,
-                primaryRegistry.totalModelCount());
+                primaryRegistry.totalModelCount(),
+                fastRegistry.totalModelCount());
     }
 
     /**
@@ -270,8 +281,15 @@ public class LlmRouter {
         primaryChain.get(0).callStream(prompt, tokenConsumer);
     }
 
-    /** Synchronous call routed to the fast (local) pool. */
+    /**
+     * Phase 9 U6 — synchronous call routed via {@link FastModelRegistry}.
+     * Falls back to the legacy {@link #fastPool} when no fast model is
+     * registered (e.g. tests built without an Ollama-style pool).
+     */
     public String callFast(String prompt) {
+        if (fastRegistry.totalModelCount() > 0) {
+            return fastRegistry.callSync(prompt);
+        }
         return fastPool.callSync(prompt);
     }
 
@@ -300,8 +318,15 @@ public class LlmRouter {
         return p != null && !p.allBlocked();
     }
 
-    /** Streaming call routed to the fast pool. */
+    /**
+     * Phase 9 U6 — streaming call routed via {@link FastModelRegistry}.
+     * Falls back to {@link #fastPool} when no fast model is registered.
+     */
     public void streamFast(String prompt, Consumer<String> tokenConsumer) {
+        if (fastRegistry.totalModelCount() > 0) {
+            fastRegistry.callStream(prompt, tokenConsumer);
+            return;
+        }
         fastPool.callStream(prompt, tokenConsumer);
     }
 
@@ -319,7 +344,14 @@ public class LlmRouter {
         }
         return nextHealthyPrimary().selectedModel();
     }
-    public String fastModel()       { return fastPool.selectedModel(); }
+    public String fastModel() {
+        if (fastRegistry.totalModelCount() > 0) {
+            List<ModelHandle> available = fastRegistry.availableModels();
+            if (!available.isEmpty()) return available.get(0).modelId();
+            return fastRegistry.allModels().get(0).modelId();
+        }
+        return fastPool.selectedModel();
+    }
     public int    primaryPoolSize() { return Math.max(1, primaryRegistry.totalModelCount()); }
 
     /** Provider-key chain (e.g. ["groq", "nvidia", "openrouter", "cerebras"]). */
@@ -355,11 +387,18 @@ public class LlmRouter {
     }
 
     /**
-     * Phase 7 E3 — true when the fast (Ollama) pool is wired and currently usable.
-     * Gate for routing to the {@code rev:ollama:ok} fallback when both the tools
-     * and JSON-path branches are unavailable.
+     * Phase 7 E3 — true when a fast-tier model is wired and currently usable.
+     * Gate for routing to the {@code rev:ollama:ok} fallback when both the
+     * tools and JSON-path branches are unavailable.
+     *
+     * <p>Phase 9 U6 — derives from {@link FastModelRegistry#availableModels()}
+     * when the registry has any handle; otherwise falls back to the legacy
+     * {@link #fastPool} health check.
      */
     public boolean hasFastPool() {
+        if (fastRegistry.totalModelCount() > 0) {
+            return !fastRegistry.availableModels().isEmpty();
+        }
         return fastPool != null && !fastPool.allBlocked();
     }
 

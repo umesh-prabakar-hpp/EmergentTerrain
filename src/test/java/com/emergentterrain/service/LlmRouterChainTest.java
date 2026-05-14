@@ -418,9 +418,11 @@ class LlmRouterChainTest {
             bf.registerBeanDefinition(p.providerKey() + "Pool", def);
         }
         ctx.refresh();
-        // Phase 9 U3b — registry is constructed alongside the router; it
-        // collects every supportsTools pool the test context registered.
-        PrimaryModelRegistry registry = new PrimaryModelRegistry(ctx);
-        return new LlmRouter(ctx, registry, primaryOrder, fastProvider, toolProviders);
+        // Phase 9 U3b + U6 — both registries are constructed alongside the
+        // router. PrimaryModelRegistry aggregates supportsTools pools;
+        // FastModelRegistry aggregates the rest.
+        PrimaryModelRegistry primary = new PrimaryModelRegistry(ctx);
+        FastModelRegistry    fast    = new FastModelRegistry(ctx);
+        return new LlmRouter(ctx, primary, fast, primaryOrder, fastProvider, toolProviders);
     }
 }
