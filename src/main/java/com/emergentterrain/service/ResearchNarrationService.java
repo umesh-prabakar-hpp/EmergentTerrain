@@ -253,12 +253,52 @@ public class ResearchNarrationService {
     private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass,
                                                     List<String> callPath) {
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
-            callPath.add("critique:skip:incomplete_firstpass");
-            return firstPass;
+            // G1 — fill null h/f/c fields from the draft's template fallbacks
+            // (designed as the "LLM-failure" fallback per PaperDraft javadoc)
+            // and proceed to critique rather than skipping. Falls through to
+            // the original skip if even the templates can't close the gaps.
+            NarrationResult merged = fillFromTemplates(draft, firstPass);
+            if (merged == null) {
+                callPath.add("critique:skip:incomplete_firstpass");
+                return firstPass;
+            }
+            int filled = (firstPass.hypothesis() == null ? 1 : 0)
+                       + (firstPass.findings()   == null ? 1 : 0)
+                       + (firstPass.conclusion() == null ? 1 : 0);
+            callPath.add("critique:partial:" + filled + "_filled");
+            log.info("LLM partial-revision merge: filled {} null field(s) from PaperDraft templates paperId={}",
+                    filled, draft.paperId());
+            firstPass = merged;
         }
         return router.supportsProfessorTools()
                 ? maybeCritiqueAndReviseWithTools(draft, firstPass, callPath)
                 : maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
+    }
+
+    /**
+     * Phase 7 G1 — fill null hypothesis/findings/conclusion fields from the
+     * PaperDraft's template fallbacks. Returns a new NarrationResult with the
+     * gaps closed, or {@code null} when even the templates are null on the
+     * matching draft fields. Package-private for unit testing.
+     */
+    static NarrationResult fillFromTemplates(PaperDraft draft, NarrationResult firstPass) {
+        String hypothesis = firstPass.hypothesis();
+        String findings   = firstPass.findings();
+        String conclusion = firstPass.conclusion();
+        if (hypothesis == null) hypothesis = draft.templateHypothesis();
+        if (findings   == null) findings   = draft.rawFindings();
+        if (conclusion == null) conclusion = draft.templateConclusion();
+        if (hypothesis == null || findings == null || conclusion == null) {
+            return null;
+        }
+        return new NarrationResult(
+                hypothesis, findings, conclusion,
+                firstPass.followUp(), firstPass.aiModel(),
+                firstPass.confidenceScore(), firstPass.citedPaperIds(),
+                firstPass.callPath(), firstPass.typedCitations(),
+                firstPass.formalFindings(),
+                firstPass.templateId(), firstPass.templateVersion(),
+                firstPass.discussion(), firstPass.relatedWork());
     }
 
     /** Tool-calling professor path: audit → professor (tool-calling) → student revision. */
