@@ -1461,16 +1461,72 @@ public class ResearchNarrationService {
             // markdown writer omits the sections in that case.
             String discussion = optionalText(root, "discussion");
             String relatedWork = optionalText(root, "related_work");
+            // Phase 7 F2 — findings may be either a flat string (legacy) or a map
+            // keyed by computation_N. Either shape funnels into the canonical
+            // Map<Integer, String> on NarrationResult.
+            java.util.Map<Integer, String> findingsMap = parseFindingsShape(root.get("findings"));
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
-                    root.path("findings").asText(null),
+                    findingsMap,
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
                     null, List.copyOf(typedCitations), List.copyOf(formalFindings),
-                    null, null, discussion, relatedWork);
+                    null, null, discussion, relatedWork, null);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
+        }
+    }
+
+    /**
+     * Phase 7 F2 — parse the {@code findings} JSON node into the canonical
+     * Map&lt;Integer, String&gt; shape. Accepts three node shapes:
+     * <ul>
+     *   <li>Text — wrapped as {1: prose}, the F1-baseline shape.</li>
+     *   <li>Object with {@code computation_N} or {@code N} keys — parsed to a
+     *       sorted map keyed by the parsed integer; blank / null values dropped.</li>
+     *   <li>Anything else (array, number, null, missing) — null.</li>
+     * </ul>
+     */
+    static java.util.Map<Integer, String> parseFindingsShape(com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return null;
+        if (node.isTextual()) {
+            String s = node.asText();
+            return (s == null || s.isBlank()) ? null : java.util.Map.of(1, s);
+        }
+        if (node.isObject()) {
+            java.util.Map<Integer, String> raw = new java.util.LinkedHashMap<>();
+            node.fields().forEachRemaining(entry -> {
+                Integer idx = parseComputationKey(entry.getKey());
+                if (idx == null) return;
+                com.fasterxml.jackson.databind.JsonNode v = entry.getValue();
+                if (v == null || !v.isTextual()) return;
+                String prose = v.asText();
+                if (prose != null && !prose.isBlank()) raw.put(idx, prose);
+            });
+            return NarrationResult.orderedFindingsMap(raw);
+        }
+        return null;
+    }
+
+    /**
+     * Phase 7 F2 — parse a findings-map key into the 1-based computation index.
+     * Accepts {@code "computation_1"}, {@code "computation 1"}, {@code "1"}, or
+     * {@code "comp1"} forms. Returns null when the key cannot be mapped to a
+     * positive integer (silently skipped by the caller).
+     */
+    static Integer parseComputationKey(String key) {
+        if (key == null) return null;
+        String trimmed = key.trim();
+        // Strip a leading "computation" / "comp" / "block" prefix plus any separator.
+        String body = trimmed
+                .replaceFirst("(?i)^(computation|comp|block)[\\s_:#]*", "");
+        if (body.isEmpty()) return null;
+        try {
+            int n = Integer.parseInt(body);
+            return n > 0 ? n : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

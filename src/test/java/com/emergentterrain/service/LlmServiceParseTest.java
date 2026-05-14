@@ -267,6 +267,91 @@ class LlmServiceParseTest {
     }
 
     // ==========================================================================
+    // Phase 7 F2 — parseNarrationResult learns the Map<Integer, String> findings shape
+    // ==========================================================================
+
+    @Test
+    void flatStringFindingsWrappedAsSingleEntryMap() {
+        String json = "{\"hypothesis\":\"h\",\"findings\":\"flat prose\",\"conclusion\":\"c\","
+                + "\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap()).containsExactly(java.util.Map.entry(1, "flat prose"));
+        // Legacy String accessor returns the prose verbatim — flag-off shape.
+        assertThat(r.findings()).isEqualTo("flat prose");
+    }
+
+    @Test
+    void mapShapedFindingsParsesEveryComputationBlock() {
+        String json = """
+                {"hypothesis":"h",
+                 "findings":{"computation_1":"first block.","computation_2":"second block."},
+                 "conclusion":"c","confidenceScore":0.7,"cited_paper_ids":[]}
+                """;
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap()).containsExactly(
+                java.util.Map.entry(1, "first block."),
+                java.util.Map.entry(2, "second block."));
+    }
+
+    @Test
+    void mapShapedFindingsTolerateBareIntegerKeys() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{\"1\":\"first\",\"2\":\"second\",\"3\":\"third\"},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap()).containsExactly(
+                java.util.Map.entry(1, "first"),
+                java.util.Map.entry(2, "second"),
+                java.util.Map.entry(3, "third"));
+    }
+
+    @Test
+    void mapShapedFindingsSortsKeysAscending() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{\"computation_3\":\"third\",\"computation_1\":\"first\",\"computation_2\":\"second\"},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap().keySet()).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void mapShapedFindingsDropsBlankAndNullBlocks() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{\"computation_1\":\"first\",\"computation_2\":\"   \",\"computation_3\":null,\"computation_4\":\"fourth\"},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap().keySet()).containsExactly(1, 4);
+    }
+
+    @Test
+    void mapShapedFindingsSkipsKeysThatAreNotPositiveIntegers() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{\"computation_0\":\"zero\",\"computation_-1\":\"neg\",\"computation_abc\":\"junk\",\"computation_2\":\"second\"},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap()).containsExactly(java.util.Map.entry(2, "second"));
+    }
+
+    @Test
+    void emptyFindingsObjectProducesNullMap() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findingsMap()).isNull();
+        assertThat(r.findings()).isNull();
+    }
+
+    @Test
+    void multiBlockFindingsLegacyAccessorJoinsByBlankLine() {
+        String json = "{\"hypothesis\":\"h\","
+                + "\"findings\":{\"computation_1\":\"first.\",\"computation_2\":\"second.\"},"
+                + "\"conclusion\":\"c\",\"confidenceScore\":0.5,\"cited_paper_ids\":[]}";
+        NarrationResult r = ResearchNarrationService.parseNarrationResult(MAPPER, json);
+        assertThat(r.findings()).isEqualTo("first.\n\nsecond.");
+    }
+
+    // ==========================================================================
     // parseRefinementDecision
     // ==========================================================================
 
