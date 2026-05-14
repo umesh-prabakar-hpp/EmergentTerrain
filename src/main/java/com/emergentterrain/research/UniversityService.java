@@ -598,6 +598,10 @@ public class UniversityService {
         // narrator didn't emit them (flag off or v1 template).
         paper.setDiscussion(narration.discussion());
         paper.setRelatedWork(narration.relatedWork());
+        // Phase 7 F5.4 — serialise the agentic tool-call trace as JSON so the
+        // audit record survives the JVM. Null when the professor stage didn't
+        // run or ran without tool calls (e.g. JSON-path / Ollama fallback).
+        paper.setToolCallTrace(serialiseToolCallTrace(narration.toolCallTrace()));
 
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
         // it lands in the cache + DB. No-op when the institutions flag is off.
@@ -1386,6 +1390,13 @@ public class UniversityService {
         // equation line. Single-block (flag-off) path renders the prose verbatim
         // — bit-identical to F1-baseline.
         String findingsSection = renderFindingsSection(paper);
+        // Phase 7 F5.4 — Methods appendix. Lists every tool call the agentic
+        // professor stage issued, in chronological order. Empty string when the
+        // paper has no trace (legacy rows, JSON-path / Ollama fallback, or a
+        // professor stage that ran without invoking any tool). Sits between
+        // Findings and Conclusion so the reader sees the computational basis
+        // immediately after the result it produced.
+        String methodsSection = renderMethodsSection(paper);
         return """
                 # %s
 
@@ -1410,7 +1421,7 @@ public class UniversityService {
 
                 ## Findings
 
-                %s
+                %s%s
 
                 ## Conclusion
 
@@ -1434,6 +1445,7 @@ public class UniversityService {
                 disputedBanner,
                 paper.hypothesis(),
                 findingsSection,
+                methodsSection,
                 paper.conclusion(),
                 discussionSection,
                 relatedWorkSection);
@@ -1467,6 +1479,71 @@ public class UniversityService {
             sb.append(e.getValue());
         }
         return sb.toString();
+    }
+
+    /**
+     * Phase 7 F5.4 — render the {@code ## Methods} appendix from the persisted
+     * tool-call trace. Empty string when the trace column is null/empty (legacy
+     * rows or papers whose professor stage didn't issue any tool calls) so the
+     * markdown is bit-identical to pre-F5 output. Each trace entry renders as:
+     * <pre>
+     *   1. **run_param_sweep** (round 0)
+     *      Args: {"param1":"L","range":[5e-4,5e-3],"steps":10}
+     *      Result: peak_q=42.3 at L=2.1e-3 …
+     * </pre>
+     * Results are truncated to {@value #METHODS_RESULT_PREVIEW_CHARS} characters
+     * so the appendix stays scannable even when the LLM ran a large sweep.
+     */
+    String renderMethodsSection(ResearchPaper paper) {
+        String raw = paper.toolCallTrace();
+        if (raw == null || raw.isBlank()) return "";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = tryParseToolCallTrace(raw);
+        if (trace == null || trace.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\n\n## Methods\n\n");
+        sb.append("The agentic professor stage issued the following ")
+          .append(trace.size())
+          .append(trace.size() == 1 ? " tool call" : " tool calls")
+          .append(" while gathering evidence for the findings above. ")
+          .append("Each entry is a deterministic computation; the LLM chose ")
+          .append("which to invoke and how to parameterise it.\n\n");
+        int idx = 1;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            sb.append(idx++).append(". **").append(inv.functionName())
+              .append("** (round ").append(inv.round()).append(")\n");
+            String args = inv.argsJson() != null ? inv.argsJson().replaceAll("\\s+", " ").trim() : "";
+            if (!args.isBlank()) {
+                sb.append("    - Args: `").append(args).append("`\n");
+            }
+            String result = inv.resultJson() != null ? inv.resultJson() : "";
+            if (result.length() > METHODS_RESULT_PREVIEW_CHARS) {
+                result = result.substring(0, METHODS_RESULT_PREVIEW_CHARS) + " …";
+            }
+            result = result.replaceAll("\\s+", " ").trim();
+            if (!result.isBlank()) {
+                sb.append("    - Result: `").append(result).append("`\n");
+            }
+        }
+        return sb.toString();
+    }
+
+    private static final int METHODS_RESULT_PREVIEW_CHARS = 240;
+
+    /**
+     * Phase 7 F5.4 — parse the persisted {@code tool_call_trace} column back into
+     * a list of {@link com.emergentterrain.llm.ToolInvocation}. Returns null on
+     * any parse failure so the caller can omit the Methods section gracefully.
+     */
+    private java.util.List<com.emergentterrain.llm.ToolInvocation> tryParseToolCallTrace(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            return objectMapper.readValue(raw,
+                    objectMapper.getTypeFactory().constructCollectionType(
+                            java.util.List.class, com.emergentterrain.llm.ToolInvocation.class));
+        } catch (Exception e) {
+            log.warn("tool-call trace JSON parse failed; omitting Methods section: {}",
+                    e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -1524,6 +1601,24 @@ public class UniversityService {
             log.warn("findings-map JSON serialisation failed; falling back to joined prose: {}",
                     e.getMessage());
             return joinFindingsBlocks(blocks);
+        }
+    }
+
+    /**
+     * Phase 7 F5.4 — serialise the agentic tool-call trace for persistence on the
+     * (text) ResearchPaper.tool_call_trace column. Null/empty input returns null
+     * so legacy rows and tool-less papers stay unchanged. Each entry is rendered
+     * as a JSON object with the four ToolInvocation fields verbatim.
+     */
+    private String serialiseToolCallTrace(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(trace);
+        } catch (Exception e) {
+            log.warn("tool-call trace JSON serialisation failed; persisting null: {}",
+                    e.getMessage());
+            return null;
         }
     }
 

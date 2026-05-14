@@ -128,6 +128,17 @@ public class ResearchPaper {
     @Column(name = "related_work", columnDefinition = "text")
     private String relatedWork;
 
+    /**
+     * Phase 7 F5.4 — Tier 2 audit trail of the agentic professor stage. Stores
+     * the LLM's tool-call trace as a JSON-serialised {@code List<ToolInvocation>}.
+     * Null when the professor stage either did not run (JSON-path / Ollama
+     * fallback) or ran without issuing any tool call. Persisted independently
+     * of the {@code findings} prose so the audit record survives even when the
+     * LLM cherry-picked which results to narrate.
+     */
+    @Column(name = "tool_call_trace", columnDefinition = "text")
+    private String toolCallTrace;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -204,6 +215,7 @@ public class ResearchPaper {
     public String       narrationTemplateVersion() { return narrationTemplateVersion; }
     public String       discussion()               { return discussion; }
     public String       relatedWork()              { return relatedWork; }
+    public String       toolCallTrace()            { return toolCallTrace; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -216,4 +228,5 @@ public class ResearchPaper {
     public void setNarrationTemplateVersion(String version) { this.narrationTemplateVersion = version; }
     public void setDiscussion(String discussion)     { this.discussion = discussion; }
     public void setRelatedWork(String relatedWork)   { this.relatedWork = relatedWork; }
+    public void setToolCallTrace(String toolCallTrace) { this.toolCallTrace = toolCallTrace; }
 }

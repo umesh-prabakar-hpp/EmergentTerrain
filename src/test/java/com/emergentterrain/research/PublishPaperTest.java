@@ -676,6 +676,107 @@ class PublishPaperTest {
                 .contains("\"2\":\"second prose.\"");
     }
 
+    // ---- Phase 7 F5.4: tool-call trace persistence + Methods appendix ----
+
+    @Test
+    void f5_4_toolCallTracePersistsAsJsonOnResearchPaper() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep",
+                        "{\"param1\":\"L\",\"range\":[5e-4,5e-3],\"steps\":10}",
+                        "{\"peak_q\":42.3,\"argmax_L\":0.0021}", 0),
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"n_max\":10000,\"predicate\":\"is_prime\"}",
+                        "{\"hits\":1229,\"density\":0.1229}", 1));
+        NarrationResult narration = narration(0.6).withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String persisted = firstPaper().toolCallTrace();
+        assertThat(persisted)
+                .isNotNull()
+                .startsWith("[")
+                .contains("\"functionName\":\"run_param_sweep\"")
+                .contains("\"functionName\":\"run_predicate_scan\"")
+                .contains("\"round\":0")
+                .contains("\"round\":1");
+    }
+
+    @Test
+    void f5_4_publishedMarkdownRendersMethodsAppendixForToolCallTrace() throws Exception {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep",
+                        "{\"param1\":\"L\"}",
+                        "{\"peak_q\":42.3}", 0));
+        NarrationResult narration = narration(0.6).withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        assertThat(content)
+                .contains("## Methods")
+                .contains("**run_param_sweep**")
+                .contains("(round 0)")
+                .contains("`{\"param1\":\"L\"}`")
+                .contains("`{\"peak_q\":42.3}`");
+    }
+
+    @Test
+    void f5_4_methodsSectionAbsentWhenTraceIsNull() throws Exception {
+        // Legacy / JSON-path / Ollama-fallback papers: trace is null → no Methods section.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narration(0.6);  // no trace
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        assertThat(content).doesNotContain("## Methods");
+        // And the persisted column is null, not the empty string "[]".
+        assertThat(firstPaper().toolCallTrace()).isNull();
+    }
+
+    @Test
+    void f5_4_methodsSectionAbsentWhenTraceIsEmpty() throws Exception {
+        // Professor ran but issued zero tool calls → trace is empty → no Methods section.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narration(0.6).withToolCallTrace(java.util.List.of());
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        assertThat(content).doesNotContain("## Methods");
+        assertThat(firstPaper().toolCallTrace()).isNull();
+    }
+
+    @Test
+    void f5_4_methodsSectionTruncatesLongToolResultsToPreview() throws Exception {
+        // A run_param_sweep result longer than the preview cap is truncated so
+        // the appendix stays scannable.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        String longResult = "{\"values\":[" + "1.0,".repeat(400) + "1.0]}";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{\"steps\":401}", longResult, 0));
+        NarrationResult narration = narration(0.6).withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        assertThat(content)
+                .contains("## Methods")
+                .contains(" …")  // truncation marker
+                .doesNotContain("1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0]}");
+    }
+
+    private String readPublishedMarkdown() throws java.io.IOException {
+        java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
+        java.nio.file.Path md = java.util.stream.Stream.of(roomDir.toFile().listFiles())
+                .filter(f -> f.getName().endsWith(".md"))
+                .map(java.io.File::toPath)
+                .findFirst()
+                .orElseThrow();
+        return java.nio.file.Files.readString(md);
+    }
+
     // ---- Phase 5 B4: cross-domain gate ----
 
     @Test
