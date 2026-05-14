@@ -13,6 +13,10 @@
     <spring-ai.version>1.0.0</spring-ai.version>
     <grpc.version>1.63.0</grpc.version>
     <protobuf.version>3.25.3</protobuf.version>
+    <!-- Phase 8 Tier 3 — Symja (matheclipse-core) for symbolic math. LGPL-v3;
+         used as a separate run_symbolic tool, not linked into the GPL-incompatible
+         parts of the build. Pinned to a single version to keep behaviour stable. -->
+    <symja.version>3.2.0</symja.version>
   </properties>
   <dependencyManagement>
     <dependencies>
@@ -106,6 +110,14 @@
     <dependency>
       <groupId>org.springframework.ai</groupId>
       <artifactId>spring-ai-starter-model-ollama</artifactId>
+    </dependency>
+    <!-- Phase 8 Tier 3 — Symja symbolic math engine. LGPL-v3. Used only by
+         SymbolicEngine / MathToolSuite.run_symbolic, behind a deterministic
+         allowed-heads static check (see SymbolicStaticChecker). -->
+    <dependency>
+      <groupId>org.matheclipse</groupId>
+      <artifactId>matheclipse-core</artifactId>
+      <version>${symja.version}</version>
     </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>

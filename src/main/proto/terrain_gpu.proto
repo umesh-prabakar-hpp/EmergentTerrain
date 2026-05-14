@@ -107,8 +107,36 @@ message SimulateBotsResponse {
   string debug_json = 4;
 }
 
+// Phase 8 Tier 4 — evaluate a pure scalar expression f(n) for every integer
+// n in [start, end) on the GPU, then aggregate. The "formula" is a strict
+// subset of SandboxEngine syntax: just expressions (no control flow, no
+// function defs, no user-defined names) over the single bound variable `n`,
+// with arithmetic + sqrt/log/exp/pow/sin/cos/tan and floating-point literals.
+// The receiving Rust engine parses it, generates WGSL, dispatches on wgpu,
+// and reads back the aggregate.
+message EvalExprRequest {
+  string request_id = 1;
+  string formula = 2;        // e.g. "sqrt(n) * log(n) + sin(n)"
+  int32  start = 3;          // inclusive
+  int32  end = 4;            // exclusive — must be > start
+}
+
+message EvalExprResponse {
+  string request_id = 1;
+  double mean = 2;
+  double std_dev = 3;
+  double min = 4;
+  double max = 5;
+  double sum = 6;
+  uint64 n = 7;              // = end - start (after clamping)
+  uint32 finite_count = 8;   // how many samples were finite (rest were NaN/inf)
+  string debug_json = 9;
+}
+
 service GpuTerrainService {
   rpc GenerateRegion(GenerateRegionRequest) returns (GenerateRegionResponse);
   rpc RebuildPatch(RebuildPatchRequest) returns (RebuildPatchResponse);
   rpc SimulateBots(SimulateBotsRequest) returns (SimulateBotsResponse);
+  // Phase 8 Tier 4.
+  rpc EvalExpr(EvalExprRequest) returns (EvalExprResponse);
 }

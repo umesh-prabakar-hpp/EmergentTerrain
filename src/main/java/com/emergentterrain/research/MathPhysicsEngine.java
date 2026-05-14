@@ -1208,7 +1208,7 @@ public class MathPhysicsEngine {
 
     // ---- F3.4 helpers (small, deterministic) ----
 
-    private static long mertensPartialSum(int x) {
+    static long mertensPartialSum(int x) {
         long m = 0;
         for (int n = 1; n <= x; n++) m += mobius(n);
         return m;

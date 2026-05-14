@@ -1,10 +1,16 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.gpu.GpuEngineAdapter;
+import com.emergentterrain.gpu.v1.EvalExprRequest;
+import com.emergentterrain.gpu.v1.EvalExprResponse;
 import com.emergentterrain.research.DynamicComputeEngine;
 import com.emergentterrain.research.DynamicProblem;
+import com.emergentterrain.research.GpuEvalStaticChecker;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.SandboxEngine;
+import com.emergentterrain.research.SymbolicEngine;
+import com.emergentterrain.research.SymbolicStaticChecker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -14,14 +20,20 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Professor tool suite — four mathematical tools the Groq professor can call
+ * Professor tool suite — six mathematical tools the Groq professor can call
  * during critique to gather experimental evidence before writing its synthesis.
  *
  * Tools:
  *   run_param_sweep      — MathPhysicsEngine at professor-chosen param1/param2
  *   run_predicate_scan   — DynamicComputeEngine number-theoretic predicate scan
- *   evaluate_symbolic    — evaluate f(n) over a range, return statistics
+ *   evaluate_symbolic    — evaluate f(n) over a range, return statistics (numeric)
  *   run_sandboxed_code   — run LLM pseudocode reviewed by 4b before execution
+ *   run_symbolic         — Phase 8 Tier 3: Symja symbolic evaluation
+ *                          (Integrate, D, Solve, Simplify, Series, ...)
+ *   run_gpu_eval         — Phase 8 Tier 4: dispatch f(n) over a large range
+ *                          to the Rust GPU engine; aggregate on the CPU.
+ *                          Only available when a {@link GpuEngineAdapter}
+ *                          was injected at construction.
  */
 public class MathToolSuite {
 
@@ -38,9 +50,15 @@ public class MathToolSuite {
      * corpus run mapped 1:1 to vague Findings sections.
      */
     public static final class ToolMetrics {
-        private int sandboxRejectCount = 0;
-        public int sandboxRejectCount() { return sandboxRejectCount; }
-        void incrementSandboxRejects()  { sandboxRejectCount++; }
+        private int sandboxRejectCount  = 0;
+        private int symbolicRejectCount = 0;
+        private int gpuEvalRejectCount  = 0;
+        public int sandboxRejectCount()  { return sandboxRejectCount;  }
+        public int symbolicRejectCount() { return symbolicRejectCount; }
+        public int gpuEvalRejectCount()  { return gpuEvalRejectCount;  }
+        void incrementSandboxRejects()   { sandboxRejectCount++;  }
+        void incrementSymbolicRejects()  { symbolicRejectCount++; }
+        void incrementGpuEvalRejects()   { gpuEvalRejectCount++;  }
     }
 
     private static final Set<String> VALID_PREDICATES = Set.of(
@@ -53,10 +71,23 @@ public class MathToolSuite {
 
     private final LlmRouter router;
     private final ObjectMapper mapper;
+    /**
+     * Optional Phase 8 Tier 4 dependency. When non-null, the tool list
+     * advertises run_gpu_eval and the executor dispatches it; when null,
+     * run_gpu_eval calls surface a clear "not configured" error so the
+     * LLM falls back to run_sandboxed_code instead of getting silently
+     * dropped. Existing tests construct MathToolSuite without an adapter.
+     */
+    private final GpuEngineAdapter gpuEngineAdapter;
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper) {
+        this(router, mapper, null);
+    }
+
+    public MathToolSuite(LlmRouter router, ObjectMapper mapper, GpuEngineAdapter gpuEngineAdapter) {
         this.router = router;
         this.mapper = mapper;
+        this.gpuEngineAdapter = gpuEngineAdapter;
     }
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
@@ -121,7 +152,7 @@ public class MathToolSuite {
                   "type":"function",
                   "function":{
                     "name":"run_sandboxed_code",
-                    "description":"Run custom mathematical pseudocode in a safe sandbox (reviewed by a safety model before execution). Use for computations that don't fit the other tools. Pre-bound variables: start=range_start, end=range_end, param1, param2 (from the paper). Allowed: var, for, if/else, return, and built-ins: isPrime isHappy collatzTerminates isAbundant isPerfect collatzSteps sigmaSum abs sqrt pow floor ceil log min max gcd. No I/O, no imports, no class creation. Max 5000 loop iterations.",
+                    "description":"Run custom mathematical pseudocode in a safe sandbox (reviewed by a safety model before execution). Use for computations that don't fit the other tools. Pre-bound variables: start=range_start, end=range_end, param1, param2 (from the paper). Allowed: var, for, if/else, return, and built-ins: (a) number theory: isPrime, isHappy, collatzTerminates, isAbundant, isPerfect, collatzSteps, sigmaSum, gcd, mobius, sternBrocotDepthOf, isSquarefree, mertensPartialSum; (b) any java.lang.Math function — abs, sqrt, cbrt, pow, exp, expm1, log, log10, log1p, log2, floor, ceil, rint, signum, hypot, min, max, sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, toRadians, toDegrees, etc.; (c) SYMBOLIC BRIDGES via Symja under the hood — integrate(expr, var, lo, hi) returns the definite integral (e.g. integrate(sin(x)**2, x, 0, PI) → 1.5708), differentiate(expr, var, at) returns d/dvar[expr] evaluated at the given point (e.g. differentiate(x**3 + 2*x, x, 5) → 77), simplify(expr) returns the simplified value but ONLY if it reduces to a finite number (e.g. simplify(sin(x)**2 + cos(x)**2) → 1). Bridges cannot nest, cannot use sandbox-only builtins (isPrime, gcd, etc.) inside their expressions, and reject unbound free variables. You may also DEFINE helper functions at the top of your code with 'function name(arg1, arg2) { ... return expr; }' and call them later — helpers see their params + globals only (no closures over caller locals), max 64 recursion depth. Pre-bound constants: PI, E, WIEN_B, STEFAN_BOLTZMANN_SIGMA, PLANCK_H, PLANCK_HBAR, BOLTZMANN_K, SPEED_OF_LIGHT, AVOGADRO, ELEMENTARY_CHARGE, GRAVITATIONAL_G, ELECTRON_MASS, PROTON_MASS, VACUUM_PERMITTIVITY, VACUUM_PERMEABILITY (SI units, Codata 2018). No I/O, no imports, no class creation. Max 5000 loop iterations.",
                     "parameters":{
                       "type":"object",
                       "properties":{
@@ -131,6 +162,38 @@ public class MathToolSuite {
                         "range_end":{"type":"integer","description":"Value for 'end' (range_end − range_start ≤ 5000)"}
                       },
                       "required":["code","description","range_start","range_end"]
+                    }
+                  }
+                },
+                {
+                  "type":"function",
+                  "function":{
+                    "name":"run_symbolic",
+                    "description":"Evaluate a SYMBOLIC math expression using Symja (Mathematica-like syntax). Use to (a) verify a claimed derivative or integral has the closed form the paper states, (b) check that two expressions are equivalent after simplification, (c) compute a Series expansion at a point, (d) Solve an equation for its symbolic roots, (e) Simplify a long algebraic form. Returns the simplified output AND a numeric approximation if the result is a finite number. Examples: 'Integrate[Sin[x]^2, {x, 0, Pi}]' (→ Pi/2, numeric 1.5708), 'D[x^3 + 2*x, x]' (→ 2 + 3*x^2), 'Solve[x^2 - 5*x + 6 == 0, x]' (→ {{x->2}, {x->3}}), 'Simplify[Sin[x]^2 + Cos[x]^2]' (→ 1), 'Series[Exp[x], {x, 0, 4}]'. Allowed heads include arithmetic, calculus (Integrate, D, Limit, Series, Sum, Product), algebra (Solve, Simplify, Expand, Factor), trig, exp/log, special functions (Gamma, Erf, BesselJ, Zeta), number theory (PrimeQ, MoebiusMu, EulerPhi). REJECTED: I/O (Import, Export, Get, Put), network (URLFetch), process (Run), state mutation (Set, Clear), JVM escape (Java, JavaClass), ToExpression, Compile. Wall-clock cap 3s; iteration cap 100k.",
+                    "parameters":{
+                      "type":"object",
+                      "properties":{
+                        "expression":{"type":"string","description":"A Symja expression in full-form or operator-form syntax. Brackets [] for function application; {} for lists."},
+                        "rationale":{"type":"string","description":"Why this symbolic check addresses a specific weakness in the paper"}
+                      },
+                      "required":["expression","rationale"]
+                    }
+                  }
+                },
+                {
+                  "type":"function",
+                  "function":{
+                    "name":"run_gpu_eval",
+                    "description":"Dispatch a scalar formula f(n) to the GPU for every integer n in [start, end), then aggregate mean/std/min/max/sum on the CPU. Use ONLY when the range is large enough that the sandbox (≤ 5000 iters) can't reach it — typical use: density / mean / tail-statistic checks across millions of values. Formula syntax is a STRICT SUBSET of run_sandboxed_code: arithmetic expression in the single bound variable n, with the constants pi and e and the functions sqrt, cbrt, log, log2, log10, exp, pow, hypot, sin, cos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, abs, sign, floor, ceil, round, min, max. No control flow, no var, no user-defined helpers, no number-theory predicates (those are sandbox-only). Returns aggregate {mean, std_dev, min, max, sum, n, finite_count} — 'finite_count' is how many samples were finite (NaN/Inf are filtered out). Max range 10,000,000 samples; longer ranges are rejected.",
+                    "parameters":{
+                      "type":"object",
+                      "properties":{
+                        "formula":{"type":"string","description":"Scalar arithmetic expression in n. Example: 'sqrt(n) * log(n) + sin(n / pi)'."},
+                        "start":{"type":"integer","description":"Inclusive start integer."},
+                        "end":{"type":"integer","description":"Exclusive end integer. Must satisfy end > start and end - start ≤ 10000000."},
+                        "rationale":{"type":"string","description":"Why this range-scale check addresses a paper claim that the sandbox can't reach."}
+                      },
+                      "required":["formula","start","end","rationale"]
                     }
                   }
                 }]""".formatted(dynamicTool);
@@ -165,10 +228,18 @@ public class MathToolSuite {
                     case "run_predicate_scan" -> runPredicateScan(args);
                     case "evaluate_symbolic"  -> evaluateSymbolic(args);
                     case "run_sandboxed_code" -> runSandboxedCode(draft, args);
+                    case "run_symbolic"       -> runSymbolic(args);
+                    case "run_gpu_eval"       -> runGpuEval(args);
                     default -> "Unknown tool: " + name;
                 };
                 if ("run_sandboxed_code".equals(name) && result.startsWith("REJECTED by safety review")) {
                     metrics.incrementSandboxRejects();
+                }
+                if ("run_symbolic".equals(name) && result.startsWith("REJECTED by safety review")) {
+                    metrics.incrementSymbolicRejects();
+                }
+                if ("run_gpu_eval".equals(name) && result.startsWith("REJECTED by safety review")) {
+                    metrics.incrementGpuEvalRejects();
                 }
                 return result;
             } catch (Exception e) {
@@ -253,6 +324,95 @@ public class MathToolSuite {
                     .formatted(expression, rangeStart, rangeEnd, result.summary(), rationale);
         } catch (Exception e) {
             return "Symbolic evaluation failed: " + e.getMessage();
+        }
+    }
+
+    private String runSymbolic(JsonNode args) {
+        String expression = args.path("expression").asText(null);
+        String rationale  = args.path("rationale").asText("(no rationale)");
+        if (expression == null || expression.isBlank()) return "Missing expression.";
+
+        // Deterministic head-whitelist check before invoking Symja.
+        SymbolicStaticChecker.Result staticResult = SymbolicStaticChecker.check(expression);
+        if (staticResult instanceof SymbolicStaticChecker.Result.Rejected r) {
+            log.warn("MathToolSuite: run_symbolic static-rejected: {} expr=\"{}\"",
+                    r.reason(),
+                    expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+            return "REJECTED by safety review: " + r.reason()
+                    + " — only calculus/algebra/trig/special-function heads are allowed; "
+                    + "I/O, process, network, state mutation, and JVM-escape heads are blocked.";
+        }
+
+        try {
+            long t = System.currentTimeMillis();
+            SymbolicEngine.SymbolicResult result = SymbolicEngine.evaluate(expression);
+            log.info("MathToolSuite: run_symbolic expr=\"{}\" ms={} numeric={}",
+                    expression, System.currentTimeMillis() - t, result.numericApprox());
+            String numericNote = result.numericApprox() == null
+                    ? ""
+                    : "  numeric=%.6g".formatted(result.numericApprox());
+            return "Symbolic result for %s: output=%s%s [Rationale: %s]"
+                    .formatted(expression, result.output(), numericNote, rationale);
+        } catch (Exception e) {
+            return "Symbolic evaluation failed: " + e.getMessage();
+        }
+    }
+
+    private String runGpuEval(JsonNode args) {
+        String formula   = args.path("formula").asText(null);
+        int    start     = args.path("start").asInt(Integer.MIN_VALUE);
+        int    end       = args.path("end").asInt(Integer.MIN_VALUE);
+        String rationale = args.path("rationale").asText("(no rationale)");
+
+        if (formula == null || formula.isBlank()) return "Missing formula.";
+        if (start == Integer.MIN_VALUE || end == Integer.MIN_VALUE) {
+            return "Missing 'start' or 'end' integer.";
+        }
+        if (end <= start) {
+            return "Invalid range: end must be > start (start=" + start + ", end=" + end + ").";
+        }
+        long span = (long) end - (long) start;
+        if (span > GpuEvalStaticChecker.MAX_RANGE) {
+            return "Range too large: " + span + " samples (max "
+                    + GpuEvalStaticChecker.MAX_RANGE + ").";
+        }
+
+        // Deterministic Java-side check that mirrors the Rust validate(). Fast
+        // feedback to the LLM without paying a gRPC round-trip on a doomed call.
+        GpuEvalStaticChecker.Result staticResult = GpuEvalStaticChecker.check(formula);
+        if (staticResult instanceof GpuEvalStaticChecker.Result.Rejected r) {
+            log.warn("MathToolSuite: run_gpu_eval static-rejected: {} formula=\"{}\"",
+                    r.reason(),
+                    formula.length() > 80 ? formula.substring(0, 80) + "…" : formula);
+            return "REJECTED by safety review: " + r.reason()
+                    + " — run_gpu_eval accepts a scalar arithmetic expression in n only "
+                    + "(no var/for/if/return, no user functions, only sqrt/log/exp/trig/etc.).";
+        }
+
+        if (gpuEngineAdapter == null) {
+            return "run_gpu_eval not configured: no GpuEngineAdapter wired into this "
+                    + "MathToolSuite. Fall back to run_sandboxed_code for smaller ranges.";
+        }
+
+        try {
+            long t = System.currentTimeMillis();
+            EvalExprRequest req = EvalExprRequest.newBuilder()
+                    .setRequestId("prof-gpu-" + System.currentTimeMillis())
+                    .setFormula(formula)
+                    .setStart(start)
+                    .setEnd(end)
+                    .build();
+            EvalExprResponse resp = gpuEngineAdapter.evalExpr(req);
+            log.info("MathToolSuite: run_gpu_eval formula=\"{}\" range=[{},{}) ms={} finite={}/{} mean={} std={}",
+                    formula, start, end, System.currentTimeMillis() - t,
+                    resp.getFiniteCount(), resp.getN(), resp.getMean(), resp.getStdDev());
+            return "GPU eval of f(n)=%s over [%d,%d): mean=%.6g std=%.6g min=%.6g max=%.6g sum=%.6g n=%d finite=%d [Rationale: %s]"
+                    .formatted(formula, start, end,
+                            resp.getMean(), resp.getStdDev(),
+                            resp.getMin(), resp.getMax(), resp.getSum(),
+                            resp.getN(), resp.getFiniteCount(), rationale);
+        } catch (Exception e) {
+            return "GPU eval failed: " + e.getMessage();
         }
     }
 

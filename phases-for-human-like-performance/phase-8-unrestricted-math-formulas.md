@@ -123,7 +123,7 @@ Series[Exp[x], {x, 0, 5}]
 Simplify[Sin[x]^2 + Cos[x]^2]
 ```
 
-Symja is pure-Java, MIT licensed, no native dependencies — drops cleanly into the existing Maven build.
+Symja is pure-Java, **LGPL-v3 licensed** (this doc previously claimed MIT — corrected during P3.1), no native dependencies — drops cleanly into the existing Maven build. LGPL is compatible with internal/SaaS deployment of EmergentTerrain (the "convey" trigger doesn't fire without binary distribution); if you ever ship binaries, you must comply with LGPL's relinking and notice obligations. Transitive footprint ~18 MB on disk (matheclipse-core, matheclipse-parser, matheclipse-external, apfloat, eight Hipparchus modules, jgrapht-io, Guava).
 
 **What it unlocks:** *Symbolic* verification of derivations. Today's sandbox is numeric; Symja can verify that the LLM's claimed derivative is actually correct, that two expressions are equivalent after simplification, that an integral has a known closed form. This is qualitatively different from numeric sandboxing and is the right tool for the [Phase 7 F3.4](phase-7-multi-provider-and-math-expansion.md) MATHEMATICS topics (Riemann, divisor sum) which today rely on numeric approximation alone.
 
@@ -189,5 +189,5 @@ Two real implementation paths:
 
 - **`sandbox_reject` corpus telemetry** must show which functions narrators actually reach for. Phase 1's denylist/allowlist of `Math.*` methods should be data-driven, not speculative.
 - **Should `Interpreter.env` constants be configurable per topic?** A `MATHEMATICS` topic doesn't need `STEFAN_BOLTZMANN_SIGMA`; a `PHYSICS` topic doesn't need `MOBIUS_THRESHOLD`. Per-topic constant sets keep the LLM's prompt context lean.
-- **Symja licensing review.** MIT, but it bundles other dependencies — confirm the transitive license picture before shipping Phase 3.
+- **Symja licensing review.** LGPL-v3 (this doc originally said MIT — incorrect; verified via the matheclipse-core POM during P3.1, 2026-05-13). Transitive deps include Apache 2.0 (Hipparchus, Guava) — compatible. For internal/SaaS use the LGPL's "convey" trigger does not fire; for binary distribution the relinking + notice obligations apply.
 - **Do we want Symja's `Compile[]`?** Symja can compile expressions to bytecode/JVM. This is a *third* execution path on top of (a) sandbox and (b) Symja interpreter — worth knowing exists, probably not worth using until Phase 4 forces the question.
