@@ -1,6 +1,10 @@
 package com.emergentterrain.research;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /**
  * LLM-written narrative sections that replace the template text in a published paper.
@@ -25,8 +29,17 @@ import java.util.List;
  * provenance onto the persisted {@link ResearchPaper}. Both null when the
  * narration came from a path that has not yet been instrumented (e.g. fallback
  * suppression results); the publish path treats null as "unattributed."
+ *
+ * Phase 7 F2 — {@code findingsMap} is the canonical, per-computation form of the
+ * findings prose, keyed by 1-based computation index. The legacy String-shaped
+ * {@link #findings()} accessor remains (joins the map's values in key order, or
+ * returns the single value when the map has one entry — bit-identical to the
+ * pre-F2 String field). All legacy constructors that took a {@code String findings}
+ * still compile: they wrap the prose as {@code Map.of(1, prose)} into the canonical
+ * record. The Map shape is what F2's per-block truncation guard and per-block H3
+ * markdown renderer consume.
  */
-public record NarrationResult(String hypothesis, String findings, String conclusion,
+public record NarrationResult(String hypothesis, Map<Integer, String> findingsMap, String conclusion,
                                FollowUpParams followUp, String aiModel,
                                double confidenceScore, List<String> citedPaperIds,
                                String callPath, List<TypedCitation> typedCitations,
@@ -58,6 +71,42 @@ public record NarrationResult(String hypothesis, String findings, String conclus
             double confidence,
             double validRegionMin,
             double validRegionMax) {}
+
+    /**
+     * Phase 7 F2 — joined-prose form of the findings map. Single-entry map
+     * returns its sole value verbatim (legacy behaviour). Multi-entry map
+     * returns values joined by a blank line, in ascending key order. Null
+     * or empty map returns null so downstream null-checks behave identically
+     * to the pre-F2 String field.
+     */
+    public String findings() {
+        if (findingsMap == null || findingsMap.isEmpty()) return null;
+        if (findingsMap.size() == 1) {
+            return findingsMap.values().iterator().next();
+        }
+        return new TreeMap<>(findingsMap).values().stream()
+                .filter(v -> v != null)
+                .collect(Collectors.joining("\n\n"));
+    }
+
+    /**
+     * Phase 7 F2 — single-prose legacy String-shaped 15-arg constructor. Wraps
+     * the prose as a single-entry map at key 1 so the canonical {@link #findingsMap()}
+     * field stays consistent. Null prose stays null.
+     */
+    public NarrationResult(String hypothesis, String findings, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations,
+                           List<ExtractedFinding> formalFindings,
+                           String templateId, String templateVersion,
+                           String discussion, String relatedWork,
+                           List<String> auditGapDimensions) {
+        this(hypothesis, wrapSingle(findings), conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations,
+                formalFindings, templateId, templateVersion, discussion, relatedWork,
+                auditGapDimensions);
+    }
 
     /** 14-arg backward-compatible — null auditGapDimensions. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
@@ -122,22 +171,48 @@ public record NarrationResult(String hypothesis, String findings, String conclus
 
     /** Return a copy of this result with template provenance stamped on. */
     public NarrationResult withTemplateProvenance(String templateId, String templateVersion) {
-        return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
     public NarrationResult withDiscussionAndRelatedWork(String discussion, String relatedWork) {
-        return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
     }
 
     /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
     public NarrationResult withAuditGapDimensions(List<String> auditGapDimensions) {
-        return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
+    }
+
+    /**
+     * Phase 7 F2 — wrap a single prose string into the canonical {1: prose} single-entry
+     * map. Null prose returns null (downstream null-checks behave identically to the
+     * pre-F2 String field).
+     */
+    private static Map<Integer, String> wrapSingle(String findings) {
+        if (findings == null) return null;
+        return Map.of(1, findings);
+    }
+
+    /**
+     * Phase 7 F2 — construct an ordered findings map from a {@code computation_N} JSON
+     * shape parsed at the LLM-output boundary. Sorts keys ascending so downstream
+     * consumers (truncation guard, markdown renderer, validators) see a stable order
+     * regardless of how the LLM serialised the object. Returns null when the input
+     * is null or empty (preserving the legacy null-findings contract).
+     */
+    public static Map<Integer, String> orderedFindingsMap(Map<Integer, String> raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        Map<Integer, String> ordered = new LinkedHashMap<>();
+        new TreeMap<>(raw).forEach((k, v) -> {
+            if (v != null && !v.isBlank()) ordered.put(k, v);
+        });
+        return ordered.isEmpty() ? null : ordered;
     }
 }

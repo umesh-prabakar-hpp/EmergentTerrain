@@ -1072,7 +1072,7 @@ class PublishPaperTest {
     /** Phase 7 G8 — narration with explicit audit-4b gap dimensions (15-arg ctor). */
     private NarrationResult narrationWithAuditGaps(double confidenceScore,
                                                     List<String> auditGapDimensions) {
-        return new NarrationResult(null, null, null, null, null,
+        return new NarrationResult(null, (String) null, null, null, null,
                 confidenceScore, List.of(), null, List.of(), List.of(),
                 null, null, null, null, auditGapDimensions);
     }
