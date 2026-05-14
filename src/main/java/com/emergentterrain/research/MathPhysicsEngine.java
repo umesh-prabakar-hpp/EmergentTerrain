@@ -28,7 +28,11 @@ public class MathPhysicsEngine {
                                  double secondaryValue, double tertiaryValue,
                                  double reviewValue, boolean theoryConsistent,
                                  String theoryCheck, ClaimStatus claimStatus,
-                                 String claimAssessment, String hypothesis) {
+                                 String claimAssessment, String hypothesis,
+                                 /* Phase 7 F2 — closed-form equation governing this topic.
+                                    Populated by the dispatcher in {@link MathPhysicsEngine#compute}.
+                                    Surfaces in the per-computation H3 block's **Equation:** line. */
+                                 String equation) {
         public ResearchResult(String findings, double primaryValue,
                               double secondaryValue, double tertiaryValue) {
             this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
@@ -46,7 +50,7 @@ public class MathPhysicsEngine {
                     allFinite(primaryValue, secondaryValue, tertiaryValue)
                             ? "The computed values are finite and reproduced under the search params declared above."
                             : "The computation produced non-finite values.",
-                    null);
+                    null, null);
         }
 
         public ResearchResult(String findings, double primaryValue,
@@ -55,7 +59,7 @@ public class MathPhysicsEngine {
             this(findings, primaryValue, secondaryValue, tertiaryValue, primaryValue,
                     theoryConsistent, theoryCheck,
                     theoryConsistent ? ClaimStatus.SUPPORTED : ClaimStatus.REFUTED,
-                    theoryCheck, null);
+                    theoryCheck, null, null);
         }
 
         public ResearchResult(String findings, double primaryValue,
@@ -65,7 +69,7 @@ public class MathPhysicsEngine {
             this(findings, primaryValue, secondaryValue, tertiaryValue, reviewValue,
                     theoryConsistent, theoryCheck,
                     theoryConsistent ? ClaimStatus.SUPPORTED : ClaimStatus.REFUTED,
-                    theoryCheck, null);
+                    theoryCheck, null, null);
         }
 
         public ResearchResult(String findings, double primaryValue,
@@ -77,7 +81,7 @@ public class MathPhysicsEngine {
                     allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue)
                             ? "Computed values are finite and reproducible."
                             : "One or more computed values are non-finite.",
-                    claimStatus, claimAssessment, null);
+                    claimStatus, claimAssessment, null, null);
         }
 
         public ResearchResult(String findings, double primaryValue,
@@ -89,12 +93,13 @@ public class MathPhysicsEngine {
                     allFinite(primaryValue, secondaryValue, tertiaryValue, reviewValue)
                             ? "Computed values are finite and reproducible."
                             : "One or more computed values are non-finite.",
-                    claimStatus, claimAssessment, hypothesis);
+                    claimStatus, claimAssessment, hypothesis, null);
         }
 
         public ResearchResult withClaim(ClaimStatus status, String assessment) {
             return new ResearchResult(findings, primaryValue, secondaryValue, tertiaryValue,
-                    reviewValue, theoryConsistent, theoryCheck, status, assessment, hypothesis);
+                    reviewValue, theoryConsistent, theoryCheck, status, assessment,
+                    hypothesis, equation);
         }
 
         public ResearchResult withFindingsAndClaim(String updatedFindings,
@@ -102,13 +107,20 @@ public class MathPhysicsEngine {
                                                    String assessment) {
             return new ResearchResult(updatedFindings, primaryValue, secondaryValue,
                     tertiaryValue, reviewValue, theoryConsistent, theoryCheck,
-                    status, assessment, hypothesis);
+                    status, assessment, hypothesis, equation);
         }
 
         public ResearchResult withHypothesis(String updatedHypothesis) {
             return new ResearchResult(findings, primaryValue, secondaryValue, tertiaryValue,
                     reviewValue, theoryConsistent, theoryCheck, claimStatus,
-                    claimAssessment, updatedHypothesis);
+                    claimAssessment, updatedHypothesis, equation);
+        }
+
+        /** Phase 7 F2 — stamp the topic's closed-form equation. */
+        public ResearchResult withEquation(String updatedEquation) {
+            return new ResearchResult(findings, primaryValue, secondaryValue, tertiaryValue,
+                    reviewValue, theoryConsistent, theoryCheck, claimStatus,
+                    claimAssessment, hypothesis, updatedEquation);
         }
 
         private static boolean allFinite(double... values) {
@@ -452,11 +464,16 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computeMath(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp);
-            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp);
-            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp);
-            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp);
-            default -> happyNumbers(param1 * 7, 150, sp);
+            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp)
+                    .withEquation("π₂(N) ~ 2·C₂·N/ln²(N)   (Hardy–Littlewood twin-prime conjecture)");
+            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp)
+                    .withEquation("x_{n+1} = x_n/2 if even, else 3·x_n + 1   (Collatz 3n+1 map)");
+            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp)
+                    .withEquation("r(2n) = #{ (p, q) : p + q = 2n, p,q prime }   (Goldbach partition count)");
+            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp)
+                    .withEquation("s(n) = σ(n) − n   (aliquot sum; σ(n) = sum of all divisors)");
+            default -> happyNumbers(param1 * 7, 150, sp)
+                    .withEquation("x_{n+1} = Σ_i d_i(x_n)²   (digit-square iteration; happy iff terminates at 1)");
         };
     }
 
@@ -736,11 +753,16 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computePhysics(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp);
-            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp);
-            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp);
-            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp);
-            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp);
+            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp)
+                    .withEquation("m·dv/dt = −m·g·ĵ − k·|v|·v   (quadratic-drag projectile)");
+            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp)
+                    .withEquation("T = 2π·√(L/g)·(1 + θ²/16 + 11·θ⁴/3072 + …)   (finite-amplitude pendulum)");
+            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp)
+                    .withEquation("(P + a/V²)·(V − b) = R·T   (Van der Waals equation of state)");
+            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp)
+                    .withEquation("d·sin θ = m·λ   (Fraunhofer diffraction grating)");
+            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp)
+                    .withEquation("f₀ = 1/(2π·√(L·C)),   R_c = 2·√(L/C)   (RLC critical damping)");
         };
     }
 
@@ -955,11 +977,16 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computeMaterials(int topic, int param1, double param2, SearchParams sp) {
         return switch (topic) {
-            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp);
-            case 1 -> binarySpherePacking(sp);
-            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp);
-            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp);
-            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp);
+            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp)
+                    .withEquation("σ_c(V_f) = V_f·E_f·ε_y + (1 − V_f)·σ_ym   (longitudinal rule-of-mixtures at matrix yield)");
+            case 1 -> binarySpherePacking(sp)
+                    .withEquation("η_FCC = π/(3·√2) ≈ 0.7405;   void radii r_octa ≤ 0.4142, r_tetra ≤ 0.2247   (close-packed lattice)");
+            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp)
+                    .withEquation("1/E_T = V_f/E_f + (1 − V_f)/E_m   (Reuss / transverse-stiffness lower bound)");
+            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp)
+                    .withEquation("k(T) = A·exp(−Eₐ/(R·T))   (Arrhenius rate law; Van't Hoff 2×-per-10 K is a special case)");
+            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp)
+                    .withEquation("σ_th = E·α·ΔT   (constrained-member thermal stress)");
         };
     }
 
@@ -1150,11 +1177,16 @@ public class MathPhysicsEngine {
     private static ResearchResult computeInterdisciplinary(int topic, int param1, double param2,
                                                             SearchParams sp) {
         return switch (topic) {
-            case 0 -> collatzRlcDepthResonance(param1, param2, sp);
-            case 1 -> primeGapDefectThermal(param1, param2, sp);
-            case 2 -> resonantThermalFatigue(param1, param2, sp);
-            case 3 -> happyPackingAnomaly(param1, param2, sp);
-            default -> vanDerWaalsCompositeStress(param1, param2, sp);
+            case 0 -> collatzRlcDepthResonance(param1, param2, sp)
+                    .withEquation("depth_C(n) → L = depth/10⁴ H,   f₀ = 1/(2π·√(L·C))   (Collatz-driven RLC resonance)");
+            case 1 -> primeGapDefectThermal(param1, param2, sp)
+                    .withEquation("g(n) = p_{k+1} − p_k → α = 5 + 20/g µm·K⁻¹,   σ_th = E·α·ΔT   (prime-gap defect spacing → CTE → thermal stress)");
+            case 2 -> resonantThermalFatigue(param1, param2, sp)
+                    .withEquation("f₀ = 1/(2π·√(L·C)),   ΔT_cycle = 10 + f₀/10³,   σ_th = E·α·ΔT_cycle   (RLC frequency → thermal-cycling rate → fatigue exposure)");
+            case 3 -> happyPackingAnomaly(param1, param2, sp)
+                    .withEquation("ρ_happy(N) ≈ 0.143,   r = 0.2 + 0.3·(ρ_happy/0.143),   Δη = ρ_voids·(4πr³/3)/(V_cell)   (happy density → binary-FCC void radius → packing improvement)");
+            default -> vanDerWaalsCompositeStress(param1, param2, sp)
+                    .withEquation("(P_c + a/V²)·(V − b) = R·T,   σ_long = P_c · [V_f·E_f + (1 − V_f)·E_m]/10³   (VdW crossover pressure → composite longitudinal stress)");
         };
     }
 

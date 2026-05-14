@@ -57,7 +57,9 @@ public class DynamicComputeEngine {
 
         return new MathPhysicsEngine.ResearchResult(findings, deviation, fraction, n)
                 .withClaim(status, assessment)
-                .withHypothesis(problem.hypothesis() != null ? problem.hypothesis() : findings);
+                .withHypothesis(problem.hypothesis() != null ? problem.hypothesis() : findings)
+                .withEquation("predicate(n) = " + problem.predicate()
+                        + ";   fraction = #{ n ∈ [a, b) : predicate(n) } / (b − a)");
     }
 
     private static MathPhysicsEngine.ResearchResult computeValueMetric(
@@ -102,7 +104,9 @@ public class DynamicComputeEngine {
 
         return new MathPhysicsEngine.ResearchResult(findings, primary, wMean, se)
                 .withClaim(status, assessment)
-                .withHypothesis(problem.hypothesis() != null ? problem.hypothesis() : findings);
+                .withHypothesis(problem.hypothesis() != null ? problem.hypothesis() : findings)
+                .withEquation("predicate(n) = " + problem.predicate()
+                        + ";   " + (isMax ? "max" : "mean") + " of " + fnName + " over { n : predicate(n) }");
     }
 
     // --- Predicate / value-function parsing ---

@@ -234,4 +234,41 @@ class MathPhysicsEngineTest {
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-31");
     }
+
+    // Phase 7 F2 — every dispatcher (math, physics, materials, interdisciplinary
+    // and each of their 5 topic indices) must stamp the closed-form equation
+    // onto the ResearchResult so the structured-findings H3 block can render it.
+    @Test
+    void everyComputeDispatcherStampsAClosedFormEquation() {
+        String[] domains = {"MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY"};
+        for (String domain : domains) {
+            for (int topic = 0; topic < 5; topic++) {
+                MathPhysicsEngine.ResearchResult r =
+                        MathPhysicsEngine.compute(domain, topic, 30, 2.0);
+                assertThat(r.equation())
+                        .as("equation for domain=%s topic=%d", domain, topic)
+                        .isNotNull()
+                        .isNotBlank();
+            }
+        }
+    }
+
+    @Test
+    void rlcEquationContainsTheCanonicalResonanceFormula() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 4, 30, 2.0);
+        assertThat(r.equation()).contains("f₀").contains("2π").contains("L").contains("C");
+    }
+
+    @Test
+    void withEquationPreservesAllOtherFields() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 4, 30, 2.0);
+        MathPhysicsEngine.ResearchResult clobbered = r.withEquation("E = m·c²");
+        assertThat(clobbered.equation()).isEqualTo("E = m·c²");
+        assertThat(clobbered.findings()).isEqualTo(r.findings());
+        assertThat(clobbered.primaryValue()).isEqualTo(r.primaryValue());
+        assertThat(clobbered.hypothesis()).isEqualTo(r.hypothesis());
+        assertThat(clobbered.claimStatus()).isEqualTo(r.claimStatus());
+    }
 }
