@@ -20,14 +20,10 @@ spring:
     scheduling:
       pool:
         size: 12
-  ai:
-    ollama:
-      base-url: ${OLLAMA_URL:http://localhost:11434}
-      chat:
-        model: ${OLLAMA_MODEL:gemma3:4b}
-        options:
-          temperature: 0.7
-          num-predict: 200
+  # Phase 9 U4 — spring.ai.ollama.* removed from default config; OllamaPool reads
+  # from app.ai.ollama.* now. If you have an existing override in another
+  # application.yml or env layer, OllamaPool will log a deprecation WARN at
+  # startup and continue using the legacy value for this release cycle.
 server:
   port: 8081
 app:
@@ -220,11 +216,24 @@ app:
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500
     hintAcceptanceRate: 0.6
-    # Comma-separated Ollama hostnames. Override with OLLAMA_HOSTS env var or --app.ai.backendHosts=...
-    backendHosts: ${OLLAMA_HOSTS:localhost,192.168.1.145}
-    backendPort: 11434
-    # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
-    backendParallelism: 3
+    # Phase 9 U4 — Ollama config migrated to the unified app.ai.ollama.* namespace.
+    # The previous app.ai.backendHosts / app.ai.backendPort / app.ai.backendParallelism
+    # keys and the Spring AI auto-config keys (spring.ai.ollama.chat.*) are still
+    # read as fallback for one release cycle; OllamaPool logs a deprecation WARN at
+    # startup if any legacy key is present.
+    #
+    # preferredModels: CSV of Ollama model names. The pool creates one Backend per
+    # (host, model) tuple — a single host running gemma3:4b + qwen2:7b becomes two
+    # Backend instances. callSyncOnModel(modelId, ...) targets a specific model;
+    # callSync(...) keeps legacy "first model wins" behaviour for back-compat.
+    ollama:
+      backendHosts: ${OLLAMA_HOSTS:localhost,192.168.1.145}
+      backendPort: 11434
+      # Max concurrent requests per backend — must match OLLAMA_NUM_PARALLEL on each Ollama instance.
+      backendParallelism: 3
+      preferredModels: "gemma3:4b"
+      temperature: 0.7
+      maxTokens: 200
 
   # All research flags enabled on 2026-05-13. Phases ship chronologically;
   # later phases sometimes depend on earlier ones being on (Phase 5 C2 needs

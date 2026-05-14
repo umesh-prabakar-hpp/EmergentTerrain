@@ -8,8 +8,10 @@ import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.ollama.api.OllamaOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -17,7 +19,11 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
@@ -27,9 +33,33 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 /**
- * Round-robin pool of Ollama backends with per-backend concurrency control and
- * automatic health tracking. Active when app.ai.enabled=true and no other LlmPool
- * bean (e.g. GroqPool) is present.
+ * Phase 9 U4 — Round-robin pool of Ollama backends with multi-model support.
+ *
+ * <p>Each configured model in {@code app.ai.ollama.preferredModels} (CSV)
+ * gets its own list of {@link Backend}s across the configured hosts —
+ * {@code N hosts × M models = N×M Backend instances}. Per-model round-robin
+ * picks from the relevant list; per-host health tracking continues to gate
+ * which Backend wins.
+ *
+ * <p>Configuration migrated to the unified {@code app.ai.ollama.*} namespace.
+ * Legacy {@code spring.ai.ollama.*} keys are read as a fallback for one
+ * release cycle; a {@code @PostConstruct} hook logs a deprecation warning
+ * when any legacy key is present so operators can spot the migration target.
+ *
+ * <p>Per-model LlmPool surface (added in U1 default impls; overridden here
+ * so the dispatch targets the requested model rather than the first one):
+ * <ul>
+ *   <li>{@link #callSyncOnModel(String, String)}</li>
+ *   <li>{@link #callStreamOnModel(String, String, Consumer)}</li>
+ *   <li>{@link #modelIds()}</li>
+ *   <li>{@link #isModelBlocked(String)} — true iff every Backend for the
+ *       given model is currently unhealthy.</li>
+ * </ul>
+ *
+ * <p>{@link #callSync(String)} / {@link #callStream(String, Consumer)} keep
+ * legacy behaviour: they forward to the first preferred model. U6's
+ * {@code FastModelRegistry} will route the router's fast-tier calls through
+ * a model-aware path so a slow first model doesn't drag the whole tier.
  */
 @Component
 @ConditionalOnProperty(name = "app.ai.enabled", havingValue = "true", matchIfMissing = false)
@@ -40,12 +70,15 @@ public class OllamaPool implements LlmPool {
     private static final int  MAX_FAILURES   = 3;
     private static final long PROBE_DELAY_MS = 30_000;
 
-    private record Backend(ChatClient client, Semaphore slots, String url,
+    private record Backend(String modelName, ChatClient client, Semaphore slots, String url,
                            AtomicBoolean healthy, AtomicInteger consecutiveFailures) {}
 
-    private final List<Backend> backends;
-    private final AtomicInteger cursor = new AtomicInteger(0);
-    private final String modelName;
+    private final List<String> modelIds;
+    /** Backends grouped by model id, in CSV order. */
+    private final Map<String, List<Backend>> backendsByModel;
+    /** Round-robin cursor per model. */
+    private final Map<String, AtomicInteger> cursorsByModel;
+    private final Environment environment;
     private final ScheduledExecutorService probeScheduler =
             Executors.newSingleThreadScheduledExecutor(r -> {
                 Thread t = new Thread(r, "ollama-health-probe");
@@ -54,46 +87,109 @@ public class OllamaPool implements LlmPool {
             });
 
     public OllamaPool(
-            @Value("${app.ai.backendHosts:localhost}") String backendHostsCsv,
-            @Value("${app.ai.backendPort:11434}") int port,
-            @Value("${app.ai.backendParallelism:3}") int parallelism,
-            @Value("${spring.ai.ollama.chat.model:gemma3:4b}") String model,
-            @Value("${spring.ai.ollama.chat.options.temperature:0.7}") double temperature,
-            @Value("${spring.ai.ollama.chat.options.num-predict:200}") int numPredict) {
+            Environment environment,
+            // Phase 9 U4 — chained defaults: new key → legacy key → constant. New
+            // key wins on set; legacy is the fallback. checkLegacyKeys() WARNs
+            // when the legacy form is what actually populated the value.
+            @Value("${app.ai.ollama.backendHosts:${app.ai.backendHosts:localhost}}")
+            String backendHostsCsv,
+            @Value("${app.ai.ollama.backendPort:${app.ai.backendPort:11434}}")
+            int port,
+            @Value("${app.ai.ollama.backendParallelism:${app.ai.backendParallelism:3}}")
+            int parallelism,
+            @Value("${app.ai.ollama.preferredModels:${spring.ai.ollama.chat.model:gemma3:4b}}")
+            String preferredModelsCsv,
+            @Value("${app.ai.ollama.temperature:${spring.ai.ollama.chat.options.temperature:0.7}}")
+            double temperature,
+            @Value("${app.ai.ollama.maxTokens:${spring.ai.ollama.chat.options.num-predict:200}}")
+            int maxTokens) {
+        this.environment = environment;
 
-        this.modelName = model;
-
-        OllamaOptions options = OllamaOptions.builder()
-                .model(model)
-                .temperature(temperature)
-                .numPredict(numPredict)
-                .build();
-
-        List<Backend> built = new ArrayList<>();
-        for (String raw : backendHostsCsv.split(",")) {
-            String host = raw.trim();
-            if (host.isEmpty()) continue;
-            String url = "http://" + host + ":" + port;
-            OllamaApi api = new OllamaApi.Builder().baseUrl(url).build();
-            OllamaChatModel chatModel = OllamaChatModel.builder()
-                    .ollamaApi(api)
-                    .defaultOptions(options)
-                    .build();
-            ChatClient client = ChatClient.builder(chatModel).build();
-            built.add(new Backend(client, new Semaphore(parallelism), url,
-                    new AtomicBoolean(true), new AtomicInteger(0)));
-            log.info("OllamaPool: registered backend url={} parallelism={}", url, parallelism);
-        }
-        if (built.isEmpty()) {
+        List<String> models = Arrays.stream(preferredModelsCsv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (models.isEmpty()) {
             throw new IllegalStateException(
-                    "OllamaPool: no backend URLs configured — set app.ai.backendHosts");
+                    "OllamaPool: no models configured — set app.ai.ollama.preferredModels");
         }
-        this.backends = List.copyOf(built);
+        this.modelIds = List.copyOf(models);
+
+        List<String> hosts = Arrays.stream(backendHostsCsv.split(","))
+                .map(String::trim).filter(s -> !s.isEmpty()).toList();
+        if (hosts.isEmpty()) {
+            throw new IllegalStateException(
+                    "OllamaPool: no backend URLs configured — set app.ai.ollama.backendHosts");
+        }
+
+        // Build N hosts × M models Backend instances. Each Backend pins a
+        // (host, model) tuple — its ChatClient is configured with that single
+        // model so the round-robin pick fully determines which model serves.
+        Map<String, List<Backend>> byModel = new LinkedHashMap<>();
+        Map<String, AtomicInteger> cursors = new LinkedHashMap<>();
+        for (String modelId : modelIds) {
+            List<Backend> built = new ArrayList<>();
+            for (String host : hosts) {
+                String url = "http://" + host + ":" + port;
+                OllamaApi api = new OllamaApi.Builder().baseUrl(url).build();
+                OllamaOptions options = OllamaOptions.builder()
+                        .model(modelId)
+                        .temperature(temperature)
+                        .numPredict(maxTokens)
+                        .build();
+                OllamaChatModel chatModel = OllamaChatModel.builder()
+                        .ollamaApi(api)
+                        .defaultOptions(options)
+                        .build();
+                ChatClient client = ChatClient.builder(chatModel).build();
+                built.add(new Backend(modelId, client, new Semaphore(parallelism), url,
+                        new AtomicBoolean(true), new AtomicInteger(0)));
+                log.info("OllamaPool: registered backend url={} model={} parallelism={}",
+                        url, modelId, parallelism);
+            }
+            byModel.put(modelId, List.copyOf(built));
+            cursors.put(modelId, new AtomicInteger(0));
+        }
+        this.backendsByModel = Collections.unmodifiableMap(byModel);
+        this.cursorsByModel  = Collections.unmodifiableMap(cursors);
+    }
+
+    /**
+     * Phase 9 U4 — deprecation warning for legacy {@code spring.ai.ollama.*}
+     * keys. Runs once at startup; the constructor's chained-default
+     * {@code @Value} resolution already prefers the new keys, so the warning
+     * is purely advisory — operators see the message and can migrate at their
+     * convenience within the deprecation window.
+     */
+    @PostConstruct
+    void checkLegacyKeys() {
+        List<String> legacy = List.of(
+                "spring.ai.ollama.chat.model",
+                "spring.ai.ollama.chat.options.temperature",
+                "spring.ai.ollama.chat.options.num-predict",
+                "app.ai.backendHosts",
+                "app.ai.backendPort",
+                "app.ai.backendParallelism");
+        List<String> detected = legacy.stream()
+                .filter(k -> environment.containsProperty(k))
+                .toList();
+        if (!detected.isEmpty()) {
+            log.warn("OllamaPool: legacy config keys detected — please migrate to "
+                            + "app.ai.ollama.*: {}", detected);
+        }
     }
 
     @Override
     public String callSync(String prompt) {
-        Backend backend = acquire();
+        return callSyncOnModel(modelIds.get(0), prompt);
+    }
+
+    @Override
+    public void callStream(String prompt, Consumer<String> tokenConsumer) {
+        callStreamOnModel(modelIds.get(0), prompt, tokenConsumer);
+    }
+
+    @Override
+    public String callSyncOnModel(String modelId, String prompt) {
+        Backend backend = acquire(modelId);
         try {
             String result = backend.client().prompt().user(prompt).call().content();
             backend.consecutiveFailures().set(0);
@@ -107,8 +203,8 @@ public class OllamaPool implements LlmPool {
     }
 
     @Override
-    public void callStream(String prompt, Consumer<String> tokenConsumer) {
-        Backend backend = acquire();
+    public void callStreamOnModel(String modelId, String prompt, Consumer<String> tokenConsumer) {
+        Backend backend = acquire(modelId);
         try {
             backend.client().prompt().user(prompt).stream().content()
                     .toStream().forEach(tokenConsumer);
@@ -122,20 +218,55 @@ public class OllamaPool implements LlmPool {
     }
 
     @Override
-    public String selectedModel() { return modelName; }
+    public List<String> modelIds() { return modelIds; }
 
     @Override
-    public int backendCount()  { return backends.size(); }
+    public boolean isModelBlocked(String modelId) {
+        List<Backend> backends = backendsByModel.get(modelId);
+        if (backends == null || backends.isEmpty()) return true;
+        return backends.stream().noneMatch(b -> b.healthy().get());
+    }
 
     @Override
-    public int healthyCount()  { return (int) backends.stream().filter(b -> b.healthy().get()).count(); }
+    public String selectedModel() { return modelIds.get(0); }
 
-    private Backend acquire() {
-        int n     = backends.size();
+    @Override
+    public List<String> selectedModels() { return modelIds; }
+
+    @Override
+    public int backendCount() {
+        return backendsByModel.values().stream().mapToInt(List::size).sum();
+    }
+
+    @Override
+    public int healthyCount() {
+        return (int) backendsByModel.values().stream()
+                .flatMap(List::stream)
+                .filter(b -> b.healthy().get())
+                .count();
+    }
+
+    @Override
+    public boolean allBlocked() {
+        return modelIds.stream().allMatch(this::isModelBlocked);
+    }
+
+    /**
+     * Pick a healthy Backend for the given model. Round-robins through the
+     * model's Backend list; if none are healthy AND none have free slots,
+     * waits on the first healthy candidate. Throws on unknown model id.
+     */
+    private Backend acquire(String modelId) {
+        List<Backend> list = backendsByModel.get(modelId);
+        if (list == null || list.isEmpty()) {
+            throw new IllegalArgumentException("OllamaPool: unknown model=" + modelId);
+        }
+        AtomicInteger cursor = cursorsByModel.get(modelId);
+        int n     = list.size();
         int start = Math.abs(cursor.getAndIncrement() % n);
 
         for (int i = 0; i < n; i++) {
-            Backend b = backends.get((start + i) % n);
+            Backend b = list.get((start + i) % n);
             if (b.healthy().get() && b.slots().tryAcquire()) {
                 return b;
             }
@@ -143,10 +274,10 @@ public class OllamaPool implements LlmPool {
 
         Backend candidate = null;
         for (int i = 0; i < n; i++) {
-            Backend b = backends.get((start + i) % n);
+            Backend b = list.get((start + i) % n);
             if (b.healthy().get()) { candidate = b; break; }
         }
-        if (candidate == null) candidate = backends.get(start % n);
+        if (candidate == null) candidate = list.get(start % n);
         try {
             candidate.slots().acquire();
         } catch (InterruptedException e) {
@@ -159,8 +290,9 @@ public class OllamaPool implements LlmPool {
     private void recordFailure(Backend backend) {
         int count = backend.consecutiveFailures().incrementAndGet();
         if (count >= MAX_FAILURES && backend.healthy().compareAndSet(true, false)) {
-            log.warn("OllamaPool: backend {} marked unhealthy after {} failures — probing in {}s",
-                    backend.url(), count, PROBE_DELAY_MS / 1000);
+            log.warn("OllamaPool: backend {} (model={}) marked unhealthy after {} failures — "
+                            + "probing in {}s",
+                    backend.url(), backend.modelName(), count, PROBE_DELAY_MS / 1000);
             probeScheduler.schedule(() -> probe(backend), PROBE_DELAY_MS, TimeUnit.MILLISECONDS);
         }
     }
@@ -177,15 +309,16 @@ public class OllamaPool implements LlmPool {
             if (resp.statusCode() == 200) {
                 backend.consecutiveFailures().set(0);
                 backend.healthy().set(true);
-                log.info("OllamaPool: backend {} is healthy again", backend.url());
+                log.info("OllamaPool: backend {} (model={}) is healthy again",
+                        backend.url(), backend.modelName());
             } else {
-                log.warn("OllamaPool: backend {} probe returned {} — retrying in {}s",
-                        backend.url(), resp.statusCode(), PROBE_DELAY_MS / 1000);
+                log.warn("OllamaPool: backend {} (model={}) probe returned {} — retrying in {}s",
+                        backend.url(), backend.modelName(), resp.statusCode(), PROBE_DELAY_MS / 1000);
                 probeScheduler.schedule(() -> probe(backend), PROBE_DELAY_MS, TimeUnit.MILLISECONDS);
             }
         } catch (Exception e) {
-            log.warn("OllamaPool: backend {} probe failed: {} — retrying in {}s",
-                    backend.url(), e.getMessage(), PROBE_DELAY_MS / 1000);
+            log.warn("OllamaPool: backend {} (model={}) probe failed: {} — retrying in {}s",
+                    backend.url(), backend.modelName(), e.getMessage(), PROBE_DELAY_MS / 1000);
             probeScheduler.schedule(() -> probe(backend), PROBE_DELAY_MS, TimeUnit.MILLISECONDS);
         }
     }
