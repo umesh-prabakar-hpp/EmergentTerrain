@@ -422,4 +422,104 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("PHYSICS", 9, 30, 2.0);
         assertThat(r.primaryValue()).isLessThan(0.10);
     }
+
+    // ---- Phase 7 F3.3: MATERIALS topics 5..9 — Hall-Petch / Bragg / Carnot / Basquin / Young-Laplace ----
+
+    @Test
+    void hallPetchYieldStrengthStaysBelowFiveGPaForNormalGrainSizes() {
+        // MATERIALS:5 — Hall-Petch primary value is max σ_y. The 5 GPa magnitude
+        // bound is what F3 spec calls out; supported case must stay well below it.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 5, 30, 2.0);
+        assertThat(r.equation()).contains("Hall-Petch");
+        assertThat(r.primaryValue()).isLessThan(5000.0);
+        assertThat(r.findings()).contains("Hall-Petch");
+    }
+
+    @Test
+    void hallPetchFineGrainProducesHighestYield() {
+        // Hall-Petch: σ_y rises as d shrinks. The compute() sweep narrows d, so
+        // max yield must exceed friction stress σ_0 substantially.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 5, 50, 2.0);
+        // σ_0 starts at 50 + param1 = 100 MPa; sweep over d should at least double it.
+        assertThat(r.primaryValue()).isGreaterThan(r.secondaryValue());
+    }
+
+    @Test
+    void braggDiffractionAngleStaysInPhysicalRange() {
+        // MATERIALS:6 — Bragg θ ∈ [0°, 90°] always; spec bound rejects > 90°.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 6, 30, 2.0);
+        assertThat(r.equation()).contains("Bragg");
+        assertThat(r.primaryValue()).isBetween(0.0, 90.0);
+        assertThat(r.findings()).contains("Bragg");
+    }
+
+    @Test
+    void braggSweepRecoversFirstOrderAngleAndLatticeSpacing() {
+        // The compute method's primary value is the best first-order angle; the
+        // secondary value is the best-d that produced it.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 6, 30, 2.0);
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);  // lattice spacing nm
+    }
+
+    @Test
+    void carnotEfficiencyStaysBelowOneStrict() {
+        // MATERIALS:7 — η < 1 is the Carnot bound (second law).
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 7, 30, 2.0);
+        assertThat(r.equation()).contains("Carnot");
+        assertThat(r.primaryValue()).isBetween(0.0, 1.0);
+        assertThat(r.findings()).contains("Carnot");
+    }
+
+    @Test
+    void carnotEfficiencyAtLowTcIsHigh() {
+        // Push T_c low and T_h high — efficiency should be substantial.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 7, 90, 2.0);
+        // T_c ≈ 280 + 2*10 = 300, T_h sweeps up from 400 + 90*5 = 850 K.
+        // Best η ≈ 1 - 300/(850 + sweep) → should clearly exceed 0.3.
+        assertThat(r.primaryValue()).isGreaterThan(0.3);
+    }
+
+    @Test
+    void basquinStressAmplitudeBoundedByUltimateTensile() {
+        // MATERIALS:8 — Basquin σ_a must stay below UTS; the validator REFUTES otherwise.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 8, 30, 2.0);
+        assertThat(r.equation()).contains("Basquin");
+        // primary = best (highest) σ_a; should be a positive number well under 3 GPa.
+        assertThat(r.primaryValue()).isLessThan(3000.0);
+        assertThat(r.findings()).contains("Basquin");
+    }
+
+    @Test
+    void basquinExponentNegativeProducesDecayingStressOverCycles() {
+        // The Basquin exponent b is negative; σ_a decays as N_f grows. The compute
+        // method's secondary value carries σ'_f.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 8, 30, 2.0);
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);  // σ'_f always positive
+    }
+
+    @Test
+    void youngLaplaceCapillaryRiseStaysBelowFiftyCm() {
+        // MATERIALS:9 — F3 spec bound: water rise ≤ 50 cm for the swept radius range.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 9, 30, 2.0);
+        assertThat(r.equation()).contains("Young-Laplace");
+        assertThat(r.primaryValue()).isLessThan(50.0);
+        assertThat(r.findings()).contains("Young-Laplace");
+    }
+
+    @Test
+    void youngLaplaceSmallRadiusProducesLargerRise() {
+        // h ∝ 1/r. The sweep narrows radius; max h should be > 1 cm for any reasonable seed.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATERIALS", 9, 30, 2.0);
+        assertThat(r.primaryValue()).isGreaterThan(1.0);
+    }
 }

@@ -191,7 +191,13 @@ public class MathPhysicsEngine {
     private static final String[] MATERIALS_TOPICS = {
             "Composite Failure Mode", "Binary Sphere Packing",
             "Stiffness Crossover Volume Fraction", "Arrhenius Rule Validity",
-            "Thermal Stress Safety Window"
+            "Thermal Stress Safety Window",
+            // Phase 7 F3.3 — 5 new closed-form materials topics.
+            "Hall-Petch Grain Size Strengthening",
+            "Bragg X-ray Diffraction",
+            "Carnot Efficiency",
+            "Basquin Fatigue Law",
+            "Young-Laplace Capillary Rise"
     };
     private static final String[] INTERDISCIPLINARY_TOPICS = {
             "Collatz-RLC Depth Resonance",        // Math→Physics: Collatz depth drives RLC inductance
@@ -228,7 +234,13 @@ public class MathPhysicsEngine {
             {"Size Ratio Optimisation for Binary Hard-Sphere Packing", "Void-Filling Efficiency in FCC Lattices with Mixed Sphere Sizes"},
             {"Volume Fraction Threshold for Transverse Stiffness Doubling", "Reuss Bound Crossover in Particle-Reinforced Composites"},
             {"Activation Energy Range for Van't Hoff Rule Validity", "When Does the 2×-per-10K Approximation Break Down?"},
-            {"Maximum Safe CTE Before Thermal Stress Exceeds Yield", "Temperature-Rise Safety Window for Constrained Structural Materials"}
+            {"Maximum Safe CTE Before Thermal Stress Exceeds Yield", "Temperature-Rise Safety Window for Constrained Structural Materials"},
+            // Phase 7 F3.3 — titles for the 5 new materials topics.
+            {"Hall-Petch Yield Strength as a Function of Inverse Square-Root Grain Size", "Strengthening Coefficient k Recovered from a Grain-Size Sweep"},
+            {"Bragg Diffraction Angles for First-Order n=1 X-ray Reflection", "Lattice Spacing Recovery from Tabulated Bragg Peaks"},
+            {"Carnot Efficiency Across Realistic Hot/Cold Reservoir Pairs", "Maximum-Efficiency Ceiling for Reversible Heat Engines"},
+            {"Basquin Stress-Life Fit for High-Cycle Fatigue Data", "Endurance-Limit Estimation from σ_a vs 2N_f Power Law"},
+            {"Capillary Rise of Water in Glass Tubes Across Radii", "Young-Laplace Predictions for Microfluidic Channel Heights"}
     };
     private static final String[][] INTERDISCIPLINARY_TITLES = {
             {"Collatz Trajectory Depth as an RLC Inductance Driver", "Number-Theoretic Resonance: 3n+1 Depth Governs Circuit Frequency"},
@@ -343,6 +355,12 @@ public class MathPhysicsEngine {
             case "MATERIALS:1"   -> 0.1;     // sphere packing improvement% (~0.02-0.15)
             case "MATERIALS:2"   -> 0.4;     // stiffness crossover Vf-0.5 (~0.3-0.5)
             case "MATERIALS:3"   -> 3.0;     // Arrhenius worstDev (~0.5-10)
+            // Phase 7 F3.3 — new materials topics.
+            case "MATERIALS:5"   -> 1000.0;  // Hall-Petch σ_y in MPa (~200-2000)
+            case "MATERIALS:6"   -> 30.0;    // Bragg θ in degrees (~5-50)
+            case "MATERIALS:7"   -> 0.5;     // Carnot efficiency (~0.1-0.7)
+            case "MATERIALS:8"   -> 400.0;   // Basquin σ_a in MPa (~100-800)
+            case "MATERIALS:9"   -> 5.0;     // Young-Laplace h in cm (~1-30)
             case "DYNAMIC:0"             -> 0.1;
             case "INTERDISCIPLINARY:0"   -> 2000.0;  // RLC f₀ driven by Collatz depth (~200-8000 Hz)
             case "INTERDISCIPLINARY:1"   -> 500.0;   // composite stress from prime-gap alpha (~100-2000 MPa)
@@ -1221,6 +1239,198 @@ public class MathPhysicsEngine {
                         .formatted(seedT));
     }
 
+    // ---- Phase 7 F3.3: new materials topics ----
+
+    /** Hall-Petch grain-size strengthening: σ_y = σ_0 + k·d^(−1/2). */
+    private static ResearchResult hallPetchStrengthening(double seedSigma0, double param2, SearchParams sp) {
+        // k is the Hall-Petch coefficient (MPa·µm^½). Steels typically 300-700.
+        double k = 300.0 + param2 * 50.0;
+        double sigma0 = Math.max(50.0, seedSigma0);
+        double maxYield = 0;
+        double bestD = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double d_um = Math.max(0.05, 50.0 - i * sp.stepSize() * 1.5);
+            double sigmaY = sigma0 + k / Math.sqrt(d_um);
+            samples++;
+            if (sigmaY > maxYield) { maxYield = sigmaY; bestD = d_um; }
+            if (i < 4) sb.append("d=%.2fµm→σ_y=%.0fMPa ".formatted(d_um, sigmaY));
+        }
+        boolean physicalCeiling = maxYield < 5000;  // No steel exceeds 5 GPa
+        ClaimStatus status = physicalCeiling
+                ? (maxYield > sigma0 * 2 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL)
+                : ClaimStatus.REFUTED;
+        String assessment = ("Hall-Petch: σ_0=%.0f MPa, k=%.0f MPa·µm^½; max σ_y=%.0f MPa at d=%.3f µm. %s")
+                .formatted(sigma0, k, maxYield, bestD,
+                        !physicalCeiling ? "σ_y > 5 GPa is unphysical for any steel — strengthening model fails at sub-50 nm grains"
+                                : maxYield > sigma0 * 2 ? "grain refinement doubles yield strength — Hall-Petch holds in this range"
+                                        : "modest strengthening only — Hall-Petch effect is weak");
+        return new ResearchResult(
+                "Hall-Petch sweep (σ_0=%.0f MPa, k=%.0f MPa·µm^½, %d grain samples): max σ_y=%.0fMPa at d=%.3f µm. Sample sweep: %s"
+                        .formatted(sigma0, k, samples, maxYield, bestD, sb.toString().trim()),
+                maxYield, sigma0, k, maxYield, status, assessment)
+                .withHypothesis(("Yield strength of a polycrystalline steel with friction stress σ_0=%.0f MPa and "
+                        + "Hall-Petch coefficient k=%.0f MPa·µm^½ scales as σ_0 + k·d^(−1/2); fine grain regimes "
+                        + "produce the strongest material.")
+                        .formatted(sigma0, k));
+    }
+
+    /** Bragg X-ray diffraction: n·λ = 2·d·sin θ. Recovers θ for given (d, λ, n). */
+    private static ResearchResult braggDiffraction(double seedDnm, double lambdaNm, SearchParams sp) {
+        double bestAngle = 0;
+        double bestD = seedDnm;
+        int bestN = 1;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        int validOrders = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double d = Math.max(0.05, seedDnm + i * sp.stepSize() * 0.02);
+            // Sweep diffraction orders n = 1..3, count those within [0°, 90°].
+            int orders = 0;
+            for (int n = 1; n <= 3; n++) {
+                double sinTheta = (n * lambdaNm) / (2 * d);
+                if (sinTheta <= 1.0) {
+                    double theta = Math.toDegrees(Math.asin(sinTheta));
+                    if (n == 1 && theta > bestAngle) { bestAngle = theta; bestD = d; bestN = n; }
+                    orders++;
+                }
+            }
+            validOrders += orders;
+            samples++;
+            if (i < 4) {
+                double sinT1 = lambdaNm / (2 * d);
+                double t1 = sinT1 <= 1.0 ? Math.toDegrees(Math.asin(sinT1)) : 90.0;
+                sb.append("d=%.3fnm→θ₁=%.1f° ".formatted(d, t1));
+            }
+        }
+        double meanOrders = samples > 0 ? (double) validOrders / samples : 0;
+        ClaimStatus status = bestAngle > 0.5 && bestAngle < 89.5 ? ClaimStatus.SUPPORTED
+                : bestAngle > 0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Bragg first-order θ=%.1f° at d=%.3f nm (λ=%.3f nm); mean visible orders = %.1f across %d samples. %s")
+                .formatted(bestAngle, bestD, lambdaNm, meanOrders, samples,
+                        status == ClaimStatus.SUPPORTED ? "Bragg condition produces a physically valid diffraction angle"
+                                : "first-order angle outside the [0.5°, 89.5°] band — extreme lattice/λ ratio");
+        return new ResearchResult(
+                "Bragg diffraction (λ=%.3f nm, %d lattice samples): peak first-order θ=%.1f° at d=%.3f nm (n=%d). Sample sweep: %s"
+                        .formatted(lambdaNm, samples, bestAngle, bestD, bestN, sb.toString().trim()),
+                bestAngle, bestD, meanOrders, bestAngle, status, assessment)
+                .withHypothesis(("For λ=%.3f nm X-rays and lattice spacings swept near d=%.3f nm, the first-order "
+                        + "Bragg condition n·λ = 2·d·sin θ yields a recoverable diffraction angle in [0°, 90°].")
+                        .formatted(lambdaNm, seedDnm));
+    }
+
+    /** Carnot efficiency: η = 1 − T_c/T_h. */
+    private static ResearchResult carnotEfficiency(double seedTc, double seedTh, SearchParams sp) {
+        double bestEta = 0;
+        double bestTc = seedTc;
+        double bestTh = seedTh;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumEta = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double Tc = Math.max(50.0, seedTc + Math.sin(i * 0.31) * 30.0);
+            double Th = Math.max(Tc + 10.0, seedTh + i * sp.stepSize() * 25.0);
+            double eta = 1.0 - Tc / Th;
+            sumEta += eta;
+            samples++;
+            if (eta > bestEta) { bestEta = eta; bestTc = Tc; bestTh = Th; }
+            if (i < 4) sb.append("T_c=%.0fK/T_h=%.0fK→η=%.3f ".formatted(Tc, Th, eta));
+        }
+        double meanEta = samples > 0 ? sumEta / samples : 0;
+        // Carnot bound: η must be in [0, 1) strict. Above 1 is unphysical.
+        boolean physical = bestEta >= 0 && bestEta < 1.0;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestEta > 0.5 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Carnot: best η=%.3f at T_c=%.0f K, T_h=%.0f K; mean η=%.3f across %d samples. %s")
+                .formatted(bestEta, bestTc, bestTh, meanEta, samples,
+                        !physical ? "η outside [0, 1) — second law violated; reject"
+                                : bestEta > 0.5 ? "efficiency exceeds 50% — high-temperature regime"
+                                        : "low-temperature regime — bounded efficiency expected");
+        return new ResearchResult(
+                "Carnot efficiency sweep (T_c≈%.0f K, T_h=%.0f–%.0f K, %d samples): max η=%.3f at T_c=%.0f K, T_h=%.0f K; mean η=%.3f."
+                        .formatted(seedTc, seedTh, bestTh, samples, bestEta, bestTc, bestTh, meanEta),
+                bestEta, meanEta, bestTh, bestEta, status, assessment)
+                .withHypothesis(("For reversible Carnot cycles with T_c≈%.0f K and T_h swept upward from %.0f K, "
+                        + "the achievable efficiency η = 1 − T_c/T_h will remain strictly less than 1 and rise "
+                        + "monotonically with T_h.")
+                        .formatted(seedTc, seedTh));
+    }
+
+    /** Basquin high-cycle fatigue: σ_a = σ'_f · (2·N_f)^b. */
+    private static ResearchResult basquinFatigue(double seedSigmaF, double param2, SearchParams sp) {
+        double sigmaPrimeF = seedSigmaF;  // MPa, fatigue strength coefficient
+        double b = -0.08 - param2 * 0.01;  // typical -0.05 to -0.15
+        double UTS = sigmaPrimeF * 0.9;   // assume σ_f is ~90% of UTS
+        double bestAmp = 0;
+        long bestNf = 0;
+        int countAboveUts = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            long Nf = (long) Math.max(1_000, 10_000 + i * sp.stepSize() * 50_000);
+            double sigmaA = sigmaPrimeF * Math.pow(2.0 * Nf, b);
+            samples++;
+            if (sigmaA > bestAmp) { bestAmp = sigmaA; bestNf = Nf; }
+            if (sigmaA > UTS) countAboveUts++;
+            if (i < 4) sb.append("N_f=%dk→σ_a=%.0fMPa ".formatted(Nf / 1000, sigmaA));
+        }
+        boolean physical = countAboveUts == 0;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestAmp > sigmaPrimeF * 0.5 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Basquin: σ'_f=%.0f MPa, b=%.3f, UTS≈%.0f MPa; max σ_a=%.0f MPa at N_f=%d; %d/%d samples above UTS. %s")
+                .formatted(sigmaPrimeF, b, UTS, bestAmp, bestNf, countAboveUts, samples,
+                        !physical ? "σ_a exceeds UTS in some samples — Basquin extrapolation breaks above static strength"
+                                : "fatigue-stress range stays below ultimate tensile strength");
+        return new ResearchResult(
+                "Basquin S-N curve (σ'_f=%.0f MPa, b=%.3f, %d cycle counts): max σ_a=%.0fMPa at N_f=%d. Sample sweep: %s"
+                        .formatted(sigmaPrimeF, b, samples, bestAmp, bestNf, sb.toString().trim()),
+                bestAmp, sigmaPrimeF, Math.abs(b), bestAmp, status, assessment)
+                .withHypothesis(("For a metal with fatigue strength coefficient σ'_f=%.0f MPa and exponent b=%.3f, "
+                        + "the Basquin power law σ_a = σ'_f·(2·N_f)^b will produce stress amplitudes that stay below "
+                        + "the material's ultimate tensile strength across the swept cycle-count range.")
+                        .formatted(sigmaPrimeF, b));
+    }
+
+    /** Young-Laplace capillary rise: h = 2γ·cos θ / (ρ·g·r). */
+    private static ResearchResult youngLaplaceCapillary(double seedRadiusMm, SearchParams sp) {
+        double gamma = 0.0728;   // N/m, water surface tension at 20°C
+        double rho = 1000.0;     // kg/m³
+        double g = 9.81;
+        double contactAngle = Math.toRadians(20.0);  // wet glass
+        double maxH = 0;
+        double bestR = seedRadiusMm;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        int countAboveLimit = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double r_mm = Math.max(0.005, seedRadiusMm - i * sp.stepSize() * 0.005);
+            double r_m = r_mm * 1e-3;
+            double h_m = (2 * gamma * Math.cos(contactAngle)) / (rho * g * r_m);
+            double h_cm = h_m * 100.0;
+            samples++;
+            if (h_cm > maxH) { maxH = h_cm; bestR = r_mm; }
+            if (h_cm > 50.0) countAboveLimit++;  // F3 spec: water rise must be ≤ 50 cm
+            if (i < 4) sb.append("r=%.3fmm→h=%.2fcm ".formatted(r_mm, h_cm));
+        }
+        boolean physical = countAboveLimit < samples / 2;  // most samples must stay sane
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : maxH > 5.0 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Young-Laplace: γ=%.4f N/m, ρ=%.0f kg/m³, contact angle %.0f°; max h=%.2f cm at r=%.3f mm; %d/%d samples above 50 cm. %s")
+                .formatted(gamma, rho, Math.toDegrees(contactAngle), maxH, bestR, countAboveLimit, samples,
+                        !physical ? "rise exceeds 50 cm — sub-micron radius regime where additional physics dominates"
+                                : maxH > 5.0 ? "measurable capillary rise across the swept radius range"
+                                        : "small capillary effect at this radius scale");
+        return new ResearchResult(
+                "Young-Laplace capillary survey (γ=%.4f N/m, contact=%.0f°, %d radius samples): max rise %.2f cm at r=%.3f mm. Sample sweep: %s"
+                        .formatted(gamma, Math.toDegrees(contactAngle), samples, maxH, bestR, sb.toString().trim()),
+                maxH, bestR, gamma, maxH, status, assessment)
+                .withHypothesis(("Water in a glass capillary with radii swept down from %.3f mm will rise per "
+                        + "Young-Laplace h = 2γ·cos θ / (ρ·g·r); the maximum measurable rise across the sweep "
+                        + "scales inversely with tube radius.")
+                        .formatted(seedRadiusMm));
+    }
+
     // ---- Materials ----
 
     private static ResearchResult computeMaterials(int topic, int param1, double param2, SearchParams sp) {
@@ -1230,7 +1440,13 @@ public class MathPhysicsEngine {
             case 1 -> binarySpherePacking(sp).withEquation(eq);
             case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp).withEquation(eq);
             case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp).withEquation(eq);
-            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp).withEquation(eq);
+            case 4 -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp).withEquation(eq);
+            // Phase 7 F3.3 — new materials topics.
+            case 5 -> hallPetchStrengthening(50.0 + param1, param2, sp).withEquation(eq);
+            case 6 -> braggDiffraction(0.05 + param1 / 500.0, 0.154, sp).withEquation(eq);
+            case 7 -> carnotEfficiency(280.0 + param2 * 10, 400.0 + param1 * 5, sp).withEquation(eq);
+            case 8 -> basquinFatigue(800.0 + param1 * 5, param2, sp).withEquation(eq);
+            default -> youngLaplaceCapillary(0.1 + param1 / 200.0, sp).withEquation(eq);
         };
     }
 
@@ -1463,7 +1679,12 @@ public class MathPhysicsEngine {
                 case 1 -> "η_FCC = π/(3·√2) ≈ 0.7405;   void radii r_octa ≤ 0.4142, r_tetra ≤ 0.2247   (close-packed lattice)";
                 case 2 -> "1/E_T = V_f/E_f + (1 − V_f)/E_m   (Reuss / transverse-stiffness lower bound)";
                 case 3 -> "k(T) = A·exp(−Eₐ/(R·T))   (Arrhenius rate law; Van't Hoff 2×-per-10 K is a special case)";
-                default -> "σ_th = E·α·ΔT   (constrained-member thermal stress)";
+                case 4 -> "σ_th = E·α·ΔT   (constrained-member thermal stress)";
+                case 5 -> "σ_y(d) = σ_0 + k·d^(−1/2)   (Hall-Petch grain-size strengthening)";
+                case 6 -> "n·λ = 2·d·sin θ   (Bragg X-ray diffraction; n = reflection order)";
+                case 7 -> "η_Carnot = 1 − T_c/T_h   (Carnot reversible-engine efficiency)";
+                case 8 -> "σ_a = σ'_f · (2·N_f)^b   (Basquin high-cycle fatigue power law)";
+                default -> "h = 2·γ·cos θ / (ρ·g·r)   (Young-Laplace capillary rise)";
             };
             case "INTERDISCIPLINARY" -> switch (t) {
                 case 0 -> "depth_C(n) → L = depth/10⁴ H,   f₀ = 1/(2π·√(L·C))   (Collatz-driven RLC resonance)";

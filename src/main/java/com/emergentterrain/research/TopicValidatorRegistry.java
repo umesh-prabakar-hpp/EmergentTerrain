@@ -176,6 +176,27 @@ public class TopicValidatorRegistry {
         stub("MATERIALS", "Binary Sphere Packing");
         stub("MATERIALS", "Stiffness Crossover Volume Fraction");
         stub("MATERIALS", "Thermal Stress Safety Window");
+        // Phase 7 F3.3 — bounds for the new materials topics.
+        register(new TopicKey("MATERIALS", "Hall-Petch Grain Size Strengthening"),
+                bound(Pattern.compile("σ_y=([0-9]+(?:\\.[0-9]+)?)MPa"), 5000.0, "MPa",
+                        "Hall-Petch yield strength > 5 GPa is unphysical for any "
+                                + "polycrystalline steel; flag the sub-50 nm grain regime"));
+        register(new TopicKey("MATERIALS", "Bragg X-ray Diffraction"),
+                bound(Pattern.compile("θ[₁_1]?=([0-9]+(?:\\.[0-9]+)?)°"), 90.0, "°",
+                        "Bragg angle > 90° violates the n·λ = 2·d·sin θ closure "
+                                + "(sin θ ≤ 1 by definition)"));
+        register(new TopicKey("MATERIALS", "Carnot Efficiency"),
+                bound(Pattern.compile("η=([0-9]+(?:\\.[0-9]+)?)"), 1.0, "ratio",
+                        "Carnot efficiency η ≥ 1 violates the second law of thermodynamics"));
+        register(new TopicKey("MATERIALS", "Basquin Fatigue Law"),
+                bound(Pattern.compile("σ_a=([0-9]+(?:\\.[0-9]+)?)MPa"), 3000.0, "MPa",
+                        "Basquin stress amplitude > 3 GPa exceeds any common metal's "
+                                + "ultimate tensile strength; extrapolation has broken down"));
+        register(new TopicKey("MATERIALS", "Young-Laplace Capillary Rise"),
+                bound(Pattern.compile("h=([0-9]+(?:\\.[0-9]+)?)cm"), 50.0, "cm",
+                        "water capillary rise > 50 cm enters the sub-micron-radius "
+                                + "regime where additional surface physics (curvature-"
+                                + "dependent γ, disjoining pressure) dominate"));
 
         // Unbounded INTERDISCIPLINARY topics — they're cross-domain by construction
         // (Math→Physics, Physics→Materials, Math→Materials), so they pass the
