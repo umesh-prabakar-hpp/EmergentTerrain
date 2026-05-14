@@ -42,8 +42,16 @@ public class FastModelRegistry implements ModelRegistry {
     public FastModelRegistry(ApplicationContext ctx) {
         List<ModelHandle> collected = new ArrayList<>();
         for (LlmPool pool : ctx.getBeansOfType(LlmPool.class).values()) {
-            if (pool.supportsTools()) continue;  // primary-tier; skip
-            for (String modelId : pool.modelIds()) {
+            if (!pool.supportsTools()) {
+                // Non-tool pools (Ollama) — every model is fast tier.
+                for (String modelId : pool.modelIds()) {
+                    collected.add(new ModelHandle(pool, modelId));
+                }
+            }
+            // Phase 9 U7 — tool-capable pools may expose sub-70B chat models
+            // via fastTierModelIds(). Each provider's classification rule
+            // decides what's fast vs primary; the registry just aggregates.
+            for (String modelId : pool.fastTierModelIds()) {
                 collected.add(new ModelHandle(pool, modelId));
             }
         }

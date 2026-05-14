@@ -91,6 +91,13 @@ public class GroqPool implements LlmPool {
     private final String ollamaJudgeUrl;
     private final String ollamaJudgeModel;
     private final List<String> activeModels;
+    /**
+     * Phase 9 U7 — Groq's sub-70B chat models that passed selection probes.
+     * Exposed via {@link #fastTierModelIds()} so {@code FastModelRegistry}
+     * picks them up alongside Ollama. Stays empty when no Groq sub-70B model
+     * passed (or when {@code preferredModels} pinned only primary-tier ids).
+     */
+    private final List<String> fastTierActiveModels;
     private final Semaphore slots;
     private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
@@ -133,32 +140,54 @@ public class GroqPool implements LlmPool {
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
 
-        List<String> candidates;
+        List<String> primaryCandidates;
+        List<String> fastCandidates;
         if (preferredModels != null && !preferredModels.isBlank()) {
-            candidates = List.of(preferredModels.split(","))
+            // Operator pinned a specific list — treat as primary, no auto fast-tier classification.
+            primaryCandidates = List.of(preferredModels.split(","))
                     .stream().map(String::trim).filter(s -> !s.isBlank()).toList();
-            log.info("GroqPool: using configured models={} parallelism={}", candidates, parallelism);
+            fastCandidates = List.of();
+            log.info("GroqPool: using configured models={} parallelism={}", primaryCandidates, parallelism);
         } else {
-            candidates = discoverAndRankModels(primaryModelCount);
-            log.info("GroqPool: selected models={} parallelism={}", candidates, parallelism);
+            // Phase 9 U7 — discoverAndRankModels returns primary (70B+) and stashes
+            // sub-70B chat models for fast-tier consideration.
+            primaryCandidates = discoverAndRankModels(primaryModelCount);
+            fastCandidates = List.copyOf(pendingFastTierCandidates);
+            pendingFastTierCandidates.clear();
+            log.info("GroqPool: selected primary models={} parallelism={} fast-tier candidates={}",
+                    primaryCandidates, parallelism, fastCandidates);
         }
 
-        // Phase 9 U5b — universal selection tests. discoverAndRankModels already
-        // does a Groq-specific ranking probe, but the U5 contract is broader
-        // (chat + JSON + tool with the canonical prompts) and applies to every
-        // pool; running it here surfaces any model that ranks high on Groq's
-        // own ranking but fails the standardised probes.
+        // Phase 9 U5b — universal selection tests for primary tier (chat + JSON + tool).
         this.activeModels = selectionTestsEnabled
                 ? ModelSelectionTester.filterPassing(
-                        PROVIDER_ID, candidates,
+                        PROVIDER_ID, primaryCandidates,
                         (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
                         mid -> (sys, user, toolsJson, exec) ->
                                 runToolLoop(mid, sys, user, toolsJson, exec))
-                : candidates;
+                : primaryCandidates;
 
-        log.info("GroqPool: activeModels={} selection-tests={}",
-                activeModels, selectionTestsEnabled ? "on" : "off");
+        // Phase 9 U7 — fast-tier selection tests (chat + JSON only; no tool
+        // probe since sub-70B models aren't expected to do tool-call work).
+        this.fastTierActiveModels = selectionTestsEnabled && !fastCandidates.isEmpty()
+                ? ModelSelectionTester.filterPassing(
+                        PROVIDER_ID + "[fast]", fastCandidates,
+                        (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
+                        null)  // null toolDispatch → chat + JSON only
+                : fastCandidates;
+
+        log.info("GroqPool: primary activeModels={} fastTier activeModels={} selection-tests={}",
+                activeModels, fastTierActiveModels, selectionTestsEnabled ? "on" : "off");
     }
+
+    /**
+     * Phase 9 U7 — populated by {@link #discoverAndRankModels} when it classifies
+     * a candidate as sub-70B chat. Drained into {@link #fastTierActiveModels}
+     * at construction (just after primary classification finishes). Field-level
+     * for lifecycle reasons — discoverAndRankModels is called from the constructor
+     * before final assignment.
+     */
+    private final List<String> pendingFastTierCandidates = new ArrayList<>();
 
     // --- LlmPool ---
 
@@ -196,14 +225,21 @@ public class GroqPool implements LlmPool {
     // a specific Groq model rather than letting our round-robin pick.
 
     @Override public List<String> modelIds() { return activeModels; }
+    /** Phase 9 U7 — sub-70B Groq chat models exposed to {@code FastModelRegistry}. */
+    @Override public List<String> fastTierModelIds() { return fastTierActiveModels; }
 
     @Override public boolean isModelBlocked(String modelId) {
         Long exp = tpdExpiry.get(modelId);
         return exp != null && System.currentTimeMillis() < exp;
     }
 
+    /** Phase 9 U7 — accept both primary and fast-tier model ids. */
+    private boolean knowsModel(String modelId) {
+        return activeModels.contains(modelId) || fastTierActiveModels.contains(modelId);
+    }
+
     @Override public String callSyncOnModel(String modelId, String prompt) {
-        if (!activeModels.contains(modelId)) {
+        if (!knowsModel(modelId)) {
             throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
         }
         acquireSlot();
@@ -216,7 +252,7 @@ public class GroqPool implements LlmPool {
 
     @Override public void callStreamOnModel(String modelId, String prompt,
                                               java.util.function.Consumer<String> tokenConsumer) {
-        if (!activeModels.contains(modelId)) {
+        if (!knowsModel(modelId)) {
             throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
         }
         acquireSlot();
@@ -230,7 +266,7 @@ public class GroqPool implements LlmPool {
     @Override public com.emergentterrain.llm.ToolCallResponse callWithToolsOnModel(
             String modelId, String systemPrompt, String userPrompt,
             String toolsJson, java.util.function.Function<String, String> executor) {
-        if (!activeModels.contains(modelId)) {
+        if (!knowsModel(modelId)) {
             throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
         }
         acquireSlot();
@@ -702,26 +738,34 @@ public class GroqPool implements LlmPool {
                 throw new IllegalStateException("GroqPool: Groq returned " + resp.statusCode() + " — application cannot start");
             }
             JsonNode root = mapper.readTree(resp.body());
-            List<String> models    = new ArrayList<>();
-            List<String> skipped   = new ArrayList<>();
+            List<String> primaryModels  = new ArrayList<>();
+            List<String> fastTierModels = new ArrayList<>();
+            List<String> excluded       = new ArrayList<>();
             for (JsonNode node : root.path("data")) {
                 String id = node.path("id").asText("");
                 if (id.isBlank()) continue;
-                if (isChatModel(id)) {
-                    models.add(id);
-                } else {
-                    skipped.add(id);
+                ModelTier tier = classifyTier(id);
+                switch (tier) {
+                    case PRIMARY  -> primaryModels.add(id);
+                    case FAST     -> fastTierModels.add(id);
+                    case EXCLUDED -> excluded.add(id);
                 }
             }
-            if (!skipped.isEmpty()) {
-                log.info("GroqPool: skipped {} models below {}B (or excluded): {}",
-                        skipped.size(), MIN_MODEL_SIZE_B, skipped);
+            if (!excluded.isEmpty()) {
+                log.info("GroqPool: excluded {} non-chat / no-size models: {}",
+                        excluded.size(), excluded);
             }
-            if (models.isEmpty()) {
-                log.error("GroqPool: Groq returned no usable chat models. Exiting.");
-                throw new IllegalStateException("GroqPool: no chat models — application cannot start");
+            if (!fastTierModels.isEmpty()) {
+                log.info("GroqPool: routed {} sub-{}B chat models to fast tier: {}",
+                        fastTierModels.size(), MIN_MODEL_SIZE_B, fastTierModels);
             }
-            return models;
+            // Stash for the constructor's fast-tier selection pass.
+            pendingFastTierCandidates.addAll(fastTierModels);
+            if (primaryModels.isEmpty()) {
+                log.error("GroqPool: Groq returned no primary-tier (70B+) chat models. Exiting.");
+                throw new IllegalStateException("GroqPool: no primary chat models — application cannot start");
+            }
+            return primaryModels;
         } catch (IllegalStateException e) {
             throw e;
         } catch (Exception e) {
@@ -732,11 +776,25 @@ public class GroqPool implements LlmPool {
         }
     }
 
-    private boolean isChatModel(String id) {
+    /**
+     * Phase 9 U7 — three-way classification of a Groq model id:
+     * <ul>
+     *   <li>{@code PRIMARY} — chat model, ≥{@value #MIN_MODEL_SIZE_B}B parameters. Joins
+     *       {@link #activeModels} and {@code PrimaryModelRegistry}.</li>
+     *   <li>{@code FAST} — chat model, &lt;{@value #MIN_MODEL_SIZE_B}B. Joins
+     *       {@link #fastTierActiveModels} and {@code FastModelRegistry}.</li>
+     *   <li>{@code EXCLUDED} — non-chat (whisper/orpheus/guard) or no size in the
+     *       id (groq/compound, etc.). Dropped entirely.</li>
+     * </ul>
+     */
+    private enum ModelTier { PRIMARY, FAST, EXCLUDED }
+
+    private ModelTier classifyTier(String id) {
         String lower = id.toLowerCase();
-        if (EXCLUDED_SUBSTRINGS.stream().anyMatch(lower::contains)) return false;
+        if (EXCLUDED_SUBSTRINGS.stream().anyMatch(lower::contains)) return ModelTier.EXCLUDED;
         OptionalInt size = extractModelSizeB(lower);
-        return size.isPresent() && size.getAsInt() >= MIN_MODEL_SIZE_B;
+        if (size.isEmpty()) return ModelTier.EXCLUDED;  // can't classify → drop
+        return size.getAsInt() >= MIN_MODEL_SIZE_B ? ModelTier.PRIMARY : ModelTier.FAST;
     }
 
     // Returns the largest Nb value found in the model ID.

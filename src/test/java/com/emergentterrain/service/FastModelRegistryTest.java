@@ -85,6 +85,36 @@ class FastModelRegistryTest {
     }
 
     @Test
+    void u7_toolCapablePoolsContributeFastTierModels() {
+        // GroqPool-like fake: supportsTools=true (primary) but exposes sub-70B
+        // models via fastTierModelIds(). The fast registry includes those even
+        // though the pool is "primary-tier" overall.
+        FakePool groq = pool("groq", true, List.of("llama-3.3-70b", "openai/gpt-oss-120b"));
+        groq.fastTierIds.addAll(List.of("openai/gpt-oss-20b", "llama-3.1-8b-instant"));
+        FakePool ollama = pool("ollama", false, List.of("gemma3:4b"));
+
+        FastModelRegistry registry = build(groq, ollama);
+        // Fast tier picks up Groq's sub-70B + Ollama's model. Groq's 70B+ models
+        // do NOT appear here (they go to PrimaryModelRegistry). Order is by bean
+        // registration: groq's fastTierIds first, then ollama's modelIds.
+        assertThat(registry.allModels()).extracting(ModelHandle::reviewerId)
+                .containsExactly(
+                        "groq/openai/gpt-oss-20b",
+                        "groq/llama-3.1-8b-instant",
+                        "ollama/gemma3:4b");
+    }
+
+    @Test
+    void u7_fastTierHandlesDispatchThroughOwningPoolCallSyncOnModel() {
+        FakePool groq = pool("groq", true, List.of("llama-3.3-70b"));
+        groq.fastTierIds.add("openai/gpt-oss-20b");
+        groq.responses.put("openai/gpt-oss-20b", "from-groq-fast");
+
+        FastModelRegistry registry = build(groq);
+        assertThat(registry.callSync("hello")).isEqualTo("from-groq-fast");
+    }
+
+    @Test
     void callStreamCollectsTokens() {
         FakePool ollama = pool("ollama", false, List.of("a"));
         ollama.streamTokens.put("a", List.of("hello ", "world"));
@@ -120,6 +150,8 @@ class FastModelRegistryTest {
         final String providerKey;
         final boolean supportsTools;
         final List<String> modelIds = new java.util.ArrayList<>();
+        /** Phase 9 U7 — sub-70B primary-pool models the FastModelRegistry picks up. */
+        final List<String> fastTierIds = new java.util.ArrayList<>();
         final Set<String> blocked = new HashSet<>();
         final Map<String, String> responses = new HashMap<>();
         final Map<String, RuntimeException> throws_ = new HashMap<>();
@@ -134,6 +166,7 @@ class FastModelRegistryTest {
         @Override public String providerKey()    { return providerKey; }
         @Override public boolean supportsTools() { return supportsTools; }
         @Override public List<String> modelIds() { return modelIds; }
+        @Override public List<String> fastTierModelIds() { return fastTierIds; }
         @Override public boolean isModelBlocked(String modelId) { return blocked.contains(modelId); }
         @Override public String selectedModel()  { return modelIds.isEmpty() ? "n/a" : modelIds.get(0); }
         @Override public int backendCount()      { return 1; }

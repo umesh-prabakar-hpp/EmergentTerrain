@@ -81,6 +81,18 @@ public interface LlmPool {
     default List<String> modelIds() { return selectedModels(); }
 
     /**
+     * Phase 9 U7 — model IDs in this pool that should be routed to the
+     * <b>fast tier</b> (sub-70B / cheap / cost-bounded models — currently
+     * Groq's gpt-oss-20b, llama-3.1-8b-instant, qwen3-32b, etc.). Default
+     * empty list; tool-capable pools that classify sub-70B chat models into
+     * the fast tier override this to expose them to
+     * {@code FastModelRegistry}. These models stay invisible to
+     * {@code PrimaryModelRegistry} so panel and primary-tier callers never
+     * see them as candidates.
+     */
+    default List<String> fastTierModelIds() { return List.of(); }
+
+    /**
      * True when this specific model has an active rate-limit / quota block.
      * Default implementation maps the question onto the pool-wide
      * {@link #allBlocked()} for pools that don't track per-model state.
