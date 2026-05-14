@@ -231,12 +231,46 @@ public class MathPhysicsEngine {
     /** Primary entry point: genome-driven search via SearchParams. */
     public static ResearchResult compute(String domain, int topicIndex,
                                          int param1, double param2, SearchParams sp) {
+        int n = topicCount(domain);
+        int t = Math.floorMod(topicIndex, n);
         return switch (domain) {
-            case "PHYSICS"           -> computePhysics(topicIndex % 5, param1, param2, sp);
-            case "MATERIALS"         -> computeMaterials(topicIndex % 5, param1, param2, sp);
-            case "INTERDISCIPLINARY" -> computeInterdisciplinary(topicIndex % 5, param1, param2, sp);
-            default                  -> computeMath(topicIndex % 5, param1, param2, sp);
+            case "PHYSICS"           -> computePhysics(t, param1, param2, sp);
+            case "MATERIALS"         -> computeMaterials(t, param1, param2, sp);
+            case "INTERDISCIPLINARY" -> computeInterdisciplinary(t, param1, param2, sp);
+            default                  -> computeMath(t, param1, param2, sp);
         };
+    }
+
+    /**
+     * Phase 7 F3 — number of topics registered for a domain. Driven by the
+     * domain's TOPICS array length so adding a topic in one place
+     * automatically updates {@link #compute(String, int, int, double, SearchParams)}
+     * and {@link #scoreResult(String, int, double, SearchParams)} indexing.
+     */
+    public static int topicCount(String domain) {
+        return switch (domain == null ? "" : domain) {
+            case "PHYSICS"           -> PHYSICS_TOPICS.length;
+            case "MATERIALS"         -> MATERIALS_TOPICS.length;
+            case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS.length;
+            case "MATHEMATICS"       -> MATH_TOPICS.length;
+            default                  -> MATH_TOPICS.length;
+        };
+    }
+
+    /**
+     * Phase 7 F3 — return a topic index in the range [0, topicCount(domain)).
+     * When {@code topicsV2Enabled} is true, samples uniformly across every
+     * registered topic in the domain (current 5 + the F3 additions). When
+     * false, falls back to {@code rawWeightedSelection} which is the bot's
+     * weighted genome-driven choice over the original 5 topics — bit-identical
+     * to pre-F3 behaviour.
+     */
+    public static int selectTopicIndex(String domain, int rawWeightedSelection,
+                                        boolean topicsV2Enabled, java.util.Random rng) {
+        if (!topicsV2Enabled) {
+            return Math.floorMod(rawWeightedSelection, Math.min(5, topicCount(domain)));
+        }
+        return rng.nextInt(topicCount(domain));
     }
 
     /** Backward-compatible overload — uses neutral SearchParams. */
@@ -255,7 +289,7 @@ public class MathPhysicsEngine {
     public static double scoreResult(String domain, int topicIndex,
                                      double value, SearchParams sp) {
         if (!Double.isFinite(value)) return 0.0;
-        double scale = topicScale(domain, topicIndex % 5);
+        double scale = topicScale(domain, Math.floorMod(topicIndex, topicCount(domain)));
         double abs = Math.abs(value) / scale;
         double raw = abs / (1.0 + abs);
         double efficiencyFactor = 1.0 - (sp.candidateBreadth() / 80.0) * 0.25;

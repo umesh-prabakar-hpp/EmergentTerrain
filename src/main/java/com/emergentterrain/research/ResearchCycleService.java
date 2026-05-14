@@ -99,6 +99,19 @@ public class ResearchCycleService {
         this.institutionService = institutionService;
     }
 
+    /**
+     * Phase 7 F3 — when true, the topic-selection step uses uniform random over
+     * every registered topic for the bot's domain (current 5 per main domain
+     * plus the F3 additions) rather than the bot's weighted genome over the
+     * original 5. Wired by UniversityService from
+     * {@code app.research.topics-v2.enabled}.
+     */
+    private volatile boolean topicsV2Enabled = false;
+
+    public void setTopicsV2Enabled(boolean enabled) {
+        this.topicsV2Enabled = enabled;
+    }
+
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
     public int draftQueueSize()                  { return draftQueueSize.get(); }
@@ -121,8 +134,14 @@ public class ResearchCycleService {
             return;
         }
 
-        int topicIndex = author.selectTopic(rng);
         String domain  = author.getDomain();
+        // Phase 7 F3 — when the flag is on, sample uniformly over every registered
+        // topic for the bot's domain (current 5 + F3.2–F3.5 additions). When off,
+        // keep the weighted-genome selection over the original 5 — bit-identical to
+        // pre-F3 behaviour. selectTopicIndex collapses the genome's 0..4 raw choice
+        // to a domain-clamped index in either case.
+        int topicIndex = MathPhysicsEngine.selectTopicIndex(
+                domain, author.selectTopic(rng), topicsV2Enabled, rng);
 
         FollowUpParams pendingFollowUp = author.getState().getPendingFollowUp();
         boolean isFollowUp = (pendingFollowUp != null);

@@ -127,6 +127,7 @@ class PublishPaperTest {
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
                 /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
+                /* topicsV2Enabled               */ false,
                 mapper);
         roomId = UUID.randomUUID();
     }

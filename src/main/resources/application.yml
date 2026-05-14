@@ -315,6 +315,14 @@ app:
     # still driven by the refinement loop). Clamped to 1 when
     # structured-findings.enabled=false. F4 will bump 2 → 3 → N after F2 soaks.
     max-computations: 2
+    # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
+    # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions)
+    # rather than the bot's weighted-genome choice over the original 5. Off →
+    # behaviour bit-identical to F2-baseline (same five topics per domain, same
+    # weighted selection). Flipped to true via F3.6 once the new compute methods
+    # and unit tests land.
+    topics-v2:
+      enabled: false
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

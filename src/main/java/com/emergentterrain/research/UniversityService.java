@@ -164,6 +164,7 @@ public class UniversityService {
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
             @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
+            @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -241,6 +242,12 @@ public class UniversityService {
             log.info("UniversityService: topic-specific-findings-validator ENABLED — "
                     + "RLC / Thermal-Stress / Arrhenius prose hitting known mis-label "
                     + "patterns publish as NEEDS_REVISION.");
+        }
+        this.researchCycleService.setTopicsV2Enabled(topicsV2Enabled);
+        if (topicsV2Enabled) {
+            log.info("UniversityService: topics-v2 ENABLED — bot topic selection samples "
+                    + "uniformly over the FULL topic list per domain (current 5 per main "
+                    + "domain + F3 additions).");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.

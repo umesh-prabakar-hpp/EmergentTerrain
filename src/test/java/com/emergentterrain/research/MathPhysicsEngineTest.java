@@ -229,6 +229,7 @@ class MathPhysicsEngineTest {
                 /* citationAwareScoringEnabled  */ false,
                 /* auditPhysicalMechanismRejectsEnabled */ false,
                 /* topicSpecificFindingsValidatorEnabled */ false,
+                /* topicsV2Enabled               */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
@@ -270,5 +271,53 @@ class MathPhysicsEngineTest {
         assertThat(clobbered.primaryValue()).isEqualTo(r.primaryValue());
         assertThat(clobbered.hypothesis()).isEqualTo(r.hypothesis());
         assertThat(clobbered.claimStatus()).isEqualTo(r.claimStatus());
+    }
+
+    // ---- Phase 7 F3: topic-count + selectTopicIndex plumbing ----
+
+    @Test
+    void topicCountReturnsArrayLengthForEveryDomain() {
+        // Pre-F3 baseline: each of the four domains has exactly 5 topics. F3.2-F3.5
+        // will grow PHYSICS/MATERIALS/MATHEMATICS to 10 and INTERDISCIPLINARY to 8.
+        assertThat(MathPhysicsEngine.topicCount("PHYSICS")).isGreaterThanOrEqualTo(5);
+        assertThat(MathPhysicsEngine.topicCount("MATERIALS")).isGreaterThanOrEqualTo(5);
+        assertThat(MathPhysicsEngine.topicCount("MATHEMATICS")).isGreaterThanOrEqualTo(5);
+        assertThat(MathPhysicsEngine.topicCount("INTERDISCIPLINARY")).isGreaterThanOrEqualTo(5);
+    }
+
+    @Test
+    void selectTopicIndexFlagOffPreservesWeightedGenomeChoice() {
+        // Flag off: the raw weighted index passes through (clamped to the
+        // original 5-topic range so pre-F3 papers stay deterministic).
+        java.util.Random rng = new java.util.Random(0);
+        for (int raw = 0; raw < 5; raw++) {
+            assertThat(MathPhysicsEngine.selectTopicIndex("PHYSICS", raw, false, rng))
+                    .as("flag-off raw=%d should pass through", raw)
+                    .isEqualTo(raw);
+        }
+    }
+
+    @Test
+    void selectTopicIndexFlagOnSamplesUniformlyOverFullTopicCount() {
+        // Flag on: every returned index must fall within [0, topicCount(domain)).
+        java.util.Random rng = new java.util.Random(42);
+        int n = MathPhysicsEngine.topicCount("PHYSICS");
+        for (int i = 0; i < 200; i++) {
+            int idx = MathPhysicsEngine.selectTopicIndex("PHYSICS", 0, true, rng);
+            assertThat(idx).isBetween(0, n - 1);
+        }
+    }
+
+    @Test
+    void computeAndScoreTolerateTopicIndicesAboveFour() {
+        // The dispatcher uses floorMod(topicIndex, topicCount(domain)) so out-of-range
+        // indices wrap rather than overflowing into the wrong topic.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", MathPhysicsEngine.topicCount("PHYSICS"),
+                        30, 2.0);
+        assertThat(r).isNotNull();
+        assertThat(MathPhysicsEngine.scoreResult("PHYSICS",
+                MathPhysicsEngine.topicCount("PHYSICS"), r.reviewValue()))
+                .isBetween(0.0, 1.0);
     }
 }
