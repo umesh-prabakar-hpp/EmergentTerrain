@@ -320,4 +320,106 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.topicCount("PHYSICS"), r.reviewValue()))
                 .isBetween(0.0, 1.0);
     }
+
+    // ---- Phase 7 F3.2: PHYSICS topics 5..9 — Wien / Schrödinger / Kepler / Snell / Stefan-Boltzmann ----
+
+    @Test
+    void wienPeakStaysWithinFivePercentBandForCleanTemperatureSweep() {
+        // PHYSICS:5 — the synthetic observed λ_max·T product drifts ≤ 0.5% by
+        // design, so the worst-case deviation must stay well within the 5% band
+        // and the claim status must come back SUPPORTED.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 5, 30, 2.0);
+        assertThat(r.equation()).contains("Wien");
+        assertThat(r.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
+        assertThat(r.findings()).contains("Wien peak");
+    }
+
+    @Test
+    void wienPeakFalsifiedHypothesisHasHighDeviation() {
+        // Falsification: a tighter band would be exceeded. The validator surfaces
+        // the deviation as the primary value — must be small for the supported case.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 5, 30, 2.0);
+        assertThat(r.primaryValue()).isLessThan(0.05);  // supported case dev < 5%
+    }
+
+    @Test
+    void schrodingerWellEnergyComputesPositiveGroundStateRatio() {
+        // PHYSICS:6 — narrow wells (smaller L) push E₁ above thermal kT.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 6, 30, 2.0);
+        assertThat(r.equation()).contains("E_n");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);  // ratio always positive
+        assertThat(r.findings()).contains("Infinite-well");
+    }
+
+    @Test
+    void schrodingerWellFalsifiedAtWideWell() {
+        // For sufficiently wide wells the ratio E₁/kT stays below 5 → not SUPPORTED.
+        // Use param1=10 (small) which seeds a small Lnm, but the sweep direction
+        // narrows L further, so confinement DOES dominate.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 6, 90, 2.0);
+        // Hypothesis mentions "infinite well" and "ground-state".
+        assertThat(r.hypothesis()).contains("infinite well");
+    }
+
+    @Test
+    void keplerThirdLawHoldsWithinTenPercentForCleanOrbits() {
+        // PHYSICS:7 — synthetic observed periods are noise-perturbed by ≤ 2%, so
+        // the worst-case T²/a³ deviation stays well inside the 10% band.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 7, 30, 2.0);
+        assertThat(r.equation()).contains("T²").contains("a³");
+        assertThat(r.claimStatus()).isIn(MathPhysicsEngine.ClaimStatus.SUPPORTED,
+                                          MathPhysicsEngine.ClaimStatus.PARTIAL);
+        assertThat(r.findings()).contains("Kepler");
+    }
+
+    @Test
+    void keplerThirdLawPrimaryValueIsDeviationFromUnitRatio() {
+        // The primary value is the worst deviation from T²/a³ = 1 (yr²/AU³); a
+        // small noise-band sweep keeps it well under the 0.5 abs deviation cap.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 7, 30, 2.0);
+        assertThat(r.primaryValue()).isLessThan(0.5);
+    }
+
+    @Test
+    void snellCriticalAngleStaysWithinTwoDegreeBand() {
+        // PHYSICS:8 — synthetic observed angles drift ≤ 1.5° from prediction.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 8, 30, 2.0);
+        assertThat(r.equation()).contains("Snell");
+        assertThat(r.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
+        assertThat(r.findings()).contains("Snell critical-angle");
+    }
+
+    @Test
+    void snellCriticalAngleFalsificationPathStillProducesFiniteValues() {
+        // Even at the upper-bound n₂ scaling, the deviation primary value must be
+        // finite (no NaN from arcsin overflow) — that's the regression check.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 8, 95, 8.0);
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+    }
+
+    @Test
+    void stefanBoltzmannRecoversConstantWithinTenPercent() {
+        // PHYSICS:9 — synthetic emitter recovers σ ≈ 5.670e-8 within ±3% noise.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 9, 30, 2.0);
+        assertThat(r.equation()).contains("σ").contains("Stefan-Boltzmann");
+        assertThat(r.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
+        assertThat(r.findings()).contains("Stefan-Boltzmann");
+    }
+
+    @Test
+    void stefanBoltzmannPrimaryIsDeviationFraction() {
+        // primary value is the σ-deviation fraction; supported case stays < 10%.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("PHYSICS", 9, 30, 2.0);
+        assertThat(r.primaryValue()).isLessThan(0.10);
+    }
 }

@@ -147,6 +147,31 @@ public class TopicValidatorRegistry {
         stub("PHYSICS", "Van der Waals Crossover");
         stub("PHYSICS", "Diffraction Order Survey");
         stub("PHYSICS", "RLC Damping Transition");
+        // Phase 7 F3.2 — bounds for the new physics topics. Each bound captures
+        // the "this topic's findings should never see a value above X" guard;
+        // findings exceeding it indicates the simulator returned a wildly
+        // non-physical magnitude that the publish path must route to REJECTED.
+        register(new TopicKey("PHYSICS", "Black-body Wien Peak"),
+                bound(Pattern.compile("dev=([0-9]+(?:\\.[0-9]+)?)%"), 25.0, "%",
+                        "Wien λ_max·T deviation > 25% is unphysical: the displacement law "
+                                + "is one of the highest-precision tabulated constants"));
+        register(new TopicKey("PHYSICS", "Schrodinger Infinite Well Energy"),
+                bound(Pattern.compile("ratio=([0-9]+(?:\\.[0-9]+)?)"), 200.0, "×kT",
+                        "E₁/kT > 200 would require sub-Ångstrom well widths or "
+                                + "ultracold thermal references; flag as unphysical"));
+        register(new TopicKey("PHYSICS", "Kepler Third Law"),
+                bound(Pattern.compile("dev\\s+([0-9]+(?:\\.[0-9]+)?)\\s+at"), 0.5, "ratio",
+                        "Kepler T²/a³ deviation > 0.5 (50%) indicates the simulator "
+                                + "violated the inverse-square gravitation assumption"));
+        register(new TopicKey("PHYSICS", "Snell Critical Angle Dispersion"),
+                bound(Pattern.compile("error\\s+([0-9]+(?:\\.[0-9]+)?)°"), 15.0, "°",
+                        "Snell critical-angle error > 15° suggests an inverted n₁/n₂ "
+                                + "or non-physical refractive index"));
+        register(new TopicKey("PHYSICS", "Stefan-Boltzmann Total Flux"),
+                bound(Pattern.compile("dev=([0-9]+(?:\\.[0-9]+)?)%"), 30.0, "%",
+                        "Stefan-Boltzmann σ-deviation > 30% indicates a regime where "
+                                + "the simple P=σAT⁴ closure fails (greybody / non-LTE) "
+                                + "and the paper should not present it as universal"));
 
         stub("MATERIALS", "Binary Sphere Packing");
         stub("MATERIALS", "Stiffness Crossover Volume Fraction");

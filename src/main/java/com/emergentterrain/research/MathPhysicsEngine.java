@@ -180,7 +180,13 @@ public class MathPhysicsEngine {
     private static final String[] PHYSICS_TOPICS = {
             "Projectile Drag Optimisation", "Pendulum Breakdown Angle",
             "Van der Waals Crossover", "Diffraction Order Survey",
-            "RLC Damping Transition"
+            "RLC Damping Transition",
+            // Phase 7 F3.2 — 5 new closed-form physics topics.
+            "Black-body Wien Peak",
+            "Schrodinger Infinite Well Energy",
+            "Kepler Third Law",
+            "Snell Critical Angle Dispersion",
+            "Stefan-Boltzmann Total Flux"
     };
     private static final String[] MATERIALS_TOPICS = {
             "Composite Failure Mode", "Binary Sphere Packing",
@@ -209,7 +215,13 @@ public class MathPhysicsEngine {
             {"Amplitude Threshold for Pendulum Period Error Exceeding 1%", "Breakdown of the Small-Angle Approximation in Real Pendula"},
             {"Pressure Crossover for Van der Waals Deviation in CO₂", "Real Gas Departure from Ideal Behaviour at Elevated Pressure"},
             {"Visible Diffraction Order Count as a Function of d/λ", "Grating Resolution and Order Extinction Survey"},
-            {"Critical Resistance for RLC Oscillation Collapse", "Q-Factor Sensitivity Near the Underdamped–Overdamped Boundary"}
+            {"Critical Resistance for RLC Oscillation Collapse", "Q-Factor Sensitivity Near the Underdamped–Overdamped Boundary"},
+            // Phase 7 F3.2 — titles for the 5 new physics topics.
+            {"Wien's Displacement Law Verified Against Tabulated Black-Body Spectra", "Wavelength of Peak Emission as a Function of Temperature"},
+            {"Particle-in-a-Box Ground State Energy vs Well Width", "Quantum Confinement Threshold Where E₁ Exceeds Thermal Energy"},
+            {"Empirical Verification of Kepler's Third Law Over a Wide Orbit Range", "Period-Semimajor-Axis Scaling for a Synthetic Planet Sweep"},
+            {"Critical Angle of Total Internal Reflection Across Refractive-Index Pairs", "Snell-Law Dispersion Survey for Common Glass–Air Interfaces"},
+            {"Empirical Recovery of the Stefan-Boltzmann Constant from Black-Body Power", "Total Radiated Flux as a Quartic Function of Surface Temperature"}
     };
     private static final String[][] MATERIALS_TITLES = {
             {"Fibre Volume Fraction at Which Matrix Yields Before Composite", "Longitudinal Failure Mode Transition in Fibre Composites"},
@@ -320,6 +332,12 @@ public class MathPhysicsEngine {
             case "PHYSICS:2"     -> 30.0;    // VdW maxDev% (~10-90%)
             case "PHYSICS:3"     -> 1.5;     // diffraction order ratio (~1.5-2.5)
             case "PHYSICS:4"     -> 2000.0;  // RLC f0 in Hz (~500-5000)
+            // Phase 7 F3.2 — new physics topics.
+            case "PHYSICS:5"     -> 0.05;    // Wien deviation fraction (~0.001-0.10)
+            case "PHYSICS:6"     -> 2.0;     // Schrödinger E₁/kT ratio (~0.5-5)
+            case "PHYSICS:7"     -> 0.05;    // Kepler T²/a³ deviation fraction (~0.001-0.10)
+            case "PHYSICS:8"     -> 5.0;     // Snell |θ_predicted − θ_observed| in degrees
+            case "PHYSICS:9"     -> 0.05;    // Stefan-Boltzmann σ-deviation fraction (~0.005-0.10)
             // Materials
             case "MATERIALS:0"   -> 5000.0;  // composite maxStress in MPa (~1000-18000)
             case "MATERIALS:1"   -> 0.1;     // sphere packing improvement% (~0.02-0.15)
@@ -788,7 +806,13 @@ public class MathPhysicsEngine {
             case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp).withEquation(eq);
             case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp).withEquation(eq);
             case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp).withEquation(eq);
-            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp).withEquation(eq);
+            case 4 -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp).withEquation(eq);
+            // Phase 7 F3.2 — new physics topics.
+            case 5 -> wienPeak(2000.0 + param1 * 30.0, sp).withEquation(eq);
+            case 6 -> schrodingerInfiniteWell(1.0 + param1 / 10.0, param2, sp).withEquation(eq);
+            case 7 -> keplerThirdLaw(0.5 + param1 / 20.0, sp).withEquation(eq);
+            case 8 -> snellCriticalAngle(1.0 + param2 / 9.0, sp).withEquation(eq);
+            default -> stefanBoltzmann(300.0 + param1 * 50.0, sp).withEquation(eq);
         };
     }
 
@@ -997,6 +1021,204 @@ public class MathPhysicsEngine {
                 f0, critR, maxQ / Math.max(minQ, 1e-10))
                 .withHypothesis("In an RLC circuit with L=%.4f H and C=%.2e F, R_c=2√(L/C) marks the transition between underdamped oscillation and overdamped decay."
                         .formatted(L, C));
+    }
+
+    // ---- Phase 7 F3.2: new physics topics ----
+
+    /** Wien displacement law: peak-emission wavelength scales as b/T (b=2.898e-3 m·K). */
+    private static ResearchResult wienPeak(double seedT, SearchParams sp) {
+        double wienB = 2.8977719e-3;
+        double bestDev = 0;
+        double bestT = seedT;
+        double bestLambda = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(100.0, seedT + i * sp.stepSize() * 200);
+            double lambdaMax = wienB / T;
+            // Synthetic "observed" λ_max: perturb the closed-form by a 0.5% noise band so
+            // the deviation sweep is non-trivial. The hypothesis test is whether ALL
+            // sampled points stay within Wien's 5% acceptance band.
+            double observed = lambdaMax * (1.0 + Math.sin(i * 0.37) * 0.005);
+            double dev = Math.abs(observed * T - wienB) / wienB;
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestT = T; bestLambda = observed; }
+            if (i < 4) sb.append("T=%.0fK→λ_max=%.2fµm(dev=%.3f%%) ".formatted(T, observed * 1e6, dev * 100));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        ClaimStatus status = bestDev <= 0.05 ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Worst-case λ_max·T deviation from Wien's constant (b=2.898×10⁻³ m·K) is %.3f%% "
+                + "over %d sampled temperatures; %s.").formatted(bestDev * 100, samples,
+                status == ClaimStatus.SUPPORTED ? "Wien's displacement law holds within the 5% band"
+                        : status == ClaimStatus.PARTIAL ? "5%–10% band — borderline"
+                                : "deviation exceeds 10% — law not supported in this regime");
+        return new ResearchResult(
+                "Wien peak (T=%.0f–%.0f K, %d samples): worst λ_max=%.2fµm at T=%.0f K, dev=%.3f%%; mean dev=%.3f%%."
+                        .formatted(seedT, bestT, samples, bestLambda * 1e6, bestT, bestDev * 100, meanDev * 100),
+                bestDev, meanDev, bestLambda, bestDev, status, assessment)
+                .withHypothesis(("Across the sampled temperature range starting near %.0f K, the empirical "
+                        + "λ_max·T product will remain within 5%% of Wien's constant 2.898×10⁻³ m·K.")
+                        .formatted(seedT));
+    }
+
+    /** Particle-in-a-1D-box ground-state energy E₁ = h²/(8mL²). */
+    private static ResearchResult schrodingerInfiniteWell(double seedLnm, double param2, SearchParams sp) {
+        double h = 6.62607015e-34;       // J·s
+        double me = 9.1093837015e-31;    // kg (electron mass)
+        double kB = 1.380649e-23;        // J/K
+        double T = 300.0 + param2 * 30.0;  // K — thermal reference
+        double bestRatio = 0;
+        double bestL = seedLnm;
+        double bestE1 = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double Lnm = Math.max(0.1, seedLnm - i * sp.stepSize() * 0.05);
+            double Lm = Lnm * 1e-9;
+            double E1 = (h * h) / (8.0 * me * Lm * Lm);
+            double ratio = E1 / (kB * T);
+            samples++;
+            if (ratio > bestRatio) { bestRatio = ratio; bestL = Lnm; bestE1 = E1; }
+            if (i < 4) sb.append("L=%.2fnm→E₁=%.2eJ(ratio=%.2f) ".formatted(Lnm, E1, ratio));
+        }
+        boolean confinementDominant = bestRatio > 1.0;
+        ClaimStatus status = bestRatio > 5.0 ? ClaimStatus.SUPPORTED
+                : confinementDominant ? ClaimStatus.PARTIAL : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Maximum E₁/kT ratio is %.2f at L=%.3f nm (T=%.0f K); %s.")
+                .formatted(bestRatio, bestL, T,
+                        bestRatio > 5.0 ? "quantum confinement dominates thermal energy by ≥5×"
+                                : confinementDominant ? "quantum confinement exceeds thermal energy"
+                                        : "thermal energy still dominates the well's ground state");
+        return new ResearchResult(
+                "Infinite-well ground-state survey (L=%.2f–%.2f nm, T=%.0f K, %d samples): best ratio %.2f at L=%.2f nm, E₁=%.2e J. Sample sweep: %s"
+                        .formatted(seedLnm, bestL, T, samples, bestRatio, bestL, bestE1, sb.toString().trim()),
+                bestRatio, bestE1, bestL, bestRatio, status, assessment)
+                .withHypothesis(("For an electron in a 1-D infinite well swept around L=%.2f nm at T=%.0f K, "
+                        + "the ground-state energy E₁=h²/(8mL²) will exceed thermal energy kT for "
+                        + "sufficiently narrow wells; the maximum E₁/kT ratio characterises the confinement scale.")
+                        .formatted(seedLnm, T));
+    }
+
+    /** Kepler's third law: T² ∝ a³ with constant 4π²/(GM). Solar M assumed. */
+    private static ResearchResult keplerThirdLaw(double seedAuAu, SearchParams sp) {
+        double GMsun = 1.32712440018e20;  // m³/s²
+        double AU = 1.495978707e11;        // m
+        double secPerYear = 3.15576e7;
+        double bestDev = 0;
+        double bestA = seedAuAu;
+        double bestT = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double aAU = Math.max(0.05, seedAuAu + i * sp.stepSize() * 0.5);
+            double aM = aAU * AU;
+            double Tsec = 2 * Math.PI * Math.sqrt(aM * aM * aM / GMsun);
+            double Tyear = Tsec / secPerYear;
+            // Empirical synthetic observation with a small noise band.
+            double observedT = Tyear * (1.0 + Math.sin(i * 0.51) * 0.02);
+            // Kepler check: observed T² / a³ should equal 1 (yr² / AU³) for the sun.
+            double ratio = (observedT * observedT) / (aAU * aAU * aAU);
+            double dev = Math.abs(ratio - 1.0);
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestA = aAU; bestT = observedT; }
+            if (i < 4) sb.append("a=%.2fAU→T=%.2fyr(T²/a³=%.3f) ".formatted(aAU, observedT, ratio));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Worst-case T²/a³ deviation from Kepler's constant (1 yr²/AU³ around Sol) is %.3f "
+                + "at a=%.2f AU; %s.").formatted(bestDev, bestA,
+                status == ClaimStatus.SUPPORTED ? "Kepler's third law holds within 10%"
+                        : status == ClaimStatus.PARTIAL ? "10%–20% band — borderline"
+                                : "deviation exceeds 20% — law not supported");
+        return new ResearchResult(
+                "Kepler third-law survey (a=%.2f–%.2f AU, %d samples): worst dev %.3f at a=%.2f AU, T=%.2f yr; mean dev %.3f."
+                        .formatted(seedAuAu, bestA, samples, bestDev, bestA, bestT, meanDev),
+                bestDev, meanDev, bestT, bestDev, status, assessment)
+                .withHypothesis(("Across orbits sampled near a=%.2f AU under a Sol-mass primary, the period-"
+                        + "semimajor-axis ratio T²/a³ will remain within 10%% of Kepler's constant (1 yr²/AU³).")
+                        .formatted(seedAuAu));
+    }
+
+    /** Snell's law critical angle: θ_c = arcsin(n₂/n₁) for n₁>n₂. */
+    private static ResearchResult snellCriticalAngle(double seedN2, SearchParams sp) {
+        double n1 = 1.5;  // glass
+        double bestErr = 0;
+        double bestN2 = seedN2;
+        double bestTheta = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumErr = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double n2 = Math.max(1.0, Math.min(n1 - 0.01, seedN2 + i * sp.stepSize() * 0.05));
+            double thetaC = Math.toDegrees(Math.asin(n2 / n1));
+            // Synthetic observed angle drifts by up to 1.5° (within the 2° bound).
+            double observed = thetaC + Math.sin(i * 0.43) * 1.5;
+            double err = Math.abs(thetaC - observed);
+            sumErr += err;
+            samples++;
+            if (err > bestErr) { bestErr = err; bestN2 = n2; bestTheta = thetaC; }
+            if (i < 4) sb.append("n₂=%.3f→θ_c=%.1f°(err=%.2f°) ".formatted(n2, thetaC, err));
+        }
+        double meanErr = samples > 0 ? sumErr / samples : 0;
+        ClaimStatus status = bestErr <= 2.0 ? ClaimStatus.SUPPORTED
+                : bestErr <= 4.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Worst-case |θ_predicted − θ_observed| is %.2f° at n₂=%.3f; %s.")
+                .formatted(bestErr, bestN2,
+                        status == ClaimStatus.SUPPORTED ? "Snell critical-angle prediction holds within the 2° band"
+                                : status == ClaimStatus.PARTIAL ? "2°–4° band — borderline"
+                                        : "deviation exceeds 4° — Snell prediction not supported");
+        return new ResearchResult(
+                "Snell critical-angle (n₁=%.2f, n₂=%.3f–%.3f, %d samples): max error %.2f° at n₂=%.3f, θ_c=%.1f°; mean %.2f°."
+                        .formatted(n1, seedN2, bestN2, samples, bestErr, bestN2, bestTheta, meanErr),
+                bestErr, meanErr, bestTheta, bestErr, status, assessment)
+                .withHypothesis(("For a n₁=%.2f → n₂≈%.3f interface, the critical angle θ_c=arcsin(n₂/n₁) "
+                        + "will match the observed total-internal-reflection onset within 2°.")
+                        .formatted(n1, seedN2));
+    }
+
+    /** Stefan-Boltzmann: P = σ·A·T⁴ with σ = 5.67×10⁻⁸ W/m²/K⁴. */
+    private static ResearchResult stefanBoltzmann(double seedT, SearchParams sp) {
+        double sigmaTrue = 5.670374419e-8;
+        double A = 1.0;  // m², unit-area emitter
+        double bestDev = 0;
+        double bestT = seedT;
+        double bestSigma = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(100.0, seedT + i * sp.stepSize() * 100.0);
+            double P = sigmaTrue * A * Math.pow(T, 4);
+            // Empirical "observed" power with small noise; recover σ_observed = P/(A·T⁴).
+            double observedP = P * (1.0 + Math.sin(i * 0.29) * 0.03);
+            double sigmaObs = observedP / (A * Math.pow(T, 4));
+            double dev = Math.abs(sigmaObs - sigmaTrue) / sigmaTrue;
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestT = T; bestSigma = sigmaObs; }
+            if (i < 4) sb.append("T=%.0fK→P=%.2eW(σ_obs=%.3e, dev=%.2f%%) ".formatted(T, observedP, sigmaObs, dev * 100));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Worst-case σ-deviation from Stefan-Boltzmann's constant (5.670×10⁻⁸ W·m⁻²·K⁻⁴) "
+                + "is %.2f%% at T=%.0f K; %s.").formatted(bestDev * 100, bestT,
+                status == ClaimStatus.SUPPORTED ? "law holds within 10%"
+                        : status == ClaimStatus.PARTIAL ? "10%-20% band — borderline"
+                                : "deviation exceeds 20% — law not supported");
+        return new ResearchResult(
+                "Stefan-Boltzmann survey (T=%.0f–%.0f K, %d samples): worst σ_obs=%.3e at T=%.0f K, dev=%.2f%%; mean dev=%.2f%%."
+                        .formatted(seedT, bestT, samples, bestSigma, bestT, bestDev * 100, meanDev * 100),
+                bestDev, meanDev, bestSigma, bestDev, status, assessment)
+                .withHypothesis(("For a unit-area emitter swept from T=%.0f K, the empirical σ recovered from "
+                        + "P/(A·T⁴) will remain within 10%% of Stefan-Boltzmann's tabulated 5.670×10⁻⁸ W·m⁻²·K⁻⁴.")
+                        .formatted(seedT));
     }
 
     // ---- Materials ----
@@ -1215,7 +1437,7 @@ public class MathPhysicsEngine {
      * the pair is not registered (treated as "no equation line").
      */
     public static String equationFor(String domain, int topicIndex) {
-        int t = topicIndex % 5;
+        int t = Math.floorMod(topicIndex, Math.max(1, topicCount(domain)));
         return switch (domain == null ? "" : domain) {
             case "MATHEMATICS" -> switch (t) {
                 case 0 -> "π₂(N) ~ 2·C₂·N/ln²(N)   (Hardy–Littlewood twin-prime conjecture)";
@@ -1229,7 +1451,12 @@ public class MathPhysicsEngine {
                 case 1 -> "T = 2π·√(L/g)·(1 + θ²/16 + 11·θ⁴/3072 + …)   (finite-amplitude pendulum)";
                 case 2 -> "(P + a/V²)·(V − b) = R·T   (Van der Waals equation of state)";
                 case 3 -> "d·sin θ = m·λ   (Fraunhofer diffraction grating)";
-                default -> "f₀ = 1/(2π·√(L·C)),   R_c = 2·√(L/C)   (RLC critical damping)";
+                case 4 -> "f₀ = 1/(2π·√(L·C)),   R_c = 2·√(L/C)   (RLC critical damping)";
+                case 5 -> "λ_max · T = b = 2.898×10⁻³ m·K   (Wien displacement law)";
+                case 6 -> "E_n = n²·h²/(8·m·L²)   (1-D infinite-square-well energy levels)";
+                case 7 -> "T² = (4π²/(G·M))·a³   (Kepler's third law)";
+                case 8 -> "n₁·sin θ₁ = n₂·sin θ₂;   θ_c = arcsin(n₂/n₁) when n₁>n₂   (Snell + critical angle)";
+                default -> "P = σ·A·T⁴,   σ ≈ 5.670×10⁻⁸ W·m⁻²·K⁻⁴   (Stefan-Boltzmann total flux)";
             };
             case "MATERIALS" -> switch (t) {
                 case 0 -> "σ_c(V_f) = V_f·E_f·ε_y + (1 − V_f)·σ_ym   (longitudinal rule-of-mixtures at matrix yield)";
