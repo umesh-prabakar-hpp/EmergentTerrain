@@ -114,7 +114,8 @@ class CerebrasPoolParseTest {
                 "csk-test-key", "https://api.cerebras.ai/v1",
                 2000, 1500, 2,
                 "qwen-3-235b-a22b-instruct-2507",
-                "", /* selectionTestsEnabled */ false, mapper);
+                "", /* selectionTestsEnabled */ false,
+                /* requestTimeoutSeconds */ 30, mapper);
         assertThat(pool.role()).isEmpty();
     }
 
@@ -126,6 +127,7 @@ class CerebrasPoolParseTest {
                 "qwen-3-235b-a22b-instruct-2507",
                 "fast-audit",
                 /* selectionTestsEnabled */ false,
+                /* requestTimeoutSeconds */ 30,
                 mapper);
     }
 }

@@ -230,6 +230,14 @@ app:
     # non-JSON response, missing fields, or wrong tool-call shape.
     selection-tests:
       enabled: true
+    # Phase 9 follow-on (2026-05-14) — single per-request HTTP read timeout
+    # applied across every primary pool's chat-completions calls (Groq, NVIDIA,
+    # OpenRouter, Cerebras). 7 minutes is long enough for slow reasoning models
+    # generating long responses but short enough to fall through to the next
+    # provider on a true hang. The 30s timeout on GroqPool's /models GET is
+    # separate (small fast endpoint).
+    http:
+      requestTimeoutSeconds: 420
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500

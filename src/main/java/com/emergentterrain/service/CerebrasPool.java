@@ -67,6 +67,14 @@ public class CerebrasPool implements LlmPool {
     private final int    maxTokens;
     private final int    toolMaxTokens;
     private final String role;
+    /** Phase 9 follow-on — per-request HTTP read timeout, driven by
+     *  {@code app.ai.http.requestTimeoutSeconds}. A response that never arrives
+     *  (provider-side hang) surfaces as HttpTimeoutException after this window,
+     *  which the retry/fallthrough logic translates into a fallthrough to the
+     *  next model / registry handle. Without this the HTTP client waits
+     *  indefinitely on a stalled response (client-level connectTimeout only
+     *  covers connection setup). */
+    private final java.time.Duration requestTimeout;
     private final List<String> activeModels;
     private final ConcurrentHashMap<String, Long> rateLimitExpiry = new ConcurrentHashMap<>();
     private final Semaphore slots;
@@ -86,6 +94,7 @@ public class CerebrasPool implements LlmPool {
             @Value("${app.ai.cerebras.preferredModels:}") String preferredModels,
             @Value("${app.ai.cerebras.role:fast-audit}") String role,
             @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
+            @Value("${app.ai.http.requestTimeoutSeconds:420}") int requestTimeoutSeconds,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -101,6 +110,7 @@ public class CerebrasPool implements LlmPool {
         this.baseUrl        = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.maxTokens      = maxTokens;
         this.toolMaxTokens  = toolMaxTokens;
+        this.requestTimeout = java.time.Duration.ofSeconds(requestTimeoutSeconds);
         this.role           = role == null ? "" : role.trim();
         this.mapper         = mapper;
         this.slots          = new Semaphore(parallelism);
@@ -439,20 +449,12 @@ public class CerebrasPool implements LlmPool {
         return http.send(req, HttpResponse.BodyHandlers.ofString());
     }
 
-    /** Phase 9 follow-on — per-request read timeout. A response that never
-     *  arrives (provider-side hang) surfaces as HttpTimeoutException after
-     *  this window, which the retry/fallthrough logic translates into a
-     *  fallthrough to the next model / registry handle. Without this, the
-     *  HTTP client would wait indefinitely on a stalled response (the
-     *  client-level connectTimeout only covers connection setup). */
-    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofMinutes(7);
-
     private HttpRequest.Builder chatRequestBuilder() {
         return HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/chat/completions"))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .timeout(REQUEST_TIMEOUT);
+                .timeout(requestTimeout);
     }
 
     /**

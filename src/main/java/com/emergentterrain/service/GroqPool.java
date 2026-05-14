@@ -65,13 +65,6 @@ public class GroqPool implements LlmPool {
     private static final long INTRA_CALL_DELAY_MS  = 2000; // between ranking and test for same model
     private static final int  MAX_RETRIES          = 4;
     private static final long INITIAL_BACKOFF_MS   = 2000;
-    /** Phase 9 follow-on — per-request read timeout. Hung responses surface as
-     *  HttpTimeoutException; without this the HTTP client waits indefinitely
-     *  on a stalled response (the client-level connectTimeout only covers
-     *  connection setup). 7 min is long enough for slow reasoning models with
-     *  long generations but short enough to fall through to the next provider
-     *  on a true hang (operator direction 2026-05-14). */
-    private static final Duration REQUEST_TIMEOUT  = Duration.ofMinutes(7);
 
     // Reasoning models (e.g. openai/gpt-oss-120b) consume most of their token budget on
     // internal chain-of-thought before writing content. 150 was exhausted by reasoning alone.
@@ -109,6 +102,13 @@ public class GroqPool implements LlmPool {
     private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
     private final HttpClient http;
+    /** Phase 9 follow-on — per-request HTTP read timeout, driven by
+     *  {@code app.ai.http.requestTimeoutSeconds}. A response that never
+     *  arrives surfaces as HttpTimeoutException after this window, which the
+     *  retry/fallthrough logic translates into a fallthrough to the next
+     *  model / registry handle. The client-level connectTimeout only covers
+     *  connection setup. */
+    private final Duration requestTimeout;
     // Per-model TPD expiry: when a model exhausts its daily token quota, record when it recovers.
     // Models are skipped until System.currentTimeMillis() passes the expiry epoch.
     private final ConcurrentHashMap<String, Long> tpdExpiry = new ConcurrentHashMap<>();
@@ -130,6 +130,7 @@ public class GroqPool implements LlmPool {
             @Value("${app.ai.ollamaJudgeUrl:http://localhost:11434}") String ollamaJudgeUrl,
             @Value("${app.ai.ollamaJudgeModel:gemma3:4b}") String ollamaJudgeModel,
             @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
+            @Value("${app.ai.http.requestTimeoutSeconds:420}") int requestTimeoutSeconds,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -143,6 +144,7 @@ public class GroqPool implements LlmPool {
         this.ollamaJudgeModel = ollamaJudgeModel;
         this.mapper          = mapper;
         this.slots           = new Semaphore(parallelism);
+        this.requestTimeout  = Duration.ofSeconds(requestTimeoutSeconds);
         this.http            = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
@@ -365,7 +367,7 @@ public class GroqPool implements LlmPool {
                         .header("Authorization", "Bearer " + apiKey)
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(payload))
-                        .timeout(REQUEST_TIMEOUT)
+                        .timeout(requestTimeout)
                         .build();
                 HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
                 if (resp.statusCode() != 200)
@@ -885,7 +887,7 @@ public class GroqPool implements LlmPool {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(buildPayload(modelId, prompt, false, tokenLimit)))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(requestTimeout)
                     .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
@@ -924,7 +926,7 @@ public class GroqPool implements LlmPool {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(buildPayload(modelId, prompt, true, maxTokens)))
-                    .timeout(REQUEST_TIMEOUT)
+                    .timeout(requestTimeout)
                     .build();
             http.send(req, HttpResponse.BodyHandlers.ofLines())
                     .body()

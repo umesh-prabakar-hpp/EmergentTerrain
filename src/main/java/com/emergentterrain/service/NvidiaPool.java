@@ -79,6 +79,9 @@ public class NvidiaPool implements LlmPool {
     private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
     private final HttpClient http;
+    /** Phase 9 follow-on — per-request read timeout, driven by
+     *  {@code app.ai.http.requestTimeoutSeconds}. See {@link #chatRequestBuilder()}. */
+    private final java.time.Duration requestTimeout;
 
     @Autowired(required = false)
     private TokenAccountant tokenAccountant;
@@ -91,6 +94,7 @@ public class NvidiaPool implements LlmPool {
             @Value("${app.ai.nvidia.parallelism:3}") int parallelism,
             @Value("${app.ai.nvidia.preferredModels:}") String preferredModels,
             @Value("${app.ai.selection-tests.enabled:true}") boolean selectionTestsEnabled,
+            @Value("${app.ai.http.requestTimeoutSeconds:420}") int requestTimeoutSeconds,
             ObjectMapper mapper) {
 
         if (apiKey == null || apiKey.isBlank()) {
@@ -111,6 +115,7 @@ public class NvidiaPool implements LlmPool {
         this.mapper         = mapper;
         this.slots          = new Semaphore(parallelism);
         this.http           = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(15)).build();
+        this.requestTimeout = Duration.ofSeconds(requestTimeoutSeconds);
 
         List<String> candidates = Arrays.stream(preferredModels.split(","))
                 .map(String::trim).filter(s -> !s.isBlank())
@@ -453,15 +458,12 @@ public class NvidiaPool implements LlmPool {
         return http.send(req, HttpResponse.BodyHandlers.ofString());
     }
 
-    /** Phase 9 follow-on — per-request read timeout to surface hung responses. */
-    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofMinutes(7);
-
     private HttpRequest.Builder chatRequestBuilder() {
         return HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/chat/completions"))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
-                .timeout(REQUEST_TIMEOUT);
+                .timeout(requestTimeout);
     }
 
     /**
