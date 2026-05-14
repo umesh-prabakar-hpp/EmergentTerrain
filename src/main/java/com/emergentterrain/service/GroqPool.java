@@ -234,6 +234,11 @@ public class GroqPool implements LlmPool {
     private String runToolLoop(String modelId, String systemPrompt, String userPrompt,
                                 String toolsJson,
                                 java.util.function.Function<String, String> executor) {
+        // Phase 7 F5.1 — local capture of every tool call the LLM issued in this
+        // loop. Not yet returned to the caller (F5.2 changes the signature); for
+        // now we just log a summary at loop exit so the trace is observable in
+        // /tmp/et-app.log without a schema change.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = new java.util.ArrayList<>();
         try {
             com.fasterxml.jackson.databind.node.ArrayNode messages = mapper.createArrayNode();
             if (systemPrompt != null && !systemPrompt.isBlank())
@@ -277,6 +282,8 @@ public class GroqPool implements LlmPool {
                             result = "Tool error: " + ex.getMessage();
                         }
                         log.info("GroqPool tools: fn={} result_len={}", fnName, result.length());
+                        trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                fnName, fnArgs, result, round));
                         messages.addObject()
                                 .put("role", "tool")
                                 .put("tool_call_id", callId)
@@ -285,6 +292,11 @@ public class GroqPool implements LlmPool {
                 } else {
                     String content = message.path("content").asText("");
                     if (content.isBlank()) content = message.path("reasoning").asText("");
+                    if (!trace.isEmpty()) {
+                        log.info("GroqPool tools: loop closed model={} calls={} rounds=[{}..{}]",
+                                modelId, trace.size(),
+                                trace.get(0).round(), trace.get(trace.size() - 1).round());
+                    }
                     return content;
                 }
             }
