@@ -250,6 +250,18 @@ public class MathPhysicsEngine {
             "Daylight Factor at Window Aperture"
     };
 
+    /** FX.4 — ARCHITECTURE_LIQUID: structures submerged in any liquid. Generic over
+     *  liquid density ρ_liq, viscosity μ, surface tension γ, and local gravity g.
+     *  Findings apply to water, methane lakes (Titan), ammonia oceans, sub-surface
+     *  hydrocarbons — NOT pinned to Earth-water properties. */
+    private static final String[] ARCHITECTURE_LIQUID_TOPICS = {
+            "Hydrostatic Pressure With Depth",
+            "Buoyant Lift Capacity",
+            "Hull Buckling Under External Pressure",
+            "Hydrodynamic Drag on Submerged Body",
+            "Dissolved-Gas Solubility"
+    };
+
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
@@ -330,6 +342,15 @@ public class MathPhysicsEngine {
             {"Daylight-Factor Tradeoff Between Aperture Area and Sky Visibility",     "Internal Illuminance as a Fraction of External Sky Conditions"}
     };
 
+    // ---- Phase 7 FX.4 ARCHITECTURE_LIQUID titles (generic across any liquid) ----
+    private static final String[][] ARCHITECTURE_LIQUID_TITLES = {
+            {"Hydrostatic Pressure Profile in an Arbitrary Liquid Column",            "Depth-Pressure Scaling Across Liquids of Varied Density"},
+            {"Buoyant Lift Capacity for a Submerged Structure",                       "Archimedes-Principle Survey Across Liquid-Density Regimes"},
+            {"Critical Buckling Pressure for a Thin-Walled Submerged Hull",          "Hull-Wall Thickness Threshold for Deep-Liquid Habitats"},
+            {"Hydrodynamic Drag on a Submerged Body Across Viscosity Regimes",        "Reynolds-Number Sensitivity of Drag Coefficient Across Liquids"},
+            {"Henry's-Law Dissolved-Gas Solubility Across Liquid Hosts",              "Gas-Equilibrium Pressure for Habitat Atmospheres in Liquid Volumes"}
+    };
+
     // ---- Public API ----
 
     /** Primary entry point: genome-driven search via SearchParams. */
@@ -347,6 +368,8 @@ public class MathPhysicsEngine {
             case "CHEMISTRY"         -> computeChemistry(t, param1, param2, sp);
             // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL (generic across planetary g + atmosphere).
             case "ARCHITECTURE_TERRESTRIAL" -> computeArchTerrestrial(t, param1, param2, sp);
+            // Phase 7 FX.4 — ARCHITECTURE_LIQUID (generic across any liquid).
+            case "ARCHITECTURE_LIQUID"      -> computeArchLiquid(t, param1, param2, sp);
             default                  -> computeMath(t, param1, param2, sp);
         };
     }
@@ -367,6 +390,7 @@ public class MathPhysicsEngine {
             case "BIOLOGY"           -> BIOLOGY_TOPICS.length;
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS.length;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS.length;
+            case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TOPICS.length;
             default                  -> MATH_TOPICS.length;
         };
     }
@@ -485,6 +509,12 @@ public class MathPhysicsEngine {
             case "ARCHITECTURE_TERRESTRIAL:2" -> 500.0;  // bearing capacity kPa (~10-2000)
             case "ARCHITECTURE_TERRESTRIAL:3" -> 12.0;   // thermal time-lag hours (~1-24)
             case "ARCHITECTURE_TERRESTRIAL:4" -> 5.0;    // daylight factor % (~0.5-20)
+            // Phase 7 FX.4 — ARCHITECTURE_LIQUID topics (generic over ρ_liq, μ, γ).
+            case "ARCHITECTURE_LIQUID:0"      -> 1.0e6;  // hydrostatic P in Pa (~1e3-1e7)
+            case "ARCHITECTURE_LIQUID:1"      -> 1.0e5;  // buoyant force in N (~1e2-1e7)
+            case "ARCHITECTURE_LIQUID:2"      -> 5.0e6;  // hull buckling P_crit in Pa (~1e4-1e8)
+            case "ARCHITECTURE_LIQUID:3"      -> 1.0e4;  // drag force in N (~1-1e6)
+            case "ARCHITECTURE_LIQUID:4"      -> 0.5;    // dissolved-gas concentration mol/L (~0.01-1.0)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -519,6 +549,7 @@ public class MathPhysicsEngine {
             case "BIOLOGY"           -> BIOLOGY_TOPICS;
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS;
+            case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TOPICS;
             default                  -> MATH_TOPICS;
         };
     }
@@ -532,6 +563,7 @@ public class MathPhysicsEngine {
             case "BIOLOGY"           -> BIOLOGY_TITLES;
             case "CHEMISTRY"         -> CHEMISTRY_TITLES;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TITLES;
+            case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TITLES;
             default                  -> MATH_TITLES;
         };
         String[] row = table[Math.floorMod(topicIndex, table.length)];
@@ -2112,6 +2144,14 @@ public class MathPhysicsEngine {
                 case 3 -> "τ = (ρ·c_p·V)/(h·A)   (thermal mass time-lag; h surface heat-transfer coefficient)";
                 default -> "DF = (E_internal / E_external)·100%   (daylight factor; window-area fraction of sky-visible aperture)";
             };
+            // Phase 7 FX.4 — ARCHITECTURE_LIQUID (generic over any liquid).
+            case "ARCHITECTURE_LIQUID" -> switch (t) {
+                case 0 -> "P(z) = ρ_liq · g · z   (hydrostatic pressure with depth; ρ_liq = liquid density, g = local gravity)";
+                case 1 -> "F_b = ρ_liq · g · V_displaced   (Archimedes buoyant force on a submerged volume)";
+                case 2 -> "P_crit = 2·E·(t/R)³ / (1 − ν²)   (thin-walled cylindrical hull external-pressure buckling)";
+                case 3 -> "F_d = ½ · ρ_liq · v² · A · C_d(Re)   (hydrodynamic drag; C_d depends on Reynolds number Re = ρ_liq·v·L/μ)";
+                default -> "c_dissolved = k_H(liquid) · P_gas   (Henry's-law dissolved-gas solubility; k_H is liquid-specific)";
+            };
             default -> null;
         };
     }
@@ -3101,6 +3141,206 @@ public class MathPhysicsEngine {
                         + "2–20%% useful-daylight band; this holds independent of planetary latitude or "
                         + "atmospheric scattering regime as long as the external illuminance is non-zero.")
                         .formatted(0.05 + (param1 / 99.0) * 0.3));
+    }
+
+    // ---- Phase 7 FX.4: ARCHITECTURE_LIQUID ----
+    // Generic over ANY liquid. Liquid property regimes covered by the param sweep:
+    //   • Water (ρ ≈ 1000 kg/m³, γ ≈ 0.072 N/m, μ ≈ 1.0 mPa·s)
+    //   • Methane (Titan lakes; ρ ≈ 420, γ ≈ 0.013, μ ≈ 0.18 mPa·s)
+    //   • Ammonia (cryovolcano; ρ ≈ 680, γ ≈ 0.022, μ ≈ 0.13 mPa·s)
+    //   • Mercury (ρ ≈ 13534, γ ≈ 0.486, μ ≈ 1.55 mPa·s)
+    //   • Liquid magma (ρ ≈ 2700, γ ≈ 0.37, μ ≈ 1e3 mPa·s)
+    // Param mapping:
+    //   param1 → primary geometric scale (depth, hull radius, body volume)
+    //   param2 → liquid-density seed (1.0 ≈ low-density liquid, 9.0 ≈ very dense)
+
+    private static ResearchResult computeArchLiquid(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("ARCHITECTURE_LIQUID", topic);
+        // Liquid density seed in [200, 14000] kg/m³ across the param2 range.
+        double rhoLiqSeed = 200.0 + (param2 / 9.0) * 13800.0;
+        // Surface tension scales roughly with density^(2/3) for similar polar liquids.
+        double gammaSeed = 0.005 + 0.5 * Math.pow(rhoLiqSeed / 14000.0, 0.6);
+        // Viscosity seed in mPa·s; defaults to water-like.
+        double muSeed = 0.1 + (param1 / 99.0) * 9.0;
+        return switch (topic) {
+            case 0 -> hydrostaticPressureDepth(rhoLiqSeed, sp).withEquation(eq);
+            case 1 -> buoyantLiftCapacity(rhoLiqSeed, sp).withEquation(eq);
+            case 2 -> hullBucklingPressure(rhoLiqSeed, sp).withEquation(eq);
+            case 3 -> hydrodynamicDrag(rhoLiqSeed, muSeed, sp).withEquation(eq);
+            default -> dissolvedGasSolubility(gammaSeed, rhoLiqSeed, sp).withEquation(eq);
+        };
+    }
+
+    /** Hydrostatic: P(z) = ρ_liq·g·z. Generic over liquid density and local gravity. */
+    private static ResearchResult hydrostaticPressureDepth(double rhoLiq, SearchParams sp) {
+        double g = 9.81;  // can be swept too; here we vary depth and ρ_liq instead
+        double maxP = 0;
+        double bestDepth = 0;
+        double bestRho = rhoLiq;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double rho = Math.max(100.0, rhoLiq + Math.sin(i * 0.27) * 500.0);
+            double depth = 1.0 + i * sp.stepSize() * 5.0;
+            double P = rho * g * depth;
+            samples++;
+            if (P > maxP) { maxP = P; bestDepth = depth; bestRho = rho; }
+            if (i < 4) sb.append("z=%.1fm,ρ=%.0fkg/m³→P=%.0fPa ".formatted(depth, rho, P));
+        }
+        boolean physical = maxP < 1.0e8;  // 100 MPa bound — deep ocean limit
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : maxP > 1.0e4 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Hydrostatic: max P=%.0f Pa at z=%.1f m, ρ_liq=%.0f kg/m³. %s")
+                .formatted(maxP, bestDepth, bestRho,
+                        !physical ? "P > 100 MPa lies beyond conventional submerged-habitat designs"
+                                : maxP > 1.0e4 ? "design-relevant pressure regime"
+                                        : "shallow-depth regime — low hydrostatic loading");
+        return new ResearchResult(
+                "Hydrostatic pressure (%d samples): max P=%.0f Pa at z=%.1f m, ρ_liq=%.0f kg/m³. Sample: %s"
+                        .formatted(samples, maxP, bestDepth, bestRho, sb.toString().trim()),
+                maxP, bestDepth, bestRho, maxP, status, assessment)
+                .withHypothesis(("For a column of a liquid with density ρ_liq≈%.0f kg/m³ under gravity g≈%.2f m/s², "
+                        + "the hydrostatic pressure P(z) = ρ·g·z scales linearly with depth z; the maximum "
+                        + "pressure at the swept depth bound stays under 100 MPa for design-relevant regimes.")
+                        .formatted(rhoLiq, g));
+    }
+
+    /** Buoyant lift: F_b = ρ_liq·g·V_displaced. */
+    private static ResearchResult buoyantLiftCapacity(double rhoLiq, SearchParams sp) {
+        double g = 9.81;
+        double maxF = 0;
+        double bestV = 0;
+        double bestRho = rhoLiq;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double rho = Math.max(100.0, rhoLiq + Math.sin(i * 0.27) * 500.0);
+            double V = 1.0 + i * sp.stepSize() * 0.5;  // m³ displaced
+            double F = rho * g * V;
+            samples++;
+            if (F > maxF) { maxF = F; bestV = V; bestRho = rho; }
+            if (i < 4) sb.append("V=%.1fm³,ρ=%.0fkg/m³→F_b=%.0fN ".formatted(V, rho, F));
+        }
+        ClaimStatus status = maxF > 1.0e3 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Buoyancy: max F_b=%.0f N at V=%.1f m³, ρ_liq=%.0f kg/m³. %s")
+                .formatted(maxF, bestV, bestRho,
+                        maxF > 1.0e3 ? "buoyant lift sufficient for habitat-scale displaced volumes"
+                                : "low-displacement regime — small lift");
+        return new ResearchResult(
+                "Buoyant lift (%d samples): max F_b=%.0f N at V=%.1f m³, ρ_liq=%.0f kg/m³. Sample: %s"
+                        .formatted(samples, maxF, bestV, bestRho, sb.toString().trim()),
+                maxF, bestV, bestRho, maxF, status, assessment)
+                .withHypothesis(("For a structure displacing V≈%.1f m³ of a liquid with density ρ_liq≈%.0f kg/m³ "
+                        + "under gravity g≈%.2f m/s², Archimedes-principle buoyant lift F_b = ρ_liq·g·V scales "
+                        + "linearly with both the liquid density and the displaced volume.")
+                        .formatted(1.0 + sp.candidateBreadth() * sp.stepSize() * 0.5, rhoLiq, g));
+    }
+
+    /** Thin-walled cylindrical hull buckling: P_crit = 2·E·(t/R)³ / (1 − ν²). */
+    private static ResearchResult hullBucklingPressure(double rhoLiq, SearchParams sp) {
+        double E = 200e9;       // Pa, steel
+        double nu = 0.3;        // Poisson ratio
+        double R = 2.0;         // m, habitat radius
+        double minPcrit = Double.MAX_VALUE;
+        double bestT = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double t = 0.005 + i * sp.stepSize() * 0.002;
+            double Pcrit = 2.0 * E * Math.pow(t / R, 3) / (1.0 - nu * nu);
+            samples++;
+            if (Pcrit < minPcrit) { minPcrit = Pcrit; bestT = t; }
+            if (i < 4) sb.append("t=%.3fm→P_crit=%.0fPa ".formatted(t, Pcrit));
+        }
+        // Express minPcrit as P_crit ÷ a "design hydrostatic" at depth depth_max for the seed liquid.
+        double designDepth = 100.0;
+        double designP = rhoLiq * 9.81 * designDepth;
+        double safetyMargin = minPcrit / Math.max(1.0, designP);
+        ClaimStatus status = safetyMargin > 2.0 ? ClaimStatus.SUPPORTED
+                : safetyMargin > 1.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Hull buckling: min P_crit=%.0f Pa at t=%.3f m (R=%.1f m); safety margin %.2f× design hydrostatic at %.0f m in liquid of density %.0f kg/m³. %s")
+                .formatted(minPcrit, bestT, R, safetyMargin, designDepth, rhoLiq,
+                        safetyMargin > 2.0 ? "hull design has > 2× margin over design hydrostatic"
+                                : safetyMargin > 1.0 ? "marginal — < 2× safety factor"
+                                        : "thinnest wall fails before reaching design depth");
+        return new ResearchResult(
+                "Hull buckling (E=%.0e Pa, R=%.1f m, %d t-samples): min P_crit=%.0f Pa at t=%.3f m. Sample: %s"
+                        .formatted(E, R, samples, minPcrit, bestT, sb.toString().trim()),
+                minPcrit, bestT, safetyMargin, minPcrit, status, assessment)
+                .withHypothesis(("For a thin-walled cylindrical hull of radius R=%.1f m submerged in a liquid of "
+                        + "density ρ_liq≈%.0f kg/m³, the critical buckling pressure P_crit = 2·E·(t/R)³/(1−ν²) "
+                        + "rises cubically with wall thickness t; the design hydrostatic load at 100 m depth "
+                        + "sets the minimum viable t.")
+                        .formatted(R, rhoLiq));
+    }
+
+    /** Hydrodynamic drag: F_d = ½·ρ_liq·v²·A·C_d. C_d depends on Reynolds Re = ρ_liq·v·L/μ. */
+    private static ResearchResult hydrodynamicDrag(double rhoLiq, double muMpas, SearchParams sp) {
+        double mu = muMpas * 1e-3;  // Pa·s
+        double L = 2.0, A = L * L;
+        double maxF = 0;
+        double bestV = 0;
+        double bestCd = 0;
+        double bestRe = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double v = 0.1 + i * sp.stepSize() * 0.5;
+            double Re = rhoLiq * v * L / Math.max(1e-6, mu);
+            // Sphere/blunt body C_d sketch: ~24/Re below Re=1, ~0.5 at Re>1e3, transition between.
+            double Cd = Re < 1.0 ? 24.0 / Math.max(0.01, Re)
+                    : Re < 1e3 ? 24.0 / Re + 0.5
+                    : 0.5;
+            double F = 0.5 * rhoLiq * v * v * A * Cd;
+            samples++;
+            if (F > maxF) { maxF = F; bestV = v; bestCd = Cd; bestRe = Re; }
+            if (i < 4) sb.append("v=%.2fm/s→Re=%.0f,C_d=%.2f,F_d=%.0fN ".formatted(v, Re, Cd, F));
+        }
+        ClaimStatus status = maxF > 1.0 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Drag: max F_d=%.0f N at v=%.2f m/s (Re=%.0f, C_d=%.2f). %s")
+                .formatted(maxF, bestV, bestRe, bestCd,
+                        bestRe > 1000 ? "turbulent regime — C_d ≈ 0.5"
+                                : bestRe > 1 ? "transitional regime"
+                                        : "creeping flow — Stokes drag dominates");
+        return new ResearchResult(
+                "Hydrodynamic drag (ρ_liq=%.0f kg/m³, μ=%.2f mPa·s, %d v-samples): max F_d=%.0f N at v=%.2f m/s, Re=%.0f. Sample: %s"
+                        .formatted(rhoLiq, muMpas, samples, maxF, bestV, bestRe, sb.toString().trim()),
+                maxF, bestV, bestCd, maxF, status, assessment)
+                .withHypothesis(("For a body of characteristic length L≈2 m submerged in a liquid with density "
+                        + "ρ_liq≈%.0f kg/m³ and viscosity μ≈%.2f mPa·s, the hydrodynamic drag F_d = ½·ρ·v²·A·C_d "
+                        + "transitions from a 24/Re creeping-flow regime to a flat C_d≈0.5 turbulent regime "
+                        + "across the swept velocity range.")
+                        .formatted(rhoLiq, muMpas));
+    }
+
+    /** Henry's law dissolved gas: c = k_H · P_gas. k_H is liquid-specific. */
+    private static ResearchResult dissolvedGasSolubility(double gamma, double rhoLiq, SearchParams sp) {
+        // Toy model: k_H scales with surface tension γ (loose proxy for solvent strength).
+        double kH = 0.0008 + gamma * 0.05;   // mol/(L·atm) — water ~0.0013 for O₂
+        double maxC = 0;
+        double bestP = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double P = 0.5 + i * sp.stepSize() * 0.5;
+            double c = kH * P;
+            samples++;
+            if (c > maxC) { maxC = c; bestP = P; }
+            if (i < 4) sb.append("P=%.1fatm→c=%.4fmol/L ".formatted(P, c));
+        }
+        ClaimStatus status = maxC < 1.0 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Dissolved gas: max c=%.4f mol/L at P=%.1f atm (k_H≈%.4f mol/L·atm). %s")
+                .formatted(maxC, bestP, kH,
+                        maxC < 1.0 ? "Henry's-law linear regime holds across the swept pressure"
+                                : "c approaches saturation — Henry's law breaks down");
+        return new ResearchResult(
+                "Henry's-law dissolution (k_H=%.4f mol/L·atm, ρ_liq=%.0f kg/m³, γ=%.3f N/m, %d P-samples): max c=%.4f mol/L. Sample: %s"
+                        .formatted(kH, rhoLiq, gamma, samples, maxC, sb.toString().trim()),
+                maxC, bestP, kH, maxC, status, assessment)
+                .withHypothesis(("For a liquid with density ρ_liq≈%.0f kg/m³ and surface tension γ≈%.3f N/m "
+                        + "(determining the host-specific Henry's coefficient k_H), the dissolved-gas "
+                        + "concentration c = k_H·P_gas scales linearly with overpressure until saturation.")
+                        .formatted(rhoLiq, gamma));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

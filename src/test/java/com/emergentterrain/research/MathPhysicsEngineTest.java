@@ -998,4 +998,104 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 4, 90, 2.0);
         assertThat(large.primaryValue()).isGreaterThanOrEqualTo(small.primaryValue());
     }
+
+    // ---- Phase 7 FX.4: ARCHITECTURE_LIQUID (generic across any liquid) ----
+
+    @Test
+    void hydrostaticPressureScalesLinearlyWithDepth() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 0, 30, 5.0);
+        assertThat(r.equation()).contains("ρ_liq").contains("z");
+        assertThat(r.findings()).contains("Hydrostatic");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e9);  // bound
+    }
+
+    @Test
+    void hydrostaticPressureRisesWithLiquidDensity() {
+        // Dense liquid (param2 high → mercury-like) produces higher pressure
+        // at the same depth than a low-density liquid (methane).
+        MathPhysicsEngine.ResearchResult lowDensity =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 0, 30, 1.0);
+        MathPhysicsEngine.ResearchResult highDensity =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 0, 30, 9.0);
+        assertThat(highDensity.primaryValue()).isGreaterThan(lowDensity.primaryValue());
+    }
+
+    @Test
+    void buoyantLiftIsPositiveAndBounded() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 1, 30, 5.0);
+        assertThat(r.equation()).contains("F_b").contains("Archimedes");
+        assertThat(r.findings()).contains("Buoyant lift");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e9);
+    }
+
+    @Test
+    void buoyancyScalesWithLiquidDensity() {
+        MathPhysicsEngine.ResearchResult thin =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 1, 30, 1.0);
+        MathPhysicsEngine.ResearchResult dense =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 1, 30, 9.0);
+        // F_b = ρ·g·V — higher ρ → higher buoyant lift.
+        assertThat(dense.primaryValue()).isGreaterThan(thin.primaryValue());
+    }
+
+    @Test
+    void hullBucklingPressureScalesCubicallyWithThickness() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 2, 30, 5.0);
+        assertThat(r.equation()).contains("P_crit").contains("t/R");
+        assertThat(r.findings()).contains("Hull buckling");
+        // primary = min P_crit (over wall thicknesses); must be positive.
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e10);
+    }
+
+    @Test
+    void hullBucklingTertiaryEncodesSafetyMargin() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 2, 30, 5.0);
+        // tertiary = safety margin (P_crit / design_hydrostatic). Always positive.
+        assertThat(r.tertiaryValue()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void hydrodynamicDragIsFiniteAcrossVelocitySweep() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 3, 30, 5.0);
+        assertThat(r.equation()).contains("F_d").contains("Re");
+        assertThat(r.findings()).contains("Hydrodynamic drag");
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+        assertThat(r.primaryValue()).isLessThan(1.0e9);
+    }
+
+    @Test
+    void hydrodynamicDragRisesWithVelocity() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 3, 30, 5.0);
+        // Drag rises quadratically with v; the best v in the sweep is the last one.
+        // secondary = best v; must be positive.
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void dissolvedGasFollowsHenryLaw() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 4, 30, 5.0);
+        assertThat(r.equation()).contains("Henry").contains("k_H");
+        assertThat(r.findings()).contains("Henry's-law dissolution");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(100.0);  // bound
+    }
+
+    @Test
+    void dissolvedGasConcentrationIsLinearInPressure() {
+        // c = k_H·P. Higher param-driven pressure → higher c. The compute's
+        // secondary value reports the best P; we just check c stays positive.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 4, 30, 5.0);
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+    }
 }

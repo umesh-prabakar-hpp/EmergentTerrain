@@ -303,6 +303,28 @@ public class TopicValidatorRegistry {
                         "Daylight factor > 100% is impossible — internal illuminance cannot "
                                 + "exceed external sky illuminance for purely passive apertures"));
 
+        // Phase 7 FX.4 — ARCHITECTURE_LIQUID bounds (generic across any liquid).
+        register(new TopicKey("ARCHITECTURE_LIQUID", "Hydrostatic Pressure With Depth"),
+                bound(Pattern.compile("P=([0-9]+(?:\\.[0-9]+)?)Pa"), 1.0e9, "Pa",
+                        "Hydrostatic P > 1 GPa lies beyond conventional habitat designs in any "
+                                + "liquid; flag for either deep-mantle or model breakdown"));
+        register(new TopicKey("ARCHITECTURE_LIQUID", "Buoyant Lift Capacity"),
+                bound(Pattern.compile("F_b=([0-9]+(?:\\.[0-9]+)?)N"), 1.0e9, "N",
+                        "Buoyant force > 1 GN would require a habitat displacing > 10⁵ m³ — "
+                                + "beyond any realistic submersible structure"));
+        register(new TopicKey("ARCHITECTURE_LIQUID", "Hull Buckling Under External Pressure"),
+                bound(Pattern.compile("P_crit=([0-9]+(?:\\.[0-9]+)?)Pa"), 1.0e10, "Pa",
+                        "P_crit > 10 GPa implies a wall thickness/radius ratio outside any "
+                                + "practical fabrication regime"));
+        register(new TopicKey("ARCHITECTURE_LIQUID", "Hydrodynamic Drag on Submerged Body"),
+                bound(Pattern.compile("F_d=([0-9]+(?:\\.[0-9]+)?)N"), 1.0e9, "N",
+                        "Drag force > 1 GN at sub-sonic velocities indicates the drag-coefficient "
+                                + "model has saturated or the velocity exceeds physical limits"));
+        register(new TopicKey("ARCHITECTURE_LIQUID", "Dissolved-Gas Solubility"),
+                bound(Pattern.compile("c=([0-9]+(?:\\.[0-9]+)?)mol/L"), 100.0, "mol/L",
+                        "Dissolved-gas concentration > 100 mol/L is beyond physical limits for "
+                                + "any liquid solvent; Henry's-law linear extrapolation has failed"));
+
         // Phase 7 FX.1 — BIOLOGY bounds.
         register(new TopicKey("BIOLOGY", "Verhulst Logistic Growth"),
                 bound(Pattern.compile("N=([0-9]+(?:\\.[0-9]+)?)"), 1.0e9, "individuals",
