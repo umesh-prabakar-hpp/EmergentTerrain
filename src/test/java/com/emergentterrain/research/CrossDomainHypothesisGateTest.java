@@ -81,4 +81,47 @@ class CrossDomainHypothesisGateTest {
         assertThat(CrossDomainHypothesisGate.validate(null, "h")).isEmpty();
         assertThat(CrossDomainHypothesisGate.validate("MATHEMATICS", null)).isEmpty();
     }
+
+    // -------- Phase 7 FX.6: new domains are skipped (orthogonal to math/phys/mat markers) --------
+
+    @Test
+    void biologyDomainSkipsGate() {
+        // BIOLOGY's natural vocabulary (Verhulst, Lotka-Volterra, Michaelis-Menten,
+        // Kleiber, Hardy-Weinberg) doesn't intersect the gate's math/physics/materials
+        // markers, but a phrase like "thermal" in a Kleiber metabolism paper would
+        // false-positive without an exception.
+        String hypothesis = "Kleiber's law predicts metabolic rate from body mass via "
+                + "thermal regulation across mammalian thermal-mass envelopes.";
+        assertThat(CrossDomainHypothesisGate.validate("BIOLOGY", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void chemistryDomainSkipsGate() {
+        // CHEMISTRY uses thermal-equilibrium language freely.
+        String hypothesis = "Buffer pH stays constant as concentration ratios shift; thermal drift "
+                + "is negligible compared to the Henderson-Hasselbalch term.";
+        assertThat(CrossDomainHypothesisGate.validate("CHEMISTRY", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void architectureTerrestrialSkipsGate() {
+        // Architecture terrestrial naturally talks about thermal mass, fibre composites, etc.
+        String hypothesis = "Concrete fibre-reinforced walls regulate thermal stress under "
+                + "extreme atmospheric loads on terrestrial surfaces.";
+        assertThat(CrossDomainHypothesisGate.validate("ARCHITECTURE_TERRESTRIAL", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void architectureLiquidSkipsGate() {
+        String hypothesis = "Composite hulls experience thermal stress from temperature gradients "
+                + "across liquid layers of varying density.";
+        assertThat(CrossDomainHypothesisGate.validate("ARCHITECTURE_LIQUID", hypothesis)).isEmpty();
+    }
+
+    @Test
+    void architectureSpaceSkipsGate() {
+        String hypothesis = "Vacuum thermal radiative balance for habitat modules with composite "
+                + "fibre-shielded walls under solar particle flux.";
+        assertThat(CrossDomainHypothesisGate.validate("ARCHITECTURE_SPACE", hypothesis)).isEmpty();
+    }
 }

@@ -1199,4 +1199,49 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 4, 90, 5.0);
         assertThat(high.primaryValue()).isGreaterThan(low.primaryValue());
     }
+
+    // ---- Phase 7 FX.6: BotGenome.DOMAINS expanded to 9 ----
+
+    @Test
+    void botGenomeDomainsIncludesAllNewFXDomains() {
+        java.util.List<String> domains = java.util.Arrays.asList(BotGenome.DOMAINS);
+        // Original 4 still present.
+        assertThat(domains).contains("MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY");
+        // 5 new ones from FX.1-FX.5.
+        assertThat(domains).contains("BIOLOGY", "CHEMISTRY",
+                "ARCHITECTURE_TERRESTRIAL", "ARCHITECTURE_LIQUID", "ARCHITECTURE_SPACE");
+        assertThat(domains).hasSize(9);
+    }
+
+    @Test
+    void everyDomainHasCorrespondingComputeMethod() {
+        // For every domain in BotGenome.DOMAINS, compute() must produce a non-null result
+        // for at least topic 0 — proves the dispatcher and topicArrayFor entries exist.
+        for (String domain : BotGenome.DOMAINS) {
+            MathPhysicsEngine.ResearchResult r = MathPhysicsEngine.compute(domain, 0, 30, 5.0);
+            assertThat(r)
+                    .as("compute() for domain=%s topic=0", domain)
+                    .isNotNull();
+            assertThat(r.findings())
+                    .as("findings() for domain=%s topic=0", domain)
+                    .isNotNull()
+                    .isNotBlank();
+        }
+    }
+
+    @Test
+    void everyDomainTopicHasARegisteredEquation() {
+        // For every (domain, topic) combination, equationFor must return a non-null,
+        // non-blank closed-form string. Catches missing entries in any new domain.
+        for (String domain : BotGenome.DOMAINS) {
+            int n = MathPhysicsEngine.topicCount(domain);
+            for (int topic = 0; topic < n; topic++) {
+                String eq = MathPhysicsEngine.equationFor(domain, topic);
+                assertThat(eq)
+                        .as("equationFor(%s, %d)", domain, topic)
+                        .isNotNull()
+                        .isNotBlank();
+            }
+        }
+    }
 }

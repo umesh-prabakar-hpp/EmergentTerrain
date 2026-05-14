@@ -24,7 +24,18 @@ import java.util.UUID;
  */
 public class BotGenome {
 
-    public static final String[] DOMAINS      = {"MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY"};
+    // Phase 7 FX.6 — DOMAINS expands from 4 to 9. New bots get randomly assigned
+    // to any of these; FX.1-FX.5 added the matching compute() / topicScale /
+    // equationFor / TopicValidatorRegistry coverage so a bot in any new domain
+    // produces fully-grounded papers (closed-forms + magnitude bounds).
+    // ARCHITECTURE_LIQUID is named LIQUID (not UNDERWATER) so the bot's narration
+    // doesn't anchor to Earth-water by accident — the compute methods are generic
+    // over arbitrary liquid density / viscosity / surface tension.
+    public static final String[] DOMAINS      = {
+            "MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY",
+            "BIOLOGY", "CHEMISTRY",
+            "ARCHITECTURE_TERRESTRIAL", "ARCHITECTURE_LIQUID", "ARCHITECTURE_SPACE"
+    };
     public static final String[] METHODOLOGIES = {"THEORETICAL", "COMPUTATIONAL", "EMPIRICAL"};
     static final int TOPIC_COUNT = 5;
 

@@ -64,6 +64,16 @@ public final class CrossDomainHypothesisGate {
     public static Optional<String> validate(String declaredDomain, String hypothesis) {
         if (declaredDomain == null || hypothesis == null) return Optional.empty();
         if ("INTERDISCIPLINARY".equalsIgnoreCase(declaredDomain)) return Optional.empty();
+        // Phase 7 FX.6 — the post-FX domains (BIOLOGY, CHEMISTRY, ARCHITECTURE_*)
+        // are orthogonal to the math/physics/materials marker sets this gate
+        // watches for; their natural vocabulary doesn't intersect the marker
+        // patterns. Skip the gate for these — false positives outnumber genuine
+        // drift catches in those domains.
+        String upper = declaredDomain.toUpperCase();
+        if ("BIOLOGY".equals(upper) || "CHEMISTRY".equals(upper)
+                || upper.startsWith("ARCHITECTURE_")) {
+            return Optional.empty();
+        }
         if ("MATHEMATICS".equalsIgnoreCase(declaredDomain)) {
             return firstMatchingMarker(hypothesis, MAT_PHYS_MARKERS).map(matched -> {
                 if (KNOWN_BRIDGES.contains("MATHEMATICS::" + matched)) return null;
