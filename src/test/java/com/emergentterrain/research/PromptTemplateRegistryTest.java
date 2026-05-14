@@ -385,7 +385,11 @@ class PromptTemplateRegistryTest {
         params.put("findings",       findings);
         params.put("conclusion",     conclusion);
 
-        String registryRendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+        // Pin to v1 explicitly: G7 registered a v2-with-boundary-answer variant
+        // that is now active. v1 stays in the registry for provenance and is what
+        // this regression test against the original inline body is asserting.
+        String registryRendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID,
+                PromptTemplateIds.NARRATION_AUDIT_VERSION, params);
 
         String inlineExpected = """
                 Assess this computational research paper for quality gaps.
@@ -408,6 +412,31 @@ class PromptTemplateRegistryTest {
                 """.formatted(domain, topicName, classification, hypothesis, findings, conclusion);
 
         assertThat(registryRendered).isEqualTo(inlineExpected);
+    }
+
+    @Test
+    void narrationAuditActiveVariantIsV2WithBoundaryAnswerDimension() {
+        // G7 — pickActive must now return the v2-with-boundary-answer variant
+        // and its rendered body must list `boundary_answer` as a checkable
+        // dimension so the audit model surfaces it in JSON gap output.
+        PromptTemplateRegistry r = freshSeededRegistry();
+        PromptTemplate active = r.pickActive(PromptTemplateIds.NARRATION_AUDIT_ID).orElseThrow();
+        assertThat(active.version()).isEqualTo("v2-with-boundary-answer");
+
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         "MATERIALS");
+        params.put("topicName",      "Composite Failure Mode");
+        params.put("classification", "SUPPORTED");
+        params.put("hypothesis",     "h");
+        params.put("findings",       "f");
+        params.put("conclusion",     "c");
+        String rendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+        assertThat(rendered).contains("boundary_answer");
+        assertThat(rendered).contains("Vf=1.00");
+        assertThat(rendered).contains("range-saturation");
+        // The other v1 dimensions remain in v2 — only `boundary_answer` is new.
+        assertThat(rendered).contains("physical_mechanism");
+        assertThat(rendered).contains("duplicate_computation");
     }
 
     @Test

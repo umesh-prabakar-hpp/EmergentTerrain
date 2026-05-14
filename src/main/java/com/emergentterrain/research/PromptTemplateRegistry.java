@@ -458,6 +458,40 @@ public class PromptTemplateRegistry {
                 {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
                 """));
 
+        // Phase 7 G7 — v2 adds `boundary_answer` to catch papers whose best result
+        // sits exactly at a boundary of the swept parameter range (e.g. Vf=1.00 on
+        // a Vf∈[0,1] sweep, θ=90° on an angle survey). Last-registered wins, so
+        // the audit pipeline picks this up without a flag change; v1 stays in the
+        // registry for historical provenance.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_AUDIT_ID,
+                "v2-with-boundary-answer",
+                """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Classification: {{ classification }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - boundary_answer: reported best parameter value sits exactly at a boundary of the swept
+                  range (e.g. volume fraction Vf=1.00 on a Vf∈[0,1] sweep, angle θ=90° on a [0°,90°]
+                  survey, or any "best at the edge" answer that indicates the true optimum is outside
+                  the searched region rather than inside it). Flag as moderate if the boundary value
+                  is the answer but the conclusion does not acknowledge the range-saturation; flag as
+                  critical if the conclusion treats the boundary value as an interior optimum.
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """));
+
         // NARRATION_PROFESSOR_SYSTEM — system message for the tool-calling
         // professor agent. Optional {{ auditSection }} slot is populated only
         // when a prior quality audit found gaps; pre-carve used a positional
