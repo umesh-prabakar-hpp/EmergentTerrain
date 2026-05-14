@@ -45,6 +45,13 @@ public record PanelOutcome(
         PanelReview.Grades aggregateGrades,
         double agreementScore,
         List<Integer> consensusCitedCalls,
+        /*
+         * Phase 7 F7.3 — trace indices that >=2 reviewers flagged as omitted-but-relevant.
+         * This is the cherry-picking signal: the LLM ran a tool call whose result was
+         * relevant to the prose but didn't surface it. Non-empty list = the new
+         * cherry_picked_evidence audit-gap dimension fires.
+         */
+        List<Integer> consensusOmittedRelevant,
         List<PanelReview.Contradiction> consensusContradictions,
         List<String> recommendations,
         List<PanelReview> reviews) {
@@ -53,7 +60,7 @@ public record PanelOutcome(
         return new PanelOutcome(
                 PanelReview.Grades.zero(),
                 1.0,           // no disagreement when no reviewers
-                List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     public boolean isEmpty() {
@@ -73,10 +80,11 @@ public record PanelOutcome(
         PanelReview.Grades agg = medianGrades(reviews);
         double agreement = computeAgreement(reviews);
         List<Integer> consensusCited = intersectCitedCalls(reviews);
+        List<Integer> consensusOmitted = aggregateOmittedRelevant(reviews);
         List<PanelReview.Contradiction> consensusContradictions = aggregateContradictions(reviews);
         List<String> recs = dedupeRecommendations(reviews);
-        return new PanelOutcome(agg, agreement, consensusCited, consensusContradictions, recs,
-                List.copyOf(reviews));
+        return new PanelOutcome(agg, agreement, consensusCited, consensusOmitted,
+                consensusContradictions, recs, List.copyOf(reviews));
     }
 
     private static PanelReview.Grades medianGrades(List<PanelReview> reviews) {
@@ -135,6 +143,27 @@ public record PanelOutcome(
             acc.retainAll(new HashSet<>(reviews.get(i).citedCalls()));
         }
         return List.copyOf(acc);
+    }
+
+    /**
+     * Phase 7 F7.3 — trace indices that ≥2 reviewers flagged as
+     * omitted-but-relevant. Implements the cherry-picking signal: an entry
+     * here means at least two independent reviewers agreed the LLM ignored
+     * a tool result that should have appeared in the prose.
+     */
+    private static List<Integer> aggregateOmittedRelevant(List<PanelReview> reviews) {
+        Map<Integer, Integer> counts = new LinkedHashMap<>();
+        for (PanelReview r : reviews) {
+            for (Integer idx : r.omittedRelevant()) {
+                if (idx == null) continue;
+                counts.merge(idx, 1, Integer::sum);
+            }
+        }
+        List<Integer> out = new ArrayList<>();
+        for (Map.Entry<Integer, Integer> e : counts.entrySet()) {
+            if (e.getValue() >= 2) out.add(e.getKey());
+        }
+        return List.copyOf(out);
     }
 
     private static List<PanelReview.Contradiction> aggregateContradictions(List<PanelReview> reviews) {

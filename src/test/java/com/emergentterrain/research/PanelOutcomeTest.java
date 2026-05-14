@@ -92,6 +92,27 @@ class PanelOutcomeTest {
     }
 
     @Test
+    void f7_3_consensusOmittedRelevantRequiresAtLeastTwoReviewers() {
+        PanelReview a = reviewWithOmitted("a", List.of(2, 5));
+        PanelReview b = reviewWithOmitted("b", List.of(2, 7));
+        PanelReview c = reviewWithOmitted("c", List.of(5, 9));
+        // 2: flagged by a and b (count 2) → kept.
+        // 5: flagged by a and c (count 2) → kept.
+        // 7: only b → dropped. 9: only c → dropped.
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c));
+        assertThat(out.consensusOmittedRelevant()).containsExactlyInAnyOrder(2, 5);
+    }
+
+    @Test
+    void f7_3_consensusOmittedRelevantEmptyWhenNoOverlap() {
+        PanelReview a = reviewWithOmitted("a", List.of(1));
+        PanelReview b = reviewWithOmitted("b", List.of(2));
+        PanelReview c = reviewWithOmitted("c", List.of(3));
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c));
+        assertThat(out.consensusOmittedRelevant()).isEmpty();
+    }
+
+    @Test
     void consensusContradictionsRequireAtLeastTwoReviewers() {
         PanelReview a = reviewWithContradictions("a",
                 new PanelReview.Contradiction(3, "sweep contradicts conclusion"));
@@ -137,6 +158,11 @@ class PanelOutcomeTest {
     private static PanelReview reviewWithCited(String id, List<Integer> cited) {
         return new PanelReview(id, new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
                 cited, List.of(), List.of(), List.of());
+    }
+
+    private static PanelReview reviewWithOmitted(String id, List<Integer> omitted) {
+        return new PanelReview(id, new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
+                List.of(), omitted, List.of(), List.of());
     }
 
     private static PanelReview reviewWithContradictions(String id,

@@ -474,7 +474,7 @@ public class ResearchNarrationService {
                 // short-circuits to empty when disabled / no trace / no providers
                 // resolved — the publish path is bit-identical to pre-F7.2 in
                 // those cases.
-                return runPanelAndStamp(draft, revisedResult, callPath);
+                return runPanelAndStamp(draft, revisedResult, callPath, auditGapDimensions);
             }
             callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
@@ -495,7 +495,7 @@ public class ResearchNarrationService {
         // Phase 7 F7.2 — even on the fallback path, run the panel if a trace
         // exists. A paper that hit an exception after the professor produced
         // useful tool results still benefits from honesty/completeness grading.
-        return runPanelAndStamp(draft, fallback, callPath);
+        return runPanelAndStamp(draft, fallback, callPath, auditGapDimensions);
     }
 
     /**
@@ -504,23 +504,44 @@ public class ResearchNarrationService {
      * carries no tool-call trace, or when the panel returns an empty outcome.
      * Failures are swallowed and logged so a panel-side bug never blocks a
      * paper from publishing.
+     *
+     * <p>Phase 7 F7.3 — when the panel's aggregated outcome shows ≥2 reviewers
+     * agreed the LLM omitted a relevant tool result, the
+     * {@code cherry_picked_evidence} audit-gap dimension is appended to
+     * {@code auditGapDimensions}. UniversityService.publishPaper consumes that
+     * dimension under the {@code audit-cherry-picked-rejects} flag.
      */
     private NarrationResult runPanelAndStamp(PaperDraft draft, NarrationResult narration,
-                                              List<String> callPath) {
+                                              List<String> callPath,
+                                              List<String> auditGapDimensions) {
         if (reviewPanelService == null || narration == null) return narration;
         if (!reviewPanelService.isActive()) return narration;
         if (narration.toolCallTrace() == null || narration.toolCallTrace().isEmpty()) {
             return narration;
         }
         try {
+            int configuredSize = reviewPanelService.panelSize();
             com.emergentterrain.research.PanelOutcome outcome =
                     reviewPanelService.runPanel(draft, narration);
-            if (outcome.isEmpty()) {
-                callPath.add("panel:skip:no_reviewers");
+            int got = outcome.reviewerCount();
+            if (got == 0) {
+                // Phase 7 F7.4 — no reviewers responded (all quota-blocked, all dropped
+                // on parse fail, or all RPC-errored). Stamp `panel:skip:unavailable`
+                // and continue — the paper still publishes, just without the panel
+                // signal. No new failure mode.
+                callPath.add("panel:skip:unavailable");
                 return narration;
             }
-            callPath.add("panel:n=" + outcome.reviewerCount()
-                    + ":agreement=" + String.format("%.2f", outcome.agreementScore()));
+            callPath.add(buildPanelCallPathStamp(got, configuredSize, outcome.agreementScore()));
+            // Phase 7 F7.3 — cherry-picked-evidence audit gap when consensus exists.
+            if (auditGapDimensions != null
+                    && !outcome.consensusOmittedRelevant().isEmpty()
+                    && !auditGapDimensions.contains("cherry_picked_evidence")) {
+                auditGapDimensions.add("cherry_picked_evidence");
+                log.info("F7.3 cherry_picked_evidence: paperId={} omitted_calls={}",
+                        draft != null ? draft.paperId() : "?",
+                        outcome.consensusOmittedRelevant());
+            }
             return narration.withPanelOutcome(outcome);
         } catch (Exception e) {
             log.warn("LLM panel review path failed paperId={}: {}",
@@ -528,6 +549,20 @@ public class ResearchNarrationService {
             callPath.add("panel:error");
             return narration;
         }
+    }
+
+    /**
+     * Phase 7 F7.4 — build the panel call-path stamp from observed vs configured
+     * reviewer counts. Visibility is package-private so tests can verify the
+     * exact string format without standing up a full {@link ResearchNarrationService}.
+     */
+    static String buildPanelCallPathStamp(int got, int configuredSize, double agreementScore) {
+        String agreement = String.format("%.2f", agreementScore);
+        if (got < configuredSize) {
+            return "panel:n=" + got + ":degraded:from=" + configuredSize
+                    + ":agreement=" + agreement;
+        }
+        return "panel:n=" + got + ":agreement=" + agreement;
     }
 
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */

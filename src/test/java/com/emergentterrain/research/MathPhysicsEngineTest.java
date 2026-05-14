@@ -228,6 +228,7 @@ class MathPhysicsEngineTest {
                 /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ false,
                 /* auditPhysicalMechanismRejectsEnabled */ false,
+                /* auditCherryPickedRejectsEnabled       */ false,
                 /* topicSpecificFindingsValidatorEnabled */ false,
                 /* topicsV2Enabled               */ false,
                 mapper);

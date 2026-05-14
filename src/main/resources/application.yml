@@ -348,6 +348,14 @@ app:
     review-panel:
       enabled: true
       providers: "groq,nvidia,openrouter,cerebras"
+    # Phase 7 F7.3 — when on, SUPPORTED papers whose panel surfaced the
+    # cherry_picked_evidence audit-gap dimension (>=2 reviewers agreed the LLM
+    # omitted a relevant tool result) publish as REJECTED rather than PUBLISHED.
+    # Default OFF — the dimension fires advisory-only until the false-positive
+    # rate is measured over >=30 papers, mirroring how G8's physical_mechanism
+    # gate soaked before going live.
+    audit-cherry-picked-rejects:
+      enabled: false
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

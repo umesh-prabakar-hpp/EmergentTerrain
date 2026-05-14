@@ -67,6 +67,13 @@ public class UniversityService {
     private final boolean auditPhysicalMechanismRejectsEnabled;
     /** Phase 7 G6 — when on, RLC/Thermal-Stress/Arrhenius findings prose hitting known mis-label patterns publish as NEEDS_REVISION. */
     private final boolean topicSpecificFindingsValidatorEnabled;
+    /**
+     * Phase 7 F7.3 — when on, SUPPORTED papers whose panel review surfaced
+     * cherry_picked_evidence (≥2 reviewers flagged the same omitted-relevant
+     * tool call) publish as REJECTED. Defaults off until the false-positive
+     * rate is measured over ≥30 papers.
+     */
+    private final boolean auditCherryPickedRejectsEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -177,6 +184,7 @@ public class UniversityService {
             @Value("${app.research.disputeOrphanAgeHours:6}") long orphanAgeHours,
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
+            @Value("${app.research.audit-cherry-picked-rejects.enabled:false}") boolean auditCherryPickedRejectsEnabled,
             @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
@@ -210,6 +218,7 @@ public class UniversityService {
         this.orphanAgeHours = orphanAgeHours;
         this.citationAwareScoringEnabled = citationAwareScoringEnabled;
         this.auditPhysicalMechanismRejectsEnabled = auditPhysicalMechanismRejectsEnabled;
+        this.auditCherryPickedRejectsEnabled       = auditCherryPickedRejectsEnabled;
         this.topicSpecificFindingsValidatorEnabled = topicSpecificFindingsValidatorEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
@@ -539,6 +548,18 @@ public class UniversityService {
             log.warn("audit:physical_mechanism→REJECTED paperId={} dimensions={}",
                     draft.paperId(), auditGapDimensions);
         }
+        // Phase 7 F7.3 — cherry-picked-evidence audit-gap routing. When the panel
+        // surfaced the dimension (>=2 reviewers flagged the same omitted-relevant
+        // tool call) AND the operator flag is on AND the paper is SUPPORTED, the
+        // paper routes to REJECTED. Default flag-off so the dimension is
+        // advisory-only until the false-positive rate is measured.
+        boolean cherryPickedAuditFailed = auditCherryPickedRejectsEnabled
+                && draft.resultClassification() == ResultClassification.SUPPORTED
+                && auditGapDimensions.contains("cherry_picked_evidence");
+        if (cherryPickedAuditFailed) {
+            log.warn("audit:cherry_picked_evidence→REJECTED paperId={} dimensions={}",
+                    draft.paperId(), auditGapDimensions);
+        }
         // Status precedence is failure-strength-ordered: NULL_RESULT > REJECTED > NEEDS_REVISION
         // > PUBLISHED_NO_PROFESSOR > PUBLISHED. NULL_RESULT is "computation ran cleanly but
         // hypothesis not supported" — an honest negative, kept above REJECTED. REJECTED
@@ -547,7 +568,8 @@ public class UniversityService {
         // distinct status from NEEDS_REVISION so operators can tell "validator caught it"
         // from "narration truncated."
         boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
-                || uncitedClone || crossDomainDrift || physicalMechanismAuditFailed;
+                || uncitedClone || crossDomainDrift || physicalMechanismAuditFailed
+                || cherryPickedAuditFailed;
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (validatorRejected) {
@@ -579,6 +601,11 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "audit:physical_mechanism→REJECTED"
                     : persistedCallPath + " → audit:physical_mechanism→REJECTED";
+        }
+        if (cherryPickedAuditFailed) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "audit:cherry_picked_evidence→REJECTED"
+                    : persistedCallPath + " → audit:cherry_picked_evidence→REJECTED";
         }
         // Phase 7 F2 — when the structured-findings map carries more than one block,
         // persist the JSON-serialised map into the (text) findings column so the

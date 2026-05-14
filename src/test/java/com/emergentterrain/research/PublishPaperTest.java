@@ -50,6 +50,8 @@ class PublishPaperTest {
     private boolean disputeReconciliationEnabled = false;
     /** Phase 7 G8: tests that exercise the physical-mechanism-audit reject gate set this via {@link #enableAuditPhysicalMechanismRejects()} or {@link #disableAuditPhysicalMechanismRejects()}. */
     private boolean auditPhysicalMechanismRejectsEnabled = false;
+    /** Phase 7 F7.3: tests that exercise the cherry-picked-evidence reject gate set this true. */
+    private boolean auditCherryPickedRejectsEnabled = false;
     /** Phase 7 G6: tests that exercise topic-specific findings checks set this true. */
     private boolean topicSpecificFindingsValidatorEnabled = false;
 
@@ -126,6 +128,7 @@ class PublishPaperTest {
                 /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
+                /* auditCherryPickedRejectsEnabled       */ auditCherryPickedRejectsEnabled,
                 /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
                 /* topicsV2Enabled               */ false,
                 mapper);
@@ -1243,6 +1246,52 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
     }
 
+    // ---- Phase 7 F7.3: cherry_picked_evidence audit gap → REJECTED ----
+
+    @Test
+    void f7_3_supportedPaperWithCherryPickedGapPublishesRejectedWhenFlagOn() {
+        enableAuditCherryPickedRejects();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("cherry_picked_evidence"));
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("REJECTED");
+        assertThat(paper.llmCallPath()).contains("audit:cherry_picked_evidence→REJECTED");
+    }
+
+    @Test
+    void f7_3_supportedPaperWithCherryPickedGapPublishedWhenFlagOff() {
+        // Default setUp leaves auditCherryPickedRejectsEnabled = false. The same
+        // input that REJECTED above must PUBLISH here.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("cherry_picked_evidence"));
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("PUBLISHED");
+        assertThat(paper.llmCallPath()).isNull();
+    }
+
+    @Test
+    void f7_3_nullResultWithCherryPickedGapStaysNullResult() {
+        // SUPPORTED-only gate: NULL_RESULT papers stay NULL_RESULT.
+        enableAuditCherryPickedRejects();
+        PaperDraft draft = draft(ResultClassification.NULL_RESULT, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("cherry_picked_evidence"));
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
+    }
+
+    @Test
+    void f7_3_supportedPaperWithOtherAuditGapsPublishesNormally() {
+        // Other dimensions must not trigger the cherry-picked reject — only the
+        // named dimension fires the gate.
+        enableAuditCherryPickedRejects();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("uncertainty", "boundary_answer"));
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
     @Test
     void phase7_G8_supportedPaperWithOtherAuditGapsPublishesNormally() {
         // A different dimension (e.g. boundary_answer, uncertainty) must not trigger
@@ -1413,6 +1462,12 @@ class PublishPaperTest {
     /** Phase 7 G8 — rebuilds the service with physical-mechanism audit-reject OFF (default). */
     private void disableAuditPhysicalMechanismRejects() {
         auditPhysicalMechanismRejectsEnabled = false;
+        setUp();
+    }
+
+    /** Phase 7 F7.3 — rebuilds the service with cherry-picked-evidence reject ON. */
+    private void enableAuditCherryPickedRejects() {
+        auditCherryPickedRejectsEnabled = true;
         setUp();
     }
 
