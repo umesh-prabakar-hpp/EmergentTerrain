@@ -553,9 +553,16 @@ public class UniversityService {
                     ? "audit:physical_mechanism→REJECTED"
                     : persistedCallPath + " → audit:physical_mechanism→REJECTED";
         }
+        // Phase 7 F2 — when the structured-findings map carries more than one block,
+        // persist the JSON-serialised map into the (text) findings column so the
+        // markdown renderer can emit H3-per-computation later. Single-block (flag-off)
+        // path persists the plain prose verbatim — bit-identical to F1-baseline.
+        String persistedFindings = findingsBlocks.size() > 1
+                ? serialiseFindingsMap(findingsBlocks)
+                : findings;
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
-                draft.title(), hypothesis, draft.methodology(), findings, conclusion,
+                draft.title(), hypothesis, draft.methodology(), persistedFindings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel(), persistedCallPath);
@@ -1352,6 +1359,11 @@ public class UniversityService {
         String relatedWorkSection = paper.relatedWork() != null && !paper.relatedWork().isBlank()
                 ? "\n\n## Related Work\n\n" + paper.relatedWork()
                 : "";
+        // Phase 7 F2 — when the persisted findings is a JSON map (more than one
+        // computation block), render H3-per-block with the topic's closed-form
+        // equation line. Single-block (flag-off) path renders the prose verbatim
+        // — bit-identical to F1-baseline.
+        String findingsSection = renderFindingsSection(paper);
         return """
                 # %s
 
@@ -1399,10 +1411,98 @@ public class UniversityService {
                 paper.llmCallPath() != null ? paper.llmCallPath() : "none",
                 disputedBanner,
                 paper.hypothesis(),
-                paper.findings(),
+                findingsSection,
                 paper.conclusion(),
                 discussionSection,
                 relatedWorkSection);
+    }
+
+    /**
+     * Phase 7 F2 — render the body of the {@code ## Findings} section. When the
+     * persisted findings parses as a JSON map (more than one computation block),
+     * emit one {@code ### Computation N — <topic>} subheading per block plus an
+     * {@code **Equation:**} line carrying the topic's closed-form. When the
+     * findings is plain prose (single-block / flag-off path), return it verbatim
+     * so the rendered markdown is bit-identical to F1-baseline.
+     */
+    String renderFindingsSection(ResearchPaper paper) {
+        String raw = paper.findings();
+        if (raw == null || raw.isBlank()) return "";
+        java.util.Map<Integer, String> blocks = tryParseFindingsMap(raw);
+        if (blocks == null || blocks.size() <= 1) return raw;
+        String equation = MathPhysicsEngine.equationFor(paper.domain(), paper.topic());
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (java.util.Map.Entry<Integer, String> e :
+                new java.util.TreeMap<>(blocks).entrySet()) {
+            if (!first) sb.append("\n\n");
+            first = false;
+            sb.append("### Computation ").append(e.getKey())
+                    .append(" — ").append(paper.topic()).append("\n\n");
+            if (equation != null && !equation.isBlank()) {
+                sb.append("**Equation:** ").append(equation).append("\n\n");
+            }
+            sb.append(e.getValue());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Phase 7 F2 — try to parse the persisted findings string as a Jackson map
+     * with integer-keyed string values. Returns null when the string is not a
+     * JSON object, when no key parses as a positive integer, or when no value
+     * is a non-blank string. The caller falls back to treating the string as
+     * plain prose in those cases.
+     */
+    private java.util.Map<Integer, String> tryParseFindingsMap(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        String trimmed = raw.stripLeading();
+        if (!trimmed.startsWith("{")) return null;
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = objectMapper.readTree(raw);
+            if (!node.isObject()) return null;
+            java.util.Map<Integer, String> out = new java.util.LinkedHashMap<>();
+            java.util.Iterator<java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode>>
+                    fields = node.fields();
+            while (fields.hasNext()) {
+                java.util.Map.Entry<String, com.fasterxml.jackson.databind.JsonNode> f = fields.next();
+                Integer idx;
+                try {
+                    idx = Integer.parseInt(f.getKey());
+                } catch (NumberFormatException ex) {
+                    return null;
+                }
+                if (idx == null || idx <= 0) return null;
+                com.fasterxml.jackson.databind.JsonNode v = f.getValue();
+                if (v == null || !v.isTextual()) return null;
+                String prose = v.asText();
+                if (prose == null || prose.isBlank()) continue;
+                out.put(idx, prose);
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Phase 7 F2 — serialise the structured findings map for persistence on the
+     * (text) ResearchPaper.findings column. Always uses bare integer keys (no
+     * "computation_" prefix) so the renderer's parse path is unambiguous and
+     * tolerant of whichever convention the LLM emitted upstream.
+     */
+    private String serialiseFindingsMap(java.util.Map<Integer, String> blocks) {
+        try {
+            java.util.Map<String, String> stringified = new java.util.LinkedHashMap<>();
+            new java.util.TreeMap<>(blocks).forEach((k, v) -> {
+                if (v != null && !v.isBlank()) stringified.put(String.valueOf(k), v);
+            });
+            return objectMapper.writeValueAsString(stringified);
+        } catch (Exception e) {
+            log.warn("findings-map JSON serialisation failed; falling back to joined prose: {}",
+                    e.getMessage());
+            return joinFindingsBlocks(blocks);
+        }
     }
 
     private String toJson(Object value) {

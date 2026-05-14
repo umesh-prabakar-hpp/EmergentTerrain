@@ -584,6 +584,97 @@ class PublishPaperTest {
                 .doesNotContain("## Related Work");
     }
 
+    // ---- Phase 7 F2: structured-findings markdown rendering ----
+
+    @Test
+    void publishedMarkdownEmitsH3PerComputationBlockForMultiBlockFindings() throws Exception {
+        // RLC topic so the equation lookup hits a known closed-form.
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "First computation characterises the underdamped regime at f₀ = 3513 Hz.");
+        blocks.put(2, "Second computation sweeps R near the critical value and finds Q collapses below 0.5.");
+        NarrationResult narration = new NarrationResult(
+                "Test hypothesis", blocks, "Test conclusion.", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+
+        java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
+        java.util.List<java.nio.file.Path> md = java.util.stream.Stream.of(
+                roomDir.toFile().listFiles())
+                .filter(f -> f.getName().endsWith(".md"))
+                .map(java.io.File::toPath)
+                .toList();
+        assertThat(md).hasSize(1);
+        String content = java.nio.file.Files.readString(md.get(0));
+        // Markdown renders H3 per block + topic equation line + each block's prose.
+        assertThat(content)
+                .contains("### Computation 1 — RLC Damping Transition")
+                .contains("### Computation 2 — RLC Damping Transition")
+                .contains("**Equation:** f₀ = 1/(2π·√(L·C))")
+                .contains("First computation characterises the underdamped regime")
+                .contains("Second computation sweeps R near the critical value");
+    }
+
+    @Test
+    void publishedMarkdownPreservesPlainProseForSingleBlockFindings() throws Exception {
+        // Flag-off / single-block path must render bit-identical to F1-baseline:
+        // a plain ## Findings section with no Computation N H3 headers.
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "h", "Plain single-block findings prose.", "c",
+                null, null, 0.6, List.of());
+        service.publishPaper(draft, narration);
+
+        java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
+        String content = java.nio.file.Files.readString(
+                java.util.stream.Stream.of(roomDir.toFile().listFiles())
+                        .filter(f -> f.getName().endsWith(".md"))
+                        .map(java.io.File::toPath)
+                        .findFirst()
+                        .orElseThrow());
+        assertThat(content)
+                .contains("## Findings")
+                .contains("Plain single-block findings prose.")
+                .doesNotContain("### Computation 1")
+                .doesNotContain("**Equation:**");
+    }
+
+    @Test
+    void persistedFindingsIsJoinedProseForSingleBlockMaps() {
+        // The legacy column shape: single-block map is persisted as plain prose,
+        // so any external reader of the findings column keeps working unchanged.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "h", java.util.Map.of(1, "Single-block prose."), "c",
+                null, null, 0.6, List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().findings()).isEqualTo("Single-block prose.");
+    }
+
+    @Test
+    void persistedFindingsIsJsonForMultiBlockMaps() {
+        // Multi-block: the findings column carries the JSON-serialised map so the
+        // markdown renderer can reconstruct H3 blocks at read time.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "first prose.");
+        blocks.put(2, "second prose.");
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.6,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        String persisted = firstPaper().findings();
+        assertThat(persisted)
+                .startsWith("{")
+                .contains("\"1\":\"first prose.\"")
+                .contains("\"2\":\"second prose.\"");
+    }
+
     // ---- Phase 5 B4: cross-domain gate ----
 
     @Test

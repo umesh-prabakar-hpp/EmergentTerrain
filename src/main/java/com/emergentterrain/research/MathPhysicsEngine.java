@@ -463,17 +463,13 @@ public class MathPhysicsEngine {
     // ---- Mathematics ----
 
     private static ResearchResult computeMath(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("MATHEMATICS", topic);
         return switch (topic) {
-            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp)
-                    .withEquation("π₂(N) ~ 2·C₂·N/ln²(N)   (Hardy–Littlewood twin-prime conjecture)");
-            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp)
-                    .withEquation("x_{n+1} = x_n/2 if even, else 3·x_n + 1   (Collatz 3n+1 map)");
-            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp)
-                    .withEquation("r(2n) = #{ (p, q) : p + q = 2n, p,q prime }   (Goldbach partition count)");
-            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp)
-                    .withEquation("s(n) = σ(n) − n   (aliquot sum; σ(n) = sum of all divisors)");
-            default -> happyNumbers(param1 * 7, 150, sp)
-                    .withEquation("x_{n+1} = Σ_i d_i(x_n)²   (digit-square iteration; happy iff terminates at 1)");
+            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp).withEquation(eq);
+            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp).withEquation(eq);
+            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp).withEquation(eq);
+            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp).withEquation(eq);
+            default -> happyNumbers(param1 * 7, 150, sp).withEquation(eq);
         };
     }
 
@@ -752,17 +748,13 @@ public class MathPhysicsEngine {
     // ---- Physics ----
 
     private static ResearchResult computePhysics(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("PHYSICS", topic);
         return switch (topic) {
-            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp)
-                    .withEquation("m·dv/dt = −m·g·ĵ − k·|v|·v   (quadratic-drag projectile)");
-            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp)
-                    .withEquation("T = 2π·√(L/g)·(1 + θ²/16 + 11·θ⁴/3072 + …)   (finite-amplitude pendulum)");
-            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp)
-                    .withEquation("(P + a/V²)·(V − b) = R·T   (Van der Waals equation of state)");
-            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp)
-                    .withEquation("d·sin θ = m·λ   (Fraunhofer diffraction grating)");
-            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp)
-                    .withEquation("f₀ = 1/(2π·√(L·C)),   R_c = 2·√(L/C)   (RLC critical damping)");
+            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp).withEquation(eq);
+            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp).withEquation(eq);
+            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp).withEquation(eq);
+            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp).withEquation(eq);
+            default -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp).withEquation(eq);
         };
     }
 
@@ -976,17 +968,13 @@ public class MathPhysicsEngine {
     // ---- Materials ----
 
     private static ResearchResult computeMaterials(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("MATERIALS", topic);
         return switch (topic) {
-            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp)
-                    .withEquation("σ_c(V_f) = V_f·E_f·ε_y + (1 − V_f)·σ_ym   (longitudinal rule-of-mixtures at matrix yield)");
-            case 1 -> binarySpherePacking(sp)
-                    .withEquation("η_FCC = π/(3·√2) ≈ 0.7405;   void radii r_octa ≤ 0.4142, r_tetra ≤ 0.2247   (close-packed lattice)");
-            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp)
-                    .withEquation("1/E_T = V_f/E_f + (1 − V_f)/E_m   (Reuss / transverse-stiffness lower bound)");
-            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp)
-                    .withEquation("k(T) = A·exp(−Eₐ/(R·T))   (Arrhenius rate law; Van't Hoff 2×-per-10 K is a special case)");
-            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp)
-                    .withEquation("σ_th = E·α·ΔT   (constrained-member thermal stress)");
+            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp).withEquation(eq);
+            case 1 -> binarySpherePacking(sp).withEquation(eq);
+            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp).withEquation(eq);
+            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp).withEquation(eq);
+            default -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp).withEquation(eq);
         };
     }
 
@@ -1176,18 +1164,67 @@ public class MathPhysicsEngine {
 
     private static ResearchResult computeInterdisciplinary(int topic, int param1, double param2,
                                                             SearchParams sp) {
+        String eq = equationFor("INTERDISCIPLINARY", topic);
         return switch (topic) {
-            case 0 -> collatzRlcDepthResonance(param1, param2, sp)
-                    .withEquation("depth_C(n) → L = depth/10⁴ H,   f₀ = 1/(2π·√(L·C))   (Collatz-driven RLC resonance)");
-            case 1 -> primeGapDefectThermal(param1, param2, sp)
-                    .withEquation("g(n) = p_{k+1} − p_k → α = 5 + 20/g µm·K⁻¹,   σ_th = E·α·ΔT   (prime-gap defect spacing → CTE → thermal stress)");
-            case 2 -> resonantThermalFatigue(param1, param2, sp)
-                    .withEquation("f₀ = 1/(2π·√(L·C)),   ΔT_cycle = 10 + f₀/10³,   σ_th = E·α·ΔT_cycle   (RLC frequency → thermal-cycling rate → fatigue exposure)");
-            case 3 -> happyPackingAnomaly(param1, param2, sp)
-                    .withEquation("ρ_happy(N) ≈ 0.143,   r = 0.2 + 0.3·(ρ_happy/0.143),   Δη = ρ_voids·(4πr³/3)/(V_cell)   (happy density → binary-FCC void radius → packing improvement)");
-            default -> vanDerWaalsCompositeStress(param1, param2, sp)
-                    .withEquation("(P_c + a/V²)·(V − b) = R·T,   σ_long = P_c · [V_f·E_f + (1 − V_f)·E_m]/10³   (VdW crossover pressure → composite longitudinal stress)");
+            case 0 -> collatzRlcDepthResonance(param1, param2, sp).withEquation(eq);
+            case 1 -> primeGapDefectThermal(param1, param2, sp).withEquation(eq);
+            case 2 -> resonantThermalFatigue(param1, param2, sp).withEquation(eq);
+            case 3 -> happyPackingAnomaly(param1, param2, sp).withEquation(eq);
+            default -> vanDerWaalsCompositeStress(param1, param2, sp).withEquation(eq);
         };
+    }
+
+    /**
+     * Phase 7 F2 — closed-form equation governing a (domain, topic) pair, indexed
+     * by domain string and 0-based topic index. Surfaces in the per-computation
+     * H3 block's **Equation:** line in the markdown renderer. Returns null when
+     * the pair is not registered (treated as "no equation line").
+     */
+    public static String equationFor(String domain, int topicIndex) {
+        int t = topicIndex % 5;
+        return switch (domain == null ? "" : domain) {
+            case "MATHEMATICS" -> switch (t) {
+                case 0 -> "π₂(N) ~ 2·C₂·N/ln²(N)   (Hardy–Littlewood twin-prime conjecture)";
+                case 1 -> "x_{n+1} = x_n/2 if even, else 3·x_n + 1   (Collatz 3n+1 map)";
+                case 2 -> "r(2n) = #{ (p, q) : p + q = 2n, p,q prime }   (Goldbach partition count)";
+                case 3 -> "s(n) = σ(n) − n   (aliquot sum; σ(n) = sum of all divisors)";
+                default -> "x_{n+1} = Σ_i d_i(x_n)²   (digit-square iteration; happy iff terminates at 1)";
+            };
+            case "PHYSICS" -> switch (t) {
+                case 0 -> "m·dv/dt = −m·g·ĵ − k·|v|·v   (quadratic-drag projectile)";
+                case 1 -> "T = 2π·√(L/g)·(1 + θ²/16 + 11·θ⁴/3072 + …)   (finite-amplitude pendulum)";
+                case 2 -> "(P + a/V²)·(V − b) = R·T   (Van der Waals equation of state)";
+                case 3 -> "d·sin θ = m·λ   (Fraunhofer diffraction grating)";
+                default -> "f₀ = 1/(2π·√(L·C)),   R_c = 2·√(L/C)   (RLC critical damping)";
+            };
+            case "MATERIALS" -> switch (t) {
+                case 0 -> "σ_c(V_f) = V_f·E_f·ε_y + (1 − V_f)·σ_ym   (longitudinal rule-of-mixtures at matrix yield)";
+                case 1 -> "η_FCC = π/(3·√2) ≈ 0.7405;   void radii r_octa ≤ 0.4142, r_tetra ≤ 0.2247   (close-packed lattice)";
+                case 2 -> "1/E_T = V_f/E_f + (1 − V_f)/E_m   (Reuss / transverse-stiffness lower bound)";
+                case 3 -> "k(T) = A·exp(−Eₐ/(R·T))   (Arrhenius rate law; Van't Hoff 2×-per-10 K is a special case)";
+                default -> "σ_th = E·α·ΔT   (constrained-member thermal stress)";
+            };
+            case "INTERDISCIPLINARY" -> switch (t) {
+                case 0 -> "depth_C(n) → L = depth/10⁴ H,   f₀ = 1/(2π·√(L·C))   (Collatz-driven RLC resonance)";
+                case 1 -> "g(n) = p_{k+1} − p_k → α = 5 + 20/g µm·K⁻¹,   σ_th = E·α·ΔT   (prime-gap defect spacing → CTE → thermal stress)";
+                case 2 -> "f₀ = 1/(2π·√(L·C)),   ΔT_cycle = 10 + f₀/10³,   σ_th = E·α·ΔT_cycle   (RLC frequency → thermal-cycling rate → fatigue exposure)";
+                case 3 -> "ρ_happy(N) ≈ 0.143,   r = 0.2 + 0.3·(ρ_happy/0.143),   Δη = ρ_voids·(4πr³/3)/(V_cell)   (happy density → binary-FCC void radius → packing improvement)";
+                default -> "(P_c + a/V²)·(V − b) = R·T,   σ_long = P_c · [V_f·E_f + (1 − V_f)·E_m]/10³   (VdW crossover pressure → composite longitudinal stress)";
+            };
+            default -> null;
+        };
+    }
+
+    /**
+     * Phase 7 F2 — equation lookup by topic name. Resolves the topic index via
+     * {@link #topicIndex(String, String)} then dispatches to {@link
+     * #equationFor(String, int)}. Returns null when the topic isn't registered
+     * — markdown renderer treats null as "no Equation: line."
+     */
+    public static String equationFor(String domain, String topicName) {
+        int idx = topicIndex(domain, topicName);
+        if (idx < 0) return null;
+        return equationFor(domain, idx);
     }
 
     /**
