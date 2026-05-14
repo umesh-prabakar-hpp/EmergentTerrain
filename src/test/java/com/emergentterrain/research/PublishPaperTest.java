@@ -350,6 +350,92 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
+    // ---- Phase 7 F2: per-block truncation guard ----
+
+    @Test
+    void perBlockTruncationFiresWhenAnyBlockEndsMidSentence() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        // Block 1 ends with a period (clean), block 2 is truncated. The paper
+        // is downgraded to NEEDS_REVISION even though block 1 looks fine.
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "First computation result is complete.");
+        blocks.put(2, "Second computation runs over the token budget and gets cut at");
+        NarrationResult narration = new NarrationResult(
+                "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void perBlockTruncationPassesMultiBlockWithAllProperlyTerminated() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "First block is complete.");
+        blocks.put(2, "Second block is complete.");
+        blocks.put(3, "Third block is complete!");
+        NarrationResult narration = new NarrationResult(
+                "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void singleBlockTruncationBehavesIdenticallyToLegacyStringPath() {
+        // The flag-off path should be bit-identical: a single-entry map carrying
+        // truncated prose behaves exactly like the legacy String-shaped narration.
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks =
+                java.util.Map.of(1, "Findings end mid-sentence with no terminator");
+        NarrationResult narration = new NarrationResult(
+                "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void firstTruncatedBlockReturnsIndexOfFirstFailedBlock() {
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "Clean block 1.");
+        blocks.put(2, "Truncated block 2 with no terminator");
+        blocks.put(3, "Clean block 3.");
+        assertThat(UniversityService.firstTruncatedBlock(blocks)).isEqualTo(2);
+    }
+
+    @Test
+    void firstTruncatedBlockReturnsNullWhenEveryBlockIsClean() {
+        java.util.Map<Integer, String> blocks = java.util.Map.of(
+                1, "Clean.", 2, "Also clean!", 3, "Third clean?");
+        assertThat(UniversityService.firstTruncatedBlock(blocks)).isNull();
+    }
+
+    @Test
+    void joinFindingsBlocksReturnsSingleValueVerbatimForSingleEntryMap() {
+        // Flag-off path: single-entry map must collapse to the prose verbatim —
+        // bit-identical to the pre-F2 single-String narration field.
+        java.util.Map<Integer, String> blocks = java.util.Map.of(1, "Single block prose.");
+        assertThat(UniversityService.joinFindingsBlocks(blocks))
+                .isEqualTo("Single block prose.");
+    }
+
+    @Test
+    void joinFindingsBlocksJoinsMultiBlockWithBlankLine() {
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(2, "second");
+        blocks.put(1, "first");
+        // Always joined in ascending key order regardless of insertion order.
+        assertThat(UniversityService.joinFindingsBlocks(blocks))
+                .isEqualTo("first\n\nsecond");
+    }
+
     // ---- Phase 5 C1: citation-aware peer-score weighting ----
 
     @Test

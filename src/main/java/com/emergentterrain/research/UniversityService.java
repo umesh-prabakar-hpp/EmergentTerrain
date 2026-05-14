@@ -354,8 +354,11 @@ public class UniversityService {
         }
         String hypothesis = (narration.hypothesis() != null && !narration.hypothesis().isBlank())
                 ? narration.hypothesis() : draft.templateHypothesis();
-        String findings   = (narration.findings()  != null && !narration.findings().isBlank())
-                ? narration.findings()  : draft.rawFindings();
+        // Phase 7 F2 — pull the structured findings map from the narration. Single-entry
+        // map === the flag-off baseline. Empty / null map falls back to the draft's raw
+        // findings as the legacy String path did.
+        Map<Integer, String> findingsBlocks =
+                resolveFindingsBlocks(narration.findingsMap(), draft.rawFindings());
         String conclusion = (narration.conclusion() != null && !narration.conclusion().isBlank())
                 ? narration.conclusion() : draft.templateConclusion();
 
@@ -363,7 +366,9 @@ public class UniversityService {
         // corpus had simulator coords or internal peer-score values bleed into prose).
         if (harnessLeakFilterEnabled) {
             hypothesis = PromptSanitizer.sanitize(hypothesis);
-            findings   = PromptSanitizer.sanitize(findings);
+            // Phase 7 F2 — sanitize each computation block independently so a leak in
+            // block 2 doesn't perturb the byte content of block 1.
+            findingsBlocks = sanitizeBlocks(findingsBlocks);
             conclusion = PromptSanitizer.sanitize(conclusion);
             // Phase 7 G5 — when the call path shows peer review was skipped, strip the
             // "independently reproduced by peer reviewers" boilerplate from the
@@ -371,6 +376,11 @@ public class UniversityService {
             // REVIEW_REPORT.md found this falsehood on ~75% of corpus papers.
             conclusion = PromptSanitizer.suppressBoilerplateOnSkip(conclusion, narration.callPath());
         }
+        // Phase 7 F2 — the joined-prose form drives every legacy consumer (validators,
+        // markdown when the structured flag is off, audit re-prompt). Multi-block maps
+        // collapse to a `\n\n`-joined string in ascending key order — matching the
+        // legacy single-string layout when there's only one block.
+        String findings = joinFindingsBlocks(findingsBlocks);
 
         // Null results get no confidence boost (fixed ×0.92); others range ×0.92–×1.08
         boolean isNullResult = draft.resultClassification() == ResultClassification.NULL_RESULT;
@@ -413,8 +423,20 @@ public class UniversityService {
         //   - otherwise → PUBLISHED.
         String paperStatus;
         String callPath = narration.callPath();
+        // Phase 7 F2 — truncation guard is per-block. A single mid-sentence block
+        // (or a mid-sentence conclusion) flips the paper to NEEDS_REVISION; the
+        // other blocks publish unchanged. Flag-off / single-block path is
+        // bit-identical to the legacy single-string check because findingsBlocks
+        // has one entry and joinFindingsBlocks returns it verbatim.
+        Integer truncatedBlockIndex = truncationGuardEnabled
+                ? firstTruncatedBlock(findingsBlocks)
+                : null;
         boolean truncated = truncationGuardEnabled
-                && (!endsWithSentenceTerminator(findings) || !endsWithSentenceTerminator(conclusion));
+                && (truncatedBlockIndex != null || !endsWithSentenceTerminator(conclusion));
+        if (truncated && truncatedBlockIndex != null) {
+            log.warn("truncation-guard fired on findings block paperId={} block={} blocks={}",
+                    draft.paperId(), truncatedBlockIndex, findingsBlocks.keySet());
+        }
         // Phase 7 G6 — topic-specific findings prose checks (RLC R_c boilerplate,
         // Thermal-Stress "yield strength" mis-label, Arrhenius scientific notation).
         // Maps to NEEDS_REVISION (fixable in revision), not REJECTED (structural defect).
@@ -1412,6 +1434,77 @@ public class UniversityService {
         if (i < 0) return true;  // blank text — caught by the upstream isBlank check
         char last = text.charAt(i);
         return last == '.' || last == '!' || last == '?' || last == '…';
+    }
+
+    /**
+     * Phase 7 F2 — pick the canonical findings map for downstream consumers.
+     * Null / empty narration map falls back to a single-entry map keyed at 1,
+     * carrying the draft's raw findings — bit-identical to the legacy String
+     * path that read {@code narration.findings()} with a {@code draft.rawFindings()}
+     * fallback. Blank entries inside a multi-block map are dropped so the
+     * per-block truncation guard doesn't false-positive on them.
+     */
+    static java.util.Map<Integer, String> resolveFindingsBlocks(
+            java.util.Map<Integer, String> narrationMap,
+            String rawFindingsFallback) {
+        if (narrationMap == null || narrationMap.isEmpty()) {
+            return java.util.Map.of(1, rawFindingsFallback == null ? "" : rawFindingsFallback);
+        }
+        java.util.Map<Integer, String> out = new java.util.LinkedHashMap<>();
+        new java.util.TreeMap<>(narrationMap).forEach((k, v) -> {
+            if (v != null && !v.isBlank()) out.put(k, v);
+        });
+        if (out.isEmpty()) {
+            return java.util.Map.of(1, rawFindingsFallback == null ? "" : rawFindingsFallback);
+        }
+        return out;
+    }
+
+    /**
+     * Phase 7 F2 — apply {@link PromptSanitizer#sanitize(String)} to each block
+     * independently. Returns a sorted map so downstream consumers see a stable
+     * iteration order regardless of the input's iteration order.
+     */
+    static java.util.Map<Integer, String> sanitizeBlocks(java.util.Map<Integer, String> blocks) {
+        java.util.Map<Integer, String> out = new java.util.LinkedHashMap<>();
+        new java.util.TreeMap<>(blocks).forEach((k, v) -> {
+            out.put(k, PromptSanitizer.sanitize(v));
+        });
+        return out;
+    }
+
+    /**
+     * Phase 7 F2 — join blocks into the legacy single-string layout. Single-entry
+     * map returns the sole value verbatim (bit-identical to the pre-F2 String
+     * path). Multi-entry maps join values with a blank line between blocks.
+     */
+    static String joinFindingsBlocks(java.util.Map<Integer, String> blocks) {
+        if (blocks == null || blocks.isEmpty()) return "";
+        if (blocks.size() == 1) {
+            String only = blocks.values().iterator().next();
+            return only == null ? "" : only;
+        }
+        StringBuilder sb = new StringBuilder();
+        new java.util.TreeMap<>(blocks).forEach((k, v) -> {
+            if (v == null || v.isBlank()) return;
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append(v);
+        });
+        return sb.toString();
+    }
+
+    /**
+     * Phase 7 F2 — returns the 1-based index of the FIRST block that ends mid-sentence,
+     * or null when every block ends in a sentence terminator. Used by the per-block
+     * truncation guard to flip a paper to NEEDS_REVISION and to surface the offending
+     * block index in the warn log.
+     */
+    static Integer firstTruncatedBlock(java.util.Map<Integer, String> blocks) {
+        if (blocks == null || blocks.isEmpty()) return null;
+        for (java.util.Map.Entry<Integer, String> e : new java.util.TreeMap<>(blocks).entrySet()) {
+            if (!endsWithSentenceTerminator(e.getValue())) return e.getKey();
+        }
+        return null;
     }
 
 }
