@@ -382,9 +382,12 @@ public class ResearchNarrationService {
             // claim was actually computed or hand-waved after the sandbox denied the
             // narrator's code attempts.
             MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
-            String professorSynthesis = router.callPrimaryWithTools(
+            // Phase 7 F5.2 — router returns full ToolCallResponse; trace is unused
+            // here until F5.3 wires it into NarrationResult.
+            com.emergentterrain.llm.ToolCallResponse profResponse = router.callPrimaryWithTools(
                     systemPrompt, userPrompt, toolsJson,
                     toolSuite.buildExecutor(draft, metrics));
+            String professorSynthesis = profResponse.synthesis();
             if (metrics.sandboxRejectCount() > 0) {
                 callPath.add("sandbox_reject=" + metrics.sandboxRejectCount());
             }

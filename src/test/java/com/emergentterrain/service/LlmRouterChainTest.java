@@ -130,8 +130,9 @@ class LlmRouterChainTest {
                 "ollama,groq,nvidia", "ollama",
                 ollama, groq, nvidia);
 
-        String out = router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
-        assertThat(out).isEqualTo("nvidia-tools-response");
+        com.emergentterrain.llm.ToolCallResponse out =
+                router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
+        assertThat(out.synthesis()).isEqualTo("nvidia-tools-response");
         assertThat(ollama.toolCallCount).isEqualTo(0);   // doesn't support tools
         assertThat(groq.toolCallCount).isEqualTo(0);     // blocked
         assertThat(nvidia.toolCallCount).isEqualTo(1);
@@ -386,11 +387,12 @@ class LlmRouterChainTest {
         @Override public boolean allBlocked()    { return blocked; }
         @Override public Instant earliestRecovery() { return Instant.now(); }
         @Override public String role()           { return roleTag; }
-        @Override public String callWithTools(String sys, String user, String tools,
-                                              Function<String, String> exec) {
+        @Override public com.emergentterrain.llm.ToolCallResponse callWithTools(
+                String sys, String user, String tools,
+                Function<String, String> exec) {
             toolCallCount++;
             if (throwOnSync != null) throw throwOnSync;
-            return syncResponse;
+            return com.emergentterrain.llm.ToolCallResponse.ofSynthesis(syncResponse);
         }
     }
 

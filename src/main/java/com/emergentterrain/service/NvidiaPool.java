@@ -168,8 +168,9 @@ public class NvidiaPool implements LlmPool {
     }
 
     @Override
-    public String callWithTools(String systemPrompt, String userPrompt,
-                                 String toolsJson, Function<String, String> executor) {
+    public com.emergentterrain.llm.ToolCallResponse callWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson, Function<String, String> executor) {
         acquireSlot();
         try {
             int size  = activeModels.size();
@@ -194,8 +195,11 @@ public class NvidiaPool implements LlmPool {
         } finally { slots.release(); }
     }
 
-    private String runToolLoop(String modelId, String systemPrompt, String userPrompt,
-                                String toolsJson, Function<String, String> executor) {
+    private com.emergentterrain.llm.ToolCallResponse runToolLoop(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, Function<String, String> executor) {
+        // Phase 7 F5.2 — capture every tool call into the returned trace.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = new java.util.ArrayList<>();
         try {
             ArrayNode messages = mapper.createArrayNode();
             if (systemPrompt != null && !systemPrompt.isBlank())
@@ -235,6 +239,8 @@ public class NvidiaPool implements LlmPool {
                             result = "Tool error: " + ex.getMessage();
                         }
                         log.info("NvidiaPool tools: fn={} result_len={}", fnName, result.length());
+                        trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                fnName, fnArgs, result, round));
                         messages.addObject()
                                 .put("role", "tool")
                                 .put("tool_call_id", callId)
@@ -243,10 +249,16 @@ public class NvidiaPool implements LlmPool {
                 } else {
                     String content = message.path("content").asText("");
                     if (content.isBlank()) content = message.path("reasoning_content").asText("");
-                    return content;
+                    if (!trace.isEmpty()) {
+                        log.info("NvidiaPool tools: loop closed model={} calls={} rounds=[{}..{}]",
+                                modelId, trace.size(),
+                                trace.get(0).round(), trace.get(trace.size() - 1).round());
+                    }
+                    return new com.emergentterrain.llm.ToolCallResponse(
+                            content, java.util.List.copyOf(trace));
                 }
             }
-            return "";
+            return new com.emergentterrain.llm.ToolCallResponse("", java.util.List.copyOf(trace));
         } catch (RuntimeException e) { throw e; }
         catch (Exception e) { throw new RuntimeException("NvidiaPool tool loop failed", e); }
     }

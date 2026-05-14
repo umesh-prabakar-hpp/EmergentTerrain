@@ -292,10 +292,16 @@ public class LlmRouter {
      * Tool-enabled primary call. Routes through the primary chain; the first
      * non-blocked tool-capable pool gets the call. Falls back to a plain
      * primary call when no pool in the chain supports tools.
+     *
+     * <p>Phase 7 F5.2 — returns the pool's full {@link com.emergentterrain.llm.ToolCallResponse}
+     * so the caller (ResearchNarrationService) gets both the synthesis text and
+     * the trace of tool invocations the LLM issued. The plain-primary fallback
+     * path returns a trace-empty response.
      */
-    public String callPrimaryWithTools(String systemPrompt, String userPrompt,
-                                        String toolsJson,
-                                        Function<String, String> executor) {
+    public com.emergentterrain.llm.ToolCallResponse callPrimaryWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson,
+            Function<String, String> executor) {
         RuntimeException last = null;
         for (LlmPool p : primaryChain) {
             if (!isToolEnabled(p)) continue;
@@ -308,7 +314,8 @@ public class LlmRouter {
             }
         }
         if (last != null) throw last;
-        // No tool-capable pool — degrade to a plain primary call.
-        return callPrimary(systemPrompt + "\n\n" + userPrompt);
+        // No tool-capable pool — degrade to a plain primary call. Empty trace.
+        return com.emergentterrain.llm.ToolCallResponse.ofSynthesis(
+                callPrimary(systemPrompt + "\n\n" + userPrompt));
     }
 }

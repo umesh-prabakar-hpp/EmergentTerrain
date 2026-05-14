@@ -202,9 +202,10 @@ public class GroqPool implements LlmPool {
      * result added to the conversation. Returns the model's final synthesis text.
      */
     @Override
-    public String callWithTools(String systemPrompt, String userPrompt,
-                                 String toolsJson,
-                                 java.util.function.Function<String, String> executor) {
+    public com.emergentterrain.llm.ToolCallResponse callWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson,
+            java.util.function.Function<String, String> executor) {
         acquireSlot();
         try {
             int size  = activeModels.size();
@@ -231,13 +232,12 @@ public class GroqPool implements LlmPool {
         }
     }
 
-    private String runToolLoop(String modelId, String systemPrompt, String userPrompt,
-                                String toolsJson,
-                                java.util.function.Function<String, String> executor) {
-        // Phase 7 F5.1 — local capture of every tool call the LLM issued in this
-        // loop. Not yet returned to the caller (F5.2 changes the signature); for
-        // now we just log a summary at loop exit so the trace is observable in
-        // /tmp/et-app.log without a schema change.
+    private com.emergentterrain.llm.ToolCallResponse runToolLoop(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson,
+            java.util.function.Function<String, String> executor) {
+        // Phase 7 F5.2 — local capture of every tool call the LLM issued in this
+        // loop, returned to the caller as Tier 2 provenance.
         java.util.List<com.emergentterrain.llm.ToolInvocation> trace = new java.util.ArrayList<>();
         try {
             com.fasterxml.jackson.databind.node.ArrayNode messages = mapper.createArrayNode();
@@ -297,10 +297,11 @@ public class GroqPool implements LlmPool {
                                 modelId, trace.size(),
                                 trace.get(0).round(), trace.get(trace.size() - 1).round());
                     }
-                    return content;
+                    return new com.emergentterrain.llm.ToolCallResponse(
+                            content, java.util.List.copyOf(trace));
                 }
             }
-            return "";
+            return new com.emergentterrain.llm.ToolCallResponse("", java.util.List.copyOf(trace));
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {

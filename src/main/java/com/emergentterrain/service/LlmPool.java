@@ -28,10 +28,15 @@ public interface LlmPool {
      * Tool-enabled call. The professor LLM may invoke any of the supplied tools to gather
      * evidence, then writes a synthesis. The executor is called with the tool's JSON args
      * (after parsing by the implementation) and returns the tool's result as a string.
+     *
+     * <p>Phase 7 F5.2 — returns a {@link com.emergentterrain.llm.ToolCallResponse} so
+     * the agentic loop's tool-call trace flows back to the caller (Tier 2 provenance).
+     * Callers that only need the final assistant text read {@code .synthesis()}.
      */
-    default String callWithTools(String systemPrompt, String userPrompt,
-                                  String toolsJson,
-                                  Function<String, String> executor) {
+    default com.emergentterrain.llm.ToolCallResponse callWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson,
+            Function<String, String> executor) {
         throw new UnsupportedOperationException(
                 providerKey() + " pool does not support tool-calling");
     }
