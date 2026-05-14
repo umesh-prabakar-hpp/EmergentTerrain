@@ -213,7 +213,7 @@ public class NvidiaPool implements LlmPool {
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
                 HttpResponse<String> resp = postChat(payload);
                 if (resp.statusCode() != 200) {
-                    handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                    handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                     throw new RuntimeException("NVIDIA API error " + resp.statusCode()
                             + ": " + resp.body());
                 }
@@ -335,7 +335,7 @@ public class NvidiaPool implements LlmPool {
             String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
             if (resp.statusCode() != 200) {
-                handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                 throw new RuntimeException("NVIDIA API error " + resp.statusCode()
                         + ": " + resp.body());
             }
@@ -398,8 +398,17 @@ public class NvidiaPool implements LlmPool {
      * the model is in NVIDIA's catalog but not entitled to the caller's free-tier
      * account. We permanently disable such models so the pool's round-robin doesn't
      * keep retrying.
+     *
+     * <p>For 429 we first consult standard rate-limit headers via
+     * {@link RateLimitParser}. NVIDIA's free tier has historically not published
+     * {@code Retry-After}, but if a future gateway revision starts emitting it
+     * we'll honour the real recovery window. Falls back to body inspection to
+     * distinguish per-minute throttles (short block) from monthly-credit
+     * exhaustion (24h block — the credits don't return until the next billing
+     * cycle, so a flat 60s would re-attack the API ~525k times that month).
      */
-    void handleErrorResponse(String modelId, int statusCode, String body) {
+    void handleErrorResponse(String modelId, int statusCode,
+                              java.net.http.HttpHeaders headers, String body) {
         if (statusCode == 404 && body != null
                 && body.contains("Not found for account")) {
             log.warn("NvidiaPool: model={} is paid-tier only — permanently disabled "
@@ -409,10 +418,30 @@ public class NvidiaPool implements LlmPool {
             return;
         }
         if (statusCode == 429) {
-            // NVIDIA doesn't publish retry-after on free tier; default to 60s block.
-            rateLimitExpiry.put(modelId, System.currentTimeMillis() + 60_000);
-            log.warn("NvidiaPool: model={} 429 blocked for 60s", modelId);
+            long blockMs = RateLimitParser.inferRetryAfterMs(headers)
+                    .orElseGet(() -> inferBlockMsFromBody(body));
+            rateLimitExpiry.put(modelId, System.currentTimeMillis() + blockMs);
+            log.warn("NvidiaPool: model={} 429 blocked for {}ms (source={})",
+                    modelId, blockMs,
+                    RateLimitParser.inferRetryAfterMs(headers).isPresent() ? "header" : "body-fallback");
         }
+    }
+
+    /**
+     * NVIDIA-specific body classifier: distinguishes a per-minute throttle (short
+     * recovery) from a monthly-credits exhaustion (next-month recovery). Free-tier
+     * credit exhaustion shows up with words like {@code credit}, {@code monthly},
+     * or {@code quota exceeded}; per-minute throttles return shorter / less
+     * specific messages.
+     */
+    private long inferBlockMsFromBody(String body) {
+        if (body == null) return 60_000L;
+        String lower = body.toLowerCase();
+        if (lower.contains("credit") || lower.contains("monthly")
+                || lower.contains("quota exceeded") || lower.contains("usage limit")) {
+            return 24L * 60 * 60 * 1000;  // 24h — the operator must wait until renewal
+        }
+        return 60_000L;
     }
 
     private void recordUsage(String model, JsonNode usage) {

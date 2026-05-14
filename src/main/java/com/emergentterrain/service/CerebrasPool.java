@@ -206,7 +206,7 @@ public class CerebrasPool implements LlmPool {
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
                 HttpResponse<String> resp = postChat(payload);
                 if (resp.statusCode() != 200) {
-                    handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                    handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                     throw new RuntimeException("Cerebras API error " + resp.statusCode()
                             + ": " + resp.body());
                 }
@@ -327,7 +327,7 @@ public class CerebrasPool implements LlmPool {
             String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
             if (resp.statusCode() != 200) {
-                handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                 throw new RuntimeException("Cerebras API error " + resp.statusCode()
                         + ": " + resp.body());
             }
@@ -385,13 +385,38 @@ public class CerebrasPool implements LlmPool {
 
     /**
      * Cerebras 429 carries {@code "code":"request_quota_exceeded"} for free-tier
-     * per-minute caps. There's no retry-after header so we default to 60s blocks.
+     * per-minute caps. The pool now consults standard rate-limit headers via
+     * {@link RateLimitParser} — if Cerebras's gateway sends {@code Retry-After}
+     * or {@code x-ratelimit-reset(-after)} (some configurations do, the previous
+     * code never read them), we honour the actual recovery window instead of a
+     * flat 60s. Falls back to {@link #waitUntilNextMinuteBoundaryMs()} when no
+     * header is present — the per-minute cap resets at the top of each minute,
+     * so the average true recovery is &lt;60s.
      */
-    void handleErrorResponse(String modelId, int statusCode, String body) {
+    void handleErrorResponse(String modelId, int statusCode,
+                              java.net.http.HttpHeaders headers, String body) {
         if (statusCode == 429) {
-            rateLimitExpiry.put(modelId, System.currentTimeMillis() + 60_000);
-            log.warn("CerebrasPool: model={} 429 blocked for 60s (free-tier RPM cap)", modelId);
+            long blockMs = RateLimitParser.inferRetryAfterMs(headers)
+                    .orElseGet(this::waitUntilNextMinuteBoundaryMs);
+            rateLimitExpiry.put(modelId, System.currentTimeMillis() + blockMs);
+            log.warn("CerebrasPool: model={} 429 blocked for {}ms (source={}, free-tier RPM cap)",
+                    modelId, blockMs,
+                    RateLimitParser.inferRetryAfterMs(headers).isPresent() ? "header" : "next-minute");
         }
+    }
+
+    /**
+     * Cerebras's free-tier RPM cap resets at the top of each minute. When no
+     * {@code Retry-After} header is sent, blocking until the next minute
+     * boundary is more accurate than a flat 60s — average recovery is ~30s.
+     */
+    private long waitUntilNextMinuteBoundaryMs() {
+        long nowMs = System.currentTimeMillis();
+        long msIntoMinute = nowMs % 60_000;
+        long untilTopOfNextMinute = 60_000 - msIntoMinute;
+        // Guard against the edge case where msIntoMinute is exactly 0 (we'd
+        // return a 60s block instead of 0ms).
+        return untilTopOfNextMinute == 60_000 ? 60_000 : untilTopOfNextMinute + 500;
     }
 
     private void recordUsage(String model, JsonNode usage) {

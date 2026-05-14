@@ -50,14 +50,10 @@ class OpenRouterPoolParseTest {
                 + "\"provider_name\":\"Venice\"}}}";
 
         long before = System.currentTimeMillis();
-        pool.handleErrorResponse("meta-llama/llama-3.3-70b-instruct:free", 429, body);
+        pool.handleErrorResponse("meta-llama/llama-3.3-70b-instruct:free", 429, emptyHeaders(), body);
         long after = System.currentTimeMillis();
 
-        @SuppressWarnings("unchecked")
-        java.util.concurrent.ConcurrentHashMap<String, Long> expiry =
-                (java.util.concurrent.ConcurrentHashMap<String, Long>) ReflectionTestUtils.getField(
-                        pool, "rateLimitExpiry");
-        Long blockUntil = expiry.get("meta-llama/llama-3.3-70b-instruct:free");
+        Long blockUntil = blockExpiryFor(pool, "meta-llama/llama-3.3-70b-instruct:free");
         assertThat(blockUntil).isNotNull();
         // Excluded-backend block is at least 5 minutes (300_000 ms) regardless of retry_after.
         assertThat(blockUntil - before).isGreaterThanOrEqualTo(5 * 60 * 1000L);
@@ -71,17 +67,59 @@ class OpenRouterPoolParseTest {
                 + "\"provider_name\":\"OpenInference\"}}}";
 
         long before = System.currentTimeMillis();
-        pool.handleErrorResponse("openai/gpt-oss-120b:free", 429, body);
+        pool.handleErrorResponse("openai/gpt-oss-120b:free", 429, emptyHeaders(), body);
 
-        @SuppressWarnings("unchecked")
-        java.util.concurrent.ConcurrentHashMap<String, Long> expiry =
-                (java.util.concurrent.ConcurrentHashMap<String, Long>) ReflectionTestUtils.getField(
-                        pool, "rateLimitExpiry");
-        Long blockUntil = expiry.get("openai/gpt-oss-120b:free");
+        Long blockUntil = blockExpiryFor(pool, "openai/gpt-oss-120b:free");
         assertThat(blockUntil).isNotNull();
         // OpenInference is NOT excluded — should use retry_after_seconds * 1000 (15_000ms).
         long delta = blockUntil - before;
         assertThat(delta).isBetween(15_000L, 16_000L);
+    }
+
+    @Test
+    void f_handleErrorResponse_headerWindowOverridesShorterBodyWindow() throws Exception {
+        // Body says 5s, header says 30s — the longer window wins (header).
+        OpenRouterPool pool = buildPool("Venice");
+        String body = "{\"error\":{\"code\":429,\"metadata\":{\"retry_after_seconds\":5,"
+                + "\"provider_name\":\"OpenInference\"}}}";
+        java.net.http.HttpHeaders headers = headersOf("retry-after", "30");
+
+        long before = System.currentTimeMillis();
+        pool.handleErrorResponse("openai/gpt-oss-120b:free", 429, headers, body);
+
+        Long blockUntil = blockExpiryFor(pool, "openai/gpt-oss-120b:free");
+        assertThat(blockUntil - before).isBetween(29_000L, 31_000L);
+    }
+
+    @Test
+    void f_handleErrorResponse_usesHeaderWhenBodyEnvelopeMissing() throws Exception {
+        // No body envelope at all — header alone drives the block.
+        OpenRouterPool pool = buildPool("Venice");
+        java.net.http.HttpHeaders headers = headersOf("retry-after", "7");
+
+        long before = System.currentTimeMillis();
+        pool.handleErrorResponse("openai/gpt-oss-120b:free", 429, headers, "{}");
+
+        Long blockUntil = blockExpiryFor(pool, "openai/gpt-oss-120b:free");
+        assertThat(blockUntil - before).isBetween(6_000L, 8_000L);
+    }
+
+    private static java.net.http.HttpHeaders emptyHeaders() {
+        return java.net.http.HttpHeaders.of(java.util.Map.of(), (k, v) -> true);
+    }
+
+    private static java.net.http.HttpHeaders headersOf(String name, String value) {
+        return java.net.http.HttpHeaders.of(
+                java.util.Map.of(name, java.util.List.of(value)),
+                (k, v) -> true);
+    }
+
+    private static Long blockExpiryFor(OpenRouterPool pool, String modelId) {
+        @SuppressWarnings("unchecked")
+        java.util.concurrent.ConcurrentHashMap<String, Long> expiry =
+                (java.util.concurrent.ConcurrentHashMap<String, Long>) ReflectionTestUtils.getField(
+                        pool, "rateLimitExpiry");
+        return expiry.get(modelId);
     }
 
     @Test

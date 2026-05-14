@@ -25,7 +25,7 @@ class NvidiaPoolParseTest {
                 + "\"detail\":\"Function 'b0fcd392-e905-4ab4-8eb9-aeae95c30b37': "
                 + "Not found for account 'SSBQR1S_ZQlxQ5ZHExV8jzx6vVIpmx3KAjQYNgJ1gf4'\"}";
 
-        pool.handleErrorResponse("nvidia/nemotron-4-340b-instruct", 404, body);
+        pool.handleErrorResponse("nvidia/nemotron-4-340b-instruct", 404, emptyHeaders(), body);
 
         // Permanently disabled — survives indefinitely (not bound to a timestamp)
         assertThat(pool.isModelUnavailable("nvidia/nemotron-4-340b-instruct")).isTrue();
@@ -37,25 +37,48 @@ class NvidiaPoolParseTest {
         NvidiaPool pool = buildPool();
         String body = "{\"status\":404,\"detail\":\"Model not found\"}";
 
-        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 404, body);
+        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 404, emptyHeaders(), body);
 
         assertThat(pool.isModelUnavailable("meta/llama-3.3-70b-instruct")).isFalse();
     }
 
     @Test
-    void handleErrorResponse_429TransientBlock60s() {
+    void handleErrorResponse_429NoHeaderBlocksFor60s() {
+        // No Retry-After header + "rate limit" body → fall back to 60s default.
         NvidiaPool pool = buildPool();
         long before = System.currentTimeMillis();
 
-        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 429, "rate limit");
+        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 429, emptyHeaders(), "rate limit");
 
-        @SuppressWarnings("unchecked")
-        java.util.concurrent.ConcurrentHashMap<String, Long> expiry =
-                (java.util.concurrent.ConcurrentHashMap<String, Long>) ReflectionTestUtils.getField(
-                        pool, "rateLimitExpiry");
-        Long blockUntil = expiry.get("meta/llama-3.3-70b-instruct");
-        assertThat(blockUntil).isNotNull();
-        assertThat(blockUntil - before).isBetween(59_000L, 61_000L);
+        assertThat(blockMsFor(pool, "meta/llama-3.3-70b-instruct", before))
+                .isBetween(59_000L, 61_000L);
+    }
+
+    @Test
+    void f_handleErrorResponse_429HonorsRetryAfterHeader() {
+        // Header says wait 5s — block reflects that, not the 60s fallback.
+        NvidiaPool pool = buildPool();
+        long before = System.currentTimeMillis();
+        java.net.http.HttpHeaders headers = headersOf("Retry-After", "5");
+
+        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 429, headers, "rate limit");
+
+        assertThat(blockMsFor(pool, "meta/llama-3.3-70b-instruct", before))
+                .isBetween(4_000L, 6_000L);
+    }
+
+    @Test
+    void f_handleErrorResponse_429MonthlyCreditExhaustionBlocksFor24h() {
+        // Body language indicating monthly credit exhaustion → 24h block, not 60s.
+        NvidiaPool pool = buildPool();
+        long before = System.currentTimeMillis();
+        String body = "{\"detail\":\"Monthly credit usage limit reached for this account\"}";
+
+        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 429, emptyHeaders(), body);
+
+        long expected24h = 24L * 60 * 60 * 1000;
+        assertThat(blockMsFor(pool, "meta/llama-3.3-70b-instruct", before))
+                .isBetween(expected24h - 5_000, expected24h + 5_000);
     }
 
     @Test
@@ -63,9 +86,29 @@ class NvidiaPoolParseTest {
         NvidiaPool pool = buildPool();
         String body = "Function 'x': Not found for account 'y'";
         for (String m : pool.selectedModels()) {
-            pool.handleErrorResponse(m, 404, body);
+            pool.handleErrorResponse(m, 404, emptyHeaders(), body);
         }
         assertThat(pool.allBlocked()).isTrue();
+    }
+
+    private static java.net.http.HttpHeaders emptyHeaders() {
+        return java.net.http.HttpHeaders.of(java.util.Map.of(), (k, v) -> true);
+    }
+
+    private static java.net.http.HttpHeaders headersOf(String name, String value) {
+        return java.net.http.HttpHeaders.of(
+                java.util.Map.of(name, java.util.List.of(value)),
+                (k, v) -> true);
+    }
+
+    private static long blockMsFor(NvidiaPool pool, String modelId, long baseMs) {
+        @SuppressWarnings("unchecked")
+        java.util.concurrent.ConcurrentHashMap<String, Long> expiry =
+                (java.util.concurrent.ConcurrentHashMap<String, Long>) ReflectionTestUtils.getField(
+                        pool, "rateLimitExpiry");
+        Long blockUntil = expiry.get(modelId);
+        assertThat(blockUntil).isNotNull();
+        return blockUntil - baseMs;
     }
 
     @Test

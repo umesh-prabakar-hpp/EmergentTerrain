@@ -225,7 +225,7 @@ public class OpenRouterPool implements LlmPool {
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
                 HttpResponse<String> resp = postChat(payload);
                 if (resp.statusCode() != 200) {
-                    handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                    handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                     throw new RuntimeException("OpenRouter API error " + resp.statusCode()
                             + ": " + resp.body());
                 }
@@ -349,7 +349,7 @@ public class OpenRouterPool implements LlmPool {
             String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
             if (resp.statusCode() != 200) {
-                handleErrorResponse(modelId, resp.statusCode(), resp.body());
+                handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                 throw new RuntimeException("OpenRouter API error " + resp.statusCode()
                         + ": " + resp.body());
             }
@@ -421,14 +421,28 @@ public class OpenRouterPool implements LlmPool {
      * OpenRouter wraps upstream rate-limits in {@code error.metadata.retry_after_seconds}
      * with a {@code provider_name}. If the provider is in the excluded set we block the
      * model for a generous fixed window so the pool stops routing to it.
+     *
+     * <p>Header-first ordering: standard {@code Retry-After} / {@code x-ratelimit-reset(-after)}
+     * are consulted via {@link RateLimitParser} before the OpenRouter-specific
+     * body shape. Whichever yields a longer recovery wins, so an excluded backend
+     * doesn't get re-tried earlier than its 5-minute exile.
      */
-    void handleErrorResponse(String modelId, int statusCode, String body) {
+    void handleErrorResponse(String modelId, int statusCode,
+                              java.net.http.HttpHeaders headers, String body) {
         if (statusCode != 429) return;
+        long headerRetryMs = RateLimitParser.inferRetryAfterMs(headers).orElse(0L);
         try {
             JsonNode err = mapper.readTree(body).path("error");
-            if (err.isMissingNode()) return;
+            if (err.isMissingNode()) {
+                // No body envelope — apply header window or short default.
+                long fallback = headerRetryMs > 0 ? headerRetryMs : 30_000;
+                rateLimitExpiry.put(modelId, System.currentTimeMillis() + fallback);
+                return;
+            }
             JsonNode meta = err.path("metadata");
             long retryAfterMs = meta.path("retry_after_seconds").asLong(60) * 1000L;
+            // Take the longer of header- and body-derived windows.
+            retryAfterMs = Math.max(retryAfterMs, headerRetryMs);
             String providerName = meta.path("provider_name").asText("");
             if (!providerName.isBlank() && excludedBackends.contains(providerName)) {
                 // Block excluded-backend models for a longer window — Venice's
@@ -442,9 +456,10 @@ public class OpenRouterPool implements LlmPool {
             }
             rateLimitExpiry.put(modelId, System.currentTimeMillis() + retryAfterMs);
         } catch (Exception e) {
-            // Parsing failed — fall back to a default short block so the round-robin
-            // can move on to the next model.
-            rateLimitExpiry.put(modelId, System.currentTimeMillis() + 30_000);
+            // Body parse failed — use header window if any, else a short default
+            // so the round-robin can move on to the next model.
+            long fallback = headerRetryMs > 0 ? headerRetryMs : 30_000;
+            rateLimitExpiry.put(modelId, System.currentTimeMillis() + fallback);
         }
     }
 
