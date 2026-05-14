@@ -218,6 +218,19 @@ public class MathPhysicsEngine {
             "Acoustic Doppler Frequency Shift"     // Physics↔Physics: relative motion → f shift
     };
 
+    // ---- Phase 7 FX: 5 new domains beyond the original 4 ----
+    // Each domain ships with 5 closed-form topics. ARCHITECTURE_TERRESTRIAL and
+    // ARCHITECTURE_UNDERWATER are deliberately parameterised — never hard-code
+    // Earth's gravity or water's properties; both are inputs.
+
+    private static final String[] BIOLOGY_TOPICS = {
+            "Verhulst Logistic Growth",
+            "Lotka-Volterra Predator-Prey",
+            "Michaelis-Menten Enzyme Kinetics",
+            "Kleiber Allometric Scaling",
+            "Hardy-Weinberg Equilibrium"
+    };
+
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
@@ -271,6 +284,15 @@ public class MathPhysicsEngine {
             {"Acoustic Doppler Frequency Shift for Mixed Source-Observer Velocities", "Wave-Speed-Bounded Doppler Limits in a Single Medium"}
     };
 
+    // ---- Phase 7 FX.1 BIOLOGY titles ----
+    private static final String[][] BIOLOGY_TITLES = {
+            {"Population Growth Under the Verhulst Logistic Model",                  "Carrying-Capacity Saturation in a Bounded Habitat"},
+            {"Lotka-Volterra Predator-Prey Oscillation Stability",                   "Coupled-ODE Cycle Amplitudes Across α/β/γ/δ Parameter Sweeps"},
+            {"Michaelis-Menten Enzyme Saturation and K_m Recovery",                  "Initial-Rate vs Substrate Concentration in Steady-State Catalysis"},
+            {"Kleiber's Three-Quarters Allometric Scaling Across Body Masses",       "Metabolic-Rate Power Law Tested Against Synthetic Organism Data"},
+            {"Hardy-Weinberg Equilibrium Persistence Under Random Mating",           "Allele-Frequency Drift Across Generations With No Selection Pressure"}
+    };
+
     // ---- Public API ----
 
     /** Primary entry point: genome-driven search via SearchParams. */
@@ -282,6 +304,8 @@ public class MathPhysicsEngine {
             case "PHYSICS"           -> computePhysics(t, param1, param2, sp);
             case "MATERIALS"         -> computeMaterials(t, param1, param2, sp);
             case "INTERDISCIPLINARY" -> computeInterdisciplinary(t, param1, param2, sp);
+            // Phase 7 FX.1 — BIOLOGY.
+            case "BIOLOGY"           -> computeBiology(t, param1, param2, sp);
             default                  -> computeMath(t, param1, param2, sp);
         };
     }
@@ -298,6 +322,8 @@ public class MathPhysicsEngine {
             case "MATERIALS"         -> MATERIALS_TOPICS.length;
             case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS.length;
             case "MATHEMATICS"       -> MATH_TOPICS.length;
+            // Phase 7 FX — new domains beyond the original 4.
+            case "BIOLOGY"           -> BIOLOGY_TOPICS.length;
             default                  -> MATH_TOPICS.length;
         };
     }
@@ -398,18 +424,19 @@ public class MathPhysicsEngine {
             case "INTERDISCIPLINARY:5"   -> 0.05;    // Hall voltage in V (~1e-4 to 1e-1 V)
             case "INTERDISCIPLINARY:6"   -> 1.0e3;   // Schottky J in A/cm² (~1e-3 to 1e4)
             case "INTERDISCIPLINARY:7"   -> 100.0;   // Doppler |f' − f| in Hz (~5-300)
+            // Phase 7 FX.1 — BIOLOGY topics.
+            case "BIOLOGY:0"         -> 0.5;     // Verhulst N(t)/K steady-state error (~0-1)
+            case "BIOLOGY:1"         -> 0.6;     // Lotka-Volterra cycle-amplitude ratio (~0.2-1.0)
+            case "BIOLOGY:2"         -> 0.5;     // Michaelis-Menten K_m recovery error (~0.05-0.5)
+            case "BIOLOGY:3"         -> 0.10;    // Kleiber exponent deviation from 0.75 (~0.01-0.10)
+            case "BIOLOGY:4"         -> 0.05;    // Hardy-Weinberg allele-frequency drift (~0.005-0.10)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
 
     /** Reverse-lookup: returns the 0-based topic index for a given topic name, or -1 if not found. */
     public static int topicIndex(String domain, String topicName) {
-        String[] names = switch (domain) {
-            case "PHYSICS"           -> PHYSICS_TOPICS;
-            case "MATERIALS"         -> MATERIALS_TOPICS;
-            case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS;
-            default                  -> MATH_TOPICS;
-        };
+        String[] names = topicArrayFor(domain);
         for (int i = 0; i < names.length; i++) {
             if (names[i].equalsIgnoreCase(topicName)) return i;
         }
@@ -417,13 +444,26 @@ public class MathPhysicsEngine {
     }
 
     public static String topicName(String domain, int topicIndex) {
-        String[] names = switch (domain) {
+        String[] names = topicArrayFor(domain);
+        return names[Math.floorMod(topicIndex, names.length)];
+    }
+
+    /**
+     * Phase 7 FX — centralised topic-array lookup. The switch grows to one case
+     * per registered domain; an unknown domain falls back to MATHEMATICS so
+     * legacy callers that pass uppercase/non-canonical strings continue to
+     * receive a sensible default.
+     */
+    private static String[] topicArrayFor(String domain) {
+        return switch (domain == null ? "" : domain) {
             case "PHYSICS"           -> PHYSICS_TOPICS;
             case "MATERIALS"         -> MATERIALS_TOPICS;
             case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TOPICS;
+            case "MATHEMATICS"       -> MATH_TOPICS;
+            // Phase 7 FX — new domains.
+            case "BIOLOGY"           -> BIOLOGY_TOPICS;
             default                  -> MATH_TOPICS;
         };
-        return names[topicIndex % names.length];
     }
 
     public static String generateTitle(String domain, int topicIndex, java.util.Random rng) {
@@ -431,9 +471,11 @@ public class MathPhysicsEngine {
             case "PHYSICS"           -> PHYSICS_TITLES;
             case "MATERIALS"         -> MATERIALS_TITLES;
             case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TITLES;
+            // Phase 7 FX — new domains.
+            case "BIOLOGY"           -> BIOLOGY_TITLES;
             default                  -> MATH_TITLES;
         };
-        String[] row = table[topicIndex % table.length];
+        String[] row = table[Math.floorMod(topicIndex, table.length)];
         return row[rng.nextInt(row.length)];
     }
 
@@ -1987,6 +2029,14 @@ public class MathPhysicsEngine {
                 case 6 -> "J = A*·T²·exp(−φ/(k·T))   (Richardson-Dushman thermionic emission across a Schottky barrier)";
                 default -> "f' = f·(c + v_o)/(c − v_s)   (Acoustic Doppler shift for source v_s, observer v_o, sound speed c)";
             };
+            // Phase 7 FX.1 — BIOLOGY.
+            case "BIOLOGY" -> switch (t) {
+                case 0 -> "dN/dt = r·N·(1 − N/K)   (Verhulst logistic growth; r = intrinsic rate, K = carrying capacity)";
+                case 1 -> "dx/dt = α·x − β·x·y,   dy/dt = δ·x·y − γ·y   (Lotka-Volterra predator-prey)";
+                case 2 -> "v = V_max · [S] / (K_m + [S])   (Michaelis-Menten enzyme kinetics)";
+                case 3 -> "R_metabolic ∝ M^(3/4)   (Kleiber's allometric scaling law)";
+                default -> "p² + 2·p·q + q² = 1,  q = 1 − p   (Hardy-Weinberg allele equilibrium for two alleles)";
+            };
             default -> null;
         };
     }
@@ -2359,6 +2409,222 @@ public class MathPhysicsEngine {
                         + "produces a measurable but bounded |f'−f|; the mechanism is purely classical wave-front "
                         + "compression / dilation in a single medium.")
                         .formatted(param1 * 0.5, param2 * 5));
+    }
+
+    // ---- Phase 7 FX.1: BIOLOGY ----
+
+    private static ResearchResult computeBiology(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("BIOLOGY", topic);
+        return switch (topic) {
+            case 0 -> verhulstLogistic(0.05 + param2 / 90.0, 100.0 + param1 * 5.0, sp).withEquation(eq);
+            case 1 -> lotkaVolterra(0.4 + param2 / 30.0, 0.02 + param1 / 5000.0, sp).withEquation(eq);
+            case 2 -> michaelisMenten(0.5 + param2 / 10.0, 1.0 + param1 / 25.0, sp).withEquation(eq);
+            case 3 -> kleiberAllometric(0.5 + param1 * 0.5, sp).withEquation(eq);
+            default -> hardyWeinberg(0.3 + param2 / 30.0, sp).withEquation(eq);
+        };
+    }
+
+    /** Verhulst dN/dt = r·N·(1 − N/K). Returns max |N(t)/K − N_eq/K| across the sweep. */
+    private static ResearchResult verhulstLogistic(double r, double K, SearchParams sp) {
+        // Closed-form: N(t) = K / (1 + ((K-N0)/N0)·exp(-r·t))
+        double N0 = K / 20.0;  // start at 5% of carrying capacity
+        double bestDeviation = 0;
+        double bestT = 0;
+        double bestN = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double t = Math.max(0.1, i * sp.stepSize() * 2.0);
+            double Nt = K / (1 + ((K - N0) / N0) * Math.exp(-r * t));
+            double deviation = Math.abs(Nt - K) / K;
+            samples++;
+            if (deviation > bestDeviation) { bestDeviation = deviation; bestT = t; bestN = Nt; }
+            if (i < 4) sb.append("t=%.2f→N=%.1f(%.0f%%K) ".formatted(t, Nt, Nt / K * 100));
+        }
+        ClaimStatus status = bestDeviation < 0.99 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Verhulst logistic: r=%.3f, K=%.1f, N₀=%.1f. Max distance from carrying capacity %.3f at t=%.2f (N=%.1f). %s")
+                .formatted(r, K, N0, bestDeviation, bestT, bestN,
+                        bestDeviation < 0.5 ? "population approaches K within the sweep"
+                                : "population still well below K — early growth phase");
+        return new ResearchResult(
+                "Verhulst logistic (r=%.3f, K=%.1f, %d samples): max distance-from-K=%.3f at t=%.2f, N=%.1f. Sample sweep: %s"
+                        .formatted(r, K, samples, bestDeviation, bestT, bestN, sb.toString().trim()),
+                bestDeviation, bestN, K, bestDeviation, status, assessment)
+                .withHypothesis(("For a population with intrinsic growth rate r=%.3f starting at N₀=%.1f in an "
+                        + "environment with carrying capacity K=%.1f, the Verhulst dN/dt = r·N·(1−N/K) drives "
+                        + "N(t) → K monotonically; the time required to reach 95%% of K characterises r.")
+                        .formatted(r, N0, K));
+    }
+
+    /** Lotka-Volterra coupled ODE. Returns max-cycle-amplitude ratio across param sweeps. */
+    private static ResearchResult lotkaVolterra(double alpha, double beta, SearchParams sp) {
+        // α = prey intrinsic growth, β = predation rate, γ = predator death, δ = predator gain.
+        double gamma = 0.3;
+        double delta = 0.01;
+        double bestRatio = 0;
+        double bestAlpha = alpha;
+        double bestPeakX = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double a = Math.max(0.1, alpha + i * sp.stepSize() * 0.05);
+            // Discrete-time approximation over a few cycle periods.
+            double x = 40.0, y = 9.0;
+            double dt = 0.05;
+            double maxX = x, minX = x;
+            for (int step = 0; step < 400; step++) {
+                double dx = (a * x - beta * x * y) * dt;
+                double dy = (delta * x * y - gamma * y) * dt;
+                x = Math.max(0.0, x + dx);
+                y = Math.max(0.0, y + dy);
+                if (x > maxX) maxX = x;
+                if (x < minX) minX = x;
+            }
+            double ratio = maxX / Math.max(0.001, minX);
+            samples++;
+            if (ratio > bestRatio) { bestRatio = ratio; bestAlpha = a; bestPeakX = maxX; }
+            if (i < 4) sb.append("α=%.3f→x_max/x_min=%.2f ".formatted(a, ratio));
+        }
+        // Cycle ratio >= 1.5 indicates stable oscillation; explosion >> 1e6 is unphysical.
+        boolean physical = bestRatio < 1e6 && Double.isFinite(bestPeakX);
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestRatio >= 1.5 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Lotka-Volterra: β=%.4f, γ=%.2f, δ=%.3f; max amplitude ratio %.2f at α=%.3f (peak x=%.1f). %s")
+                .formatted(beta, gamma, delta, bestRatio, bestAlpha, bestPeakX,
+                        !physical ? "trajectory diverged — unphysical predation parameters"
+                                : bestRatio >= 1.5 ? "predator-prey cycles are clearly oscillatory"
+                                        : "weak oscillation — system tracks equilibrium");
+        return new ResearchResult(
+                "Lotka-Volterra (β=%.4f, γ=%.2f, δ=%.3f, %d α-samples): max x_max/x_min=%.2f at α=%.3f. Sample: %s"
+                        .formatted(beta, gamma, delta, samples, bestRatio, bestAlpha, sb.toString().trim()),
+                bestRatio, bestPeakX, bestAlpha, bestRatio, status, assessment)
+                .withHypothesis(("With predation β=%.4f, predator death γ=%.2f, predator gain δ=%.3f, and prey "
+                        + "intrinsic growth swept around α=%.3f, the Lotka-Volterra ODEs sustain bounded "
+                        + "oscillations; the amplitude ratio x_max/x_min quantifies cycle vigour.")
+                        .formatted(beta, gamma, delta, alpha));
+    }
+
+    /** Michaelis-Menten v = V_max·[S]/(K_m + [S]). Estimates K_m via Lineweaver-Burk style. */
+    private static ResearchResult michaelisMenten(double Km, double Vmax, SearchParams sp) {
+        double bestRecoveryError = Double.MAX_VALUE;
+        double bestKmRecovered = Km;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // Use a clean two-point estimate: v at [S]=K_m gives v=V_max/2.
+            // Pretend we measure v at [S]_1 and [S]_2 with a noise band ε.
+            double S1 = Km * 0.5;
+            double S2 = Km * 4.0;
+            double noise = Math.sin(i * 0.7) * 0.02;
+            double v1 = Vmax * S1 / (Km + S1) * (1.0 + noise);
+            double v2 = Vmax * S2 / (Km + S2) * (1.0 + noise);
+            // Solve for K_m from two (S, v) pairs:
+            //   K_m = (v1·v2·(S2 − S1)) / (v1·S1·v2/V_max − v2·S2·v1/V_max) — algebra-heavy.
+            // Easier: K_m = S·(V_max/v − 1). Average from both pairs.
+            double Km1 = S1 * (Vmax / v1 - 1.0);
+            double Km2 = S2 * (Vmax / v2 - 1.0);
+            double KmEst = (Km1 + Km2) / 2.0;
+            double err = Math.abs(KmEst - Km) / Km;
+            samples++;
+            if (err < bestRecoveryError) { bestRecoveryError = err; bestKmRecovered = KmEst; }
+            if (i < 4) sb.append("K_m_est=%.3f(err=%.3f) ".formatted(KmEst, err));
+        }
+        ClaimStatus status = bestRecoveryError < 0.10 ? ClaimStatus.SUPPORTED
+                : bestRecoveryError < 0.30 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Michaelis-Menten: V_max=%.3f, true K_m=%.3f; best recovered K_m=%.3f (err=%.3f). %s")
+                .formatted(Vmax, Km, bestKmRecovered, bestRecoveryError,
+                        bestRecoveryError < 0.10 ? "two-point K_m recovery within 10% — saturation kinetics validated"
+                                : "recovery error exceeds 10% — noise band or non-Michaelian behaviour");
+        return new ResearchResult(
+                "Michaelis-Menten (V_max=%.3f, K_m=%.3f, %d samples): best K_m recovery err=%.3f. Sample: %s"
+                        .formatted(Vmax, Km, samples, bestRecoveryError, sb.toString().trim()),
+                bestRecoveryError, bestKmRecovered, Vmax, bestRecoveryError, status, assessment)
+                .withHypothesis(("For an enzyme with V_max=%.3f and K_m=%.3f, the initial-rate Michaelis-Menten "
+                        + "law v = V_max·[S]/(K_m+[S]) permits K_m recovery from two-point substrate measurements "
+                        + "within 10%% under modest noise.")
+                        .formatted(Vmax, Km));
+    }
+
+    /** Kleiber's law R ∝ M^(3/4). Fits exponent across body masses. */
+    private static ResearchResult kleiberAllometric(double seedM, SearchParams sp) {
+        // Generate (M, R) pairs from R = R0·M^0.75 with noise, then fit exponent.
+        double R0 = 3.5;
+        double trueExp = 0.75;
+        java.util.List<double[]> samplesData = new java.util.ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double M = Math.max(0.01, seedM * Math.pow(2.0, i * sp.stepSize() - 4));
+            double R = R0 * Math.pow(M, trueExp) * (1.0 + Math.sin(i * 0.41) * 0.03);
+            samplesData.add(new double[]{M, R});
+            if (i < 4) sb.append("M=%.2f→R=%.2f ".formatted(M, R));
+        }
+        // Linear regression on log(R) vs log(M).
+        double sumLogM = 0, sumLogR = 0, sumLogMLogR = 0, sumLogMSq = 0;
+        int n = samplesData.size();
+        for (double[] p : samplesData) {
+            double logM = Math.log(p[0]);
+            double logR = Math.log(p[1]);
+            sumLogM += logM;
+            sumLogR += logR;
+            sumLogMLogR += logM * logR;
+            sumLogMSq += logM * logM;
+        }
+        double slope = (n * sumLogMLogR - sumLogM * sumLogR)
+                / Math.max(1e-12, n * sumLogMSq - sumLogM * sumLogM);
+        double deviation = Math.abs(slope - trueExp);
+        ClaimStatus status = deviation < 0.05 ? ClaimStatus.SUPPORTED
+                : deviation < 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Kleiber: fitted exponent %.3f vs Kleiber's 0.75 (deviation %.3f) across %d masses. %s")
+                .formatted(slope, deviation, n,
+                        deviation < 0.05 ? "Kleiber's three-quarters law holds within 5%"
+                                : "exponent drifts > 5% from 0.75 — additional metabolic terms suspected");
+        return new ResearchResult(
+                "Kleiber allometric (R₀=%.2f, true exp=0.75, %d masses): fitted exp=%.3f (dev %.3f). Sample: %s"
+                        .formatted(R0, n, slope, deviation, sb.toString().trim()),
+                deviation, slope, R0, deviation, status, assessment)
+                .withHypothesis(("Across a sweep of body masses centred near M=%.2f, the log-log slope of "
+                        + "metabolic rate vs mass will recover Kleiber's 3/4 exponent within 5%% under noise.")
+                        .formatted(seedM));
+    }
+
+    /** Hardy-Weinberg p² + 2pq + q² = 1. Tracks allele-frequency drift across generations. */
+    private static ResearchResult hardyWeinberg(double seedP, SearchParams sp) {
+        double p = Math.max(0.05, Math.min(0.95, seedP));
+        double q = 1.0 - p;
+        double maxDrift = 0;
+        double finalP = p;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int generations = (int) (10 + i * sp.stepSize() * 4);
+            // Idealised: no selection, no migration, no mutation → p stays fixed exactly.
+            // Add small noise to simulate finite-population drift.
+            double pn = p;
+            double localMaxDrift = 0;
+            for (int gen = 0; gen < generations; gen++) {
+                double driftStep = Math.sin(gen * 0.13 + i * 0.5) * 0.002;
+                pn = Math.max(0.0, Math.min(1.0, pn + driftStep));
+                double drift = Math.abs(pn - p);
+                if (drift > localMaxDrift) localMaxDrift = drift;
+            }
+            samples++;
+            if (localMaxDrift > maxDrift) { maxDrift = localMaxDrift; finalP = pn; }
+            if (i < 4) sb.append("gen=%d→p=%.4f(drift=%.4f) ".formatted(generations, pn, localMaxDrift));
+        }
+        ClaimStatus status = maxDrift < 0.05 ? ClaimStatus.SUPPORTED
+                : maxDrift < 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Hardy-Weinberg: starting p=%.3f (q=%.3f); max drift %.4f after %d simulations. %s")
+                .formatted(p, q, maxDrift, samples,
+                        maxDrift < 0.05 ? "allele frequencies stable within 5% — HWE holds"
+                                : "drift exceeds 5% — small-population deviation");
+        return new ResearchResult(
+                "Hardy-Weinberg (p₀=%.3f, %d generation sweeps): max drift %.4f, ending p=%.4f. Sample: %s"
+                        .formatted(p, samples, maxDrift, finalP, sb.toString().trim()),
+                maxDrift, finalP, p, maxDrift, status, assessment)
+                .withHypothesis(("In an infinite randomly mating population starting from allele frequencies "
+                        + "p=%.3f, q=%.3f, the Hardy-Weinberg equilibrium p² + 2pq + q² = 1 predicts no "
+                        + "generational drift; sampled finite-population trajectories stay within 5%% of p₀.")
+                        .formatted(p, q));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

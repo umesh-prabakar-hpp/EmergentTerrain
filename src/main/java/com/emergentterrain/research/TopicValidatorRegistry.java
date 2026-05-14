@@ -256,6 +256,32 @@ public class TopicValidatorRegistry {
                                 + "wave-front compression formula has broken down (sonic-boom regime). "
                                 + "Mechanism: wave fronts emitted from a moving source pile up "
                                 + "(or stretch) classically in a single medium."));
+
+        // Phase 7 FX.1 — BIOLOGY bounds.
+        register(new TopicKey("BIOLOGY", "Verhulst Logistic Growth"),
+                bound(Pattern.compile("N=([0-9]+(?:\\.[0-9]+)?)"), 1.0e9, "individuals",
+                        "Verhulst population N > 10⁹ inside a single habitat is unphysical for any "
+                                + "macroscopic species; flag a runaway integration error"));
+        register(new TopicKey("BIOLOGY", "Lotka-Volterra Predator-Prey"),
+                bound(Pattern.compile("x_max/x_min=([0-9]+(?:\\.[0-9]+)?)"), 1.0e6, "ratio",
+                        "Lotka-Volterra amplitude ratio > 10⁶ indicates the trajectory diverged — "
+                                + "either the predation coefficients destroyed prey, or the dt step "
+                                + "blew up the discrete integrator"));
+        register(new TopicKey("BIOLOGY", "Michaelis-Menten Enzyme Kinetics"),
+                bound(Pattern.compile("err=([0-9]+(?:\\.[0-9]+)?)"), 1.0, "fraction",
+                        "K_m recovery error > 1.0 (i.e. > 100%) means the two-point estimate "
+                                + "diverged — substrate concentrations may have straddled inhibition "
+                                + "or non-Michaelian regimes"));
+        register(new TopicKey("BIOLOGY", "Kleiber Allometric Scaling"),
+                bound(Pattern.compile("dev\\s+([0-9]+(?:\\.[0-9]+)?)"), 0.30, "exponent units",
+                        "Fitted exponent deviation > 0.30 from Kleiber's 0.75 indicates a "
+                                + "non-Kleiberian regime (cell metabolism dominated by surface effects "
+                                + "in tiny organisms, or thermoregulatory ceilings in giants)"));
+        register(new TopicKey("BIOLOGY", "Hardy-Weinberg Equilibrium"),
+                bound(Pattern.compile("drift=([0-9]+(?:\\.[0-9]+)?)"), 0.30, "fraction",
+                        "Hardy-Weinberg allele drift > 0.30 indicates non-random mating, selection "
+                                + "pressure, or small-population sampling effects strong enough to "
+                                + "violate the equilibrium assumption"));
     }
 
     private static ValidatorSpec bound(Pattern regex, double upperLimit, String unit, String reason) {

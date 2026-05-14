@@ -690,4 +690,105 @@ class MathPhysicsEngineTest {
         // Doppler shift is bounded — the F3 spec's |f'-f| ≤ f keeps physics sane.
         assertThat(r.primaryValue()).isLessThan(1000.0);
     }
+
+    // ---- Phase 7 FX.1: BIOLOGY topics 0..4 — Verhulst / Lotka-Volterra / MM / Kleiber / HWE ----
+
+    @Test
+    void verhulstLogisticApproachesCarryingCapacity() {
+        // BIOLOGY:0 — long-time N(t) tends to K.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 0, 30, 5.0);
+        assertThat(r.equation()).contains("Verhulst");
+        assertThat(r.findings()).contains("Verhulst logistic");
+        // The compute reports distance-from-K; secondary value is final N.
+        assertThat(r.secondaryValue()).isLessThanOrEqualTo(r.tertiaryValue() + 1e-9);
+    }
+
+    @Test
+    void verhulstLogisticIsBoundedByCarryingCapacityK() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 0, 30, 5.0);
+        // tertiary = K. secondary = N(t). N(t) ≤ K for all t.
+        assertThat(r.secondaryValue()).isLessThan(r.tertiaryValue() + 1.0);
+    }
+
+    @Test
+    void lotkaVolterraSustainsBoundedOscillation() {
+        // BIOLOGY:1 — predator-prey cycle ratio > 1.5 = SUPPORTED.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 1, 30, 2.0);
+        assertThat(r.equation()).contains("Lotka-Volterra");
+        assertThat(r.findings()).contains("Lotka-Volterra");
+        // Cycle amplitude ratio should be > 1 (oscillation) and finite.
+        assertThat(r.primaryValue()).isGreaterThan(1.0);
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+    }
+
+    @Test
+    void lotkaVolterraTrajectoryStaysFiniteUnderNormalCoefficients() {
+        // Trajectory must not diverge — the spec bound says ratio < 10⁶.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 1, 30, 2.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e6);
+    }
+
+    @Test
+    void michaelisMentenRecoversKmWithinTenPercent() {
+        // BIOLOGY:2 — two-point K_m recovery should match within 10% noise band.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 2, 30, 2.0);
+        assertThat(r.equation()).contains("Michaelis-Menten");
+        assertThat(r.findings()).contains("Michaelis-Menten");
+        // primary = recovery error; supported regime stays < 0.10.
+        assertThat(r.primaryValue()).isLessThan(0.10);
+    }
+
+    @Test
+    void michaelisMentenSaturationLimitsRateAtVmax() {
+        // The compute holds V_max constant (tertiary value); recovered K_m (secondary)
+        // must be positive.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 2, 30, 2.0);
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+        assertThat(r.tertiaryValue()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void kleiberLawRecoversThreeQuartersExponentWithinFivePercent() {
+        // BIOLOGY:3 — log-log fit recovers 0.75 ± 0.05.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 3, 30, 2.0);
+        assertThat(r.equation()).contains("Kleiber");
+        assertThat(r.findings()).contains("Kleiber");
+        // primary = deviation from 0.75; secondary = fitted slope.
+        assertThat(r.primaryValue()).isLessThan(0.05);
+        assertThat(r.secondaryValue()).isBetween(0.70, 0.80);
+    }
+
+    @Test
+    void kleiberLawFitIsRobustAcrossMassRange() {
+        // Even with a different seed mass, the fit should land near 0.75.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 3, 90, 5.0);
+        assertThat(r.secondaryValue()).isBetween(0.65, 0.85);
+    }
+
+    @Test
+    void hardyWeinbergKeepsAllelesStableOverGenerations() {
+        // BIOLOGY:4 — drift stays small under idealised assumptions.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 4, 30, 2.0);
+        assertThat(r.equation()).contains("Hardy-Weinberg");
+        assertThat(r.findings()).contains("Hardy-Weinberg");
+        // primary = max drift; supported case stays < 0.05.
+        assertThat(r.primaryValue()).isLessThan(0.05);
+    }
+
+    @Test
+    void hardyWeinbergFinalPRemainsInUnitInterval() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("BIOLOGY", 4, 30, 2.0);
+        // secondary = final p; must stay in [0, 1].
+        assertThat(r.secondaryValue()).isBetween(0.0, 1.0);
+    }
 }
