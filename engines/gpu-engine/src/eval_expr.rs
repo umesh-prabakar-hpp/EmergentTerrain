@@ -385,7 +385,8 @@ struct EvalParams {
 // ── Dispatch + aggregate ────────────────────────────────────────────────────
 
 pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
-                  formula: &str, start: i32, end: i32) -> Result<EvalAggregate, Status> {
+                  formula: &str, start: i32, end: i32,
+                  request_id: &str) -> Result<EvalAggregate, Status> {
     if end <= start {
         return Err(Status::invalid_argument(format!("range must be non-empty: start={start}, end={end}")));
     }
@@ -396,12 +397,17 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
     }
     let length = length_i64 as u32;
 
+    let t_parse = Instant::now();
     let expr = parse(formula).map_err(|e|
         Status::invalid_argument(format!("formula parse failed: {e}")))?;
     let shader_src = to_wgsl(&expr);
+    let parse_ms = t_parse.elapsed().as_micros();
+    println!("eval_expr.parse request_id={request_id} formula_len={} ast_nodes_approx={} wgsl_len={} parse_us={parse_ms}",
+             formula.len(), count_nodes(&expr), shader_src.len());
 
     let t0 = Instant::now();
 
+    let t_compile = Instant::now();
     let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label:  Some("eval_expr_shader"),
         source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Owned(shader_src)),
@@ -409,6 +415,7 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
     let layout = crate::create_bind_group_layout(device, "eval_expr_bgl",
         &[crate::storage_layout(0, false), crate::uniform_layout(1)]);
     let pipeline = crate::create_compute_pipeline(device, "eval_expr_pipeline", &layout, &module);
+    let compile_ms = t_compile.elapsed().as_millis();
 
     let out_bytes = (length as u64) * std::mem::size_of::<f32>() as u64;
     let storage_buf = crate::create_storage_buffer(device, "eval_expr_out", out_bytes);
@@ -422,6 +429,10 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
         entries: &[crate::bind_entry(0, &storage_buf), crate::bind_entry(1, &uniform_buf)],
     });
 
+    let groups = (length + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+    println!("eval_expr.dispatch request_id={request_id} length={length} workgroups={groups} buf_bytes={out_bytes} compile_ms={compile_ms}");
+
+    let t_dispatch = Instant::now();
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
         label: Some("eval_expr_encoder"),
     });
@@ -432,16 +443,33 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
         });
         pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &bind_group, &[]);
-        let groups = (length + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
         pass.dispatch_workgroups(groups, 1, 1);
     }
     encoder.copy_buffer_to_buffer(&storage_buf, 0, &readback_buf, 0, out_bytes);
     queue.submit(std::iter::once(encoder.finish()));
+    let dispatch_ms = t_dispatch.elapsed().as_millis();
 
+    let t_readback = Instant::now();
     let values: Vec<f32> = crate::map_pod_buffer(device, &readback_buf, length as usize)?;
+    let readback_ms = t_readback.elapsed().as_millis();
+
     let agg = aggregate(&values);
     let millis = t0.elapsed().as_millis() as u64;
+    println!("eval_expr.done request_id={request_id} total_ms={millis} dispatch_ms={dispatch_ms} readback_ms={readback_ms} finite={}/{} mean={:.6} std={:.6}",
+             agg.finite_count, agg.n, agg.mean, agg.std_dev);
     Ok(EvalAggregate { millis, ..agg })
+}
+
+/// Cheap recursive node counter for log-only visibility into formula
+/// complexity. Not used for validation; the AST-node cap lives in the
+/// parser's bump_node hook.
+fn count_nodes(e: &Expr) -> usize {
+    match e {
+        Expr::Lit(_) | Expr::Var(_) => 1,
+        Expr::Neg(inner) => 1 + count_nodes(inner),
+        Expr::Bin(_, l, r) => 1 + count_nodes(l) + count_nodes(r),
+        Expr::Call(_, args) => 1 + args.iter().map(count_nodes).sum::<usize>(),
+    }
 }
 
 pub fn aggregate(values: &[f32]) -> EvalAggregate {

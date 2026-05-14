@@ -655,8 +655,13 @@ impl GpuTerrainService for GpuEngineService {
     async fn generate_region(&self, request: Request<GenerateRegionRequest>) -> Result<Response<GenerateRegionResponse>, Status> {
         let req = request.into_inner();
         let region = req.region.unwrap_or_default();
+        println!("generate_region.enter request_id={} size={}x{} seed={} adapter={}",
+                 req.request_id, region.width, region.height, req.seed, self.gpu.adapter_summary());
+        let t0 = std::time::Instant::now();
         let generated = self.gpu.generate_region(req.seed, region.width, region.height, &req.params_json)?;
-        println!("generate_region request_id={} size={}x{} adapter={} debug={}", req.request_id, region.width, region.height, self.gpu.adapter_summary(), generated.debug_json);
+        println!("generate_region.exit request_id={} size={}x{} ms={} debug={}",
+                 req.request_id, region.width, region.height,
+                 t0.elapsed().as_millis(), generated.debug_json);
         Ok(Response::new(GenerateRegionResponse {
             request_id: req.request_id,
             tiles: Some(TileGrid { width: region.width, height: region.height, tiles: generated.tiles, encoding: TileEncoding::U8 as i32 }),
@@ -668,6 +673,10 @@ impl GpuTerrainService for GpuEngineService {
     async fn rebuild_patch(&self, request: Request<RebuildPatchRequest>) -> Result<Response<RebuildPatchResponse>, Status> {
         let req = request.into_inner();
         let patch = req.patch.unwrap_or_default();
+        println!("rebuild_patch.enter request_id={} patch={}x{} edits={} adapter={}",
+                 req.request_id, patch.width, patch.height, req.applied_edits.len(),
+                 self.gpu.adapter_summary());
+        let t0 = std::time::Instant::now();
         let tile_grid = req.tiles.as_ref().ok_or_else(|| Status::invalid_argument("tiles required"))?;
         let highway_grid = req.highways.as_ref().ok_or_else(|| Status::invalid_argument("highways required"))?;
         let (width, height, tiles) = decode_tile_grid(tile_grid)?;
@@ -677,7 +686,9 @@ impl GpuTerrainService for GpuEngineService {
             apply_tile_edits(&mut world, &req.applied_edits);
         }
         let rebuilt = self.gpu.rebuild_patch(width, height, &world.tiles, &world.highways, &patch)?;
-        println!("rebuild_patch request_id={} patch={}x{} adapter={} debug={}", req.request_id, patch.width, patch.height, self.gpu.adapter_summary(), rebuilt.debug_json);
+        println!("rebuild_patch.exit request_id={} patch={}x{} ms={} debug={}",
+                 req.request_id, patch.width, patch.height,
+                 t0.elapsed().as_millis(), rebuilt.debug_json);
         Ok(Response::new(RebuildPatchResponse {
             request_id: req.request_id,
             patch: Some(patch.clone()),
@@ -690,9 +701,15 @@ impl GpuTerrainService for GpuEngineService {
     async fn simulate_bots(&self, request: Request<SimulateBotsRequest>) -> Result<Response<SimulateBotsResponse>, Status> {
         let req = request.into_inner();
         let steps = req.steps.max(1);
+        println!("simulate_bots.enter request_id={} bots={} steps={} cached_world={} world_id=\"{}\" adapter={}",
+                 req.request_id, req.bots.len(), steps, !req.world_id.is_empty(),
+                 req.world_id, self.gpu.adapter_summary());
+        let t0 = std::time::Instant::now();
         let world = self.resolve_world_for_bot_request(&req).await?;
         let simulated = self.gpu.simulate_bots_cached(&world, &req.bots, steps)?;
-        println!("simulate_bots request_id={} bots={} steps={} cached_world={} adapter={} debug={}", req.request_id, req.bots.len(), steps, !req.world_id.is_empty(), self.gpu.adapter_summary(), simulated.debug_json);
+        println!("simulate_bots.exit request_id={} bots={} steps={} ms={} debug={}",
+                 req.request_id, req.bots.len(), steps,
+                 t0.elapsed().as_millis(), simulated.debug_json);
         Ok(Response::new(SimulateBotsResponse {
             request_id: req.request_id,
             bots: simulated.bots,
@@ -708,11 +725,14 @@ impl GpuTerrainService for GpuEngineService {
     // eval_expr::parse for the grammar.
     async fn eval_expr(&self, request: Request<EvalExprRequest>) -> Result<Response<EvalExprResponse>, Status> {
         let req = request.into_inner();
+        println!("eval_expr.enter request_id={} formula=\"{}\" range=[{},{}) adapter={}",
+                 req.request_id, req.formula, req.start, req.end, self.gpu.adapter_summary());
         let agg = eval_expr::run_on_gpu(&self.gpu.device, &self.gpu.queue,
-                                         &req.formula, req.start, req.end)?;
-        println!("eval_expr request_id={} formula=\"{}\" range=[{},{}) ms={} finite={}/{} mean={} std={}",
-                 req.request_id, req.formula, req.start, req.end,
-                 agg.millis, agg.finite_count, agg.n, agg.mean, agg.std_dev);
+                                         &req.formula, req.start, req.end,
+                                         &req.request_id)?;
+        println!("eval_expr.exit request_id={} ms={} finite={}/{} mean={:.6} std={:.6} min={:.6} max={:.6} sum={:.6}",
+                 req.request_id, agg.millis, agg.finite_count, agg.n,
+                 agg.mean, agg.std_dev, agg.min, agg.max, agg.sum);
         let debug = serde_json::json!({
             "millis": agg.millis,
             "adapter": self.gpu.adapter_summary(),
@@ -1122,8 +1142,12 @@ fn highway_spacing(highway_ratio: f64) -> u32 {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = std::env::var("GPU_ENGINE_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string()).parse()?;
+    println!("startup.init pid={} bind={}", std::process::id(), addr);
+    let t_init = std::time::Instant::now();
     let gpu = Arc::new(GpuComputeEngine::new().await?);
-    println!("GPU engine gRPC server listening on {} using {}", addr, gpu.adapter_summary());
+    println!("startup.adapter init_ms={} {}",
+             t_init.elapsed().as_millis(), gpu.adapter_summary());
+    println!("startup.ready listening_on={} services=[GenerateRegion,RebuildPatch,SimulateBots,EvalExpr]", addr);
     tonic::transport::Server::builder()
         .add_service(GpuTerrainServiceServer::new(GpuEngineService {
             worlds: Arc::new(RwLock::new(HashMap::new())),
