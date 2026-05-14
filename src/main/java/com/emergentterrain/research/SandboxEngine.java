@@ -2,7 +2,9 @@ package com.emergentterrain.research;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -27,8 +29,16 @@ import java.util.Set;
  */
 public class SandboxEngine {
 
-    static final int MAX_ITERATIONS = 5_000;
-    static final int MAX_STMTS      = 50_000;
+    static final int MAX_ITERATIONS  = 5_000;
+    static final int MAX_STMTS       = 50_000;
+    /**
+     * Phase 8 Tier 2 — user-defined function recursion depth. 64 frames covers
+     * factorial(64), Newton-Raphson up to ~64 iters, mutual-recursion
+     * isEven/isOdd, and continued-fraction expansions of typical research-paper
+     * topics without giving runaway-recursion bugs room to consume the whole
+     * MAX_STMTS budget before tripping.
+     */
+    static final int MAX_CALL_DEPTH  = 64;
 
     /**
      * Phase 8 Tier 1 — domain-specific (non-Math) builtins. Integer-typed helpers,
@@ -141,6 +151,7 @@ public class SandboxEngine {
         AND2, OR2, BANG,
         EQ, SEMI, COMMA, LPAR, RPAR, LBRACE, RBRACE, QMARK, COLON,
         IF, ELSE, FOR, VAR, RET, TRUE, FALSE,
+        FUNCTION,  // Phase 8 Tier 2 — user-defined function declarations
         EOF
     }
 
@@ -172,9 +183,10 @@ public class SandboxEngine {
                 while (i < src.length() && (Character.isLetterOrDigit(src.charAt(i)) || src.charAt(i) == '_')) i++;
                 String w = src.substring(s, i);
                 TT t = switch (w) {
-                    case "if"     -> TT.IF;   case "else"   -> TT.ELSE; case "for" -> TT.FOR;
-                    case "var"    -> TT.VAR;  case "return" -> TT.RET;
-                    case "true"   -> TT.TRUE; case "false"  -> TT.FALSE;
+                    case "if"       -> TT.IF;       case "else"   -> TT.ELSE;
+                    case "for"      -> TT.FOR;      case "var"    -> TT.VAR;
+                    case "return"   -> TT.RET;      case "true"   -> TT.TRUE;
+                    case "false"    -> TT.FALSE;    case "function" -> TT.FUNCTION;
                     default -> TT.IDENT;
                 };
                 out.add(new Token(t, w, line));
@@ -233,13 +245,18 @@ public class SandboxEngine {
         record Assign (String name, String op, Expr val)     implements Expr {}
     }
 
-    sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.If, Stmt.Return {
+    sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.If,
+                                  Stmt.Return, Stmt.FuncDef {
         record Decl  (String name, Expr init)                            implements Stmt {}
         record ExprS (Expr expr)                                         implements Stmt {}
         record For   (String var, Expr init, Expr cond, Expr upd,
                       List<Stmt> body)                                   implements Stmt {}
         record If    (Expr cond, List<Stmt> then, List<Stmt> els)        implements Stmt {}
         record Return(Expr val)                                          implements Stmt {}
+        // Phase 8 Tier 2 — top-level user-defined function. The parser only
+        // accepts these in parseProgram(); they are illegal inside if/for/
+        // function bodies so all definitions are hoistable in one scan.
+        record FuncDef(String name, List<String> params, List<Stmt> body) implements Stmt {}
     }
 
     // ── Parser ────────────────────────────────────────────────────────────────
@@ -261,16 +278,39 @@ public class SandboxEngine {
 
         List<Stmt> parseProgram() {
             List<Stmt> out = new ArrayList<>();
-            while (!at(TT.EOF)) out.add(stmt());
+            while (!at(TT.EOF)) {
+                if (at(TT.FUNCTION)) out.add(funcDef());
+                else                 out.add(stmt());
+            }
             return out;
         }
 
         Stmt stmt() {
+            // Phase 8 Tier 2 — function definitions are top-level only. Inside
+            // a block they would not be hoistable; reject them at parse time
+            // with a clear message rather than silently allow shadowed scoping.
+            if (at(TT.FUNCTION)) throw new RuntimeException(
+                    "function definitions only allowed at top level, line "
+                    + peek().line());
             if (at(TT.VAR)) return decl();
             if (at(TT.FOR)) return forStmt();
             if (at(TT.IF))  return ifStmt();
             if (at(TT.RET)) return retStmt();
             return exprStmt();
+        }
+
+        Stmt funcDef() {
+            advance(); // function
+            String name = expect(TT.IDENT).v();
+            expect(TT.LPAR);
+            List<String> params = new ArrayList<>();
+            if (!at(TT.RPAR)) {
+                params.add(expect(TT.IDENT).v());
+                while (at(TT.COMMA)) { advance(); params.add(expect(TT.IDENT).v()); }
+            }
+            expect(TT.RPAR);
+            List<Stmt> body = block();
+            return new Stmt.FuncDef(name, params, body);
         }
 
         Stmt decl() {
@@ -435,9 +475,32 @@ public class SandboxEngine {
     }
 
     static class Interpreter {
+        /**
+         * Global scope. Kept as a public field on the Interpreter for
+         * compatibility with {@link SandboxEngine#evalExpr} which mutates {@code n}
+         * directly across loop iterations. New code should go through
+         * {@link #readVar} / {@link #writeVar} / {@link #declareVar} instead so
+         * function-local frames participate correctly.
+         */
         final Map<String, Double> env = new HashMap<>();
+        /**
+         * Phase 8 Tier 2 — scope stack. The deepest (last) element is always
+         * {@link #env} (global); function calls push a fresh frame on top with
+         * parameter bindings, and {@code var} declarations land in the topmost
+         * frame so locals never leak out of a function body.
+         */
+        final Deque<Map<String, Double>> scopes = new ArrayDeque<>();
+        /**
+         * Phase 8 Tier 2 — user-defined functions registered at the start of
+         * {@link #exec(List)} by a single hoisting pass. Same map lives for the
+         * lifetime of the Interpreter so mutual recursion works regardless of
+         * declaration order.
+         */
+        final Map<String, Stmt.FuncDef> userFunctions = new HashMap<>();
+
         int iterCount = 0;
         int stmtCount = 0;
+        int callDepth = 0;
 
         Interpreter(int start, int end, int param1, double param2) {
             env.put("start",  (double) start);
@@ -465,17 +528,69 @@ public class SandboxEngine {
             env.put("PROTON_MASS",          1.672_621_923_69e-27); // kg
             env.put("VACUUM_PERMITTIVITY",  8.854_187_8128e-12); // F/m
             env.put("VACUUM_PERMEABILITY",  1.256_637_062_12e-6); // N/A²
+            scopes.push(env);
         }
 
+        // ── Scope access ─────────────────────────────────────────────────────
+
+        /** Lookup walks inner→outer; missing names resolve to 0.0 (legacy semantic). */
+        double readVar(String name) {
+            for (Map<String, Double> scope : scopes) {
+                Double v = scope.get(name);
+                if (v != null) return v;
+            }
+            return 0.0;
+        }
+
+        /**
+         * Assign to an existing binding (walking inner→outer); if no scope owns
+         * the name, create it in the current (top) frame. Matches JavaScript
+         * implicit-global semantics, but bounded because the only way to add a
+         * new frame is via a user-function call.
+         */
+        void writeVar(String name, double value) {
+            for (Map<String, Double> scope : scopes) {
+                if (scope.containsKey(name)) { scope.put(name, value); return; }
+            }
+            scopes.peek().put(name, value);
+        }
+
+        /** {@code var} declarations always land in the innermost (top) frame. */
+        void declareVar(String name, double value) {
+            scopes.peek().put(name, value);
+        }
+
+        // ── Execution ────────────────────────────────────────────────────────
+
         double exec(List<Stmt> stmts) {
-            for (Stmt s : stmts) execStmt(s);
+            // Phase 8 Tier 2 — single hoisting pass: register every FuncDef in
+            // the user-function table before executing any top-level statements.
+            // Lets functions call each other regardless of source order, and lets
+            // top-level code call a function declared further down.
+            for (Stmt s : stmts) {
+                if (s instanceof Stmt.FuncDef fd) {
+                    if (BUILTINS.contains(fd.name())) {
+                        throw new RuntimeException(
+                                "Cannot redefine builtin '" + fd.name()
+                                + "' as a user function");
+                    }
+                    if (userFunctions.containsKey(fd.name())) {
+                        throw new RuntimeException(
+                                "Function '" + fd.name() + "' already defined");
+                    }
+                    userFunctions.put(fd.name(), fd);
+                }
+            }
+            for (Stmt s : stmts) {
+                if (!(s instanceof Stmt.FuncDef)) execStmt(s);
+            }
             return 0.0;
         }
 
         void execStmt(Stmt s) {
             if (++stmtCount > MAX_STMTS) throw new LimitExceeded("Statement limit exceeded");
             switch (s) {
-                case Stmt.Decl   d -> env.put(d.name(), eval(d.init()));
+                case Stmt.Decl   d -> declareVar(d.name(), eval(d.init()));
                 case Stmt.ExprS  e -> eval(e.expr());
                 case Stmt.Return r -> throw new ReturnSignal(eval(r.val()));
                 case Stmt.If     f -> {
@@ -483,13 +598,15 @@ public class SandboxEngine {
                     else                         for (Stmt b : f.els())  execStmt(b);
                 }
                 case Stmt.For    f -> {
-                    env.put(f.var(), eval(f.init()));
+                    writeVar(f.var(), eval(f.init()));
                     while (truthy(eval(f.cond()))) {
                         if (++iterCount > MAX_ITERATIONS) throw new LimitExceeded("Loop limit exceeded");
                         for (Stmt b : f.body()) execStmt(b);
                         eval(f.upd());
                     }
                 }
+                // Hoisted in exec(); ignored if it survives to this point.
+                case Stmt.FuncDef fd -> { /* no-op */ }
             }
         }
 
@@ -497,12 +614,12 @@ public class SandboxEngine {
             return switch (e) {
                 case Expr.Num     n -> n.v();
                 case Expr.Bool    b -> b.v() ? 1.0 : 0.0;
-                case Expr.Var     v -> env.getOrDefault(v.name(), 0.0);
+                case Expr.Var     v -> readVar(v.name());
                 case Expr.Ternary t -> truthy(eval(t.cond())) ? eval(t.then()) : eval(t.els());
-                case Expr.PostInc p -> { double v = env.getOrDefault(p.name(), 0.0); env.put(p.name(), v + 1); yield v; }
-                case Expr.PostDec p -> { double v = env.getOrDefault(p.name(), 0.0); env.put(p.name(), v - 1); yield v; }
+                case Expr.PostInc p -> { double v = readVar(p.name()); writeVar(p.name(), v + 1); yield v; }
+                case Expr.PostDec p -> { double v = readVar(p.name()); writeVar(p.name(), v - 1); yield v; }
                 case Expr.Assign  a -> {
-                    double rhs = eval(a.val()), cur = env.getOrDefault(a.name(), 0.0);
+                    double rhs = eval(a.val()), cur = readVar(a.name());
                     double res = switch (a.op()) {
                         case "="  -> rhs;
                         case "+=" -> cur + rhs;
@@ -511,7 +628,7 @@ public class SandboxEngine {
                         case "/=" -> rhs == 0 ? 0 : cur / rhs;
                         default   -> rhs;
                     };
-                    env.put(a.name(), res); yield res;
+                    writeVar(a.name(), res); yield res;
                 }
                 case Expr.UnOp   u -> switch (u.op()) {
                     case "!" -> truthy(eval(u.e())) ? 0.0 : 1.0;
@@ -540,6 +657,13 @@ public class SandboxEngine {
         boolean truthy(double v) { return v != 0.0 && !Double.isNaN(v); }
 
         double evalCall(String name, List<Expr> rawArgs) {
+            // Phase 8 Tier 2 — user-defined functions are looked up before
+            // builtins. Definition-time shadowing of a builtin is rejected
+            // by exec(), so reaching this branch means the name is a real
+            // user function (no ambiguity at call time).
+            Stmt.FuncDef userFn = userFunctions.get(name);
+            if (userFn != null) return invokeUserFunction(userFn, rawArgs);
+
             if (!BUILTINS.contains(name)) throw new RuntimeException("Unknown function: " + name);
             double[] a = rawArgs.stream().mapToDouble(this::eval).toArray();
 
@@ -566,6 +690,55 @@ public class SandboxEngine {
             }
             // Cannot happen — BUILTINS gates entry — but keep a defensive throw.
             throw new RuntimeException("Unimplemented builtin: " + name);
+        }
+
+        /**
+         * Phase 8 Tier 2 — execute a user-defined function with **lexical
+         * scoping**. Arguments evaluate in the caller's scope; the new frame
+         * holds only the parameter bindings; intermediate caller frames are
+         * temporarily stripped so the function body sees only its params and
+         * the global frame.
+         *
+         * <p>Lexical-only scoping prevents the surprise where {@code function
+         * inner()} would read a local variable that happens to be named the
+         * same in the caller. With dynamic scoping that's a hard-to-spot
+         * aliasing bug; with lexical scoping it's just a read of {@code 0}.
+         * The caller-frame stack is restored on return so deeper recursion
+         * still composes correctly.
+         */
+        double invokeUserFunction(Stmt.FuncDef fd, List<Expr> rawArgs) {
+            if (rawArgs.size() != fd.params().size()) {
+                throw new RuntimeException("Function '" + fd.name() + "' expects "
+                        + fd.params().size() + " arg(s), got " + rawArgs.size());
+            }
+            double[] argValues = new double[rawArgs.size()];
+            for (int i = 0; i < rawArgs.size(); i++) argValues[i] = eval(rawArgs.get(i));
+
+            if (++callDepth > MAX_CALL_DEPTH) {
+                callDepth--; // rewind so the throw doesn't lock the counter
+                throw new LimitExceeded("Call depth limit (" + MAX_CALL_DEPTH
+                        + ") exceeded in '" + fd.name() + "'");
+            }
+            Map<String, Double> frame = new HashMap<>();
+            for (int i = 0; i < fd.params().size(); i++) {
+                frame.put(fd.params().get(i), argValues[i]);
+            }
+            // Strip every frame above global, push the function frame, execute,
+            // then restore. While the function body runs, readVar/writeVar walk
+            // only [frame, global] — no caller locals leak in.
+            List<Map<String, Double>> stashed = new ArrayList<>();
+            while (scopes.size() > 1) stashed.add(scopes.pop());
+            try {
+                scopes.push(frame);
+                for (Stmt b : fd.body()) execStmt(b);
+                return 0.0;          // function ended without explicit return
+            } catch (ReturnSignal r) {
+                return r.value;       // function-local return; do not propagate
+            } finally {
+                scopes.pop();         // frame
+                for (int i = stashed.size() - 1; i >= 0; i--) scopes.push(stashed.get(i));
+                callDepth--;
+            }
         }
 
         /**
