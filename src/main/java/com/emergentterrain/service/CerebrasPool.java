@@ -187,7 +187,10 @@ public class CerebrasPool implements LlmPool {
 
     @Override
     public boolean allBlocked() {
-        if (activeModels.isEmpty()) return false;
+        // Phase 9 follow-on — when selection tests dropped every candidate (or
+        // the pool was never given a model), report blocked so downstream
+        // consumers fall back rather than call into an empty pool.
+        if (activeModels.isEmpty()) return true;
         long now = System.currentTimeMillis();
         return activeModels.stream().allMatch(m -> {
             Long exp = rateLimitExpiry.get(m);
@@ -358,14 +361,28 @@ public class CerebrasPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
+                    // Phase 9 follow-on — honor the just-set rateLimitExpiry from
+                    // handleErrorResponse (header- or body-derived) so the retry
+                    // actually waits long enough. Falls back to exponential when
+                    // no expiry was recorded. Capped at 90s so a misconfigured
+                    // long block doesn't stall startup.
+                    long waitMs = retryWaitMsFor(modelId, backoffMs);
                     log.warn("CerebrasPool: 429 model={} attempt={} retrying in {}ms",
-                            modelId, attempt + 1, backoffMs);
-                    sleep(backoffMs);
+                            modelId, attempt + 1, waitMs);
+                    sleep(waitMs);
                     backoffMs = Math.min(backoffMs * 2, 30_000);
                 } else { throw e; }
             }
         }
         throw last;
+    }
+
+    private long retryWaitMsFor(String modelId, long fallbackMs) {
+        Long expiry = rateLimitExpiry.get(modelId);
+        if (expiry == null) return fallbackMs;
+        long remaining = expiry - System.currentTimeMillis();
+        if (remaining <= 0) return fallbackMs;
+        return Math.min(remaining + 500, 90_000);
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {

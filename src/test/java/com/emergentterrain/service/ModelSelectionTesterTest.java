@@ -106,14 +106,51 @@ class ModelSelectionTesterTest {
     }
 
     @Test
-    void test_chatProbeThrownExceptionDropsModel() {
+    void test_chatProbeNon429ThrowDropsModel() {
         Function<String, String> sync = prompt -> {
-            throw new RuntimeException("429 quota exceeded");
+            throw new RuntimeException("HTTP 401 Unauthorized");
         };
         ModelSelectionTester.SelectionResult r =
                 ModelSelectionTester.test("test", "test-model", sync, null);
         assertThat(r.passed()).isFalse();
-        assertThat(r.reason()).contains("chat-probe threw").contains("429 quota");
+        assertThat(r.reason()).contains("chat-probe threw").contains("401");
+    }
+
+    @Test
+    void test_chatProbe429TolerantKeepsModelAsTentativePass() {
+        // Phase 9 follow-on — 429 is transient; the model should stay in
+        // activeModels and runtime block-state handles recovery.
+        Function<String, String> sync = prompt -> {
+            throw new RuntimeException("Cerebras API error 429: rate limit");
+        };
+        ModelSelectionTester.SelectionResult r =
+                ModelSelectionTester.test("test", "test-model", sync, null);
+        assertThat(r.passed()).isTrue();
+    }
+
+    @Test
+    void test_jsonProbe429TolerantKeepsModel() {
+        Function<String, String> sync = prompt -> {
+            if (prompt.contains("Reply")) return "OK";
+            throw new RuntimeException("HTTP 429 Too Many Requests");
+        };
+        ModelSelectionTester.SelectionResult r =
+                ModelSelectionTester.test("test", "test-model", sync, null);
+        assertThat(r.passed()).isTrue();
+    }
+
+    @Test
+    void test_toolProbe429TolerantKeepsModel() {
+        Function<String, String> sync = prompt -> {
+            if (prompt.contains("Reply")) return "OK";
+            return "{\"name\":\"Euler\",\"value\":2.71828,\"good\":true}";
+        };
+        ModelSelectionTester.ToolDispatch tool = (sys, user, toolsJson, exec) -> {
+            throw new RuntimeException("Groq tool error 429: TPD");
+        };
+        ModelSelectionTester.SelectionResult r =
+                ModelSelectionTester.test("test", "test-model", sync, tool);
+        assertThat(r.passed()).isTrue();
     }
 
     @Test

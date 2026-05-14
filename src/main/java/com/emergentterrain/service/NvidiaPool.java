@@ -199,7 +199,10 @@ public class NvidiaPool implements LlmPool {
 
     @Override
     public boolean allBlocked() {
-        if (activeModels.isEmpty()) return false;
+        // Phase 9 follow-on — empty activeModels means selection dropped every
+        // candidate (or no model was configured). Report blocked so consumers
+        // fall back instead of calling into an empty pool.
+        if (activeModels.isEmpty()) return true;
         long now = System.currentTimeMillis();
         return activeModels.stream().allMatch(m -> {
             if (paidTierModels.contains(m)) return true;  // permanently unavailable
@@ -373,14 +376,26 @@ public class NvidiaPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
+                    // Phase 9 follow-on — honor rateLimitExpiry set by
+                    // handleErrorResponse so retries wait the provider's actual
+                    // retry-after rather than a fixed exponential.
+                    long waitMs = retryWaitMsFor(modelId, backoffMs);
                     log.warn("NvidiaPool: 429 model={} attempt={} retrying in {}ms",
-                            modelId, attempt + 1, backoffMs);
-                    sleep(backoffMs);
+                            modelId, attempt + 1, waitMs);
+                    sleep(waitMs);
                     backoffMs = Math.min(backoffMs * 2, 30_000);
                 } else { throw e; }
             }
         }
         throw last;
+    }
+
+    private long retryWaitMsFor(String modelId, long fallbackMs) {
+        Long expiry = rateLimitExpiry.get(modelId);
+        if (expiry == null) return fallbackMs;
+        long remaining = expiry - System.currentTimeMillis();
+        if (remaining <= 0) return fallbackMs;
+        return Math.min(remaining + 500, 90_000);
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {

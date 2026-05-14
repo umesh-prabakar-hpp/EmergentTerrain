@@ -204,7 +204,9 @@ public class OpenRouterPool implements LlmPool {
 
     @Override
     public boolean allBlocked() {
-        if (activeModels.isEmpty()) return false;
+        // Phase 9 follow-on — empty activeModels means selection dropped every
+        // candidate. Report blocked so consumers fall back.
+        if (activeModels.isEmpty()) return true;
         long now = System.currentTimeMillis();
         return activeModels.stream().allMatch(m -> {
             Long exp = rateLimitExpiry.get(m);
@@ -379,7 +381,11 @@ public class OpenRouterPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
-                    long waitMs = parseRetryAfterMs(msg).orElse(backoffMs);
+                    // Phase 9 follow-on — prefer rateLimitExpiry (set from
+                    // header + body by handleErrorResponse) over the
+                    // body-only parseRetryAfterMs. Cap at 90s.
+                    long waitMs = retryWaitMsFor(modelId,
+                            parseRetryAfterMs(msg).orElse(backoffMs));
                     log.warn("OpenRouterPool: 429 model={} attempt={} retrying in {}ms",
                             modelId, attempt + 1, waitMs);
                     sleep(waitMs);
@@ -388,6 +394,14 @@ public class OpenRouterPool implements LlmPool {
             }
         }
         throw last;
+    }
+
+    private long retryWaitMsFor(String modelId, long fallbackMs) {
+        Long expiry = rateLimitExpiry.get(modelId);
+        if (expiry == null) return fallbackMs;
+        long remaining = expiry - System.currentTimeMillis();
+        if (remaining <= 0) return fallbackMs;
+        return Math.min(remaining + 500, 90_000);
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {

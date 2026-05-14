@@ -130,6 +130,7 @@ public final class ModelSelectionTester {
         String chatResp;
         try { chatResp = sync.apply(CHAT_PROMPT); }
         catch (RuntimeException e) {
+            if (is429(e)) return rateLimited(providerKey, modelId, "chat-probe", e);
             return SelectionResult.fail("chat-probe threw: " + e.getMessage());
         }
         long chatMs = System.currentTimeMillis() - chatStart;
@@ -143,6 +144,7 @@ public final class ModelSelectionTester {
         String jsonResp;
         try { jsonResp = sync.apply(JSON_PROMPT); }
         catch (RuntimeException e) {
+            if (is429(e)) return rateLimited(providerKey, modelId, "json-probe", e);
             return SelectionResult.fail("json-probe threw: " + e.getMessage());
         }
         long jsonMs = System.currentTimeMillis() - jsonStart;
@@ -159,6 +161,7 @@ public final class ModelSelectionTester {
             toolResp = tool.call("", TOOL_PROMPT, GET_VALUE_TOOL_JSON,
                     args -> "{\"key\":\"pi\",\"value\":\"3.14159\"}");
         } catch (RuntimeException e) {
+            if (is429(e)) return rateLimited(providerKey, modelId, "tool-probe", e);
             return SelectionResult.fail("tool-probe threw: " + e.getMessage());
         }
         long toolMs = System.currentTimeMillis() - toolStart;
@@ -166,6 +169,26 @@ public final class ModelSelectionTester {
         if (toolFailure != null) return SelectionResult.fail("tool-probe " + toolFailure);
 
         return SelectionResult.pass(chatMs, jsonMs, toolMs);
+    }
+
+    /**
+     * Phase 9 follow-on — 429 during a selection probe is transient. The model
+     * is not broken; the quota window is exhausted by some other process or a
+     * preceding test. Don't drop the model from {@code activeModels} — the
+     * runtime block state will pick it back up when the window resets.
+     */
+    private static boolean is429(RuntimeException e) {
+        String m = e.getMessage();
+        return m != null && m.contains("429");
+    }
+
+    private static SelectionResult rateLimited(String providerKey, String modelId,
+                                                 String probeName, RuntimeException e) {
+        log.warn("{}: selection-test model={} {} hit 429 — keeping model "
+                        + "(runtime block state will track recovery): {}",
+                providerKey, modelId, probeName, truncate(e.getMessage()));
+        // Treat as a (tentative) pass so the model stays in activeModels.
+        return SelectionResult.pass(0, 0, null);
     }
 
     /**
