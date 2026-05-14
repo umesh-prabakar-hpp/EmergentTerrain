@@ -38,6 +38,16 @@ public class FastModelRegistry implements ModelRegistry {
     private static final Logger log = LoggerFactory.getLogger(FastModelRegistry.class);
 
     private final List<ModelHandle> handles;
+    /**
+     * Phase 9 follow-on (2026-05-14) — round-robin cursor advanced once per
+     * {@link #availableModels()} call. With multiple concurrent fast-tier calls
+     * (formulation / framing / audit / refinement) all hitting the first handle
+     * caused groq's TPM to spike, SimulationGate to close, and papers to back
+     * up at the gate. Rotating the starting position distributes load across
+     * every healthy fast handle.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger rrCursor =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     public FastModelRegistry(ApplicationContext ctx) {
         List<ModelHandle> collected = new ArrayList<>();
@@ -73,7 +83,14 @@ public class FastModelRegistry implements ModelRegistry {
         for (ModelHandle h : handles) {
             if (!h.isBlocked()) out.add(h);
         }
-        return List.copyOf(out);
+        if (out.size() <= 1) return List.copyOf(out);
+        int rot = Math.abs(rrCursor.getAndIncrement() % out.size());
+        if (rot == 0) return List.copyOf(out);
+        List<ModelHandle> rotated = new ArrayList<>(out.size());
+        for (int i = 0; i < out.size(); i++) {
+            rotated.add(out.get((i + rot) % out.size()));
+        }
+        return List.copyOf(rotated);
     }
 
     @Override

@@ -64,7 +64,12 @@ public class GroqPool implements LlmPool {
     private static final long INTER_CALL_DELAY_MS  = 1500; // between models
     private static final long INTRA_CALL_DELAY_MS  = 2000; // between ranking and test for same model
     private static final int  MAX_RETRIES          = 4;
-    private static final long INITIAL_BACKOFF_MS   = 2000;
+    /** Phase 9 follow-on (2026-05-14) — bumped 2s → 10s so when
+     *  parseRetryAfterMs can't extract the provider's actual retry-after, the
+     *  fallback wait is long enough to clear the typical free-tier per-minute
+     *  window (~30s avg). With 2s, retries fired well inside the same TPM
+     *  window and re-hit 429 every time. */
+    private static final long INITIAL_BACKOFF_MS   = 10_000;
 
     // Reasoning models (e.g. openai/gpt-oss-120b) consume most of their token budget on
     // internal chain-of-thought before writing content. 150 was exhausted by reasoning alone.
@@ -112,6 +117,14 @@ public class GroqPool implements LlmPool {
     // Per-model TPD expiry: when a model exhausts its daily token quota, record when it recovers.
     // Models are skipped until System.currentTimeMillis() passes the expiry epoch.
     private final ConcurrentHashMap<String, Long> tpdExpiry = new ConcurrentHashMap<>();
+    /**
+     * Phase 9 follow-on (2026-05-14) — per-model per-MINUTE expiry. Distinct
+     * from {@link #tpdExpiry} (per-day). Set on every TPM 429 from the parsed
+     * retry-after window; consulted by {@link #isModelBlocked(String)} so
+     * concurrent threads skip the blocked model immediately rather than
+     * racing past the check and firing their own 429s.
+     */
+    private final ConcurrentHashMap<String, Long> tpmExpiry = new ConcurrentHashMap<>();
 
     private static final String PROVIDER_ID = "groq";
 
@@ -238,8 +251,11 @@ public class GroqPool implements LlmPool {
     @Override public List<String> fastTierModelIds() { return fastTierActiveModels; }
 
     @Override public boolean isModelBlocked(String modelId) {
-        Long exp = tpdExpiry.get(modelId);
-        return exp != null && System.currentTimeMillis() < exp;
+        long now = System.currentTimeMillis();
+        Long tpd = tpdExpiry.get(modelId);
+        if (tpd != null && now < tpd) return true;
+        Long tpm = tpmExpiry.get(modelId);
+        return tpm != null && now < tpm;
     }
 
     /** Phase 9 U7 — accept both primary and fast-tier model ids. */
@@ -843,7 +859,16 @@ public class GroqPool implements LlmPool {
                     }
                     // TPM (per-minute) — use Groq's retry-after when available
                     long waitMs = parseRetryAfterMs(msg).orElse(backoffMs);
-                    log.warn("GroqPool: 429 model={} attempt={} retrying in {}ms", modelId, attempt + 1, waitMs);
+                    // Phase 9 follow-on (2026-05-14) — record per-model TPM expiry so
+                    // concurrent threads see isModelBlocked()=true and skip this
+                    // model immediately rather than racing past the check and firing
+                    // their own 429s. Only set on the first attempt of this 429
+                    // (already-set expiry from a sibling thread takes precedence).
+                    long expiry = System.currentTimeMillis() + waitMs;
+                    tpmExpiry.merge(modelId, expiry, Math::max);
+                    log.warn("GroqPool: 429 model={} attempt={} retrying in {}ms (tpmExpiry until ~{})",
+                            modelId, attempt + 1, waitMs,
+                            java.time.Instant.ofEpochMilli(tpmExpiry.get(modelId)));
                     sleep(waitMs);
                     backoffMs = Math.min(backoffMs * 2, 30_000);
                 } else {
@@ -855,7 +880,8 @@ public class GroqPool implements LlmPool {
     }
 
     // Groq embeds retry-after as "4.82s" or "43m51.312s" or "1h23m45s"
-    private OptionalLong parseRetryAfterMs(String message) {
+    OptionalLong parseRetryAfterMs(String message) {
+        if (message == null) return OptionalLong.empty();
         // "Xm Y.Zs" form
         Matcher mm = Pattern.compile("(\\d+)m(\\d+\\.?\\d*)s").matcher(message);
         if (mm.find()) {
@@ -865,11 +891,23 @@ public class GroqPool implements LlmPool {
                 return OptionalLong.of(ms);
             } catch (NumberFormatException ignored) {}
         }
-        // "X.Zs" form
+        // "try again in X.Ys" form
         Matcher ms = Pattern.compile("try again in (\\d+\\.?\\d*)s").matcher(message);
         if (ms.find()) {
             try {
                 return OptionalLong.of((long)(Double.parseDouble(ms.group(1)) * 1000) + 500);
+            } catch (NumberFormatException ignored) {}
+        }
+        // Phase 9 follow-on — bare "X.Ys" anywhere in the message (Groq sometimes
+        // omits the "try again in" preamble; some upstream errors include just
+        // "X.Ys remaining" or similar).
+        Matcher bare = Pattern.compile("\\b(\\d+\\.?\\d*)\\s*s\\b").matcher(message);
+        if (bare.find()) {
+            try {
+                double secs = Double.parseDouble(bare.group(1));
+                if (secs > 0 && secs < 3600) {  // sanity bound: skip "5G" style noise
+                    return OptionalLong.of((long)(secs * 1000) + 500);
+                }
             } catch (NumberFormatException ignored) {}
         }
         return OptionalLong.empty();

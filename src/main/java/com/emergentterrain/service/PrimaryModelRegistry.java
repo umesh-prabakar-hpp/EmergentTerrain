@@ -44,6 +44,17 @@ public class PrimaryModelRegistry implements ModelRegistry {
     private static final Logger log = LoggerFactory.getLogger(PrimaryModelRegistry.class);
 
     private final List<ModelHandle> handles;
+    /**
+     * Phase 9 follow-on (2026-05-14) — round-robin cursor advanced once per
+     * {@link #availableModels()} call. Without it, every consumer's
+     * first-success-wins dispatch concentrates load on the first registered
+     * handle; concurrent narration threads then race past the per-model block
+     * check and all hit that one model with simultaneous 429s. Rotating the
+     * starting position distributes load across all available handles —
+     * 6 concurrent calls on 6 healthy handles end up on 6 different models.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger rrCursor =
+            new java.util.concurrent.atomic.AtomicInteger();
 
     public PrimaryModelRegistry(ApplicationContext ctx) {
         List<ModelHandle> collected = new ArrayList<>();
@@ -71,7 +82,19 @@ public class PrimaryModelRegistry implements ModelRegistry {
         for (ModelHandle h : handles) {
             if (!h.isBlocked()) out.add(h);
         }
-        return List.copyOf(out);
+        if (out.size() <= 1) return List.copyOf(out);
+        // Phase 9 follow-on — rotate the starting position by the cursor so each
+        // call sees a different first handle. Sequential walk semantics preserve
+        // (every available handle still gets visited in order); the rotation only
+        // changes WHICH one is tried first, distributing the first-success-wins
+        // load across the pool.
+        int rot = Math.abs(rrCursor.getAndIncrement() % out.size());
+        if (rot == 0) return List.copyOf(out);
+        List<ModelHandle> rotated = new ArrayList<>(out.size());
+        for (int i = 0; i < out.size(); i++) {
+            rotated.add(out.get((i + rot) % out.size()));
+        }
+        return List.copyOf(rotated);
     }
 
     @Override

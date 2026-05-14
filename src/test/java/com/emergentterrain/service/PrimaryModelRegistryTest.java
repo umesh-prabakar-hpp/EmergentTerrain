@@ -141,6 +141,34 @@ class PrimaryModelRegistryTest {
     }
 
     @Test
+    void availableModelsRotatesStartingPositionAcrossCalls() {
+        // Phase 9 follow-on — round-robin distribution. Three healthy handles;
+        // three sequential availableModels() calls should each present a
+        // different first handle so concurrent first-success-wins consumers
+        // distribute load instead of all hitting handle[0].
+        FakePool a = pool("a", true, List.of("m1"));
+        FakePool b = pool("b", true, List.of("m2"));
+        FakePool c = pool("c", true, List.of("m3"));
+        PrimaryModelRegistry registry = build(a, b, c);
+
+        String first1 = registry.availableModels().get(0).reviewerId();
+        String first2 = registry.availableModels().get(0).reviewerId();
+        String first3 = registry.availableModels().get(0).reviewerId();
+        // The three first-elements should span all three handles in some order.
+        assertThat(java.util.Set.of(first1, first2, first3))
+                .containsExactlyInAnyOrder("a/m1", "b/m2", "c/m3");
+    }
+
+    @Test
+    void availableModelsSingleHandleSkipsRotation() {
+        FakePool a = pool("a", true, List.of("m1"));
+        PrimaryModelRegistry registry = build(a);
+        // Single handle — rotation is a no-op; same element every time.
+        assertThat(registry.availableModels().get(0).reviewerId()).isEqualTo("a/m1");
+        assertThat(registry.availableModels().get(0).reviewerId()).isEqualTo("a/m1");
+    }
+
+    @Test
     void poolsWithoutToolsAreExcludedEvenIfTheyDeclareModels() {
         FakePool groq   = pool("groq",   true, List.of("a"));
         FakePool ollama = pool("ollama", false, List.of("gemma3:4b", "qwen2:7b"));
