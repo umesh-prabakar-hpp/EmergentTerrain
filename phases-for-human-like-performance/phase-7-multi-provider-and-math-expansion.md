@@ -340,6 +340,123 @@ Today the queue exists but has no drain. Add a `@Scheduled(fixedDelayString="${a
 
 ---
 
+## F5 — Tool-call provenance capture (add-on, post-F4)
+
+**Status:** scoping. Added 2026-05-14 after the F4 bump to `maxComputations: 5` exposed that the agentic professor loop's tool calls vanish from the published paper.
+
+**Why this is needed:** the professor stage runs `run_param_sweep` / `run_predicate_scan` / `evaluate_symbolic` / `run_sandboxed_code` agentically (up to `MAX_TOOL_ROUNDS=5` per `GroqPool.java:86`). Each call returns deterministic numbers that materially shape the revised prose, but today:
+
+- `GroqPool.runToolLoop` logs only `fn={} result_len={}` (ephemeral)
+- `callWithTools` returns just the final assistant string — no trace
+- `NarrationResult` has no tool-call field
+- `ResearchPaper` has no tool-trace persistence
+- The published markdown shows `prof:groq:ok` but not which functions were chosen, with what args, returning what
+
+After the F4 bump to `maxComputations: 5`, a paper can narrate 5 computation blocks with no record of which came from the seed `MathPhysicsEngine.compute*()` vs the agentic professor's tool calls. The honesty hole is now 5× wider.
+
+**The student-professor analog:** a real paper's Methods section lists the load-bearing computations with parameters and results. Exploratory tool calls that didn't contribute may be omitted from the paper but should survive in the equivalent of a lab notebook (database column). Cherry-picking — running a sweep that contradicted the hypothesis and omitting it from the prose — should be detectable from the audit trail.
+
+**Two-tier provenance:**
+
+- **Tier 1 (paper-public):** the existing F2 H3 Computation blocks remain the LLM's chosen narrative units. Each block can optionally cite a tool call (`[T2]` inline). A `## Methods` appendix at the paper's end lists only the *cited* tool calls with their args + results — rendered in natural prose, not raw JSON.
+- **Tier 2 (audit-only):** new JSON column `ResearchPaper.toolCallTrace` persists every tool call invocation (cited or not) with full args + results + round index. Not rendered in markdown but available to `REVIEW_REPORT.md` analysis and future validators.
+
+### F5.1 — `ToolInvocation` record + GroqPool capture
+
+**Effort:** ~1 hour. **Pre-condition:** none.
+
+New record `com.emergentterrain.llm.ToolInvocation(String functionName, String argsJson, String resultJson, int round)`. `GroqPool.runToolLoop` accumulates each call into a local `List<ToolInvocation>` alongside the existing `log.info` line. Return type of `callWithTools` does not change yet — this commit is local-only capture.
+
+### F5.2 — `ToolCallResponse` return type
+
+**Effort:** ~1 day. **Pre-condition:** F5.1.
+
+Change `LlmPool.callWithTools` return type from `String` to `record ToolCallResponse(String synthesis, List<ToolInvocation> trace)`. Update all 4 pool implementations (`GroqPool`, `NvidiaPool`, `OpenRouterPool`, `CerebrasPool`) and `LlmRouter.callPrimaryWithTools`. Existing consumers read `.synthesis()` and behave identically. Trace flows but is unused until F5.3.
+
+### F5.3 — Trace into `NarrationResult`
+
+**Effort:** ~1 day. **Pre-condition:** F5.2.
+
+Add `List<ToolInvocation> toolCallTrace` to `NarrationResult`. `ResearchNarrationService.maybeCritiqueAndReviseWithTools` populates it from the `ToolCallResponse`. No persistence yet.
+
+### F5.4 — Persistence + Methods appendix render
+
+**Effort:** ~2 days. **Pre-condition:** F5.3.
+
+1. New TEXT column `tool_call_trace` on `ResearchPaper` (JSON-serialised `List<ToolInvocation>`).
+2. `formatPaperAsMarkdown` adds a `## Methods` appendix after the existing Findings section. Renders one bullet per *cited* tool call. Citation detection: trace entries whose result numbers appear in the prose (NumericalConsistencyValidator already has this matching logic).
+3. The Tier 2 full trace is not rendered in markdown but is queryable.
+
+**Acceptance test:** a paper with `prof:groq:ok` shows a `## Methods` section enumerating the cited calls; uncited calls are absent from markdown but present in `tool_call_trace` JSON.
+
+### F5.5 — Numerical-consistency check spans trace
+
+**Effort:** ~1 day. **Pre-condition:** F5.4.
+
+`NumericalConsistencyValidator` extends: any number in a tool-derived block's prose must be present in (or derivable from) at least one tool result. Catches the "LLM fabricates a number while citing a sweep" failure mode.
+
+---
+
+## F7 — Multi-reviewer review panel (add-on, depends on F5)
+
+**Status:** scoping. **Pre-condition:** F5.3 minimum (panel needs `toolCallTrace` to review). Ideally F5.4 so DISPUTED/REJECTED routing can also draw on persisted state.
+
+**Frame:** the existing `audit:quality` stage is single-reviewer and prose-only. F7 fans review out to N providers in parallel, each returning structured JSON with grades. Aggregation is deterministic — no meta-reviewer LLM.
+
+**Why a panel beats a single reviewer:** inter-reviewer agreement is a signal one reviewer can't give. If 3/3 providers flag the same contradiction it's almost certainly real; 1/3 is noise. High variance across reviewers is itself informative — it routes the paper to DISPUTED rather than PUBLISHED.
+
+**Infrastructure already exists:** 4 independent provider pools post-E1 (Groq, NVIDIA, OpenRouter, Cerebras). Each pool's free tier is a separate quota bucket, so a 3-reviewer panel doesn't multiply pressure on any one pool. Latency is `max(provider)` not sum since fan-out is parallel.
+
+### F7.1 — Reviewer prompt template + JSON schema
+
+**Effort:** ~3 days.
+
+Add `NARRATION_PANEL_REVIEW` to `PromptTemplateRegistry`. Reviewer persona: *"You are a skeptical co-reviewer with access to the complete computational record. The author has chosen which results to highlight. Identify any tool result that contradicts the synthesis, any redundancy, any missing control, any cherry-picking."*
+
+Reviewer input: original hypothesis + draft + full `List<ToolInvocation>` + final synthesis prose.
+
+Reviewer output:
+
+```json
+{
+  "reviewer_id": "<providerKey>/<model>",
+  "grades": { "honesty": 0.85, "completeness": 0.70, "rigor": 0.90, "novelty": 0.60 },
+  "cited_calls":      [1, 3, 5],
+  "omitted_relevant": [2],
+  "contradictions":   [{ "trace_idx": 4, "vs_prose": "..." }],
+  "recommendations":  ["add boundary check at L=5mH"]
+}
+```
+
+Strict JSON-schema validation with single retry on parse failure; failed reviewer drops out of the panel.
+
+### F7.2 — Panel fan-out + aggregation
+
+**Effort:** ~3 days.
+
+New `ReviewPanelService` issues parallel `callPrimary` to N providers (configurable via `app.research.review-panel.providers: "groq,nvidia,cerebras"`). Aggregation is deterministic:
+
+- Median per grade dimension → final score
+- `cited_calls`: intersection across reviewers = consensus load-bearing (this becomes F5.4's Methods appendix input rather than the heuristic-based citation detection)
+- `contradictions` flagged by ≥2 reviewers → required-to-address in revision turn
+- Variance per dimension persisted as `reviewerAgreement` on `ResearchPaper` — high variance ≥ threshold routes to DISPUTED
+
+### F7.3 — Audit-gap routing + REJECTED gate
+
+**Effort:** ~2 days.
+
+New audit gap dimension `cherry_picked_evidence` fires when ≥2 reviewers flag the same omitted call. Initially advisory (flag-gated like G8); promoted to REJECTED-routing after the false-positive rate is measured over ≥30 papers.
+
+### F7.4 — Degraded fallback
+
+**Effort:** ~1 day.
+
+When fewer than the configured panel size are available (all quota-exhausted), degrade to single-reviewer with call-path stamp `review:degraded:N=<count>`. Below N=1 (no reviewers available), skip the panel and stamp `review:skip:unavailable` — paper publishes as today, no new failure mode.
+
+**Flag:** `app.research.review-panel.enabled` (default `false`). Soak with `cherry_picked_evidence` advisory-only before flipping any REJECTED-routing.
+
+---
+
 ## What Phase 7 deliberately does NOT change
 
 - **Computation count is gradually increased, not reduced** (operator direction). F4's bumps are the path forward; F2's structured-findings schema is what makes those bumps safe.
