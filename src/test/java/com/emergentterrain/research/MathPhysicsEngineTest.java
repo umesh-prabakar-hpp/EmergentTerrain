@@ -228,6 +228,7 @@ class MathPhysicsEngineTest {
                 /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ false,
                 /* auditPhysicalMechanismRejectsEnabled */ false,
+                /* topicSpecificFindingsValidatorEnabled */ false,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

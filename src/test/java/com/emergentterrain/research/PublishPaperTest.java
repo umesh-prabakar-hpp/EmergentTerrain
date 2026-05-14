@@ -50,6 +50,8 @@ class PublishPaperTest {
     private boolean disputeReconciliationEnabled = false;
     /** Phase 7 G8: tests that exercise the physical-mechanism-audit reject gate set this via {@link #enableAuditPhysicalMechanismRejects()} or {@link #disableAuditPhysicalMechanismRejects()}. */
     private boolean auditPhysicalMechanismRejectsEnabled = false;
+    /** Phase 7 G6: tests that exercise topic-specific findings checks set this true. */
+    private boolean topicSpecificFindingsValidatorEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -124,6 +126,7 @@ class PublishPaperTest {
                 /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
+                /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -779,6 +782,81 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
+    // ── Phase 7 G6 — topic-specific findings validator ──────────────────────
+
+    @Test
+    void g6RlcBoilerplateRcValueDowngradesToNeedsRevision() {
+        enableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Computed R_c value of 50 across the swept range.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void g6ThermalStressYieldStrengthMisLabelDowngrades() {
+        enableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("MATERIALS", "Thermal Stress",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "The yield strength was observed to be 412 MPa at ΔT=200 K.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void g6ArrheniusScientificNotationDowngrades() {
+        enableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("MATERIALS", "Arrhenius Reaction Rate",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "The rate multiplier was 3.89×10^1 at 600 K.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void g6FlagOffLeavesBoilerplatePapersAsPublished() {
+        disableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Computed R_c value of 50.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void g6CleanRlcFindingsPassUnchanged() {
+        enableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Computed R_c value of 73.4 — outside the boilerplate set.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void g6NullResultClassificationOverridesNeedsRevision() {
+        // NULL_RESULT precedence is preserved even when topic-specific check would fire.
+        enableTopicSpecificFindingsValidator();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.NULL_RESULT, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "hyp", "Computed R_c value of 50.",
+                "Conclusion fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
+    }
+
     @Test
     void nullResultStaysNullEvenWhenCritiqueWasSkipped() {
         service.publishPaper(
@@ -1056,6 +1134,18 @@ class PublishPaperTest {
     /** Phase 7 G8 — rebuilds the service with physical-mechanism audit-reject OFF (default). */
     private void disableAuditPhysicalMechanismRejects() {
         auditPhysicalMechanismRejectsEnabled = false;
+        setUp();
+    }
+
+    /** Phase 7 G6 — rebuilds the service with the topic-specific findings validator ON. */
+    private void enableTopicSpecificFindingsValidator() {
+        topicSpecificFindingsValidatorEnabled = true;
+        setUp();
+    }
+
+    /** Phase 7 G6 — rebuilds the service with the topic-specific findings validator OFF (default). */
+    private void disableTopicSpecificFindingsValidator() {
+        topicSpecificFindingsValidatorEnabled = false;
         setUp();
     }
 

@@ -65,6 +65,8 @@ public class UniversityService {
     private final boolean citationAwareScoringEnabled;
     /** Phase 7 G8 — when on, SUPPORTED papers carrying the audit-4b physical_mechanism gap publish as REJECTED. */
     private final boolean auditPhysicalMechanismRejectsEnabled;
+    /** Phase 7 G6 — when on, RLC/Thermal-Stress/Arrhenius findings prose hitting known mis-label patterns publish as NEEDS_REVISION. */
+    private final boolean topicSpecificFindingsValidatorEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -161,6 +163,7 @@ public class UniversityService {
             @Value("${app.research.disputeOrphanAgeHours:6}") long orphanAgeHours,
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
+            @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -192,6 +195,7 @@ public class UniversityService {
         this.orphanAgeHours = orphanAgeHours;
         this.citationAwareScoringEnabled = citationAwareScoringEnabled;
         this.auditPhysicalMechanismRejectsEnabled = auditPhysicalMechanismRejectsEnabled;
+        this.topicSpecificFindingsValidatorEnabled = topicSpecificFindingsValidatorEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -232,6 +236,11 @@ public class UniversityService {
             log.info("UniversityService: audit-physical-mechanism-rejects ENABLED — "
                     + "SUPPORTED papers whose audit-4b gap list contains physical_mechanism "
                     + "publish as REJECTED.");
+        }
+        if (topicSpecificFindingsValidatorEnabled) {
+            log.info("UniversityService: topic-specific-findings-validator ENABLED — "
+                    + "RLC / Thermal-Stress / Arrhenius prose hitting known mis-label "
+                    + "patterns publish as NEEDS_REVISION.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -406,6 +415,17 @@ public class UniversityService {
         String callPath = narration.callPath();
         boolean truncated = truncationGuardEnabled
                 && (!endsWithSentenceTerminator(findings) || !endsWithSentenceTerminator(conclusion));
+        // Phase 7 G6 — topic-specific findings prose checks (RLC R_c boilerplate,
+        // Thermal-Stress "yield strength" mis-label, Arrhenius scientific notation).
+        // Maps to NEEDS_REVISION (fixable in revision), not REJECTED (structural defect).
+        List<String> topicSpecificFailures = topicSpecificFindingsValidatorEnabled
+                ? TopicSpecificFindingsValidator.validate(draft.domain(), draft.topicName(), findings)
+                : List.of();
+        boolean topicSpecificMismatch = !topicSpecificFailures.isEmpty();
+        if (topicSpecificMismatch) {
+            log.warn("topic-specific findings check failed paperId={} reasons={}",
+                    draft.paperId(), topicSpecificFailures);
+        }
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
@@ -479,6 +499,10 @@ public class UniversityService {
         } else if (validatorRejected) {
             paperStatus = "REJECTED";
         } else if (truncated) {
+            paperStatus = "NEEDS_REVISION";
+        } else if (topicSpecificMismatch) {
+            // G6 — kept below truncation/validators (more severe), above the
+            // call-path-driven NEEDS_REVISION clauses.
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";

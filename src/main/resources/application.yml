@@ -295,6 +295,11 @@ app:
     # path treats the paper as fully revised (not PUBLISHED_NO_PROFESSOR).
     ollama-fallback:
       enabled: true
+    # Phase 7 G6 — RLC R_c boilerplate, Thermal-Stress "yield strength" mis-label,
+    # and Arrhenius scientific-notation prose all trigger NEEDS_REVISION when this
+    # validator is on. Fixable in revision (not REJECTED).
+    topic-specific-findings-validator:
+      enabled: true
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop
