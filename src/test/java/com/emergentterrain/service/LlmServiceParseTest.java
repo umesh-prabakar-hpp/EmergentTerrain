@@ -352,6 +352,47 @@ class LlmServiceParseTest {
     }
 
     // ==========================================================================
+    // Phase 7 F2 — formatFindingsForPrompt produces the labeled per-computation
+    // layout the audit / professor / revision prompts feed to the LLM.
+    // ==========================================================================
+
+    @Test
+    void formatFindingsForPromptSingleBlockReturnsProseVerbatim() {
+        NarrationResult r = new NarrationResult(
+                "h", "single prose.", "c", null, "ai",
+                0.5, List.of(), null);
+        assertThat(ResearchNarrationService.formatFindingsForPrompt(r))
+                .isEqualTo("single prose.");
+    }
+
+    @Test
+    void formatFindingsForPromptMultiBlockRendersLabeledLayout() {
+        java.util.Map<Integer, String> m = new java.util.LinkedHashMap<>();
+        m.put(2, "second prose.");
+        m.put(1, "first prose.");
+        NarrationResult r = new NarrationResult(
+                "h", m, "c", null, "ai",
+                0.5, List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        assertThat(ResearchNarrationService.formatFindingsForPrompt(r))
+                .isEqualTo("[Computation 1]\nfirst prose.\n\n[Computation 2]\nsecond prose.");
+    }
+
+    @Test
+    void formatFindingsForPromptDropsBlankBlocks() {
+        java.util.Map<Integer, String> m = new java.util.LinkedHashMap<>();
+        m.put(1, "first.");
+        m.put(2, "   ");
+        m.put(3, "third.");
+        NarrationResult r = new NarrationResult(
+                "h", m, "c", null, "ai",
+                0.5, List.of(), null, List.of(), List.of(),
+                null, null, null, null, null);
+        assertThat(ResearchNarrationService.formatFindingsForPrompt(r))
+                .isEqualTo("[Computation 1]\nfirst.\n\n[Computation 3]\nthird.");
+    }
+
+    // ==========================================================================
     // parseRefinementDecision
     // ==========================================================================
 

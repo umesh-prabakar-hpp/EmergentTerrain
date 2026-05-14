@@ -672,7 +672,9 @@ public class ResearchNarrationService {
         params.put("topicName",           draft.topicName());
         params.put("preRegAndClassLines", preRegLine + classLine);
         params.put("hypothesis",          narration.hypothesis());
-        params.put("findings",            narration.findings());
+        // Phase 7 F2 — multi-block findings render as a labeled per-computation
+        // layout so the critique LLM can address each block separately.
+        params.put("findings",            formatFindingsForPrompt(narration));
         params.put("conclusion",          narration.conclusion());
         params.put("experimentSpec",      experimentSpec);
         return registry.render(PromptTemplateIds.NARRATION_CRITIQUE_ID, params);
@@ -729,9 +731,37 @@ public class ResearchNarrationService {
         params.put("classification", draft.resultClassification() != null
                 ? draft.resultClassification() : "UNKNOWN");
         params.put("hypothesis",     narration.hypothesis());
-        params.put("findings",       narration.findings());
+        // Phase 7 F2 — multi-block findings render as a labeled per-computation
+        // layout so the audit LLM can flag gaps PER block. Single-block layout
+        // is bit-identical to the legacy single-string findings.
+        params.put("findings",       formatFindingsForPrompt(narration));
         params.put("conclusion",     narration.conclusion());
         return registry.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+    }
+
+    /**
+     * Phase 7 F2 — render the findings field for a downstream prompt slot. Single-
+     * block (flag-off) maps return the prose verbatim — the legacy joined-string
+     * shape every audit / professor / revision template already expects. Multi-
+     * block maps emit a {@code [Computation N]\n<prose>} labelled layout in
+     * ascending key order so the LLM can address each block independently.
+     */
+    static String formatFindingsForPrompt(NarrationResult narration) {
+        if (narration == null) return null;
+        java.util.Map<Integer, String> map = narration.findingsMap();
+        if (map == null || map.isEmpty()) return narration.findings();
+        if (map.size() == 1) return narration.findings();
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (java.util.Map.Entry<Integer, String> e :
+                new java.util.TreeMap<>(map).entrySet()) {
+            if (e.getValue() == null || e.getValue().isBlank()) continue;
+            if (!first) sb.append("\n\n");
+            first = false;
+            sb.append("[Computation ").append(e.getKey()).append("]\n")
+                    .append(e.getValue());
+        }
+        return sb.toString();
     }
 
     static List<AuditGap> parseAuditGaps(ObjectMapper mapper, String response) {
@@ -838,7 +868,9 @@ public class ResearchNarrationService {
         params.put("topicName",             draft.topicName());
         params.put("preRegAndClassLines",   preRegLine + classLine);
         params.put("hypothesis",            narration.hypothesis());
-        params.put("findings",              narration.findings());
+        // Phase 7 F2 — multi-block findings render as a labeled per-computation
+        // layout so the professor can address each block when prescribing experiments.
+        params.put("findings",              formatFindingsForPrompt(narration));
         params.put("conclusion",            narration.conclusion());
         if (literatureContext != null && !literatureContext.isEmpty()) {
             params.put("literatureContext", literatureContext);
@@ -876,7 +908,9 @@ public class ResearchNarrationService {
         params.put("topicName",          draft.topicName());
         params.put("professorSynthesis", professorSynthesis);
         params.put("hypothesis",         firstPass.hypothesis());
-        params.put("findings",           firstPass.findings());
+        // Phase 7 F2 — labeled per-computation layout so the student-revision LLM
+        // knows which block to revise when only one block needs touching.
+        params.put("findings",           formatFindingsForPrompt(firstPass));
         params.put("conclusion",         firstPass.conclusion());
         params.put("conclusionSpec",     conclusionSpec);
         if (literatureContext != null && !literatureContext.isEmpty()) {
@@ -917,7 +951,9 @@ public class ResearchNarrationService {
         params.put("domain",             draft.domain());
         params.put("topicName",          draft.topicName());
         params.put("hypothesis",         firstPass.hypothesis());
-        params.put("findings",           firstPass.findings());
+        // Phase 7 F2 — labeled per-computation layout in the revision prompt's
+        // current-findings slot.
+        params.put("findings",           formatFindingsForPrompt(firstPass));
         params.put("conclusion",         firstPass.conclusion());
         params.put("weaknessList",       weaknessList);
         params.put("experimentSection",  experimentSection);
