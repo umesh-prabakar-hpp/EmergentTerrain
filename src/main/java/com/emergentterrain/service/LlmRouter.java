@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,8 +65,25 @@ public class LlmRouter {
      * pools whose {@link LlmPool#providerKey()} is in the set.
      */
     final java.util.Set<String> toolProviders;
+    /**
+     * Phase 9 U3b — provider-key ordering for sorting the registry's handles.
+     * Captured from the same {@code app.ai.primaryProviderOrder} config that
+     * populates {@link #primaryChain}, so registry-driven walks honour the
+     * operator's preferred order even when Spring's bean iteration would
+     * otherwise differ.
+     */
+    final List<String> primaryProviderOrder;
+    /**
+     * Phase 9 U3b — model-centric registry that {@link #callPrimary},
+     * {@link #streamPrimary}, and {@link #callPrimaryWithTools} route through.
+     * The registry aggregates every {@code supportsTools=true} pool's models
+     * into a single flat list, so a 429 on one model falls through to the next
+     * across providers transparently.
+     */
+    final PrimaryModelRegistry primaryRegistry;
 
     public LlmRouter(ApplicationContext ctx,
+                     PrimaryModelRegistry primaryRegistry,
                      @org.springframework.beans.factory.annotation.Value(
                              "${app.ai.primaryProviderOrder:" + DEFAULT_PRIMARY_ORDER + "}")
                      String primaryOrder,
@@ -75,6 +93,9 @@ public class LlmRouter {
                      @org.springframework.beans.factory.annotation.Value(
                              "${app.ai.tool-calling.providers:" + DEFAULT_TOOL_PROVIDERS + "}")
                      String toolProvidersCsv) {
+        this.primaryRegistry = primaryRegistry;
+        this.primaryProviderOrder = Arrays.stream(primaryOrder.split(","))
+                .map(String::trim).filter(s -> !s.isBlank()).toList();
         Map<String, LlmPool> beans = ctx.getBeansOfType(LlmPool.class);
         if (beans.isEmpty()) throw new IllegalStateException("LlmRouter: no LlmPool beans found");
 
@@ -131,13 +152,51 @@ public class LlmRouter {
         }
         this.toolProviders = Collections.unmodifiableSet(tp);
 
-        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={} toolProviders={}",
+        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={} toolProviders={} registryHandles={}",
                 primaryChain.stream().map(LlmPool::providerKey).toList(),
                 fastPool.providerKey(), fastPool.selectedModel(),
                 poolsByRole.entrySet().stream()
                         .map(e -> e.getKey() + "→" + e.getValue().providerKey())
                         .toList(),
-                toolProviders.isEmpty() ? "* (all)" : toolProviders);
+                toolProviders.isEmpty() ? "* (all)" : toolProviders,
+                primaryRegistry.totalModelCount());
+    }
+
+    /**
+     * Phase 9 U3b — order the registry's currently-available handles by
+     * {@link #primaryProviderOrder}. Handles whose provider isn't in the order
+     * list sort last. Preserves the pre-U3b "primary chain order wins" semantic
+     * across the registry-backed call paths.
+     */
+    private List<ModelHandle> orderedAvailable() {
+        List<ModelHandle> out = new ArrayList<>(primaryRegistry.availableModels());
+        out.sort(Comparator.comparingInt(h -> {
+            int idx = primaryProviderOrder.indexOf(h.providerKey());
+            return idx == -1 ? Integer.MAX_VALUE : idx;
+        }));
+        return out;
+    }
+
+    /**
+     * Phase 9 U3b — orderedAvailable() further filtered by the E2 opt-in set.
+     * Used by {@link #callPrimaryWithTools} and {@link #supportsProfessorTools}.
+     */
+    private List<ModelHandle> orderedAvailableToolEnabled() {
+        return orderedAvailable().stream()
+                .filter(this::isToolEnabled)
+                .toList();
+    }
+
+    /**
+     * Phase 9 U3b — handle is eligible for tool-calling iff the E2 opt-in set
+     * is empty (no restriction) OR its providerKey is in the set. The
+     * {@code supportsTools} check is redundant — the registry only contains
+     * tools-capable pools — but kept for clarity.
+     */
+    private boolean isToolEnabled(ModelHandle h) {
+        if (!h.pool().supportsTools()) return false;
+        if (toolProviders.isEmpty()) return true;
+        return toolProviders.contains(h.providerKey());
     }
 
     // ── Pool selection ──────────────────────────────────────────────────────
@@ -156,36 +215,58 @@ public class LlmRouter {
 
     // ── Primary routing ─────────────────────────────────────────────────────
 
-    /** Synchronous call routed to the primary chain. */
+    /**
+     * Synchronous call routed via {@link PrimaryModelRegistry} — walks every
+     * available 70B+ model across every provider. Cross-handle fallthrough on
+     * RuntimeException; only when every available model has been tried does it
+     * re-throw (or fall back to the first registered model when all are blocked,
+     * so the caller sees a real exception rather than "no available models").
+     */
     public String callPrimary(String prompt) {
+        List<ModelHandle> available = orderedAvailable();
         RuntimeException last = null;
-        for (LlmPool p : primaryChain) {
-            if (p.allBlocked()) continue;
-            try { return p.callSync(prompt); }
+        for (ModelHandle h : available) {
+            try { return h.pool().callSyncOnModel(h.modelId(), prompt); }
             catch (RuntimeException e) {
                 last = e;
-                log.warn("LlmRouter: provider={} callSync failed, trying next: {}",
-                        p.providerKey(), e.getMessage());
+                log.warn("LlmRouter: handle={} callSync failed, trying next: {}",
+                        h.reviewerId(), e.getMessage());
             }
         }
         if (last != null) throw last;
-        // All pools blocked — call the first anyway so its exception surfaces.
+        // No available handles — fall back to the first registered handle so its
+        // own block-state exception surfaces (instead of a confusing
+        // "no available models" message from the registry).
+        if (!primaryRegistry.allModels().isEmpty()) {
+            ModelHandle first = primaryRegistry.allModels().get(0);
+            return first.pool().callSyncOnModel(first.modelId(), prompt);
+        }
+        // Empty registry — fall through to the legacy pool path so tests without
+        // a tools-capable pool still see a meaningful exception.
         return primaryChain.get(0).callSync(prompt);
     }
 
-    /** Streaming call routed to the primary chain. */
+    /**
+     * Streaming call routed via {@link PrimaryModelRegistry}. Same selection
+     * contract as {@link #callPrimary(String)}.
+     */
     public void streamPrimary(String prompt, Consumer<String> tokenConsumer) {
+        List<ModelHandle> available = orderedAvailable();
         RuntimeException last = null;
-        for (LlmPool p : primaryChain) {
-            if (p.allBlocked()) continue;
-            try { p.callStream(prompt, tokenConsumer); return; }
+        for (ModelHandle h : available) {
+            try { h.pool().callStreamOnModel(h.modelId(), prompt, tokenConsumer); return; }
             catch (RuntimeException e) {
                 last = e;
-                log.warn("LlmRouter: provider={} callStream failed, trying next: {}",
-                        p.providerKey(), e.getMessage());
+                log.warn("LlmRouter: handle={} callStream failed, trying next: {}",
+                        h.reviewerId(), e.getMessage());
             }
         }
         if (last != null) throw last;
+        if (!primaryRegistry.allModels().isEmpty()) {
+            ModelHandle first = primaryRegistry.allModels().get(0);
+            first.pool().callStreamOnModel(first.modelId(), prompt, tokenConsumer);
+            return;
+        }
         primaryChain.get(0).callStream(prompt, tokenConsumer);
     }
 
@@ -224,9 +305,22 @@ public class LlmRouter {
         fastPool.callStream(prompt, tokenConsumer);
     }
 
-    public String primaryModel()    { return nextHealthyPrimary().selectedModel(); }
+    /**
+     * Phase 9 U3b — first available model in the ordered registry view, or the
+     * first registered model's id if everything is blocked, or the legacy pool
+     * selection when the registry is empty (e.g. tests without a supportsTools
+     * pool).
+     */
+    public String primaryModel() {
+        List<ModelHandle> available = orderedAvailable();
+        if (!available.isEmpty()) return available.get(0).modelId();
+        if (!primaryRegistry.allModels().isEmpty()) {
+            return primaryRegistry.allModels().get(0).modelId();
+        }
+        return nextHealthyPrimary().selectedModel();
+    }
     public String fastModel()       { return fastPool.selectedModel(); }
-    public int    primaryPoolSize() { return Math.max(1, nextHealthyPrimary().selectedModels().size()); }
+    public int    primaryPoolSize() { return Math.max(1, primaryRegistry.totalModelCount()); }
 
     /** Provider-key chain (e.g. ["groq", "nvidia", "openrouter", "cerebras"]). */
     public List<String> primaryProviderChain() {
@@ -236,29 +330,18 @@ public class LlmRouter {
     // ── Capability + quota probes ──────────────────────────────────────────
 
     /**
-     * True when at least one pool in the primary chain supports tool-calling AND
-     * is allowed by the {@code app.ai.tool-calling.providers} opt-in filter.
-     * Phase 7 E2 — operators flip non-Groq providers into this list after the
-     * ≥3-day soak demonstrates they're stable.
+     * True when at least one currently-available model in the registry passes
+     * the {@code app.ai.tool-calling.providers} opt-in filter. Phase 7 E2 —
+     * operators flip non-Groq providers into the list after the soak; Phase 9
+     * U3b — the filter is applied per-model rather than per-pool.
      */
     public boolean supportsProfessorTools() {
-        return primaryChain.stream().anyMatch(this::isToolEnabled);
+        return !orderedAvailableToolEnabled().isEmpty();
     }
 
-    /**
-     * Phase 7 E2 — pool is eligible for tool-calling iff it supports tools AND
-     * either the opt-in set is empty (no restriction) or its providerKey is in
-     * the set.
-     */
-    private boolean isToolEnabled(LlmPool pool) {
-        if (!pool.supportsTools()) return false;
-        if (toolProviders.isEmpty()) return true;
-        return toolProviders.contains(pool.providerKey());
-    }
-
-    /** True when EVERY pool in the primary chain reports allBlocked. */
+    /** True when no model in the registry is currently available. */
     public boolean primaryFullyExhausted() {
-        return primaryChain.stream().allMatch(LlmPool::allBlocked);
+        return primaryRegistry.availableModels().isEmpty();
     }
 
     /**
@@ -289,32 +372,39 @@ public class LlmRouter {
     }
 
     /**
-     * Tool-enabled primary call. Routes through the primary chain; the first
-     * non-blocked tool-capable pool gets the call. Falls back to a plain
-     * primary call when no pool in the chain supports tools.
+     * Tool-enabled primary call routed via {@link PrimaryModelRegistry}. Walks
+     * every available tool-eligible model (registry availability + E2 opt-in
+     * filter), dispatching each via {@link LlmPool#callWithToolsOnModel}. The
+     * first non-throwing handle wins.
      *
-     * <p>Phase 7 F5.2 — returns the pool's full {@link com.emergentterrain.llm.ToolCallResponse}
+     * <p>Phase 7 F5.2 — returns the full {@link com.emergentterrain.llm.ToolCallResponse}
      * so the caller (ResearchNarrationService) gets both the synthesis text and
      * the trace of tool invocations the LLM issued. The plain-primary fallback
      * path returns a trace-empty response.
+     *
+     * <p>Phase 9 U3b — the E2 {@code tool-calling.providers} filter migrates
+     * from pool-level (skip pools not in the list) to model-level (skip handles
+     * whose provider isn't in the list). Bit-identical when each provider has
+     * one model; cross-handle when providers carry multiple models.
      */
     public com.emergentterrain.llm.ToolCallResponse callPrimaryWithTools(
             String systemPrompt, String userPrompt,
             String toolsJson,
             Function<String, String> executor) {
+        List<ModelHandle> eligible = orderedAvailableToolEnabled();
         RuntimeException last = null;
-        for (LlmPool p : primaryChain) {
-            if (!isToolEnabled(p)) continue;
-            if (p.allBlocked()) continue;
-            try { return p.callWithTools(systemPrompt, userPrompt, toolsJson, executor); }
-            catch (RuntimeException e) {
+        for (ModelHandle h : eligible) {
+            try {
+                return h.pool().callWithToolsOnModel(
+                        h.modelId(), systemPrompt, userPrompt, toolsJson, executor);
+            } catch (RuntimeException e) {
                 last = e;
-                log.warn("LlmRouter: provider={} callWithTools failed, trying next: {}",
-                        p.providerKey(), e.getMessage());
+                log.warn("LlmRouter: handle={} callWithTools failed, trying next: {}",
+                        h.reviewerId(), e.getMessage());
             }
         }
         if (last != null) throw last;
-        // No tool-capable pool — degrade to a plain primary call. Empty trace.
+        // No eligible handle — degrade to a plain primary call. Empty trace.
         return com.emergentterrain.llm.ToolCallResponse.ofSynthesis(
                 callPrimary(systemPrompt + "\n\n" + userPrompt));
     }

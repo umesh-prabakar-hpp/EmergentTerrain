@@ -287,14 +287,22 @@ class LlmRouterChainTest {
         LlmRouter router = buildRouter("groq,nvidia", "ollama", "groq",
                 groq, nvidia, ollama);
 
-        // supportsProfessorTools considers only the opt-in pools.
+        // supportsProfessorTools considers only models in the opt-in set.
+        // Before any block: groq is available + in the opt-in set → true.
         assertThat(router.supportsProfessorTools()).isTrue();
-        // Block Groq → no tool-capable pool remains in the opt-in list, so
-        // callPrimaryWithTools falls through to the plain-primary degrade path.
+        // Phase 9 U3b — supportsProfessorTools now reflects current availability
+        // (registry-aware), not pure capability. Blocking groq leaves no
+        // available model in the opt-in filter, so supportsProfessorTools=false.
+        // This is a stricter, more useful semantic than pre-U3b's "true even
+        // when blocked" — callers (ResearchNarrationService) use this flag to
+        // decide whether to take the tools path, and "blocked" should route
+        // them to a different path immediately.
         groq.blocked = true;
-        assertThat(router.supportsProfessorTools()).isTrue();  // still in opt-in list (just blocked)
+        assertThat(router.supportsProfessorTools()).isFalse();
         router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
         // nvidia must NOT have been called with tools because it's not in the opt-in list.
+        // (The plain-primary degrade path may have called nvidia.callSync, but
+        // never nvidia.callWithTools.)
         assertThat(nvidia.toolCallCount).isEqualTo(0);
     }
 
@@ -410,6 +418,9 @@ class LlmRouterChainTest {
             bf.registerBeanDefinition(p.providerKey() + "Pool", def);
         }
         ctx.refresh();
-        return new LlmRouter(ctx, primaryOrder, fastProvider, toolProviders);
+        // Phase 9 U3b — registry is constructed alongside the router; it
+        // collects every supportsTools pool the test context registered.
+        PrimaryModelRegistry registry = new PrimaryModelRegistry(ctx);
+        return new LlmRouter(ctx, registry, primaryOrder, fastProvider, toolProviders);
     }
 }
