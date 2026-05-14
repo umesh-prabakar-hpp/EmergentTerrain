@@ -42,6 +42,14 @@ public class LlmRouter {
     /** Default provider order — first match found in the bean registry wins. */
     private static final String DEFAULT_PRIMARY_ORDER = "groq,nvidia,openrouter,cerebras";
     private static final String DEFAULT_FAST_PROVIDER = "ollama";
+    /**
+     * Phase 7 E2 — default opt-in list of providers allowed to receive tool-calling
+     * professor-stage calls. Only "groq" by default — the spec requires operator
+     * opt-in for non-Groq tool calls after the ≥3-day E1 soak demonstrates the
+     * non-Groq pools are stable. Set to {@code "*"} (or include every key) to allow
+     * the full primary chain.
+     */
+    private static final String DEFAULT_TOOL_PROVIDERS = "groq";
 
     final List<LlmPool> primaryChain;
     final LlmPool       fastPool;
@@ -49,6 +57,13 @@ public class LlmRouter {
     final LlmPool       primaryPool;
     /** Pools indexed by their {@link LlmPool#role()} tag — first-registered wins. */
     final Map<String, LlmPool> poolsByRole;
+    /**
+     * Phase 7 E2 — provider keys allowed to be called with tools. Empty set means
+     * "no restriction" (legacy behaviour, every {@code supportsTools=true} pool
+     * participates). A populated set restricts {@link #callPrimaryWithTools} to
+     * pools whose {@link LlmPool#providerKey()} is in the set.
+     */
+    final java.util.Set<String> toolProviders;
 
     public LlmRouter(ApplicationContext ctx,
                      @org.springframework.beans.factory.annotation.Value(
@@ -56,7 +71,10 @@ public class LlmRouter {
                      String primaryOrder,
                      @org.springframework.beans.factory.annotation.Value(
                              "${app.ai.fastProvider:" + DEFAULT_FAST_PROVIDER + "}")
-                     String fastProvider) {
+                     String fastProvider,
+                     @org.springframework.beans.factory.annotation.Value(
+                             "${app.ai.tool-calling.providers:" + DEFAULT_TOOL_PROVIDERS + "}")
+                     String toolProvidersCsv) {
         Map<String, LlmPool> beans = ctx.getBeansOfType(LlmPool.class);
         if (beans.isEmpty()) throw new IllegalStateException("LlmRouter: no LlmPool beans found");
 
@@ -99,12 +117,27 @@ public class LlmRouter {
         }
         this.poolsByRole = Collections.unmodifiableMap(roleMap);
 
-        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={}",
+        // Phase 7 E2 — parse the tool-calling.providers opt-in list. The literal
+        // wildcard "*" means "no restriction; every supportsTools pool participates".
+        // Empty / blank string also means no restriction so the legacy unrestricted
+        // path survives any operator-side typo.
+        java.util.Set<String> tp = new java.util.LinkedHashSet<>();
+        String trimmed = toolProvidersCsv == null ? "" : toolProvidersCsv.trim();
+        if (!trimmed.isEmpty() && !"*".equals(trimmed)) {
+            for (String key : trimmed.split(",")) {
+                String k = key.trim().toLowerCase();
+                if (!k.isEmpty()) tp.add(k);
+            }
+        }
+        this.toolProviders = Collections.unmodifiableSet(tp);
+
+        log.info("LlmRouter: primaryChain={} fast={} [{}] roles={} toolProviders={}",
                 primaryChain.stream().map(LlmPool::providerKey).toList(),
                 fastPool.providerKey(), fastPool.selectedModel(),
                 poolsByRole.entrySet().stream()
                         .map(e -> e.getKey() + "→" + e.getValue().providerKey())
-                        .toList());
+                        .toList(),
+                toolProviders.isEmpty() ? "* (all)" : toolProviders);
     }
 
     // ── Pool selection ──────────────────────────────────────────────────────
@@ -202,9 +235,25 @@ public class LlmRouter {
 
     // ── Capability + quota probes ──────────────────────────────────────────
 
-    /** True when at least one pool in the primary chain supports tool-calling. */
+    /**
+     * True when at least one pool in the primary chain supports tool-calling AND
+     * is allowed by the {@code app.ai.tool-calling.providers} opt-in filter.
+     * Phase 7 E2 — operators flip non-Groq providers into this list after the
+     * ≥3-day soak demonstrates they're stable.
+     */
     public boolean supportsProfessorTools() {
-        return primaryChain.stream().anyMatch(LlmPool::supportsTools);
+        return primaryChain.stream().anyMatch(this::isToolEnabled);
+    }
+
+    /**
+     * Phase 7 E2 — pool is eligible for tool-calling iff it supports tools AND
+     * either the opt-in set is empty (no restriction) or its providerKey is in
+     * the set.
+     */
+    private boolean isToolEnabled(LlmPool pool) {
+        if (!pool.supportsTools()) return false;
+        if (toolProviders.isEmpty()) return true;
+        return toolProviders.contains(pool.providerKey());
     }
 
     /** True when EVERY pool in the primary chain reports allBlocked. */
@@ -249,7 +298,7 @@ public class LlmRouter {
                                         Function<String, String> executor) {
         RuntimeException last = null;
         for (LlmPool p : primaryChain) {
-            if (!p.supportsTools()) continue;
+            if (!isToolEnabled(p)) continue;
             if (p.allBlocked()) continue;
             try { return p.callWithTools(systemPrompt, userPrompt, toolsJson, executor); }
             catch (RuntimeException e) {

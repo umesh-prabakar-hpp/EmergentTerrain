@@ -206,6 +206,16 @@ app:
       # for the runQualityAudit stage. Free tier is ~30 RPM per model.
       preferredModels: "qwen-3-235b-a22b-instruct-2507"
       role: "fast-audit"  # Phase 7 E1.4 — direct runQualityAudit at this pool first
+    # Phase 7 E2 — opt-in list of providers allowed to receive tool-calling professor-stage
+    # calls. Default "groq" matches the spec: non-Groq pool tool calls must be explicitly
+    # whitelisted by the operator after the ≥3-day E1 soak demonstrates they're stable
+    # (no startup errors, no quota anomalies in /tmp/et-app.log). Acceptance test: with
+    # Groq manually exhausted, a paper completes prof:nvidia:ok / prof:openrouter:ok /
+    # prof:cerebras:ok depending on which providers are in this list.
+    # Set to "*" to allow every supportsTools pool in the primary chain (legacy behaviour).
+    # To opt in after the soak: tool-calling.providers: "groq,nvidia,openrouter,cerebras"
+    tool-calling:
+      providers: "groq"
     digestCooldownMinutes: 10
     advisorCooldownSeconds: 15
     explanationCooldownMs: 2500

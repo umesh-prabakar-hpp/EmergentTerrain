@@ -274,6 +274,79 @@ class LlmRouterChainTest {
         assertThat(router.hasFastPool()).isFalse();
     }
 
+    // ── Phase 7 E2 — tool-calling.providers opt-in filter ──────────────────
+
+    @Test
+    void e2DefaultToolProvidersGroqOnlyExcludesOtherPoolsFromToolCalls() {
+        FakePool groq   = new FakePool("groq", true, false, "groq-x");
+        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-x");
+        FakePool ollama = new FakePool("ollama", false, false, "ollama-x");
+
+        // Default opt-in list is "groq" only (the spec default).
+        LlmRouter router = buildRouter("groq,nvidia", "ollama", "groq",
+                groq, nvidia, ollama);
+
+        // supportsProfessorTools considers only the opt-in pools.
+        assertThat(router.supportsProfessorTools()).isTrue();
+        // Block Groq → no tool-capable pool remains in the opt-in list, so
+        // callPrimaryWithTools falls through to the plain-primary degrade path.
+        groq.blocked = true;
+        assertThat(router.supportsProfessorTools()).isTrue();  // still in opt-in list (just blocked)
+        router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
+        // nvidia must NOT have been called with tools because it's not in the opt-in list.
+        assertThat(nvidia.toolCallCount).isEqualTo(0);
+    }
+
+    @Test
+    void e2WildcardToolProvidersAllowsEveryToolCapablePool() {
+        FakePool groq   = new FakePool("groq", true, true,  "groq-x");  // blocked
+        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-x");
+        FakePool ollama = new FakePool("ollama", false, false, "ollama-x");
+
+        LlmRouter router = buildRouter("groq,nvidia", "ollama", "*",
+                groq, nvidia, ollama);
+
+        // With "*" the filter is disabled — Groq blocked, NVIDIA picks up the tool call.
+        router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
+        assertThat(nvidia.toolCallCount).isEqualTo(1);
+    }
+
+    @Test
+    void e2ExplicitMultipleProvidersWhitelist() {
+        FakePool groq       = new FakePool("groq", true, true,  "x");  // blocked
+        FakePool nvidia     = new FakePool("nvidia", true, false, "x");
+        FakePool openrouter = new FakePool("openrouter", true, false, "x");
+        FakePool cerebras   = new FakePool("cerebras", true, false, "x");
+        FakePool ollama     = new FakePool("ollama", false, false, "x");
+
+        // Opt in groq + nvidia only; openrouter and cerebras stay excluded.
+        LlmRouter router = buildRouter(
+                "groq,nvidia,openrouter,cerebras", "ollama", "groq,nvidia",
+                groq, nvidia, openrouter, cerebras, ollama);
+
+        router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
+        // groq blocked → falls through to nvidia (in whitelist). openrouter/cerebras
+        // are skipped even though they're earlier in the chain.
+        assertThat(nvidia.toolCallCount).isEqualTo(1);
+        assertThat(openrouter.toolCallCount).isEqualTo(0);
+        assertThat(cerebras.toolCallCount).isEqualTo(0);
+    }
+
+    @Test
+    void e2EmptyToolProvidersTreatedAsWildcard() {
+        // Operator-side typo / blank → fall back to wildcard so the tool path doesn't dead-end.
+        FakePool groq   = new FakePool("groq", true, false, "x");
+        FakePool nvidia = new FakePool("nvidia", true, false, "x");
+        FakePool ollama = new FakePool("ollama", false, false, "x");
+
+        LlmRouter router = buildRouter("groq,nvidia", "ollama", "",
+                groq, nvidia, ollama);
+
+        assertThat(router.supportsProfessorTools()).isTrue();
+        router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
+        assertThat(groq.toolCallCount).isEqualTo(1);
+    }
+
     // ── Fake pool + router builder ──────────────────────────────────────────
 
     private static class FakePool implements LlmPool {
@@ -322,6 +395,11 @@ class LlmRouterChainTest {
     }
 
     private LlmRouter buildRouter(String primaryOrder, String fastProvider, FakePool... pools) {
+        return buildRouter(primaryOrder, fastProvider, "*", pools);
+    }
+
+    private LlmRouter buildRouter(String primaryOrder, String fastProvider,
+                                   String toolProviders, FakePool... pools) {
         GenericApplicationContext ctx = new GenericApplicationContext();
         DefaultListableBeanFactory bf = ctx.getDefaultListableBeanFactory();
         for (FakePool p : pools) {
@@ -330,6 +408,6 @@ class LlmRouterChainTest {
             bf.registerBeanDefinition(p.providerKey() + "Pool", def);
         }
         ctx.refresh();
-        return new LlmRouter(ctx, primaryOrder, fastProvider);
+        return new LlmRouter(ctx, primaryOrder, fastProvider, toolProviders);
     }
 }
