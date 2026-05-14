@@ -277,6 +277,8 @@ app:
       enabled: true        # Phase 5 C2 — DISPUTED papers queue reconciliation questions
     citation-aware-scoring:
       enabled: true        # Phase 5 C1 — +0.02 / −0.04 per high-quality / critique-skip citation
+    audit-physical-mechanism-rejects:
+      enabled: true        # Phase 7 G8 — SUPPORTED papers carrying audit-4b physical_mechanism gap publish as REJECTED
     # ── Phase 6 — novelty levers ──
     literature-search:
       enabled: true        # Phase 6 D1.3 — professor stage sees curated literature block

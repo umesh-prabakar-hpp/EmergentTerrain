@@ -34,7 +34,10 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                                String templateId, String templateVersion,
                                /* Phase 6 D2 — Discussion and Related-Work sections.
                                   Both nullable; null fields render no section. */
-                               String discussion, String relatedWork) {
+                               String discussion, String relatedWork,
+                               /* Phase 7 G8 — audit-4b dimension names that fired on this paper.
+                                  Empty list = audit clean / didn't run. Null treated as empty. */
+                               List<String> auditGapDimensions) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
@@ -56,6 +59,19 @@ public record NarrationResult(String hypothesis, String findings, String conclus
             double validRegionMin,
             double validRegionMax) {}
 
+    /** 14-arg backward-compatible — null auditGapDimensions. */
+    public NarrationResult(String hypothesis, String findings, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations,
+                           List<ExtractedFinding> formalFindings,
+                           String templateId, String templateVersion,
+                           String discussion, String relatedWork) {
+        this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
+                citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, null);
+    }
+
     /** 12-arg backward-compatible — null Discussion / Related-Work fields. */
     public NarrationResult(String hypothesis, String findings, String conclusion,
                            FollowUpParams followUp, String aiModel,
@@ -65,7 +81,7 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                            String templateId, String templateVersion) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
                 citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, null, null);
+                templateId, templateVersion, null, null, null);
     }
 
     /** 10-arg backward-compatible — null template provenance + null Discussion/Related-Work. */
@@ -75,7 +91,7 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                            String callPath, List<TypedCitation> typedCitations,
                            List<ExtractedFinding> formalFindings) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, typedCitations, formalFindings, null, null, null, null);
+                citedPaperIds, callPath, typedCitations, formalFindings, null, null, null, null, null);
     }
 
     /** 9-arg backward-compatible constructor — empty formalFindings, null template provenance. */
@@ -84,7 +100,7 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                            double confidenceScore, List<String> citedPaperIds,
                            String callPath, List<TypedCitation> typedCitations) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, typedCitations, List.of(), null, null, null, null);
+                citedPaperIds, callPath, typedCitations, List.of(), null, null, null, null, null);
     }
 
     /** 8-arg backward-compatible — empty typed citations, empty findings, null template provenance. */
@@ -93,7 +109,7 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                            double confidenceScore, List<String> citedPaperIds,
                            String callPath) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, callPath, List.of(), List.of(), null, null, null, null);
+                citedPaperIds, callPath, List.of(), List.of(), null, null, null, null, null);
     }
 
     /** 7-arg backward-compatible — null callPath, empty extras, null template provenance. */
@@ -101,20 +117,27 @@ public record NarrationResult(String hypothesis, String findings, String conclus
                            FollowUpParams followUp, String aiModel,
                            double confidenceScore, List<String> citedPaperIds) {
         this(hypothesis, findings, conclusion, followUp, aiModel, confidenceScore,
-                citedPaperIds, null, List.of(), List.of(), null, null, null, null);
+                citedPaperIds, null, List.of(), List.of(), null, null, null, null, null);
     }
 
     /** Return a copy of this result with template provenance stamped on. */
     public NarrationResult withTemplateProvenance(String templateId, String templateVersion) {
         return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, discussion, relatedWork);
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
     public NarrationResult withDiscussionAndRelatedWork(String discussion, String relatedWork) {
         return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, discussion, relatedWork);
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
+    }
+
+    /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
+    public NarrationResult withAuditGapDimensions(List<String> auditGapDimensions) {
+        return new NarrationResult(hypothesis, findings, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
     }
 }

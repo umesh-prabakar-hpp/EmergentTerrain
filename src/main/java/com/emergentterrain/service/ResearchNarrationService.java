@@ -213,7 +213,8 @@ public class ResearchNarrationService {
         }
 
         NarrationResult firstPass = parseNarrationResult(response.toString());
-        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass, callPath);
+        List<String> auditGapDimensions = new java.util.ArrayList<>();
+        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass, callPath, auditGapDimensions);
 
         String pathStr = String.join(" → ", callPath);
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
@@ -228,7 +229,9 @@ public class ResearchNarrationService {
                 finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
                 finalResult.typedCitations(), finalResult.formalFindings(),
                 com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
-                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_VERSION);
+                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_VERSION,
+                finalResult.discussion(), finalResult.relatedWork(),
+                List.copyOf(auditGapDimensions));
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -251,7 +254,7 @@ public class ResearchNarrationService {
      * Falls back to firstPass on any failure.
      */
     private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass,
-                                                    List<String> callPath) {
+                                                    List<String> callPath, List<String> auditGapDimensions) {
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
             // G1 — fill null h/f/c fields from the draft's template fallbacks
             // (designed as the "LLM-failure" fallback per PaperDraft javadoc)
@@ -271,7 +274,7 @@ public class ResearchNarrationService {
             firstPass = merged;
         }
         return router.supportsProfessorTools()
-                ? maybeCritiqueAndReviseWithTools(draft, firstPass, callPath)
+                ? maybeCritiqueAndReviseWithTools(draft, firstPass, callPath, auditGapDimensions)
                 : maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
     }
 
@@ -303,10 +306,11 @@ public class ResearchNarrationService {
 
     /** Tool-calling professor path: audit → professor (tool-calling) → student revision. */
     private NarrationResult maybeCritiqueAndReviseWithTools(PaperDraft draft, NarrationResult firstPass,
-                                                             List<String> callPath) {
+                                                             List<String> callPath,
+                                                             List<String> auditGapDimensions) {
         try {
             // Phase 1 — Quality audit (fast Ollama): identify gaps before professor is invoked
-            String auditSummary = runQualityAudit(draft, firstPass, callPath);
+            String auditSummary = runQualityAudit(draft, firstPass, callPath, auditGapDimensions);
 
             // Pre-emptive gate check before the heaviest call in the pipeline:
             // professor tools can spend 5+ rounds × toolMaxTokens. Fall back to
@@ -573,7 +577,7 @@ public class ResearchNarrationService {
     // ── Quality audit (Cerebras when available, else fast Ollama) ────────────
 
     private String runQualityAudit(PaperDraft draft, NarrationResult firstPass,
-                                    List<String> callPath) {
+                                    List<String> callPath, List<String> auditGapDimensions) {
         try {
             long t = System.currentTimeMillis();
             // Phase 7 E1.6 — direct audit at the "fast-audit" role pool (Cerebras WSE-3
@@ -594,6 +598,10 @@ public class ResearchNarrationService {
             callPath.add("audit:4b:" + gaps.size() + "gaps=[" + pathEntry + "]");
             log.info("LLM quality audit paperId={} ms={} gaps={}", draft.paperId(),
                     System.currentTimeMillis() - t, gaps.size());
+            // Phase 7 G8 — accumulate unique dimension names for the publish-path validator.
+            for (AuditGap g : gaps) {
+                if (!auditGapDimensions.contains(g.dimension())) auditGapDimensions.add(g.dimension());
+            }
             return gaps.stream()
                     .map(g -> "- [" + g.severity().toUpperCase() + "] " + g.dimension() + ": " + g.description())
                     .collect(java.util.stream.Collectors.joining("\n"));
