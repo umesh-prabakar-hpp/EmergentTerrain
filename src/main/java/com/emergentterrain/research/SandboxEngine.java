@@ -67,6 +67,24 @@ public class SandboxEngine {
      */
     static final Map<String, Method> MATH_METHODS = discoverMathMethods();
 
+    /**
+     * Phase 8 Pattern C — bridge builtins that delegate to {@link SymbolicEngine}.
+     * The sandbox parses these calls into normal {@code Expr.Call} nodes; the
+     * interpreter intercepts them before the regular {@code Math.*} / special
+     * dispatch and walks the (unevaluated) argument AST into a Symja expression
+     * string. Symja's evaluation produces the numeric answer that the sandbox
+     * call returns.
+     *
+     * <p>Signatures:
+     * <ul>
+     *   <li>{@code integrate(expr, var, lo, hi)} — definite integral; numeric.</li>
+     *   <li>{@code differentiate(expr, var, at)} — d/dvar[expr] evaluated at point.</li>
+     *   <li>{@code simplify(expr)} — must reduce to a numeric; else error.</li>
+     * </ul>
+     */
+    static final Set<String> BRIDGE_BUILTINS = Set.of(
+            "integrate", "differentiate", "simplify");
+
     static final Set<String> BUILTINS = buildBuiltinsUnion();
 
     private static Map<String, Method> discoverMathMethods() {
@@ -94,6 +112,7 @@ public class SandboxEngine {
     private static Set<String> buildBuiltinsUnion() {
         Set<String> all = new HashSet<>(SPECIAL_BUILTINS);
         all.addAll(MATH_METHODS.keySet());
+        all.addAll(BRIDGE_BUILTINS);
         return Set.copyOf(all);
     }
 
@@ -553,6 +572,17 @@ public class SandboxEngine {
             return 0.0;
         }
 
+        /** Like {@link #readVar} but returns {@code null} when no scope owns the name.
+         *  Used by Pattern C bridges to distinguish "declared, equal to 0" from
+         *  "never declared, treat as a free Symja symbol or reject". */
+        Double tryReadVar(String name) {
+            for (Map<String, Double> scope : scopes) {
+                Double v = scope.get(name);
+                if (v != null) return v;
+            }
+            return null;
+        }
+
         /**
          * Assign to an existing binding (walking inner→outer); if no scope owns
          * the name, create it in the current (top) frame. Matches JavaScript
@@ -675,6 +705,13 @@ public class SandboxEngine {
             Stmt.FuncDef userFn = userFunctions.get(name);
             if (userFn != null) return invokeUserFunction(userFn, rawArgs);
 
+            // Phase 8 Pattern C — bridge builtins consume their argument
+            // expressions as ASTs (unevaluated) and translate them into Symja.
+            // Must run BEFORE the double[]-args path below, because the
+            // expressions inside `integrate(sin(n)**2, n, 0, PI)` are symbolic,
+            // not numeric.
+            if (BRIDGE_BUILTINS.contains(name)) return evalBridgeBuiltin(name, rawArgs);
+
             if (!BUILTINS.contains(name)) throw new RuntimeException("Unknown function: " + name);
             double[] a = rawArgs.stream().mapToDouble(this::eval).toArray();
 
@@ -784,6 +821,196 @@ public class SandboxEngine {
             a = Math.abs(a); b = Math.abs(b);
             while (b != 0) { long t = b; b = a % b; a = t; }
             return a;
+        }
+
+        // ── Phase 8 Pattern C — Symja bridges ────────────────────────────────
+
+        /**
+         * Bridge dispatch. The arg list arrives as raw {@link Expr} subtrees
+         * (not evaluated to doubles) so the AST can be translated to Symja
+         * with the integration variable preserved as a Symja symbol.
+         *
+         * <p>{@link SymbolicEngine#evaluate(String)} handles wall-clock and
+         * iteration caps internally — the bridge inherits both. The Symja
+         * result is coerced to a double via the same {@code numericApprox}
+         * path used by {@code run_symbolic}; symbolic-only results raise.
+         */
+        double evalBridgeBuiltin(String name, List<Expr> rawArgs) {
+            return switch (name) {
+                case "integrate" -> {
+                    if (rawArgs.size() != 4) {
+                        throw new RuntimeException(
+                                "integrate expects 4 args (expr, var, lo, hi), got " + rawArgs.size());
+                    }
+                    String var = requireBareVar(rawArgs.get(1), "integrate");
+                    Set<String> bound = Set.of(var);
+                    String exprStr = toSymja(rawArgs.get(0), bound, false);
+                    String loStr   = toSymja(rawArgs.get(2), bound, false);
+                    String hiStr   = toSymja(rawArgs.get(3), bound, false);
+                    yield invokeBridge(name,
+                            "N[Integrate[" + exprStr + ", {" + var + ", " + loStr + ", " + hiStr + "}]]");
+                }
+                case "differentiate" -> {
+                    if (rawArgs.size() != 3) {
+                        throw new RuntimeException(
+                                "differentiate expects 3 args (expr, var, at), got " + rawArgs.size());
+                    }
+                    String var = requireBareVar(rawArgs.get(1), "differentiate");
+                    Set<String> bound = Set.of(var);
+                    String exprStr = toSymja(rawArgs.get(0), bound, false);
+                    String atStr   = toSymja(rawArgs.get(2), bound, false);
+                    yield invokeBridge(name,
+                            "N[D[" + exprStr + ", " + var + "] /. " + var + " -> (" + atStr + ")]");
+                }
+                case "simplify" -> {
+                    if (rawArgs.size() != 1) {
+                        throw new RuntimeException(
+                                "simplify expects 1 arg (expr), got " + rawArgs.size());
+                    }
+                    // simplify accepts free symbolic variables — that's the use case
+                    // (verifying identities like sin(x)^2 + cos(x)^2 → 1). If Symja
+                    // can't reduce the expression to a finite number, invokeBridge
+                    // surfaces a "simplify produced a non-numeric result" error.
+                    String exprStr = toSymja(rawArgs.get(0), Set.of(), true);
+                    yield invokeBridge(name, "N[Simplify[" + exprStr + "]]");
+                }
+                default -> throw new RuntimeException("Unimplemented bridge: " + name);
+            };
+        }
+
+        private double invokeBridge(String bridgeName, String symjaExpression) {
+            SymbolicEngine.SymbolicResult r;
+            try {
+                r = SymbolicEngine.evaluate(symjaExpression);
+            } catch (RuntimeException ex) {
+                throw new RuntimeException(
+                        bridgeName + " bridge failed: " + ex.getMessage(), ex);
+            }
+            if (r.numericApprox() == null) {
+                throw new RuntimeException(
+                        bridgeName + " produced a non-numeric result (" + r.output()
+                                + "). Bridge builtins must coerce to a finite number; "
+                                + "use run_symbolic directly for symbolic outputs.");
+            }
+            return r.numericApprox();
+        }
+
+        private static String requireBareVar(Expr e, String fnName) {
+            if (e instanceof Expr.Var v) return v.name();
+            throw new RuntimeException(
+                    fnName + ": variable argument must be a bare identifier (e.g. `x`), "
+                            + "got " + e.getClass().getSimpleName());
+        }
+
+        /**
+         * Translate a sandbox AST subtree to a Symja expression string. The
+         * caller passes:
+         * <ul>
+         *   <li>{@code boundVars} — names treated verbatim as Symja symbols
+         *       (the integration / differentiation variable, set per bridge).</li>
+         *   <li>{@code allowFreeSymbols} — when true, any name not in the
+         *       scope stack passes through as a Symja symbol (used by
+         *       {@code simplify} so identities like
+         *       {@code sin(x)^2 + cos(x)^2} → 1 work without declaring x).
+         *       When false, unknown names are rejected.</li>
+         * </ul>
+         *
+         * <p>Names that ARE in the scope stack get their numeric value
+         * substituted regardless — so sandbox-side {@code WIEN_B} or a local
+         * {@code lo} variable becomes a literal in the Symja expression.
+         */
+        String toSymja(Expr e, Set<String> boundVars, boolean allowFreeSymbols) {
+            return switch (e) {
+                case Expr.Num n  -> formatSymjaNum(n.v());
+                case Expr.Bool b -> b.v() ? "True" : "False";
+                case Expr.Var v -> {
+                    if (boundVars.contains(v.name())) yield v.name();
+                    Double scopeVal = tryReadVar(v.name());
+                    if (scopeVal != null) yield formatSymjaNum(scopeVal);
+                    if (allowFreeSymbols) yield v.name();
+                    throw new RuntimeException(
+                            "Bridge expression references unbound variable '" + v.name()
+                                    + "'. Either pass it as the bound variable arg "
+                                    + "(e.g. integrate(_, " + v.name() + ", _, _)) or "
+                                    + "declare it with `var` before the call so its "
+                                    + "numeric value is substituted.");
+                }
+                case Expr.UnOp u -> "(-" + toSymja(u.e(), boundVars, allowFreeSymbols) + ")";
+                case Expr.BinOp b -> {
+                    String ls = toSymja(b.l(), boundVars, allowFreeSymbols);
+                    String rs = toSymja(b.r(), boundVars, allowFreeSymbols);
+                    yield switch (b.op()) {
+                        case "+"  -> "(" + ls + " + " + rs + ")";
+                        case "-"  -> "(" + ls + " - " + rs + ")";
+                        case "*"  -> "(" + ls + " * " + rs + ")";
+                        case "/"  -> "(" + ls + " / " + rs + ")";
+                        case "**" -> "Power[" + ls + ", " + rs + "]";
+                        case "%"  -> "Mod["   + ls + ", " + rs + "]";
+                        default -> throw new RuntimeException(
+                                "Operator '" + b.op() + "' not supported in bridge expressions");
+                    };
+                }
+                case Expr.Call c -> {
+                    if (BRIDGE_BUILTINS.contains(c.name())) {
+                        throw new RuntimeException(
+                                "Cannot nest bridge call '" + c.name() + "' inside another bridge");
+                    }
+                    // hypot has no Symja head; expand inline as Sqrt[a^2 + b^2].
+                    if ("hypot".equals(c.name())) {
+                        if (c.args().size() != 2) {
+                            throw new RuntimeException("hypot expects 2 args");
+                        }
+                        String ha = toSymja(c.args().get(0), boundVars, allowFreeSymbols);
+                        String hb = toSymja(c.args().get(1), boundVars, allowFreeSymbols);
+                        yield "Sqrt[Power[" + ha + ", 2] + Power[" + hb + ", 2]]";
+                    }
+                    String head = symjaHead(c.name());
+                    if (head == null) {
+                        throw new RuntimeException(
+                                "Bridge expression cannot use function '" + c.name()
+                                        + "'. Allowed: sqrt, cbrt, exp, log, log2, log10, "
+                                        + "sin, cos, tan, asin, acos, atan, atan2, "
+                                        + "sinh, cosh, tanh, abs, floor, ceil, pow, hypot, min, max.");
+                    }
+                    StringBuilder sb = new StringBuilder(head).append('[');
+                    for (int i = 0; i < c.args().size(); i++) {
+                        if (i > 0) sb.append(", ");
+                        sb.append(toSymja(c.args().get(i), boundVars, allowFreeSymbols));
+                    }
+                    sb.append(']');
+                    yield sb.toString();
+                }
+                default -> throw new RuntimeException(
+                        "Bridge expression cannot contain " + e.getClass().getSimpleName());
+            };
+        }
+
+        private static String symjaHead(String sandboxFnName) {
+            return switch (sandboxFnName) {
+                case "sqrt"  -> "Sqrt";
+                case "cbrt"  -> "Surd";   // Surd[x, 3] is the real cube root.
+                case "exp"   -> "Exp";
+                case "log"   -> "Log";
+                case "log2"  -> "Log2";
+                case "log10" -> "Log10";
+                case "sin"   -> "Sin";   case "cos"  -> "Cos";   case "tan"  -> "Tan";
+                case "asin"  -> "ArcSin"; case "acos" -> "ArcCos"; case "atan" -> "ArcTan";
+                case "atan2" -> "ArcTan";   // ArcTan[x, y] is the two-arg form.
+                case "sinh"  -> "Sinh";  case "cosh" -> "Cosh";  case "tanh" -> "Tanh";
+                case "abs"   -> "Abs";   case "floor" -> "Floor"; case "ceil" -> "Ceiling";
+                case "pow"   -> "Power";
+                case "min"   -> "Min";   case "max"  -> "Max";
+                // hypot is handled inline in toSymja (Symja has no Hypot head).
+                default -> null;
+            };
+        }
+
+        private static String formatSymjaNum(double v) {
+            if (v == Math.floor(v) && !Double.isInfinite(v)
+                    && Math.abs(v) < 1e15 && !Double.isNaN(v)) {
+                return Long.toString((long) v);
+            }
+            return Double.toString(v);
         }
     }
 }
