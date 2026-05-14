@@ -14,9 +14,9 @@ pub mod gpu {
 
 use gpu::gpu_terrain_service_server::{GpuTerrainService, GpuTerrainServiceServer};
 use gpu::{
-    BoolGrid, BotState, GenerateRegionRequest, GenerateRegionResponse, RebuildPatchRequest,
-    RebuildPatchResponse, SimulateBotsRequest, SimulateBotsResponse, TileEdit, TileEncoding,
-    TileGrid,
+    BoolGrid, BotState, EvalExprRequest, EvalExprResponse, GenerateRegionRequest,
+    GenerateRegionResponse, RebuildPatchRequest, RebuildPatchResponse, SimulateBotsRequest,
+    SimulateBotsResponse, TileEdit, TileEncoding, TileGrid,
 };
 
 const WORLD_SHADER: &str = r#"
@@ -697,6 +697,19 @@ impl GpuTerrainService for GpuEngineService {
             edits: Vec::new(),
             debug_json: simulated.debug_json,
         }))
+    }
+
+    // Phase 8 Tier 4 — P4.1 placeholder. The full implementation arrives in
+    // P4.2 (formula parser → WGSL codegen → wgpu dispatch → aggregate). For
+    // now we return Unimplemented so the contract lands and Java callers can
+    // generate stubs against the same proto, but no GPU work is performed.
+    async fn eval_expr(&self, request: Request<EvalExprRequest>) -> Result<Response<EvalExprResponse>, Status> {
+        let req = request.into_inner();
+        println!("eval_expr stub request_id={} formula=\"{}\" range=[{},{})",
+                 req.request_id, req.formula, req.start, req.end);
+        Err(Status::unimplemented(
+            "EvalExpr is not yet implemented (Phase 8 P4.1 contract only; \
+             real evaluator lands in P4.2)"))
     }
 }
 
