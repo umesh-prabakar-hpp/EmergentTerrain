@@ -300,6 +300,19 @@ app:
     # validator is on. Fixable in revision (not REJECTED).
     topic-specific-findings-validator:
       enabled: true
+    # Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
+    # in the findings section, keyed by 1-based computation index. The per-block
+    # truncation guard then fails NEEDS_REVISION if any block ends mid-sentence,
+    # so a truncated block 2 doesn't poison block 1. Default OFF so the rollout
+    # is gated by a flag flip; when off, max-computations is force-clamped to 1
+    # and the entire pipeline is bit-identical to F1-baseline.
+    structured-findings:
+      enabled: false
+    # Phase 7 F2 — number of independent computation prose blocks the narrator
+    # produces (NOT the number of MathPhysicsEngine compute() calls, which is
+    # still driven by the refinement loop). Clamped to 1 when
+    # structured-findings.enabled=false. F4 will bump 2 → 3 → N after F2 soaks.
+    max-computations: 2
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

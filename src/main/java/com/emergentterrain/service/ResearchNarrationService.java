@@ -64,6 +64,14 @@ public class ResearchNarrationService {
      *  the primary tools path and the primary JSON path are unavailable. */
     private final boolean ollamaFallbackEnabled;
 
+    /** Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
+     *  in the findings section. Off → behaviour bit-identical to F1-baseline. */
+    private final boolean structuredFindingsEnabled;
+
+    /** Phase 7 F2 — number of independent computation prose blocks the narrator emits.
+     *  Force-clamped to 1 when structuredFindingsEnabled is false. */
+    private final int maxComputations;
+
     /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
@@ -87,20 +95,32 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
             boolean discussionSectionEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.ollama-fallback.enabled:true}")
-            boolean ollamaFallbackEnabled) {
-        this.router                   = router;
-        this.toolSuite                = new MathToolSuite(router, objectMapper);
-        this.objectMapper             = objectMapper;
-        this.promptRegistry           = promptRegistry;
-        this.literatureSearch         = literatureSearch;
-        this.literatureSearchEnabled  = literatureSearchEnabled;
-        this.discussionSectionEnabled = discussionSectionEnabled;
-        this.ollamaFallbackEnabled    = ollamaFallbackEnabled;
-        this.narrationSlot            = new Semaphore(router.primaryPoolSize());
+            boolean ollamaFallbackEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.structured-findings.enabled:false}")
+            boolean structuredFindingsEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.max-computations:2}")
+            int maxComputationsCfg) {
+        this.router                    = router;
+        this.toolSuite                 = new MathToolSuite(router, objectMapper);
+        this.objectMapper              = objectMapper;
+        this.promptRegistry            = promptRegistry;
+        this.literatureSearch          = literatureSearch;
+        this.literatureSearchEnabled   = literatureSearchEnabled;
+        this.discussionSectionEnabled  = discussionSectionEnabled;
+        this.ollamaFallbackEnabled     = ollamaFallbackEnabled;
+        this.structuredFindingsEnabled = structuredFindingsEnabled;
+        // Phase 7 F2 — flag-off path force-clamps maxComputations to 1 so the
+        // entire pipeline (parser, prompt, truncation guard, validators, markdown)
+        // stays bit-identical to the F1-baseline single-block behaviour.
+        this.maxComputations           = structuredFindingsEnabled
+                ? Math.max(1, maxComputationsCfg)
+                : 1;
+        this.narrationSlot             = new Semaphore(router.primaryPoolSize());
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
-                + "discussionSectionEnabled={} ollamaFallbackEnabled={}",
+                + "discussionSectionEnabled={} ollamaFallbackEnabled={} "
+                + "structuredFindingsEnabled={} maxComputations={} (cfg={})",
                 narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled,
-                ollamaFallbackEnabled);
+                ollamaFallbackEnabled, structuredFindingsEnabled, maxComputations, maxComputationsCfg);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
