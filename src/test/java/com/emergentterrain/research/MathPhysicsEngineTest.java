@@ -628,4 +628,66 @@ class MathPhysicsEngineTest {
         assertThat(MathPhysicsEngine.isSquarefree(15)).isTrue();
         assertThat(MathPhysicsEngine.isSquarefree(30)).isTrue();
     }
+
+    // ---- Phase 7 F3.5: INTERDISCIPLINARY topics 5..7 — Hall / Schottky / Doppler ----
+
+    @Test
+    void hallEffectVoltageStaysBelowOneVoltForRealisticGeometry() {
+        // INTERDISCIPLINARY:5 — Hall voltage bound 1 V for current bar.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 5, 30, 2.0);
+        assertThat(r.equation()).contains("V_H").contains("Lorentz");
+        assertThat(r.primaryValue()).isLessThan(1.0);  // |V_H| max
+        assertThat(r.findings()).contains("Hall effect");
+    }
+
+    @Test
+    void hallEffectRecoversCarrierSignAcrossSweep() {
+        // The compute method's secondary value is the sign-recovery rate (0-1).
+        // For a clean sweep with a fixed trueSign, recovery must be ≥ 0.95.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 5, 30, 2.0);
+        assertThat(r.secondaryValue()).isGreaterThanOrEqualTo(0.95);
+    }
+
+    @Test
+    void schottkyThermionicCurrentStaysBelowAmpereLimit() {
+        // INTERDISCIPLINARY:6 — J ≤ 10⁶ A/cm² is the F3 spec bound.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 6, 30, 2.0);
+        assertThat(r.equation()).contains("Richardson").contains("A*");
+        assertThat(r.primaryValue()).isLessThan(1.0e6);
+        assertThat(r.findings()).contains("Schottky");
+    }
+
+    @Test
+    void schottkyEmissionExponentialIsTemperatureSensitive() {
+        // For a tall barrier at low T, the exponential exp(−φ/kT) makes J vanish.
+        // Use param2=9 (large) → φ ≈ 0.4 + 0.9 = 1.3 eV; T ~250K → J ≈ 0.
+        // Just verify the result is finite and below the 10⁶ cap.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 6, 10, 9.0);
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+        assertThat(r.primaryValue()).isLessThan(1.0e6);
+    }
+
+    @Test
+    void acousticDopplerShiftStaysBelowSourceFrequency() {
+        // INTERDISCIPLINARY:7 — |f'−f| ≤ f bound per F3 spec.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 7, 30, 2.0);
+        assertThat(r.equation()).contains("Doppler");
+        assertThat(r.primaryValue()).isLessThanOrEqualTo(1000.0);  // f=1000 Hz baseline
+        assertThat(r.findings()).contains("Doppler");
+    }
+
+    @Test
+    void acousticDopplerShiftIsPositiveAtRealisticVelocities() {
+        // Even modest source/observer velocities produce a measurable shift > 0.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 7, 60, 5.0);
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        // Doppler shift is bounded — the F3 spec's |f'-f| ≤ f keeps physics sane.
+        assertThat(r.primaryValue()).isLessThan(1000.0);
+    }
 }

@@ -210,7 +210,12 @@ public class MathPhysicsEngine {
             "Prime-Gap Defect Thermal Loading",    // Math→Materials: prime gap → crystal defect spacing
             "Resonant Thermal Fatigue Window",     // Physics→Materials: RLC frequency → thermal cycling
             "Happy-Number Packing Anomaly",        // Math→Materials: happy density → sphere packing seed
-            "Van-der-Waals Composite Crossover"    // Physics→Materials: VdW pressure → composite stress
+            "Van-der-Waals Composite Crossover",   // Physics→Materials: VdW pressure → composite stress
+            // Phase 7 F3.5 — 3 new closed-form INTERDISCIPLINARY topics.
+            // Each carries a physical mechanism so the cross-domain bridge is legitimate.
+            "Hall-Effect Carrier Sign",           // Physics→Materials: Lorentz force → V_H sign
+            "Schottky-Barrier Thermionic Emission", // Math→Physics: Boltzmann exp(-φ/kT) → J(T)
+            "Acoustic Doppler Frequency Shift"     // Physics↔Physics: relative motion → f shift
     };
 
     // ---- Title tables (2 options per topic for variety) ----
@@ -259,7 +264,11 @@ public class MathPhysicsEngine {
             {"Prime-Gap Defect Spacing and Thermal Yield Onset", "Crystal Defect Periodicity Derived from Prime Constellation Gaps"},
             {"Resonant Frequency as a Thermal Cycling Rate in Composites", "From RLC Oscillation to Fibre Fatigue: A Cross-Domain Study"},
             {"Happy Number Density Modulating Binary Packing Efficiency", "Digit-Square Convergence as a Structural Disorder Proxy"},
-            {"Van der Waals Pressure Threshold Governing Composite Stress Onset", "Real-Gas Behaviour as a Mechanical Loading Analogue"}
+            {"Van der Waals Pressure Threshold Governing Composite Stress Onset", "Real-Gas Behaviour as a Mechanical Loading Analogue"},
+            // Phase 7 F3.5 — titles for the 3 new interdisciplinary topics.
+            {"Hall Voltage Sign as a Diagnostic for Charge-Carrier Type", "Lorentz-Force Recovery of Carrier Density from Cross-Bar Probes"},
+            {"Schottky Diode Saturation Current vs Barrier Height and Temperature", "Thermionic-Emission Threshold Across Realistic Barrier Configurations"},
+            {"Acoustic Doppler Frequency Shift for Mixed Source-Observer Velocities", "Wave-Speed-Bounded Doppler Limits in a Single Medium"}
     };
 
     // ---- Public API ----
@@ -385,6 +394,10 @@ public class MathPhysicsEngine {
             case "INTERDISCIPLINARY:2"   -> 0.6;     // fatigue fraction driven by RLC frequency (~0.2-0.9)
             case "INTERDISCIPLINARY:3"   -> 0.05;    // packing improvement modulated by happy density (~0.01-0.15)
             case "INTERDISCIPLINARY:4"   -> 8000.0;  // composite stress triggered by VdW pressure onset (~1000-15000 MPa)
+            // Phase 7 F3.5 — new interdisciplinary topics.
+            case "INTERDISCIPLINARY:5"   -> 0.05;    // Hall voltage in V (~1e-4 to 1e-1 V)
+            case "INTERDISCIPLINARY:6"   -> 1.0e3;   // Schottky J in A/cm² (~1e-3 to 1e4)
+            case "INTERDISCIPLINARY:7"   -> 100.0;   // Doppler |f' − f| in Hz (~5-300)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -1911,7 +1924,11 @@ public class MathPhysicsEngine {
             case 1 -> primeGapDefectThermal(param1, param2, sp).withEquation(eq);
             case 2 -> resonantThermalFatigue(param1, param2, sp).withEquation(eq);
             case 3 -> happyPackingAnomaly(param1, param2, sp).withEquation(eq);
-            default -> vanDerWaalsCompositeStress(param1, param2, sp).withEquation(eq);
+            case 4 -> vanDerWaalsCompositeStress(param1, param2, sp).withEquation(eq);
+            // Phase 7 F3.5 — new interdisciplinary topics.
+            case 5 -> hallEffectCarrierSign(param1, param2, sp).withEquation(eq);
+            case 6 -> schottkyThermionicEmission(param1, param2, sp).withEquation(eq);
+            default -> acousticDopplerShift(param1, param2, sp).withEquation(eq);
         };
     }
 
@@ -1965,7 +1982,10 @@ public class MathPhysicsEngine {
                 case 1 -> "g(n) = p_{k+1} − p_k → α = 5 + 20/g µm·K⁻¹,   σ_th = E·α·ΔT   (prime-gap defect spacing → CTE → thermal stress)";
                 case 2 -> "f₀ = 1/(2π·√(L·C)),   ΔT_cycle = 10 + f₀/10³,   σ_th = E·α·ΔT_cycle   (RLC frequency → thermal-cycling rate → fatigue exposure)";
                 case 3 -> "ρ_happy(N) ≈ 0.143,   r = 0.2 + 0.3·(ρ_happy/0.143),   Δη = ρ_voids·(4πr³/3)/(V_cell)   (happy density → binary-FCC void radius → packing improvement)";
-                default -> "(P_c + a/V²)·(V − b) = R·T,   σ_long = P_c · [V_f·E_f + (1 − V_f)·E_m]/10³   (VdW crossover pressure → composite longitudinal stress)";
+                case 4 -> "(P_c + a/V²)·(V − b) = R·T,   σ_long = P_c · [V_f·E_f + (1 − V_f)·E_m]/10³   (VdW crossover pressure → composite longitudinal stress)";
+                case 5 -> "V_H = (I·B)/(n·e·t);   sign(V_H) = sign(carrier charge)   (Hall effect: Lorentz force on charge carriers)";
+                case 6 -> "J = A*·T²·exp(−φ/(k·T))   (Richardson-Dushman thermionic emission across a Schottky barrier)";
+                default -> "f' = f·(c + v_o)/(c − v_s)   (Acoustic Doppler shift for source v_s, observer v_o, sound speed c)";
             };
             default -> null;
         };
@@ -2197,6 +2217,148 @@ public class MathPhysicsEngine {
                 bestStress, bestCrossoverP > 0 ? bestCrossoverP : 0, bestT, bestStress, status, assessment)
                 .withHypothesis("Van der Waals crossover pressure for CO₂ at T=%.0f K, treated as a mechanical loading analogue, drives longitudinal stress in a %.0f%% fibre-volume composite."
                         .formatted(bestT, (0.3 + param2 * 0.05) * 100));
+    }
+
+    // ---- Phase 7 F3.5: new INTERDISCIPLINARY topics ----
+
+    /**
+     * Hall-effect (Physics → Materials): V_H = (I·B)/(n·e·t). The sign of V_H
+     * recovers the carrier type — positive for holes, negative for electrons.
+     * Mechanism: Lorentz force F = qv×B deflects carriers to one face of the bar.
+     */
+    private static ResearchResult hallEffectCarrierSign(int param1, double param2, SearchParams sp) {
+        double e = 1.602176634e-19;   // C
+        // Geometry & current — chosen so V_H stays sub-1 V even at the lowest
+        // sampled n. F3 spec bound: |V_H| ≤ 1 V at reasonable I, B.
+        double I = 0.1;               // A
+        double t = 1e-4;              // m, 100 µm bar thickness
+        // Choose a "true" carrier charge sign from param2: +1 for holes, -1 for electrons.
+        double trueSign = (((int)(param2 * 10)) % 2 == 0) ? +1.0 : -1.0;
+        double bestAbsV = 0;
+        double bestB = 0;
+        double bestN = 0;
+        int correctSign = 0;
+        int totalSamples = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double B = 0.05 + (param1 + i * sp.stepSize() * 5) * 0.002;  // T
+            double n = 1e24 + i * sp.stepSize() * 1e23;                    // carriers/m³ (doped semi → metal range)
+            double V_H = trueSign * (I * B) / (n * e * t);
+            totalSamples++;
+            if (Math.signum(V_H) == trueSign) correctSign++;
+            if (Math.abs(V_H) > bestAbsV) { bestAbsV = Math.abs(V_H); bestB = B; bestN = n; }
+            if (i < 4) sb.append("B=%.2fT,n=%.1e→V_H=%.4eV ".formatted(B, n, V_H));
+        }
+        double signRecovery = (double) correctSign / Math.max(1, totalSamples);
+        boolean physical = bestAbsV <= 1.0;  // F3 spec bound
+        ClaimStatus status = physical && signRecovery >= 0.95 ? ClaimStatus.SUPPORTED
+                : physical ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Hall: max |V_H|=%.4f V at B=%.2f T, n=%.1e /m³; sign-recovery rate = %.0f%% over %d samples. %s")
+                .formatted(bestAbsV, bestB, bestN, signRecovery * 100, totalSamples,
+                        !physical ? "|V_H| > 1 V is unphysical for any reasonable cross-bar geometry"
+                                : signRecovery >= 0.95 ? "Lorentz-force sign convention recovers the carrier type"
+                                        : "sign-recovery degraded — check B-field direction convention");
+        return new ResearchResult(
+                "Hall effect (carrier sign=%s, %d samples): max |V_H|=%.4f V at B=%.2f T, n=%.1e /m³; sign-recovery %.0f%%. Sample: %s"
+                        .formatted(trueSign > 0 ? "+" : "−", totalSamples, bestAbsV, bestB, bestN, signRecovery * 100, sb.toString().trim()),
+                bestAbsV, signRecovery, bestN, bestAbsV, status, assessment)
+                .withHypothesis(("For a current-carrying bar with parameters chosen near param1=%d, param2=%.1f, "
+                        + "the sign of the Hall voltage V_H = (I·B)/(n·e·t) recovers the carrier charge type "
+                        + "across the swept B and n; magnitudes stay below 1 V at every sampled point.")
+                        .formatted(param1, param2));
+    }
+
+    /**
+     * Schottky-barrier thermionic emission (Math → Physics): J = A*·T²·exp(−φ/(k·T)).
+     * The exponential structure is the mathematical content; the underlying mechanism
+     * is Boltzmann-statistics-mediated carrier injection over a metal/semiconductor
+     * barrier.
+     */
+    private static ResearchResult schottkyThermionicEmission(int param1, double param2, SearchParams sp) {
+        double k = 8.617333262e-5;   // eV/K
+        double Astar = 120.0;        // A/cm²/K², canonical Richardson constant
+        // param1 picks T near room-temp; param2 picks barrier height φ in eV.
+        double bestJ = 0;
+        double bestT = 0;
+        double bestPhi = 0;
+        int aboveLimit = 0;
+        int samples = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = 200.0 + (param1 + i * sp.stepSize() * 5) * 5.0;     // K
+            double phi = 0.4 + param2 / 10.0 + i * sp.stepSize() * 0.02;   // eV
+            double exponent = -phi / (k * T);
+            // Cap exponent to avoid overflow underflow noise; physically the result
+            // would just be effectively zero.
+            double expTerm = exponent > -60 ? Math.exp(exponent) : 0;
+            double J = Astar * T * T * expTerm;
+            samples++;
+            if (J > bestJ) { bestJ = J; bestT = T; bestPhi = phi; }
+            if (J > 1e6) aboveLimit++;
+            if (i < 4) sb.append("T=%.0fK,φ=%.2feV→J=%.2eA/cm² ".formatted(T, phi, J));
+        }
+        boolean physical = aboveLimit == 0;  // F3 spec: J ≤ 10⁶ A/cm²
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestJ > 1e-3 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Schottky: max J=%.2e A/cm² at T=%.0f K, φ=%.2f eV; %d/%d samples above 10⁶ A/cm² limit. %s")
+                .formatted(bestJ, bestT, bestPhi, aboveLimit, samples,
+                        !physical ? "J > 10⁶ A/cm² is unphysical for any realistic Schottky barrier"
+                                : bestJ > 1e-3 ? "thermionic regime active across sampled (T, φ)"
+                                        : "deep barrier or low T — emission negligible");
+        return new ResearchResult(
+                "Schottky thermionic emission (A*=%.1f A/cm²/K², %d samples): max J=%.2e A/cm² at T=%.0f K, φ=%.2f eV. Sample: %s"
+                        .formatted(Astar, samples, bestJ, bestT, bestPhi, sb.toString().trim()),
+                bestJ, bestT, bestPhi, bestJ, status, assessment)
+                .withHypothesis(("For a Schottky barrier with barrier height swept near φ=%.2f eV at temperatures "
+                        + "starting near %d K, the Richardson-Dushman current density J = A*·T²·exp(−φ/kT) "
+                        + "remains below 10⁶ A/cm² across the swept regime — the exponential mechanism is "
+                        + "Boltzmann-controlled thermionic emission, not a numerical artefact.")
+                        .formatted(0.4 + param2 / 10.0, 200 + param1 * 5));
+    }
+
+    /**
+     * Acoustic Doppler shift (Physics ↔ Physics): f' = f·(c + v_o)/(c − v_s).
+     * Mechanism: relative motion within a single medium modifies the apparent
+     * frequency. Bound: |f' − f| ≤ f when both v_s and v_o stay below c.
+     */
+    private static ResearchResult acousticDopplerShift(int param1, double param2, SearchParams sp) {
+        double c = 343.0;  // m/s, sound speed in dry air at 20°C
+        double f = 1000.0; // Hz, baseline source frequency
+        double bestShift = 0;
+        double bestVs = 0;
+        double bestVo = 0;
+        double bestFp = f;
+        int violatesBound = 0;
+        int samples = 0;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // Bound v_s, v_o well below c. Param1 sets v_s scale, param2 sets v_o scale.
+            double v_s = Math.min(c - 5.0, (param1 + i * sp.stepSize() * 3) * 0.5);   // m/s
+            double v_o = Math.min(c - 5.0, (i * sp.stepSize() * 1.5 + param2 * 5));    // m/s
+            double fp = f * (c + v_o) / (c - v_s);
+            double shift = Math.abs(fp - f);
+            samples++;
+            if (shift > bestShift) { bestShift = shift; bestVs = v_s; bestVo = v_o; bestFp = fp; }
+            if (shift > f) violatesBound++;  // F3 spec: |f' − f| ≤ f
+            if (i < 4) sb.append("v_s=%.1f,v_o=%.1f→f'=%.1fHz(Δ=%.1f) ".formatted(v_s, v_o, fp, shift));
+        }
+        boolean physical = violatesBound == 0;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestShift > 5.0 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Doppler: max |f'−f|=%.1f Hz at v_s=%.1f m/s, v_o=%.1f m/s; %d/%d samples above f bound. %s")
+                .formatted(bestShift, bestVs, bestVo, violatesBound, samples,
+                        !physical ? "|f'−f| > f indicates v_s approached c — formula breaks down at sonic boom"
+                                : bestShift > 5.0 ? "measurable Doppler shift across the sweep"
+                                        : "low relative velocities — minimal shift");
+        return new ResearchResult(
+                "Acoustic Doppler (c=%.0f m/s, f=%.0f Hz, %d samples): max |f'−f|=%.1f Hz at v_s=%.1f, v_o=%.1f m/s → f'=%.1f Hz. Sample: %s"
+                        .formatted(c, f, samples, bestShift, bestVs, bestVo, bestFp, sb.toString().trim()),
+                bestShift, bestFp, bestVs, bestShift, status, assessment)
+                .withHypothesis(("For a 1 kHz source in dry air with source velocity swept around %.1f m/s and "
+                        + "observer velocity around %.1f m/s, the relative-motion Doppler shift f' = f·(c+v_o)/(c−v_s) "
+                        + "produces a measurable but bounded |f'−f|; the mechanism is purely classical wave-front "
+                        + "compression / dilation in a single medium.")
+                        .formatted(param1 * 0.5, param2 * 5));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

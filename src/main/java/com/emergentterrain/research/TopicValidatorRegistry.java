@@ -227,6 +227,35 @@ public class TopicValidatorRegistry {
         stubInterdisciplinary("Collatz-RLC Depth Resonance");
         stubInterdisciplinary("Resonant Thermal Fatigue Window");
         stubInterdisciplinary("Happy-Number Packing Anomaly");
+        // Phase 7 F3.5 — bounds for the new INTERDISCIPLINARY topics. Each one
+        // ships with BOTH a magnitude bound AND a physical mechanism (Lorentz
+        // force for Hall, Boltzmann thermionics for Schottky, classical wave
+        // mechanics for Doppler), so the cross-domain bridge is legitimate by
+        // construction and the bound catches numerical / regime breakdowns.
+        register(new TopicKey("INTERDISCIPLINARY", "Hall-Effect Carrier Sign"),
+                new ValidatorSpec("", Pattern.compile("\\|V_H\\|=([0-9]+(?:\\.[0-9]+)?)\\s*V"),
+                        1.0, "V", 0.0, "V_H = (I·B)/(n·e·t)", true,
+                        "Hall voltage > 1 V for a realistic I/n/t geometry is unphysical; the "
+                                + "Lorentz-force closure assumes a single carrier type. Mechanism: "
+                                + "magnetic force qv×B deflects carriers transversely; the resulting "
+                                + "static charge builds until the transverse E-field cancels the "
+                                + "Lorentz term."));
+        register(new TopicKey("INTERDISCIPLINARY", "Schottky-Barrier Thermionic Emission"),
+                new ValidatorSpec("", Pattern.compile("J=([0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\\s*A/cm²"),
+                        1.0e6, "A/cm²", 0.0, "J = A*·T²·exp(−φ/kT)", true,
+                        "Thermionic current density > 10⁶ A/cm² is unphysical for any realistic "
+                                + "Schottky barrier; the Richardson-Dushman closure assumes equilibrium "
+                                + "Boltzmann statistics, which break down at this current. Mechanism: "
+                                + "carriers in the metal's Fermi tail with enough thermal energy to "
+                                + "cross the barrier are injected into the semiconductor."));
+        register(new TopicKey("INTERDISCIPLINARY", "Acoustic Doppler Frequency Shift"),
+                new ValidatorSpec("", Pattern.compile("\\|f'−f\\|=([0-9]+(?:\\.[0-9]+)?)\\s*Hz"),
+                        1000.0, "Hz", 0.0, "f' = f·(c + v_o)/(c − v_s)", true,
+                        "Acoustic Doppler |f'−f| > f (i.e. > the 1 kHz source frequency) indicates "
+                                + "the source velocity approached the medium's sound speed and the "
+                                + "wave-front compression formula has broken down (sonic-boom regime). "
+                                + "Mechanism: wave fronts emitted from a moving source pile up "
+                                + "(or stretch) classically in a single medium."));
     }
 
     private static ValidatorSpec bound(Pattern regex, double upperLimit, String unit, String reason) {
