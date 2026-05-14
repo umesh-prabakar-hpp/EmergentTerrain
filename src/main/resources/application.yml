@@ -316,13 +316,16 @@ app:
     # structured-findings.enabled=false. F4 will bump 2 → 3 → N after F2 soaks.
     max-computations: 2
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
-    # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions)
+    # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
+    # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)
     # rather than the bot's weighted-genome choice over the original 5. Off →
     # behaviour bit-identical to F2-baseline (same five topics per domain, same
-    # weighted selection). Flipped to true via F3.6 once the new compute methods
-    # and unit tests land.
+    # weighted selection).
+    # Flipped ON 2026-05-13 per the standing "ship default ON when feature needs
+    # flag ON" directive; F3.1–F3.5 added 18 new closed-form topics with bounds
+    # + 36 unit tests; the rollout is now active.
     topics-v2:
-      enabled: false
+      enabled: true
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop
