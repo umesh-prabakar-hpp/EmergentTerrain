@@ -439,11 +439,20 @@ public class CerebrasPool implements LlmPool {
         return http.send(req, HttpResponse.BodyHandlers.ofString());
     }
 
+    /** Phase 9 follow-on — per-request read timeout. A response that never
+     *  arrives (provider-side hang) surfaces as HttpTimeoutException after
+     *  this window, which the retry/fallthrough logic translates into a
+     *  fallthrough to the next model / registry handle. Without this, the
+     *  HTTP client would wait indefinitely on a stalled response (the
+     *  client-level connectTimeout only covers connection setup). */
+    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofSeconds(180);
+
     private HttpRequest.Builder chatRequestBuilder() {
         return HttpRequest.newBuilder()
                 .uri(URI.create(baseUrl + "/chat/completions"))
                 .header("Authorization", "Bearer " + apiKey)
-                .header("Content-Type", "application/json");
+                .header("Content-Type", "application/json")
+                .timeout(REQUEST_TIMEOUT);
     }
 
     /**

@@ -210,8 +210,14 @@ app:
     # prof:cerebras:ok depending on which providers are in this list.
     # Set to "*" to allow every supportsTools pool in the primary chain (legacy behaviour).
     # To opt in after the soak: tool-calling.providers: "groq,nvidia,openrouter,cerebras"
+    # Phase 9 follow-on (2026-05-14) — opened to all 4 providers. The
+    # PrimaryModelRegistry walks every available 70B+ tool-capable model across
+    # Groq, NVIDIA, OpenRouter, Cerebras; the professor stage no longer
+    # routes "Groq first then nothing" when Groq's TPD is exhausted. The
+    # soak period for non-Groq tool calls completed on 2026-05-14 with
+    # Phase 9 U3b's registry-backed routing.
     tool-calling:
-      providers: "groq"
+      providers: "groq,nvidia,openrouter,cerebras"
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

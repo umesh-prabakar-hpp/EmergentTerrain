@@ -65,6 +65,12 @@ public class GroqPool implements LlmPool {
     private static final long INTRA_CALL_DELAY_MS  = 2000; // between ranking and test for same model
     private static final int  MAX_RETRIES          = 4;
     private static final long INITIAL_BACKOFF_MS   = 2000;
+    /** Phase 9 follow-on — per-request read timeout. Hung responses surface as
+     *  HttpTimeoutException; without this the HTTP client waits indefinitely
+     *  on a stalled response (the client-level connectTimeout only covers
+     *  connection setup). 180s is long enough for legit slow reasoning models
+     *  but short enough to fall through to the next provider on a true hang. */
+    private static final Duration REQUEST_TIMEOUT  = Duration.ofSeconds(180);
 
     // Reasoning models (e.g. openai/gpt-oss-120b) consume most of their token budget on
     // internal chain-of-thought before writing content. 150 was exhausted by reasoning alone.
@@ -358,6 +364,7 @@ public class GroqPool implements LlmPool {
                         .header("Authorization", "Bearer " + apiKey)
                         .header("Content-Type", "application/json")
                         .POST(HttpRequest.BodyPublishers.ofString(payload))
+                        .timeout(REQUEST_TIMEOUT)
                         .build();
                 HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
                 if (resp.statusCode() != 200)
@@ -723,6 +730,7 @@ public class GroqPool implements LlmPool {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + "/models"))
                     .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(30))
                     .GET().build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() == 401) {
@@ -876,6 +884,7 @@ public class GroqPool implements LlmPool {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(buildPayload(modelId, prompt, false, tokenLimit)))
+                    .timeout(REQUEST_TIMEOUT)
                     .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
@@ -914,6 +923,7 @@ public class GroqPool implements LlmPool {
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(buildPayload(modelId, prompt, true, maxTokens)))
+                    .timeout(REQUEST_TIMEOUT)
                     .build();
             http.send(req, HttpResponse.BodyHandlers.ofLines())
                     .body()
