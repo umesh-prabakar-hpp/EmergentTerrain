@@ -1,7 +1,10 @@
 package com.emergentterrain.research;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,16 +30,62 @@ public class SandboxEngine {
     static final int MAX_ITERATIONS = 5_000;
     static final int MAX_STMTS      = 50_000;
 
-    static final Set<String> BUILTINS = Set.of(
+    /**
+     * Phase 8 Tier 1 — domain-specific (non-Math) builtins. Integer-typed helpers,
+     * number-theoretic predicates, and aliases (log2) that {@code java.lang.Math}
+     * does not provide directly. The full {@link #BUILTINS} set is the union of
+     * this list and every double-signature method on {@code Math.class}
+     * (see {@link #MATH_METHODS}).
+     */
+    static final Set<String> SPECIAL_BUILTINS = Set.of(
             "isPrime", "isHappy", "collatzTerminates", "isAbundant", "isPerfect",
-            "collatzSteps", "sigmaSum", "abs", "sqrt", "pow", "floor", "ceil",
-            "log", "log2", "min", "max", "gcd",
-            // Phase 5 A3 — bounded, deterministic, side-effect-free trig + exp.
-            // The 4b review whitelist documented in MathToolSuite mirrors this list;
-            // 18 sandbox rejections in the May 2026 corpus came from the narrator
-            // reaching for these and being denied (composite-failure 12 GPa cluster,
-            // prime-gap pseudo-physics).
-            "sin", "cos", "tan", "asin", "acos", "atan", "atan2", "exp");
+            "collatzSteps", "sigmaSum", "gcd", "log2",
+            // Phase 8 Tier 1 — number-theory helpers already implemented in
+            // MathPhysicsEngine but previously unreachable from the sandbox.
+            // Backs the F3.4 MATHEMATICS topics (Mertens, Stern-Brocot, Squarefree, Mobius).
+            "mobius", "sternBrocotDepthOf", "isSquarefree", "mertensPartialSum");
+
+    /**
+     * Phase 8 Tier 1 — every {@code public static double *(double[, double[, double]])}
+     * method on {@code java.lang.Math}. Discovered reflectively at class-load time
+     * so future JDK additions are picked up without code changes. Replaces the
+     * hardcoded Phase 5 A3 trig+exp list and the per-name switch in {@code evalCall}.
+     *
+     * <p>Excludes {@code random()} (stateful, breaks sandbox determinism) and
+     * any method with non-{@code double} parameters (int/long overloads of min/max,
+     * scalb, floorDiv, etc. — these would silently widen and confuse callers).
+     */
+    static final Map<String, Method> MATH_METHODS = discoverMathMethods();
+
+    static final Set<String> BUILTINS = buildBuiltinsUnion();
+
+    private static Map<String, Method> discoverMathMethods() {
+        Map<String, Method> out = new HashMap<>();
+        for (Method m : Math.class.getDeclaredMethods()) {
+            int mods = m.getModifiers();
+            if (!Modifier.isPublic(mods) || !Modifier.isStatic(mods)) continue;
+            if (m.getReturnType() != double.class) continue;
+            if ("random".equals(m.getName())) continue;
+            Class<?>[] pts = m.getParameterTypes();
+            if (pts.length == 0) continue;
+            boolean allDouble = true;
+            for (Class<?> pt : pts) if (pt != double.class) { allDouble = false; break; }
+            if (!allDouble) continue;
+            // If multiple double signatures exist for the same name (none do in JDK 21,
+            // but be defensive), prefer the higher-arity one so 3-arg fma works.
+            Method existing = out.get(m.getName());
+            if (existing == null || existing.getParameterCount() < m.getParameterCount()) {
+                out.put(m.getName(), m);
+            }
+        }
+        return Map.copyOf(out);
+    }
+
+    private static Set<String> buildBuiltinsUnion() {
+        Set<String> all = new HashSet<>(SPECIAL_BUILTINS);
+        all.addAll(MATH_METHODS.keySet());
+        return Set.copyOf(all);
+    }
 
     public record SandboxResult(double value, String summary) {}
 
@@ -400,6 +449,22 @@ public class SandboxEngine {
             // shadow rather than mutate the seeded env slots).
             env.put("PI", Math.PI);
             env.put("E",  Math.E);
+            // Phase 8 Tier 1 — SI physical constants. Names are CAPS_SNAKE to avoid
+            // collision with typical loop/scratch variables (n, c, h, k, e, sigma, b)
+            // that the LLM will declare locally. Codata 2018 values.
+            env.put("WIEN_B",               2.897_771_955e-3);   // m·K  (displacement law)
+            env.put("STEFAN_BOLTZMANN_SIGMA", 5.670_374_419e-8); // W·m⁻²·K⁻⁴
+            env.put("PLANCK_H",             6.626_070_15e-34);   // J·s
+            env.put("PLANCK_HBAR",          1.054_571_817e-34);  // J·s
+            env.put("BOLTZMANN_K",          1.380_649e-23);      // J/K
+            env.put("SPEED_OF_LIGHT",       299_792_458.0);      // m/s
+            env.put("AVOGADRO",             6.022_140_76e23);    // 1/mol
+            env.put("ELEMENTARY_CHARGE",    1.602_176_634e-19);  // C
+            env.put("GRAVITATIONAL_G",      6.674_30e-11);       // m³·kg⁻¹·s⁻²
+            env.put("ELECTRON_MASS",        9.109_383_7015e-31); // kg
+            env.put("PROTON_MASS",          1.672_621_923_69e-27); // kg
+            env.put("VACUUM_PERMITTIVITY",  8.854_187_8128e-12); // F/m
+            env.put("VACUUM_PERMEABILITY",  1.256_637_062_12e-6); // N/A²
         }
 
         double exec(List<Stmt> stmts) {
@@ -477,35 +542,57 @@ public class SandboxEngine {
         double evalCall(String name, List<Expr> rawArgs) {
             if (!BUILTINS.contains(name)) throw new RuntimeException("Unknown function: " + name);
             double[] a = rawArgs.stream().mapToDouble(this::eval).toArray();
+
+            // ── 1. Domain-specific (non-Math) helpers ─────────────────────────
+            Double special = evalSpecialBuiltin(name, a);
+            if (special != null) return special;
+
+            // ── 2. Reflective java.lang.Math dispatch ─────────────────────────
+            Method m = MATH_METHODS.get(name);
+            if (m != null) {
+                int needed = m.getParameterCount();
+                if (a.length < needed) {
+                    throw new RuntimeException("Function '" + name + "' expects "
+                            + needed + " arg(s), got " + a.length);
+                }
+                Object[] boxed = new Object[needed];
+                for (int i = 0; i < needed; i++) boxed[i] = a[i];
+                try {
+                    return (double) m.invoke(null, boxed);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException("Math." + name + " call failed: "
+                            + e.getMessage(), e);
+                }
+            }
+            // Cannot happen — BUILTINS gates entry — but keep a defensive throw.
+            throw new RuntimeException("Unimplemented builtin: " + name);
+        }
+
+        /**
+         * Integer-typed and number-theoretic helpers that don't fit the generic
+         * {@code Math.*} double-in/double-out shape. Returns {@code null} when
+         * the name isn't one of these, so the caller falls through to reflection.
+         */
+        private static Double evalSpecialBuiltin(String name, double[] a) {
             int a0 = a.length > 0 ? (int) a[0] : 0;
             return switch (name) {
-                case "isPrime"           -> MathPhysicsEngine.isPrime(a0)           ? 1.0 : 0.0;
-                case "isHappy"           -> MathPhysicsEngine.isHappy(a0)           ? 1.0 : 0.0;
+                case "isPrime"           -> MathPhysicsEngine.isPrime(a0) ? 1.0 : 0.0;
+                case "isHappy"           -> MathPhysicsEngine.isHappy(a0) ? 1.0 : 0.0;
                 case "collatzTerminates" -> MathPhysicsEngine.collatzSteps(a0) < 10_000 ? 1.0 : 0.0;
-                case "isAbundant"        -> MathPhysicsEngine.sigmaSum(a0) > a0     ? 1.0 : 0.0;
-                case "isPerfect"         -> MathPhysicsEngine.sigmaSum(a0) == a0    ? 1.0 : 0.0;
-                case "collatzSteps"      -> MathPhysicsEngine.collatzSteps(a0);
-                case "sigmaSum"          -> MathPhysicsEngine.sigmaSum(a0);
-                case "abs"               -> Math.abs(a[0]);
-                case "sqrt"              -> Math.sqrt(a[0]);
-                case "pow"               -> Math.pow(a[0], a.length > 1 ? a[1] : 1.0);
-                case "floor"             -> Math.floor(a[0]);
-                case "ceil"              -> Math.ceil(a[0]);
-                case "log"               -> Math.log(a[0]);
-                case "log2"              -> Math.log(a[0]) / Math.log(2);
-                case "min"               -> a.length > 1 ? Math.min(a[0], a[1]) : a[0];
-                case "max"               -> a.length > 1 ? Math.max(a[0], a[1]) : a[0];
+                case "isAbundant"        -> MathPhysicsEngine.sigmaSum(a0) > a0 ? 1.0 : 0.0;
+                case "isPerfect"         -> MathPhysicsEngine.sigmaSum(a0) == a0 ? 1.0 : 0.0;
+                case "collatzSteps"      -> (double) MathPhysicsEngine.collatzSteps(a0);
+                case "sigmaSum"          -> (double) MathPhysicsEngine.sigmaSum(a0);
                 case "gcd"               -> gcd(a.length > 0 ? (long) a[0] : 0L,
-                                                a.length > 1 ? (long) a[1] : 0L);
-                case "sin"               -> Math.sin(a[0]);
-                case "cos"               -> Math.cos(a[0]);
-                case "tan"               -> Math.tan(a[0]);
-                case "asin"              -> Math.asin(a[0]);
-                case "acos"              -> Math.acos(a[0]);
-                case "atan"              -> Math.atan(a[0]);
-                case "atan2"             -> Math.atan2(a[0], a.length > 1 ? a[1] : 1.0);
-                case "exp"               -> Math.exp(a[0]);
-                default -> throw new RuntimeException("Unimplemented builtin: " + name);
+                                                 a.length > 1 ? (long) a[1] : 0L);
+                case "log2"              -> Math.log(a[0]) / Math.log(2);
+                // Phase 8 Tier 1 — number-theory helpers backing F3.4 MATHEMATICS topics.
+                case "mobius"             -> (double) MathPhysicsEngine.mobius(a0);
+                case "sternBrocotDepthOf" -> (double) MathPhysicsEngine.sternBrocotDepthOf(
+                                                a0, a.length > 1 ? (int) a[1] : 1);
+                case "isSquarefree"       -> MathPhysicsEngine.isSquarefree(a0) ? 1.0 : 0.0;
+                case "mertensPartialSum"  -> (double) MathPhysicsEngine.mertensPartialSum(a0);
+                default -> null;
             };
         }
 
