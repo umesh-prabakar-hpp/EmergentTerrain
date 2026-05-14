@@ -5,6 +5,8 @@ import com.emergentterrain.research.DynamicProblem;
 import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.SandboxEngine;
+import com.emergentterrain.research.SymbolicEngine;
+import com.emergentterrain.research.SymbolicStaticChecker;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -14,14 +16,16 @@ import java.util.Set;
 import java.util.function.Function;
 
 /**
- * Professor tool suite — four mathematical tools the Groq professor can call
+ * Professor tool suite — five mathematical tools the Groq professor can call
  * during critique to gather experimental evidence before writing its synthesis.
  *
  * Tools:
  *   run_param_sweep      — MathPhysicsEngine at professor-chosen param1/param2
  *   run_predicate_scan   — DynamicComputeEngine number-theoretic predicate scan
- *   evaluate_symbolic    — evaluate f(n) over a range, return statistics
+ *   evaluate_symbolic    — evaluate f(n) over a range, return statistics (numeric)
  *   run_sandboxed_code   — run LLM pseudocode reviewed by 4b before execution
+ *   run_symbolic         — Phase 8 Tier 3: Symja symbolic evaluation
+ *                          (Integrate, D, Solve, Simplify, Series, ...)
  */
 public class MathToolSuite {
 
@@ -38,9 +42,12 @@ public class MathToolSuite {
      * corpus run mapped 1:1 to vague Findings sections.
      */
     public static final class ToolMetrics {
-        private int sandboxRejectCount = 0;
-        public int sandboxRejectCount() { return sandboxRejectCount; }
-        void incrementSandboxRejects()  { sandboxRejectCount++; }
+        private int sandboxRejectCount  = 0;
+        private int symbolicRejectCount = 0;
+        public int sandboxRejectCount()  { return sandboxRejectCount;  }
+        public int symbolicRejectCount() { return symbolicRejectCount; }
+        void incrementSandboxRejects()   { sandboxRejectCount++;  }
+        void incrementSymbolicRejects()  { symbolicRejectCount++; }
     }
 
     private static final Set<String> VALID_PREDICATES = Set.of(
@@ -133,6 +140,21 @@ public class MathToolSuite {
                       "required":["code","description","range_start","range_end"]
                     }
                   }
+                },
+                {
+                  "type":"function",
+                  "function":{
+                    "name":"run_symbolic",
+                    "description":"Evaluate a SYMBOLIC math expression using Symja (Mathematica-like syntax). Use to (a) verify a claimed derivative or integral has the closed form the paper states, (b) check that two expressions are equivalent after simplification, (c) compute a Series expansion at a point, (d) Solve an equation for its symbolic roots, (e) Simplify a long algebraic form. Returns the simplified output AND a numeric approximation if the result is a finite number. Examples: 'Integrate[Sin[x]^2, {x, 0, Pi}]' (→ Pi/2, numeric 1.5708), 'D[x^3 + 2*x, x]' (→ 2 + 3*x^2), 'Solve[x^2 - 5*x + 6 == 0, x]' (→ {{x->2}, {x->3}}), 'Simplify[Sin[x]^2 + Cos[x]^2]' (→ 1), 'Series[Exp[x], {x, 0, 4}]'. Allowed heads include arithmetic, calculus (Integrate, D, Limit, Series, Sum, Product), algebra (Solve, Simplify, Expand, Factor), trig, exp/log, special functions (Gamma, Erf, BesselJ, Zeta), number theory (PrimeQ, MoebiusMu, EulerPhi). REJECTED: I/O (Import, Export, Get, Put), network (URLFetch), process (Run), state mutation (Set, Clear), JVM escape (Java, JavaClass), ToExpression, Compile. Wall-clock cap 3s; iteration cap 100k.",
+                    "parameters":{
+                      "type":"object",
+                      "properties":{
+                        "expression":{"type":"string","description":"A Symja expression in full-form or operator-form syntax. Brackets [] for function application; {} for lists."},
+                        "rationale":{"type":"string","description":"Why this symbolic check addresses a specific weakness in the paper"}
+                      },
+                      "required":["expression","rationale"]
+                    }
+                  }
                 }]""".formatted(dynamicTool);
     }
 
@@ -165,10 +187,14 @@ public class MathToolSuite {
                     case "run_predicate_scan" -> runPredicateScan(args);
                     case "evaluate_symbolic"  -> evaluateSymbolic(args);
                     case "run_sandboxed_code" -> runSandboxedCode(draft, args);
+                    case "run_symbolic"       -> runSymbolic(args);
                     default -> "Unknown tool: " + name;
                 };
                 if ("run_sandboxed_code".equals(name) && result.startsWith("REJECTED by safety review")) {
                     metrics.incrementSandboxRejects();
+                }
+                if ("run_symbolic".equals(name) && result.startsWith("REJECTED by safety review")) {
+                    metrics.incrementSymbolicRejects();
                 }
                 return result;
             } catch (Exception e) {
@@ -251,6 +277,37 @@ public class MathToolSuite {
                     expression, rangeStart, rangeEnd, System.currentTimeMillis() - t);
             return "Symbolic evaluation of f(n)=%s over [%d,%d): %s [Rationale: %s]"
                     .formatted(expression, rangeStart, rangeEnd, result.summary(), rationale);
+        } catch (Exception e) {
+            return "Symbolic evaluation failed: " + e.getMessage();
+        }
+    }
+
+    private String runSymbolic(JsonNode args) {
+        String expression = args.path("expression").asText(null);
+        String rationale  = args.path("rationale").asText("(no rationale)");
+        if (expression == null || expression.isBlank()) return "Missing expression.";
+
+        // Deterministic head-whitelist check before invoking Symja.
+        SymbolicStaticChecker.Result staticResult = SymbolicStaticChecker.check(expression);
+        if (staticResult instanceof SymbolicStaticChecker.Result.Rejected r) {
+            log.warn("MathToolSuite: run_symbolic static-rejected: {} expr=\"{}\"",
+                    r.reason(),
+                    expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+            return "REJECTED by safety review: " + r.reason()
+                    + " — only calculus/algebra/trig/special-function heads are allowed; "
+                    + "I/O, process, network, state mutation, and JVM-escape heads are blocked.";
+        }
+
+        try {
+            long t = System.currentTimeMillis();
+            SymbolicEngine.SymbolicResult result = SymbolicEngine.evaluate(expression);
+            log.info("MathToolSuite: run_symbolic expr=\"{}\" ms={} numeric={}",
+                    expression, System.currentTimeMillis() - t, result.numericApprox());
+            String numericNote = result.numericApprox() == null
+                    ? ""
+                    : "  numeric=%.6g".formatted(result.numericApprox());
+            return "Symbolic result for %s: output=%s%s [Rationale: %s]"
+                    .formatted(expression, result.output(), numericNote, rationale);
         } catch (Exception e) {
             return "Symbolic evaluation failed: " + e.getMessage();
         }
