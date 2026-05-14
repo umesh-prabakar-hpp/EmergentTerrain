@@ -139,6 +139,24 @@ public class ResearchPaper {
     @Column(name = "tool_call_trace", columnDefinition = "text")
     private String toolCallTrace;
 
+    /**
+     * Phase 7 F7.2 — multi-reviewer panel outcome serialised as JSON. Carries the
+     * aggregated median grades, agreement score, consensus cited/contradiction
+     * lists, deduped recommendations, and the raw N reviewer responses. Null
+     * when the panel did not run.
+     */
+    @Column(name = "panel_outcome", columnDefinition = "text")
+    private String panelOutcome;
+
+    /**
+     * Phase 7 F7.2 — composite reviewer-agreement score from the panel. Cached
+     * out of {@link #panelOutcome} into its own column so DISPUTED routing
+     * (F7.3) can query / index on it without parsing the JSON each time. Null
+     * when the panel did not run.
+     */
+    @Column(name = "reviewer_agreement")
+    private Double reviewerAgreement;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -216,6 +234,8 @@ public class ResearchPaper {
     public String       discussion()               { return discussion; }
     public String       relatedWork()              { return relatedWork; }
     public String       toolCallTrace()            { return toolCallTrace; }
+    public String       panelOutcome()             { return panelOutcome; }
+    public Double       reviewerAgreement()        { return reviewerAgreement; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -229,4 +249,6 @@ public class ResearchPaper {
     public void setDiscussion(String discussion)     { this.discussion = discussion; }
     public void setRelatedWork(String relatedWork)   { this.relatedWork = relatedWork; }
     public void setToolCallTrace(String toolCallTrace) { this.toolCallTrace = toolCallTrace; }
+    public void setPanelOutcome(String panelOutcome)   { this.panelOutcome = panelOutcome; }
+    public void setReviewerAgreement(Double v)         { this.reviewerAgreement = v; }
 }

@@ -81,6 +81,15 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.llm.SimulationGate simulationGate;
 
+    /**
+     * Phase 7 F7.2 — multi-reviewer panel. Runs after the professor stage's
+     * synthesis and stamps a {@link com.emergentterrain.research.PanelOutcome}
+     * onto the returned {@link NarrationResult}. Optional dependency so tests
+     * that don't wire it get a no-op pipeline.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ReviewPanelService reviewPanelService;
+
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
@@ -263,7 +272,8 @@ public class ResearchNarrationService {
                 activeNarrationPrimaryVersion(),
                 finalResult.discussion(), finalResult.relatedWork(),
                 List.copyOf(auditGapDimensions),
-                finalResult.toolCallTrace());
+                finalResult.toolCallTrace(),
+                finalResult.panelOutcome());
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -452,12 +462,19 @@ public class ResearchNarrationService {
                         : "rev:" + abbrev(router.primaryModel()) + ":partial→merged");
                 log.info("LLM student revision done paperId={} ms={} mode={}", draft.paperId(),
                         System.currentTimeMillis() - revStart, revFullySupplied ? "full" : "partial-merge");
-                return new NarrationResult(
+                NarrationResult revisedResult = new NarrationResult(
                         hypothesis, findings, conclusion,
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds(),
                         null, List.of(), List.of(), null, null, discussion, relatedWork)
                         .withToolCallTrace(profTrace);
+                // Phase 7 F7.2 — run the multi-reviewer panel against the revised
+                // narration + the trace, stamp the aggregated outcome on the result
+                // so UniversityService.publishPaper can persist it. The panel
+                // short-circuits to empty when disabled / no trace / no providers
+                // resolved — the publish path is bit-identical to pre-F7.2 in
+                // those cases.
+                return runPanelAndStamp(draft, revisedResult, callPath);
             }
             callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
@@ -474,7 +491,43 @@ public class ResearchNarrationService {
         }
         // Phase 7 F5.3 — stamp whatever trace accumulated before the failure so
         // the partial professor work survives in the audit record.
-        return firstPass.withToolCallTrace(profTrace);
+        NarrationResult fallback = firstPass.withToolCallTrace(profTrace);
+        // Phase 7 F7.2 — even on the fallback path, run the panel if a trace
+        // exists. A paper that hit an exception after the professor produced
+        // useful tool results still benefits from honesty/completeness grading.
+        return runPanelAndStamp(draft, fallback, callPath);
+    }
+
+    /**
+     * Phase 7 F7.2 — run the multi-reviewer panel and stamp the outcome on the
+     * narration. No-op when the panel service isn't wired, when the narration
+     * carries no tool-call trace, or when the panel returns an empty outcome.
+     * Failures are swallowed and logged so a panel-side bug never blocks a
+     * paper from publishing.
+     */
+    private NarrationResult runPanelAndStamp(PaperDraft draft, NarrationResult narration,
+                                              List<String> callPath) {
+        if (reviewPanelService == null || narration == null) return narration;
+        if (!reviewPanelService.isActive()) return narration;
+        if (narration.toolCallTrace() == null || narration.toolCallTrace().isEmpty()) {
+            return narration;
+        }
+        try {
+            com.emergentterrain.research.PanelOutcome outcome =
+                    reviewPanelService.runPanel(draft, narration);
+            if (outcome.isEmpty()) {
+                callPath.add("panel:skip:no_reviewers");
+                return narration;
+            }
+            callPath.add("panel:n=" + outcome.reviewerCount()
+                    + ":agreement=" + String.format("%.2f", outcome.agreementScore()));
+            return narration.withPanelOutcome(outcome);
+        } catch (Exception e) {
+            log.warn("LLM panel review path failed paperId={}: {}",
+                    draft != null ? draft.paperId() : "?", e.getMessage());
+            callPath.add("panel:error");
+            return narration;
+        }
     }
 
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
@@ -1584,7 +1637,7 @@ public class ResearchNarrationService {
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
                     null, List.copyOf(typedCitations), List.copyOf(formalFindings),
-                    null, null, discussion, relatedWork, null, null);
+                    null, null, discussion, relatedWork, null, null, null);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());

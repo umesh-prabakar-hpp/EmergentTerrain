@@ -607,6 +607,14 @@ public class UniversityService {
         // audit record survives the JVM. Null when the professor stage didn't
         // run or ran without tool calls (e.g. JSON-path / Ollama fallback).
         paper.setToolCallTrace(serialiseToolCallTrace(narration.toolCallTrace()));
+        // Phase 7 F7.2 — persist the multi-reviewer panel outcome. The full
+        // PanelOutcome is JSON-serialised onto a TEXT column; the composite
+        // agreement score is cached into its own DOUBLE column so DISPUTED
+        // routing (F7.3) can query / index on it without parsing the JSON.
+        PanelOutcome outcome = narration.panelOutcome();
+        paper.setPanelOutcome(serialisePanelOutcome(outcome));
+        paper.setReviewerAgreement(outcome != null && !outcome.isEmpty()
+                ? outcome.agreementScore() : null);
 
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
         // it lands in the cache + DB. No-op when the institutions flag is off.
@@ -1402,6 +1410,9 @@ public class UniversityService {
         // Findings and Conclusion so the reader sees the computational basis
         // immediately after the result it produced.
         String methodsSection = renderMethodsSection(paper);
+        // Phase 7 F7.2 — Panel Review summary. Median grades + agreement score
+        // from the multi-reviewer panel. Empty string when no panel ran.
+        String panelSection = renderPanelSection(paper);
         return """
                 # %s
 
@@ -1426,7 +1437,7 @@ public class UniversityService {
 
                 ## Findings
 
-                %s%s
+                %s%s%s
 
                 ## Conclusion
 
@@ -1451,6 +1462,7 @@ public class UniversityService {
                 paper.hypothesis(),
                 findingsSection,
                 methodsSection,
+                panelSection,
                 paper.conclusion(),
                 discussionSection,
                 relatedWorkSection);
@@ -1532,6 +1544,58 @@ public class UniversityService {
     }
 
     private static final int METHODS_RESULT_PREVIEW_CHARS = 240;
+
+    /**
+     * Phase 7 F7.2 — render the {@code ## Panel Review} section from the persisted
+     * panel outcome. Shows median grades on four axes, the overall agreement
+     * score, the consensus cited-call indices, and the contradictions ≥2
+     * reviewers flagged. Empty string when no panel ran (legacy rows or
+     * panel-disabled papers) so markdown is bit-identical to pre-F7.2 output.
+     */
+    String renderPanelSection(ResearchPaper paper) {
+        String raw = paper.panelOutcome();
+        if (raw == null || raw.isBlank()) return "";
+        PanelOutcome outcome;
+        try {
+            outcome = objectMapper.readValue(raw, PanelOutcome.class);
+        } catch (Exception e) {
+            log.warn("panel-outcome JSON parse failed; omitting Panel Review section: {}",
+                    e.getMessage());
+            return "";
+        }
+        if (outcome == null || outcome.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder("\n\n## Panel Review\n\n");
+        sb.append("Aggregated across **").append(outcome.reviewerCount())
+          .append(outcome.reviewerCount() == 1 ? "** reviewer" : "** reviewers")
+          .append(" (agreement score **")
+          .append(String.format("%.2f", outcome.agreementScore()))
+          .append("** — higher means reviewers converged).\n\n");
+        PanelReview.Grades g = outcome.aggregateGrades();
+        sb.append("| Axis | Median |\n|---|---|\n")
+          .append("| Honesty | ").append(String.format("%.2f", g.honesty())).append(" |\n")
+          .append("| Completeness | ").append(String.format("%.2f", g.completeness())).append(" |\n")
+          .append("| Rigor | ").append(String.format("%.2f", g.rigor())).append(" |\n")
+          .append("| Novelty | ").append(String.format("%.2f", g.novelty())).append(" |\n\n");
+        if (!outcome.consensusCitedCalls().isEmpty()) {
+            sb.append("**Consensus load-bearing tool calls:** ")
+              .append(outcome.consensusCitedCalls()).append("\n\n");
+        }
+        if (!outcome.consensusContradictions().isEmpty()) {
+            sb.append("**Contradictions flagged by ≥2 reviewers:**\n");
+            for (PanelReview.Contradiction c : outcome.consensusContradictions()) {
+                sb.append("- Tool call ").append(c.traceIdx())
+                  .append(": ").append(c.vsProse()).append("\n");
+            }
+            sb.append("\n");
+        }
+        if (!outcome.recommendations().isEmpty()) {
+            sb.append("**Recommendations from the panel:**\n");
+            for (String rec : outcome.recommendations()) {
+                sb.append("- ").append(rec).append("\n");
+            }
+        }
+        return sb.toString();
+    }
 
     /**
      * Phase 7 F5.4 — parse the persisted {@code tool_call_trace} column back into
@@ -1622,6 +1686,22 @@ public class UniversityService {
             return objectMapper.writeValueAsString(trace);
         } catch (Exception e) {
             log.warn("tool-call trace JSON serialisation failed; persisting null: {}",
+                    e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Phase 7 F7.2 — serialise the aggregated panel outcome for persistence on
+     * the (text) ResearchPaper.panel_outcome column. Null / empty outcome
+     * persists as null so legacy / panel-disabled papers behave identically.
+     */
+    private String serialisePanelOutcome(PanelOutcome outcome) {
+        if (outcome == null || outcome.isEmpty()) return null;
+        try {
+            return objectMapper.writeValueAsString(outcome);
+        } catch (Exception e) {
+            log.warn("panel-outcome JSON serialisation failed; persisting null: {}",
                     e.getMessage());
             return null;
         }

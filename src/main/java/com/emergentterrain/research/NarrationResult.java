@@ -57,7 +57,13 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
                                   as empty. Stamped onto the result via
                                   {@link #withToolCallTrace(List)} at the call site that ran the
                                   tool loop. */
-                               List<com.emergentterrain.llm.ToolInvocation> toolCallTrace) {
+                               List<com.emergentterrain.llm.ToolInvocation> toolCallTrace,
+                               /* Phase 7 F7.2 — multi-reviewer panel outcome. Null when the panel
+                                  did not run (flag off, no reviewer pools resolved, or paper had
+                                  no tool-call trace to grade). Carries the median grades,
+                                  agreement score, consensus cited/contradiction lists, and the
+                                  raw N reviews. Stamped via {@link #withPanelOutcome(PanelOutcome)}. */
+                               PanelOutcome panelOutcome) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
@@ -112,7 +118,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         this(hypothesis, wrapSingle(findings), conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations,
                 formalFindings, templateId, templateVersion, discussion, relatedWork,
-                auditGapDimensions, null);
+                auditGapDimensions, null, null);
     }
 
     /** 14-arg backward-compatible — null auditGapDimensions. */
@@ -181,7 +187,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace);
+                toolCallTrace, panelOutcome);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
@@ -189,7 +195,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace);
+                toolCallTrace, panelOutcome);
     }
 
     /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
@@ -197,7 +203,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace);
+                toolCallTrace, panelOutcome);
     }
 
     /** Phase 7 F5.3 — return a copy with the agentic tool-call trace stamped on. */
@@ -205,7 +211,15 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                trace);
+                trace, panelOutcome);
+    }
+
+    /** Phase 7 F7.2 — return a copy with the panel outcome stamped on. */
+    public NarrationResult withPanelOutcome(PanelOutcome outcome) {
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace, outcome);
     }
 
     /**

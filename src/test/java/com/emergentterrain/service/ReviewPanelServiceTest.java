@@ -1,0 +1,199 @@
+package com.emergentterrain.service;
+
+import com.emergentterrain.llm.ToolInvocation;
+import com.emergentterrain.research.NarrationResult;
+import com.emergentterrain.research.PanelOutcome;
+import com.emergentterrain.research.PaperDraft;
+import com.emergentterrain.research.PromptTemplateRegistry;
+import com.emergentterrain.research.ResultClassification;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
+import org.springframework.beans.factory.support.RootBeanDefinition;
+import org.springframework.context.support.GenericApplicationContext;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
+import java.util.function.Function;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Phase 7 F7.2 — fan-out + retry + drop-on-parse-fail tests. Each test wires a
+ * small set of FakePools, runs the panel against a fixture NarrationResult that
+ * carries a synthetic tool-call trace, and asserts on the aggregated outcome
+ * + the FakePool call counts.
+ */
+class ReviewPanelServiceTest {
+
+    @Test
+    void runsPanelInParallelAndAggregatesEveryReviewerResponse() {
+        FakePool groq       = panelistReturning("groq",       cleanReviewJson(0.8));
+        FakePool nvidia     = panelistReturning("nvidia",     cleanReviewJson(0.7));
+        FakePool openrouter = panelistReturning("openrouter", cleanReviewJson(0.9));
+        FakePool cerebras   = panelistReturning("cerebras",   cleanReviewJson(0.85));
+
+        ReviewPanelService svc = build("groq,nvidia,openrouter,cerebras",
+                groq, nvidia, openrouter, cerebras);
+        assertThat(svc.isActive()).isTrue();
+        assertThat(svc.panelSize()).isEqualTo(4);
+
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.reviewerCount()).isEqualTo(4);
+        // Each pool was called exactly once.
+        assertThat(groq.syncCallCount.get()).isEqualTo(1);
+        assertThat(nvidia.syncCallCount.get()).isEqualTo(1);
+        assertThat(openrouter.syncCallCount.get()).isEqualTo(1);
+        assertThat(cerebras.syncCallCount.get()).isEqualTo(1);
+        // Median of [0.7, 0.8, 0.85, 0.9] honesty = (0.8 + 0.85) / 2 = 0.825.
+        assertThat(outcome.aggregateGrades().honesty()).isEqualTo(0.825);
+    }
+
+    @Test
+    void emptyTraceShortCircuitsPanel() {
+        FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
+        ReviewPanelService svc = build("groq", groq);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(0));
+        assertThat(outcome.isEmpty()).isTrue();
+        assertThat(groq.syncCallCount.get()).isEqualTo(0);
+    }
+
+    @Test
+    void parseFailureTriggersOneRetryThenDropsReviewer() {
+        // First call returns garbage, second call returns valid JSON — reviewer survives.
+        FakePool retryable = new FakePool("groq", List.of("not json", cleanReviewJson(0.7)));
+        // First call returns garbage, second too — reviewer drops.
+        FakePool always   = new FakePool("nvidia", List.of("still not json", "still not json"));
+        ReviewPanelService svc = build("groq,nvidia", retryable, always);
+
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.reviewerCount()).isEqualTo(1);
+        // Retryable was called twice (one parse fail + one success).
+        assertThat(retryable.syncCallCount.get()).isEqualTo(2);
+        // Always-broken was called twice too then dropped.
+        assertThat(always.syncCallCount.get()).isEqualTo(2);
+        assertThat(outcome.reviews().get(0).reviewerId()).startsWith("groq/");
+    }
+
+    @Test
+    void networkExceptionDropsReviewerWithoutRetry() {
+        FakePool throwing = new FakePool("groq", List.of());
+        throwing.throwOnSync = new RuntimeException("network down");
+        FakePool fine = panelistReturning("nvidia", cleanReviewJson(0.7));
+
+        ReviewPanelService svc = build("groq,nvidia", throwing, fine);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.reviewerCount()).isEqualTo(1);
+        // Single attempt — network errors don't retry.
+        assertThat(throwing.syncCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void disabledPanelReturnsEmptyOutcome() {
+        FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
+        ReviewPanelService svc = build(/*enabled*/ false, "groq", groq);
+        assertThat(svc.isActive()).isFalse();
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.isEmpty()).isTrue();
+        assertThat(groq.syncCallCount.get()).isEqualTo(0);
+    }
+
+    @Test
+    void unknownProvidersInConfigAreSilentlySkipped() {
+        // Configured providers: groq, missing — only groq has a registered pool.
+        FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
+        ReviewPanelService svc = build("groq,missing", groq);
+        assertThat(svc.panelSize()).isEqualTo(1);
+    }
+
+    // ---- Helpers ----
+
+    private static String cleanReviewJson(double honesty) {
+        return "{\"grades\":{\"honesty\":" + honesty
+                + ",\"completeness\":0.7,\"rigor\":0.8,\"novelty\":0.5},"
+                + "\"cited_calls\":[1],"
+                + "\"omitted_relevant\":[],"
+                + "\"contradictions\":[],"
+                + "\"recommendations\":[]}";
+    }
+
+    private static FakePool panelistReturning(String key, String response) {
+        return new FakePool(key, List.of(response));
+    }
+
+    private static ReviewPanelService build(String providersCsv, FakePool... pools) {
+        return build(true, providersCsv, pools);
+    }
+
+    private static ReviewPanelService build(boolean enabled, String providersCsv, FakePool... pools) {
+        GenericApplicationContext ctx = new GenericApplicationContext();
+        DefaultListableBeanFactory bf = ctx.getDefaultListableBeanFactory();
+        for (FakePool p : pools) {
+            RootBeanDefinition def = new RootBeanDefinition(FakePool.class);
+            def.setInstanceSupplier(() -> p);
+            def.setScope(BeanDefinition.SCOPE_SINGLETON);
+            bf.registerBeanDefinition(p.providerKey + "Pool", def);
+        }
+        ctx.refresh();
+        PromptTemplateRegistry registry = new PromptTemplateRegistry();
+        registry.seedDefaults();
+        ObjectMapper mapper = new ObjectMapper();
+        return new ReviewPanelService(ctx, registry, mapper, enabled, providersCsv);
+    }
+
+    private static PaperDraft draftFixture() {
+        return new PaperDraft(
+                UUID.randomUUID(), "bot-1",
+                "PHYSICS", "RLC Damping Transition", "Test paper",
+                "f-template", "h-template", "c-template", "stub-methodology",
+                List.of(), 0.5, 0.5, 0.0,
+                0L, Instant.now(), 0,
+                "P-test-1", 0, 0.0, false,
+                null, null, List.of(), null, null,
+                ResultClassification.SUPPORTED, null);
+    }
+
+    private static NarrationResult narrationWithTrace(int callCount) {
+        List<ToolInvocation> trace = new ArrayList<>();
+        for (int i = 0; i < callCount; i++) {
+            trace.add(new ToolInvocation("run_param_sweep",
+                    "{\"steps\":10}", "{\"peak_q\":42.3}", i));
+        }
+        return new NarrationResult("hyp", "find", "concl", null, "ai-x", 0.5, List.of())
+                .withToolCallTrace(trace);
+    }
+
+    /** Minimal LlmPool for panel tests. Returns scripted responses to callSync. */
+    static class FakePool implements LlmPool {
+        final String providerKey;
+        final List<String> scriptedResponses;
+        final AtomicInteger syncCallCount = new AtomicInteger();
+        RuntimeException throwOnSync;
+
+        FakePool(String providerKey, List<String> scriptedResponses) {
+            this.providerKey = providerKey;
+            this.scriptedResponses = scriptedResponses;
+        }
+
+        @Override public String callSync(String prompt) {
+            int idx = syncCallCount.getAndIncrement();
+            if (throwOnSync != null) throw throwOnSync;
+            if (idx >= scriptedResponses.size()) {
+                return scriptedResponses.isEmpty()
+                        ? ""
+                        : scriptedResponses.get(scriptedResponses.size() - 1);
+            }
+            return scriptedResponses.get(idx);
+        }
+        @Override public void callStream(String prompt, Consumer<String> tc) {}
+        @Override public String selectedModel() { return "model-" + providerKey; }
+        @Override public int backendCount()      { return 1; }
+        @Override public int healthyCount()      { return 1; }
+        @Override public String providerKey()    { return providerKey; }
+    }
+}

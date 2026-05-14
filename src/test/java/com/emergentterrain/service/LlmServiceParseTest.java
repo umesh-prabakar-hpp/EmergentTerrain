@@ -373,7 +373,7 @@ class LlmServiceParseTest {
         NarrationResult r = new NarrationResult(
                 "h", m, "c", null, "ai",
                 0.5, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         assertThat(ResearchNarrationService.formatFindingsForPrompt(r))
                 .isEqualTo("[Computation 1]\nfirst prose.\n\n[Computation 2]\nsecond prose.");
     }
@@ -387,7 +387,7 @@ class LlmServiceParseTest {
         NarrationResult r = new NarrationResult(
                 "h", m, "c", null, "ai",
                 0.5, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         assertThat(ResearchNarrationService.formatFindingsForPrompt(r))
                 .isEqualTo("[Computation 1]\nfirst.\n\n[Computation 3]\nthird.");
     }

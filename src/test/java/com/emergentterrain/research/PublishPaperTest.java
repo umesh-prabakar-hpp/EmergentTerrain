@@ -365,7 +365,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
                 List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
     }
@@ -381,7 +381,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
                 List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
@@ -397,7 +397,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
                 List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
     }
@@ -598,7 +598,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "Test hypothesis", blocks, "Test conclusion.", null, null, 0.7,
                 List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
 
         java.nio.file.Path roomDir = tempDir.resolve(roomId.toString().substring(0, 8));
@@ -651,7 +651,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "h", java.util.Map.of(1, "Single-block prose."), "c",
                 null, null, 0.6, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
         assertThat(firstPaper().findings()).isEqualTo("Single-block prose.");
     }
@@ -667,7 +667,7 @@ class PublishPaperTest {
         NarrationResult narration = new NarrationResult(
                 "h", blocks, "c", null, null, 0.6,
                 List.of(), null, List.of(), List.of(),
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
         String persisted = firstPaper().findings();
         assertThat(persisted)

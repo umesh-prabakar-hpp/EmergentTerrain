@@ -333,6 +333,21 @@ app:
     # structured-findings.enabled=false. Bumped 2 → 5 on 2026-05-13 (operator
     # direction; skips the staged 2→3→4→5 ramp described in F4).
     max-computations: 5
+    # Phase 7 F7.2 — multi-reviewer panel. After the professor stage produces its
+    # synthesis + tool-call trace, the panel fans the F7.1 review prompt out to
+    # every configured provider in parallel. Each reviewer returns structured
+    # JSON; aggregation is deterministic (median grades, intersection of
+    # cited_calls, contradictions flagged by ≥2 reviewers). The aggregated
+    # PanelOutcome is persisted as JSON on the ResearchPaper and rendered as a
+    # "## Panel Review" section in the published markdown.
+    #
+    # Empty trace (JSON-path / Ollama fallback / no tool calls) short-circuits the
+    # panel — papers without a trace publish bit-identically to pre-F7.2.
+    #
+    # Operator direction (2026-05-14): default ON across all four providers.
+    review-panel:
+      enabled: true
+      providers: "groq,nvidia,openrouter,cerebras"
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)
