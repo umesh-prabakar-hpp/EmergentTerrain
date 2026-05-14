@@ -124,4 +124,80 @@ class CrossDomainHypothesisGateTest {
                 + "fibre-shielded walls under solar particle flux.";
         assertThat(CrossDomainHypothesisGate.validate("ARCHITECTURE_SPACE", hypothesis)).isEmpty();
     }
+
+    // -------- Phase 6 D1.6 (L3): sentinel-aware overload --------
+
+    @Test
+    void sentinelInterdisciplinaryFlaggedWhenHypothesisAssertsMechanism() {
+        // P-a328-253 pattern: "happy-number density modulating binary packing efficiency".
+        // The corpus marks Happy-Number Packing Anomaly as engine-constructed; the
+        // overload must catch the "modulating" (PHYSICAL_MECHANISM_MARKERS) verb.
+        LiteratureSearchService corpus = loadCorpus();
+        String hypothesis = "Local happy-number density modulates the binary sphere packing efficiency.";
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "INTERDISCIPLINARY", "Happy-Number Packing Anomaly", hypothesis, corpus);
+        assertThat(result).isPresent();
+        assertThat(result.get())
+                .contains("Happy-Number Packing Anomaly")
+                .contains("engine-constructed bridge")
+                .contains("modulat");
+    }
+
+    @Test
+    void sentinelInterdisciplinaryPassesWhenHypothesisIsPurelyEmpirical() {
+        // Empirical phrasing — no causal verb — should pass the sentinel check.
+        LiteratureSearchService corpus = loadCorpus();
+        String hypothesis = "We measure binary packing efficiency at sample positions where "
+                + "the local happy-number density is high vs low.";
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "INTERDISCIPLINARY", "Happy-Number Packing Anomaly", hypothesis, corpus);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void overloadFallsBackToBaseGateForNonInterdisciplinary() {
+        // The MATHEMATICS-declared / thermal-stress P-a328-18 case must still fire
+        // through the sentinel-aware overload — base gate runs first.
+        LiteratureSearchService corpus = loadCorpus();
+        String hypothesis = "Aliquot divisor sums in the range will modulate thermal stress in composite layers.";
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "MATHEMATICS", "Aliquot Sequence Behaviour", hypothesis, corpus);
+        assertThat(result).isPresent();
+        assertThat(result.get()).contains("thermal stress");
+    }
+
+    @Test
+    void overloadIgnoresInterdisciplinaryWhenCorpusEntryIsNotSentinel() {
+        // The post-FX INTERDISCIPLINARY topics (Hall-Effect, Schottky, Doppler) carry
+        // real physical mechanisms in the corpus — they are NOT sentinels, so the
+        // overload must not flag a mechanism claim on them.
+        LiteratureSearchService corpus = loadCorpus();
+        String hypothesis = "Magnetic field induces a Hall voltage proportional to current density.";
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "INTERDISCIPLINARY", "Hall-Effect Carrier Sign", hypothesis, corpus);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void overloadDegradesGracefullyWhenLiteratureNull() {
+        String hypothesis = "Happy-number density modulates packing efficiency.";
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "INTERDISCIPLINARY", "Happy-Number Packing Anomaly", hypothesis, null);
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void overloadDegradesGracefullyWhenTopicUnknown() {
+        LiteratureSearchService corpus = loadCorpus();
+        Optional<String> result = CrossDomainHypothesisGate.validate(
+                "INTERDISCIPLINARY", "No Such Topic", "x causes y", corpus);
+        assertThat(result).isEmpty();
+    }
+
+    private static LiteratureSearchService loadCorpus() {
+        LiteratureSearchService svc = new LiteratureSearchService(
+                new org.springframework.core.io.ClassPathResource("literature-corpus.yml"));
+        svc.loadCorpus();
+        return svc;
+    }
 }

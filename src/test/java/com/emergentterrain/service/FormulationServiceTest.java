@@ -1,9 +1,11 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.ResearchIdentity;
 import com.emergentterrain.research.ResearchPaper;
 import org.junit.jupiter.api.Test;
+import org.springframework.core.io.ClassPathResource;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -178,6 +180,91 @@ class FormulationServiceTest {
 
     private static FormulationService serviceWithWindowMinutes(long minutes) {
         return new FormulationService(null, null, null, minutes);
+    }
+
+    // ── Phase 6 D1.4: literature-known novelty cap ────────────────────────────
+
+    @Test
+    void d14CapsNoveltyWhenCorpusHasNonSentinelReference() {
+        FormulationService svc = serviceWithLiteratureCap(0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.95, "", "");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "MATHEMATICS", "Prime Constellation Search");
+
+        assertThat(out.score()).isEqualTo(0.4);
+        assertThat(out.coverageNote()).contains("literature-known").contains("Hardy");
+    }
+
+    @Test
+    void d14LeavesNoveltyAloneForSentinelInterdisciplinaryEntries() {
+        FormulationService svc = serviceWithLiteratureCap(0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.95, "", "");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "INTERDISCIPLINARY", "Collatz-RLC Depth Resonance");
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    @Test
+    void d14LeavesNoveltyAloneWhenCorpusHasNoEntry() {
+        FormulationService svc = serviceWithLiteratureCap(0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "prior", "hint");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "MATHEMATICS", "Some Unindexed Topic");
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    @Test
+    void d14DoesNotRaiseAlreadyLowScore() {
+        FormulationService svc = serviceWithLiteratureCap(0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.2, "", "");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "MATHEMATICS", "Prime Constellation Search");
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    @Test
+    void d14DisabledWhenLiteratureSearchNull() {
+        FormulationService svc = new FormulationService(null, null, null, 30, null, true, 0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "", "");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "MATHEMATICS", "Prime Constellation Search");
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    @Test
+    void d14DisabledWhenFlagOff() {
+        LiteratureSearchService corpus =
+                new LiteratureSearchService(new ClassPathResource("literature-corpus.yml"));
+        corpus.loadCorpus();
+        FormulationService svc = new FormulationService(null, null, null, 30, corpus, false, 0.4);
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "", "");
+
+        FormulationService.NoveltyAssessment out =
+                svc.applyLiteratureCap(in, "MATHEMATICS", "Prime Constellation Search");
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    private static FormulationService serviceWithLiteratureCap(double capScore) {
+        LiteratureSearchService corpus =
+                new LiteratureSearchService(new ClassPathResource("literature-corpus.yml"));
+        corpus.loadCorpus();
+        return new FormulationService(null, null, null, 30, corpus, true, capScore);
     }
 
     private static ResearchPaper paperWithDomainTopic(String domain, String topic, Instant publishedAt) {

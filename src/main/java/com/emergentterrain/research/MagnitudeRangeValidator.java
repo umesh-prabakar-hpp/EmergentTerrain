@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Phase 5 B2 — flag papers whose Findings contain magnitudes outside the
@@ -25,6 +27,69 @@ public final class MagnitudeRangeValidator {
      */
     public static List<String> validate(String domain, String topic, String findings) {
         return validate(TopicValidatorRegistry.defaultRegistry(), domain, topic, findings);
+    }
+
+    /**
+     * Phase 6 D1.5 (L2) — corpus-aware overload. After the registry pass, if no
+     * registry bound applied, consult the literature corpus for a structured
+     * (magnitudeMax, magnitudeUnit, magnitudeRegex) entry and apply that as a
+     * fallback bound. Lets operators add bounds via YAML without recompiling
+     * the registry.
+     */
+    public static List<String> validate(String domain, String topic, String findings,
+                                         LiteratureSearchService literature) {
+        List<String> reasons = validate(TopicValidatorRegistry.defaultRegistry(), domain, topic, findings);
+        if (!reasons.isEmpty() || literature == null || findings == null
+                || domain == null || topic == null) {
+            return reasons;
+        }
+        // Registry produced no violations — only fall back to corpus when the
+        // registry has *no* bound for this (domain, topic). Otherwise the
+        // registry's silence means "checked and clean", not "no opinion".
+        Optional<TopicValidatorRegistry.ValidatorSpec> regSpec =
+                TopicValidatorRegistry.defaultRegistry().findFor(domain, topic);
+        if (regSpec.isPresent() && regSpec.get().hasMagnitudeBound()) {
+            return reasons;
+        }
+        for (LiteratureReference r : literature.findFor(domain, topic)) {
+            if (!r.hasStructuredMagnitudeBound()) continue;
+            Pattern regex;
+            try {
+                regex = Pattern.compile(r.magnitudeRegex());
+            } catch (PatternSyntaxException e) {
+                continue;
+            }
+            Matcher m = regex.matcher(findings);
+            while (m.find()) {
+                if (m.groupCount() < 1) break;
+                double value;
+                try {
+                    value = Double.parseDouble(m.group(1));
+                } catch (NumberFormatException e) {
+                    continue;
+                }
+                if (value > r.magnitudeMax()) {
+                    reasons.add(String.format(
+                            "%s (observed %.0f %s, corpus bound %.0f %s): %s.",
+                            topic, value, r.magnitudeUnit(),
+                            r.magnitudeMax(), r.magnitudeUnit(),
+                            r.citation()));
+                    return reasons;
+                }
+            }
+        }
+        return reasons;
+    }
+
+    /**
+     * Phase 6 D1.5 — corpus-aware Map overload. Mirrors
+     * {@link #validate(String, String, java.util.Map)} but routes through the
+     * literature-corpus fallback when the registry has no bound.
+     */
+    public static List<String> validate(String domain, String topic,
+                                         java.util.Map<Integer, String> findingsMap,
+                                         LiteratureSearchService literature) {
+        return validate(domain, topic, joinBlocks(findingsMap), literature);
     }
 
     /**

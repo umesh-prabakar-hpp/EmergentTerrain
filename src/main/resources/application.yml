@@ -292,6 +292,13 @@ app:
     # ── Phase 6 — novelty levers ──
     literature-search:
       enabled: true        # Phase 6 D1.3 — professor stage sees curated literature block
+    # Phase 6 D1.4 — when the curated literature corpus has a non-sentinel reference for
+    # (domain, topic), cap novelty at `score` so the saturated-topic prompt branch fires
+    # and the bot frames as a replication rather than re-deriving textbook results.
+    # Sentinel entries (engine-constructed bridges) skip the cap.
+    literature-novelty-cap:
+      enabled: true
+      score: 0.4
     discussion-section:
       enabled: true        # Phase 6 D2 — first-pass narrator emits discussion + related_work sections
     # Phase 7 G9 — when two papers on the same (domain, topic) publish within this
@@ -323,8 +330,9 @@ app:
     # Phase 7 F2 — number of independent computation prose blocks the narrator
     # produces (NOT the number of MathPhysicsEngine compute() calls, which is
     # still driven by the refinement loop). Clamped to 1 when
-    # structured-findings.enabled=false. F4 will bump 2 → 3 → N after F2 soaks.
-    max-computations: 2
+    # structured-findings.enabled=false. Bumped 2 → 5 on 2026-05-13 (operator
+    # direction; skips the staged 2→3→4→5 ramp described in F4).
+    max-computations: 5
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

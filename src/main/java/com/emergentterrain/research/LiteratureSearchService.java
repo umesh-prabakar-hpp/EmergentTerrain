@@ -45,7 +45,7 @@ public class LiteratureSearchService {
     }
 
     @PostConstruct
-    void loadCorpus() {
+    public void loadCorpus() {
         try (InputStream in = corpusResource.getInputStream()) {
             Yaml yaml = new Yaml();
             Map<String, Object> root = yaml.load(in);
@@ -69,7 +69,10 @@ public class LiteratureSearchService {
                         str(m, "valid_region"),
                         str(m, "magnitude_estimate"),
                         str(m, "notes"),
-                        intOr(m, "priority", 0)));
+                        intOr(m, "priority", 0),
+                        doubleOrNull(m, "magnitude_max"),
+                        str(m, "magnitude_unit"),
+                        str(m, "magnitude_regex")));
             }
             this.references = List.copyOf(loaded);
             log.info("LiteratureSearchService: loaded {} reference(s) from {}",
@@ -132,6 +135,15 @@ public class LiteratureSearchService {
             try { return Integer.parseInt(s.trim()); } catch (NumberFormatException ignore) {}
         }
         return fallback;
+    }
+
+    private static Double doubleOrNull(Map<?, ?> m, String key) {
+        Object v = m.get(key);
+        if (v instanceof Number n) return n.doubleValue();
+        if (v instanceof String s) {
+            try { return Double.parseDouble(s.trim()); } catch (NumberFormatException ignore) {}
+        }
+        return null;
     }
 
     private static boolean equalsIgnoreCase(String a, String b) {

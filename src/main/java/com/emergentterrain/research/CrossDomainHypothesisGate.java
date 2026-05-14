@@ -33,6 +33,23 @@ public final class CrossDomainHypothesisGate {
 
     private CrossDomainHypothesisGate() {}
 
+    /**
+     * Phase 6 D1.6 (L3) — verbs/phrases that assert a physical / causal mechanism.
+     * On an INTERDISCIPLINARY topic whose corpus entry is a sentinel (no
+     * real-world bridge), any such claim is a pseudo-physical non-sequitur.
+     */
+    private static final List<Pattern> PHYSICAL_MECHANISM_MARKERS = compile(
+            "\\bcaus(e|es|ed|ing)\\b",
+            "\\bdriv(e|es|en|ing)\\b",
+            "\\binduc(e|es|ed|ing)\\b",
+            "\\bphysical\\s+mechanism\\b",
+            "\\bproduc(e|es|ed|ing)\\b",
+            "\\bdue\\s+to\\b",
+            "\\bresult(s|ed|ing)?\\s+in\\b",
+            "\\bmodulat(e|es|ed|ing)\\b",
+            "\\bcoupl(e|es|ed|ing)\\b",
+            "\\bgovern(s|ed|ing)?\\b");
+
     /** Markers that strongly indicate the hypothesis is talking about MATHEMATICS. */
     private static final List<Pattern> MATH_MARKERS = compile(
             "\\bprime\\s+gap\\b", "\\btwin\\s+prime\\b", "\\bprime\\s+constellation\\b",
@@ -92,6 +109,36 @@ public final class CrossDomainHypothesisGate {
             }).filter(s -> s != null);
         }
         return Optional.empty();
+    }
+
+    /**
+     * Phase 6 D1.6 (L3) — corpus-aware overload. Where the legacy
+     * {@link #validate(String, String)} exempts INTERDISCIPLINARY topics
+     * outright, this overload narrows the exemption: when the corpus entry for
+     * {@code (INTERDISCIPLINARY, topicName)} is a sentinel ({@code
+     * isEngineConstructed()}), any hypothesis verb asserting a physical
+     * mechanism (caused, drives, induces, …) is flagged as a pseudo-physical
+     * non-sequitur. Non-sentinel INTERDISCIPLINARY topics still pass; the
+     * legacy MATHEMATICS / MATERIALS / PHYSICS marker checks are unchanged.
+     *
+     * <p>Catches the P-a328-253 ("Happy-Number Density Modulating Binary
+     * Packing Efficiency") pattern flagged in REVIEW_REPORT.md §17.
+     */
+    public static Optional<String> validate(String declaredDomain, String topicName,
+                                             String hypothesis,
+                                             LiteratureSearchService literature) {
+        Optional<String> base = validate(declaredDomain, hypothesis);
+        if (base.isPresent()) return base;
+        if (literature == null || topicName == null || hypothesis == null) return Optional.empty();
+        if (!"INTERDISCIPLINARY".equalsIgnoreCase(declaredDomain)) return Optional.empty();
+        List<LiteratureReference> refs = literature.findFor(declaredDomain, topicName, 1);
+        if (refs.isEmpty()) return Optional.empty();
+        if (!refs.get(0).isEngineConstructed()) return Optional.empty();
+        return firstMatchingMarker(hypothesis, PHYSICAL_MECHANISM_MARKERS).map(matched ->
+                String.format(
+                        "INTERDISCIPLINARY topic '%s' is an engine-constructed bridge with no "
+                                + "documented physical mechanism, but hypothesis asserts '%s'.",
+                        topicName, matched));
     }
 
     private static Optional<String> firstMatchingMarker(String text, List<Pattern> markers) {

@@ -2,6 +2,8 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.research.BotGenome;
 import com.emergentterrain.research.BotLifecycleState;
+import com.emergentterrain.research.LiteratureReference;
+import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.PromptTemplateIds;
 import com.emergentterrain.research.PromptTemplateRegistry;
@@ -56,16 +58,41 @@ public class FormulationService {
     private final ObjectMapper objectMapper;
     private final PromptTemplateRegistry promptRegistry;
     private final long intraRoomNoveltyWindowMinutes;
+    private final LiteratureSearchService literatureSearch;
+    private final boolean literatureNoveltyCapEnabled;
+    private final double literatureNoveltyCapScore;
     private final Semaphore formulationSlot = new Semaphore(1);
 
     public FormulationService(LlmRouter router, ObjectMapper objectMapper,
                               PromptTemplateRegistry promptRegistry,
                               @Value("${app.research.intra-room-novelty-window-minutes:30}")
                               long intraRoomNoveltyWindowMinutes) {
+        this(router, objectMapper, promptRegistry, intraRoomNoveltyWindowMinutes,
+             null, false, 0.4);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public FormulationService(LlmRouter router, ObjectMapper objectMapper,
+                              PromptTemplateRegistry promptRegistry,
+                              @Value("${app.research.intra-room-novelty-window-minutes:30}")
+                              long intraRoomNoveltyWindowMinutes,
+                              @org.springframework.beans.factory.annotation.Autowired(required = false)
+                              LiteratureSearchService literatureSearch,
+                              @Value("${app.research.literature-novelty-cap.enabled:true}")
+                              boolean literatureNoveltyCapEnabled,
+                              @Value("${app.research.literature-novelty-cap.score:0.4}")
+                              double literatureNoveltyCapScore) {
         this.router                        = router;
         this.objectMapper                  = objectMapper;
         this.promptRegistry                = promptRegistry;
         this.intraRoomNoveltyWindowMinutes = intraRoomNoveltyWindowMinutes;
+        this.literatureSearch              = literatureSearch;
+        this.literatureNoveltyCapEnabled   = literatureNoveltyCapEnabled;
+        this.literatureNoveltyCapScore     = literatureNoveltyCapScore;
+        if (literatureNoveltyCapEnabled && literatureSearch == null) {
+            log.warn("FormulationService: app.research.literature-novelty-cap.enabled=true "
+                    + "but no LiteratureSearchService bean on the context; degrading to off");
+        }
     }
 
     /** Wire the formulation callback into UniversityService once the context is ready. */
@@ -289,7 +316,39 @@ public class FormulationService {
                 result = new NoveltyAssessment(1.0, "", "");
             }
         }
-        return applyIntraRoomSiblingPenalty(result, domain, topicName, papers);
+        return applyLiteratureCap(
+                applyIntraRoomSiblingPenalty(result, domain, topicName, papers),
+                domain, topicName);
+    }
+
+    /**
+     * Phase 6 D1.4 — when the curated literature corpus carries a non-sentinel
+     * reference for {@code (domain, topic)}, the topic has a textbook closed-form
+     * the bot would at best replicate. Cap novelty at {@link #literatureNoveltyCapScore}
+     * (default 0.4) so the saturated-topic prompt branch fires and the planner
+     * either reroutes or the bot frames the paper as an explicit replication.
+     * Sentinel entries (engine-constructed bridges) are skipped — those are
+     * the cross-domain gate's responsibility, not novelty's.
+     */
+    NoveltyAssessment applyLiteratureCap(NoveltyAssessment in, String domain, String topic) {
+        if (!literatureNoveltyCapEnabled || literatureSearch == null) return in;
+        List<LiteratureReference> refs = literatureSearch.findFor(domain, topic, 1);
+        if (refs.isEmpty()) return in;
+        LiteratureReference top = refs.get(0);
+        if (top.isEngineConstructed()) return in;
+        if (in.score() <= literatureNoveltyCapScore) return in;
+        String marker = "literature-known: " + abbreviate(top.citation(), 60);
+        String note = (in.coverageNote() == null || in.coverageNote().isBlank())
+                ? marker : in.coverageNote() + "; " + marker;
+        log.info("LLM novelty literature-cap applied domain={} topic={} priorScore={} cappedScore={} citation={}",
+                domain, topic, String.format("%.2f", in.score()),
+                String.format("%.2f", literatureNoveltyCapScore), top.citation());
+        return new NoveltyAssessment(literatureNoveltyCapScore, note, in.unexploredHint());
+    }
+
+    private static String abbreviate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max - 1) + "…";
     }
 
     /**

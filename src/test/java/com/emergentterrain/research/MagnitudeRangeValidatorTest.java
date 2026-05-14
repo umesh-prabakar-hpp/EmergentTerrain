@@ -130,4 +130,61 @@ class MagnitudeRangeValidatorTest {
                 "MATERIALS", "Composite Failure Mode", singleton);
         assertThat(mapReasons).isEqualTo(stringReasons);
     }
+
+    // ---- Phase 6 D1.5 (L2): corpus-fallback magnitude bound ----
+
+    @Test
+    void corpusFallbackFiresWhenRegistryHasNoBoundForTopic() {
+        // Binary Sphere Packing is a registry stub — no bound. The corpus carries
+        // structured magnitude_max=0.83 / unit=η / regex=peak η=([0-9.]+).
+        String findings = "Binary peak η=0.95 at r=0.41 — well above the Hudson 1949 envelope.";
+        LiteratureSearchService corpus = loadCorpus();
+        List<String> reasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Binary Sphere Packing", findings, corpus);
+        assertThat(reasons).isNotEmpty();
+        assertThat(reasons.get(0))
+                .contains("Binary Sphere Packing")
+                .contains("corpus bound")
+                .contains("Hudson");
+    }
+
+    @Test
+    void corpusFallbackPassesWhenValueWithinBound() {
+        String findings = "Binary peak η=0.79 at r=0.41 — matches Hudson 1949.";
+        LiteratureSearchService corpus = loadCorpus();
+        List<String> reasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Binary Sphere Packing", findings, corpus);
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void corpusFallbackSkippedWhenRegistryAlreadyHasBound() {
+        // Composite Failure Mode has a registry bound (3000 MPa). The corpus-aware
+        // overload must use the registry hit and ignore the corpus, even if the
+        // corpus would have produced a different reason string.
+        String prose = "Composite failure: Vf=90%→12020MPa.";
+        LiteratureSearchService corpus = loadCorpus();
+        List<String> reasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Composite Failure Mode", prose, corpus);
+        assertThat(reasons).hasSize(1);
+        assertThat(reasons.get(0))
+                .contains("3000")
+                .doesNotContain("corpus bound");
+    }
+
+    @Test
+    void corpusFallbackNullSafe() {
+        assertThat(MagnitudeRangeValidator.validate(
+                null, "T", "f", loadCorpus())).isEmpty();
+        assertThat(MagnitudeRangeValidator.validate(
+                "MATHEMATICS", "Prime Constellation Search", "no bound configured", null))
+                .isEmpty();
+    }
+
+    private static LiteratureSearchService loadCorpus() {
+        LiteratureSearchService svc = new LiteratureSearchService(
+                new org.springframework.core.io.ClassPathResource("literature-corpus.yml"));
+        svc.loadCorpus();
+        return svc;
+    }
 }

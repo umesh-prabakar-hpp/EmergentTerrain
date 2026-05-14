@@ -123,6 +123,20 @@ public class UniversityService {
     /** Tracks rooms whose in-memory cache has been seeded from the DB. */
     private final java.util.Set<UUID> hydratedRooms = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    /**
+     * Phase 6 D1.5 (L2) — optional. Injected via setter so the existing 30-arg
+     * constructor stays untouched. When non-null, the magnitude validator gains
+     * a corpus-fallback path: topics whose registry stub has no bound can ship
+     * one in {@code literature-corpus.yml} via {@code magnitude_max} +
+     * {@code magnitude_unit} + {@code magnitude_regex}.
+     */
+    private LiteratureSearchService literatureSearch;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setLiteratureSearch(LiteratureSearchService literatureSearch) {
+        this.literatureSearch = literatureSearch;
+    }
+
     // Optional callbacks set by LlmService — avoids circular Spring bean dependency
     private volatile java.util.function.BiConsumer<RoomBot, List<ResearchPaper>> mentoringCallback;
     private volatile java.util.function.Consumer<PaperDraft>                     narratingCallback;
@@ -473,7 +487,7 @@ public class UniversityService {
         // physically-reasonable range for their (domain, topic).
         // Phase 7 F2 — Map overload concatenates blocks before checking magnitudes.
         List<String> magnitudeFailures = magnitudeRangeEnabled
-                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findingsBlocks)
+                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findingsBlocks, literatureSearch)
                 : List.of();
         boolean magnitudeOutOfRange = !magnitudeFailures.isEmpty();
         if (magnitudeOutOfRange) {
@@ -499,7 +513,8 @@ public class UniversityService {
         // INTERDISCIPLINARY papers intentionally bridge math + materials/physics and
         // are skipped by the gate.
         java.util.Optional<String> crossDomainMismatch = crossDomainGateEnabled
-                ? CrossDomainHypothesisGate.validate(draft.domain(), hypothesis)
+                ? CrossDomainHypothesisGate.validate(draft.domain(), draft.topicName(),
+                        hypothesis, literatureSearch)
                 : java.util.Optional.empty();
         boolean crossDomainDrift = crossDomainMismatch.isPresent();
         if (crossDomainDrift) {
