@@ -60,4 +60,60 @@ public interface LlmPool {
      * </ul>
      */
     default String role() { return ""; }
+
+    // ── Phase 9 U1 — per-model entry points ───────────────────────────────
+    //
+    // These let the unified ModelRegistry target a specific model owned by
+    // this pool. Default implementations delegate to the model-less surface
+    // (callSync / callStream / callWithTools) for pools that only carry one
+    // model — single-model pools get the new contract for free.
+    //
+    // Pools with multiple models (Groq, NVIDIA, OpenRouter, future Ollama
+    // multi-model) override these to dispatch to the named model instead of
+    // letting their internal round-robin pick.
+
+    /**
+     * List of model IDs currently active in this pool. The registry uses this
+     * to enumerate {@code (pool, modelId)} tuples at construction. Default
+     * implementation returns {@link #selectedModels()} which falls back to a
+     * single-element list of {@link #selectedModel()}.
+     */
+    default List<String> modelIds() { return selectedModels(); }
+
+    /**
+     * True when this specific model has an active rate-limit / quota block.
+     * Default implementation maps the question onto the pool-wide
+     * {@link #allBlocked()} for pools that don't track per-model state.
+     */
+    default boolean isModelBlocked(String modelId) { return allBlocked(); }
+
+    /**
+     * Sync call targeting a specific model. Pools that own multiple models
+     * override to dispatch directly; single-model pools use the default which
+     * just forwards to {@link #callSync(String)}.
+     */
+    default String callSyncOnModel(String modelId, String prompt) {
+        return callSync(prompt);
+    }
+
+    /**
+     * Streaming call targeting a specific model. Same delegation rule as
+     * {@link #callSyncOnModel(String, String)}.
+     */
+    default void callStreamOnModel(String modelId, String prompt,
+                                    Consumer<String> tokenConsumer) {
+        callStream(prompt, tokenConsumer);
+    }
+
+    /**
+     * Tool-call targeting a specific model. Pools without tool support throw
+     * {@link UnsupportedOperationException}; pools with one tool-capable model
+     * forward to {@link #callWithTools(String, String, String, Function)};
+     * multi-model tool-capable pools override to dispatch on {@code modelId}.
+     */
+    default com.emergentterrain.llm.ToolCallResponse callWithToolsOnModel(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, Function<String, String> executor) {
+        return callWithTools(systemPrompt, userPrompt, toolsJson, executor);
+    }
 }

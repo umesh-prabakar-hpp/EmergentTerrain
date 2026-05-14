@@ -139,6 +139,40 @@ public class CerebrasPool implements LlmPool {
     @Override public boolean supportsTools()       { return true; }
     @Override public String role()                 { return role; }
 
+    // Phase 9 U1 — per-model entry points for the unified registry.
+
+    @Override public List<String> modelIds() { return activeModels; }
+
+    @Override public String callSyncOnModel(String modelId, String prompt) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("CerebrasPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try { return syncCallWithBackoff(modelId, prompt, maxTokens); }
+        finally { slots.release(); }
+    }
+
+    @Override public void callStreamOnModel(String modelId, String prompt,
+                                              Consumer<String> tokenConsumer) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("CerebrasPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try { streamCall(modelId, prompt, tokenConsumer); }
+        finally { slots.release(); }
+    }
+
+    @Override public com.emergentterrain.llm.ToolCallResponse callWithToolsOnModel(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, Function<String, String> executor) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("CerebrasPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try { return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor); }
+        finally { slots.release(); }
+    }
+
     @Override
     public boolean allBlocked() {
         if (activeModels.isEmpty()) return false;
@@ -463,7 +497,8 @@ public class CerebrasPool implements LlmPool {
         }
     }
 
-    private boolean isModelBlocked(String modelId) {
+    @Override
+    public boolean isModelBlocked(String modelId) {
         Long exp = rateLimitExpiry.get(modelId);
         return exp != null && System.currentTimeMillis() < exp;
     }

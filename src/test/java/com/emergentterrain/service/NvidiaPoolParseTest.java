@@ -101,6 +101,43 @@ class NvidiaPoolParseTest {
                 (k, v) -> true);
     }
 
+    @Test
+    void u1_modelIdsReturnsActiveModelsList() {
+        NvidiaPool pool = buildPool();
+        assertThat(pool.modelIds())
+                .contains("meta/llama-3.3-70b-instruct",
+                          "openai/gpt-oss-120b",
+                          "nvidia/nemotron-3-super-120b-a12b");
+    }
+
+    @Test
+    void u1_isModelBlockedReflectsRateLimitState() {
+        NvidiaPool pool = buildPool();
+        assertThat(pool.isModelBlocked("meta/llama-3.3-70b-instruct")).isFalse();
+        pool.handleErrorResponse("meta/llama-3.3-70b-instruct", 429, emptyHeaders(), "rate limit");
+        assertThat(pool.isModelBlocked("meta/llama-3.3-70b-instruct")).isTrue();
+        // Other models unaffected.
+        assertThat(pool.isModelBlocked("openai/gpt-oss-120b")).isFalse();
+    }
+
+    @Test
+    void u1_isModelBlockedTrueForPaidTierModels() {
+        NvidiaPool pool = buildPool();
+        String body = "Function 'x': Not found for account 'y'";
+        pool.handleErrorResponse("nvidia/nemotron-3-super-120b-a12b", 404, emptyHeaders(), body);
+        // Paid-tier blocks count as "blocked" for the registry's purpose.
+        assertThat(pool.isModelBlocked("nvidia/nemotron-3-super-120b-a12b")).isTrue();
+    }
+
+    @Test
+    void u1_callSyncOnModelRejectsUnknownModel() {
+        NvidiaPool pool = buildPool();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                pool.callSyncOnModel("nonexistent/model", "hello"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("nonexistent/model");
+    }
+
     private static long blockMsFor(NvidiaPool pool, String modelId, long baseMs) {
         @SuppressWarnings("unchecked")
         java.util.concurrent.ConcurrentHashMap<String, Long> expiry =

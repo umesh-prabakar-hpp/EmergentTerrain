@@ -174,6 +174,55 @@ public class GroqPool implements LlmPool {
     @Override public boolean supportsTools()       { return true; }
     @Override public boolean allBlocked()          { return allModelsTpdBlocked(); }
 
+    // Phase 9 U1 — per-model entry points so the unified registry can target
+    // a specific Groq model rather than letting our round-robin pick.
+
+    @Override public List<String> modelIds() { return activeModels; }
+
+    @Override public boolean isModelBlocked(String modelId) {
+        Long exp = tpdExpiry.get(modelId);
+        return exp != null && System.currentTimeMillis() < exp;
+    }
+
+    @Override public String callSyncOnModel(String modelId, String prompt) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try {
+            return syncCallWithBackoff(modelId, prompt, maxTokens);
+        } finally {
+            slots.release();
+        }
+    }
+
+    @Override public void callStreamOnModel(String modelId, String prompt,
+                                              java.util.function.Consumer<String> tokenConsumer) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try {
+            streamCall(modelId, prompt, tokenConsumer);
+        } finally {
+            slots.release();
+        }
+    }
+
+    @Override public com.emergentterrain.llm.ToolCallResponse callWithToolsOnModel(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, java.util.function.Function<String, String> executor) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException("GroqPool: unknown model=" + modelId);
+        }
+        acquireSlot();
+        try {
+            return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor);
+        } finally {
+            slots.release();
+        }
+    }
+
     /** True when every model in the active list has an unexpired TPD block. */
     public boolean allModelsTpdBlocked() {
         if (activeModels.isEmpty()) return false;
