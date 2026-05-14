@@ -262,7 +262,8 @@ public class ResearchNarrationService {
                 com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
                 activeNarrationPrimaryVersion(),
                 finalResult.discussion(), finalResult.relatedWork(),
-                List.copyOf(auditGapDimensions));
+                List.copyOf(auditGapDimensions),
+                finalResult.toolCallTrace());
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -354,6 +355,10 @@ public class ResearchNarrationService {
     private NarrationResult maybeCritiqueAndReviseWithTools(PaperDraft draft, NarrationResult firstPass,
                                                              List<String> callPath,
                                                              List<String> auditGapDimensions) {
+        // Phase 7 F5.3 — accumulates tool-call trace from the professor stage so it
+        // can be stamped onto whichever NarrationResult this function ultimately
+        // returns. Stays empty if the professor stage never ran or failed early.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> profTrace = java.util.List.of();
         try {
             // Phase 1 — Quality audit (fast Ollama): identify gaps before professor is invoked
             String auditSummary = runQualityAudit(draft, firstPass, callPath, auditGapDimensions);
@@ -382,12 +387,14 @@ public class ResearchNarrationService {
             // claim was actually computed or hand-waved after the sandbox denied the
             // narrator's code attempts.
             MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
-            // Phase 7 F5.2 — router returns full ToolCallResponse; trace is unused
-            // here until F5.3 wires it into NarrationResult.
             com.emergentterrain.llm.ToolCallResponse profResponse = router.callPrimaryWithTools(
                     systemPrompt, userPrompt, toolsJson,
                     toolSuite.buildExecutor(draft, metrics));
             String professorSynthesis = profResponse.synthesis();
+            // Phase 7 F5.3 — capture trace immediately so subsequent return paths
+            // (gate closed, parse failed, exception) can still stamp the trace
+            // onto the returned NarrationResult.
+            profTrace = profResponse.trace();
             if (metrics.sandboxRejectCount() > 0) {
                 callPath.add("sandbox_reject=" + metrics.sandboxRejectCount());
             }
@@ -406,7 +413,7 @@ public class ResearchNarrationService {
             // synthesis is already complete and the tokens already spent; suppress
             // only the revision stream, keep firstPass as the published narrative.
             if (gateClosed("revision", draft, callPath)) {
-                return firstPass;
+                return firstPass.withToolCallTrace(profTrace);
             }
 
             // Phase 3 — Student revision incorporating professor's findings
@@ -449,7 +456,8 @@ public class ResearchNarrationService {
                         hypothesis, findings, conclusion,
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds(),
-                        null, List.of(), List.of(), null, null, discussion, relatedWork);
+                        null, List.of(), List.of(), null, null, discussion, relatedWork)
+                        .withToolCallTrace(profTrace);
             }
             callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
@@ -464,7 +472,9 @@ public class ResearchNarrationService {
             log.warn("LLM professor tools path failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
-        return firstPass;
+        // Phase 7 F5.3 — stamp whatever trace accumulated before the failure so
+        // the partial professor work survives in the audit record.
+        return firstPass.withToolCallTrace(profTrace);
     }
 
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
@@ -1574,7 +1584,7 @@ public class ResearchNarrationService {
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
                     null, List.copyOf(typedCitations), List.copyOf(formalFindings),
-                    null, null, discussion, relatedWork, null);
+                    null, null, discussion, relatedWork, null, null);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());

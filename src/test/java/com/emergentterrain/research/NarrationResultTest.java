@@ -43,7 +43,7 @@ class NarrationResultTest {
         NarrationResult r = new NarrationResult(
                 "H", m, "C", null, "ai",
                 0.5, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         assertThat(r.findingsMap()).containsExactlyEntriesOf(m);
         // findings() concatenates in ascending key order regardless of insertion.
         assertThat(r.findings()).isEqualTo("first.\n\nsecond.");
@@ -54,7 +54,7 @@ class NarrationResultTest {
         NarrationResult r = new NarrationResult(
                 "H", Map.<Integer, String>of(), "C", null, "ai",
                 0.5, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         assertThat(r.findings()).isNull();
     }
 
@@ -79,7 +79,7 @@ class NarrationResultTest {
         NarrationResult original = new NarrationResult(
                 "H", m, "C", null, "ai",
                 0.5, List.of(), null, List.of(), List.of(),
-                null, null, null, null, null);
+                null, null, null, null, null, null);
         NarrationResult stamped = original.withTemplateProvenance("tpl", "v3");
         assertThat(stamped.findingsMap()).containsExactlyEntriesOf(m);
         assertThat(stamped.templateId()).isEqualTo("tpl");

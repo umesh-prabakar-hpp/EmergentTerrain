@@ -50,7 +50,14 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
                                String discussion, String relatedWork,
                                /* Phase 7 G8 — audit-4b dimension names that fired on this paper.
                                   Empty list = audit clean / didn't run. Null treated as empty. */
-                               List<String> auditGapDimensions) {
+                               List<String> auditGapDimensions,
+                               /* Phase 7 F5.3 — agentic tool-call trace from the professor stage.
+                                  Tier 2 of F5's provenance scheme. Empty list = professor stage
+                                  used the JSON-path (no tool calls) or didn't run. Null treated
+                                  as empty. Stamped onto the result via
+                                  {@link #withToolCallTrace(List)} at the call site that ran the
+                                  tool loop. */
+                               List<com.emergentterrain.llm.ToolInvocation> toolCallTrace) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
@@ -105,7 +112,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         this(hypothesis, wrapSingle(findings), conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations,
                 formalFindings, templateId, templateVersion, discussion, relatedWork,
-                auditGapDimensions);
+                auditGapDimensions, null);
     }
 
     /** 14-arg backward-compatible — null auditGapDimensions. */
@@ -173,21 +180,32 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
     public NarrationResult withTemplateProvenance(String templateId, String templateVersion) {
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
     public NarrationResult withDiscussionAndRelatedWork(String discussion, String relatedWork) {
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace);
     }
 
     /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
     public NarrationResult withAuditGapDimensions(List<String> auditGapDimensions) {
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
-                templateId, templateVersion, discussion, relatedWork, auditGapDimensions);
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace);
+    }
+
+    /** Phase 7 F5.3 — return a copy with the agentic tool-call trace stamped on. */
+    public NarrationResult withToolCallTrace(List<com.emergentterrain.llm.ToolInvocation> trace) {
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                trace);
     }
 
     /**
