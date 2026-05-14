@@ -103,7 +103,7 @@ class NumericalConsistencyValidatorTest {
     @Test
     void nullSectionsReturnEmptyReasonList() {
         assertThat(NumericalConsistencyValidator.validate(null, "f", "c")).isEmpty();
-        assertThat(NumericalConsistencyValidator.validate("h", null, "c")).isEmpty();
+        assertThat(NumericalConsistencyValidator.validate("h", (String) null, "c")).isEmpty();
         assertThat(NumericalConsistencyValidator.validate("h", "f", null)).isEmpty();
     }
 

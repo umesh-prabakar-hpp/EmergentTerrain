@@ -50,6 +50,16 @@ public final class TopicSpecificFindingsValidator {
     private static final Pattern ARRHENIUS_SCIENTIFIC_NOTATION = Pattern.compile(
             "[0-9]+(?:\\.[0-9]+)?\\s*[×x]\\s*10\\^?[0-9]+");
 
+    /**
+     * Phase 7 F2 — structured-findings overload. Operates on the concatenation of
+     * every block's prose — every per-topic anti-pattern is a regex match, so the
+     * map and the joined String produce identical reason lists.
+     */
+    public static List<String> validate(String domain, String topicName,
+                                         java.util.Map<Integer, String> findingsMap) {
+        return validate(domain, topicName, MagnitudeRangeValidator.joinBlocks(findingsMap));
+    }
+
     public static List<String> validate(String domain, String topicName, String findings) {
         if (findings == null || findings.isBlank() || topicName == null) return List.of();
         List<String> reasons = new ArrayList<>();

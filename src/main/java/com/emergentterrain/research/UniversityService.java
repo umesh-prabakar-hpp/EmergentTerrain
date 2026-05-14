@@ -440,8 +440,10 @@ public class UniversityService {
         // Phase 7 G6 — topic-specific findings prose checks (RLC R_c boilerplate,
         // Thermal-Stress "yield strength" mis-label, Arrhenius scientific notation).
         // Maps to NEEDS_REVISION (fixable in revision), not REJECTED (structural defect).
+        // Phase 7 F2 — the Map overload operates on the concatenation of all blocks,
+        // semantically equivalent to passing the joined `findings` string.
         List<String> topicSpecificFailures = topicSpecificFindingsValidatorEnabled
-                ? TopicSpecificFindingsValidator.validate(draft.domain(), draft.topicName(), findings)
+                ? TopicSpecificFindingsValidator.validate(draft.domain(), draft.topicName(), findingsBlocks)
                 : List.of();
         boolean topicSpecificMismatch = !topicSpecificFailures.isEmpty();
         if (topicSpecificMismatch) {
@@ -451,8 +453,9 @@ public class UniversityService {
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
+        // Phase 7 F2 — Map overload concatenates blocks before running the checks.
         List<String> consistencyFailures = numericalConsistencyEnabled
-                ? NumericalConsistencyValidator.validate(hypothesis, findings, conclusion)
+                ? NumericalConsistencyValidator.validate(hypothesis, findingsBlocks, conclusion)
                 : List.of();
         boolean numericallyInconsistent = !consistencyFailures.isEmpty();
         if (numericallyInconsistent) {
@@ -461,8 +464,9 @@ public class UniversityService {
         }
         // Phase 5 B2 — flag papers whose findings contain magnitudes outside the
         // physically-reasonable range for their (domain, topic).
+        // Phase 7 F2 — Map overload concatenates blocks before checking magnitudes.
         List<String> magnitudeFailures = magnitudeRangeEnabled
-                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findings)
+                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findingsBlocks)
                 : List.of();
         boolean magnitudeOutOfRange = !magnitudeFailures.isEmpty();
         if (magnitudeOutOfRange) {
@@ -472,9 +476,10 @@ public class UniversityService {
         // Phase 5 B3 — flag near-byte-identical reruns. A clone that cites the
         // prior is allowed (the cross-paper-citation behaviour the corpus needs);
         // an uncited clone publishes as NEEDS_REVISION.
+        // Phase 7 F2 — Map overload concatenates blocks before fingerprinting.
         List<String> cloneIds = dedupEnabled
                 ? ContentHashDeduplicator.findClones(draft.domain(), draft.topicName(),
-                        findings, roomPapers(draft.roomId()))
+                        findingsBlocks, roomPapers(draft.roomId()))
                 : List.of();
         List<String> cited = narration.citedPaperIds() != null ? narration.citedPaperIds() : List.of();
         boolean uncitedClone = !cloneIds.isEmpty()

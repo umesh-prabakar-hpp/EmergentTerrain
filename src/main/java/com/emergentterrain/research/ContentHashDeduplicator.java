@@ -117,6 +117,17 @@ public final class ContentHashDeduplicator {
      * NEEDS_REVISION; whether the prior was peer-reviewed is irrelevant to
      * "is this paper repeating findings already in the room."
      */
+    /**
+     * Phase 7 F2 — structured-findings overload. Operates on the concatenation of
+     * every block's prose — fingerprinting and Jaccard tokenisation see the same
+     * tokens they would have seen for today's joined String layout.
+     */
+    public static List<String> findClones(String domain, String topic,
+                                           java.util.Map<Integer, String> findingsMap,
+                                           List<ResearchPaper> roomPapers) {
+        return findClones(domain, topic, MagnitudeRangeValidator.joinBlocks(findingsMap), roomPapers);
+    }
+
     public static List<String> findClones(String domain, String topic, String findings,
                                            List<ResearchPaper> roomPapers) {
         String fp = fingerprint(domain, topic, findings);

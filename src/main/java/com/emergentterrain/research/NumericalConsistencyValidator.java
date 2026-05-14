@@ -86,6 +86,18 @@ public final class NumericalConsistencyValidator {
     }
 
     /**
+     * Phase 7 F2 — structured-findings overload. Operates on the concatenation of
+     * every block's prose — semantically equivalent to {@link #validate(String,
+     * String, String)} on the joined String. Null / empty map degrades to a null
+     * findings, which the String overload short-circuits.
+     */
+    public static List<String> validate(String hypothesis,
+                                         java.util.Map<Integer, String> findingsMap,
+                                         String conclusion) {
+        return validate(hypothesis, MagnitudeRangeValidator.joinBlocks(findingsMap), conclusion);
+    }
+
+    /**
      * For each "close to N" / "approximately N" anchor in the Conclusion, look at
      * numeric tokens in the surrounding Findings section. If none lands within
      * ±20% of N, flag a "claim-vs-data" inconsistency.

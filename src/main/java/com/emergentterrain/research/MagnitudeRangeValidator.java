@@ -27,6 +27,32 @@ public final class MagnitudeRangeValidator {
         return validate(TopicValidatorRegistry.defaultRegistry(), domain, topic, findings);
     }
 
+    /**
+     * Phase 7 F2 — structured-findings overload. Operates on the concatenation of
+     * every block's prose — semantically equivalent to {@link #validate(String,
+     * String, String)} on the joined String. Null / empty map degrades to a null
+     * findings, which the String overload short-circuits.
+     */
+    public static List<String> validate(String domain, String topic,
+                                         java.util.Map<Integer, String> findingsMap) {
+        return validate(domain, topic, joinBlocks(findingsMap));
+    }
+
+    /** Phase 7 F2 — join helper that mirrors the publish-path join semantics. */
+    static String joinBlocks(java.util.Map<Integer, String> findingsMap) {
+        if (findingsMap == null || findingsMap.isEmpty()) return null;
+        if (findingsMap.size() == 1) {
+            return findingsMap.values().iterator().next();
+        }
+        StringBuilder sb = new StringBuilder();
+        new java.util.TreeMap<>(findingsMap).forEach((k, v) -> {
+            if (v == null || v.isBlank()) return;
+            if (sb.length() > 0) sb.append("\n\n");
+            sb.append(v);
+        });
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
     /** Test/DI seam — same behaviour, registry passed in explicitly. */
     public static List<String> validate(TopicValidatorRegistry registry,
                                          String domain, String topic, String findings) {

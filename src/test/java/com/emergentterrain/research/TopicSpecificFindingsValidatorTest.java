@@ -103,7 +103,7 @@ class TopicSpecificFindingsValidatorTest {
 
     @Test
     void nullAndBlankFindingsReturnEmpty() {
-        assertThat(TopicSpecificFindingsValidator.validate("PHYSICS", "RLC", null)).isEmpty();
+        assertThat(TopicSpecificFindingsValidator.validate("PHYSICS", "RLC", (String) null)).isEmpty();
         assertThat(TopicSpecificFindingsValidator.validate("PHYSICS", "RLC", "")).isEmpty();
         assertThat(TopicSpecificFindingsValidator.validate("PHYSICS", "RLC", "   ")).isEmpty();
     }

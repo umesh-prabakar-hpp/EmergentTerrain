@@ -81,7 +81,7 @@ class MagnitudeRangeValidatorTest {
     void nullArgumentsReturnEmptyReasonList() {
         assertThat(MagnitudeRangeValidator.validate(null, "T", "f")).isEmpty();
         assertThat(MagnitudeRangeValidator.validate("D", null, "f")).isEmpty();
-        assertThat(MagnitudeRangeValidator.validate("D", "T", null)).isEmpty();
+        assertThat(MagnitudeRangeValidator.validate("D", "T", (String) null)).isEmpty();
     }
 
     @Test
@@ -101,5 +101,33 @@ class MagnitudeRangeValidatorTest {
         List<String> reasons = MagnitudeRangeValidator.validate(
                 "MATERIALS", "Thermal Stress Safety Window", findings);
         assertThat(reasons).isEmpty();
+    }
+
+    // ---- Phase 7 F2: Map-shaped overload concatenates blocks ----
+
+    @Test
+    void mapOverloadConcatenatesBlocksBeforeChecking() {
+        // The offending magnitude appears in computation 2; the Map overload
+        // must concatenate before applying the regex so the bound fires.
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "First block — modest 800 MPa stress, all fine.");
+        blocks.put(2, "Second block: Vf=90%→12020MPa, an unphysical value.");
+        List<String> reasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Composite Failure Mode", blocks);
+        assertThat(reasons).isNotEmpty();
+        assertThat(reasons.get(0)).contains("12020");
+    }
+
+    @Test
+    void mapOverloadOnSingleEntryMapBehavesIdenticallyToStringPath() {
+        // Flag-off bit-identical: a single-entry map carrying the legacy prose
+        // produces the same reason list as the legacy String overload.
+        String prose = "Composite failure (...): Vf=80%→9620MPa Vf=90%→12020MPa.";
+        java.util.Map<Integer, String> singleton = java.util.Map.of(1, prose);
+        List<String> stringReasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Composite Failure Mode", prose);
+        List<String> mapReasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Composite Failure Mode", singleton);
+        assertThat(mapReasons).isEqualTo(stringReasons);
     }
 }
