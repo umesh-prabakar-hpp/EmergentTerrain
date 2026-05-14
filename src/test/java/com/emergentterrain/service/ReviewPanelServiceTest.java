@@ -145,11 +145,52 @@ class ReviewPanelServiceTest {
     }
 
     @Test
+    void u3a_panelSizeCapsTheNumberOfReviewers() {
+        // Six healthy providers registered; panel.size=2 should pick the first 2.
+        FakePool a = panelistReturning("a", cleanReviewJson(0.8));
+        FakePool b = panelistReturning("b", cleanReviewJson(0.7));
+        FakePool c = panelistReturning("c", cleanReviewJson(0.6));
+        FakePool d = panelistReturning("d", cleanReviewJson(0.5));
+        FakePool e = panelistReturning("e", cleanReviewJson(0.4));
+        FakePool f = panelistReturning("f", cleanReviewJson(0.3));
+
+        ReviewPanelService svc = build(true, "*", /*panelSize*/ 2, a, b, c, d, e, f);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.reviewerCount()).isEqualTo(2);
+        // First two in registration order are a + b — pure availability picking.
+        assertThat(a.syncCallCount.get()).isEqualTo(1);
+        assertThat(b.syncCallCount.get()).isEqualTo(1);
+        assertThat(c.syncCallCount.get()).isEqualTo(0);
+    }
+
+    @Test
+    void u3a_panelSkipsHandlesBlockedAtTheRegistryLevel() {
+        // Three providers — middle one is blocked in the registry view. The
+        // panel skips it and reaches the third.
+        FakePool a = panelistReturning("a", cleanReviewJson(0.8));
+        FakePool b = panelistReturning("b", cleanReviewJson(0.7));
+        b.isBlocked = true;
+        FakePool c = panelistReturning("c", cleanReviewJson(0.6));
+
+        ReviewPanelService svc = build(true, "*", /*panelSize*/ 4, a, b, c);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        // 2 reviewers (a + c); b skipped at availability filter.
+        assertThat(outcome.reviewerCount()).isEqualTo(2);
+        assertThat(b.syncCallCount.get()).isEqualTo(0);
+    }
+
+    @Test
     void unknownProvidersInConfigAreSilentlySkipped() {
         // Configured providers: groq, missing — only groq has a registered pool.
+        // Phase 9 U3a: panelSize is now the CONFIGURED target (cap), not the
+        // resolved-pool count. What matters is that runPanel only returns the
+        // groq reviewer; the "missing" entry in the filter just doesn't match
+        // any registry handle.
         FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
         ReviewPanelService svc = build("groq,missing", groq);
-        assertThat(svc.panelSize()).isEqualTo(1);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+        assertThat(outcome.reviewerCount()).isEqualTo(1);
+        assertThat(outcome.reviews().get(0).reviewerId()).startsWith("groq/");
     }
 
     // ---- Helpers ----
@@ -175,10 +216,15 @@ class ReviewPanelServiceTest {
     }
 
     private static ReviewPanelService build(String providersCsv, FakePool... pools) {
-        return build(true, providersCsv, pools);
+        return build(true, providersCsv, ReviewPanelService.DEFAULT_PANEL_SIZE, pools);
     }
 
     private static ReviewPanelService build(boolean enabled, String providersCsv, FakePool... pools) {
+        return build(enabled, providersCsv, ReviewPanelService.DEFAULT_PANEL_SIZE, pools);
+    }
+
+    private static ReviewPanelService build(boolean enabled, String providersCsv, int panelSize,
+                                              FakePool... pools) {
         GenericApplicationContext ctx = new GenericApplicationContext();
         DefaultListableBeanFactory bf = ctx.getDefaultListableBeanFactory();
         for (FakePool p : pools) {
@@ -188,10 +234,12 @@ class ReviewPanelServiceTest {
             bf.registerBeanDefinition(p.providerKey + "Pool", def);
         }
         ctx.refresh();
-        PromptTemplateRegistry registry = new PromptTemplateRegistry();
-        registry.seedDefaults();
+        PrimaryModelRegistry primaryRegistry = new PrimaryModelRegistry(ctx);
+        PromptTemplateRegistry promptRegistry = new PromptTemplateRegistry();
+        promptRegistry.seedDefaults();
         ObjectMapper mapper = new ObjectMapper();
-        return new ReviewPanelService(ctx, registry, mapper, enabled, providersCsv);
+        return new ReviewPanelService(primaryRegistry, promptRegistry, mapper,
+                enabled, providersCsv, panelSize);
     }
 
     private static PaperDraft draftFixture() {
@@ -226,6 +274,8 @@ class ReviewPanelServiceTest {
         /** Records the value of {@code sharedOrder} at the moment this pool was first invoked. */
         final AtomicInteger invocationOrder = new AtomicInteger(-1);
         RuntimeException throwOnSync;
+        /** Phase 9 U3a — flips isModelBlocked so the registry's availability filter excludes this fake. */
+        boolean isBlocked;
 
         FakePool(String providerKey, List<String> scriptedResponses) {
             this.providerKey = providerKey;
@@ -250,5 +300,10 @@ class ReviewPanelServiceTest {
         @Override public int backendCount()      { return 1; }
         @Override public int healthyCount()      { return 1; }
         @Override public String providerKey()    { return providerKey; }
+        // Phase 9 U3a — FakePool participates in the PrimaryModelRegistry so the
+        // panel can find it. Single model id ("model-<provider>") forwards to the
+        // existing callSync via the LlmPool default callSyncOnModel.
+        @Override public boolean supportsTools() { return true; }
+        @Override public boolean isModelBlocked(String modelId) { return isBlocked; }
     }
 }

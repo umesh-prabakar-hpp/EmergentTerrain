@@ -345,9 +345,17 @@ app:
     # panel — papers without a trace publish bit-identically to pre-F7.2.
     #
     # Operator direction (2026-05-14): default ON across all four providers.
+    #
+    # Phase 9 U3a (2026-05-14): the panel picks from the PrimaryModelRegistry's
+    # aggregated 70B+ model list rather than from per-provider pools. `size` caps
+    # the number of reviewers per panel — with ~10 models in the registry across
+    # 4 providers, 4 keeps cost bounded while giving cross-vendor representation
+    # when all providers are healthy. `providers` filters the registry to the
+    # opt-in providers; "*" allows every primary provider.
     review-panel:
       enabled: true
       providers: "groq,nvidia,openrouter,cerebras"
+      size: 4
     # Phase 7 F7.3 — when on, SUPPORTED papers whose panel surfaced the
     # cherry_picked_evidence audit-gap dimension (>=2 reviewers agreed the LLM
     # omitted a relevant tool result) publish as REJECTED rather than PUBLISHED.
