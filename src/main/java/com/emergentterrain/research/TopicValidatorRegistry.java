@@ -280,6 +280,29 @@ public class TopicValidatorRegistry {
                         "Z-factor departure |1−Z| > 1 is beyond corresponding-states "
                                 + "applicability; near the critical point a fuller EOS is required"));
 
+        // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL bounds (generic across planets).
+        register(new TopicKey("ARCHITECTURE_TERRESTRIAL", "Beam Deflection Under Self Weight"),
+                bound(Pattern.compile("δ/L=([0-9]+(?:\\.[0-9]+)?)"), 0.05, "ratio",
+                        "Beam self-weight deflection ratio δ/L > 0.05 (i.e. > L/20) is "
+                                + "structurally untenable on any planetary surface"));
+        register(new TopicKey("ARCHITECTURE_TERRESTRIAL", "Atmospheric Wind Load Pressure"),
+                bound(Pattern.compile("q=([0-9]+(?:\\.[0-9]+)?)Pa"), 100_000.0, "Pa",
+                        "Wind load q > 100 kPa exceeds any reasonable facade design across "
+                                + "any atmospheric regime — Venus-surface hurricane is the upper "
+                                + "envelope"));
+        register(new TopicKey("ARCHITECTURE_TERRESTRIAL", "Foundation Bearing Capacity"),
+                bound(Pattern.compile("q_u=([0-9]+(?:\\.[0-9]+)?)kPa"), 100_000.0, "kPa",
+                        "Terzaghi bearing capacity > 100 MPa lies beyond any soil regime and "
+                                + "approaches bedrock yield; flag as either bedrock or model failure"));
+        register(new TopicKey("ARCHITECTURE_TERRESTRIAL", "Thermal Mass Time Lag"),
+                bound(Pattern.compile("τ=([0-9]+(?:\\.[0-9]+)?)h"), 100.0, "h",
+                        "Thermal time-lag > 100 hours suggests the convective coefficient "
+                                + "model has broken down (very thin atmosphere or near-vacuum)"));
+        register(new TopicKey("ARCHITECTURE_TERRESTRIAL", "Daylight Factor at Window Aperture"),
+                bound(Pattern.compile("DF=([0-9]+(?:\\.[0-9]+)?)%"), 100.0, "%",
+                        "Daylight factor > 100% is impossible — internal illuminance cannot "
+                                + "exceed external sky illuminance for purely passive apertures"));
+
         // Phase 7 FX.1 — BIOLOGY bounds.
         register(new TopicKey("BIOLOGY", "Verhulst Logistic Growth"),
                 bound(Pattern.compile("N=([0-9]+(?:\\.[0-9]+)?)"), 1.0e9, "individuals",

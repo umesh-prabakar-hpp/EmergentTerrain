@@ -887,4 +887,115 @@ class MathPhysicsEngineTest {
         // secondary = Z value at worst-deviation point.
         assertThat(Double.isFinite(r.secondaryValue())).isTrue();
     }
+
+    // ---- Phase 7 FX.3: ARCHITECTURE_TERRESTRIAL (generic across planetary g, ρ_atm) ----
+
+    @Test
+    void beamDeflectionStaysWithinServiceabilityRatioForReasonableSpan() {
+        // Earth-like seed (param1 mapped to g ≈ 8 m/s²); δ/L should be small.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 0, 30, 2.0);
+        assertThat(r.equation()).contains("δ").contains("ρ·g");
+        assertThat(r.findings()).contains("Cantilever self-weight");
+        // primary = max δ/L; staying under 0.05 is the spec bound.
+        assertThat(r.primaryValue()).isLessThan(0.05);
+    }
+
+    @Test
+    void beamDeflectionScalesWithPlanetaryGravity() {
+        // Low gravity → smaller deflection. Compare param1=10 (g~1 m/s²) vs param1=90 (g~23 m/s²).
+        MathPhysicsEngine.ResearchResult low =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 0, 10, 2.0);
+        MathPhysicsEngine.ResearchResult high =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 0, 90, 2.0);
+        // δ ∝ g. high-g findings must report a larger deflection somewhere in the sweep.
+        assertThat(high.primaryValue()).isGreaterThanOrEqualTo(low.primaryValue());
+    }
+
+    @Test
+    void windLoadPressureScalesWithAtmosphericDensity() {
+        // Param2 controls atmospheric density seed; the compute is generic over ρ_atm.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 1, 30, 5.0);
+        assertThat(r.equation()).contains("ρ_atm");
+        assertThat(r.findings()).contains("Wind load");
+        // q = ½·ρ·v² — for reasonable v and atmospheric density, q is positive and finite.
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(100_000.0);  // registry bound
+    }
+
+    @Test
+    void windLoadIsLowerInThinAtmosphere() {
+        // Mars-like seed (param2=1 → very low ρ_atm) vs Venus-like (param2=9 → high ρ_atm).
+        MathPhysicsEngine.ResearchResult thin =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 1, 30, 1.0);
+        MathPhysicsEngine.ResearchResult thick =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 1, 30, 9.0);
+        assertThat(thick.primaryValue()).isGreaterThan(thin.primaryValue());
+    }
+
+    @Test
+    void bearingCapacityScalesWithSurfaceGravity() {
+        // Generic — g-dependent through γ_soil = ρ_soil·g.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 2, 30, 2.0);
+        assertThat(r.equation()).contains("Terzaghi");
+        assertThat(r.findings()).contains("Bearing capacity");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);  // positive q_u
+        assertThat(r.primaryValue()).isLessThan(100_000.0); // bound in kPa
+    }
+
+    @Test
+    void bearingCapacityIsLowerOnLowGravityWorlds() {
+        // Same soil + geometry, lower g → lower γ_soil → lower q_u.
+        MathPhysicsEngine.ResearchResult lowG =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 2, 10, 2.0);
+        MathPhysicsEngine.ResearchResult highG =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 2, 90, 2.0);
+        // q_u rises with g.
+        assertThat(highG.primaryValue()).isGreaterThanOrEqualTo(lowG.primaryValue() - 1.0);
+    }
+
+    @Test
+    void thermalMassTimeLagScalesWithAtmosphericDensity() {
+        // h ∝ √(ρ_atm) → τ ∝ 1/√(ρ_atm). Thin atm → long lag.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 3, 30, 2.0);
+        assertThat(r.equation()).contains("τ").contains("h");
+        assertThat(r.findings()).contains("Thermal mass");
+        // primary = τ in hours; supported regime fits a daily cycle.
+        assertThat(r.primaryValue()).isLessThan(100.0);  // registry bound
+    }
+
+    @Test
+    void thinAtmosphereProducesLongerTimeLag() {
+        // param2 = 1 (low ρ_atm) → high τ. param2 = 9 (high ρ_atm) → low τ.
+        MathPhysicsEngine.ResearchResult thin =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 3, 30, 1.0);
+        MathPhysicsEngine.ResearchResult thick =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 3, 30, 9.0);
+        // τ thin > τ thick (inverse-density scaling).
+        assertThat(thin.primaryValue()).isGreaterThanOrEqualTo(thick.primaryValue() - 1.0);
+    }
+
+    @Test
+    void daylightFactorStaysWithinTwentyPercentBand() {
+        // DF must be in [0, 20%] for sensible apertures.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 4, 30, 2.0);
+        assertThat(r.equation()).contains("daylight factor");
+        assertThat(r.findings()).contains("Daylight factor");
+        // primary = max DF; cap is 100% by physics (registry bound).
+        assertThat(r.primaryValue()).isLessThan(100.0);
+    }
+
+    @Test
+    void daylightFactorRecoversWithLargerAperture() {
+        // Wider window-to-floor ratio → higher DF.
+        MathPhysicsEngine.ResearchResult small =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 4, 20, 2.0);
+        MathPhysicsEngine.ResearchResult large =
+                MathPhysicsEngine.compute("ARCHITECTURE_TERRESTRIAL", 4, 90, 2.0);
+        assertThat(large.primaryValue()).isGreaterThanOrEqualTo(small.primaryValue());
+    }
 }

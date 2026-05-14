@@ -239,6 +239,17 @@ public class MathPhysicsEngine {
             "Real-Gas Z-Factor"
     };
 
+    /** FX.3 — ARCHITECTURE_TERRESTRIAL: structures on any planetary surface. Generic
+     *  over gravity g and atmospheric density ρ_atm; NO Earth-specific constants in
+     *  the compute methods. */
+    private static final String[] ARCHITECTURE_TERRESTRIAL_TOPICS = {
+            "Beam Deflection Under Self Weight",
+            "Atmospheric Wind Load Pressure",
+            "Foundation Bearing Capacity",
+            "Thermal Mass Time Lag",
+            "Daylight Factor at Window Aperture"
+    };
+
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
@@ -310,6 +321,15 @@ public class MathPhysicsEngine {
             {"Compressibility Factor Z for Real Gases vs Ideal-Gas Baseline",         "Pitzer-Curl Z-Factor Recovery Across Reduced-State Coordinates"}
     };
 
+    // ---- Phase 7 FX.3 ARCHITECTURE_TERRESTRIAL titles (generic across planets) ----
+    private static final String[][] ARCHITECTURE_TERRESTRIAL_TITLES = {
+            {"Cantilever Beam Deflection Under Self-Weight Across Gravity Regimes",   "Maximum Span Limit Where Self-Weight Deflection Stays Within Tolerance"},
+            {"Wind Load on Vertical Facades Across Atmospheric Densities",            "Drag-Pressure Sensitivity to Local Atmospheric Composition"},
+            {"Terzaghi Bearing Capacity Under Variable Surface Gravity",              "Foundation Sizing for Structures on Low-g Terrestrial Bodies"},
+            {"Thermal Mass Time-Lag for Building Envelopes Across Climates",          "Convective-Coefficient Sensitivity of Wall Equilibration Times"},
+            {"Daylight-Factor Tradeoff Between Aperture Area and Sky Visibility",     "Internal Illuminance as a Fraction of External Sky Conditions"}
+    };
+
     // ---- Public API ----
 
     /** Primary entry point: genome-driven search via SearchParams. */
@@ -325,6 +345,8 @@ public class MathPhysicsEngine {
             case "BIOLOGY"           -> computeBiology(t, param1, param2, sp);
             // Phase 7 FX.2 — CHEMISTRY.
             case "CHEMISTRY"         -> computeChemistry(t, param1, param2, sp);
+            // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL (generic across planetary g + atmosphere).
+            case "ARCHITECTURE_TERRESTRIAL" -> computeArchTerrestrial(t, param1, param2, sp);
             default                  -> computeMath(t, param1, param2, sp);
         };
     }
@@ -344,6 +366,7 @@ public class MathPhysicsEngine {
             // Phase 7 FX — new domains beyond the original 4.
             case "BIOLOGY"           -> BIOLOGY_TOPICS.length;
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS.length;
+            case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS.length;
             default                  -> MATH_TOPICS.length;
         };
     }
@@ -456,6 +479,12 @@ public class MathPhysicsEngine {
             case "CHEMISTRY:2"       -> 0.05;    // Beer-Lambert ε recovery deviation (~0.005-0.10)
             case "CHEMISTRY:3"       -> 0.3;     // Equilibrium Kc drift across T (~0.05-0.5)
             case "CHEMISTRY:4"       -> 0.1;     // Z-factor |1 − Z| (~0.01-0.20)
+            // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL topics (generic over g, ρ_atm).
+            case "ARCHITECTURE_TERRESTRIAL:0" -> 0.1;    // beam deflection ratio δ/L (~0.001-0.10)
+            case "ARCHITECTURE_TERRESTRIAL:1" -> 5000.0; // wind pressure in Pa (~10-10000)
+            case "ARCHITECTURE_TERRESTRIAL:2" -> 500.0;  // bearing capacity kPa (~10-2000)
+            case "ARCHITECTURE_TERRESTRIAL:3" -> 12.0;   // thermal time-lag hours (~1-24)
+            case "ARCHITECTURE_TERRESTRIAL:4" -> 5.0;    // daylight factor % (~0.5-20)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -489,6 +518,7 @@ public class MathPhysicsEngine {
             // Phase 7 FX — new domains.
             case "BIOLOGY"           -> BIOLOGY_TOPICS;
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS;
+            case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS;
             default                  -> MATH_TOPICS;
         };
     }
@@ -501,6 +531,7 @@ public class MathPhysicsEngine {
             // Phase 7 FX — new domains.
             case "BIOLOGY"           -> BIOLOGY_TITLES;
             case "CHEMISTRY"         -> CHEMISTRY_TITLES;
+            case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TITLES;
             default                  -> MATH_TITLES;
         };
         String[] row = table[Math.floorMod(topicIndex, table.length)];
@@ -2073,6 +2104,14 @@ public class MathPhysicsEngine {
                 case 3 -> "Kc = Π [products]^ν / Π [reactants]^ν   (equilibrium constant)";
                 default -> "Z = (P · V_m) / (R · T)   (compressibility factor; Z=1 for ideal gas)";
             };
+            // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL (generic over planetary g + atmosphere).
+            case "ARCHITECTURE_TERRESTRIAL" -> switch (t) {
+                case 0 -> "δ = (ρ·g·A·L⁴)/(8·E·I)   (cantilever self-weight deflection; ρ density, g surface gravity)";
+                case 1 -> "q = ½·ρ_atm·v²   (dynamic wind pressure; ρ_atm planet-specific atmospheric density)";
+                case 2 -> "q_u = c·N_c + γ_soil·D·N_q + 0.5·γ_soil·B·N_γ   (Terzaghi bearing capacity; γ_soil = ρ_soil·g)";
+                case 3 -> "τ = (ρ·c_p·V)/(h·A)   (thermal mass time-lag; h surface heat-transfer coefficient)";
+                default -> "DF = (E_internal / E_external)·100%   (daylight factor; window-area fraction of sky-visible aperture)";
+            };
             default -> null;
         };
     }
@@ -2849,6 +2888,219 @@ public class MathPhysicsEngine {
                 .withHypothesis(("Across reduced states sampled near (Tr=%.2f, Pr=%.2f), the Pitzer-Curl "
                         + "compressibility factor Z = 1 + B₀·Pr/Tr captures real-gas departure with |1−Z| ≤ 0.5.")
                         .formatted(seedTr, seedPr));
+    }
+
+    // ---- Phase 7 FX.3: ARCHITECTURE_TERRESTRIAL ----
+    // ALL methods generic over surface gravity g and atmospheric density ρ_atm.
+    // No Earth-anchored constants in the compute logic. Param mapping:
+    //   param1 → primary structural parameter (length, mass, etc.)
+    //   param2 → environment scaling (gravity multiplier, atmospheric density multiplier)
+    // The seed environment is Earth-like only because it's a familiar reference; the
+    // sweep covers regimes from Mars-low (~0.38·g_E, ~0.02·ρ_E) to Venus-high (~0.91·g_E,
+    // ~65·ρ_E) so a single bot can publish findings about structures on any planet.
+
+    private static ResearchResult computeArchTerrestrial(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("ARCHITECTURE_TERRESTRIAL", topic);
+        // Environment seed: g in [1, 25] m/s², ρ_atm in [0.01, 70] kg/m³.
+        double gSeed   = 0.5 + (param1 / 99.0) * 25.0;
+        double rhoSeed = 0.01 + (param2 / 9.0) * 70.0;
+        return switch (topic) {
+            case 0 -> beamDeflectionSelfWeight(gSeed, sp).withEquation(eq);
+            case 1 -> windLoadPressure(rhoSeed, sp).withEquation(eq);
+            case 2 -> bearingCapacityTerzaghi(gSeed, sp).withEquation(eq);
+            case 3 -> thermalMassTimeLag(rhoSeed, sp).withEquation(eq);
+            default -> daylightFactor(param1, sp).withEquation(eq);
+        };
+    }
+
+    /** Cantilever self-weight deflection: δ = (ρ·g·A·L⁴)/(8·E·I). */
+    private static ResearchResult beamDeflectionSelfWeight(double gSeed, SearchParams sp) {
+        // Steel reference: ρ=7850 kg/m³, E=200 GPa, I/A·L² ≈ 1/12 for a rectangular cross-section.
+        double rho = 7850.0;
+        double E = 200e9;
+        double width = 0.2;       // m
+        double height = 0.4;      // m
+        double I = (width * Math.pow(height, 3)) / 12.0;
+        double A = width * height;
+        double bestRatio = 0;
+        double bestL = 0;
+        double bestG = gSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double g = Math.max(0.2, gSeed + Math.sin(i * 0.31) * 5.0);
+            double L = 2.0 + i * sp.stepSize() * 0.5;
+            double delta = (rho * g * A * Math.pow(L, 4)) / (8.0 * E * I);
+            double ratio = delta / L;
+            samples++;
+            if (ratio > bestRatio) { bestRatio = ratio; bestL = L; bestG = g; }
+            if (i < 4) sb.append("L=%.1fm,g=%.2fm/s²→δ/L=%.4f ".formatted(L, g, ratio));
+        }
+        ClaimStatus status = bestRatio < 0.005 ? ClaimStatus.SUPPORTED
+                : bestRatio < 0.01 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Self-weight beam deflection: max δ/L=%.4f at L=%.1f m under g=%.2f m/s². %s")
+                .formatted(bestRatio, bestL, bestG,
+                        bestRatio < 0.005 ? "deflection within standard L/200 building tolerance"
+                                : bestRatio < 0.01 ? "borderline tolerance (L/100)"
+                                        : "deflection exceeds L/100 — beam too long for this gravity regime");
+        return new ResearchResult(
+                "Cantilever self-weight (ρ=%.0f kg/m³, E=%.0e Pa, A=%.3f m², I=%.3e m⁴, %d samples): max δ/L=%.4f at L=%.1f m, g=%.2f m/s². Sample: %s"
+                        .formatted(rho, E, A, I, samples, bestRatio, bestL, bestG, sb.toString().trim()),
+                bestRatio, bestL, bestG, bestRatio, status, assessment)
+                .withHypothesis(("For a steel cantilever swept over lengths starting at 2 m on a planetary surface "
+                        + "with g≈%.2f m/s², the self-weight deflection δ/L = (ρ·g·A·L³)/(8·E·I) stays below the "
+                        + "standard L/200 serviceability limit while length remains under a critical L_c that "
+                        + "scales as g^(−1/3).")
+                        .formatted(gSeed));
+    }
+
+    /** Atmospheric wind load: q = ½·ρ_atm·v². */
+    private static ResearchResult windLoadPressure(double rhoAtmSeed, SearchParams sp) {
+        double bestPressure = 0;
+        double bestV = 0;
+        double bestRho = rhoAtmSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double rhoAtm = Math.max(0.001, rhoAtmSeed + Math.sin(i * 0.27) * 5.0);
+            double v = 5.0 + i * sp.stepSize() * 3.0;  // m/s, light breeze to hurricane
+            double q = 0.5 * rhoAtm * v * v;
+            samples++;
+            if (q > bestPressure) { bestPressure = q; bestV = v; bestRho = rhoAtm; }
+            if (i < 4) sb.append("ρ_atm=%.2fkg/m³,v=%.1fm/s→q=%.1fPa ".formatted(rhoAtm, v, q));
+        }
+        // Spec bound: q ≤ 10 kPa even at hurricane wind on Venus-like atmosphere is the
+        // limit of conventional facade design.
+        boolean physical = bestPressure <= 10_000.0;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestPressure > 500.0 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Wind load: max q=%.1f Pa at v=%.1f m/s, ρ_atm=%.2f kg/m³. %s")
+                .formatted(bestPressure, bestV, bestRho,
+                        !physical ? "q > 10 kPa exceeds conventional facade design loads"
+                                : bestPressure > 500.0 ? "design-relevant facade loading"
+                                        : "low-pressure regime — minor facade design driver");
+        return new ResearchResult(
+                "Wind load (%d samples): max q=%.1f Pa at v=%.1f m/s, ρ_atm=%.2f kg/m³. Sample: %s"
+                        .formatted(samples, bestPressure, bestV, bestRho, sb.toString().trim()),
+                bestPressure, bestV, bestRho, bestPressure, status, assessment)
+                .withHypothesis(("For a vertical facade exposed to local atmospheric density ρ_atm≈%.2f kg/m³ "
+                        + "with wind velocities swept from 5 m/s upward, the design pressure q=½·ρ_atm·v² scales "
+                        + "as v² and remains below conventional 10 kPa facade limits across the sampled regime.")
+                        .formatted(rhoAtmSeed));
+    }
+
+    /** Terzaghi bearing capacity: q_u = c·N_c + γ_soil·D·N_q + 0.5·γ_soil·B·N_γ. */
+    private static ResearchResult bearingCapacityTerzaghi(double gSeed, SearchParams sp) {
+        double cohesion = 20_000.0;  // Pa, cohesive soil
+        double rhoSoil = 1900.0;      // kg/m³
+        double Nc = 17.7, Nq = 7.4, Ngamma = 5.0;  // friction angle 20° coefficients
+        double maxQ = 0;
+        double bestB = 1.0;
+        double bestG = gSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double g = Math.max(0.5, gSeed + Math.sin(i * 0.23) * 3.0);
+            double gammaSoil = rhoSoil * g;
+            double D = 1.0 + i * sp.stepSize() * 0.5;
+            double B = 1.0 + i * sp.stepSize() * 0.5;
+            double q_u = cohesion * Nc + gammaSoil * D * Nq + 0.5 * gammaSoil * B * Ngamma;
+            double q_kPa = q_u / 1000.0;
+            samples++;
+            if (q_kPa > maxQ) { maxQ = q_kPa; bestB = B; bestG = g; }
+            if (i < 4) sb.append("g=%.2f,B=%.1fm→q_u=%.0fkPa ".formatted(g, B, q_kPa));
+        }
+        ClaimStatus status = maxQ < 2000 ? ClaimStatus.SUPPORTED
+                : maxQ < 5000 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Terzaghi bearing: max q_u=%.0f kPa at B=%.1f m, g=%.2f m/s². %s")
+                .formatted(maxQ, bestB, bestG,
+                        maxQ < 2000 ? "bearing within standard cohesive-soil design envelope"
+                                : maxQ < 5000 ? "high-capacity foundation regime"
+                                        : "capacity > 5 MPa — bedrock or unusual soil");
+        return new ResearchResult(
+                "Bearing capacity (c=%.0f Pa, ρ_soil=%.0f kg/m³, %d samples): max q_u=%.0f kPa at B=%.1f m, g=%.2f m/s². Sample: %s"
+                        .formatted(cohesion, rhoSoil, samples, maxQ, bestB, bestG, sb.toString().trim()),
+                maxQ, bestB, bestG, maxQ, status, assessment)
+                .withHypothesis(("For a strip foundation in cohesive soil (c=%.0f Pa, ρ_soil=%.0f kg/m³) on a "
+                        + "planetary surface with g≈%.2f m/s², the Terzaghi bearing capacity q_u "
+                        + "scales linearly with g via γ_soil = ρ_soil·g, giving lower-g worlds proportionally "
+                        + "weaker shallow foundations.")
+                        .formatted(cohesion, rhoSoil, gSeed));
+    }
+
+    /** Thermal mass time-lag: τ = (ρ·c_p·V)/(h·A). */
+    private static ResearchResult thermalMassTimeLag(double rhoAtmSeed, SearchParams sp) {
+        double rho = 2400.0;       // kg/m³, concrete
+        double cp = 880.0;         // J/(kg·K), concrete
+        // h scales with atmospheric density via natural convection:
+        // h ≈ k·(ρ_atm)^0.5 across realistic regimes.
+        double thickness = 0.2;    // m
+        double V_per_A = thickness;   // V/A = thickness for a slab
+        double maxTau = 0;
+        double bestThickness = thickness;
+        double bestRho = rhoAtmSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double t_wall = Math.max(0.05, thickness + i * sp.stepSize() * 0.05);
+            double rhoAtm = Math.max(0.001, rhoAtmSeed + Math.sin(i * 0.29) * 5.0);
+            double h = 5.0 * Math.sqrt(rhoAtm);  // W/(m²·K), heuristic
+            double tau = (rho * cp * t_wall) / Math.max(0.1, h);
+            double tauHours = tau / 3600.0;
+            samples++;
+            if (tauHours > maxTau) { maxTau = tauHours; bestThickness = t_wall; bestRho = rhoAtm; }
+            if (i < 4) sb.append("t=%.2fm,ρ_atm=%.2f→τ=%.1fh ".formatted(t_wall, rhoAtm, tauHours));
+        }
+        ClaimStatus status = maxTau < 24 ? ClaimStatus.SUPPORTED
+                : maxTau < 48 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Thermal mass τ: max τ=%.1f h at t=%.2f m, ρ_atm=%.2f kg/m³. %s")
+                .formatted(maxTau, bestThickness, bestRho,
+                        maxTau < 24 ? "diurnal time-lag fits a daily cycle"
+                                : maxTau < 48 ? "multi-day lag — thick wall in thin atmosphere"
+                                        : "unrealistic τ > 48 h — recheck h-coefficient model");
+        return new ResearchResult(
+                "Thermal mass (ρ=%.0f kg/m³, c_p=%.0f J/kg·K, %d samples): max τ=%.1f h at t=%.2f m, ρ_atm=%.2f kg/m³. Sample: %s"
+                        .formatted(rho, cp, samples, maxTau, bestThickness, bestRho, sb.toString().trim()),
+                maxTau, bestThickness, bestRho, maxTau, status, assessment)
+                .withHypothesis(("For a concrete wall with thickness swept from 0.2 m exposed to atmospheric "
+                        + "density ρ_atm≈%.2f kg/m³, the thermal time-lag τ=(ρ·c_p·V)/(h·A) scales as 1/√ρ_atm "
+                        + "through the convective coefficient, so thinner atmospheres produce longer lags.")
+                        .formatted(rhoAtmSeed));
+    }
+
+    /** Daylight factor: DF = (E_internal / E_external)·100. */
+    private static ResearchResult daylightFactor(int param1, SearchParams sp) {
+        // Internal illuminance proportional to (window area · sky visibility · transmittance).
+        double tau = 0.7;            // glazing transmittance
+        double maxDF = 0;
+        double bestRatio = 0;
+        double bestSky = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double windowToFloor = 0.05 + (param1 / 99.0) * 0.3 + i * sp.stepSize() * 0.02;
+            double skyVisibility = 0.3 + i * sp.stepSize() * 0.1;
+            double DF = windowToFloor * skyVisibility * tau * 100.0;
+            samples++;
+            if (DF > maxDF) { maxDF = DF; bestRatio = windowToFloor; bestSky = skyVisibility; }
+            if (i < 4) sb.append("WFR=%.2f,sky=%.2f→DF=%.2f%% ".formatted(windowToFloor, skyVisibility, DF));
+        }
+        ClaimStatus status = maxDF >= 2 && maxDF <= 20 ? ClaimStatus.SUPPORTED
+                : maxDF < 2 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Daylight factor: max DF=%.2f%% at WFR=%.2f, sky=%.2f. %s")
+                .formatted(maxDF, bestRatio, bestSky,
+                        maxDF >= 2 && maxDF <= 20 ? "DF in the 2–20% useful-daylight band"
+                                : maxDF < 2 ? "DF < 2% — under-lit"
+                                        : "DF > 20% — overheating risk dominant");
+        return new ResearchResult(
+                "Daylight factor (transmittance=%.2f, %d samples): max DF=%.2f%% at WFR=%.2f, sky-vis=%.2f. Sample: %s"
+                        .formatted(tau, samples, maxDF, bestRatio, bestSky, sb.toString().trim()),
+                maxDF, bestRatio, bestSky, maxDF, status, assessment)
+                .withHypothesis(("For window-to-floor ratios swept around %.2f with sky visibility ranging from "
+                        + "0.3 to 1.0, the daylight factor DF=(E_internal/E_external)·100 lands in the standard "
+                        + "2–20%% useful-daylight band; this holds independent of planetary latitude or "
+                        + "atmospheric scattering regime as long as the external illuminance is non-zero.")
+                        .formatted(0.05 + (param1 / 99.0) * 0.3));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----
