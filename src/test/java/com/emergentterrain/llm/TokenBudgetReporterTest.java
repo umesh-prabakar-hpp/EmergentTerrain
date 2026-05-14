@@ -1,7 +1,11 @@
 package com.emergentterrain.llm;
 
+import com.emergentterrain.service.LlmPool;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -29,7 +33,7 @@ class TokenBudgetReporterTest {
         groq.setMinuteLimit(100);
         props.getProviders().put("groq", groq);
 
-        reporter = new TokenBudgetReporter(accountant, props, null, 60_000L);
+        reporter = new TokenBudgetReporter(accountant, props, null, 60_000L, List.of());
     }
 
     @Test
@@ -122,5 +126,75 @@ class TokenBudgetReporterTest {
         assertThat(fields).contains("min=20/100");
         assertThat(fields).contains("minRemaining=75");
         assertThat(fields).contains("burnRatePerMin=20");
+    }
+
+    // ── Phase 7 E4: per-provider ranked-model surfacing ──────────────────────
+
+    @Test
+    void e4RankedModelsAppearInSnapshotWhenPoolIsWired() {
+        LlmPool groqPool = new StubPool("groq",
+                List.of("openai/gpt-oss-120b", "llama-3.3-70b-versatile"));
+        TokenBudgetReporter r = new TokenBudgetReporter(
+                accountant, props, null, 60_000L, List.of(groqPool));
+
+        when(accountant.dailyTotal("groq")).thenReturn(100L);
+        when(accountant.minuteTotal("groq")).thenReturn(5L);
+        TokenBudgetReporter.ProviderSnapshot s = r.snapshot("groq");
+        assertThat(s.rankedModels()).containsExactly("openai/gpt-oss-120b", "llama-3.3-70b-versatile");
+        assertThat(s.toLogFields()).contains("models=");
+        assertThat(s.toLogFields()).contains("openai/gpt-oss-120b");
+    }
+
+    @Test
+    void e4LogFieldsOmitModelsKeyWhenNoPoolIsWired() {
+        when(accountant.dailyTotal("groq")).thenReturn(100L);
+        when(accountant.minuteTotal("groq")).thenReturn(5L);
+        TokenBudgetReporter.ProviderSnapshot s = reporter.snapshot("groq");
+        assertThat(s.rankedModels()).isEmpty();
+        assertThat(s.toLogFields()).doesNotContain("models=");
+    }
+
+    @Test
+    void e4SelectedModelsExceptionFallsBackToEmptyList() {
+        LlmPool throwingPool = new LlmPool() {
+            @Override public String callSync(String prompt) { return ""; }
+            @Override public void callStream(String prompt, Consumer<String> c) {}
+            @Override public String selectedModel() { return "x"; }
+            @Override public List<String> selectedModels() {
+                throw new RuntimeException("simulated pool startup failure");
+            }
+            @Override public int backendCount() { return 0; }
+            @Override public int healthyCount() { return 0; }
+            @Override public String providerKey() { return "groq"; }
+        };
+        TokenBudgetReporter r = new TokenBudgetReporter(
+                accountant, props, null, 60_000L, List.of(throwingPool));
+
+        when(accountant.dailyTotal("groq")).thenReturn(100L);
+        when(accountant.minuteTotal("groq")).thenReturn(5L);
+        TokenBudgetReporter.ProviderSnapshot s = r.snapshot("groq");
+        assertThat(s.rankedModels()).isEmpty();
+    }
+
+    @Test
+    void e4UnknownProviderStillReportsEmptyModelsList() {
+        TokenBudgetReporter.ProviderSnapshot s = reporter.snapshot("anthropic-not-configured");
+        assertThat(s.rankedModels()).isEmpty();
+    }
+
+    private static final class StubPool implements LlmPool {
+        private final String providerKey;
+        private final List<String> models;
+        StubPool(String providerKey, List<String> models) {
+            this.providerKey = providerKey;
+            this.models = models;
+        }
+        @Override public String callSync(String prompt) { return ""; }
+        @Override public void callStream(String prompt, Consumer<String> consumer) {}
+        @Override public String selectedModel() { return models.isEmpty() ? "" : models.get(0); }
+        @Override public List<String> selectedModels() { return models; }
+        @Override public int backendCount() { return models.size(); }
+        @Override public int healthyCount() { return models.size(); }
+        @Override public String providerKey() { return providerKey; }
     }
 }

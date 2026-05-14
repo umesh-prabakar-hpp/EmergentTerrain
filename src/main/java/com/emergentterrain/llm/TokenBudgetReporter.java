@@ -1,5 +1,6 @@
 package com.emergentterrain.llm;
 
+import com.emergentterrain.service.LlmPool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -8,7 +9,10 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Periodic heartbeat that prints the current token-budget picture so an operator
@@ -38,17 +42,26 @@ public class TokenBudgetReporter {
     private final TokenAccountant accountant;
     private final TokenBudgetProperties props;
     private final SimulationGate gate;
+    private final Map<String, LlmPool> poolsByProvider;
 
     @Autowired
     public TokenBudgetReporter(TokenAccountant accountant,
                                 TokenBudgetProperties props,
                                 @Autowired(required = false) SimulationGate gate,
-                                @Value("${app.tokens.reportIntervalMs:60000}") long intervalMs) {
+                                @Value("${app.tokens.reportIntervalMs:60000}") long intervalMs,
+                                @Autowired(required = false) List<LlmPool> pools) {
         this.accountant = accountant;
         this.props      = props;
         this.gate       = gate;
-        log.info("TokenBudgetReporter: initialized intervalMs={} providers={}",
-                intervalMs, props.getProviders().keySet());
+        // Phase 7 E4 — index pools by stable providerKey so the heartbeat can
+        // print each provider's ranked model list alongside the budget signal.
+        // First-registered wins on duplicate keys; absent in unit-test contexts.
+        this.poolsByProvider = pools == null ? Map.of()
+                : pools.stream().collect(Collectors.toMap(
+                        LlmPool::providerKey, Function.identity(),
+                        (a, b) -> a, LinkedHashMap::new));
+        log.info("TokenBudgetReporter: initialized intervalMs={} providers={} pools={}",
+                intervalMs, props.getProviders().keySet(), poolsByProvider.keySet());
     }
 
     @Scheduled(fixedDelayString = "${app.tokens.reportIntervalMs:60000}")
@@ -71,8 +84,9 @@ public class TokenBudgetReporter {
      */
     public ProviderSnapshot snapshot(String provider) {
         TokenBudgetProperties.Provider limits = props.getProviders().get(provider);
+        List<String> rankedModels = rankedModelsFor(provider);
         if (limits == null) {
-            return new ProviderSnapshot(provider, 0, 0, 0, 0, 0, 0, 0, null, false);
+            return new ProviderSnapshot(provider, 0, 0, 0, 0, 0, 0, 0, null, false, rankedModels);
         }
         long dailyTotal  = accountant.dailyTotal(provider);
         long minuteTotal = accountant.minuteTotal(provider);
@@ -106,7 +120,21 @@ public class TokenBudgetReporter {
                 minuteTotal, limits.getMinuteLimit(), minuteRemaining,
                 minuteTotal,
                 etaToPauseSec,
-                pauseLikely);
+                pauseLikely,
+                rankedModels);
+    }
+
+    private List<String> rankedModelsFor(String provider) {
+        LlmPool pool = poolsByProvider.get(provider);
+        if (pool == null) return List.of();
+        try {
+            List<String> models = pool.selectedModels();
+            return models == null ? List.of() : List.copyOf(models);
+        } catch (RuntimeException e) {
+            log.debug("TokenBudgetReporter: selectedModels() threw for provider={}: {}",
+                    provider, e.toString());
+            return List.of();
+        }
     }
 
     /**
@@ -120,7 +148,8 @@ public class TokenBudgetReporter {
             long minuteTotal,  long minuteLimit,  long minuteRemainingBeforePause,
             long burnRatePerMin,
             Long etaToPauseSec,
-            boolean pauseLikely) {
+            boolean pauseLikely,
+            List<String> rankedModels) {
 
         String toLogFields() {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -130,6 +159,9 @@ public class TokenBudgetReporter {
             m.put("minRemaining", minuteRemainingBeforePause < 0 ? "unmetered" : minuteRemainingBeforePause);
             m.put("burnRatePerMin", burnRatePerMin);
             m.put("etaToPauseSec", etaToPauseSec == null ? "n/a" : etaToPauseSec);
+            if (rankedModels != null && !rankedModels.isEmpty()) {
+                m.put("models", rankedModels);
+            }
             return m.toString();
         }
     }
