@@ -12,12 +12,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Semaphore;
@@ -52,13 +55,17 @@ public class FormulationService {
     private final LlmRouter router;
     private final ObjectMapper objectMapper;
     private final PromptTemplateRegistry promptRegistry;
+    private final long intraRoomNoveltyWindowMinutes;
     private final Semaphore formulationSlot = new Semaphore(1);
 
     public FormulationService(LlmRouter router, ObjectMapper objectMapper,
-                              PromptTemplateRegistry promptRegistry) {
-        this.router         = router;
-        this.objectMapper   = objectMapper;
-        this.promptRegistry = promptRegistry;
+                              PromptTemplateRegistry promptRegistry,
+                              @Value("${app.research.intra-room-novelty-window-minutes:30}")
+                              long intraRoomNoveltyWindowMinutes) {
+        this.router                        = router;
+        this.objectMapper                  = objectMapper;
+        this.promptRegistry                = promptRegistry;
+        this.intraRoomNoveltyWindowMinutes = intraRoomNoveltyWindowMinutes;
     }
 
     /** Wire the formulation callback into UniversityService once the context is ready. */
@@ -266,19 +273,48 @@ public class FormulationService {
         long count = papers.stream()
                 .filter(p -> p.domain().equalsIgnoreCase(domain) && p.topic().equalsIgnoreCase(topicName))
                 .count();
-        if (count < 3) return new NoveltyAssessment(1.0, "", "");
-        try {
-            long start = System.currentTimeMillis();
-            String response = router.callFast(buildNoveltyPrompt(domain, topicName, papers, count));
-            NoveltyAssessment result = parseNoveltyAssessment(response);
-            log.info("LLM novelty check done domain={} topic={} score={} saturated={} ms={}",
-                    domain, topicName, String.format("%.2f", result.score()),
-                    result.isSaturated(), System.currentTimeMillis() - start);
-            return result;
-        } catch (Exception e) {
-            log.warn("LLM novelty check failed domain={} topic={}: {}", domain, topicName, e.getMessage());
-            return new NoveltyAssessment(1.0, "", "");
+        NoveltyAssessment result;
+        if (count < 3) {
+            result = new NoveltyAssessment(1.0, "", "");
+        } else {
+            try {
+                long start = System.currentTimeMillis();
+                String response = router.callFast(buildNoveltyPrompt(domain, topicName, papers, count));
+                result = parseNoveltyAssessment(response);
+                log.info("LLM novelty check done domain={} topic={} score={} saturated={} ms={}",
+                        domain, topicName, String.format("%.2f", result.score()),
+                        result.isSaturated(), System.currentTimeMillis() - start);
+            } catch (Exception e) {
+                log.warn("LLM novelty check failed domain={} topic={}: {}", domain, topicName, e.getMessage());
+                result = new NoveltyAssessment(1.0, "", "");
+            }
         }
+        return applyIntraRoomSiblingPenalty(result, domain, topicName, papers);
+    }
+
+    /**
+     * Phase 7 G9 — dock novelty by 0.5 when a same-{@code (domain, topic)} paper
+     * was published within {@code intraRoomNoveltyWindowMinutes}. Stops parallel
+     * formulation runs from each scoring as high-novelty because neither sibling
+     * was visible to the other at formulation time (P-260 / P-265 Goldbach
+     * cluster in refresh #6 published within 8 min of each other). Disabled
+     * by setting the window to 0.
+     */
+    NoveltyAssessment applyIntraRoomSiblingPenalty(
+            NoveltyAssessment in, String domain, String topicName, List<ResearchPaper> papers) {
+        if (intraRoomNoveltyWindowMinutes <= 0) return in;
+        Instant cutoff = Instant.now().minus(Duration.ofMinutes(intraRoomNoveltyWindowMinutes));
+        boolean hasRecentSibling = papers.stream()
+                .filter(p -> p.domain().equalsIgnoreCase(domain) && p.topic().equalsIgnoreCase(topicName))
+                .anyMatch(p -> p.publishedAt() != null && p.publishedAt().isAfter(cutoff));
+        if (!hasRecentSibling) return in;
+        double dockedScore = Math.max(0.0, in.score() - 0.5);
+        String marker = "intra-room sibling within " + intraRoomNoveltyWindowMinutes + "min";
+        String note = (in.coverageNote() == null || in.coverageNote().isBlank())
+                ? marker : in.coverageNote() + "; " + marker;
+        log.info("LLM novelty intra-room sibling penalty applied domain={} topic={} priorScore={} dockedScore={}",
+                domain, topicName, String.format("%.2f", in.score()), String.format("%.2f", dockedScore));
+        return new NoveltyAssessment(dockedScore, note, in.unexploredHint());
     }
 
     private String buildNoveltyPrompt(String domain, String topicName,

@@ -2,9 +2,13 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.ResearchIdentity;
+import com.emergentterrain.research.ResearchPaper;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -94,5 +98,95 @@ class FormulationServiceTest {
         String hint = FormulationService.identityHint(id);
 
         assertThat(hint).contains("methodology=THEORETICAL");
+    }
+
+    // ── Phase 7 G9: intra-room sibling novelty penalty ──────────────────────
+
+    @Test
+    void g9DocksNoveltyByHalfWhenRecentSiblingExists() {
+        FormulationService svc = serviceWithWindowMinutes(30);
+        ResearchPaper recent = paperWithDomainTopic("MATHEMATICS", "Goldbach Density",
+                Instant.now().minus(8, ChronoUnit.MINUTES));
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "", "");
+
+        FormulationService.NoveltyAssessment out = svc.applyIntraRoomSiblingPenalty(
+                in, "MATHEMATICS", "Goldbach Density", List.of(recent));
+
+        assertThat(out.score()).isEqualTo(0.4);
+        assertThat(out.coverageNote()).contains("intra-room sibling within 30min");
+    }
+
+    @Test
+    void g9LeavesNoveltyUnchangedWhenSiblingIsOutsideWindow() {
+        FormulationService svc = serviceWithWindowMinutes(30);
+        ResearchPaper old = paperWithDomainTopic("MATHEMATICS", "Goldbach Density",
+                Instant.now().minus(2, ChronoUnit.HOURS));
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "prior note", "hint");
+
+        FormulationService.NoveltyAssessment out = svc.applyIntraRoomSiblingPenalty(
+                in, "MATHEMATICS", "Goldbach Density", List.of(old));
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    @Test
+    void g9DoesNotMatchAcrossDomainOrTopic() {
+        FormulationService svc = serviceWithWindowMinutes(30);
+        ResearchPaper differentDomain = paperWithDomainTopic("PHYSICS", "Goldbach Density",
+                Instant.now().minus(1, ChronoUnit.MINUTES));
+        ResearchPaper differentTopic = paperWithDomainTopic("MATHEMATICS", "Collatz Stopping",
+                Instant.now().minus(1, ChronoUnit.MINUTES));
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.8, "", "");
+
+        FormulationService.NoveltyAssessment out = svc.applyIntraRoomSiblingPenalty(
+                in, "MATHEMATICS", "Goldbach Density", List.of(differentDomain, differentTopic));
+
+        assertThat(out.score()).isEqualTo(0.8);
+        assertThat(out.coverageNote()).isEmpty();
+    }
+
+    @Test
+    void g9ClampsDockedScoreAtZero() {
+        FormulationService svc = serviceWithWindowMinutes(30);
+        ResearchPaper recent = paperWithDomainTopic("PHYSICS", "RLC Damping",
+                Instant.now().minus(1, ChronoUnit.MINUTES));
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.3, "", "");
+
+        FormulationService.NoveltyAssessment out = svc.applyIntraRoomSiblingPenalty(
+                in, "PHYSICS", "RLC Damping", List.of(recent));
+
+        assertThat(out.score()).isEqualTo(0.0);
+    }
+
+    @Test
+    void g9DisabledWhenWindowIsZero() {
+        FormulationService svc = serviceWithWindowMinutes(0);
+        ResearchPaper recent = paperWithDomainTopic("PHYSICS", "RLC Damping",
+                Instant.now().minus(1, ChronoUnit.MINUTES));
+        FormulationService.NoveltyAssessment in =
+                new FormulationService.NoveltyAssessment(0.9, "", "");
+
+        FormulationService.NoveltyAssessment out = svc.applyIntraRoomSiblingPenalty(
+                in, "PHYSICS", "RLC Damping", List.of(recent));
+
+        assertThat(out).isEqualTo(in);
+    }
+
+    private static FormulationService serviceWithWindowMinutes(long minutes) {
+        return new FormulationService(null, null, null, minutes);
+    }
+
+    private static ResearchPaper paperWithDomainTopic(String domain, String topic, Instant publishedAt) {
+        return new ResearchPaper(
+                "P-test-" + UUID.randomUUID(), UUID.randomUUID(), "bot-1",
+                domain, topic,
+                "title", "hypothesis", "THEORETICAL", "findings", "conclusion",
+                List.of("rev-1", "rev-2"), 0.42, "PUBLISHED",
+                100L, publishedAt, 0, 0.0,
+                "test-model", "test:path");
     }
 }

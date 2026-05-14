@@ -282,6 +282,10 @@ app:
       enabled: true        # Phase 6 D1.3 — professor stage sees curated literature block
     discussion-section:
       enabled: true        # Phase 6 D2 — first-pass narrator emits discussion + related_work sections
+    # Phase 7 G9 — when two papers on the same (domain, topic) publish within this
+    # window, the second one's novelty score is docked by 0.5 to discourage parallel
+    # duplicate clusters (e.g. two Goldbach papers in 8 min). Set to 0 to disable.
+    intra-room-novelty-window-minutes: 30
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop
