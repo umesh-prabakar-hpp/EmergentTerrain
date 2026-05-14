@@ -303,11 +303,13 @@ app:
     # Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
     # in the findings section, keyed by 1-based computation index. The per-block
     # truncation guard then fails NEEDS_REVISION if any block ends mid-sentence,
-    # so a truncated block 2 doesn't poison block 1. Default OFF so the rollout
-    # is gated by a flag flip; when off, max-computations is force-clamped to 1
-    # and the entire pipeline is bit-identical to F1-baseline.
+    # so a truncated block 2 doesn't poison block 1. When off, max-computations
+    # is force-clamped to 1 and the entire pipeline is bit-identical to F1-baseline.
+    # Flipped ON 2026-05-13 per the standing "ship default ON when feature needs
+    # flag ON" directive; the spec's acceptance test ("flip on, observe the next
+    # 8 papers") is what the live ON state exercises.
     structured-findings:
-      enabled: false
+      enabled: true
     # Phase 7 F2 — number of independent computation prose blocks the narrator
     # produces (NOT the number of MathPhysicsEngine compute() calls, which is
     # still driven by the refinement loop). Clamped to 1 when
