@@ -257,6 +257,29 @@ public class TopicValidatorRegistry {
                                 + "Mechanism: wave fronts emitted from a moving source pile up "
                                 + "(or stretch) classically in a single medium."));
 
+        // Phase 7 FX.2 — CHEMISTRY bounds.
+        register(new TopicKey("CHEMISTRY", "Henderson-Hasselbalch Buffer pH"),
+                bound(Pattern.compile("err=([0-9]+(?:\\.[0-9]+)?)"), 2.0, "pH units",
+                        "Henderson-Hasselbalch pKₐ recovery error > 2 pH units indicates the "
+                                + "titration sweep landed outside the buffer's effective region"));
+        register(new TopicKey("CHEMISTRY", "Nernst Electrochemical Potential"),
+                bound(Pattern.compile("\\|E−E°\\|=([0-9]+(?:\\.[0-9]+)?)\\s*V"), 2.0, "V",
+                        "Nernst |E−E°| > 2 V is unphysical for any single redox couple at "
+                                + "ambient temperature; the activity-coefficient regime breaks down"));
+        register(new TopicKey("CHEMISTRY", "Beer-Lambert Absorbance"),
+                bound(Pattern.compile("err=([0-9]+(?:\\.[0-9]+)?)"), 1.0, "fraction",
+                        "Beer-Lambert ε recovery > 1.0 (i.e. > 100% off) means the solution "
+                                + "is opaque (A > 2) or scattering dominates — the linear law fails"));
+        register(new TopicKey("CHEMISTRY", "Equilibrium Constant Kc"),
+                bound(Pattern.compile("\\|ln drift\\|=([0-9]+(?:\\.[0-9]+)?)"), 20.0, "ln units",
+                        "Kc |ln drift| > 20 means the swept temperature took Kc through "
+                                + "≈8 orders of magnitude — extreme regime where Van't Hoff "
+                                + "(constant ΔH) ceases to apply"));
+        register(new TopicKey("CHEMISTRY", "Real-Gas Z-Factor"),
+                bound(Pattern.compile("\\|1−Z\\|=([0-9]+(?:\\.[0-9]+)?)"), 1.0, "fraction",
+                        "Z-factor departure |1−Z| > 1 is beyond corresponding-states "
+                                + "applicability; near the critical point a fuller EOS is required"));
+
         // Phase 7 FX.1 — BIOLOGY bounds.
         register(new TopicKey("BIOLOGY", "Verhulst Logistic Growth"),
                 bound(Pattern.compile("N=([0-9]+(?:\\.[0-9]+)?)"), 1.0e9, "individuals",

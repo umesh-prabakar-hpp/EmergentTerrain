@@ -231,6 +231,14 @@ public class MathPhysicsEngine {
             "Hardy-Weinberg Equilibrium"
     };
 
+    private static final String[] CHEMISTRY_TOPICS = {
+            "Henderson-Hasselbalch Buffer pH",
+            "Nernst Electrochemical Potential",
+            "Beer-Lambert Absorbance",
+            "Equilibrium Constant Kc",
+            "Real-Gas Z-Factor"
+    };
+
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
@@ -293,6 +301,15 @@ public class MathPhysicsEngine {
             {"Hardy-Weinberg Equilibrium Persistence Under Random Mating",           "Allele-Frequency Drift Across Generations With No Selection Pressure"}
     };
 
+    // ---- Phase 7 FX.2 CHEMISTRY titles ----
+    private static final String[][] CHEMISTRY_TITLES = {
+            {"Buffer pH Across Acid-Base Concentration Ratios",                       "Henderson-Hasselbalch Recovery of pKₐ from Titration Curves"},
+            {"Nernst Cell Potential as a Function of Concentration",                  "Electrochemical Activity Coefficient Survey at Reduced Concentrations"},
+            {"Beer-Lambert Absorbance Linearity Across Path Length and Concentration","Molar Absorptivity ε Recovery from Tabulated Spectra"},
+            {"Equilibrium Constant Kc Stability Across Temperature Perturbations",    "Le-Chatelier Sensitivity Measured Through Kc Ratios"},
+            {"Compressibility Factor Z for Real Gases vs Ideal-Gas Baseline",         "Pitzer-Curl Z-Factor Recovery Across Reduced-State Coordinates"}
+    };
+
     // ---- Public API ----
 
     /** Primary entry point: genome-driven search via SearchParams. */
@@ -306,6 +323,8 @@ public class MathPhysicsEngine {
             case "INTERDISCIPLINARY" -> computeInterdisciplinary(t, param1, param2, sp);
             // Phase 7 FX.1 — BIOLOGY.
             case "BIOLOGY"           -> computeBiology(t, param1, param2, sp);
+            // Phase 7 FX.2 — CHEMISTRY.
+            case "CHEMISTRY"         -> computeChemistry(t, param1, param2, sp);
             default                  -> computeMath(t, param1, param2, sp);
         };
     }
@@ -324,6 +343,7 @@ public class MathPhysicsEngine {
             case "MATHEMATICS"       -> MATH_TOPICS.length;
             // Phase 7 FX — new domains beyond the original 4.
             case "BIOLOGY"           -> BIOLOGY_TOPICS.length;
+            case "CHEMISTRY"         -> CHEMISTRY_TOPICS.length;
             default                  -> MATH_TOPICS.length;
         };
     }
@@ -430,6 +450,12 @@ public class MathPhysicsEngine {
             case "BIOLOGY:2"         -> 0.5;     // Michaelis-Menten K_m recovery error (~0.05-0.5)
             case "BIOLOGY:3"         -> 0.10;    // Kleiber exponent deviation from 0.75 (~0.01-0.10)
             case "BIOLOGY:4"         -> 0.05;    // Hardy-Weinberg allele-frequency drift (~0.005-0.10)
+            // Phase 7 FX.2 — CHEMISTRY topics.
+            case "CHEMISTRY:0"       -> 0.5;     // Henderson-Hasselbalch pKₐ recovery error (~0.05-1.0)
+            case "CHEMISTRY:1"       -> 0.2;     // Nernst E_cell deviation in V (~0.01-0.3)
+            case "CHEMISTRY:2"       -> 0.05;    // Beer-Lambert ε recovery deviation (~0.005-0.10)
+            case "CHEMISTRY:3"       -> 0.3;     // Equilibrium Kc drift across T (~0.05-0.5)
+            case "CHEMISTRY:4"       -> 0.1;     // Z-factor |1 − Z| (~0.01-0.20)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -462,6 +488,7 @@ public class MathPhysicsEngine {
             case "MATHEMATICS"       -> MATH_TOPICS;
             // Phase 7 FX — new domains.
             case "BIOLOGY"           -> BIOLOGY_TOPICS;
+            case "CHEMISTRY"         -> CHEMISTRY_TOPICS;
             default                  -> MATH_TOPICS;
         };
     }
@@ -473,6 +500,7 @@ public class MathPhysicsEngine {
             case "INTERDISCIPLINARY" -> INTERDISCIPLINARY_TITLES;
             // Phase 7 FX — new domains.
             case "BIOLOGY"           -> BIOLOGY_TITLES;
+            case "CHEMISTRY"         -> CHEMISTRY_TITLES;
             default                  -> MATH_TITLES;
         };
         String[] row = table[Math.floorMod(topicIndex, table.length)];
@@ -2037,6 +2065,14 @@ public class MathPhysicsEngine {
                 case 3 -> "R_metabolic ∝ M^(3/4)   (Kleiber's allometric scaling law)";
                 default -> "p² + 2·p·q + q² = 1,  q = 1 − p   (Hardy-Weinberg allele equilibrium for two alleles)";
             };
+            // Phase 7 FX.2 — CHEMISTRY.
+            case "CHEMISTRY" -> switch (t) {
+                case 0 -> "pH = pKₐ + log₁₀([A⁻]/[HA])   (Henderson-Hasselbalch buffer equation)";
+                case 1 -> "E = E° − (R·T)/(n·F) · ln Q   (Nernst electrochemical potential)";
+                case 2 -> "A = ε · c · l   (Beer-Lambert absorbance; ε molar absorptivity, c concentration, l path length)";
+                case 3 -> "Kc = Π [products]^ν / Π [reactants]^ν   (equilibrium constant)";
+                default -> "Z = (P · V_m) / (R · T)   (compressibility factor; Z=1 for ideal gas)";
+            };
             default -> null;
         };
     }
@@ -2625,6 +2661,194 @@ public class MathPhysicsEngine {
                         + "p=%.3f, q=%.3f, the Hardy-Weinberg equilibrium p² + 2pq + q² = 1 predicts no "
                         + "generational drift; sampled finite-population trajectories stay within 5%% of p₀.")
                         .formatted(p, q));
+    }
+
+    // ---- Phase 7 FX.2: CHEMISTRY ----
+
+    private static ResearchResult computeChemistry(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("CHEMISTRY", topic);
+        return switch (topic) {
+            case 0 -> hendersonHasselbalch(4.0 + param1 / 30.0, sp).withEquation(eq);
+            case 1 -> nernstPotential(0.5 + param1 / 100.0, 298.0 + param2 * 5.0, sp).withEquation(eq);
+            case 2 -> beerLambert(0.1 + param2 / 90.0, 1.0 + param1 / 20.0, sp).withEquation(eq);
+            case 3 -> equilibriumKc(1.0 + param2 / 2.0, 298.0 + param1 * 3.0, sp).withEquation(eq);
+            default -> compressibilityZ(0.7 + param1 / 200.0, 1.0 + param2 / 4.0, sp).withEquation(eq);
+        };
+    }
+
+    /** Henderson-Hasselbalch: pH = pKₐ + log₁₀([A⁻]/[HA]). Recovers pKₐ from titration curves. */
+    private static ResearchResult hendersonHasselbalch(double truePKa, SearchParams sp) {
+        double bestErr = Double.MAX_VALUE;
+        double bestRecovered = truePKa;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // Vary the ratio [A⁻]/[HA] across a buffer titration sweep.
+            double ratio = Math.pow(10.0, -1.0 + i * sp.stepSize() * 0.2);
+            double pH = truePKa + Math.log10(ratio) + Math.sin(i * 0.3) * 0.01;
+            // Recover pKₐ assuming we know the ratio exactly.
+            double pKaEst = pH - Math.log10(ratio);
+            double err = Math.abs(pKaEst - truePKa);
+            samples++;
+            if (err < bestErr) { bestErr = err; bestRecovered = pKaEst; }
+            if (i < 4) sb.append("ratio=%.3f→pH=%.2f(pKₐ_est=%.3f) ".formatted(ratio, pH, pKaEst));
+        }
+        ClaimStatus status = bestErr < 0.05 ? ClaimStatus.SUPPORTED
+                : bestErr < 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Henderson-Hasselbalch: true pKₐ=%.3f, best recovered=%.3f (err=%.3f) across %d titration points. %s")
+                .formatted(truePKa, bestRecovered, bestErr, samples,
+                        bestErr < 0.05 ? "pKₐ recovered within 0.05 — buffer model holds"
+                                : "recovery error > 0.05 — titration outside the buffer's effective region");
+        return new ResearchResult(
+                "Henderson-Hasselbalch (true pKₐ=%.3f, %d titration points): best recovery err=%.3f. Sample: %s"
+                        .formatted(truePKa, samples, bestErr, sb.toString().trim()),
+                bestErr, bestRecovered, truePKa, bestErr, status, assessment)
+                .withHypothesis(("For a weak acid with pKₐ=%.3f, the Henderson-Hasselbalch equation "
+                        + "permits pKₐ recovery from titration ratios within ±0.05 across a half-pH-unit sweep.")
+                        .formatted(truePKa));
+    }
+
+    /** Nernst E = E° − (RT/nF)·ln Q. Tests cell-potential drift across concentration. */
+    private static ResearchResult nernstPotential(double E0, double T, SearchParams sp) {
+        double R = 8.314;
+        double F = 96485.0;
+        int n = 1;
+        double bestDeviation = 0;
+        double bestE = E0;
+        double bestQ = 1.0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double Q = Math.pow(10.0, -2.0 + i * sp.stepSize() * 0.4);
+            double E = E0 - (R * T / (n * F)) * Math.log(Q);
+            double dev = Math.abs(E - E0);
+            samples++;
+            if (dev > bestDeviation) { bestDeviation = dev; bestE = E; bestQ = Q; }
+            if (i < 4) sb.append("Q=%.3f→E=%.4fV ".formatted(Q, E));
+        }
+        // F3-style bound: |E − E°| ≤ 0.3 V indicates a sensible electrochemical range.
+        boolean physical = bestDeviation <= 0.3;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestDeviation > 0.05 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Nernst: E°=%.3f V, T=%.0f K; max |E−E°|=%.4f V at Q=%.3f. %s")
+                .formatted(E0, T, bestDeviation, bestQ,
+                        !physical ? "|E−E°| > 0.3 V indicates Q outside any physical electrochemical regime"
+                                : bestDeviation > 0.05 ? "measurable concentration-driven shift"
+                                        : "near-standard conditions across the sweep");
+        return new ResearchResult(
+                "Nernst (E°=%.3f V, T=%.0f K, %d Q-samples): max |E−E°|=%.4f V at Q=%.3f, E=%.4f V. Sample: %s"
+                        .formatted(E0, T, samples, bestDeviation, bestQ, bestE, sb.toString().trim()),
+                bestDeviation, bestE, bestQ, bestDeviation, status, assessment)
+                .withHypothesis(("For an n=1 redox couple with E°=%.3f V at T=%.0f K, the Nernst equation "
+                        + "produces measurable cell-potential shifts of order RT/F ≈ 25 mV per decade of Q.")
+                        .formatted(E0, T));
+    }
+
+    /** Beer-Lambert: A = ε·c·l. Recovers molar absorptivity ε. */
+    private static ResearchResult beerLambert(double trueEps, double trueL, SearchParams sp) {
+        double bestErr = Double.MAX_VALUE;
+        double bestRecoveredEps = trueEps;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double c = 0.001 + i * sp.stepSize() * 0.0005;
+            double A = trueEps * c * trueL * (1.0 + Math.sin(i * 0.27) * 0.01);
+            // Recover ε = A / (c·l).
+            double epsRecovered = A / (c * trueL);
+            double err = Math.abs(epsRecovered - trueEps) / trueEps;
+            samples++;
+            if (err < bestErr) { bestErr = err; bestRecoveredEps = epsRecovered; }
+            if (i < 4) sb.append("c=%.4f,A=%.3f→ε=%.3f ".formatted(c, A, epsRecovered));
+        }
+        ClaimStatus status = bestErr < 0.05 ? ClaimStatus.SUPPORTED
+                : bestErr < 0.15 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Beer-Lambert: true ε=%.3f L·mol⁻¹·cm⁻¹, l=%.2f cm; best ε recovery err=%.3f. %s")
+                .formatted(trueEps, trueL, bestErr,
+                        bestErr < 0.05 ? "linearity holds within 5% — Beer-Lambert valid in this concentration range"
+                                : "absorbance / concentration deviates > 5% — non-linear regime");
+        return new ResearchResult(
+                "Beer-Lambert (ε=%.3f, l=%.2f cm, %d c-samples): best ε recovery err=%.3f, est ε=%.3f. Sample: %s"
+                        .formatted(trueEps, trueL, samples, bestErr, bestRecoveredEps, sb.toString().trim()),
+                bestErr, bestRecoveredEps, trueEps, bestErr, status, assessment)
+                .withHypothesis(("For a dilute solution of molar absorptivity ε=%.3f L·mol⁻¹·cm⁻¹ in a "
+                        + "%.2f cm cell, the Beer-Lambert law A = ε·c·l holds within 5%% across the swept "
+                        + "concentration range.")
+                        .formatted(trueEps, trueL));
+    }
+
+    /** Equilibrium constant Kc drift across temperature (Van't Hoff). */
+    private static ResearchResult equilibriumKc(double Kc298, double seedT, SearchParams sp) {
+        double R = 8.314;
+        double deltaH = 30_000.0;  // J/mol, modest endothermic
+        double bestDrift = 0;
+        double bestT = seedT;
+        double bestKc = Kc298;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double T = Math.max(250.0, seedT + i * sp.stepSize() * 10.0);
+            // Van't Hoff integrated: ln(K2/K1) = -ΔH/R · (1/T2 − 1/T1)
+            double lnRatio = -deltaH / R * (1.0 / T - 1.0 / 298.15);
+            double Kc = Kc298 * Math.exp(lnRatio);
+            double drift = Math.abs(Math.log(Kc / Kc298));
+            samples++;
+            if (drift > bestDrift) { bestDrift = drift; bestT = T; bestKc = Kc; }
+            if (i < 4) sb.append("T=%.0fK→Kc=%.3f(|ln drift|=%.3f) ".formatted(T, Kc, drift));
+        }
+        boolean physical = Double.isFinite(bestKc) && bestKc > 0;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestDrift > 0.3 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = ("Equilibrium Kc (Van't Hoff, ΔH=%.0f J/mol): max |ln(Kc/Kc°)|=%.3f at T=%.0f K (Kc=%.3f). %s")
+                .formatted(deltaH, bestDrift, bestT, bestKc,
+                        !physical ? "Kc went non-finite — runaway exponential at extreme T"
+                                : bestDrift > 0.3 ? "Le-Chatelier shift clearly visible across the sweep"
+                                        : "minimal temperature-driven shift");
+        return new ResearchResult(
+                "Equilibrium Kc (Kc°=%.3f at 298K, ΔH=%.0f J/mol, %d T-samples): max |ln drift|=%.3f at T=%.0f K (Kc=%.3f). Sample: %s"
+                        .formatted(Kc298, deltaH, samples, bestDrift, bestT, bestKc, sb.toString().trim()),
+                bestDrift, bestKc, bestT, bestDrift, status, assessment)
+                .withHypothesis(("For a reaction with Kc°=%.3f at 298 K and ΔH=%.0f J/mol, the Van't Hoff "
+                        + "integrated equation predicts measurable Kc drift across the swept temperature "
+                        + "range, with magnitude bounded by exp(|ΔH/R · (1/T − 1/T°)|).")
+                        .formatted(Kc298, deltaH));
+    }
+
+    /** Compressibility factor Z = PV/RT. Tracks real-gas departure from ideal. */
+    private static ResearchResult compressibilityZ(double seedTr, double seedPr, SearchParams sp) {
+        double bestDev = 0;
+        double bestTr = seedTr;
+        double bestPr = seedPr;
+        double bestZ = 1.0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // Sweep reduced state (Tr, Pr). Use a small Pitzer-Curl style approximation.
+            double Tr = Math.max(0.5, seedTr + i * sp.stepSize() * 0.05);
+            double Pr = Math.max(0.1, seedPr + i * sp.stepSize() * 0.2);
+            // Empirical Pitzer-Curl-ish: Z ≈ 1 + B0·Pr/Tr where B0 = 0.083 − 0.422·Tr^(-1.6)
+            double B0 = 0.083 - 0.422 * Math.pow(Tr, -1.6);
+            double Z = 1.0 + B0 * Pr / Tr;
+            double dev = Math.abs(1.0 - Z);
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestTr = Tr; bestPr = Pr; bestZ = Z; }
+            if (i < 4) sb.append("(Tr=%.2f,Pr=%.2f)→Z=%.3f ".formatted(Tr, Pr, Z));
+        }
+        // Bound: |1−Z| ≤ 0.5 in the explored range; beyond that physics simplifies.
+        boolean physical = bestDev <= 0.5;
+        ClaimStatus status = !physical ? ClaimStatus.REFUTED
+                : bestDev > 0.1 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
+        String assessment = ("Z-factor: best (Tr=%.2f, Pr=%.2f, Z=%.3f) shows %.3f departure from ideal across %d samples. %s")
+                .formatted(bestTr, bestPr, bestZ, bestDev, samples,
+                        !physical ? "|1−Z| > 0.5 indicates the explored state is far from the corresponding-states regime"
+                                : bestDev > 0.1 ? "real-gas departure measurable — Pitzer correction important"
+                                        : "near-ideal regime — Z ≈ 1");
+        return new ResearchResult(
+                "Compressibility Z (%d (Tr, Pr) samples): max |1−Z|=%.3f at Tr=%.2f, Pr=%.2f (Z=%.3f). Sample: %s"
+                        .formatted(samples, bestDev, bestTr, bestPr, bestZ, sb.toString().trim()),
+                bestDev, bestZ, bestPr, bestDev, status, assessment)
+                .withHypothesis(("Across reduced states sampled near (Tr=%.2f, Pr=%.2f), the Pitzer-Curl "
+                        + "compressibility factor Z = 1 + B₀·Pr/Tr captures real-gas departure with |1−Z| ≤ 0.5.")
+                        .formatted(seedTr, seedPr));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

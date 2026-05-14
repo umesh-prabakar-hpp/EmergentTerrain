@@ -791,4 +791,100 @@ class MathPhysicsEngineTest {
         // secondary = final p; must stay in [0, 1].
         assertThat(r.secondaryValue()).isBetween(0.0, 1.0);
     }
+
+    // ---- Phase 7 FX.2: CHEMISTRY topics 0..4 — HH / Nernst / Beer-Lambert / Kc / Z-factor ----
+
+    @Test
+    void hendersonHasselbalchRecoversPKaWithinSmallError() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 0, 30, 2.0);
+        assertThat(r.equation()).contains("Henderson-Hasselbalch");
+        assertThat(r.findings()).contains("Henderson-Hasselbalch");
+        // primary = recovery error in pH units; supported regime stays < 0.05.
+        assertThat(r.primaryValue()).isLessThan(0.05);
+    }
+
+    @Test
+    void hendersonHasselbalchEquationContainsPkaTerm() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 0, 30, 2.0);
+        assertThat(r.equation()).contains("pKₐ");
+    }
+
+    @Test
+    void nernstPotentialShiftsLogarithmicallyWithConcentration() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 1, 30, 2.0);
+        assertThat(r.equation()).contains("Nernst");
+        assertThat(r.findings()).contains("Nernst");
+        // primary = max |E−E°|; supported means > 0.05 V drift across the Q sweep.
+        // The registry bound for "physically reasonable" is 2 V; sweeps over four
+        // decades of Q at room temperature produce ~0.3 V shifts, well within bound.
+        assertThat(r.primaryValue()).isGreaterThan(0.05);
+        assertThat(r.primaryValue()).isLessThan(2.0);
+    }
+
+    @Test
+    void nernstSweepStaysFiniteAcrossDecadesOfQ() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 1, 30, 2.0);
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+    }
+
+    @Test
+    void beerLambertRecoversMolarAbsorptivityWithinFivePercent() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 2, 30, 2.0);
+        assertThat(r.equation()).contains("Beer-Lambert");
+        assertThat(r.findings()).contains("Beer-Lambert");
+        // primary = ε recovery err; supported regime stays < 0.05.
+        assertThat(r.primaryValue()).isLessThan(0.05);
+    }
+
+    @Test
+    void beerLambertEpsilonRecoveryIsPositive() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 2, 30, 2.0);
+        // secondary = recovered ε; tertiary = true ε; both positive.
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+        assertThat(r.tertiaryValue()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void equilibriumKcDriftsAcrossTemperatureViaVantHoff() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 3, 30, 2.0);
+        assertThat(r.equation()).contains("Kc");
+        assertThat(r.findings()).contains("Equilibrium Kc");
+        // primary = |ln drift|; for ΔH = 30 kJ/mol over ~80 K of sweep, drift is non-trivial.
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(20.0);  // bound
+    }
+
+    @Test
+    void equilibriumKcStaysFinitePositive() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 3, 30, 2.0);
+        // secondary = best Kc value; must be positive and finite.
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+        assertThat(Double.isFinite(r.secondaryValue())).isTrue();
+    }
+
+    @Test
+    void compressibilityZIsCloseToOneAtRealisticReducedStates() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 4, 30, 2.0);
+        assertThat(r.equation()).contains("Z");
+        assertThat(r.findings()).contains("Compressibility Z");
+        // primary = max |1 − Z|; spec bound says ≤ 1.0; realistic sweeps stay much lower.
+        assertThat(r.primaryValue()).isLessThan(1.0);
+    }
+
+    @Test
+    void compressibilityZIsFiniteAcrossSweep() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("CHEMISTRY", 4, 30, 2.0);
+        // secondary = Z value at worst-deviation point.
+        assertThat(Double.isFinite(r.secondaryValue())).isTrue();
+    }
 }
