@@ -262,6 +262,17 @@ public class MathPhysicsEngine {
             "Dissolved-Gas Solubility"
     };
 
+    /** FX.5 — ARCHITECTURE_SPACE: structures in vacuum / micro-gravity. Inputs include
+     *  radiation flux, micrometeoroid density, orbit altitude, station radius. Already
+     *  generic by construction (no atmospheric or liquid medium). */
+    private static final String[] ARCHITECTURE_SPACE_TOPICS = {
+            "Radiation Shielding Mass",
+            "Vacuum Thermal Radiative Balance",
+            "Micrometeoroid Impact Flux",
+            "Centrifugal Artificial Gravity Radius",
+            "Orbital Decay From Atmospheric Drag"
+    };
+
     // ---- Title tables (2 options per topic for variety) ----
 
     private static final String[][] MATH_TITLES = {
@@ -351,6 +362,15 @@ public class MathPhysicsEngine {
             {"Henry's-Law Dissolved-Gas Solubility Across Liquid Hosts",              "Gas-Equilibrium Pressure for Habitat Atmospheres in Liquid Volumes"}
     };
 
+    // ---- Phase 7 FX.5 ARCHITECTURE_SPACE titles ----
+    private static final String[][] ARCHITECTURE_SPACE_TITLES = {
+            {"Areal-Density Requirements for Radiation Shielding of Crewed Modules",  "Mass-Per-Area Sweep Across Solar-Particle Event Regimes"},
+            {"Radiative Equilibrium Temperature of an Insulated Module in Vacuum",    "Stefan-Boltzmann Heat Rejection vs Cabin Internal Generation"},
+            {"Annual Cumulative Micrometeoroid Impact Flux on a Habitat Module",      "Sub-mm Particle Penetration Probability for a Year-Long Mission"},
+            {"Centrifugal Spin-Habitat Radius for Comfortable Artificial Gravity",    "Radius vs Rotation-Rate Threshold for Coriolis-Tolerable Gait"},
+            {"Orbital Decay Rate From Residual Atmospheric Drag at LEO",              "Time-to-Reentry as a Function of Ballistic Coefficient and Altitude"}
+    };
+
     // ---- Public API ----
 
     /** Primary entry point: genome-driven search via SearchParams. */
@@ -370,6 +390,8 @@ public class MathPhysicsEngine {
             case "ARCHITECTURE_TERRESTRIAL" -> computeArchTerrestrial(t, param1, param2, sp);
             // Phase 7 FX.4 — ARCHITECTURE_LIQUID (generic across any liquid).
             case "ARCHITECTURE_LIQUID"      -> computeArchLiquid(t, param1, param2, sp);
+            // Phase 7 FX.5 — ARCHITECTURE_SPACE.
+            case "ARCHITECTURE_SPACE"       -> computeArchSpace(t, param1, param2, sp);
             default                  -> computeMath(t, param1, param2, sp);
         };
     }
@@ -391,6 +413,7 @@ public class MathPhysicsEngine {
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS.length;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS.length;
             case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TOPICS.length;
+            case "ARCHITECTURE_SPACE"       -> ARCHITECTURE_SPACE_TOPICS.length;
             default                  -> MATH_TOPICS.length;
         };
     }
@@ -515,6 +538,12 @@ public class MathPhysicsEngine {
             case "ARCHITECTURE_LIQUID:2"      -> 5.0e6;  // hull buckling P_crit in Pa (~1e4-1e8)
             case "ARCHITECTURE_LIQUID:3"      -> 1.0e4;  // drag force in N (~1-1e6)
             case "ARCHITECTURE_LIQUID:4"      -> 0.5;    // dissolved-gas concentration mol/L (~0.01-1.0)
+            // Phase 7 FX.5 — ARCHITECTURE_SPACE topics.
+            case "ARCHITECTURE_SPACE:0"       -> 100.0;  // shielding areal density g/cm² (~5-300)
+            case "ARCHITECTURE_SPACE:1"       -> 300.0;  // equilibrium T in K (~80-500)
+            case "ARCHITECTURE_SPACE:2"       -> 100.0;  // annual impact count (~1-1000)
+            case "ARCHITECTURE_SPACE:3"       -> 50.0;   // habitat radius m (~5-500)
+            case "ARCHITECTURE_SPACE:4"       -> 1000.0; // orbital decay days (~10-10000)
             default              -> 1.0;     // MATHEMATICS:0 hlDeviation, MATERIALS:4 failFrac — already well-ranged
         };
     }
@@ -550,6 +579,7 @@ public class MathPhysicsEngine {
             case "CHEMISTRY"         -> CHEMISTRY_TOPICS;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TOPICS;
             case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TOPICS;
+            case "ARCHITECTURE_SPACE"       -> ARCHITECTURE_SPACE_TOPICS;
             default                  -> MATH_TOPICS;
         };
     }
@@ -564,6 +594,7 @@ public class MathPhysicsEngine {
             case "CHEMISTRY"         -> CHEMISTRY_TITLES;
             case "ARCHITECTURE_TERRESTRIAL" -> ARCHITECTURE_TERRESTRIAL_TITLES;
             case "ARCHITECTURE_LIQUID"      -> ARCHITECTURE_LIQUID_TITLES;
+            case "ARCHITECTURE_SPACE"       -> ARCHITECTURE_SPACE_TITLES;
             default                  -> MATH_TITLES;
         };
         String[] row = table[Math.floorMod(topicIndex, table.length)];
@@ -2152,6 +2183,14 @@ public class MathPhysicsEngine {
                 case 3 -> "F_d = ½ · ρ_liq · v² · A · C_d(Re)   (hydrodynamic drag; C_d depends on Reynolds number Re = ρ_liq·v·L/μ)";
                 default -> "c_dissolved = k_H(liquid) · P_gas   (Henry's-law dissolved-gas solubility; k_H is liquid-specific)";
             };
+            // Phase 7 FX.5 — ARCHITECTURE_SPACE.
+            case "ARCHITECTURE_SPACE" -> switch (t) {
+                case 0 -> "σ_areal = Φ·E_dep / D_max   (radiation shielding areal density vs flux Φ and dose budget D_max)";
+                case 1 -> "T_eq⁴ = (Q_internal + α·S) / (ε·σ·A)   (radiative thermal balance in vacuum; α absorptivity, ε emissivity)";
+                case 2 -> "N_impacts = Φ_meteoroid · A · t   (cumulative micrometeoroid impacts over mission lifetime)";
+                case 3 -> "a_centrifugal = ω²·R = v_tangential²/R   (artificial-gravity radius vs spin rate ω)";
+                default -> "dh/dt ≈ −2π·ρ_atm(h)·B_inv·a   (orbital decay rate; B_inv = inverse ballistic coefficient)";
+            };
             default -> null;
         };
     }
@@ -3341,6 +3380,201 @@ public class MathPhysicsEngine {
                         + "(determining the host-specific Henry's coefficient k_H), the dissolved-gas "
                         + "concentration c = k_H·P_gas scales linearly with overpressure until saturation.")
                         .formatted(rhoLiq, gamma));
+    }
+
+    // ---- Phase 7 FX.5: ARCHITECTURE_SPACE ----
+
+    private static ResearchResult computeArchSpace(int topic, int param1, double param2, SearchParams sp) {
+        String eq = equationFor("ARCHITECTURE_SPACE", topic);
+        return switch (topic) {
+            case 0 -> radiationShieldingMass(0.1 + param2 / 10.0, sp).withEquation(eq);
+            case 1 -> vacuumThermalBalance(50.0 + param1 * 20.0, sp).withEquation(eq);
+            case 2 -> micrometeoroidFlux(50.0 + param1, sp).withEquation(eq);
+            case 3 -> centrifugalGravityRadius(0.5 + param2 / 9.0 * 1.5, sp).withEquation(eq);
+            default -> orbitalDecayRate(200.0 + param1 * 5.0, sp).withEquation(eq);
+        };
+    }
+
+    /** Radiation shielding: σ_areal = Φ·E / D_max. Mass per area needed to attenuate dose. */
+    private static ResearchResult radiationShieldingMass(double dailyFluxScale, SearchParams sp) {
+        double E_dep = 5.0;       // MeV per particle, average dose deposit
+        double Dmax = 500.0;      // mSv/year, crew exposure budget
+        double maxSigma = 0;
+        double bestPhi = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // Φ in particles / cm² / day; vary by event regime.
+            double Phi = Math.pow(10, 2 + dailyFluxScale + i * sp.stepSize() * 0.2);
+            // Synthetic: required σ_areal scales as log10(Φ·E_dep / Dmax) g/cm².
+            double sigma = 5.0 + 5.0 * Math.log10(Phi * E_dep / Math.max(1.0, Dmax));
+            samples++;
+            if (sigma > maxSigma) { maxSigma = sigma; bestPhi = Phi; }
+            if (i < 4) sb.append("Φ=%.1e/cm²/d→σ=%.1fg/cm² ".formatted(Phi, sigma));
+        }
+        ClaimStatus status = maxSigma < 100.0 ? ClaimStatus.SUPPORTED
+                : maxSigma < 300.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Shielding: max σ_areal=%.1f g/cm² at Φ=%.1e particles/cm²/day. %s")
+                .formatted(maxSigma, bestPhi,
+                        maxSigma < 100.0 ? "shield mass within feasible cislunar habitat budget"
+                                : maxSigma < 300.0 ? "high-flux regime — heavy shielding needed"
+                                        : "extreme solar-event flux — shielding mass impractical");
+        return new ResearchResult(
+                "Radiation shielding (%d Φ-samples, E_dep=%.1f MeV, D_max=%.0f mSv/yr): max σ_areal=%.1f g/cm² at Φ=%.1e/cm²/d. Sample: %s"
+                        .formatted(samples, E_dep, Dmax, maxSigma, bestPhi, sb.toString().trim()),
+                maxSigma, bestPhi, E_dep, maxSigma, status, assessment)
+                .withHypothesis(("For a crewed module exposed to particle flux scaled near 10^%.1f /cm²/day with "
+                        + "an exposure budget of D_max=%.0f mSv/yr, the areal shielding requirement σ_areal "
+                        + "grows logarithmically with flux.")
+                        .formatted(2 + dailyFluxScale, Dmax));
+    }
+
+    /** Vacuum thermal balance: T_eq⁴ = (Q_internal + α·S)/(ε·σ·A). */
+    private static ResearchResult vacuumThermalBalance(double qInternalSeed, SearchParams sp) {
+        double sigma = 5.670374419e-8;
+        double A = 50.0;     // m² radiative area
+        double S = 1361.0;   // W/m², solar constant at 1 AU (sweep can vary effective S)
+        double alpha = 0.3;
+        double epsilon = 0.85;
+        double maxT = 0;
+        double minT = Double.MAX_VALUE;
+        double bestQ = qInternalSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double Qint = Math.max(0.0, qInternalSeed + i * sp.stepSize() * 100.0);
+            // Sweep effective insolation as well (orbit altitude / occultation fraction).
+            double Seff = S * (0.5 + Math.sin(i * 0.31) * 0.4);
+            double Teq = Math.pow((Qint + alpha * Seff * A) / (epsilon * sigma * A), 0.25);
+            samples++;
+            if (Teq > maxT) { maxT = Teq; bestQ = Qint; }
+            if (Teq < minT) minT = Teq;
+            if (i < 4) sb.append("Q=%.0fW,Sₑff=%.0fW/m²→T=%.0fK ".formatted(Qint, Seff, Teq));
+        }
+        ClaimStatus status = maxT >= 273 && maxT <= 320 ? ClaimStatus.SUPPORTED
+                : maxT >= 200 && maxT <= 350 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Vacuum thermal: T range [%.0f, %.0f] K at α=%.2f, ε=%.2f, A=%.0f m². %s")
+                .formatted(minT, maxT, alpha, epsilon, A,
+                        maxT >= 273 && maxT <= 320 ? "habitat interior achievable around 273–320 K"
+                                : maxT < 273 ? "module trends cold — extra Q_internal or insulation needed"
+                                        : "module trends hot — additional radiators required");
+        return new ResearchResult(
+                "Vacuum thermal (α=%.2f, ε=%.2f, A=%.0f m², %d Q+S samples): max T=%.0f K at Q=%.0f W. Sample: %s"
+                        .formatted(alpha, epsilon, A, samples, maxT, bestQ, sb.toString().trim()),
+                maxT, minT, bestQ, maxT, status, assessment)
+                .withHypothesis(("For a habitat with A=%.0f m² radiating surface, α=%.2f absorptivity, ε=%.2f "
+                        + "emissivity, and Q_internal swept near %.0f W, the equilibrium temperature "
+                        + "T_eq = [(Q_int+α·S·A)/(ε·σ·A)]^¼ falls within crew-habitable bands across the "
+                        + "sampled solar-flux regimes.")
+                        .formatted(A, alpha, epsilon, qInternalSeed));
+    }
+
+    /** Cumulative micrometeoroid impact count: N = Φ·A·t. */
+    private static ResearchResult micrometeoroidFlux(double areaSeed, SearchParams sp) {
+        double Phi = 1.0e-8;  // impacts/m²/s for sub-mm meteoroids
+        double tYear = 3.156e7;  // seconds
+        double maxImpacts = 0;
+        double bestArea = areaSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double A = Math.max(1.0, areaSeed + i * sp.stepSize() * 20.0);
+            double mission = (1.0 + i * sp.stepSize() * 0.5) * tYear;
+            double N = Phi * A * mission;
+            samples++;
+            if (N > maxImpacts) { maxImpacts = N; bestArea = A; }
+            if (i < 4) sb.append("A=%.0fm²→N≈%.1f ".formatted(A, N));
+        }
+        ClaimStatus status = maxImpacts < 100 ? ClaimStatus.SUPPORTED
+                : maxImpacts < 1000 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Impact flux: max %.1f sub-mm impacts on A=%.0f m² over the sweep. %s")
+                .formatted(maxImpacts, bestArea,
+                        maxImpacts < 100 ? "Whipple-shield design adequate"
+                                : maxImpacts < 1000 ? "elevated impact regime — additional shielding needed"
+                                        : "impact density requires re-evaluation of mission orbit");
+        return new ResearchResult(
+                "Micrometeoroid flux (Φ=%.0e /m²/s, %d (A, mission) samples): max impacts=%.1f at A=%.0f m². Sample: %s"
+                        .formatted(Phi, samples, maxImpacts, bestArea, sb.toString().trim()),
+                maxImpacts, bestArea, Phi, maxImpacts, status, assessment)
+                .withHypothesis(("For habitat surfaces A swept near %.0f m² over mission durations spanning one "
+                        + "to several years, the expected sub-mm meteoroid impact count scales linearly with "
+                        + "A·t at the LEO micrometeoroid flux Φ≈10⁻⁸ /m²/s.")
+                        .formatted(areaSeed));
+    }
+
+    /** Centrifugal artificial gravity: a = ω²·R. Find R for a given a_target at habitable rate. */
+    private static ResearchResult centrifugalGravityRadius(double aTarget, SearchParams sp) {
+        // a_target in fractions of g_E.
+        double aMps = aTarget * 9.81;
+        double bestR = 0;
+        double bestOmega = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            // ω ranges 0.2-4 rad/s (3-40 rpm).
+            double omega = 0.2 + i * sp.stepSize() * 0.1;
+            // Coriolis-tolerable: ω ≤ 0.3 rad/s (≈3 rpm) preferred. Above that, gait is uncomfortable.
+            double R = aMps / (omega * omega);
+            samples++;
+            if (omega <= 0.3 && R > bestR) { bestR = R; bestOmega = omega; }
+            if (i < 4) sb.append("ω=%.2frad/s→R=%.1fm ".formatted(omega, R));
+        }
+        // If no comfortable ω found, take the smallest R from any ω.
+        if (bestR == 0 && samples > 0) {
+            bestR = aMps / (0.3 * 0.3);
+            bestOmega = 0.3;
+        }
+        ClaimStatus status = bestR < 100 ? ClaimStatus.SUPPORTED
+                : bestR < 500 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Spin habitat: comfortable R=%.1f m at ω=%.2f rad/s for a_target=%.2f g. %s")
+                .formatted(bestR, bestOmega, aTarget,
+                        bestR < 100 ? "radius within feasible construction scale"
+                                : bestR < 500 ? "large-radius habitat — high construction cost"
+                                        : "kilometer-scale radius — beyond near-term feasibility");
+        return new ResearchResult(
+                "Centrifugal (a_target=%.2f g, %d ω-samples): comfort-R=%.1f m at ω=%.2f rad/s. Sample: %s"
+                        .formatted(aTarget, samples, bestR, bestOmega, sb.toString().trim()),
+                bestR, bestOmega, aTarget, bestR, status, assessment)
+                .withHypothesis(("For a target artificial gravity a_target≈%.2f g, comfortable Coriolis "
+                        + "conditions (ω ≤ 0.3 rad/s) require a habitat radius R = a/ω² that grows quadratically "
+                        + "with decreasing rotation rate.")
+                        .formatted(aTarget));
+    }
+
+    /** Orbital decay: dh/dt ≈ −2π·ρ_atm(h)·B_inv·a. */
+    private static ResearchResult orbitalDecayRate(double altKmSeed, SearchParams sp) {
+        // Toy: ρ_atm(h) ≈ 1.225·exp(−h/8) kg/m³ ≪ atmospheric scale height.
+        double bestDays = 0;
+        double bestH = altKmSeed;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double h = Math.max(200, altKmSeed + i * sp.stepSize() * 10.0);
+            double rho = 1.225 * Math.exp(-h / 60.0);  // exaggerated scale height
+            // Decay rate (m/s descent): rough heuristic.
+            double Binv = 0.001;
+            double a = 7.7e6;  // orbital semimajor in m
+            double dhdt = 2 * Math.PI * rho * Binv * a;  // m/s vertical
+            double daysToDeorbit = (h * 1000.0) / Math.max(1e-6, dhdt) / 86400.0;
+            samples++;
+            if (daysToDeorbit > bestDays) { bestDays = daysToDeorbit; bestH = h; }
+            if (i < 4) sb.append("h=%.0fkm→ρ=%.2eρ_atm→t_deorbit=%.1fd ".formatted(h, rho, daysToDeorbit));
+        }
+        ClaimStatus status = bestDays > 30 ? ClaimStatus.SUPPORTED
+                : bestDays > 5 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Orbital decay: max time-to-reentry %.1f days at h=%.0f km. %s")
+                .formatted(bestDays, bestH,
+                        bestDays > 30 ? "satellite lifetime > 1 month at the sampled altitudes"
+                                : bestDays > 5 ? "weeks-scale lifetime — frequent reboosts needed"
+                                        : "rapid decay — orbit too low for sustained mission");
+        return new ResearchResult(
+                "Orbital decay (%d h-samples starting %.0f km): max t_deorbit=%.1f days at h=%.0f km. Sample: %s"
+                        .formatted(samples, altKmSeed, bestDays, bestH, sb.toString().trim()),
+                bestDays, bestH, 0.001, bestDays, status, assessment)
+                .withHypothesis(("For a satellite swept from altitude h≈%.0f km with ballistic inverse-coefficient "
+                        + "B⁻¹≈0.001, the orbital decay rate dh/dt = 2π·ρ_atm(h)·B⁻¹·a falls exponentially "
+                        + "with altitude through the atmospheric scale height.")
+                        .formatted(altKmSeed));
     }
 
     // ---- Helpers (package-private so DynamicComputeEngine can use them) ----

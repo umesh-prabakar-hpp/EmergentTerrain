@@ -325,6 +325,26 @@ public class TopicValidatorRegistry {
                         "Dissolved-gas concentration > 100 mol/L is beyond physical limits for "
                                 + "any liquid solvent; Henry's-law linear extrapolation has failed"));
 
+        // Phase 7 FX.5 — ARCHITECTURE_SPACE bounds.
+        register(new TopicKey("ARCHITECTURE_SPACE", "Radiation Shielding Mass"),
+                bound(Pattern.compile("σ=([0-9]+(?:\\.[0-9]+)?)g/cm²"), 500.0, "g/cm²",
+                        "Areal shielding > 500 g/cm² is impractical for any launched habitat"));
+        register(new TopicKey("ARCHITECTURE_SPACE", "Vacuum Thermal Radiative Balance"),
+                bound(Pattern.compile("T=([0-9]+(?:\\.[0-9]+)?)K"), 1000.0, "K",
+                        "Equilibrium T > 1000 K indicates a runaway radiative heat-balance — "
+                                + "the model has departed from the habitable-module regime"));
+        register(new TopicKey("ARCHITECTURE_SPACE", "Micrometeoroid Impact Flux"),
+                bound(Pattern.compile("max impacts=([0-9]+(?:\\.[0-9]+)?)"), 1.0e6, "impacts",
+                        "Annual impact count > 10⁶ on habitat scales indicates the flux model "
+                                + "blew up — verify the orbit and time-window assumptions"));
+        register(new TopicKey("ARCHITECTURE_SPACE", "Centrifugal Artificial Gravity Radius"),
+                bound(Pattern.compile("R=([0-9]+(?:\\.[0-9]+)?)m"), 10_000.0, "m",
+                        "Centrifugal habitat radius > 10 km is beyond near-term feasibility"));
+        register(new TopicKey("ARCHITECTURE_SPACE", "Orbital Decay From Atmospheric Drag"),
+                bound(Pattern.compile("t_deorbit=([0-9]+(?:\\.[0-9]+)?)d"), 1.0e6, "days",
+                        "Decay time > 10⁶ days indicates the residual-atmosphere model "
+                                + "underestimates ρ_atm at the swept altitude"));
+
         // Phase 7 FX.1 — BIOLOGY bounds.
         register(new TopicKey("BIOLOGY", "Verhulst Logistic Growth"),
                 bound(Pattern.compile("N=([0-9]+(?:\\.[0-9]+)?)"), 1.0e9, "individuals",

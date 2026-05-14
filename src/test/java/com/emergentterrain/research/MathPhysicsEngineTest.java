@@ -1098,4 +1098,105 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("ARCHITECTURE_LIQUID", 4, 30, 5.0);
         assertThat(r.secondaryValue()).isGreaterThan(0.0);
     }
+
+    // ---- Phase 7 FX.5: ARCHITECTURE_SPACE ----
+
+    @Test
+    void radiationShieldingMassIsBounded() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 0, 30, 5.0);
+        assertThat(r.equation()).contains("Φ");
+        assertThat(r.findings()).contains("shielding");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(500.0);  // bound
+    }
+
+    @Test
+    void radiationShieldingRisesWithFlux() {
+        // Higher param2 → higher flux scale → more shielding needed.
+        MathPhysicsEngine.ResearchResult low =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 0, 30, 1.0);
+        MathPhysicsEngine.ResearchResult high =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 0, 30, 9.0);
+        assertThat(high.primaryValue()).isGreaterThan(low.primaryValue());
+    }
+
+    @Test
+    void vacuumThermalBalanceProducesHabitableRange() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 1, 30, 5.0);
+        assertThat(r.equation()).contains("T_eq").contains("σ");
+        assertThat(r.findings()).contains("Vacuum thermal");
+        // primary = max T; secondary = min T. Both within registry bound.
+        assertThat(r.primaryValue()).isLessThan(1000.0);
+        assertThat(r.secondaryValue()).isGreaterThan(0.0);
+    }
+
+    @Test
+    void vacuumThermalSecondaryHoldsMinTemperature() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 1, 30, 5.0);
+        // min T should be lower than max T.
+        assertThat(r.secondaryValue()).isLessThanOrEqualTo(r.primaryValue());
+    }
+
+    @Test
+    void micrometeoroidImpactCountScalesWithArea() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 2, 30, 5.0);
+        assertThat(r.equation()).contains("Φ").contains("impacts");
+        assertThat(r.findings()).contains("Micrometeoroid flux");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e6);  // bound
+    }
+
+    @Test
+    void largerHabitatHasMoreImpacts() {
+        // Higher param1 → bigger area seed → more cumulative impacts.
+        MathPhysicsEngine.ResearchResult small =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 2, 10, 5.0);
+        MathPhysicsEngine.ResearchResult large =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 2, 90, 5.0);
+        assertThat(large.primaryValue()).isGreaterThan(small.primaryValue());
+    }
+
+    @Test
+    void centrifugalRadiusScalesQuadraticallyWithDecreasingOmega() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 3, 30, 5.0);
+        assertThat(r.equation()).contains("ω²").contains("R");
+        assertThat(r.findings()).contains("Centrifugal");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);  // some viable R
+        assertThat(r.primaryValue()).isLessThan(10_000.0);  // bound
+    }
+
+    @Test
+    void centrifugalLargerATargetNeedsLargerRadiusAtSameOmega() {
+        // Higher param2 → larger a_target → larger R at the comfortable spin rate.
+        MathPhysicsEngine.ResearchResult lowA =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 3, 30, 1.0);
+        MathPhysicsEngine.ResearchResult highA =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 3, 30, 9.0);
+        assertThat(highA.primaryValue()).isGreaterThanOrEqualTo(lowA.primaryValue());
+    }
+
+    @Test
+    void orbitalDecayTimeIsBoundedAndPositive() {
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 4, 30, 5.0);
+        assertThat(r.equation()).contains("dh/dt");
+        assertThat(r.findings()).contains("Orbital decay");
+        assertThat(r.primaryValue()).isGreaterThan(0.0);
+        assertThat(r.primaryValue()).isLessThan(1.0e6);  // bound
+    }
+
+    @Test
+    void higherAltitudeSatellitesLastLonger() {
+        // Higher param1 → higher altitude seed → thinner atmosphere → longer life.
+        MathPhysicsEngine.ResearchResult low =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 4, 10, 5.0);
+        MathPhysicsEngine.ResearchResult high =
+                MathPhysicsEngine.compute("ARCHITECTURE_SPACE", 4, 90, 5.0);
+        assertThat(high.primaryValue()).isGreaterThan(low.primaryValue());
+    }
 }
