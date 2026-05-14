@@ -187,9 +187,13 @@ The engine listens on its gRPC port (default 50051). The Spring Boot app connect
 
 ## 5. Start the Spring Boot app
 
+All config has sensible defaults in `application.yml` (including the Ollama
+hostnames `localhost,192.168.1.145`, the four primary-provider API keys, and
+Phase 9's selection-test toggle). Just run:
+
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-OLLAMA_HOSTS=localhost,192.168.1.145 mvn clean spring-boot:run
+mvn clean spring-boot:run
 ```
 
 Or build and run the jar:
@@ -202,20 +206,22 @@ java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
 
 The app starts on **http://localhost:8081**.
 
-### With multiple Ollama backends
+### Overriding config from the command line
 
-Groq is enabled by default — the API key is pre-configured in `application.yml`. Just set the Ollama hosts:
-
-```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
-mvn clean package -DskipTests
-OLLAMA_HOSTS=localhost,192.168.1.145 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
-```
-
-To use a different Groq API key, override via env var:
+Every value in `application.yml` is overrideable via env var when the YAML
+uses `${VAR:default}`. Env vars are **overrides, not requirements** — only
+prefix them when you need a value different from the configured default.
 
 ```bash
-GROQ_API_KEY=gsk_... OLLAMA_HOSTS=localhost,192.168.1.145 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
+# Use different Ollama hosts than the configured default
+OLLAMA_HOSTS=10.0.0.5,10.0.0.6 java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
+
+# Use a different Groq API key
+GROQ_API_KEY=gsk_... java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar
+
+# Skip Phase 9 selection tests (useful for dev iteration; default is on)
+java -jar target/emergent-terrain-0.0.1-SNAPSHOT.jar \
+  --app.ai.selection-tests.enabled=false
 ```
 
 On startup you will see (Phase 7/8/9 — multi-provider + selection-tested):
@@ -246,7 +252,9 @@ retries unhealthy ones every 30 seconds.
 
 ## Environment variables
 
-All have sensible defaults for local development. Override as needed:
+All have sensible defaults baked into `application.yml`. **None are required**
+at the command line — set them only when you want a value different from the
+configured default.
 
 | Variable | Default | Description |
 |---|---|---|
