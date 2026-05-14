@@ -12,6 +12,8 @@ pub mod gpu {
     tonic::include_proto!("emergentterrain.gpu.v1");
 }
 
+mod eval_expr;
+
 use gpu::gpu_terrain_service_server::{GpuTerrainService, GpuTerrainServiceServer};
 use gpu::{
     BoolGrid, BotState, EvalExprRequest, EvalExprResponse, GenerateRegionRequest,
@@ -699,17 +701,33 @@ impl GpuTerrainService for GpuEngineService {
         }))
     }
 
-    // Phase 8 Tier 4 — P4.1 placeholder. The full implementation arrives in
-    // P4.2 (formula parser → WGSL codegen → wgpu dispatch → aggregate). For
-    // now we return Unimplemented so the contract lands and Java callers can
-    // generate stubs against the same proto, but no GPU work is performed.
+    // Phase 8 Tier 4 — P4.2 real implementation. Parses the formula into an
+    // AST, generates WGSL, dispatches a compute shader over [start, end), and
+    // aggregates the f32 output buffer on the CPU. Strict subset of
+    // SandboxEngine syntax (no control flow, no user functions); see
+    // eval_expr::parse for the grammar.
     async fn eval_expr(&self, request: Request<EvalExprRequest>) -> Result<Response<EvalExprResponse>, Status> {
         let req = request.into_inner();
-        println!("eval_expr stub request_id={} formula=\"{}\" range=[{},{})",
-                 req.request_id, req.formula, req.start, req.end);
-        Err(Status::unimplemented(
-            "EvalExpr is not yet implemented (Phase 8 P4.1 contract only; \
-             real evaluator lands in P4.2)"))
+        let agg = eval_expr::run_on_gpu(&self.gpu.device, &self.gpu.queue,
+                                         &req.formula, req.start, req.end)?;
+        println!("eval_expr request_id={} formula=\"{}\" range=[{},{}) ms={} finite={}/{} mean={} std={}",
+                 req.request_id, req.formula, req.start, req.end,
+                 agg.millis, agg.finite_count, agg.n, agg.mean, agg.std_dev);
+        let debug = serde_json::json!({
+            "millis": agg.millis,
+            "adapter": self.gpu.adapter_summary(),
+        }).to_string();
+        Ok(Response::new(EvalExprResponse {
+            request_id: req.request_id,
+            mean: agg.mean,
+            std_dev: agg.std_dev,
+            min: agg.min,
+            max: agg.max,
+            sum: agg.sum,
+            n: agg.n,
+            finite_count: agg.finite_count,
+            debug_json: debug,
+        }))
     }
 }
 
@@ -765,11 +783,11 @@ impl CachedWorld {
     }
 }
 
-fn create_bind_group_layout(device: &wgpu::Device, label: &str, entries: &[wgpu::BindGroupLayoutEntry]) -> wgpu::BindGroupLayout {
+pub(crate) fn create_bind_group_layout(device: &wgpu::Device, label: &str, entries: &[wgpu::BindGroupLayoutEntry]) -> wgpu::BindGroupLayout {
     device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor { label: Some(label), entries })
 }
 
-fn create_compute_pipeline(device: &wgpu::Device, label: &str, layout: &wgpu::BindGroupLayout, shader: &wgpu::ShaderModule) -> wgpu::ComputePipeline {
+pub(crate) fn create_compute_pipeline(device: &wgpu::Device, label: &str, layout: &wgpu::BindGroupLayout, shader: &wgpu::ShaderModule) -> wgpu::ComputePipeline {
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some(label),
         bind_group_layouts: &[layout],
@@ -784,7 +802,7 @@ fn create_compute_pipeline(device: &wgpu::Device, label: &str, layout: &wgpu::Bi
     })
 }
 
-fn storage_layout(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
+pub(crate) fn storage_layout(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
@@ -797,7 +815,7 @@ fn storage_layout(binding: u32, read_only: bool) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn uniform_layout(binding: u32) -> wgpu::BindGroupLayoutEntry {
+pub(crate) fn uniform_layout(binding: u32) -> wgpu::BindGroupLayoutEntry {
     wgpu::BindGroupLayoutEntry {
         binding,
         visibility: wgpu::ShaderStages::COMPUTE,
@@ -810,7 +828,7 @@ fn uniform_layout(binding: u32) -> wgpu::BindGroupLayoutEntry {
     }
 }
 
-fn create_storage_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
+pub(crate) fn create_storage_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size,
@@ -825,7 +843,7 @@ fn create_initialized_storage_buffer<T: Pod>(device: &wgpu::Device, queue: &wgpu
     buffer
 }
 
-fn create_uniform_buffer<T: Pod>(device: &wgpu::Device, queue: &wgpu::Queue, label: &str, value: &T) -> wgpu::Buffer {
+pub(crate) fn create_uniform_buffer<T: Pod>(device: &wgpu::Device, queue: &wgpu::Queue, label: &str, value: &T) -> wgpu::Buffer {
     let buffer = device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size: std::mem::size_of::<T>() as u64,
@@ -836,7 +854,7 @@ fn create_uniform_buffer<T: Pod>(device: &wgpu::Device, queue: &wgpu::Queue, lab
     buffer
 }
 
-fn create_readback_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
+pub(crate) fn create_readback_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu::Buffer {
     device.create_buffer(&wgpu::BufferDescriptor {
         label: Some(label),
         size,
@@ -845,7 +863,7 @@ fn create_readback_buffer(device: &wgpu::Device, label: &str, size: u64) -> wgpu
     })
 }
 
-fn bind_entry<'a>(binding: u32, buffer: &'a wgpu::Buffer) -> wgpu::BindGroupEntry<'a> {
+pub(crate) fn bind_entry<'a>(binding: u32, buffer: &'a wgpu::Buffer) -> wgpu::BindGroupEntry<'a> {
     wgpu::BindGroupEntry { binding, resource: buffer.as_entire_binding() }
 }
 
@@ -861,7 +879,7 @@ fn u32_buffer_bytes(len: usize) -> u64 {
     (len * std::mem::size_of::<u32>()) as u64
 }
 
-fn map_pod_buffer<T: Pod>(device: &wgpu::Device, buffer: &wgpu::Buffer, expected_len: usize) -> Result<Vec<T>, Status> {
+pub(crate) fn map_pod_buffer<T: Pod>(device: &wgpu::Device, buffer: &wgpu::Buffer, expected_len: usize) -> Result<Vec<T>, Status> {
     let slice = buffer.slice(..);
     let (tx, rx) = std::sync::mpsc::sync_channel(1);
     slice.map_async(wgpu::MapMode::Read, move |result| {
