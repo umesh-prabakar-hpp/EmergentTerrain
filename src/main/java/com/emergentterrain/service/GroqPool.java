@@ -68,9 +68,10 @@ public class GroqPool implements LlmPool {
     /** Phase 9 follow-on — per-request read timeout. Hung responses surface as
      *  HttpTimeoutException; without this the HTTP client waits indefinitely
      *  on a stalled response (the client-level connectTimeout only covers
-     *  connection setup). 180s is long enough for legit slow reasoning models
-     *  but short enough to fall through to the next provider on a true hang. */
-    private static final Duration REQUEST_TIMEOUT  = Duration.ofSeconds(180);
+     *  connection setup). 7 min is long enough for slow reasoning models with
+     *  long generations but short enough to fall through to the next provider
+     *  on a true hang (operator direction 2026-05-14). */
+    private static final Duration REQUEST_TIMEOUT  = Duration.ofMinutes(7);
 
     // Reasoning models (e.g. openai/gpt-oss-120b) consume most of their token budget on
     // internal chain-of-thought before writing content. 150 was exhausted by reasoning alone.

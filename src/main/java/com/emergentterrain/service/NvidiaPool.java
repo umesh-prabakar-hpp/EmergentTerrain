@@ -454,7 +454,7 @@ public class NvidiaPool implements LlmPool {
     }
 
     /** Phase 9 follow-on — per-request read timeout to surface hung responses. */
-    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofSeconds(180);
+    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofMinutes(7);
 
     private HttpRequest.Builder chatRequestBuilder() {
         return HttpRequest.newBuilder()

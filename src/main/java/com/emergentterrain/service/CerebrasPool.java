@@ -445,7 +445,7 @@ public class CerebrasPool implements LlmPool {
      *  fallthrough to the next model / registry handle. Without this, the
      *  HTTP client would wait indefinitely on a stalled response (the
      *  client-level connectTimeout only covers connection setup). */
-    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofSeconds(180);
+    private static final java.time.Duration REQUEST_TIMEOUT = java.time.Duration.ofMinutes(7);
 
     private HttpRequest.Builder chatRequestBuilder() {
         return HttpRequest.newBuilder()
