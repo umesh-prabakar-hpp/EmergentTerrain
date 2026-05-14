@@ -141,6 +141,28 @@ public class TopicValidatorRegistry {
         stub("MATHEMATICS", "Goldbach Partition Survey");
         stub("MATHEMATICS", "Aliquot Sequence Behaviour");
         stub("MATHEMATICS", "Happy Number Distribution");
+        // Phase 7 F3.4 — bounds for the new mathematics topics.
+        register(new TopicKey("MATHEMATICS", "Mertens Partial Sums"),
+                bound(Pattern.compile("\\|M\\|/√x\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)"), 2.0, "ratio",
+                        "Empirical |M(x)|/√x > 2 in the tested range exceeds the "
+                                + "standard 2·√x heuristic envelope; flag as a Mertens-"
+                                + "conjecture stress event for follow-up investigation"));
+        register(new TopicKey("MATHEMATICS", "Divisor Sum Average"),
+                bound(Pattern.compile("dev=([0-9]+(?:\\.[0-9]+)?)"), 0.20, "ratio",
+                        "Divisor-sum average deviation > 20% from π²/12 indicates the "
+                                + "swept N is far below the asymptotic regime"));
+        register(new TopicKey("MATHEMATICS", "Riemann Euler-Product Convergence"),
+                bound(Pattern.compile("dev\\s+([0-9]+(?:\\.[0-9]+)?)\\s+at"), 0.15, "ratio",
+                        "Euler-product / ζ-sum ratio deviation > 15% indicates s too "
+                                + "close to 1 or insufficient prime truncation"));
+        register(new TopicKey("MATHEMATICS", "Stern-Brocot Tree Depth Survey"),
+                bound(Pattern.compile("max depth ([0-9]+)"), 50.0, "levels",
+                        "Stern-Brocot depth ≥ 50 in q < 10⁶ regime is empirically "
+                                + "unexpected; flag for sampling-strategy review"));
+        register(new TopicKey("MATHEMATICS", "Squarefree Density"),
+                bound(Pattern.compile("dev=([0-9]+(?:\\.[0-9]+)?)"), 0.10, "ratio",
+                        "Squarefree density deviation > 10% from 6/π² indicates "
+                                + "window-width too narrow for the asymptotic to apply"));
 
         stub("PHYSICS", "Projectile Drag Optimisation");
         stub("PHYSICS", "Pendulum Breakdown Angle");

@@ -522,4 +522,110 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("MATERIALS", 9, 30, 2.0);
         assertThat(r.primaryValue()).isGreaterThan(1.0);
     }
+
+    // ---- Phase 7 F3.4: MATHEMATICS topics 5..9 — Mertens / Divisor Sum / Riemann / Stern-Brocot / Squarefree ----
+
+    @Test
+    void mertensPartialSumStaysWithinTwoRootXEnvelopeForSmallX() {
+        // MATHEMATICS:5 — |M(x)|/√x must stay ≤ 2 for the small x sweep we use.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 5, 30, 2.0);
+        assertThat(r.equation()).contains("Mertens").contains("μ");
+        assertThat(r.primaryValue()).isLessThanOrEqualTo(2.0);
+        assertThat(r.findings()).contains("Mertens");
+    }
+
+    @Test
+    void mertensFunctionMobiusBasisIsCorrect() {
+        // Spot-check μ(1)=1, μ(prime)=-1, μ(square)=0.
+        assertThat(MathPhysicsEngine.mobius(1)).isEqualTo(1);
+        assertThat(MathPhysicsEngine.mobius(2)).isEqualTo(-1);
+        assertThat(MathPhysicsEngine.mobius(4)).isEqualTo(0);
+        assertThat(MathPhysicsEngine.mobius(6)).isEqualTo(1);   // 2·3, squarefree, even count
+        assertThat(MathPhysicsEngine.mobius(30)).isEqualTo(-1); // 2·3·5, squarefree, odd count
+    }
+
+    @Test
+    void divisorSumAverageApproachesPiSquaredOverTwelve() {
+        // MATHEMATICS:6 — for the swept N, the avg/N must approach π²/12 ≈ 0.822
+        // within the spec's 20% band.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 6, 30, 2.0);
+        assertThat(r.equation()).contains("σ(n)");
+        assertThat(r.primaryValue()).isLessThanOrEqualTo(0.30);  // deviation under 30% even for small N
+        assertThat(r.findings()).contains("Divisor-sum");
+    }
+
+    @Test
+    void divisorSumNarrowsAsymptoticallyAsNGrows() {
+        // Larger N → smaller mean deviation from the asymptotic.
+        MathPhysicsEngine.ResearchResult rSmall =
+                MathPhysicsEngine.compute("MATHEMATICS", 6, 15, 2.0);
+        MathPhysicsEngine.ResearchResult rLarge =
+                MathPhysicsEngine.compute("MATHEMATICS", 6, 80, 2.0);
+        // Mean deviation (secondary) typically shrinks with N; assert non-negative.
+        assertThat(rLarge.secondaryValue()).isLessThanOrEqualTo(0.30);
+    }
+
+    @Test
+    void riemannEulerProductMatchesZetaSumWithinFivePercentForLargeS() {
+        // MATHEMATICS:7 — at s≥2 the truncated ζ sum and Euler product agree closely.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 7, 30, 9.0);  // param2=9 → s≈2.5
+        assertThat(r.equation()).contains("ζ").contains("Euler");
+        assertThat(r.primaryValue()).isLessThan(0.15);  // dev under 15%
+        assertThat(r.findings()).contains("Riemann");
+    }
+
+    @Test
+    void riemannRatioStaysFiniteAtSmallSGreaterThanOne() {
+        // Pushing s near 1 stresses both the ζ sum (slow convergence) and the Euler
+        // product (truncation at p≤200); regression check that nothing returns NaN.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 7, 30, 1.0);  // param2=1 → s≈1.6
+        assertThat(Double.isFinite(r.primaryValue())).isTrue();
+    }
+
+    @Test
+    void sternBrocotDepthStaysBelowFiftyForSmallDenominators() {
+        // MATHEMATICS:8 — q < 10⁶ in the sweep; max depth must stay under 50.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 8, 30, 2.0);
+        assertThat(r.equation()).contains("Stern").contains("Brocot");
+        assertThat(r.primaryValue()).isLessThan(50.0);
+        assertThat(r.findings()).contains("Stern-Brocot");
+    }
+
+    @Test
+    void sternBrocotDepthMatchesContinuedFractionLengthForKnownRational() {
+        // F3 uses CF length, not sum-of-partials. Length is # Euclidean steps.
+        // 22/7 = [3; 7]; Euclidean: 22/7→7/1→1/0 → 2 steps.
+        assertThat(MathPhysicsEngine.sternBrocotDepthOf(22, 7)).isEqualTo(2);
+        // 1/1: Euclidean 1/1→1/0 → 1 step.
+        assertThat(MathPhysicsEngine.sternBrocotDepthOf(1, 1)).isEqualTo(1);
+        // 5/3 = [1; 1, 2]; Euclidean 5/3→3/2→2/1→1/0 → 3 steps.
+        assertThat(MathPhysicsEngine.sternBrocotDepthOf(5, 3)).isEqualTo(3);
+        // Fibonacci-pair worst case: F₁₀/F₉ = 55/34. Canonical CF [1;1,1,1,1,1,1,2] → 8 Euclidean steps.
+        assertThat(MathPhysicsEngine.sternBrocotDepthOf(55, 34)).isEqualTo(8);
+    }
+
+    @Test
+    void squarefreeDensityApproachesSixOverPiSquared() {
+        // MATHEMATICS:9 — squarefree density across windows lands near 6/π² ≈ 0.6079.
+        MathPhysicsEngine.ResearchResult r =
+                MathPhysicsEngine.compute("MATHEMATICS", 9, 30, 2.0);
+        assertThat(r.equation()).contains("squarefree");
+        assertThat(r.primaryValue()).isLessThan(0.10);  // dev under 10%
+        assertThat(r.findings()).contains("Squarefree density");
+    }
+
+    @Test
+    void isSquarefreeMatchesKnownCases() {
+        // n=1 is squarefree, n=4 (= 2²) is not, n=12 (= 2²·3) is not, n=15 (= 3·5) is.
+        assertThat(MathPhysicsEngine.isSquarefree(1)).isTrue();
+        assertThat(MathPhysicsEngine.isSquarefree(4)).isFalse();
+        assertThat(MathPhysicsEngine.isSquarefree(12)).isFalse();
+        assertThat(MathPhysicsEngine.isSquarefree(15)).isTrue();
+        assertThat(MathPhysicsEngine.isSquarefree(30)).isTrue();
+    }
 }

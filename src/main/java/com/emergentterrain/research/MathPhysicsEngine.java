@@ -175,7 +175,13 @@ public class MathPhysicsEngine {
     private static final String[] MATH_TOPICS = {
             "Prime Constellation Search", "Collatz Stopping Time",
             "Goldbach Partition Survey", "Aliquot Sequence Behaviour",
-            "Happy Number Distribution"
+            "Happy Number Distribution",
+            // Phase 7 F3.4 — 5 new mathematics topics.
+            "Mertens Partial Sums",
+            "Divisor Sum Average",
+            "Riemann Euler-Product Convergence",
+            "Stern-Brocot Tree Depth Survey",
+            "Squarefree Density"
     };
     private static final String[] PHYSICS_TOPICS = {
             "Projectile Drag Optimisation", "Pendulum Breakdown Angle",
@@ -214,7 +220,13 @@ public class MathPhysicsEngine {
             {"Collatz Stopping Time Distribution Over Integer Ranges", "Trajectory Depth in 3n+1 Sequences"},
             {"Goldbach Partition Counts for Even Integers", "Partition-Poor Even Numbers: A Local Survey"},
             {"Aliquot Sequence Termination Rates in Integer Ranges", "Cycle Detection in Iterated Proper Divisor Sums"},
-            {"Happy Number Density and Digit-Square Convergence Patterns", "Local Verification of the 14.3% Happy Number Conjecture"}
+            {"Happy Number Density and Digit-Square Convergence Patterns", "Local Verification of the 14.3% Happy Number Conjecture"},
+            // Phase 7 F3.4 — titles for the 5 new mathematics topics.
+            {"Empirical Growth of the Mertens Function in Bounded Ranges", "Möbius Partial-Sum Oscillation vs the √x Heuristic"},
+            {"Average Order of σ(n) Compared to the (π²/12)·N Asymptotic", "Divisor-Sum Mean Drift Over Integer Windows"},
+            {"Empirical Closeness of Σ 1/nˢ and Π 1/(1-p⁻ˢ) for s>1", "Riemann ζ-Function Truncation vs the Euler-Product Estimate"},
+            {"Depth of Rationals in the Stern-Brocot Tree as a Function of Denominator", "Continued-Fraction Depth Survey Over Sampled p/q Pairs"},
+            {"Local Density of Squarefree Integers Compared to the 6/π² Asymptotic", "Squarefree Counting in Bounded Intervals"}
     };
     private static final String[][] PHYSICS_TITLES = {
             {"Optimal Launch Angle Under Quadratic Air Resistance", "Drag-Induced Departure from the 45° Range Maximum"},
@@ -338,6 +350,12 @@ public class MathPhysicsEngine {
             case "MATHEMATICS:2" -> 3.0;     // Goldbach contrast ratio (~1.5-5)
             case "MATHEMATICS:3" -> 0.05;    // Aliquot anomalyFrac (~0.02-0.10)
             case "MATHEMATICS:4" -> 0.02;    // Happy number deviation (~0.005-0.05)
+            // Phase 7 F3.4 — new mathematics topics.
+            case "MATHEMATICS:5" -> 10.0;    // Mertens |M(x)|/√x ratio (~0.1-3.0; ratio capped at ~10)
+            case "MATHEMATICS:6" -> 0.05;    // Divisor-sum deviation from (π²/12)·N (~0.01-0.10)
+            case "MATHEMATICS:7" -> 0.05;    // Riemann ratio deviation from 1.0 (~0.005-0.10)
+            case "MATHEMATICS:8" -> 30.0;    // Stern-Brocot max depth (~5-50)
+            case "MATHEMATICS:9" -> 0.05;    // Squarefree density deviation (~0.005-0.10)
             // Physics
             case "PHYSICS:0"     -> 10.0;    // projectile angle shift in degrees (~5-25°)
             case "PHYSICS:1"     -> 50.0;    // pendulum T0*(80-angle) (~13-185)
@@ -539,7 +557,13 @@ public class MathPhysicsEngine {
             case 1 -> collatzStoppingTimes(param1 * 3, 60, sp).withEquation(eq);
             case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp).withEquation(eq);
             case 3 -> aliquotSequences(Math.max(2, param1), 40, sp).withEquation(eq);
-            default -> happyNumbers(param1 * 7, 150, sp).withEquation(eq);
+            case 4 -> happyNumbers(param1 * 7, 150, sp).withEquation(eq);
+            // Phase 7 F3.4 — new mathematics topics.
+            case 5 -> mertensPartialSums(Math.max(10, param1 * 5), 200, sp).withEquation(eq);
+            case 6 -> divisorSumAverage(Math.max(10, param1 * 4), 150, sp).withEquation(eq);
+            case 7 -> riemannEulerProduct(1.5 + param2 / 9.0, sp).withEquation(eq);
+            case 8 -> sternBrocotDepth(Math.max(2, param1), sp).withEquation(eq);
+            default -> squarefreeDensity(Math.max(10, param1 * 6), 200, sp).withEquation(eq);
         };
     }
 
@@ -813,6 +837,251 @@ public class MathPhysicsEngine {
                 deviation, avgSteps, density)
                 .withHypothesis("Happy number density in [%d, %d) will remain close to the conjectured asymptotic 14.3%%; multi-window validation tests the broader regardless-of-window claim."
                         .formatted(start, end));
+    }
+
+    // ---- Phase 7 F3.4: new mathematics topics ----
+
+    /** Mertens function: M(x) = Σ_{n ≤ x} μ(n). Returns max |M|/√x ratio across the sweep. */
+    private static ResearchResult mertensPartialSums(int seedStart, int width, SearchParams sp) {
+        double bestRatio = 0;
+        int bestX = seedStart + width;
+        long bestM = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 50));
+            int end = start + width;
+            long M = mertensPartialSum(end);
+            double ratio = Math.abs(M) / Math.sqrt(Math.max(1.0, end));
+            samples++;
+            if (ratio > bestRatio) { bestRatio = ratio; bestX = end; bestM = M; }
+            if (i < 4) sb.append("x=%d→M=%d(|M|/√x=%.3f) ".formatted(end, M, ratio));
+        }
+        // Spec bound: |M(x)| ≤ 2·√x in the tested range.
+        boolean withinBound = bestRatio <= 2.0;
+        ClaimStatus status = withinBound ? ClaimStatus.SUPPORTED
+                : bestRatio <= 4.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Mertens max |M(x)|/√x = %.3f at x=%d (M=%d) across %d windows. %s")
+                .formatted(bestRatio, bestX, bestM, samples,
+                        withinBound ? "|M(x)| stays within the 2·√x heuristic envelope"
+                                : "|M(x)| exceeds 2·√x — empirical Mertens conjecture stress test");
+        return new ResearchResult(
+                "Mertens function (windows %d, width=%d): worst |M|/√x = %.3f at x=%d (M=%d). Sample sweep: %s"
+                        .formatted(samples, width, bestRatio, bestX, bestM, sb.toString().trim()),
+                bestRatio, bestM, bestX, bestRatio, status, assessment)
+                .withHypothesis(("Across Mertens partial sums starting near x=%d with windows of width %d, the "
+                        + "ratio |M(x)|/√x will stay within the 2× heuristic envelope for the unconditional "
+                        + "bound |M(x)| = O(√x·log log log x).")
+                        .formatted(seedStart, width));
+    }
+
+    /** (1/N)·Σ_{n ≤ N} σ(n) ≈ (π²/12)·N for large N. (Note: σ here is the FULL divisor sum.) */
+    private static ResearchResult divisorSumAverage(int seedN, int width, SearchParams sp) {
+        double asymptotic = Math.PI * Math.PI / 12.0;
+        double bestDev = 0;
+        int bestN = seedN;
+        double bestAvg = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int N = Math.max(20, seedN + (int) (i * sp.stepSize() * 40));
+            long total = 0;
+            // σ(n) is the full divisor sum (includes 1 and n). sigmaSum returns the
+            // aliquot sum (σ(n) − n), so add n back.
+            for (int n = 1; n <= N; n++) total += sigmaSum(n) + n;
+            double avgOverN = ((double) total) / ((double) N * N);
+            double dev = Math.abs(avgOverN - asymptotic) / asymptotic;
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestN = N; bestAvg = avgOverN; }
+            if (i < 4) sb.append("N=%d→avg/N=%.3f(dev=%.2f%%) ".formatted(N, avgOverN, dev * 100));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Divisor-sum average max deviation %.3f from π²/12 ≈ %.4f at N=%d; mean dev %.3f. %s")
+                .formatted(bestDev, asymptotic, bestN, meanDev,
+                        bestDev <= 0.10 ? "Dirichlet asymptotic holds within 10% in this regime"
+                                : "deviation exceeds 10% — N may be too small for the asymptotic to dominate");
+        return new ResearchResult(
+                "Divisor-sum average (windows %d, base width=%d): worst dev=%.3f at N=%d (avg/N=%.3f, asymptotic=%.3f); mean dev=%.3f."
+                        .formatted(samples, width, bestDev, bestN, bestAvg, asymptotic, meanDev),
+                bestDev, meanDev, bestAvg, bestDev, status, assessment)
+                .withHypothesis(("Across upper-limits N swept upward from %d, the running average (1/N)·Σσ(n) "
+                        + "approaches Dirichlet's (π²/12)·N within 10%% as N grows.")
+                        .formatted(seedN));
+    }
+
+    /** Σ 1/nˢ vs Π 1/(1−p⁻ˢ) for s>1. Empirically truncated. */
+    private static ResearchResult riemannEulerProduct(double seedS, SearchParams sp) {
+        double bestDev = 0;
+        double bestS = seedS;
+        double bestRatio = 1.0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            double s = Math.max(1.1, seedS + i * sp.stepSize() * 0.2);
+            int truncation = 5000;
+            double zetaSum = 0;
+            for (int n = 1; n <= truncation; n++) zetaSum += Math.pow(n, -s);
+            double eulerProd = 1.0;
+            for (int p = 2; p <= 200; p++) {
+                if (!isPrime(p)) continue;
+                eulerProd *= 1.0 / (1.0 - Math.pow(p, -s));
+            }
+            double ratio = eulerProd / zetaSum;
+            double dev = Math.abs(ratio - 1.0);
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestS = s; bestRatio = ratio; }
+            if (i < 4) sb.append("s=%.3f→ratio=%.4f ".formatted(s, ratio));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        boolean withinBand = bestDev <= 0.05;
+        ClaimStatus status = withinBand ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.15 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Riemann ζ truncated-sum vs Euler-product ratio: worst dev %.4f at s=%.3f (ratio=%.4f); mean dev %.4f. %s")
+                .formatted(bestDev, bestS, bestRatio, meanDev,
+                        withinBand ? "ratio stays within 5% band — Euler product converges"
+                                : "ratio band exceeded — truncation effect dominant or s too close to 1");
+        return new ResearchResult(
+                "Riemann ζ Euler-product survey (%d s-values starting at %.3f): worst dev %.4f at s=%.3f. Sample sweep: %s"
+                        .formatted(samples, seedS, bestDev, bestS, sb.toString().trim()),
+                bestDev, bestRatio, bestS, bestDev, status, assessment)
+                .withHypothesis(("Across s-values sampled near %.3f, the ratio of the truncated ζ-sum Σ 1/nˢ to the "
+                        + "Euler product Π 1/(1 − p⁻ˢ) (over primes ≤ 200) will remain within 5%% of unity.")
+                        .formatted(seedS));
+    }
+
+    /** Stern-Brocot tree depth via continued-fraction expansion. */
+    private static ResearchResult sternBrocotDepth(int seedQ, SearchParams sp) {
+        int maxDepth = 0;
+        int bestP = 0, bestQ = seedQ;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        long sumDepth = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int q = Math.max(2, seedQ + (int) (i * sp.stepSize() * 50));
+            int p = 1 + (i * 7) % Math.max(2, q - 1);
+            int depth = sternBrocotDepthOf(p, q);
+            sumDepth += depth;
+            samples++;
+            if (depth > maxDepth) { maxDepth = depth; bestP = p; bestQ = q; }
+            if (i < 4) sb.append("%d/%d→depth=%d ".formatted(p, q, depth));
+        }
+        double meanDepth = samples > 0 ? (double) sumDepth / samples : 0;
+        // Spec: max depth < 50 for q < 10⁶.
+        boolean withinBound = maxDepth < 50 && bestQ < 1_000_000;
+        ClaimStatus status = withinBound
+                ? (maxDepth >= 5 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL)
+                : ClaimStatus.REFUTED;
+        String assessment = ("Stern-Brocot worst depth %d at p/q=%d/%d (mean depth %.2f across %d samples). %s")
+                .formatted(maxDepth, bestP, bestQ, meanDepth, samples,
+                        !withinBound ? "depth ≥ 50 in q < 10⁶ regime — unexpected; reject"
+                                : maxDepth >= 5 ? "depth distribution consistent with the Fibonacci envelope"
+                                        : "shallow rationals only — sweep did not hit deep continued fractions");
+        return new ResearchResult(
+                "Stern-Brocot depth (%d samples starting q=%d): max depth %d at %d/%d; mean depth %.2f. Sample: %s"
+                        .formatted(samples, seedQ, maxDepth, bestP, bestQ, meanDepth, sb.toString().trim()),
+                maxDepth, meanDepth, bestQ, maxDepth, status, assessment)
+                .withHypothesis(("Across rationals p/q sampled with denominators near %d, the Stern-Brocot tree "
+                        + "depth (equivalently the continued-fraction length) will stay below Fib⁻¹(max(p,q)) "
+                        + "and below the empirical 50-level cap for q < 10⁶.")
+                        .formatted(seedQ));
+    }
+
+    /** Squarefree density: count of n ≤ N with no repeated prime factor / N → 6/π². */
+    private static ResearchResult squarefreeDensity(int seedStart, int width, SearchParams sp) {
+        double asymptotic = 6.0 / (Math.PI * Math.PI);
+        double bestDev = 0;
+        int bestStart = seedStart;
+        double bestDensity = 0;
+        StringBuilder sb = new StringBuilder();
+        int samples = 0;
+        double sumDev = 0;
+        for (int i = 0; i < sp.candidateBreadth(); i++) {
+            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 200));
+            int end = start + width;
+            int count = 0;
+            for (int n = start; n < end; n++) if (isSquarefree(n)) count++;
+            double density = (double) count / Math.max(1, end - start);
+            double dev = Math.abs(density - asymptotic);
+            sumDev += dev;
+            samples++;
+            if (dev > bestDev) { bestDev = dev; bestStart = start; bestDensity = density; }
+            if (i < 4) sb.append("[%d,%d)→density=%.4f(dev=%.4f) ".formatted(start, end, density, dev));
+        }
+        double meanDev = samples > 0 ? sumDev / samples : 0;
+        ClaimStatus status = bestDev <= 0.05 ? ClaimStatus.SUPPORTED
+                : bestDev <= 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = ("Squarefree density max dev %.4f from 6/π²≈%.4f at start=%d (density=%.4f); mean dev %.4f. %s")
+                .formatted(bestDev, asymptotic, bestStart, bestDensity, meanDev,
+                        bestDev <= 0.05 ? "density holds within 5% of the asymptotic"
+                                : "deviation exceeds 5% — narrow window effect or non-equidistributed start");
+        return new ResearchResult(
+                "Squarefree density (%d windows, width=%d): worst dev=%.4f at [%d), density=%.4f vs asymptotic %.4f."
+                        .formatted(samples, width, bestDev, bestStart, bestDensity, asymptotic),
+                bestDev, meanDev, bestDensity, bestDev, status, assessment)
+                .withHypothesis(("Across windows of width %d starting near %d, the empirical squarefree density "
+                        + "remains within 5%% of the asymptotic 6/π² ≈ 0.6079.")
+                        .formatted(width, seedStart));
+    }
+
+    // ---- F3.4 helpers (small, deterministic) ----
+
+    private static long mertensPartialSum(int x) {
+        long m = 0;
+        for (int n = 1; n <= x; n++) m += mobius(n);
+        return m;
+    }
+
+    /** Möbius function μ(n): squarefree-aware. */
+    static int mobius(int n) {
+        if (n == 1) return 1;
+        int primeFactors = 0;
+        long m = n;
+        for (long p = 2; p * p <= m; p++) {
+            if (m % p == 0) {
+                m /= p;
+                primeFactors++;
+                if (m % p == 0) return 0;  // square factor
+            }
+        }
+        if (m > 1) primeFactors++;
+        return (primeFactors & 1) == 0 ? 1 : -1;
+    }
+
+    /**
+     * Stern-Brocot depth of p/q as the LENGTH of the continued-fraction expansion
+     * (number of Euclidean steps), not the sum of partial quotients. The F3 spec's
+     * bound Depth(p/q) ≤ Fib⁻¹(max(p, q)) only makes sense in this length-of-CF
+     * semantic; the Fibonacci-pair worst case has q = F_k and depth k.
+     */
+    static int sternBrocotDepthOf(int p, int q) {
+        if (p <= 0 || q <= 0) return 0;
+        int depth = 0;
+        while (p > 0 && q > 0) {
+            depth++;
+            int r = p % q;
+            p = q;
+            q = r;
+        }
+        return depth;
+    }
+
+    /** True iff n has no repeated prime factor. */
+    static boolean isSquarefree(int n) {
+        if (n < 1) return false;
+        long m = n;
+        for (long p = 2; p * p <= m; p++) {
+            if (m % p == 0) {
+                m /= p;
+                if (m % p == 0) return false;
+            }
+        }
+        return true;
     }
 
     // ---- Physics ----
@@ -1660,7 +1929,12 @@ public class MathPhysicsEngine {
                 case 1 -> "x_{n+1} = x_n/2 if even, else 3·x_n + 1   (Collatz 3n+1 map)";
                 case 2 -> "r(2n) = #{ (p, q) : p + q = 2n, p,q prime }   (Goldbach partition count)";
                 case 3 -> "s(n) = σ(n) − n   (aliquot sum; σ(n) = sum of all divisors)";
-                default -> "x_{n+1} = Σ_i d_i(x_n)²   (digit-square iteration; happy iff terminates at 1)";
+                case 4 -> "x_{n+1} = Σ_i d_i(x_n)²   (digit-square iteration; happy iff terminates at 1)";
+                case 5 -> "M(x) = Σ_{n ≤ x} μ(n);   |M(x)| = O(√x·log log log x)   (Mertens function)";
+                case 6 -> "(1/N)·Σ_{n ≤ N} σ(n) ~ (π²/12)·N   (Dirichlet average of the divisor function)";
+                case 7 -> "ζ(s) = Σ_n 1/n^s = Π_p 1/(1 − p^(−s))   (Riemann ζ Euler product, s>1)";
+                case 8 -> "depth(p/q) ≤ Fib⁻¹(max(p, q))   (Stern–Brocot tree continued-fraction depth)";
+                default -> "ρ_squarefree = 6/π² ≈ 0.6079   (asymptotic density of squarefree integers)";
             };
             case "PHYSICS" -> switch (t) {
                 case 0 -> "m·dv/dt = −m·g·ĵ − k·|v|·v   (quadratic-drag projectile)";
