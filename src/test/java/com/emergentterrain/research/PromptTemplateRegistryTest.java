@@ -711,6 +711,56 @@ class PromptTemplateRegistryTest {
                 .doesNotContain("{{ findingsSpec }}");
     }
 
+    // ---- Phase 7 F7.1: panel review prompt template ----
+
+    @Test
+    void f7_1_panelReviewTemplateRendersAllSlotsAndContainsSchema() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         "PHYSICS");
+        params.put("topicName",      "RLC Damping Transition");
+        params.put("hypothesis",     "Resonance near 3500 Hz.");
+        params.put("findings",       "Computed Q = 42.30 at the resonance peak.");
+        params.put("conclusion",     "Underdamped regime confirmed.");
+        params.put("toolCallTrace",
+                "[{\"functionName\":\"run_param_sweep\",\"argsJson\":\"{}\","
+                        + "\"resultJson\":\"{\\\"peak_q\\\":42.30}\",\"round\":0}]");
+
+        String body = r.render(PromptTemplateIds.NARRATION_PANEL_REVIEW_ID, params);
+
+        // Slots are interpolated.
+        assertThat(body)
+                .contains("PHYSICS")
+                .contains("RLC Damping Transition")
+                .contains("Resonance near 3500 Hz.")
+                .contains("Q = 42.30")
+                .contains("Underdamped regime confirmed.")
+                .contains("run_param_sweep")
+                .doesNotContain("{{ domain }}")
+                .doesNotContain("{{ toolCallTrace }}");
+
+        // Output schema is part of the prompt so reviewers know the shape.
+        assertThat(body)
+                .contains("\"grades\"")
+                .contains("\"honesty\"")
+                .contains("\"completeness\"")
+                .contains("\"rigor\"")
+                .contains("\"novelty\"")
+                .contains("\"cited_calls\"")
+                .contains("\"omitted_relevant\"")
+                .contains("\"contradictions\"")
+                .contains("\"trace_idx\"")
+                .contains("\"vs_prose\"")
+                .contains("\"recommendations\"");
+    }
+
+    @Test
+    void f7_1_panelReviewActiveVariantIsV1() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+        PromptTemplate active = r.pickActive(PromptTemplateIds.NARRATION_PANEL_REVIEW_ID).orElseThrow();
+        assertThat(active.version()).isEqualTo(PromptTemplateIds.NARRATION_PANEL_REVIEW_VERSION);
+    }
+
     private static PromptTemplateRegistry freshSeededRegistry() {
         PromptTemplateRegistry r = new PromptTemplateRegistry();
         r.seedDefaults();   // package-private, invoked here exactly like @PostConstruct would.

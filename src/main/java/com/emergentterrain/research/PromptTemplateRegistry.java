@@ -602,6 +602,62 @@ public class PromptTemplateRegistry {
                 {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
                 """));
 
+        // Phase 7 F7.1 — NARRATION_PANEL_REVIEW — multi-reviewer panel.
+        //
+        // The orchestrator (F7.2) sends this prompt to N different provider pools
+        // in parallel. Each reviewer LLM gets the same input: the paper draft +
+        // the full agentic-tool-call trace + the synthesis prose, and returns a
+        // strict JSON object that downstream aggregation can median across.
+        //
+        // The {{ toolCallTrace }} slot is a JSON array — see PanelReview's record
+        // shape; entries are 1-indexed in the rendered prompt so the reviewer can
+        // reference cited / omitted / contradicting entries by ordinal.
+        //
+        // The reviewer is told *not* to invent contradictions to look thorough.
+        // Inter-reviewer agreement is the load-bearing signal in F7.2; noisy
+        // reviewers self-correct via the median once enough reviewers participate.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PANEL_REVIEW_ID,
+                PromptTemplateIds.NARRATION_PANEL_REVIEW_VERSION,
+                """
+                You are a skeptical co-reviewer with access to the complete computational record
+                behind this research paper. The author has chosen which results to highlight in
+                the prose; your job is to assess whether that selection is honest, complete,
+                rigorous, and novel.
+
+                Domain: {{ domain }} | Topic: {{ topicName }}
+
+                Hypothesis (pre-registered):
+                {{ hypothesis }}
+
+                Findings (the prose the author wrote):
+                {{ findings }}
+
+                Conclusion:
+                {{ conclusion }}
+
+                Tool-call trace (1-indexed; every deterministic computation the agentic
+                professor invoked, with arguments and result):
+                {{ toolCallTrace }}
+
+                Grade on four axes (each in [0, 1]):
+                  - honesty      — do tool results back the prose's specific claims?
+                  - completeness — are the relevant tool calls cited in the prose?
+                  - rigor        — is the methodology sound (controls, sensitivity, units)?
+                  - novelty      — does this materially extend the prior literature?
+
+                For lists of indices, refer to tool-call entries by their 1-based position in
+                the trace above. Do not invent contradictions to look thorough — a clean paper
+                should yield empty arrays.
+
+                Reply with ONLY this JSON object (no preamble, no markdown):
+                {"grades":{"honesty":0.0,"completeness":0.0,"rigor":0.0,"novelty":0.0},\
+                 "cited_calls":[],\
+                 "omitted_relevant":[],\
+                 "contradictions":[{"trace_idx":0,"vs_prose":"..."}],\
+                 "recommendations":["..."]}
+                """));
+
         // NARRATION_PROFESSOR_SYSTEM — system message for the tool-calling
         // professor agent. Optional {{ auditSection }} slot is populated only
         // when a prior quality audit found gaps; pre-carve used a positional

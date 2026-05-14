@@ -54,6 +54,15 @@ public final class PromptTemplateIds {
     public static final String NARRATION_STATISTICAL_FRAMING_ID      = "narration.statistical_framing";
     public static final String NARRATION_STATISTICAL_FRAMING_VERSION = "v1";
 
+    /**
+     * Phase 7 F7.1 — multi-reviewer panel review. Each reviewer LLM sees the
+     * draft + the full tool-call trace and returns a structured JSON grade plus
+     * lists of cited / omitted / contradicting calls. F7.2's panel orchestrator
+     * fans this out to N providers in parallel.
+     */
+    public static final String NARRATION_PANEL_REVIEW_ID      = "narration.panel_review";
+    public static final String NARRATION_PANEL_REVIEW_VERSION = "v1";
+
     // --- Formulation pipeline (com.emergentterrain.service.FormulationService) ---
 
     /** Pre-computation hypothesis + parameter selection prompt. */
