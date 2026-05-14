@@ -48,6 +48,8 @@ class PublishPaperTest {
     /** Phase 5 C1: tests that exercise citation-aware scoring set this via {@link #enableCitationAwareScoring()}. */
     private boolean citationAwareScoringEnabled = false;
     private boolean disputeReconciliationEnabled = false;
+    /** Phase 7 G8: tests that exercise the physical-mechanism-audit reject gate set this via {@link #enableAuditPhysicalMechanismRejects()} or {@link #disableAuditPhysicalMechanismRejects()}. */
+    private boolean auditPhysicalMechanismRejectsEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -121,6 +123,7 @@ class PublishPaperTest {
                 /* disputeReconciliationEnabled */ disputeReconciliationEnabled,
                 /* orphanAgeHours               */ 6L,
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
+                /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
                 mapper);
         roomId = UUID.randomUUID();
     }
@@ -822,6 +825,55 @@ class PublishPaperTest {
         assertThat(avgScore).isGreaterThan(0.5);   // not dragged down by the 0.1 null result
     }
 
+    // ---- Phase 7 G8: physical_mechanism audit gap → REJECTED ----
+
+    @Test
+    void phase7_G8_supportedPaperWithPhysicalMechanismGapPublishesRejectedWhenFlagOn() {
+        enableAuditPhysicalMechanismRejects();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("physical_mechanism"));
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("REJECTED");
+        assertThat(paper.llmCallPath()).contains("audit:physical_mechanism→REJECTED");
+    }
+
+    @Test
+    void phase7_G8_supportedPaperWithPhysicalMechanismGapPublishedWhenFlagOff() {
+        // Default setUp leaves auditPhysicalMechanismRejectsEnabled = false.
+        // The same input that triggers REJECTED above must publish as PUBLISHED here.
+        disableAuditPhysicalMechanismRejects();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("physical_mechanism"));
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("PUBLISHED");
+        // Flag-off path leaves the narration's null callPath untouched.
+        assertThat(paper.llmCallPath()).isNull();
+    }
+
+    @Test
+    void phase7_G8_nullResultWithPhysicalMechanismGapStaysNullResult() {
+        // SUPPORTED-only gate: a NULL_RESULT paper carrying the same audit gap must
+        // remain NULL_RESULT (validator does not fire on negative outcomes).
+        enableAuditPhysicalMechanismRejects();
+        PaperDraft draft = draft(ResultClassification.NULL_RESULT, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("physical_mechanism"));
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
+    }
+
+    @Test
+    void phase7_G8_supportedPaperWithOtherAuditGapsPublishesNormally() {
+        // A different dimension (e.g. boundary_answer, uncertainty) must not trigger
+        // the physical_mechanism reject. Only the named dimension fires the gate.
+        enableAuditPhysicalMechanismRejects();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = narrationWithAuditGaps(0.8, List.of("uncertainty", "boundary_answer"));
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
     // ---- Helper factories ----
 
     private PaperDraft draft(ResultClassification classification, double peerScore) {
@@ -916,6 +968,14 @@ class PublishPaperTest {
                 confidenceScore, List.of(), callPath);
     }
 
+    /** Phase 7 G8 — narration with explicit audit-4b gap dimensions (15-arg ctor). */
+    private NarrationResult narrationWithAuditGaps(double confidenceScore,
+                                                    List<String> auditGapDimensions) {
+        return new NarrationResult(null, null, null, null, null,
+                confidenceScore, List.of(), null, List.of(), List.of(),
+                null, null, null, null, auditGapDimensions);
+    }
+
     /** Phase 5 A1 — rebuilds the service with the truncation-guard flag set. */
     private void enableTruncationGuard() {
         truncationGuardEnabled = true;
@@ -961,6 +1021,18 @@ class PublishPaperTest {
     /** Phase 7 G10 — rebuilds the service with dispute reconciliation on. */
     private void enableDisputeReconciliation() {
         disputeReconciliationEnabled = true;
+        setUp();
+    }
+
+    /** Phase 7 G8 — rebuilds the service with physical-mechanism audit-reject ON. */
+    private void enableAuditPhysicalMechanismRejects() {
+        auditPhysicalMechanismRejectsEnabled = true;
+        setUp();
+    }
+
+    /** Phase 7 G8 — rebuilds the service with physical-mechanism audit-reject OFF (default). */
+    private void disableAuditPhysicalMechanismRejects() {
+        auditPhysicalMechanismRejectsEnabled = false;
         setUp();
     }
 

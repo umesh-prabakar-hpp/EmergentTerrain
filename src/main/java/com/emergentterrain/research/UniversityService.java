@@ -63,6 +63,8 @@ public class UniversityService {
     /** Phase 7 G10 — age (hours) at which a DISPUTED paper counts as orphaned. */
     private final long    orphanAgeHours;
     private final boolean citationAwareScoringEnabled;
+    /** Phase 7 G8 — when on, SUPPORTED papers carrying the audit-4b physical_mechanism gap publish as REJECTED. */
+    private final boolean auditPhysicalMechanismRejectsEnabled;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -158,6 +160,7 @@ public class UniversityService {
             @Value("${app.research.dispute-reconciliation.enabled:false}") boolean disputeReconciliationEnabled,
             @Value("${app.research.disputeOrphanAgeHours:6}") long orphanAgeHours,
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
+            @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -188,6 +191,7 @@ public class UniversityService {
         this.disputeReconciliationEnabled = disputeReconciliationEnabled;
         this.orphanAgeHours = orphanAgeHours;
         this.citationAwareScoringEnabled = citationAwareScoringEnabled;
+        this.auditPhysicalMechanismRejectsEnabled = auditPhysicalMechanismRejectsEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -223,6 +227,11 @@ public class UniversityService {
             log.info("UniversityService: citation-aware-scoring ENABLED — papers earn a "
                     + "bonus for citing high-quality priors and a penalty for citing "
                     + "critique:skip papers.");
+        }
+        if (auditPhysicalMechanismRejectsEnabled) {
+            log.info("UniversityService: audit-physical-mechanism-rejects ENABLED — "
+                    + "SUPPORTED papers whose audit-4b gap list contains physical_mechanism "
+                    + "publish as REJECTED.");
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
@@ -443,6 +452,19 @@ public class UniversityService {
             log.warn("cross-domain-gate failed paperId={} reason={}",
                     draft.paperId(), crossDomainMismatch.get());
         }
+        // Phase 7 G8 — when the audit-4b reviewer flagged physical_mechanism on a
+        // SUPPORTED paper, route to REJECTED. SUPPORTED-only because NULL_RESULT /
+        // PARTIALLY_SUPPORTED already have correct downstream handling. Catches the
+        // prime-gap→CTE, Collatz→RLC, happy-number→packing non-sequitur clusters.
+        List<String> auditGapDimensions = narration.auditGapDimensions() != null
+                ? narration.auditGapDimensions() : List.of();
+        boolean physicalMechanismAuditFailed = auditPhysicalMechanismRejectsEnabled
+                && draft.resultClassification() == ResultClassification.SUPPORTED
+                && auditGapDimensions.contains("physical_mechanism");
+        if (physicalMechanismAuditFailed) {
+            log.warn("audit:physical_mechanism→REJECTED paperId={} dimensions={}",
+                    draft.paperId(), auditGapDimensions);
+        }
         // Status precedence is failure-strength-ordered: NULL_RESULT > REJECTED > NEEDS_REVISION
         // > PUBLISHED_NO_PROFESSOR > PUBLISHED. NULL_RESULT is "computation ran cleanly but
         // hypothesis not supported" — an honest negative, kept above REJECTED. REJECTED
@@ -451,7 +473,7 @@ public class UniversityService {
         // distinct status from NEEDS_REVISION so operators can tell "validator caught it"
         // from "narration truncated."
         boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
-                || uncitedClone || crossDomainDrift;
+                || uncitedClone || crossDomainDrift || physicalMechanismAuditFailed;
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
         } else if (validatorRejected) {
@@ -466,12 +488,18 @@ public class UniversityService {
             paperStatus = "PUBLISHED";
         }
 
+        String persistedCallPath = narration.callPath();
+        if (physicalMechanismAuditFailed) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "audit:physical_mechanism→REJECTED"
+                    : persistedCallPath + " → audit:physical_mechanism→REJECTED";
+        }
         ResearchPaper paper = new ResearchPaper(
                 draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), findings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
-                narration.aiModel(), narration.callPath());
+                narration.aiModel(), persistedCallPath);
 
         // Phase 4c Piece 2 gate 3: copy narration template provenance onto the persisted
         // paper. Null when the narration came from an uninstrumented path; treated by
