@@ -174,6 +174,17 @@ public class SandboxEngine {
             if (Character.isDigit(c) || (c == '.' && i + 1 < src.length() && Character.isDigit(src.charAt(i + 1)))) {
                 int s = i;
                 while (i < src.length() && (Character.isDigit(src.charAt(i)) || src.charAt(i) == '.')) i++;
+                // Scientific notation: [eE][+-]?digits. Only consume the e/E
+                // when there's a digit (possibly after +/-) right after; otherwise
+                // leave the e for the identifier scanner (e.g. `2*e` is two tokens).
+                if (i < src.length() && (src.charAt(i) == 'e' || src.charAt(i) == 'E')) {
+                    int j = i + 1;
+                    if (j < src.length() && (src.charAt(j) == '+' || src.charAt(j) == '-')) j++;
+                    if (j < src.length() && Character.isDigit(src.charAt(j))) {
+                        i = j;
+                        while (i < src.length() && Character.isDigit(src.charAt(i))) i++;
+                    }
+                }
                 out.add(new Token(TT.NUM, src.substring(s, i), line));
                 continue;
             }

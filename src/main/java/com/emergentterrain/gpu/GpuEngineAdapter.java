@@ -1,5 +1,7 @@
 package com.emergentterrain.gpu;
 
+import com.emergentterrain.gpu.v1.EvalExprRequest;
+import com.emergentterrain.gpu.v1.EvalExprResponse;
 import com.emergentterrain.gpu.v1.GenerateRegionRequest;
 import com.emergentterrain.gpu.v1.GenerateRegionResponse;
 import com.emergentterrain.gpu.v1.RebuildPatchRequest;
@@ -26,5 +28,16 @@ public class GpuEngineAdapter {
 
     public SimulateBotsResponse simulateBots(SimulateBotsRequest request) {
         return client.blockingStub().simulateBots(request);
+    }
+
+    /**
+     * Phase 8 Tier 4 — evaluate a scalar expression f(n) on the GPU over
+     * {@code [start, end)}. The Rust engine parses, validates, generates
+     * WGSL, dispatches, and aggregates. Caller is responsible for the
+     * formula's static check (see {@code GpuEvalStaticChecker}) before
+     * this method is invoked.
+     */
+    public EvalExprResponse evalExpr(EvalExprRequest request) {
+        return client.blockingStub().evalExpr(request);
     }
 }
