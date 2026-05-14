@@ -288,6 +288,13 @@ app:
     # window, the second one's novelty score is docked by 0.5 to discourage parallel
     # duplicate clusters (e.g. two Goldbach papers in 8 min). Set to 0 to disable.
     intra-room-novelty-window-minutes: 30
+    # Phase 7 E3 — when both the tool-calling and JSON-path primary branches are
+    # unavailable (e.g. every Groq+NVIDIA+OpenRouter+Cerebras pool is rate-limited),
+    # route the critique+revise loop through the fast (Ollama) pool. No tool calls
+    # in this fallback. Call path is stamped rev:ollama:ok on success so the publish
+    # path treats the paper as fully revised (not PUBLISHED_NO_PROFESSOR).
+    ollama-fallback:
+      enabled: true
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

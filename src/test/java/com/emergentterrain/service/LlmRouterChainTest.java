@@ -244,6 +244,36 @@ class LlmRouterChainTest {
         assertThat(router.roleAvailable("fast-audit")).isFalse();
     }
 
+    // ── Phase 7 E3 — JSON / fast pool probes for the three-way routing ──────
+
+    @Test
+    void e3HasJsonPathPrimaryTracksPrimaryChainHealth() {
+        FakePool groq   = new FakePool("groq", true, false, "x");
+        FakePool nvidia = new FakePool("nvidia", true, false, "x");
+        FakePool ollama = new FakePool("ollama", false, false, "x");
+
+        LlmRouter router = buildRouter("groq,nvidia", "ollama", groq, nvidia, ollama);
+        assertThat(router.hasJsonPathPrimary()).isTrue();
+
+        groq.blocked = true;
+        assertThat(router.hasJsonPathPrimary()).isTrue();   // nvidia still up
+
+        nvidia.blocked = true;
+        assertThat(router.hasJsonPathPrimary()).isFalse();  // chain exhausted
+    }
+
+    @Test
+    void e3HasFastPoolReflectsFastPoolHealth() {
+        FakePool groq   = new FakePool("groq", true, false, "x");
+        FakePool ollama = new FakePool("ollama", false, false, "x");
+
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+        assertThat(router.hasFastPool()).isTrue();
+
+        ollama.blocked = true;
+        assertThat(router.hasFastPool()).isFalse();
+    }
+
     // ── Fake pool + router builder ──────────────────────────────────────────
 
     private static class FakePool implements LlmPool {

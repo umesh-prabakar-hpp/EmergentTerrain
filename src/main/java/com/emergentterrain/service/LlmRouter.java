@@ -212,6 +212,25 @@ public class LlmRouter {
         return primaryChain.stream().allMatch(LlmPool::allBlocked);
     }
 
+    /**
+     * Phase 7 E3 — true when the JSON-path revision target (a primary pool reachable
+     * by {@link #streamPrimary(String, Consumer)}) has at least one unblocked pool.
+     * The JSON path uses the fast pool for critique but a primary pool for the
+     * revision stream, so an exhausted primary chain alone fails the JSON path.
+     */
+    public boolean hasJsonPathPrimary() {
+        return !primaryFullyExhausted();
+    }
+
+    /**
+     * Phase 7 E3 — true when the fast (Ollama) pool is wired and currently usable.
+     * Gate for routing to the {@code rev:ollama:ok} fallback when both the tools
+     * and JSON-path branches are unavailable.
+     */
+    public boolean hasFastPool() {
+        return fastPool != null && !fastPool.allBlocked();
+    }
+
     /** Earliest time any pool in the primary chain recovers from its block. */
     public java.time.Instant earliestPrimaryRecovery() {
         return primaryChain.stream()

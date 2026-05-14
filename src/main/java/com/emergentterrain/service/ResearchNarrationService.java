@@ -60,6 +60,10 @@ public class ResearchNarrationService {
     /** Phase 6 D2 — when on, the narrator emits two extra JSON keys via the v2 template. */
     private final boolean discussionSectionEnabled;
 
+    /** Phase 7 E3 — when on, the router falls back to Ollama critique+revise (no tools) when both
+     *  the primary tools path and the primary JSON path are unavailable. */
+    private final boolean ollamaFallbackEnabled;
+
     /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
@@ -81,7 +85,9 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
             boolean literatureSearchEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
-            boolean discussionSectionEnabled) {
+            boolean discussionSectionEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.ollama-fallback.enabled:true}")
+            boolean ollamaFallbackEnabled) {
         this.router                   = router;
         this.toolSuite                = new MathToolSuite(router, objectMapper);
         this.objectMapper             = objectMapper;
@@ -89,10 +95,12 @@ public class ResearchNarrationService {
         this.literatureSearch         = literatureSearch;
         this.literatureSearchEnabled  = literatureSearchEnabled;
         this.discussionSectionEnabled = discussionSectionEnabled;
+        this.ollamaFallbackEnabled    = ollamaFallbackEnabled;
         this.narrationSlot            = new Semaphore(router.primaryPoolSize());
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
-                + "discussionSectionEnabled={}",
-                narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled);
+                + "discussionSectionEnabled={} ollamaFallbackEnabled={}",
+                narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled,
+                ollamaFallbackEnabled);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
@@ -273,9 +281,24 @@ public class ResearchNarrationService {
                     filled, draft.paperId());
             firstPass = merged;
         }
-        return router.supportsProfessorTools()
-                ? maybeCritiqueAndReviseWithTools(draft, firstPass, callPath, auditGapDimensions)
-                : maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
+        // Phase 7 E3 — three-way routing. Tools first (any tool-capable primary
+        // unblocked), then JSON path (primary chain has any unblocked pool — the
+        // revision streams from a primary model), then Ollama (no tools; both
+        // critique and revise on the fast pool). When all three fail, fall back
+        // to firstPass with a skip log so telemetry sees a hard miss.
+        if (router.supportsProfessorTools()) {
+            return maybeCritiqueAndReviseWithTools(draft, firstPass, callPath, auditGapDimensions);
+        }
+        if (router.hasJsonPathPrimary()) {
+            return maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
+        }
+        if (ollamaFallbackEnabled && router.hasFastPool()) {
+            return maybeCritiqueAndReviseOllama(draft, firstPass, callPath);
+        }
+        callPath.add("critique:skip:no_path_available");
+        log.warn("LLM no critique path available paperId={} ollamaFallbackEnabled={}",
+                draft.paperId(), ollamaFallbackEnabled);
+        return firstPass;
     }
 
     /**
@@ -469,6 +492,69 @@ public class ResearchNarrationService {
         } catch (Exception e) {
             callPath.add("json_critique:error→fp");
             log.warn("LLM professor+revision (json) failed paperId={}: {} — using first-pass narration",
+                    draft.paperId(), e.getMessage());
+        }
+        return firstPass;
+    }
+
+    /**
+     * Phase 7 E3 — Ollama-only critique+revise loop. Mirrors the JSON path but routes
+     * the revision stream through the fast pool too, since the primary chain is
+     * exhausted or unavailable in this branch. No tool calls (Ollama's tool-calling
+     * is unreliable). Stamps {@code rev:ollama:ok} so the publish path treats the
+     * paper as fully revised (not PUBLISHED_NO_PROFESSOR).
+     */
+    private NarrationResult maybeCritiqueAndReviseOllama(PaperDraft draft, NarrationResult firstPass,
+                                                          List<String> callPath) {
+        try {
+            long critiqueStart = System.currentTimeMillis();
+            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass));
+            CritiqueResult critique = parseCritiqueResult(critiqueResponse);
+
+            if (!critique.hasActionableFeedback()) {
+                callPath.add("ollama_critique:4b:clean→fp");
+                log.info("LLM professor review (ollama): clean draft paperId={} ms={}",
+                        draft.paperId(), System.currentTimeMillis() - critiqueStart);
+                return firstPass;
+            }
+            callPath.add("ollama_critique:4b:" + critique.weaknesses().size() + "gaps");
+            log.info("LLM professor review (ollama): {} weakness(es) experiment={} paperId={} ms={}",
+                    critique.weaknesses().size(), critique.experimentalGap() != null,
+                    draft.paperId(), System.currentTimeMillis() - critiqueStart);
+
+            String professorExperiment = null;
+            if (critique.experimentalGap() != null) {
+                professorExperiment = runProfessorDirectedExperiment(draft, critique.experimentalGap());
+            }
+
+            // Gate check is still meaningful — keeps any other Groq-spending stage
+            // (e.g. statistical framing inside runProfessorDirectedExperiment) within
+            // the simulation's budget posture.
+            if (gateClosed("revision", draft, callPath)) {
+                return firstPass;
+            }
+
+            long revisionStart = System.currentTimeMillis();
+            StringBuilder revised = new StringBuilder();
+            router.streamFast(
+                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), professorExperiment),
+                    revised::append);
+            NarrationResult revParsed = parseNarrationResult(revised.toString());
+            if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
+                callPath.add("rev:ollama:ok");
+                log.info("LLM student revision (ollama) done paperId={} ms={}",
+                        draft.paperId(), System.currentTimeMillis() - revisionStart);
+                com.emergentterrain.research.FollowUpParams followUp =
+                        revParsed.followUp() != null ? revParsed.followUp() : firstPass.followUp();
+                return new NarrationResult(
+                        revParsed.hypothesis(), revParsed.findings(), revParsed.conclusion(),
+                        followUp, router.fastModel(),
+                        revParsed.confidenceScore(), revParsed.citedPaperIds());
+            }
+            callPath.add("rev:ollama:parse_failed→fp");
+        } catch (Exception e) {
+            callPath.add("ollama_critique:error→fp");
+            log.warn("LLM professor+revision (ollama) failed paperId={}: {} — using first-pass narration",
                     draft.paperId(), e.getMessage());
         }
         return firstPass;

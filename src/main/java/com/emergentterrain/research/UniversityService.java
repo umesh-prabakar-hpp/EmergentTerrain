@@ -482,6 +482,14 @@ public class UniversityService {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
+        } else if (callPath != null && callPath.contains("rev:ollama:ok")) {
+            // Phase 7 E3 — Ollama-fallback path: critique+revise completed on the
+            // fast pool when the primary chain was exhausted. The paper IS revised
+            // (just without the tool-calling professor) and is more trustworthy than
+            // a PUBLISHED_NO_PROFESSOR fallback, so it publishes cleanly. Keep this
+            // clause BEFORE the prof:error→fp branch so a paper that hit prof:error
+            // on tools and then succeeded on ollama-fallback still publishes.
+            paperStatus = "PUBLISHED";
         } else if (callPath != null && callPath.contains("prof:error→fp")) {
             paperStatus = "PUBLISHED_NO_PROFESSOR";
         } else {

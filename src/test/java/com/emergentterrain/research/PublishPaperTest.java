@@ -756,6 +756,29 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
+    // ── Phase 7 E3 — Ollama fallback publish precedence ─────────────────────
+
+    @Test
+    void e3OllamaRevisionSucceededPublishesAsPublished() {
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8,
+                        "fp:gpt-oss → ollama_critique:4b:2gaps → rev:ollama:ok"));
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void e3OllamaRevisionOverridesProfErrorFp() {
+        // When the tool-call path errored AND a separate Ollama-fallback revision
+        // succeeded, the paper IS revised — PUBLISHED takes precedence over the
+        // legacy PUBLISHED_NO_PROFESSOR status that would otherwise fire.
+        service.publishPaper(
+                draft(ResultClassification.SUPPORTED, 0.5),
+                narrationWithCallPath(0.8,
+                        "fp:llama-70b → audit:4b:ok → prof:error→fp → rev:ollama:ok"));
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
     @Test
     void nullResultStaysNullEvenWhenCritiqueWasSkipped() {
         service.publishPaper(
