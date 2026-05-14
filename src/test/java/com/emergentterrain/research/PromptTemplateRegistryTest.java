@@ -668,6 +668,49 @@ class PromptTemplateRegistryTest {
         assertThat(registryRendered).isEqualTo(inlineExpected);
     }
 
+    // Phase 7 F2 — v3 structured-findings variants must be registered alongside
+    // v1 and v2-with-discussion, and render with the four extra slots
+    // ({{ maxComputations }}, {{ findingsSpec }}, {{ findingsInstructions }},
+    // plus all of v1's slots).
+    @Test
+    void v3StructuredFindingsVariantsAreRegisteredAndRender() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+
+        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",              "PHYSICS");
+        params.put("topicName",           "RLC Damping Transition");
+        params.put("methodology",         "Simulation");
+        params.put("title",               "Title");
+        params.put("generation",          "3");
+        params.put("paramsLine",          "");
+        params.put("followUpNote",        "");
+        params.put("anomalyNote",         "");
+        params.put("rawFindings",         "raw");
+        params.put("scaffoldHyp",         "Hypo");
+        params.put("scaffoldCon",         "Concl");
+        params.put("priorPapers",         "  (none)");
+        params.put("preRegSection",       "");
+        params.put("conclusionSpec",      "\"conclusion\":\"…\"");
+        params.put("maxComputations",     "2");
+        params.put("findingsSpec",        "\"computation_1\":\"<paragraph 1>\",\"computation_2\":\"<paragraph 2>\"");
+        params.put("findingsInstructions","Findings rules: emit exactly 2 non-empty paragraphs.");
+
+        String body = r.render("narration.primary", "v3-structured-findings", params);
+        assertThat(body)
+                .contains("\"findings\":{ \"computation_1\":\"<paragraph 1>\",\"computation_2\":\"<paragraph 2>\" }")
+                .contains("Findings rules: emit exactly 2 non-empty paragraphs.")
+                .contains("represents 2 independent computation(s)")
+                .doesNotContain("{{ findingsSpec }}");
+
+        String bodyDisc = r.render("narration.primary",
+                "v3-structured-findings-with-discussion", params);
+        assertThat(bodyDisc)
+                .contains("\"findings\":{ \"computation_1\":\"<paragraph 1>\",\"computation_2\":\"<paragraph 2>\" }")
+                .contains("\"discussion\":")
+                .contains("\"related_work\":")
+                .doesNotContain("{{ findingsSpec }}");
+    }
+
     private static PromptTemplateRegistry freshSeededRegistry() {
         PromptTemplateRegistry r = new PromptTemplateRegistry();
         r.seedDefaults();   // package-private, invoked here exactly like @PostConstruct would.

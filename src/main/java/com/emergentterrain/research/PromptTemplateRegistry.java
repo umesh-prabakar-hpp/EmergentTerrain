@@ -205,6 +205,116 @@ public class PromptTemplateRegistry {
                 no bullet points, no sub-headers, no markdown formatting.
                 """));
 
+        // Phase 7 F2 — v3-structured-findings variant of NARRATION_PRIMARY. The
+        // {{ findingsSpec }} slot carries a comma-separated computation_N JSON
+        // shape (rendered Java-side) so the narrator emits one prose block per
+        // computation. The {{ findingsInstructions }} slot carries the prose-
+        // length and equation-reference rules for each block. Used when
+        // app.research.structured-findings.enabled is on AND the discussion
+        // flag is off; v1 stays untouched for the flag-off bit-identical path.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PRIMARY_ID,
+                "v3-structured-findings",
+                """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
+                Title: "{{ title }}"
+                Bot generation: {{ generation }}
+                {{ paramsLine }}{{ followUpNote }}{{ anomalyNote }}
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
+                {{ rawFindings }}
+
+                The raw output above represents {{ maxComputations }} independent computation(s) the \
+                researcher ran. Your job is to write one short prose paragraph per computation in \
+                the findings object below, keyed by 1-based computation index.
+
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                {{ scaffoldHyp }}
+
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                {{ scaffoldCon }}
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
+                {{ priorPapers }}{{ preRegSection }}
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)",\
+                "findings":{ {{ findingsSpec }} },\
+                {{ conclusionSpec }},\
+                "followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
+
+                {{ findingsInstructions }}
+                followUp rules: ONLY include followUp if the prior papers reveal a specific \
+                unexplored parameter region worth targeting next. param1 is an integer 10–99 \
+                (shifts the search starting position). param2 is a decimal 1.0–9.0 (scales depth). \
+                predictedScore is your numeric prediction (0.0–1.0) for what quality the follow-up \
+                result will achieve. If no clear follow-up region emerges, OMIT the followUp field entirely.
+                confidenceScore rules: 0.0–1.0; your assessment of how well-supported and robust \
+                these findings are (0.5 = neutral, 1.0 = highly confident, 0.0 = very uncertain). \
+                For a null result, confidenceScore should reflect confidence that the result is \
+                genuinely null, not confidence in a positive claim.
+                cited_paper_ids rules: array of Paper IDs from the prior papers list above that \
+                you directly referenced in findings. Use exact IDs (format P-xxxx-N). Empty array if none.
+                All text values plain prose inside JSON strings only — no markdown, no bullet points.
+                """));
+
+        // Phase 7 F2 — v3-structured-findings-with-discussion variant. Same
+        // structured-findings shape, plus the Phase 6 D2 discussion + related_work
+        // keys. Used when BOTH structured-findings.enabled AND discussion-section.enabled
+        // are on.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_PRIMARY_ID,
+                "v3-structured-findings-with-discussion",
+                """
+                You are writing the narrative for a computational research paper in a simulation.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
+                Title: "{{ title }}"
+                Bot generation: {{ generation }}
+                {{ paramsLine }}{{ followUpNote }}{{ anomalyNote }}
+                Raw computation output — interpret the PATTERN or TREND, do NOT reproduce \
+                tables or copy individual values:
+                {{ rawFindings }}
+
+                The raw output above represents {{ maxComputations }} independent computation(s) the \
+                researcher ran. Your job is to write one short prose paragraph per computation in \
+                the findings object below, keyed by 1-based computation index.
+
+                Preliminary hypothesis (rewrite in your own words, grounding it in the \
+                computation parameters above):
+                {{ scaffoldHyp }}
+
+                Preliminary conclusion (rewrite — explain what the result implies and what \
+                open question it raises for the next investigation):
+                {{ scaffoldCon }}
+
+                Prior papers in this domain and topic (cite by Paper ID if directly relevant):
+                {{ priorPapers }}{{ preRegSection }}
+                Reply with ONLY this JSON — no markdown, no preamble, no explanation outside the JSON:
+                {"hypothesis":"one specific testable sentence grounding the claim in the actual \
+                computation parameters (starting position, scale, or range)",\
+                "findings":{ {{ findingsSpec }} },\
+                {{ conclusionSpec }},\
+                "discussion":"2-3 sentences interpreting what the result implies for the broader \
+                research direction; honest about limitations and what remains uncertain",\
+                "related_work":"1-2 sentences pointing to adjacent prior work — either the \
+                cited Paper IDs above or the established literature for this topic; acknowledge \
+                what is already known","followUp":{"param1":N,"param2":X.X,"predictedScore":0.30},\
+                "confidenceScore":0.75,"cited_paper_ids":["P-xxxx-1"]}
+
+                {{ findingsInstructions }}
+                followUp / confidenceScore / cited_paper_ids rules — same as v1.
+                discussion: under 100 words; honest about what stays unsettled; do not over-claim novelty.
+                related_work: under 80 words; ground the work against priors. If no priors apply
+                explicitly say so rather than fabricating references.
+                All text values plain prose inside JSON strings only — no markdown.
+                """));
+
         // Phase 6 D2 — v2-with-discussion variant of NARRATION_PRIMARY. Adds a
         // {{ discussionInstruction }} slot near the JSON shape spec so the
         // narrator emits two extra keys (discussion, related_work). Used when

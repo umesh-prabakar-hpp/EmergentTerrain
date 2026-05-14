@@ -251,13 +251,16 @@ public class ResearchNarrationService {
         // Phase 4c Piece 2 gate 3: every emitted result is stamped with the primary
         // narration template id so the persisted ResearchPaper carries provenance.
         // Refinement / critique / revision steps are tracked separately via callPath.
+        // Phase 7 F2 — stamp the ACTUAL variant version that ran (v1 / v2-with-discussion /
+        // v3-structured-findings*) so per-variant rollback statistics see the variant
+        // that produced the paper rather than the constant "v1".
         NarrationResult result = finalResult == null ? null : new NarrationResult(
-                finalResult.hypothesis(), finalResult.findings(), finalResult.conclusion(),
+                finalResult.hypothesis(), finalResult.findingsMap(), finalResult.conclusion(),
                 finalResult.followUp(), router.primaryModel(),
                 finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
                 finalResult.typedCitations(), finalResult.formalFindings(),
                 com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
-                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_VERSION,
+                activeNarrationPrimaryVersion(),
                 finalResult.discussion(), finalResult.relatedWork(),
                 List.copyOf(auditGapDimensions));
         if (narrationPublisher != null) {
@@ -1317,6 +1320,19 @@ public class ResearchNarrationService {
         params.put("priorPapers",    priorSection.trim());
         params.put("preRegSection",  preRegSection);
         params.put("conclusionSpec", conclusionSpec);
+        // Phase 7 F2 — when the structured-findings flag is on AND maxComputations > 1,
+        // render a v3 variant that asks for one prose block per computation. When the
+        // flag is off (or maxComputations==1), keep the v1 / v2-with-discussion path
+        // exactly as before — flag-off bit-identical to F1-baseline.
+        if (structuredFindingsEnabled && maxComputations > 1) {
+            params.put("maxComputations",      String.valueOf(maxComputations));
+            params.put("findingsSpec",         renderStructuredFindingsSpec(maxComputations));
+            params.put("findingsInstructions", renderStructuredFindingsInstructions(maxComputations));
+            String variant = discussionSectionEnabled
+                    ? "v3-structured-findings-with-discussion"
+                    : "v3-structured-findings";
+            return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID, variant, params);
+        }
         // Phase 6 D2 — pick v2-with-discussion when the flag is on; otherwise v1.
         // Both variants take identical slots.
         if (discussionSectionEnabled) {
@@ -1325,6 +1341,54 @@ public class ResearchNarrationService {
         }
         return promptRegistry.render(PromptTemplateIds.NARRATION_PRIMARY_ID,
                 PromptTemplateIds.NARRATION_PRIMARY_VERSION, params);
+    }
+
+    /**
+     * Phase 7 F2 — returns the active NARRATION_PRIMARY template version that
+     * buildNarrationPrompt selects, given the current flag state. Stamped onto
+     * the persisted ResearchPaper so the per-variant rollback statistics see
+     * the actual variant used rather than the constant "v1".
+     */
+    String activeNarrationPrimaryVersion() {
+        if (structuredFindingsEnabled && maxComputations > 1) {
+            return discussionSectionEnabled
+                    ? "v3-structured-findings-with-discussion"
+                    : "v3-structured-findings";
+        }
+        if (discussionSectionEnabled) return "v2-with-discussion";
+        return PromptTemplateIds.NARRATION_PRIMARY_VERSION;
+    }
+
+    /**
+     * Phase 7 F2 — render the {@code findingsSpec} slot for the v3 templates as a
+     * comma-separated list of {@code "computation_N":"<paragraph N>"} pairs. The
+     * narrator must emit exactly maxComputations keyed paragraphs; the parser
+     * silently drops blanks so a missing final block degrades to NEEDS_REVISION
+     * (via the per-block truncation guard) rather than crashing.
+     */
+    static String renderStructuredFindingsSpec(int maxComputations) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 1; i <= maxComputations; i++) {
+            if (i > 1) sb.append(',');
+            sb.append('"').append("computation_").append(i).append("\":");
+            sb.append('"').append("<paragraph ").append(i).append('>').append('"');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Phase 7 F2 — instructions paragraph telling the narrator how to write each
+     * computation block. Lives in its own slot so v3 variants stay readable
+     * regardless of how maxComputations grows.
+     */
+    static String renderStructuredFindingsInstructions(int maxComputations) {
+        return ("Findings rules: emit exactly %d non-empty paragraphs, keyed computation_1 "
+                + "through computation_%d. Each paragraph is 2-3 plain-prose sentences "
+                + "interpreting the corresponding raw-output block above — its pattern, "
+                + "trend, or notable numeric. Do NOT reproduce tables. Reference the "
+                + "closed-form equation governing this topic when relevant. Cite prior "
+                + "papers by ID where they bear on the block's interpretation.")
+                .formatted(maxComputations, maxComputations);
     }
 
     private static String compactRawFindings(String raw) {
