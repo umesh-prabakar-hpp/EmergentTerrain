@@ -20,27 +20,30 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Phase 7 F7.2 — runs a multi-reviewer panel against a paper's draft and
  * deterministic tool-call trace, then returns the aggregated {@link PanelOutcome}.
  *
  * <p>Each panelist is one {@link LlmPool} resolved from the configured
- * {@code app.research.review-panel.providers} list. Reviewers run in parallel
- * — latency is bounded by the slowest provider, not the sum. Each reviewer's
- * raw response is parsed via {@link PanelReview#parse(String, String)};
- * if parsing fails the reviewer is retried once, then dropped if it still
- * fails so a single bad reviewer can't block the rest of the panel.
+ * {@code app.research.review-panel.providers} list. Reviewers run <b>sequentially</b>
+ * — per the 2026-05-14 operator direction, the panel intentionally trades latency
+ * for cheaper quota usage and clearer telemetry. Each reviewer's raw response is
+ * parsed via {@link PanelReview#parse(String, String)}; if parsing fails the
+ * reviewer is retried once, then dropped if it still fails so a single bad
+ * reviewer can't block the rest of the panel.
+ *
+ * <p>On a per-model 429, the pool's {@code callSync} already falls through to
+ * every other model the pool has registered — NVIDIA has 5, Groq has 10,
+ * OpenRouter has 2, Cerebras has 1. The reviewer slot only drops once the pool
+ * exhausts every model it owns. See {@link LlmPool#callSync(String)}'s
+ * {@code callSyncWithFallback} implementations.
  *
  * <p>The service is intentionally side-effect-free: it does not persist anything,
  * it does not stamp the outcome onto a {@link NarrationResult}, and it does not
  * decide DISPUTED routing. {@link ResearchNarrationService} integrates it after
  * the synthesis turn; {@code UniversityService.publishPaper} reads the stamped
- * outcome at write time. F7.3 will add the cherry-picked-evidence audit-gap
+ * outcome at write time. F7.3 added the cherry-picked-evidence audit-gap
  * dimension based on this outcome.
  */
 @Service
@@ -56,14 +59,10 @@ public class ReviewPanelService {
      */
     static final String DEFAULT_PROVIDERS = "groq,nvidia,openrouter,cerebras";
 
-    /** Hard timeout per reviewer call. Slow providers drop, panel proceeds. */
-    static final long REVIEWER_TIMEOUT_SECONDS = 45;
-
     private final PromptTemplateRegistry registry;
     private final ObjectMapper mapper;
     private final boolean enabled;
     private final List<LlmPool> reviewerPools;
-    private final ExecutorService panelExecutor;
 
     public ReviewPanelService(
             ApplicationContext ctx,
@@ -92,17 +91,7 @@ public class ReviewPanelService {
         }
         this.reviewerPools = Collections.unmodifiableList(resolved);
 
-        // Bounded executor sized to the panel — each reviewer gets its own
-        // thread so the parallel fan-out doesn't queue. Daemon threads so they
-        // don't keep the JVM alive at shutdown.
-        int size = Math.max(1, reviewerPools.size());
-        this.panelExecutor = Executors.newFixedThreadPool(size, r -> {
-            Thread t = new Thread(r, "review-panel");
-            t.setDaemon(true);
-            return t;
-        });
-
-        log.info("ReviewPanelService: enabled={} providers={} resolved={}",
+        log.info("ReviewPanelService: enabled={} mode=sequential providers={} resolved={}",
                 enabled, providersCsv,
                 reviewerPools.stream().map(LlmPool::providerKey).toList());
     }
@@ -130,20 +119,18 @@ public class ReviewPanelService {
         String prompt = renderPrompt(draft, narration, trace);
 
         long start = System.currentTimeMillis();
-        List<CompletableFuture<Optional<PanelReview>>> futures = new ArrayList<>();
-        for (LlmPool pool : reviewerPools) {
-            futures.add(CompletableFuture.supplyAsync(
-                    () -> callReviewer(pool, prompt), panelExecutor));
-        }
-
+        // Sequential per-pool walk. The pool's callSyncWithFallback handles
+        // model-level 429 fallthrough internally; the panel only sees the final
+        // outcome (success → review; all-models-exhausted → drop the slot).
         List<PanelReview> reviews = new ArrayList<>();
-        for (int i = 0; i < futures.size(); i++) {
-            LlmPool pool = reviewerPools.get(i);
+        for (LlmPool pool : reviewerPools) {
             try {
-                Optional<PanelReview> result =
-                        futures.get(i).get(REVIEWER_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                Optional<PanelReview> result = callReviewer(pool, prompt);
                 result.ifPresent(reviews::add);
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
+                // Defensive: callReviewer already converts call failures to
+                // Optional.empty(); this catches anything else (e.g. a thread
+                // interrupt from upstream shutdown).
                 log.warn("ReviewPanelService: reviewer={} dropped ({})",
                         pool.providerKey(), e.getClass().getSimpleName());
             }
@@ -151,16 +138,24 @@ public class ReviewPanelService {
         long ms = System.currentTimeMillis() - start;
 
         PanelOutcome outcome = PanelOutcome.aggregate(reviews);
-        log.info("ReviewPanelService: paperId={} reviewers={}/{} agreement={} ms={}",
+        log.info("ReviewPanelService: paperId={} reviewers={}/{} agreement={} ms={} mode=sequential",
                 draft != null ? draft.paperId() : "?", reviews.size(), reviewerPools.size(),
                 String.format("%.2f", outcome.agreementScore()), ms);
         return outcome;
     }
 
     /**
-     * Call one reviewer with single retry on parse failure. Network/RPC errors
-     * propagate as runtime exceptions and are caught by the orchestrator's
-     * future.get() so they drop the reviewer rather than retry.
+     * Call one reviewer with single retry on parse failure.
+     *
+     * <p>{@code pool.callSync} already walks every model in the pool on a 429
+     * (or any other RuntimeException), so a single panel attempt here effectively
+     * tries up to N models for this reviewer slot — N = the number of models the
+     * pool has configured. Only when every model in the pool is exhausted does
+     * callSync throw, and only then do we drop the reviewer.
+     *
+     * <p>Parse failures are different from call failures — they get one retry,
+     * because the prompt didn't change and a transient JSON-shape glitch may
+     * resolve on a fresh sample.
      */
     private Optional<PanelReview> callReviewer(LlmPool pool, String prompt) {
         String reviewerId = pool.providerKey() + "/" + pool.selectedModel();

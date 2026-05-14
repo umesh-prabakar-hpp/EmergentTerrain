@@ -32,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ReviewPanelServiceTest {
 
     @Test
-    void runsPanelInParallelAndAggregatesEveryReviewerResponse() {
+    void runsPanelAndAggregatesEveryReviewerResponse() {
         FakePool groq       = panelistReturning("groq",       cleanReviewJson(0.8));
         FakePool nvidia     = panelistReturning("nvidia",     cleanReviewJson(0.7));
         FakePool openrouter = panelistReturning("openrouter", cleanReviewJson(0.9));
@@ -52,6 +52,47 @@ class ReviewPanelServiceTest {
         assertThat(cerebras.syncCallCount.get()).isEqualTo(1);
         // Median of [0.7, 0.8, 0.85, 0.9] honesty = (0.8 + 0.85) / 2 = 0.825.
         assertThat(outcome.aggregateGrades().honesty()).isEqualTo(0.825);
+    }
+
+    @Test
+    void reviewersAreCalledSequentiallyInConfiguredOrder() {
+        // Each pool records the order in which it was invoked. Sequential mode
+        // means pool[i] must finish before pool[i+1] starts.
+        java.util.concurrent.atomic.AtomicInteger globalOrder = new java.util.concurrent.atomic.AtomicInteger();
+        FakePool a = panelistReturningWithOrder("groq",   cleanReviewJson(0.8), globalOrder);
+        FakePool b = panelistReturningWithOrder("nvidia", cleanReviewJson(0.7), globalOrder);
+        FakePool c = panelistReturningWithOrder("openrouter", cleanReviewJson(0.9), globalOrder);
+
+        ReviewPanelService svc = build("groq,nvidia,openrouter", a, b, c);
+        svc.runPanel(draftFixture(), narrationWithTrace(1));
+
+        // Sequential: a invoked first, b second, c third — strict monotonic order.
+        assertThat(a.invocationOrder.get()).isEqualTo(0);
+        assertThat(b.invocationOrder.get()).isEqualTo(1);
+        assertThat(c.invocationOrder.get()).isEqualTo(2);
+    }
+
+    @Test
+    void poolLevelModelFallthroughIsPreservedAcrossPanelInvocations() {
+        // The pool itself owns "try N models on 429" — the panel just calls
+        // pool.callSync once per reviewer slot. From the panel's perspective:
+        //   - a pool that successfully recovers via internal fallthrough → reviewer counted
+        //   - a pool that exhausts every model → exception, reviewer dropped
+        // FakePool simulates the "all models exhausted" case via throwOnSync.
+        FakePool groq    = panelistReturning("groq",    cleanReviewJson(0.8));
+        FakePool nvidia  = new FakePool("nvidia", List.of());
+        nvidia.throwOnSync = new RuntimeException("NVIDIA API error 429: all 5 models exhausted");
+
+        ReviewPanelService svc = build("groq,nvidia", groq, nvidia);
+        PanelOutcome outcome = svc.runPanel(draftFixture(), narrationWithTrace(1));
+
+        // groq's review survives, nvidia's reviewer slot drops cleanly.
+        assertThat(outcome.reviewerCount()).isEqualTo(1);
+        assertThat(outcome.reviews().get(0).reviewerId()).startsWith("groq/");
+        // The exhausted pool was attempted exactly once at the panel level —
+        // any retries within the pool happened in callSync and are not visible
+        // here. Net: one panel-level call.
+        assertThat(nvidia.syncCallCount.get()).isEqualTo(1);
     }
 
     @Test
@@ -126,6 +167,13 @@ class ReviewPanelServiceTest {
         return new FakePool(key, List.of(response));
     }
 
+    private static FakePool panelistReturningWithOrder(String key, String response,
+                                                         AtomicInteger sharedCounter) {
+        FakePool p = new FakePool(key, List.of(response));
+        p.sharedOrder = sharedCounter;
+        return p;
+    }
+
     private static ReviewPanelService build(String providersCsv, FakePool... pools) {
         return build(true, providersCsv, pools);
     }
@@ -173,6 +221,10 @@ class ReviewPanelServiceTest {
         final String providerKey;
         final List<String> scriptedResponses;
         final AtomicInteger syncCallCount = new AtomicInteger();
+        /** Set by panelistReturningWithOrder so we can pin sequential ordering. */
+        AtomicInteger sharedOrder;
+        /** Records the value of {@code sharedOrder} at the moment this pool was first invoked. */
+        final AtomicInteger invocationOrder = new AtomicInteger(-1);
         RuntimeException throwOnSync;
 
         FakePool(String providerKey, List<String> scriptedResponses) {
@@ -182,6 +234,9 @@ class ReviewPanelServiceTest {
 
         @Override public String callSync(String prompt) {
             int idx = syncCallCount.getAndIncrement();
+            if (idx == 0 && sharedOrder != null) {
+                invocationOrder.set(sharedOrder.getAndIncrement());
+            }
             if (throwOnSync != null) throw throwOnSync;
             if (idx >= scriptedResponses.size()) {
                 return scriptedResponses.isEmpty()
