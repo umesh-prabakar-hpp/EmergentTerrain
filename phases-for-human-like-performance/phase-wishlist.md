@@ -1,4 +1,4 @@
-# Phase 13 — Quality Levers (wishlist / reference)
+# Phase Wishlist — Quality Levers (reference, not queued)
 
 **Status:** **Wishlist document.** Not a queued PR, not scheduled work. This
 file captures four high-leverage interventions that move the system from
@@ -17,9 +17,9 @@ and the decision to start at all is deliberately deferred.
   one to two REVIEW_REPORT refreshes to confirm the projected 8.8% → ~15%
   lift before doubling down on infrastructure.
 - The four pieces are mostly independent; any one of them could be the
-  start of Phase 13 depending on which signal Phase 12's rollout surfaces
-  most clearly. Locking sequencing now would predict the wrong starting
-  point.
+  start of the next implementation phase depending on which signal Phase
+  12's rollout surfaces most clearly. Locking sequencing now would predict
+  the wrong starting point.
 
 **Read this document when:**
 
@@ -102,7 +102,7 @@ sandbox runtime if `numerical_integrate` etc. need a separate adapter.
   evaluate_symbolic       — Symja for f(n) over integer range
   run_gpu_eval            — GPU-backed numerical evaluator
 
-                  Phase 13 P1 additions
+                  Wishlist P1 additions
                   ─────────────────────
   numerical_integrate     — closed-form ∫f(x)dx with quadrature
   solve_ode               — RK4 / implicit for {f(t, y), y₀, t}
@@ -150,7 +150,7 @@ review` events per run, concentrated on 10 papers (≥5 rejects each).
 Rejected papers map 1:1 to "0 successes, prose fabricated" Reject verdicts.
 The recurring grammar mistakes from the corpus:
 
-| Pattern | Why rejected today | Phase 13 P2 fix |
+| Pattern | Why rejected today | Wishlist P2 fix |
 |---------|--------------------|-----------------|
 | `return {mean: m, std: s}` | Object literal in return | Allow object returns; whitelist as final-expression position. |
 | `return [a, b, c]` | Array literal in return | Allow array returns; same position whitelist. |
@@ -245,7 +245,7 @@ ReviewPanelService.runPanel
   └─ aggregate surviving reviewers' grades / citations
 ```
 
-**Phase 13 P3 — tool-call review path:**
+**Wishlist P3 — tool-call review path:**
 
 ```
 ReviewPanelService.runPanel (P3)
@@ -531,7 +531,7 @@ reviewer should produce structured panel signals, and cross-domain papers
 should derive their couplings rather than assert them.
 
 That last sentence is the load-bearing one. Phase 12 stopped publishing
-fabricated content. Phase 13 (whichever subset of P1–P4 ships) starts
+fabricated content. The next phase (whichever subset of P1–P4 ships) starts
 producing better content. Without that distinction this document is
 nothing more than the next round of defensive plumbing.
 
