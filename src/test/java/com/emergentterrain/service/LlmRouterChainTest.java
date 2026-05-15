@@ -356,6 +356,41 @@ class LlmRouterChainTest {
         assertThat(groq.toolCallCount).isEqualTo(1);
     }
 
+    // ── Phase 12 D7: skippedModels surfacing in ToolCallResponse ────────────
+
+    @Test
+    void d7_skippedModelsEmptyWhenFirstHandleSucceeds() {
+        FakePool groq   = new FakePool("groq", true, false, "groq-response");
+        FakePool ollama = new FakePool("ollama", false, false, "x");
+
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        com.emergentterrain.llm.ToolCallResponse out =
+                router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
+        assertThat(out.synthesis()).isEqualTo("groq-response");
+        assertThat(out.skippedModels()).isEmpty();
+    }
+
+    @Test
+    void d7_skippedModelsAccumulateAcrossFailedHandles() {
+        FakePool ollama = new FakePool("ollama", false, false, "x");
+        FakePool groq   = new FakePool("groq", true, false, null);
+        groq.throwOnSync = new RuntimeException("budget exceeded for model-groq");
+        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-response");
+
+        LlmRouter router = buildRouter(
+                "ollama,groq,nvidia", "ollama",
+                ollama, groq, nvidia);
+
+        com.emergentterrain.llm.ToolCallResponse out =
+                router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
+        assertThat(out.synthesis()).isEqualTo("nvidia-response");
+        // Only groq is tool-capable AND failing; ollama is filtered upstream
+        // because it doesn't supportsTools(). So skippedModels carries the
+        // single failed handle.
+        assertThat(out.skippedModels()).containsExactly("model-groq");
+    }
+
     // ── Fake pool + router builder ──────────────────────────────────────────
 
     private static class FakePool implements LlmPool {

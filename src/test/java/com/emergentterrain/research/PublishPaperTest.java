@@ -309,6 +309,57 @@ class PublishPaperTest {
         assertThat(UniversityService.endsWithSentenceTerminator("   ")).isTrue();
     }
 
+    // ---- Phase 12 D5: numeric-leak-into-next-sentence tail + Hypothesis guard ----
+
+    @Test
+    void d5_endsWithSentenceTerminatorRejectsNumericLeakTail() {
+        // REVIEW_REPORT refresh #3 §7 cites "The observed30," as a literal
+        // signature appearing in P-a328-411 and P-a328-418 — a numeric leaked
+        // into the next sentence after a token-budget cut.
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "The observed30,")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "results computed42")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "the sample measured100,")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "we sampled7")).isFalse();
+    }
+
+    @Test
+    void d5_endsWithSentenceTerminatorAcceptsCleanNumericClause() {
+        // No false-positive on numbers followed by proper terminators.
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "The temperature was 350 K.")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "We observed 30 trials in [1, 100).")).isTrue();
+    }
+
+    @Test
+    void d5_truncationGuardOnDowngradesTruncatedHypothesis() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        // Hypothesis truncated mid-sentence — the P-a328-419 signature.
+        NarrationResult narration = new NarrationResult(
+                "matrix-yields-first Vf ≈ 10–20",
+                "Findings end with a period.",
+                "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void d5_truncationGuardOnPassesCleanHypothesis() {
+        enableTruncationGuard();
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis ends with a period.",
+                "Findings end with a period.",
+                "Conclusion is fine.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
     @Test
     void truncationGuardOffLeavesIncompleteFindingsAsPublished() {
         // Default setup: flag off. Even with truncated findings the paper publishes.
@@ -347,8 +398,10 @@ class PublishPaperTest {
     void truncationGuardOnPassesProperlyTerminatedPaper() {
         enableTruncationGuard();
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        // Phase 12 D5 — Hypothesis must also end with a terminator; the prior
+        // "hyp" placeholder tripped D5's new Hypothesis-side check.
         NarrationResult narration = new NarrationResult(
-                "hyp", "Findings end with a period.",
+                "Hypothesis is complete.", "Findings end with a period.",
                 "Conclusion is fine.", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
@@ -366,7 +419,7 @@ class PublishPaperTest {
         blocks.put(1, "First computation result is complete.");
         blocks.put(2, "Second computation runs over the token budget and gets cut at");
         NarrationResult narration = new NarrationResult(
-                "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
+                "Hypothesis is complete.", blocks, "Conclusion is fine.", null, null, 0.8,
                 List.of(), null, List.of(), List.of(),
                 null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);
@@ -381,8 +434,9 @@ class PublishPaperTest {
         blocks.put(1, "First block is complete.");
         blocks.put(2, "Second block is complete.");
         blocks.put(3, "Third block is complete!");
+        // Phase 12 D5 — Hypothesis must also end with a terminator.
         NarrationResult narration = new NarrationResult(
-                "hyp", blocks, "Conclusion is fine.", null, null, 0.8,
+                "Hypothesis is complete.", blocks, "Conclusion is fine.", null, null, 0.8,
                 List.of(), null, List.of(), List.of(),
                 null, null, null, null, null, null, null);
         service.publishPaper(draft, narration);

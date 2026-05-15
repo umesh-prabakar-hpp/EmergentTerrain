@@ -475,11 +475,23 @@ public class UniversityService {
         Integer truncatedBlockIndex = truncationGuardEnabled
                 ? firstTruncatedBlock(findingsBlocks)
                 : null;
+        // Phase 12 D5 — extend the guard to the Hypothesis. P-a328-419 had its
+        // Hypothesis truncated mid-sentence ("…matrix-yields-first Vf ≈ 10–20%")
+        // yet published cleanly because the pre-D5 guard only checked Findings
+        // and Conclusion.
+        boolean hypothesisTruncated = truncationGuardEnabled
+                && !endsWithSentenceTerminator(hypothesis);
         boolean truncated = truncationGuardEnabled
-                && (truncatedBlockIndex != null || !endsWithSentenceTerminator(conclusion));
+                && (truncatedBlockIndex != null
+                        || !endsWithSentenceTerminator(conclusion)
+                        || hypothesisTruncated);
         if (truncated && truncatedBlockIndex != null) {
             log.warn("truncation-guard fired on findings block paperId={} block={} blocks={}",
                     draft.paperId(), truncatedBlockIndex, findingsBlocks.keySet());
+        }
+        if (hypothesisTruncated) {
+            log.warn("truncation-guard fired on hypothesis paperId={} (Phase 12 D5)",
+                    draft.paperId());
         }
         // Phase 7 G6 — topic-specific findings prose checks (RLC R_c boilerplate,
         // Thermal-Stress "yield strength" mis-label, Arrhenius scientific notation).
@@ -1757,6 +1769,19 @@ public class UniversityService {
     }
 
     /**
+     * Phase 12 D5 — numeric-leak-into-next-sentence signature. P-a328-411 and
+     * P-a328-418 both contained the literal string "The observed30," where a
+     * numeric value leaked into the next sentence after a token-budget cut.
+     * The trailing comma satisfies "not a terminator" only because of the
+     * comma; the real failure mode is "the last clause attaches a bare
+     * numeric to a verb with no unit and no period." Match e.g. "observed30,"
+     * "computed42," "measured100," "sampled7,".
+     */
+    private static final java.util.regex.Pattern NUMERIC_LEAK_TAIL =
+            java.util.regex.Pattern.compile(
+                    "(?i)\\b(?:observed|computed|measured|sampled)\\d+,?\\s*$");
+
+    /**
      * Phase 5 A1 — true if the text ends in a sentence terminator (after stripping
      * trailing whitespace and common closing markup). Used by the truncation guard
      * to flag papers whose findings or conclusion ends mid-sentence.
@@ -1765,9 +1790,17 @@ public class UniversityService {
      * "Computation 2" branch runs over the token budget and the response gets
      * sent verbatim. With the flag on, such papers publish as NEEDS_REVISION
      * instead of PUBLISHED.
+     *
+     * <p>Phase 12 D5 — the {@link #NUMERIC_LEAK_TAIL} precheck catches the
+     * "observed30," numeric-leak-into-next-sentence signature even when the
+     * trailing comma would otherwise pass the punctuation check (or rather,
+     * fail it for the wrong reason). REVIEW_REPORT refresh #3 §7 cites
+     * P-a328-411 and P-a328-418 as worked examples of this signature.
      */
     static boolean endsWithSentenceTerminator(String text) {
         if (text == null) return true;  // null is handled separately by the template fallback
+        // Phase 12 D5 — numeric-leak-into-next-sentence precheck.
+        if (NUMERIC_LEAK_TAIL.matcher(text).find()) return false;
         // Strip trailing whitespace and a small set of closing markdown / quote chars.
         int i = text.length() - 1;
         while (i >= 0) {

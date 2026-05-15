@@ -235,6 +235,34 @@ public final class PromptSanitizer {
                     + "param[12]\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?(?:°|m|s|kJ|MPa|GPa|Hz|nm|µm|mm)?",
                     Pattern.CASE_INSENSITIVE);
 
+    // Phase 12 D1 — chain-of-thought leak patterns.
+    //
+    // P-a328-427 (Doppler) and P-a328-432 (Hall) Findings began with the literal
+    // token sequence "<think>\nOkay, let's tackle this query. The user wants me
+    // to act as a scientific editor…" and ran until the section boundary
+    // without a `</think>` close-tag. This is a sanitizer gap on whichever
+    // reviewer model fronts those two papers (both carry `panel:degraded`
+    // tails); the model emitted its raw reasoning block because its `<think>`
+    // post-processor is single-vendor-specific and didn't run on the
+    // cross-vendor path.
+    //
+    // Run order matters: THINK_BLOCK_CLOSED first (greedy strip of the whole
+    // wrapper), then THINK_BLOCK_OPEN_UNCLOSED (everything from the unmatched
+    // opening tag through EOF), then OKAY_LETS_TACKLE (defence in depth when
+    // the model strips the tag but keeps the opening sentence).
+
+    /** Closed <think>…</think> wrapper, non-greedy. */
+    private static final Pattern THINK_BLOCK_CLOSED =
+            Pattern.compile("(?is)<think>\\s*.*?</think>\\s*");
+
+    /** Unclosed <think> with no matching close tag — strips to EOF. */
+    private static final Pattern THINK_BLOCK_OPEN_UNCLOSED =
+            Pattern.compile("(?is)<think>.*$");
+
+    /** Opening sentence of the chain-of-thought leak when the tag is gone. */
+    private static final Pattern OKAY_LETS_TACKLE =
+            Pattern.compile("(?is)^\\s*Okay,\\s+let'?s\\s+tackle\\s+this\\s+query[^.]*\\.\\s*");
+
     /** Collapses any whitespace/punctuation debris left behind by removals. */
     private static final Pattern CLEANUP_DOUBLE_COMMA   = Pattern.compile("\\s*,\\s*,");
     private static final Pattern CLEANUP_DOUBLE_PERIOD  = Pattern.compile("\\.\\s*\\.");
@@ -244,6 +272,28 @@ public final class PromptSanitizer {
     private static final Pattern CLEANUP_SPACE_PUNCT    = Pattern.compile("\\s+([.,;!?])");
 
     /**
+     * Phase 12 D1 — strip chain-of-thought reasoning blocks that leak through
+     * the model wrappers on cross-vendor paths.
+     *
+     * <p>Three patterns, in order: closed {@code <think>…</think>} wrapper,
+     * unclosed {@code <think>} that runs to EOF (the load-bearing case for
+     * P-a328-427 / P-a328-432), and the bare "Okay, let's tackle this query…"
+     * opening sentence that some vendors emit after stripping the tag.
+     *
+     * <p>Returns the input unchanged when no leak is detected. Returns an empty
+     * string when the entire input was a chain-of-thought block — the upstream
+     * {@code isBlank} check in {@link UniversityService#publishPaper} then
+     * routes the field to its template fallback.
+     */
+    public static String stripChainOfThought(String text) {
+        if (text == null || text.isBlank()) return text;
+        String cleaned = THINK_BLOCK_CLOSED.matcher(text).replaceAll("");
+        cleaned = THINK_BLOCK_OPEN_UNCLOSED.matcher(cleaned).replaceAll("");
+        cleaned = OKAY_LETS_TACKLE.matcher(cleaned).replaceAll("");
+        return cleaned.trim();
+    }
+
+    /**
      * Returns {@code text} with harness-parameter leak phrases removed and surrounding
      * grammar cleaned up. Returns {@code null} unchanged so the upstream template
      * fallback in {@link UniversityService#publishPaper} still fires.
@@ -251,6 +301,13 @@ public final class PromptSanitizer {
     public static String sanitize(String text) {
         if (text == null || text.isBlank()) return text;
         String cleaned = text;
+        // Phase 12 D1 — strip chain-of-thought leaks (<think>…</think> wrappers,
+        // unclosed <think> to EOF, "Okay, let's tackle this query" opener). Runs
+        // BEFORE every harness-leak pattern so the granular regexes never see
+        // reasoning-block tokens. When the strip empties the field, the
+        // upstream template-fallback in UniversityService.publishPaper fires.
+        cleaned = stripChainOfThought(cleaned);
+        if (cleaned.isBlank()) return cleaned;
         // Phase 9 G7 wholesale clause strip runs FIRST so the em-dash-delimited
         // parentheticals don't leave dangling "—applied from a —" debris after
         // the granular patterns fire.
@@ -344,7 +401,10 @@ public final class PromptSanitizer {
     /** True iff {@link #sanitize} would change the input — useful for telemetry. */
     public static boolean detects(String text) {
         if (text == null || text.isBlank()) return false;
-        return STARTING_AT_POSITION.matcher(text).find()
+        return THINK_BLOCK_CLOSED.matcher(text).find()
+                || THINK_BLOCK_OPEN_UNCLOSED.matcher(text).find()
+                || OKAY_LETS_TACKLE.matcher(text).find()
+                || STARTING_AT_POSITION.matcher(text).find()
                 || USES_A_SCALE_OF.matcher(text).find()
                 || QUALITY_SCORE_SENTENCE.matcher(text).find()
                 || OBSERVED_FROM_POSITION_AND_SCALE.matcher(text).find()

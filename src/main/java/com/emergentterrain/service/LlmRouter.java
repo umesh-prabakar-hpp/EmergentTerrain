@@ -432,12 +432,29 @@ public class LlmRouter {
             Function<String, String> executor) {
         List<ModelHandle> eligible = orderedAvailableToolEnabled();
         RuntimeException last = null;
+        // Phase 12 D7 — record every model handle the router skips before reaching
+        // the one that succeeds. Today the warn log at line ~441 is the only
+        // signal; without an in-band channel the persisted callPath shows only
+        // the final model that produced the synthesis, hiding the budget /
+        // TPD-recovery / tool-call failures that drove the fallback.
+        java.util.List<String> skipped = new java.util.ArrayList<>();
         for (ModelHandle h : eligible) {
             try {
-                return h.pool().callWithToolsOnModel(
+                com.emergentterrain.llm.ToolCallResponse resp = h.pool().callWithToolsOnModel(
                         h.modelId(), systemPrompt, userPrompt, toolsJson, executor);
+                if (skipped.isEmpty()) {
+                    return resp;
+                }
+                // Phase 12 D7 — preserve the underlying response's own skippedModels
+                // (the pool may have skipped intra-pool models for the same reasons)
+                // and prepend our router-level skips so the order is router→pool.
+                java.util.List<String> merged = new java.util.ArrayList<>(skipped);
+                merged.addAll(resp.skippedModels());
+                return new com.emergentterrain.llm.ToolCallResponse(
+                        resp.synthesis(), resp.trace(), java.util.List.copyOf(merged));
             } catch (RuntimeException e) {
                 last = e;
+                skipped.add(h.modelId());
                 log.warn("LlmRouter: handle={} callWithTools failed, trying next: {}",
                         h.reviewerId(), e.getMessage());
             }

@@ -470,4 +470,65 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.detects(
                 "we are starting our analysis at the lowest grain size")).isFalse();
     }
+
+    // ---- Phase 12 D1: chain-of-thought stripper ----
+
+    @Test
+    void d1_stripsClosedThinkBlock() {
+        String input = "<think>\nLet me reason about this first.\n</think>\nThe peak η = 0.79 at r = 0.41.";
+        String out = PromptSanitizer.stripChainOfThought(input);
+        assertThat(out).doesNotContain("<think>").doesNotContain("</think>");
+        assertThat(out).isEqualTo("The peak η = 0.79 at r = 0.41.");
+    }
+
+    @Test
+    void d1_stripsUnclosedThinkBlockToEOF() {
+        // P-a328-427 / P-a328-432 signature: opening <think> with no closing tag.
+        String input = "<think>\nOkay, let's tackle this query. The user wants me to act as a scientific editor "
+                + "and reformat the Findings section to be clear";
+        String out = PromptSanitizer.stripChainOfThought(input);
+        assertThat(out).isEmpty();
+    }
+
+    @Test
+    void d1_stripsBareOkayLetsTackleOpener() {
+        // Defence in depth: some vendors strip the <think> tag but keep the leak's
+        // opening sentence. Strip the sentence only — preserve everything after.
+        String input = "Okay, let's tackle this query. The Doppler shift was f' = 1054 Hz.";
+        String out = PromptSanitizer.stripChainOfThought(input);
+        assertThat(out).isEqualTo("The Doppler shift was f' = 1054 Hz.");
+    }
+
+    @Test
+    void d1_leavesCleanProseUnchanged() {
+        String input = "The peak η = 0.79 at r = 0.41 [call_1].";
+        assertThat(PromptSanitizer.stripChainOfThought(input)).isEqualTo(input);
+    }
+
+    @Test
+    void d1_nullAndBlankPassThrough() {
+        assertThat(PromptSanitizer.stripChainOfThought(null)).isNull();
+        assertThat(PromptSanitizer.stripChainOfThought("")).isEmpty();
+        assertThat(PromptSanitizer.stripChainOfThought("   ")).isEqualTo("   ");
+    }
+
+    @Test
+    void d1_sanitizeIntegratesChainOfThoughtStrip() {
+        // Full sanitize pipeline: an unclosed <think> swallows everything,
+        // returning empty so the upstream template fallback fires.
+        String input = "<think>\nOkay, let's tackle this query. starting at position 10";
+        assertThat(PromptSanitizer.sanitize(input)).isEmpty();
+    }
+
+    @Test
+    void d1_detectsThinkLeak() {
+        assertThat(PromptSanitizer.detects(
+                "<think>\nOkay, let's tackle this query.")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "<think>reasoning</think>The result was X.")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "Okay, let's tackle this query. Result follows.")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "We tackle the problem of prime gaps directly.")).isFalse();
+    }
 }

@@ -430,6 +430,15 @@ public class ResearchNarrationService {
             // (gate closed, parse failed, exception) can still stamp the trace
             // onto the returned NarrationResult.
             profTrace = profResponse.trace();
+            // Phase 12 D7 — surface budget / TPD / tool-call-failure model
+            // rejections that drove fallback. The router records each handle it
+            // tried and rejected before reaching the one whose synthesis is in
+            // hand. Stamp them BEFORE the prof:ok marker so reviewers reading
+            // the persisted callPath see budget → success in left-to-right order
+            // (matching the actual sequence in time).
+            for (String skipped : profResponse.skippedModels()) {
+                callPath.add("prof:budget_fallback:from=" + abbrev(skipped));
+            }
             if (metrics.sandboxRejectCount() > 0) {
                 callPath.add("sandbox_reject=" + metrics.sandboxRejectCount());
             }
