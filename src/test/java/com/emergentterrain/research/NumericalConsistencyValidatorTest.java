@@ -242,4 +242,223 @@ class NumericalConsistencyValidatorTest {
                 .anyMatch(r -> r.contains("42.30"))
                 .anyMatch(r -> r.contains("3789.42"));
     }
+
+    // ---- Phase 12 D2b: errored-call detection (P-a328-428) ----
+
+    @Test
+    void d2b_findingsCitingErroredCallFlagged() {
+        // P-a328-428 signature: prose cites [call_1] for the headline value but
+        // call_1's resultJson carries an error / safety-rejection marker.
+        String hypothesis = "Drag-influenced optimal angle expected near 26°.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Optimal angle 26° with range 60.3 m [call_1] was the best result.");
+        String conclusion = "Range-maximising angle confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "{\"rejected\": true, \"reason\":\"REJECTED by safety review: array literal\"}",
+                        0, "call_1"),
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "{\"angle\": 30, \"range\": 158.79}", 1, "call_2"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("call_1")
+                && (r.contains("errored") || r.contains("rejected")));
+    }
+
+    @Test
+    void d2b_findingsCitingUnknownCallIdFlagged() {
+        // Prose cites [call_9] but trace only has 2 calls.
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The peak was 42.50 [call_9] across the sweep.");
+        String conclusion = "Consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}", "{\"peak\": 42.50}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("call_9")
+                && r.contains("does not appear"));
+    }
+
+    @Test
+    void d2b_findingsCitingSuccessfulCallNotFlagged() {
+        // call_1 has a normal result — no error markers. Don't flag.
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Peak Q = 42.30 [call_1] at resonance.");
+        String conclusion = "Consistent with theory.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{\"peak_q\": 42.30}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("call_1") && r.contains("errored"));
+    }
+
+    // ---- Phase 12 D2c: empty-trace + salient findings (P-a328-419) ----
+
+    @Test
+    void d2c_emptyTraceWithSalientFindingsFlagged() {
+        // P-a328-419 signature: prof stage errored before any tool call landed,
+        // so profTrace is an empty list (not null). Findings still cite values.
+        String hypothesis = "Composite failure mode varies with V_f.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Failure observed: σ = 200 MPa, 640 MPa, 900 MPa across the V_f sweep.");
+        String conclusion = "Failure mode transitions confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of();
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("Trace is empty")
+                && r.contains("no Methods anchor"));
+    }
+
+    @Test
+    void d2c_nullTraceDoesNotFlag() {
+        // Distinguish null trace (professor stage never attempted; JSON-path /
+        // Ollama-fallback / legacy callers) from empty trace (D2c case).
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Findings cite 42.30 with no source.");
+        String conclusion = "Consistent.";
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, null);
+        assertThat(reasons).noneMatch(r -> r.contains("Trace is empty"));
+    }
+
+    @Test
+    void d2c_emptyTraceWithNoSalientFindingsDoesNotFlag() {
+        // Trace empty but findings has only plain integers / counts — no
+        // salient values to anchor. Don't flag.
+        String hypothesis = "Hypothesis text.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Across 5 trials over 10 iterations the result held.");
+        String conclusion = "Consistent.";
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, java.util.List.of());
+        assertThat(reasons).noneMatch(r -> r.contains("Trace is empty"));
+    }
+
+    // ---- Phase 12 D2d: unit-anchored integers (P-a328-417) ----
+
+    @Test
+    void d2d_unitAnchoredIntegerNotInTraceFlagged() {
+        // P-a328-417 signature: prose σ_y,max = 2377 MPa derived from prose-stated
+        // σ₀, k, d but the trace's actual σ_y,max was 149 MPa.
+        String hypothesis = "Hall-Petch yield strength scales with grain size.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Maximum yield stress of approximately 2,377 MPa [call_1] at grain size 0.050 µm.");
+        String conclusion = "Hall-Petch relationship confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}",
+                        "Hall-Petch sweep (σ_0=60 MPa, k=405 MPa·µm^½): max σ_y=149 MPa at d=20.75 µm.",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("2377 MPa")
+                && r.contains("derived-formula divergence"));
+    }
+
+    @Test
+    void d2d_unitAnchoredIntegerInTraceNotFlagged() {
+        // Prose says "149 MPa" — exactly in the trace. Don't flag.
+        String hypothesis = "Hall-Petch yield strength scales with grain size.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Maximum yield stress 149 MPa [call_1] at d=20.75 µm.");
+        String conclusion = "Hall-Petch confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}",
+                        "max σ_y=149 MPa at d=20.75 µm.", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("149 MPa")
+                && r.contains("derived-formula divergence"));
+    }
+
+    @Test
+    void d2d_unitAnchoredIntegerIgnoresZeroAndOne() {
+        // Don't flag "0 MPa" or "1 K" — common as baseline references.
+        String hypothesis = "Test hypothesis.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Baseline 0 MPa and reference 1 K, no other values cited.");
+        String conclusion = "Consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}",
+                        "{\"value\": 100}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("derived-formula divergence"));
+    }
+
+    // ---- Phase 12 D2e: high-deviation trace results (P-a328-405 / P-a328-422) ----
+
+    @Test
+    void d2e_highDeviationFieldInTraceResultFlagged() {
+        // P-a328-405 / P-a328-422 signature: trace's resultJson carries
+        // "deviation": 99.9 — the recovery is unreliable even if the literal
+        // numeric matches the prose.
+        String hypothesis = "Beer-Lambert linearity holds for ε.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Recovered ε = 0.111 across five runs [call_1].");
+        String conclusion = "Beer-Lambert confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "{\"epsilon\": 0.111, \"deviation\": 99.9}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("call_1")
+                && r.contains("deviation")
+                && r.contains("unreliable"));
+    }
+
+    @Test
+    void d2e_lowDeviationFieldInTraceResultNotFlagged() {
+        // Deviation 2.5% is well below the 50% threshold — don't flag.
+        String hypothesis = "Beer-Lambert linearity holds.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Recovered ε = 0.111 [call_1].");
+        String conclusion = "Confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "{\"epsilon\": 0.111, \"deviation\": 2.5}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("unreliable"));
+    }
+
+    @Test
+    void d2e_errorPctFieldAlsoCaught() {
+        // "error_pct" is an alternate spelling — also caught.
+        String hypothesis = "Test.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Result 1.50 [call_1].");
+        String conclusion = "Consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}",
+                        "{\"value\": 1.50, \"error_pct\": 75.0}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("call_1")
+                && r.contains("unreliable"));
+    }
 }

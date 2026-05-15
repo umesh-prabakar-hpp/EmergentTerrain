@@ -85,6 +85,76 @@ public final class NumericalConsistencyValidator {
     private static final double F5_5_RELATIVE_TOLERANCE = 0.01;
 
     /**
+     * Phase 12 D2d — a salient INTEGER is one that carries a physical unit
+     * marker in the surrounding text. P-a328-417's three load-bearing prose
+     * values (2377 MPa, σ₀=97 MPa, k=510 MPa·µm^½) are all integers and slip
+     * past {@link #SALIENT_NUMBER} because that regex demands ≥2 fractional
+     * digits or scientific notation. The unit-anchored regex below catches
+     * them while still excluding casual counts ("2 of 3 reviewers",
+     * "approximately 100"). Group 1 is the numeric token (with optional
+     * thousands-comma stripped by the caller); group 2 is the unit.
+     *
+     * <p>Unit set covers the May 2026 corpus: SI mechanical (MPa, GPa, Pa,
+     * kJ/mol), thermal (K, °C), spectroscopy (nm, µm, mm, Hz, kHz, MHz, eV),
+     * dimensional (m, s, kg). Greek symbols (µ, σ, λ) appear as part of
+     * compound units, not bare unit markers.
+     */
+    private static final Pattern SALIENT_INTEGER_WITH_UNIT = Pattern.compile(
+            "(?<![\\d.])(-?[0-9]{1,3}(?:,[0-9]{3})*|-?[0-9]+)"
+                    + "\\s*"
+                    + "(MPa·µm\\^½|MPa·µm\\^1/2|MPa|GPa|Pa|kJ/mol|kJ|J/mol|K|°C|°|"
+                    + "nm|µm|um|mm|cm|km|"
+                    + "Hz|kHz|MHz|GHz|eV|keV|MeV|"
+                    + "m/s|kg|kg/m\\^3|s|rpm|%)"
+                    + "(?![A-Za-z])");
+
+    /**
+     * Phase 12 D2b — every {@code [call_N]} marker the LLM emits in prose. The
+     * harness assigns these IDs in {@link com.emergentterrain.service.GroqPool}'s
+     * tool loop (Phase 11 C1), monotonic across the trace. Findings prose that
+     * cites a marker whose underlying tool execution failed is what P-a328-428
+     * looks like — the prose used {@code [call_1]} for the headline number but
+     * {@code call_1} errored, leaving the value unsourced in spite of the
+     * confident citation.
+     */
+    private static final Pattern CALL_MARKER = Pattern.compile("\\[call_(\\d+)\\]");
+
+    /**
+     * Phase 12 D2b — markers in a tool {@code resultJson} that mean the
+     * execution failed. The sandbox safety review emits {@code "rejected"} on
+     * grammar violations; runtime failures bubble up as {@code "error"} from
+     * {@code Tool error: …} in {@link com.emergentterrain.service.GroqPool}'s
+     * exception handler (line ~533). Case-insensitive; the check fires when
+     * any of these tokens appears as a JSON key or as a phrase in the
+     * stringified body.
+     */
+    private static final Pattern ERRORED_RESULT_MARKER = Pattern.compile(
+            "(?i)\"(?:error|rejected|status)\"\\s*:\\s*\"?(?:true|rejected|error|fail)"
+            + "|tool\\s+error\\s*:"
+            + "|index\\s+out\\s+of\\s+bounds"
+            + "|cannot\\s+use\\s+array\\s+as\\s+scalar"
+            + "|REJECTED\\s+by\\s+safety");
+
+    /**
+     * Phase 12 D2e — high-deviation marker in a tool result. P-a328-405 /
+     * P-a328-422 both had their recovered ε value sit in the trace within
+     * tolerance of the prose value, so Check C's literal-numeric match passes
+     * — but the trace ALSO carried {@code "deviation": 99.9} on the same
+     * record. A recovery with 99.9% deviation against its own cited baseline
+     * is unreliable evidence; Check G flags the call regardless of literal
+     * agreement.
+     *
+     * <p>Captured group 1 is the deviation magnitude (decimal or scientific).
+     * The validator parses it and compares against {@link #HIGH_DEVIATION_THRESHOLD}.
+     */
+    private static final Pattern DEVIATION_FIELD = Pattern.compile(
+            "(?i)\"(?:deviation|error_pct|max_dev|max_deviation)\"\\s*:\\s*"
+            + "(-?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
+
+    /** Phase 12 D2e — magnitude above which a deviation is treated as unreliable evidence. */
+    private static final double HIGH_DEVIATION_THRESHOLD = 50.0;
+
+    /**
      * Validates the three checks above. Returns a list of textual reasons for
      * downstream telemetry (one entry per inconsistency).
      */
@@ -140,9 +210,37 @@ public final class NumericalConsistencyValidator {
                                          String conclusion,
                                          java.util.List<com.emergentterrain.llm.ToolInvocation> toolCallTrace) {
         List<String> reasons = validate(hypothesis, findingsMap, conclusion);
-        if (toolCallTrace == null || toolCallTrace.isEmpty()) return reasons;
         String findings = MagnitudeRangeValidator.joinBlocks(findingsMap);
+
+        // Phase 12 D2c — when the trace was instantiated but stayed EMPTY
+        // (professor stage ran and errored before any tool call landed) AND
+        // findings cite at least one salient numeric, flag a single catch-all
+        // reason. P-a328-419 hit this exact shape: prof stage threw, profTrace
+        // was an empty list, paper fell through firstPass with σ_fail values
+        // in prose anchored to nothing.
+        //
+        // {@code null} trace is treated as "professor stage was never attempted"
+        // (JSON-path / Ollama-fallback / legacy callers that pre-date F5.5).
+        // For those callers the seed-engine numbers are the prose's source and
+        // the validator has no visibility — skip the check to preserve the
+        // F5.5 short-circuit semantics those paths rely on.
+        if (toolCallTrace == null) return reasons;
+        if (toolCallTrace.isEmpty()) {
+            findUnanchoredFindingsWithoutTrace(findings, reasons);
+            return reasons;
+        }
+
         findUnsourcedFindingsNumbers(hypothesis, findings, conclusion, toolCallTrace, reasons);
+        // Phase 12 D2b — call markers in findings prose that resolve to a
+        // failed / rejected tool execution. Caught after Check C so reviewers
+        // see the literal-mismatch reason first, then the cite-of-broken-tool
+        // reason as a separate entry.
+        findCitationsToErroredCalls(findings, toolCallTrace, reasons);
+        // Phase 12 D2e — calls whose result body carries a high "deviation" /
+        // "error_pct" field. Independent of literal-numeric agreement; a tool
+        // result with 99.9% deviation against its own cited baseline is
+        // unreliable evidence even when the prose's numeric matches.
+        findHighDeviationCalls(toolCallTrace, reasons);
         return reasons;
     }
 
@@ -246,6 +344,32 @@ public final class NumericalConsistencyValidator {
                         m.group(1)));
             }
         }
+        // Phase 12 D2d — unit-anchored integers (e.g. "2,377 MPa", "97 MPa")
+        // that are absent from any source. Catches the Hall-Petch P-a328-417
+        // pattern: prose σ_y,max = 2377 MPa derived from prose-stated σ₀, k, d
+        // but the trace returned σ_y,max = 149 MPa. The derived value sits 16×
+        // off the trace and is not in the hypothesis or conclusion either.
+        Matcher u = SALIENT_INTEGER_WITH_UNIT.matcher(findings);
+        java.util.Set<String> alreadyFlaggedUnit = new java.util.HashSet<>();
+        while (u.find()) {
+            String numTok = u.group(1).replace(",", "");
+            String unit   = u.group(2);
+            double n;
+            try { n = Double.parseDouble(numTok); }
+            catch (NumberFormatException ex) { continue; }
+            // Skip 0 and 1 — common in unit-bearing context as references
+            // ("1 K above baseline", "0 MPa baseline").
+            if (n == 0.0 || n == 1.0) continue;
+            String key = numTok + " " + unit;
+            if (!alreadyFlaggedUnit.add(key)) continue;
+            if (!isPermittedNumber(n, permitted)) {
+                reasons.add(String.format(
+                        "Findings cites unit-anchored value '%s %s' that is not within ±1%% of any "
+                                + "number in the hypothesis, conclusion, or tool-call trace results "
+                                + "(suspected derived-formula divergence).",
+                        numTok, unit));
+            }
+        }
     }
 
     private static void collectAllNumbers(String text, List<Double> sink) {
@@ -269,6 +393,115 @@ public final class NumericalConsistencyValidator {
             if (Math.abs(value - p) / Math.abs(p) <= F5_5_RELATIVE_TOLERANCE) return true;
         }
         return false;
+    }
+
+    /**
+     * Phase 12 D2c — fire when the trace is empty (null or zero entries) AND
+     * findings prose contains at least one salient numeric. The reason text
+     * names a count rather than specific values so the F5.5 short-circuit test
+     * (which asserts on specific value tokens like {@code 42.30}) still passes.
+     * Empty-findings short-circuit so JSON-path papers that legitimately have
+     * no numerics in their first-pass prose aren't flagged.
+     */
+    private static void findUnanchoredFindingsWithoutTrace(String findings, List<String> reasons) {
+        if (findings == null || findings.isBlank()) return;
+        int salient = 0;
+        Matcher m = SALIENT_NUMBER.matcher(findings);
+        while (m.find()) salient++;
+        // Phase 12 D2d composability — unit-anchored integers also count.
+        // P-a328-419 cited σ_fail values as plain integers with MPa units; the
+        // salient-decimal regex alone would miss them.
+        Matcher u = SALIENT_INTEGER_WITH_UNIT.matcher(findings);
+        while (u.find()) salient++;
+        if (salient == 0) return;
+        reasons.add(String.format(
+                "Trace is empty; findings cite %d salient numeric value%s with no Methods anchor "
+                        + "(no tool call ran or the professor stage errored before entering the tool loop).",
+                salient, salient == 1 ? "" : "s"));
+    }
+
+    /**
+     * Phase 12 D2b — every {@code [call_N]} marker the LLM emits in prose
+     * must resolve to a tool execution whose {@code resultJson} is not an
+     * error / rejection body. Markers that reference IDs absent from the
+     * trace AND markers that reference an errored call both flag.
+     */
+    private static void findCitationsToErroredCalls(
+            String findings,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (findings == null || findings.isBlank()) return;
+        if (trace == null || trace.isEmpty()) return;
+        // Build a map from call_N → ToolInvocation. Phase 11 C1 assigns
+        // monotonic IDs so the trace is keyed by callId directly; pre-Phase-11
+        // ToolInvocations (callId=null) get a synthetic 1-based index, mirroring
+        // how GroqPool stamps them today.
+        java.util.Map<String, com.emergentterrain.llm.ToolInvocation> byId = new java.util.HashMap<>();
+        int idx = 1;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null) { idx++; continue; }
+            String id = inv.callId() != null ? inv.callId() : ("call_" + idx);
+            byId.put(id, inv);
+            idx++;
+        }
+        Matcher m = CALL_MARKER.matcher(findings);
+        java.util.Set<String> alreadyFlagged = new java.util.HashSet<>();
+        while (m.find()) {
+            String callId = "call_" + m.group(1);
+            if (!alreadyFlagged.add(callId)) continue;
+            com.emergentterrain.llm.ToolInvocation inv = byId.get(callId);
+            if (inv == null) {
+                reasons.add(String.format(
+                        "Findings cites '[%s]' which does not appear in the persisted tool-call trace "
+                                + "(only %d call%s in trace).",
+                        callId, trace.size(), trace.size() == 1 ? "" : "s"));
+                continue;
+            }
+            String body = inv.resultJson();
+            if (body == null || body.isBlank()) {
+                reasons.add(String.format(
+                        "Findings cites '[%s]' but its tool result is empty — no numerics to anchor the claim.",
+                        callId));
+                continue;
+            }
+            if (ERRORED_RESULT_MARKER.matcher(body).find()) {
+                reasons.add(String.format(
+                        "Findings cites '[%s]' whose tool execution errored or was rejected by safety "
+                                + "review — numerics tied to this marker are unsourced.",
+                        callId));
+            }
+        }
+    }
+
+    /**
+     * Phase 12 D2e — flag any tool result whose body carries a {@code deviation}
+     * or {@code error_pct} field above {@link #HIGH_DEVIATION_THRESHOLD}.
+     * Independent of literal-numeric agreement; the recovery is unreliable
+     * regardless of whether prose cites the value within tolerance.
+     */
+    private static void findHighDeviationCalls(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (trace == null || trace.isEmpty()) return;
+        int idx = 1;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null || inv.resultJson() == null) { idx++; continue; }
+            String callId = inv.callId() != null ? inv.callId() : ("call_" + idx);
+            idx++;
+            Matcher m = DEVIATION_FIELD.matcher(inv.resultJson());
+            while (m.find()) {
+                try {
+                    double dev = Math.abs(Double.parseDouble(m.group(1)));
+                    if (dev > HIGH_DEVIATION_THRESHOLD) {
+                        reasons.add(String.format(
+                                "[%s] reports deviation %.2f%% against its cited baseline — above the "
+                                        + "%.0f%% reliability threshold; recovery is unreliable evidence.",
+                                callId, dev, HIGH_DEVIATION_THRESHOLD));
+                        break;  // one reason per call
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
     }
 
     private static String formatList(List<Double> values) {

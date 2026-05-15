@@ -319,6 +319,14 @@ app:
       enabled: true        # Phase 5 A4 — strip simulator-coord phrases from prose
     numerical-consistency:
       enabled: true        # Phase 5 B1 — catch "close to N×" with no nearby observed; hypothesis-vs-conclusion range mismatch
+      # Phase 12 D2 — promotion mode.
+      #   warn      — publish as REJECTED on disk (today's behaviour, default for rollout).
+      #   downgrade — publish as NULL_RESULT with an honest preamble naming
+      #               the unverifiable values; same persistence path, different
+      #               status + prose.
+      #   suppress  — paper is dropped entirely before addPaper (no disk, no DB);
+      #               operational log carries `numeric_inconsistent→suppressed`.
+      mode: warn
     magnitude-range:
       enabled: true        # Phase 5 B2 — per-(domain, topic) physical bounds (composite ≤ 3 GPa, Arrhenius ≤ 12×, …)
     dedup:

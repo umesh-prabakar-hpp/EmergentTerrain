@@ -39,6 +39,8 @@ class PublishPaperTest {
     private boolean harnessLeakFilterEnabled = false;
     /** Phase 5 B1: tests that exercise the numerical-consistency validator set this via {@link #enableNumericalConsistency()}. */
     private boolean numericalConsistencyEnabled = false;
+    /** Phase 12 D2: warn | downgrade | suppress. Tests override via {@link #setNumericalConsistencyMode(String)}. */
+    private String  numericalConsistencyMode    = "warn";
     /** Phase 5 B2: tests that exercise the magnitude-range validator set this via {@link #enableMagnitudeRange()}. */
     private boolean magnitudeRangeEnabled = false;
     /** Phase 5 B3: tests that exercise the content-hash deduplicator set this via {@link #enableDedup()}. */
@@ -121,6 +123,7 @@ class PublishPaperTest {
                 /* truncationGuardEnabled =     */ truncationGuardEnabled,
                 /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
+                /* numericalConsistencyMode     */ numericalConsistencyMode,
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 /* dedupEnabled =               */ dedupEnabled,
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
@@ -1027,6 +1030,82 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
+    // ---- Phase 12 D2: mode flag (warn / downgrade / suppress) ----
+
+    @Test
+    void d2_warnModeKeepsRejectedRoutingBitIdentical() {
+        // Default mode is "warn" — same behaviour as Phase 5 B1: numerical
+        // inconsistency stamps REJECTED, paper still publishes to disk.
+        enableNumericalConsistency("warn");
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("REJECTED");
+    }
+
+    @Test
+    void d2_downgradeModeRoutesToNullResultWithHonestPreamble() {
+        enableNumericalConsistency("downgrade");
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        ResearchPaper paper = firstPaper();
+        assertThat(paper.status()).isEqualTo("NULL_RESULT");
+        assertThat(paper.findings())
+                .contains("NULL_RESULT")
+                .contains("Numerical-consistency validator flagged");
+    }
+
+    @Test
+    void d2_suppressModeDropsPaperEntirely() {
+        enableNumericalConsistency("suppress");
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        // No paper persisted — the room's published list is empty.
+        assertThat(service.getPublishedPapers(roomId, 10)).isEmpty();
+    }
+
+    @Test
+    void d2_suppressModeStillPublishesCleanPaper() {
+        // A clean paper publishes identically across all three modes.
+        enableNumericalConsistency("suppress");
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Pendulum 1% threshold predicted near 22°.",
+                "θ=20°→0.76% θ=25°→1.19%.",
+                "Threshold lands at θ ≈ 25°. The 1.19% value at 25° verifies this.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void d2_unknownModeFallsBackToWarn() {
+        // Operator typo in app.research.numerical-consistency.mode degrades silently to warn.
+        enableNumericalConsistency("typo-mode");
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Multiplier expected near 2.",
+                "Observed 1.07×.",
+                "Observed 1.07× is close to the expected 2× value.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("REJECTED");
+    }
+
     // ---- Phase 5 A4: harness-parameter leak filter ----
 
     @Test
@@ -1474,6 +1553,13 @@ class PublishPaperTest {
     /** Phase 5 B1 — rebuilds the service with the numerical-consistency-validator flag set. */
     private void enableNumericalConsistency() {
         numericalConsistencyEnabled = true;
+        setUp();
+    }
+
+    /** Phase 12 D2 — rebuilds the service with the validator on AND the given mode. */
+    private void enableNumericalConsistency(String mode) {
+        numericalConsistencyEnabled = true;
+        numericalConsistencyMode = mode;
         setUp();
     }
 

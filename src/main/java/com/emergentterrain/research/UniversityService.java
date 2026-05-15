@@ -56,6 +56,15 @@ public class UniversityService {
     private final boolean truncationGuardEnabled;
     private final boolean harnessLeakFilterEnabled;
     private final boolean numericalConsistencyEnabled;
+    /**
+     * Phase 12 D2 — {@code warn} (default; publish as REJECTED on disk),
+     * {@code downgrade} (publish as NULL_RESULT with an honest preamble naming
+     * the unverifiable values), or {@code suppress} (drop the paper entirely
+     * before {@code addPaper} fires; callPath gets the {@code numeric_inconsistent→suppressed}
+     * stamp via the {@link ResearchNarrationService}). Ignored when
+     * {@link #numericalConsistencyEnabled} is false.
+     */
+    private final String  numericalConsistencyMode;
     private final boolean magnitudeRangeEnabled;
     private final boolean dedupEnabled;
     private final boolean crossDomainGateEnabled;
@@ -177,6 +186,7 @@ public class UniversityService {
             @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
+            @Value("${app.research.numerical-consistency.mode:warn}") String numericalConsistencyMode,
             @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
@@ -211,6 +221,7 @@ public class UniversityService {
         this.truncationGuardEnabled   = truncationGuardEnabled;
         this.harnessLeakFilterEnabled    = harnessLeakFilterEnabled;
         this.numericalConsistencyEnabled = numericalConsistencyEnabled;
+        this.numericalConsistencyMode    = normalizeMode(numericalConsistencyMode);
         this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
         this.dedupEnabled                = dedupEnabled;
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
@@ -232,7 +243,10 @@ public class UniversityService {
         if (numericalConsistencyEnabled) {
             log.info("UniversityService: numerical-consistency ENABLED — papers whose "
                     + "Conclusion contradicts its Hypothesis or Findings on a numerical "
-                    + "claim publish as NEEDS_REVISION.");
+                    + "claim publish as REJECTED (mode={}). Phase 12 D2 gap checks (errored "
+                    + "call markers, no-trace findings, high-deviation tool results, "
+                    + "prose/trace magnitude divergence) are always live.",
+                    this.numericalConsistencyMode);
         }
         if (magnitudeRangeEnabled) {
             log.info("UniversityService: magnitude-range ENABLED — papers whose findings "
@@ -593,6 +607,34 @@ public class UniversityService {
         // wrong labels, uncited clone, cross-domain non-sequitur); we surface this as a
         // distinct status from NEEDS_REVISION so operators can tell "validator caught it"
         // from "narration truncated."
+        // Phase 12 D2 — when numerical-consistency fires and mode is `suppress`,
+        // drop the paper entirely (no addPaper, no disk write, no DB row); the
+        // operational log carries the suppression marker the same way Phase 10's
+        // all_tools_failed→suppressed and panel:n=1:degraded:MANUAL_REVIEW→suppressed
+        // gates do. REVIEW_REPORT.md's skill treats these as gate-suppressed (not
+        // missing) on its next refresh.
+        if (numericallyInconsistent
+                && "suppress".equals(numericalConsistencyMode)) {
+            log.warn("numeric_inconsistent→suppressed paperId={} reasons={} (Phase 12 D2)",
+                    draft.paperId(), consistencyFailures);
+            researchCycleService.decrementDraftQueue();
+            return;
+        }
+        // Phase 12 D2 — when mode is `downgrade`, override findings + conclusion
+        // with an honest NULL_RESULT preamble naming the first few unverifiable
+        // values so readers can see exactly which numerics the validator couldn't
+        // trace. The paper still publishes — its peer score / call path / panel
+        // outcome are preserved — but as NULL_RESULT, not REJECTED.
+        boolean numericInconsistentDowngraded =
+                numericallyInconsistent && "downgrade".equals(numericalConsistencyMode);
+        if (numericInconsistentDowngraded) {
+            String preamble = buildNumericInconsistentPreamble(consistencyFailures);
+            findingsBlocks = java.util.Map.of(1, preamble);
+            findings = preamble;
+            conclusion = "The hypothesis remains untested in this submission "
+                    + "(see findings preamble for the values that could not be traced).";
+            isNullResult = true;
+        }
         boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
                 || uncitedClone || crossDomainDrift || physicalMechanismAuditFailed
                 || cherryPickedAuditFailed;
@@ -1765,6 +1807,49 @@ public class UniversityService {
             return objectMapper.writeValueAsString(value);
         } catch (Exception e) {
             throw new IllegalStateException("Failed to serialise lifecycle state", e);
+        }
+    }
+
+    /**
+     * Phase 12 D2 — build the honest preamble that replaces the findings prose
+     * when {@code mode=downgrade} routes a numerically-inconsistent paper to
+     * NULL_RESULT. Names up to the first three offending values so readers can
+     * see which specific numerics the validator couldn't trace.
+     */
+    static String buildNumericInconsistentPreamble(List<String> reasons) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("NULL_RESULT — Numerical-consistency validator flagged ")
+          .append(reasons.size())
+          .append(reasons.size() == 1 ? " numeric value" : " numeric values")
+          .append(" in this draft that could not be traced to the tool-call output. ")
+          .append("The hypothesis remains untested in this submission. Specifically: ");
+        int limit = Math.min(3, reasons.size());
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) sb.append(" ");
+            sb.append(reasons.get(i));
+        }
+        if (reasons.size() > limit) {
+            sb.append(" (").append(reasons.size() - limit).append(" more.)");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Phase 12 D2 — normalise the operator-supplied mode string to one of
+     * {@code warn} / {@code downgrade} / {@code suppress}. Unknown values
+     * degrade silently to {@code warn} so a misconfiguration never lifts
+     * the default suppression behaviour to the harshest mode.
+     */
+    static String normalizeMode(String raw) {
+        if (raw == null) return "warn";
+        String trimmed = raw.trim().toLowerCase();
+        switch (trimmed) {
+            case "warn":
+            case "downgrade":
+            case "suppress":
+                return trimmed;
+            default:
+                return "warn";
         }
     }
 

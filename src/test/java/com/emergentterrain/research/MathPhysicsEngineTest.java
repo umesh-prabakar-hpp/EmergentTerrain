@@ -235,6 +235,7 @@ class MathPhysicsEngineTest {
                 /* truncationGuardEnabled =     */ false,
                 /* harnessLeakFilterEnabled =   */ false,
                 /* numericalConsistencyEnabled =*/ false,
+                /* numericalConsistencyMode     */ "warn",
                 /* magnitudeRangeEnabled =      */ false,
                 /* dedupEnabled =               */ false,
                 /* crossDomainGateEnabled =     */ false,
