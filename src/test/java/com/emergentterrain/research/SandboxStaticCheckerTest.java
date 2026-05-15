@@ -150,4 +150,79 @@ class SandboxStaticCheckerTest {
         assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
         assertThat(((SandboxStaticChecker.Result.Rejected) r).reason()).contains("unknownDeep");
     }
+
+    // ── Phase 10 — relaxations: while, ===/!== ──────────────────────────────
+
+    @Test
+    void whileLoop_isApproved() {
+        // `while` is bounded by the same MAX_ITERATIONS guard as `for`. Allowing
+        // it removes the need to invent a counter variable when a fence condition
+        // is more natural (e.g. convergence: while (abs(err) > 1e-9) { ... }).
+        String code = """
+                var x = param2;
+                while (abs(x * x - param1) > 0.0001) {
+                  x = (x + param1 / x) / 2;
+                }
+                return x;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void strictEquality_isApproved() {
+        // === and !== are aliased to == and != at the lexer. The sandbox is
+        // single-typed (double), so the loose/strict distinction is meaningless;
+        // accepting both forms removes a parse-failure source for LLM code.
+        String code = """
+                var c = 0;
+                for (var n = start; n < end; n++) {
+                  if (n === 7) { c += 100; }
+                  if (n !== 0) { c += 1; }
+                }
+                return c;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void whileWithUnknownCall_isStillCaught() {
+        // The walker must descend into while-body statements.
+        String code = """
+                var i = 0;
+                while (i < 10) {
+                  i = i + unknownInsideWhile(i);
+                }
+                return i;
+                """;
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+        assertThat(((SandboxStaticChecker.Result.Rejected) r).reason()).contains("unknownInsideWhile");
+    }
+
+    // ── Phase 10 — helpText() grammar reference ─────────────────────────────
+
+    @Test
+    void helpText_listsTheCriticalGrammarFeatures() {
+        // The harness appends helpText() to every static-stage rejection sent
+        // back to the LLM. The text must spell out the non-obvious differences
+        // from JavaScript (no member access, no strings, arrays cap, etc.) so
+        // the LLM doesn't retry with the same disallowed construct.
+        String help = SandboxStaticChecker.helpText();
+        assertThat(help).isNotBlank();
+        // Common JS reaches that trip up sandbox code:
+        assertThat(help).contains("NOT JavaScript");
+        assertThat(help).contains("NOT supported");
+        assertThat(help).contains("member access");
+        // Phase 10 affordances the LLM should know to use:
+        assertThat(help).contains("var xs = [");
+        assertThat(help).contains("len(");
+        assertThat(help).contains("recordSample");
+        assertThat(help).contains("while");
+        // Builtin highlights:
+        assertThat(help).contains("pow").contains("sqrt").contains("collatzSteps");
+        // Working example:
+        assertThat(help).contains("Working example");
+    }
 }

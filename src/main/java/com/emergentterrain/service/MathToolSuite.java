@@ -53,12 +53,36 @@ public class MathToolSuite {
         private int sandboxRejectCount  = 0;
         private int symbolicRejectCount = 0;
         private int gpuEvalRejectCount  = 0;
+        // Phase 10 — track per-tool success counts so the professor stage can
+        // detect the "all tools failed but model wrote prose anyway" pattern
+        // visible on P-a328-352 and P-a328-353. Each successful tool execution
+        // increments its counter; the gate at the end of the professor loop
+        // compares totalRejects() vs totalSuccesses() to decide suppression.
+        private int sandboxSuccessCount    = 0;
+        private int symbolicSuccessCount   = 0;
+        private int gpuEvalSuccessCount    = 0;
+        private int predicateScanSuccessCount = 0;
         public int sandboxRejectCount()  { return sandboxRejectCount;  }
         public int symbolicRejectCount() { return symbolicRejectCount; }
         public int gpuEvalRejectCount()  { return gpuEvalRejectCount;  }
+        public int sandboxSuccessCount() { return sandboxSuccessCount; }
+        public int symbolicSuccessCount(){ return symbolicSuccessCount;}
+        public int gpuEvalSuccessCount() { return gpuEvalSuccessCount; }
+        public int predicateScanSuccessCount() { return predicateScanSuccessCount; }
+        public int totalSuccesses() {
+            return sandboxSuccessCount + symbolicSuccessCount
+                    + gpuEvalSuccessCount + predicateScanSuccessCount;
+        }
+        public int totalRejects() {
+            return sandboxRejectCount + symbolicRejectCount + gpuEvalRejectCount;
+        }
         void incrementSandboxRejects()   { sandboxRejectCount++;  }
         void incrementSymbolicRejects()  { symbolicRejectCount++; }
         void incrementGpuEvalRejects()   { gpuEvalRejectCount++;  }
+        void incrementSandboxSuccesses()    { sandboxSuccessCount++;    }
+        void incrementSymbolicSuccesses()   { symbolicSuccessCount++;   }
+        void incrementGpuEvalSuccesses()    { gpuEvalSuccessCount++;    }
+        void incrementPredicateScanSuccesses() { predicateScanSuccessCount++; }
     }
 
     private static final Set<String> VALID_PREDICATES = Set.of(
@@ -232,14 +256,34 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     default -> "Unknown tool: " + name;
                 };
-                if ("run_sandboxed_code".equals(name) && result.startsWith("REJECTED by safety review")) {
+                // Phase 10 — count both rejections AND successes so the
+                // professor stage can detect the "all tools failed but
+                // synthesis prose was written anyway" pattern (P-352, P-353
+                // each had 4 sandbox rejects, 0 successes, then fabricated
+                // statistics into the published Findings).
+                boolean rejected = result.startsWith("REJECTED by safety review");
+                boolean failed   = result.startsWith("Sandbox execution failed")
+                        || result.startsWith("Symbolic evaluation failed")
+                        || result.startsWith("GPU eval failed")
+                        || result.startsWith("Predicate scan failed")
+                        || result.startsWith("Tool execution error");
+                if ("run_sandboxed_code".equals(name) && rejected) {
                     metrics.incrementSandboxRejects();
+                } else if ("run_sandboxed_code".equals(name) && !failed) {
+                    metrics.incrementSandboxSuccesses();
                 }
-                if ("run_symbolic".equals(name) && result.startsWith("REJECTED by safety review")) {
+                if ("run_symbolic".equals(name) && rejected) {
                     metrics.incrementSymbolicRejects();
+                } else if ("run_symbolic".equals(name) && !failed) {
+                    metrics.incrementSymbolicSuccesses();
                 }
-                if ("run_gpu_eval".equals(name) && result.startsWith("REJECTED by safety review")) {
+                if ("run_gpu_eval".equals(name) && rejected) {
                     metrics.incrementGpuEvalRejects();
+                } else if ("run_gpu_eval".equals(name) && !failed) {
+                    metrics.incrementGpuEvalSuccesses();
+                }
+                if ("run_predicate_scan".equals(name) && !failed) {
+                    metrics.incrementPredicateScanSuccesses();
                 }
                 return result;
             } catch (Exception e) {
@@ -327,10 +371,45 @@ public class MathToolSuite {
         }
     }
 
+    /**
+     * Phase 10 — normalize single `=` to `==` (Set head → Equal head).
+     *
+     * <p>P-a328-364 emitted {@code Solve[Q = 1/2 / Sqrt[L/C], R]} which Symja
+     * parses as a Set assignment, then the safety whitelist correctly blocks
+     * the {@code Set} head. The LLM intended Equal — it just used the
+     * JavaScript / textbook spelling instead of Mathematica's. The fix would
+     * have been a one-character edit but the LLM saw only a generic
+     * "non-whitelisted head" error and retried with wrong parameters.
+     *
+     * <p>The replacement is global and unconditional: any single {@code =}
+     * not part of {@code ==}, {@code <=}, {@code >=}, {@code !=}, or
+     * {@code :=}. Symja expressions never legitimately use {@code =} as an
+     * operator (it's only the Set head, which is blocked anyway), so the
+     * transformation is loss-free for valid inputs and corrective for the
+     * common LLM mistake.
+     */
+    static String normalizeEqualHead(String expr) {
+        if (expr == null) return null;
+        // Negative lookbehind excludes <, >, !, =, : so we don't touch
+        // <=, >=, !=, ==, := . Negative lookahead excludes = so we don't
+        // double-substitute ==.
+        return expr.replaceAll("(?<![<>!=:])=(?!=)", "==");
+    }
+
     private String runSymbolic(JsonNode args) {
         String expression = args.path("expression").asText(null);
         String rationale  = args.path("rationale").asText("(no rationale)");
         if (expression == null || expression.isBlank()) return "Missing expression.";
+
+        // Phase 10 — rewrite `=` → `==` before the whitelist check so the
+        // common LLM mistake of writing the Set head where Equal is meant
+        // doesn't get blocked. See normalizeEqualHead() for the rationale.
+        String normalized = normalizeEqualHead(expression);
+        if (!normalized.equals(expression)) {
+            log.info("MathToolSuite: run_symbolic normalized `=` → `==` expr=\"{}\"",
+                    expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+            expression = normalized;
+        }
 
         // Deterministic head-whitelist check before invoking Symja.
         SymbolicStaticChecker.Result staticResult = SymbolicStaticChecker.check(expression);
@@ -430,8 +509,17 @@ public class MathToolSuite {
         if (!reviewVerdict.startsWith("APPROVED")) {
             log.warn("MathToolSuite: sandbox code rejected by 4b review: {} code=\"{}\"",
                     reviewVerdict, code.length() > 80 ? code.substring(0, 80) + "…" : code);
+            // Phase 10 — append the grammar reference for static-stage
+            // rejections so the LLM doesn't burn another 3 retries discovering
+            // which JS construct the sandbox subset omits. Intent-stage
+            // rejections (model said REJECTED with a sentence) get no hint —
+            // those are semantic, not syntactic.
+            String hint = reviewVerdict.startsWith("REJECTED (static)")
+                    ? com.emergentterrain.research.SandboxStaticChecker.helpText()
+                    : "";
             return "REJECTED by safety review: " + reviewVerdict +
-                    " — Please revise the pseudocode to address this issue and call run_sandboxed_code again.";
+                    " — Please revise the pseudocode to address this issue and call run_sandboxed_code again."
+                    + hint;
         }
         log.info("MathToolSuite: sandbox code approved, executing range=[{},{}) description=\"{}\"",
                 rangeStart, rangeEnd, description);
@@ -444,8 +532,18 @@ public class MathToolSuite {
                     SandboxEngine.run(code, rangeStart, rangeEnd, param1, param2);
             log.info("MathToolSuite: sandbox done description=\"{}\" ms={} {}",
                     description, System.currentTimeMillis() - t, result.summary());
-            return "Sandboxed computation — \"%s\" over [%d,%d): %s"
-                    .formatted(description, rangeStart, rangeEnd, result.summary());
+            // Phase 10 — surface recordSample aggregates in the tool response.
+            // The LLM previously fabricated multi-sample CIs from a single run
+            // (P-a328-347, P-a328-348); recordSample lets it return real
+            // n/mean/std/min/max alongside the primary numeric result.
+            String stats = result.recordedN() > 0
+                    ? "  stats: n=%d mean=%.6g std=%.6g min=%.6g max=%.6g".formatted(
+                            result.recordedN(), result.recordedMean(),
+                            result.recordedStd(), result.recordedMin(),
+                            result.recordedMax())
+                    : "";
+            return "Sandboxed computation — \"%s\" over [%d,%d): %s%s"
+                    .formatted(description, rangeStart, rangeEnd, result.summary(), stats);
         } catch (Exception e) {
             return "Sandbox execution failed: " + e.getMessage();
         }

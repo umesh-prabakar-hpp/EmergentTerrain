@@ -142,6 +142,12 @@ public final class GpuEvalStaticChecker {
                 }
                 for (SandboxEngine.Expr a : c.args()) walk(a, bad);
             }
+            // Phase 10 — arrays and indexing are sandbox-only features; the
+            // GPU expression form is a single scalar expression in n. Reject
+            // any array construct that survives the parse.
+            case SandboxEngine.Expr.ArrayLit a    -> bad.add("(array literal)");
+            case SandboxEngine.Expr.Index ix      -> bad.add("(array index " + ix.arrName() + ")");
+            case SandboxEngine.Expr.IndexAssign ix -> bad.add("(array assignment " + ix.arrName() + ")");
         }
     }
 }

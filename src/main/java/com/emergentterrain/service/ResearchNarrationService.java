@@ -420,6 +420,26 @@ public class ResearchNarrationService {
                         draft.paperId(), System.currentTimeMillis() - start);
                 return null;
             }
+            // Phase 10 — widen the suppression gate. P-a328-352 (prime-gap →
+            // CTE) and P-a328-353 (aliquot sequences) each saw four sandbox
+            // rejections followed by zero successful tool calls, yet the LLM
+            // wrote a complete synthesis with fabricated linear-fit
+            // coefficients and Wilson confidence intervals. The blank-synthesis
+            // check above only catches genuinely empty outputs; a fabricated
+            // narrative around no data slips through. Suppress whenever:
+            //   total tool rejections >= 3  AND  total successful tool calls == 0.
+            // Three rejections is the threshold because the executor's retry
+            // loop typically allows up to 4 attempts — by call #3 the LLM has
+            // not converged on a parser-compatible form and further synthesis
+            // is unsupported by computation.
+            if (metrics.totalRejects() >= 3 && metrics.totalSuccesses() == 0) {
+                callPath.add("prof:" + abbrev(router.primaryModel())
+                        + ":all_tools_failed→suppressed");
+                log.warn("LLM professor tools: {} rejects, 0 successes paperId={} — draft suppressed "
+                                + "(fabrication pattern from REVIEW_REPORT.md refresh #2 P-352/P-353)",
+                        metrics.totalRejects(), draft.paperId());
+                return null;
+            }
             callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
@@ -546,6 +566,24 @@ public class ResearchNarrationService {
                 log.info("F7.3 cherry_picked_evidence: paperId={} omitted_calls={}",
                         draft != null ? draft.paperId() : "?",
                         outcome.consensusOmittedRelevant());
+            }
+            // Phase 10 — suppress papers that limp through with a single
+            // reviewer when the panel was configured for ≥2. P-a328-360 went
+            // out with `panel:n=1:degraded:from=4` after `rev:parse_failed→fp`
+            // and contained five blocks of fabricated Reuss-ratio output that
+            // the single reviewer happily co-signed. One reviewer cannot
+            // produce useful inter-rater agreement — `agreementScore` defaults
+            // to 1.00 trivially — so the panel signal is non-informative.
+            // Treat this as MANUAL_REVIEW: suppress the paper, log loudly,
+            // let the upstream draft queue see the rejection.
+            if (got == 1 && configuredSize >= 2) {
+                callPath.add("panel:n=1:degraded:MANUAL_REVIEW→suppressed");
+                log.warn("ReviewPanelService: paperId={} panel n=1 of configured {} — "
+                                + "single-reviewer agreement is non-informative; draft "
+                                + "suppressed for MANUAL_REVIEW per REVIEW_REPORT.md "
+                                + "refresh #3 (P-360 fabrication pattern).",
+                        draft != null ? draft.paperId() : "?", configuredSize);
+                return null;
             }
             return narration.withPanelOutcome(outcome);
         } catch (Exception e) {
@@ -1005,8 +1043,14 @@ public class ResearchNarrationService {
                 ? "\"conclusion\":\"explicitly state the pre-registered prediction was NOT confirmed; "
                   + "what was expected vs found; what this rules out\""
                 : "\"conclusion\":\"1-2 sentences: what result implies; one open question it raises\"";
+        // Phase 10 — same accumulator-format treatment as the refinement loop:
+        // drop the `param1=N, param2=M.M` literal that the LLM was parroting
+        // into the published Hypothesis (P-344, P-355, P-356, P-359, P-362)
+        // and Findings (P-344, P-359). Use the existing natural-language form
+        // already in use at line 1379-1381 so the two prompts stay aligned.
         String paramsLine = draft.param1() != null
-                ? "Primary parameters: param1=%d, param2=%.1f\n".formatted(draft.param1(), draft.param2())
+                ? "Computation parameters: starting position %d, scale %.1f\n"
+                        .formatted(draft.param1(), draft.param2())
                 : "";
         Map<String, Object> params = new LinkedHashMap<>();
         params.put("paramsLine",         paramsLine);
@@ -1202,9 +1246,17 @@ public class ResearchNarrationService {
                 MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
                         draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
 
-                accumulatedFindings += "\nComputation %d — %s (param1=%d, param2=%.1f): %s"
-                        .formatted(iteration + 1, decision.rationale(),
-                                decision.param1(), decision.param2(), refined.findings());
+                // Phase 10 — drop the `(param1=N, param2=M.M)` annotation that
+                // was leaking verbatim into the published prose of P-344,
+                // P-347, P-355, P-356, P-359, P-362 (6 of 21 papers per
+                // REVIEW_REPORT.md refresh #3). The rationale and refined
+                // findings already carry the substantive information the
+                // narrator LLM needs to differentiate computations; the
+                // harness-internal token names contribute nothing scientifically
+                // and only invite parrot-back into the user-visible Hypothesis
+                // and Findings.
+                accumulatedFindings += "\nComputation %d — %s: %s"
+                        .formatted(iteration + 1, decision.rationale(), refined.findings());
                 completedRefinements++;
 
                 log.info("LLM refinement {}/{} done paperId={} ms={} rationale=\"{}\"",

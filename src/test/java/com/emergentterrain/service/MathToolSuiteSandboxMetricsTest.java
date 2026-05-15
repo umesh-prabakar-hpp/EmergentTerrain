@@ -101,6 +101,104 @@ class MathToolSuiteSandboxMetricsTest {
         assertThat(metrics.sandboxRejectCount()).isZero();
     }
 
+    // ── Phase 10 — success counters + normalizeEqualHead ────────────────────
+
+    @Test
+    void successfulSandboxIncrementsSuccessCounter() throws Exception {
+        // Successful sandbox calls must now increment sandboxSuccessCount so
+        // the professor stage can tell "all tools failed" apart from "some
+        // tools succeeded but the synthesis was light on detail".
+        LlmRouter router = mock(LlmRouter.class);
+        when(router.callFast(anyString())).thenReturn("APPROVED");
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(router, mapper);
+
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String toolCall = mapper.writeValueAsString(java.util.Map.of(
+                "name", "run_sandboxed_code",
+                "arguments", java.util.Map.of(
+                        "code",        "var s = 0; for (var n = start; n < end; n++) { s += 1; } return s;",
+                        "description", "count integers in range",
+                        "range_start", 1,
+                        "range_end",   100
+                )));
+
+        executor.apply(toolCall);
+        executor.apply(toolCall);
+
+        assertThat(metrics.sandboxSuccessCount()).isEqualTo(2);
+        assertThat(metrics.sandboxRejectCount()).isZero();
+        assertThat(metrics.totalSuccesses()).isEqualTo(2);
+        assertThat(metrics.totalRejects()).isZero();
+    }
+
+    @Test
+    void rejectAndSuccessTalliesAreIndependent() throws Exception {
+        // One rejected call + one successful call → 1 reject and 1 success
+        // recorded separately. Confirms the "all tools failed" detector
+        // (rejects >= 3 AND successes == 0) wouldn't fire here.
+        LlmRouter router = mock(LlmRouter.class);
+        ObjectMapper mapper = new ObjectMapper();
+        // First call: 4b says REJECTED. Second call: APPROVED.
+        when(router.callFast(anyString()))
+                .thenReturn("REJECTED: first call refused")
+                .thenReturn("APPROVED");
+        MathToolSuite suite = new MathToolSuite(router, mapper);
+
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String tool = mapper.writeValueAsString(java.util.Map.of(
+                "name", "run_sandboxed_code",
+                "arguments", java.util.Map.of(
+                        "code", "var s = 0; for (var n = start; n < end; n++) { s += 1; } return s;",
+                        "description", "ok",
+                        "range_start", 1,
+                        "range_end",   10)));
+
+        executor.apply(tool);
+        executor.apply(tool);
+
+        assertThat(metrics.sandboxRejectCount()).isEqualTo(1);
+        assertThat(metrics.sandboxSuccessCount()).isEqualTo(1);
+    }
+
+    @Test
+    void normalizeEqualHead_rewritesSingleEquals() {
+        // P-a328-364 verbatim: `Solve[Q = 1/2 / Sqrt[L/C], R]` was blocked by
+        // the Symja whitelist because `=` is the Set head. The LLM intended
+        // Equal (`==`); normalizeEqualHead fixes that without touching the
+        // semantically distinct operators ==, <=, >=, !=, :=.
+        assertThat(MathToolSuite.normalizeEqualHead(
+                "Solve[Q = 1/2 / Sqrt[L/C], R]"))
+                .isEqualTo("Solve[Q == 1/2 / Sqrt[L/C], R]");
+    }
+
+    @Test
+    void normalizeEqualHead_preservesComparisonOperators() {
+        assertThat(MathToolSuite.normalizeEqualHead("a == b")).isEqualTo("a == b");
+        assertThat(MathToolSuite.normalizeEqualHead("a <= b")).isEqualTo("a <= b");
+        assertThat(MathToolSuite.normalizeEqualHead("a >= b")).isEqualTo("a >= b");
+        assertThat(MathToolSuite.normalizeEqualHead("a != b")).isEqualTo("a != b");
+        assertThat(MathToolSuite.normalizeEqualHead("f := x^2")).isEqualTo("f := x^2");
+    }
+
+    @Test
+    void normalizeEqualHead_rewritesMultipleSetHeadsInOneExpression() {
+        // System of equations: Solve[{x = y + 1, y = 2*x}, {x, y}]
+        assertThat(MathToolSuite.normalizeEqualHead(
+                "Solve[{x = y + 1, y = 2*x}, {x, y}]"))
+                .isEqualTo("Solve[{x == y + 1, y == 2*x}, {x, y}]");
+    }
+
+    @Test
+    void normalizeEqualHead_handlesNullSafely() {
+        assertThat(MathToolSuite.normalizeEqualHead(null)).isNull();
+        assertThat(MathToolSuite.normalizeEqualHead("")).isEmpty();
+    }
+
     /** Minimum-viable PaperDraft for the executor's domain/topic lookup. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

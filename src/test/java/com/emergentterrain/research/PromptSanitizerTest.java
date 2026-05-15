@@ -349,4 +349,69 @@ class PromptSanitizerTest {
         long count = twice.split("\\[critique:skip", -1).length - 1;
         assertThat(count).isEqualTo(1);
     }
+
+    // ── Phase 10 — paramN= literal leak patterns ────────────────────────────
+
+    @Test
+    void phase10_stripsParenthesisedParamPair_P344Hypothesis() {
+        // P-a328-344 Hypothesis verbatim shape — the most common leak form.
+        String input = "Using the primary parameters (param1=53, param2=5.3) the "
+                + "computed amplitudes decrease from 287 MPa to 210 MPa.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("param1").doesNotContain("param2");
+        assertThat(out).contains("primary parameters")
+                .contains("computed amplitudes decrease");
+    }
+
+    @Test
+    void phase10_stripsParenthesisedSingleParam_P344Findings() {
+        // P-a328-344 Findings has two single-param parentheticals next to each
+        // other; both must be removed cleanly.
+        String input = "An additional sweep with a lower starting point (param1=10) "
+                + "and larger scale factor (param2=1.5) also follows the Basquin law.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("param1=").doesNotContain("param2=");
+        assertThat(out).contains("Basquin law").contains("lower starting point");
+    }
+
+    @Test
+    void phase10_stripsParenthesisedLabel_P347() {
+        // P-a328-347 Hypothesis verbatim — the (param2)/(param1) tag-label form.
+        String input = "using a scaling parameter of 6.9 (param2) and a "
+                + "truncation depth of 22 terms (param1)";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("(param1)").doesNotContain("(param2)");
+        assertThat(out).contains("scaling parameter of 6.9")
+                .contains("truncation depth of 22 terms");
+    }
+
+    @Test
+    void phase10_stripsBareParamAssign_P355() {
+        // P-a328-355 Findings: "Experimental sweeps with param1=49 and param2=2.1"
+        String input = "Experimental sweeps with param1=49 and param2=2.1 show the ratio.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("param1").doesNotContain("param2");
+        assertThat(out).contains("Experimental sweeps").contains("show the ratio");
+    }
+
+    @Test
+    void phase10_stripsBareParamAssignWithUnit_P362() {
+        // P-a328-362 Hypothesis: "initial displacement param1=46° and scale param2=4.4 m"
+        String input = "For a pendulum with initial displacement param1=46° and "
+                + "scale param2=4.4 m, the small-angle approximation will produce error.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("param1").doesNotContain("param2");
+        // Subject remains coherent after the leak strip.
+        assertThat(out).contains("pendulum").contains("small-angle approximation");
+    }
+
+    @Test
+    void phase10_detectsAllParamForms() {
+        assertThat(PromptSanitizer.detects("(param1=10, param2=1.5)")).isTrue();
+        assertThat(PromptSanitizer.detects("with (param2=6.9) here")).isTrue();
+        assertThat(PromptSanitizer.detects("annotated (param1) inline")).isTrue();
+        assertThat(PromptSanitizer.detects("param1=49 in sweep")).isTrue();
+        // Clean prose — no false positive.
+        assertThat(PromptSanitizer.detects("the parameters were chosen carefully")).isFalse();
+    }
 }

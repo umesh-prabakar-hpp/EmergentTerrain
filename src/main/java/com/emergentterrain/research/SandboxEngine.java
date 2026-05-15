@@ -32,6 +32,13 @@ public class SandboxEngine {
     static final int MAX_ITERATIONS  = 5_000;
     static final int MAX_STMTS       = 50_000;
     /**
+     * Phase 10 — array length cap. Fixed at allocation time; arrays have no
+     * resize, push, or splice. The cap bounds memory per run (≤ 8 kB per
+     * array, ≤ MAX_STMTS allocations of them) so the existing time-based
+     * limits remain the dominant safety surface.
+     */
+    static final int MAX_ARRAY_LEN   = 1_024;
+    /**
      * Phase 8 Tier 2 — user-defined function recursion depth. 64 frames covers
      * factorial(64), Newton-Raphson up to ~64 iters, mutual-recursion
      * isEven/isOdd, and continued-fraction expansions of typical research-paper
@@ -53,7 +60,24 @@ public class SandboxEngine {
             // Phase 8 Tier 1 — number-theory helpers already implemented in
             // MathPhysicsEngine but previously unreachable from the sandbox.
             // Backs the F3.4 MATHEMATICS topics (Mertens, Stern-Brocot, Squarefree, Mobius).
-            "mobius", "sternBrocotDepthOf", "isSquarefree", "mertensPartialSum");
+            "mobius", "sternBrocotDepthOf", "isSquarefree", "mertensPartialSum",
+            // Phase 10 — recordSample(v) accumulates v into the run's
+            // count/sum/sumSq/min/max so a single sandbox call can return
+            // structured stats without strings, arrays, or object literals.
+            // The function returns v unchanged so it composes inside expressions:
+            //   sum = sum + recordSample(collatzSteps(n));
+            "recordSample",
+            // Phase 10 — `len(arr)` returns the fixed length of a sandbox
+            // array. Short-circuited in evalCall so it can read the array
+            // binding directly rather than receiving an unwrapped double.
+            "len",
+            // Phase 10 — `signedDevPercent(actual, expected)` returns the
+            // SIGNED percentage deviation (actual − expected)/|expected| × 100.
+            // P-a328-363 narrated a 38% twin-prime EXCESS as a "30-40% below
+            // HL" deficit because the LLM did the comparison narratively after
+            // seeing the two raw numbers. The deterministic helper lets the
+            // LLM avoid the comparison and just read back a signed number.
+            "signedDevPercent");
 
     /**
      * Phase 8 Tier 1 — every {@code public static double *(double[, double[, double]])}
@@ -116,22 +140,49 @@ public class SandboxEngine {
         return Set.copyOf(all);
     }
 
-    public record SandboxResult(double value, String summary) {}
+    /**
+     * Phase 10 — structured sandbox result.
+     *
+     * <p>{@link #value} is the primary return (first {@code return}-statement,
+     * or 0.0 if the program falls through). {@link #summary} is the same human
+     * readable status string callers used before this commit.
+     *
+     * <p>The {@code recorded*} fields aggregate every call to the
+     * {@code recordSample(v)} builtin made during the run. They let the LLM
+     * return multiple correlated statistics from a single sandbox call without
+     * needing strings or arrays — a workaround for the structured-result need
+     * that drove papers like P-a328-361 to do four parse-failing
+     * {@code return {mean, std, max, count}} attempts before recovering.
+     * {@link #recordedN} is 0 when nothing was recorded; in that case the
+     * mean/std/min/max are NaN.
+     */
+    public record SandboxResult(
+            double value,
+            String summary,
+            int    recordedN,
+            double recordedMean,
+            double recordedStd,
+            double recordedMin,
+            double recordedMax) {
+        /** Two-arg form for callers that don't use recordSample. */
+        public SandboxResult(double value, String summary) {
+            this(value, summary, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
+        }
+    }
 
     // ── Public API ────────────────────────────────────────────────────────────
 
     public static SandboxResult run(String code, int start, int end, int param1, double param2) {
+        Interpreter interp = new Interpreter(start, end, param1, param2);
+        double result;
         try {
             List<Token> tokens  = lex(code);
             List<Stmt>  program = new Parser(tokens).parseProgram();
-            Interpreter interp  = new Interpreter(start, end, param1, param2);
-            double result = interp.exec(program);
-            return new SandboxResult(result,
-                    "result=%.6g  iters_used=%d".formatted(result, interp.iterCount));
+            result = interp.exec(program);
         } catch (ReturnSignal r) {
-            return new SandboxResult(r.value,
-                    "result=%.6g".formatted(r.value));
+            result = r.value;
         }
+        return interp.buildResult(result);
     }
 
     /** Evaluate a pure expression f(n) over [start, end) and return mean/std/min/max. */
@@ -168,8 +219,8 @@ public class SandboxEngine {
         PLUS_EQ, MINUS_EQ, STAR_EQ, SLASH_EQ,
         LT, GT, LE, GE, EQ2, NEQ,
         AND2, OR2, BANG,
-        EQ, SEMI, COMMA, LPAR, RPAR, LBRACE, RBRACE, QMARK, COLON,
-        IF, ELSE, FOR, VAR, RET, TRUE, FALSE,
+        EQ, SEMI, COMMA, LPAR, RPAR, LBRACE, RBRACE, LBRACK, RBRACK, QMARK, COLON,
+        IF, ELSE, FOR, WHILE, VAR, RET, TRUE, FALSE,
         FUNCTION,  // Phase 8 Tier 2 — user-defined function declarations
         EOF
     }
@@ -214,16 +265,28 @@ public class SandboxEngine {
                 String w = src.substring(s, i);
                 TT t = switch (w) {
                     case "if"       -> TT.IF;       case "else"   -> TT.ELSE;
-                    case "for"      -> TT.FOR;      case "var"    -> TT.VAR;
-                    case "return"   -> TT.RET;      case "true"   -> TT.TRUE;
-                    case "false"    -> TT.FALSE;    case "function" -> TT.FUNCTION;
+                    case "for"      -> TT.FOR;      case "while"  -> TT.WHILE;
+                    case "var"      -> TT.VAR;      case "return" -> TT.RET;
+                    case "true"     -> TT.TRUE;     case "false"  -> TT.FALSE;
+                    case "function" -> TT.FUNCTION;
                     default -> TT.IDENT;
                 };
                 out.add(new Token(t, w, line));
                 continue;
             }
+            // Three-char operators: === and !==, aliased to == and !=.
+            // The sandbox is single-typed (every value is a double), so strict
+            // and loose equality have identical semantics; accepting both lets
+            // LLMs trained on JS write either form without parse failure.
+            char n  = (i + 1 < src.length()) ? src.charAt(i + 1) : 0;
+            char nn = (i + 2 < src.length()) ? src.charAt(i + 2) : 0;
+            if (c == '=' && n == '=' && nn == '=') {
+                out.add(new Token(TT.EQ2, "===", line)); i += 3; continue;
+            }
+            if (c == '!' && n == '=' && nn == '=') {
+                out.add(new Token(TT.NEQ, "!==", line)); i += 3; continue;
+            }
             // Two-char operators
-            char n = (i + 1 < src.length()) ? src.charAt(i + 1) : 0;
             Token two = switch (c) {
                 case '*' -> n == '*' ? new Token(TT.STARSTAR,   "**", line)
                           : n == '=' ? new Token(TT.STAR_EQ,    "*=", line) : null;
@@ -247,7 +310,8 @@ public class SandboxEngine {
                 case '/' -> TT.SLASH; case '%' -> TT.PCT;   case '<' -> TT.LT;
                 case '>' -> TT.GT;    case '=' -> TT.EQ;    case '!' -> TT.BANG;
                 case '(' -> TT.LPAR;  case ')' -> TT.RPAR;  case '{' -> TT.LBRACE;
-                case '}' -> TT.RBRACE; case ';' -> TT.SEMI; case ',' -> TT.COMMA;
+                case '}' -> TT.RBRACE; case '[' -> TT.LBRACK; case ']' -> TT.RBRACK;
+                case ';' -> TT.SEMI; case ',' -> TT.COMMA;
                 case '?' -> TT.QMARK; case ':' -> TT.COLON;
                 default -> throw new RuntimeException("Unexpected char '" + c + "' line " + line);
             };
@@ -262,7 +326,8 @@ public class SandboxEngine {
 
     sealed interface Expr permits
             Expr.Num, Expr.Bool, Expr.Var, Expr.BinOp, Expr.UnOp,
-            Expr.Call, Expr.Ternary, Expr.PostInc, Expr.PostDec, Expr.Assign {
+            Expr.Call, Expr.Ternary, Expr.PostInc, Expr.PostDec, Expr.Assign,
+            Expr.ArrayLit, Expr.Index, Expr.IndexAssign {
         record Num    (double v)                              implements Expr {}
         record Bool   (boolean v)                            implements Expr {}
         record Var    (String name)                          implements Expr {}
@@ -273,14 +338,25 @@ public class SandboxEngine {
         record PostInc(String name)                          implements Expr {}
         record PostDec(String name)                          implements Expr {}
         record Assign (String name, String op, Expr val)     implements Expr {}
+        // Phase 10 — bounded arrays. ArrayLit is legal only as the RHS of a
+        // `var` declaration; Index is a generic scalar-valued expression
+        // {@code xs[i]}; IndexAssign updates an element {@code xs[i] = v}
+        // (also +=, -=, *=, /=) and returns the new element value.
+        record ArrayLit   (List<Expr> elems)                          implements Expr {}
+        record Index      (String arrName, Expr idx)                  implements Expr {}
+        record IndexAssign(String arrName, Expr idx, String op, Expr val) implements Expr {}
     }
 
-    sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.If,
-                                  Stmt.Return, Stmt.FuncDef {
+    sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.While,
+                                  Stmt.If, Stmt.Return, Stmt.FuncDef {
         record Decl  (String name, Expr init)                            implements Stmt {}
         record ExprS (Expr expr)                                         implements Stmt {}
         record For   (String var, Expr init, Expr cond, Expr upd,
                       List<Stmt> body)                                   implements Stmt {}
+        // Phase 10 — `while (cond) { body }`. MAX_ITERATIONS bounds the loop
+        // regardless of construct, so allowing while is a parser-level
+        // convenience with no new safety surface.
+        record While (Expr cond, List<Stmt> body)                        implements Stmt {}
         record If    (Expr cond, List<Stmt> then, List<Stmt> els)        implements Stmt {}
         record Return(Expr val)                                          implements Stmt {}
         // Phase 8 Tier 2 — top-level user-defined function. The parser only
@@ -324,9 +400,17 @@ public class SandboxEngine {
                     + peek().line());
             if (at(TT.VAR)) return decl();
             if (at(TT.FOR)) return forStmt();
+            if (at(TT.WHILE)) return whileStmt();
             if (at(TT.IF))  return ifStmt();
             if (at(TT.RET)) return retStmt();
             return exprStmt();
+        }
+
+        Stmt whileStmt() {
+            advance(); // while
+            expect(TT.LPAR); Expr cond = expr(); expect(TT.RPAR);
+            List<Stmt> body = block();
+            return new Stmt.While(cond, body);
         }
 
         Stmt funcDef() {
@@ -413,7 +497,25 @@ public class SandboxEngine {
                 int save = pos;
                 String name = advance().v();
                 Expr e = null;
-                if      (at(TT.PLUSPLUS))   { advance(); e = new Expr.PostInc(name); }
+                // Phase 10 — indexed assignment `xs[i] = v` / `xs[i] += v` etc.
+                if (at(TT.LBRACK)) {
+                    advance();
+                    Expr idx = expr();
+                    expect(TT.RBRACK);
+                    String op = null;
+                    if      (at(TT.EQ))       { advance(); op = "="; }
+                    else if (at(TT.PLUS_EQ))  { advance(); op = "+="; }
+                    else if (at(TT.MINUS_EQ)) { advance(); op = "-="; }
+                    else if (at(TT.STAR_EQ))  { advance(); op = "*="; }
+                    else if (at(TT.SLASH_EQ)) { advance(); op = "/="; }
+                    if (op != null) {
+                        e = new Expr.IndexAssign(name, idx, op, expr());
+                    } else {
+                        // `xs[i];` as a statement — read then discard. Wrap in Index.
+                        e = new Expr.Index(name, idx);
+                    }
+                }
+                else if (at(TT.PLUSPLUS))   { advance(); e = new Expr.PostInc(name); }
                 else if (at(TT.MINUSMINUS)) { advance(); e = new Expr.PostDec(name); }
                 else {
                     String op = null;
@@ -471,6 +573,15 @@ public class SandboxEngine {
             Expr e = prim();
             if (at(TT.PLUSPLUS)   && e instanceof Expr.Var v) { advance(); return new Expr.PostInc(v.name()); }
             if (at(TT.MINUSMINUS) && e instanceof Expr.Var v) { advance(); return new Expr.PostDec(v.name()); }
+            // Phase 10 — indexed read `xs[i]`. Only valid when the primary is a
+            // bare identifier (arrays are first-class but only live in named
+            // bindings; you cannot index the result of an expression).
+            if (at(TT.LBRACK) && e instanceof Expr.Var v) {
+                advance();
+                Expr idx = expr();
+                expect(TT.RBRACK);
+                return new Expr.Index(v.name(), idx);
+            }
             return e;
         }
         Expr prim() {
@@ -478,6 +589,20 @@ public class SandboxEngine {
             if (at(TT.TRUE))  { advance(); return new Expr.Bool(true);  }
             if (at(TT.FALSE)) { advance(); return new Expr.Bool(false); }
             if (at(TT.LPAR))  { advance(); Expr e = expr(); expect(TT.RPAR); return e; }
+            // Phase 10 — array literal `[a, b, c, ...]`. Legal at any expression
+            // position grammatically; the interpreter only accepts it as a
+            // Decl RHS (anywhere else raises a runtime error) so the user
+            // doesn't accidentally pass an array into a scalar context.
+            if (at(TT.LBRACK)) {
+                advance();
+                List<Expr> elems = new ArrayList<>();
+                if (!at(TT.RBRACK)) {
+                    elems.add(expr());
+                    while (at(TT.COMMA)) { advance(); elems.add(expr()); }
+                }
+                expect(TT.RBRACK);
+                return new Expr.ArrayLit(elems);
+            }
             if (at(TT.IDENT)) {
                 String name = advance().v();
                 if (at(TT.LPAR)) {
@@ -506,20 +631,19 @@ public class SandboxEngine {
 
     static class Interpreter {
         /**
-         * Global scope. Kept as a public field on the Interpreter for
-         * compatibility with {@link SandboxEngine#evalExpr} which mutates {@code n}
-         * directly across loop iterations. New code should go through
-         * {@link #readVar} / {@link #writeVar} / {@link #declareVar} instead so
-         * function-local frames participate correctly.
+         * Global scope. Phase 10 — values are {@link Object} so a binding can
+         * hold either a {@link Double} (scalar) or a {@link double double[]}
+         * (bounded array). Numeric autoboxing keeps the existing
+         * {@code env.put("n", (double) i)} call sites working unchanged.
          */
-        final Map<String, Double> env = new HashMap<>();
+        final Map<String, Object> env = new HashMap<>();
         /**
          * Phase 8 Tier 2 — scope stack. The deepest (last) element is always
          * {@link #env} (global); function calls push a fresh frame on top with
          * parameter bindings, and {@code var} declarations land in the topmost
          * frame so locals never leak out of a function body.
          */
-        final Deque<Map<String, Double>> scopes = new ArrayDeque<>();
+        final Deque<Map<String, Object>> scopes = new ArrayDeque<>();
         /**
          * Phase 8 Tier 2 — user-defined functions registered at the start of
          * {@link #exec(List)} by a single hoisting pass. Same map lives for the
@@ -531,6 +655,14 @@ public class SandboxEngine {
         int iterCount = 0;
         int stmtCount = 0;
         int callDepth = 0;
+
+        // Phase 10 — recordSample aggregates. Updated by recordSample(v) calls;
+        // read by buildResult() to populate the structured SandboxResult.
+        int    recN    = 0;
+        double recSum  = 0.0;
+        double recSqSum = 0.0;
+        double recMin  = Double.POSITIVE_INFINITY;
+        double recMax  = Double.NEGATIVE_INFINITY;
 
         Interpreter(int start, int end, int param1, double param2) {
             env.put("start",  (double) start);
@@ -563,24 +695,41 @@ public class SandboxEngine {
 
         // ── Scope access ─────────────────────────────────────────────────────
 
-        /** Lookup walks inner→outer; missing names resolve to 0.0 (legacy semantic). */
+        /** Lookup walks inner→outer; missing names resolve to 0.0 (legacy semantic).
+         *  Phase 10 — raises if the binding is an array (use {@link #readArray}). */
         double readVar(String name) {
-            for (Map<String, Double> scope : scopes) {
-                Double v = scope.get(name);
-                if (v != null) return v;
+            for (Map<String, Object> scope : scopes) {
+                Object v = scope.get(name);
+                if (v instanceof Double d) return d;
+                if (v instanceof double[]) throw new RuntimeException(
+                        "Cannot use array '" + name + "' as scalar");
+                if (v != null) return 0.0; // future-proof; should not happen today
             }
             return 0.0;
         }
 
-        /** Like {@link #readVar} but returns {@code null} when no scope owns the name.
-         *  Used by Pattern C bridges to distinguish "declared, equal to 0" from
-         *  "never declared, treat as a free Symja symbol or reject". */
+        /** Like {@link #readVar} but returns {@code null} when no scope owns the name
+         *  OR the binding is an array. Used by Pattern C bridges to distinguish
+         *  "declared, equal to 0" from "never declared, treat as a free Symja
+         *  symbol or reject". Arrays don't participate in symbolic substitution. */
         Double tryReadVar(String name) {
-            for (Map<String, Double> scope : scopes) {
-                Double v = scope.get(name);
-                if (v != null) return v;
+            for (Map<String, Object> scope : scopes) {
+                Object v = scope.get(name);
+                if (v instanceof Double d) return d;
+                if (v != null) return null; // array or other non-scalar binding
             }
             return null;
+        }
+
+        /** Phase 10 — array-typed lookup. Raises if the binding is missing or scalar. */
+        double[] readArray(String name) {
+            for (Map<String, Object> scope : scopes) {
+                Object v = scope.get(name);
+                if (v instanceof double[] arr) return arr;
+                if (v != null) throw new RuntimeException(
+                        "Variable '" + name + "' is a scalar, not an array");
+            }
+            throw new RuntimeException("Array '" + name + "' is not declared");
         }
 
         /**
@@ -590,8 +739,11 @@ public class SandboxEngine {
          * new frame is via a user-function call.
          */
         void writeVar(String name, double value) {
-            for (Map<String, Double> scope : scopes) {
-                if (scope.containsKey(name)) { scope.put(name, value); return; }
+            for (Map<String, Object> scope : scopes) {
+                Object existing = scope.get(name);
+                if (existing instanceof double[]) throw new RuntimeException(
+                        "Cannot assign scalar to array variable '" + name + "'");
+                if (existing != null) { scope.put(name, value); return; }
             }
             scopes.peek().put(name, value);
         }
@@ -599,6 +751,11 @@ public class SandboxEngine {
         /** {@code var} declarations always land in the innermost (top) frame. */
         void declareVar(String name, double value) {
             scopes.peek().put(name, value);
+        }
+
+        /** Phase 10 — declare an array binding in the innermost (top) frame. */
+        void declareArray(String name, double[] arr) {
+            scopes.peek().put(name, arr);
         }
 
         // ── Execution ────────────────────────────────────────────────────────
@@ -631,7 +788,22 @@ public class SandboxEngine {
         void execStmt(Stmt s) {
             if (++stmtCount > MAX_STMTS) throw new LimitExceeded("Statement limit exceeded");
             switch (s) {
-                case Stmt.Decl   d -> declareVar(d.name(), eval(d.init()));
+                case Stmt.Decl   d -> {
+                    // Phase 10 — array literals are only legal as the RHS of a
+                    // declaration. Everywhere else they raise.
+                    if (d.init() instanceof Expr.ArrayLit lit) {
+                        if (lit.elems().size() > MAX_ARRAY_LEN) {
+                            throw new RuntimeException("Array length "
+                                    + lit.elems().size() + " exceeds cap "
+                                    + MAX_ARRAY_LEN);
+                        }
+                        double[] arr = new double[lit.elems().size()];
+                        for (int i = 0; i < arr.length; i++) arr[i] = eval(lit.elems().get(i));
+                        declareArray(d.name(), arr);
+                    } else {
+                        declareVar(d.name(), eval(d.init()));
+                    }
+                }
                 case Stmt.ExprS  e -> eval(e.expr());
                 case Stmt.Return r -> throw new ReturnSignal(eval(r.val()));
                 case Stmt.If     f -> {
@@ -644,6 +816,12 @@ public class SandboxEngine {
                         if (++iterCount > MAX_ITERATIONS) throw new LimitExceeded("Loop limit exceeded");
                         for (Stmt b : f.body()) execStmt(b);
                         eval(f.upd());
+                    }
+                }
+                case Stmt.While  w -> {
+                    while (truthy(eval(w.cond()))) {
+                        if (++iterCount > MAX_ITERATIONS) throw new LimitExceeded("Loop limit exceeded");
+                        for (Stmt b : w.body()) execStmt(b);
                     }
                 }
                 // Hoisted in exec(); ignored if it survives to this point.
@@ -692,6 +870,42 @@ public class SandboxEngine {
                     };
                 }
                 case Expr.Call   c -> evalCall(c.name(), c.args());
+                // Phase 10 — array literals outside a Decl RHS raise; Decl
+                // handles them directly (see execStmt). This branch only fires
+                // if an ArrayLit shows up as a sub-expression, which is illegal.
+                case Expr.ArrayLit a -> throw new RuntimeException(
+                        "Array literal can only appear as the RHS of a `var` declaration");
+                case Expr.Index ix -> {
+                    double[] arr = readArray(ix.arrName());
+                    int idx = (int) eval(ix.idx());
+                    if (idx < 0 || idx >= arr.length) {
+                        throw new RuntimeException("Array '" + ix.arrName()
+                                + "' index " + idx + " out of bounds [0,"
+                                + arr.length + ")");
+                    }
+                    yield arr[idx];
+                }
+                case Expr.IndexAssign ix -> {
+                    double[] arr = readArray(ix.arrName());
+                    int idx = (int) eval(ix.idx());
+                    if (idx < 0 || idx >= arr.length) {
+                        throw new RuntimeException("Array '" + ix.arrName()
+                                + "' index " + idx + " out of bounds [0,"
+                                + arr.length + ")");
+                    }
+                    double rhs = eval(ix.val());
+                    double cur = arr[idx];
+                    double res = switch (ix.op()) {
+                        case "="  -> rhs;
+                        case "+=" -> cur + rhs;
+                        case "-=" -> cur - rhs;
+                        case "*=" -> cur * rhs;
+                        case "/=" -> rhs == 0 ? 0 : cur / rhs;
+                        default   -> rhs;
+                    };
+                    arr[idx] = res;
+                    yield res;
+                }
             };
         }
 
@@ -713,7 +927,34 @@ public class SandboxEngine {
             if (BRIDGE_BUILTINS.contains(name)) return evalBridgeBuiltin(name, rawArgs);
 
             if (!BUILTINS.contains(name)) throw new RuntimeException("Unknown function: " + name);
+
+            // Phase 10 — `len(arr)` reads the array binding directly. It must
+            // run BEFORE the generic argument evaluator below, because that
+            // evaluator would call eval() on the Var holding the array, which
+            // raises "cannot use array as scalar".
+            if ("len".equals(name)) {
+                if (rawArgs.size() != 1 || !(rawArgs.get(0) instanceof Expr.Var v)) {
+                    throw new RuntimeException(
+                            "len(arr) expects a single array-variable argument");
+                }
+                return readArray(v.name()).length;
+            }
+
             double[] a = rawArgs.stream().mapToDouble(this::eval).toArray();
+
+            // Phase 10 — recordSample needs instance state, so it short-circuits
+            // before the static evalSpecialBuiltin dispatch.
+            if ("recordSample".equals(name)) {
+                if (a.length < 1) throw new RuntimeException(
+                        "recordSample expects 1 arg (the sample value)");
+                double v = a[0];
+                recN++;
+                recSum   += v;
+                recSqSum += v * v;
+                if (v < recMin) recMin = v;
+                if (v > recMax) recMax = v;
+                return v;
+            }
 
             // ── 1. Domain-specific (non-Math) helpers ─────────────────────────
             Double special = evalSpecialBuiltin(name, a);
@@ -767,14 +1008,14 @@ public class SandboxEngine {
                 throw new LimitExceeded("Call depth limit (" + MAX_CALL_DEPTH
                         + ") exceeded in '" + fd.name() + "'");
             }
-            Map<String, Double> frame = new HashMap<>();
+            Map<String, Object> frame = new HashMap<>();
             for (int i = 0; i < fd.params().size(); i++) {
                 frame.put(fd.params().get(i), argValues[i]);
             }
             // Strip every frame above global, push the function frame, execute,
             // then restore. While the function body runs, readVar/writeVar walk
             // only [frame, global] — no caller locals leak in.
-            List<Map<String, Double>> stashed = new ArrayList<>();
+            List<Map<String, Object>> stashed = new ArrayList<>();
             while (scopes.size() > 1) stashed.add(scopes.pop());
             try {
                 scopes.push(frame);
@@ -807,6 +1048,13 @@ public class SandboxEngine {
                 case "gcd"               -> gcd(a.length > 0 ? (long) a[0] : 0L,
                                                  a.length > 1 ? (long) a[1] : 0L);
                 case "log2"              -> Math.log(a[0]) / Math.log(2);
+                case "signedDevPercent"  -> {
+                    if (a.length < 2) throw new RuntimeException(
+                            "signedDevPercent(actual, expected) requires 2 arguments");
+                    double exp = a[1];
+                    if (exp == 0.0) yield 0.0;
+                    yield (a[0] - exp) / Math.abs(exp) * 100.0;
+                }
                 // Phase 8 Tier 1 — number-theory helpers backing F3.4 MATHEMATICS topics.
                 case "mobius"             -> (double) MathPhysicsEngine.mobius(a0);
                 case "sternBrocotDepthOf" -> (double) MathPhysicsEngine.sternBrocotDepthOf(
@@ -815,6 +1063,25 @@ public class SandboxEngine {
                 case "mertensPartialSum"  -> (double) MathPhysicsEngine.mertensPartialSum(a0);
                 default -> null;
             };
+        }
+
+        /**
+         * Phase 10 — build a {@link SandboxResult} for this interpreter run.
+         * Populates the recordSample aggregates if any samples were recorded;
+         * otherwise returns the legacy two-field shape.
+         */
+        SandboxResult buildResult(double value) {
+            if (recN == 0) {
+                return new SandboxResult(value,
+                        "result=%.6g  iters_used=%d".formatted(value, iterCount));
+            }
+            double mean = recSum / recN;
+            double variance = recN > 1 ? Math.max(0, recSqSum / recN - mean * mean) : 0;
+            double std = Math.sqrt(variance);
+            String summary = ("result=%.6g  iters_used=%d  "
+                    + "recorded n=%d mean=%.4g std=%.4g min=%.4g max=%.4g")
+                    .formatted(value, iterCount, recN, mean, std, recMin, recMax);
+            return new SandboxResult(value, summary, recN, mean, std, recMin, recMax);
         }
 
         private static double gcd(long a, long b) {

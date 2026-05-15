@@ -75,6 +75,74 @@ public final class SandboxStaticChecker {
         return new Result.Approved();
     }
 
+    /**
+     * Phase 10 — grammar reminder appended to rejection messages that reach the
+     * LLM. The LLM was trained on JavaScript and keeps submitting code that
+     * uses constructs (member access, strings, arrays-via-{@code .push},
+     * object literals) which the sandbox subset deliberately rejects. With no
+     * grammar visible in the rejection, the typical failure pattern is four
+     * progressively-simpler retries that all hit different non-JS-subset
+     * rules; this text fixes that by spelling out the subset on every
+     * rejection.
+     *
+     * <p>The list of builtins is intentionally a representative selection
+     * rather than the full computed set — the harness already maintains the
+     * canonical list in {@link SandboxEngine#BUILTINS}.
+     */
+    public static String helpText() {
+        return """
+
+                Sandbox grammar (NOT JavaScript — a deliberately small safe subset):
+                  Statements:  var X = expr;   X = expr;   return expr;
+                               if (c) { ... } else { ... }
+                               for (init; cond; upd) { ... }   while (cond) { ... }
+                               function f(args) { ... }
+                  Operators:   + - * / % **   ==  !=  <  >  <=  >=   &&  ||  !   ?:
+                               (=== and !== are accepted as aliases for == and !=)
+                  Arrays:      var xs = [1, 2, 3];   xs[i] = v;   xs[i] += v;
+                               len(xs)  — max 1024 elements per array, no resize,
+                                          no .length property, no push/pop/splice
+                  Stats:       recordSample(v)  accumulates n/mean/std/min/max
+                                                across the run; the harness sees
+                                                them alongside your return value.
+                                                Use this to return multiple
+                                                correlated statistics from one
+                                                tool call.
+                               signedDevPercent(actual, expected)
+                                                returns (actual − expected)/|expected|
+                                                × 100 with the sign preserved.
+                                                Use this when comparing an
+                                                observation to a theoretical
+                                                baseline so the sign cannot be
+                                                flipped in narrative — positive
+                                                = above, negative = below.
+                  NOT supported: "string literals", {object: literals},
+                                 member access ( Math.pow → just call pow ),
+                                 let / const, arrow functions (=>),
+                                 try / catch / throw, classes, imports
+                  Built-in functions: every java.lang.Math method is available
+                                      as a flat identifier (pow, sqrt, exp, log,
+                                      log10, log2, sin, cos, tan, atan2, abs,
+                                      floor, ceil, min, max, hypot, etc.).
+                                      Plus: isPrime, isHappy, isAbundant,
+                                      isPerfect, collatzSteps, collatzTerminates,
+                                      sigmaSum, gcd, mobius, sternBrocotDepthOf,
+                                      isSquarefree, mertensPartialSum,
+                                      integrate(expr,var,lo,hi),
+                                      differentiate(expr,var,at), simplify(expr),
+                                      recordSample(v), len(arr).
+                  Working example:
+                    var xs = [start, start+1, start+2, start+3];
+                    var s = 0;
+                    for (var i = 0; i < len(xs); i++) {
+                      var v = collatzSteps(xs[i]);
+                      recordSample(v);
+                      s = s + v;
+                    }
+                    return s;
+                """;
+    }
+
     // ── AST walk ──────────────────────────────────────────────────────────────
 
     private static void collectBadCalls(SandboxEngine.Stmt s,
@@ -94,6 +162,10 @@ public final class SandboxStaticChecker {
                 walkExpr(f.cond(), userFunctions, bad);
                 walkExpr(f.upd(),  userFunctions, bad);
                 for (SandboxEngine.Stmt b : f.body()) collectBadCalls(b, userFunctions, bad);
+            }
+            case SandboxEngine.Stmt.While w -> {
+                walkExpr(w.cond(), userFunctions, bad);
+                for (SandboxEngine.Stmt b : w.body()) collectBadCalls(b, userFunctions, bad);
             }
             case SandboxEngine.Stmt.FuncDef fd -> {
                 for (SandboxEngine.Stmt b : fd.body()) collectBadCalls(b, userFunctions, bad);
@@ -120,6 +192,14 @@ public final class SandboxStaticChecker {
                     bad.add(c.name());
                 }
                 for (SandboxEngine.Expr arg : c.args()) walkExpr(arg, userFunctions, bad);
+            }
+            case SandboxEngine.Expr.ArrayLit a -> {
+                for (SandboxEngine.Expr el : a.elems()) walkExpr(el, userFunctions, bad);
+            }
+            case SandboxEngine.Expr.Index ix -> walkExpr(ix.idx(), userFunctions, bad);
+            case SandboxEngine.Expr.IndexAssign ix -> {
+                walkExpr(ix.idx(), userFunctions, bad);
+                walkExpr(ix.val(), userFunctions, bad);
             }
         }
     }

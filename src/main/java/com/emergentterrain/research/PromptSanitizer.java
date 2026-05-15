@@ -157,6 +157,52 @@ public final class PromptSanitizer {
                     + "(?:applied\\s+from\\s+a\\s+)?starting\\s+(?:cycle\\s+)?index\\s+of\\s+\\d+",
                     Pattern.CASE_INSENSITIVE);
 
+    // Phase 10 — literal `paramN=N` leaks from the refinement-loop accumulator.
+    // The May-2026 research/a3289005 refresh #3 found these patterns in ~10 of
+    // 21 published papers (Hypothesis text on P-344, P-347, P-355, P-356,
+    // P-359, P-362; Findings text on P-344, P-359). All come from the
+    // `(param1=N, param2=M.M)` label that ResearchNarrationService embeds in
+    // accumulatedFindings — the LLM reads it and parrots the literal form into
+    // the published prose. Scrub the surface manifestations here; the
+    // accumulator-format fix in ResearchNarrationService removes the source.
+
+    /**
+     * Parenthesized comma list — `(param1=N, param2=M.M)`. The most common
+     * form. Allow optional spaces around `=` and after `,`. Captures both
+     * unicode and ASCII parens since some LLMs emit em-parens.
+     */
+    private static final Pattern PARAM_PARENTHESIZED_PAIR =
+            Pattern.compile(
+                    "\\s*\\(\\s*param1\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?\\s*,"
+                    + "\\s*param2\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?\\s*\\)",
+                    Pattern.CASE_INSENSITIVE);
+
+    /** Parenthesized single — `(param1=N)` or `(param2=M.M)`. */
+    private static final Pattern PARAM_PARENTHESIZED_SINGLE =
+            Pattern.compile(
+                    "\\s*\\(\\s*param[12]\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?\\s*\\)",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Parenthesized bare label — `(param1)` / `(param2)` — used by the
+     * narrator to disambiguate which numeric belongs to which slot, e.g.
+     * "scaling parameter of 6.9 (param2) and truncation depth of 22 (param1)"
+     * (P-a328-347). Strip the parenthetical entirely.
+     */
+    private static final Pattern PARAM_PARENTHESIZED_LABEL =
+            Pattern.compile("\\s*\\(\\s*param[12]\\s*\\)", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Bare assignment — `param1=N` / `param2=M.M` outside any parenthesis,
+     * possibly preceded by a connector (", and "). Used inline by P-a328-355
+     * ("Experimental sweeps with param1=49 and param2=2.1") and P-a328-362
+     * ("initial displacement param1=46° and scale param2=4.4 m").
+     */
+    private static final Pattern PARAM_BARE_ASSIGN =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "param[12]\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?(?:°|m|s|kJ|MPa|GPa|Hz|nm|µm|mm)?",
+                    Pattern.CASE_INSENSITIVE);
+
     /** Collapses any whitespace/punctuation debris left behind by removals. */
     private static final Pattern CLEANUP_DOUBLE_COMMA   = Pattern.compile("\\s*,\\s*,");
     private static final Pattern CLEANUP_DOUBLE_PERIOD  = Pattern.compile("\\.\\s*\\.");
@@ -191,6 +237,13 @@ public final class PromptSanitizer {
         cleaned = WHEN_SEARCH_STARTS_AT_POSITION.matcher(cleaned).replaceAll("");
         cleaned = STARTS_NEAR_POSITION.matcher(cleaned).replaceAll("");
         cleaned = STARTING_INDEX_OF.matcher(cleaned).replaceAll("");
+        // Phase 10 — paramN= literal leaks. Strip the parenthesised pair form
+        // first (it's the longest match) so the single / label / bare patterns
+        // don't carve it into debris.
+        cleaned = PARAM_PARENTHESIZED_PAIR.matcher(cleaned).replaceAll("");
+        cleaned = PARAM_PARENTHESIZED_SINGLE.matcher(cleaned).replaceAll("");
+        cleaned = PARAM_PARENTHESIZED_LABEL.matcher(cleaned).replaceAll("");
+        cleaned = PARAM_BARE_ASSIGN.matcher(cleaned).replaceAll("");
         // Tidy up whatever stripping left behind.
         cleaned = CLEANUP_DOUBLE_COMMA.matcher(cleaned).replaceAll(",");
         cleaned = CLEANUP_DOUBLE_PERIOD.matcher(cleaned).replaceAll(".");
@@ -264,6 +317,10 @@ public final class PromptSanitizer {
                 || EMDASH_HARNESS_CLAUSE.matcher(text).find()
                 || WHEN_SEARCH_STARTS_AT_POSITION.matcher(text).find()
                 || STARTS_NEAR_POSITION.matcher(text).find()
-                || STARTING_INDEX_OF.matcher(text).find();
+                || STARTING_INDEX_OF.matcher(text).find()
+                || PARAM_PARENTHESIZED_PAIR.matcher(text).find()
+                || PARAM_PARENTHESIZED_SINGLE.matcher(text).find()
+                || PARAM_PARENTHESIZED_LABEL.matcher(text).find()
+                || PARAM_BARE_ASSIGN.matcher(text).find();
     }
 }

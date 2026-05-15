@@ -395,6 +395,20 @@ public class UniversityService {
         // Phase 5 A4 — strip harness-parameter leak phrases (≥11 papers in the May 2026
         // corpus had simulator coords or internal peer-score values bleed into prose).
         if (harnessLeakFilterEnabled) {
+            // Phase 10 — flag which sections actually carried a leak. Before
+            // this commit the sanitizer ran silently, so log-driven reviews
+            // couldn't tell whether the patterns covered the live corpus or
+            // not. The REVIEW_REPORT.md refresh #3 observed "PromptSanitizer
+            // log signature still absent" despite obvious leaks in the
+            // published papers — this log line closes that observability gap.
+            boolean hypLeak  = PromptSanitizer.detects(hypothesis);
+            boolean findLeak = findingsBlocks.values().stream().anyMatch(PromptSanitizer::detects);
+            boolean concLeak = PromptSanitizer.detects(conclusion);
+            if (hypLeak || findLeak || concLeak) {
+                log.info("PromptSanitizer: paperId={} leaks=[hypothesis={}, findings={}, conclusion={}]",
+                        draft.paperId(), hypLeak, findLeak, concLeak);
+            }
+
             hypothesis = PromptSanitizer.sanitize(hypothesis);
             // Phase 7 F2 — sanitize each computation block independently so a leak in
             // block 2 doesn't perturb the byte content of block 1.

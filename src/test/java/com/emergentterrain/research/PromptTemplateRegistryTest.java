@@ -415,14 +415,49 @@ class PromptTemplateRegistryTest {
     }
 
     @Test
-    void narrationAuditActiveVariantIsV2WithBoundaryAnswerDimension() {
-        // G7 — pickActive must now return the v2-with-boundary-answer variant
-        // and its rendered body must list `boundary_answer` as a checkable
-        // dimension so the audit model surfaces it in JSON gap output.
+    void narrationAuditActiveVariantIsV3WithNonsequiturExemplars() {
+        // Phase 10 — pickActive must now return v3-with-nonsequitur-exemplars.
+        // The v2 body remains in the registry for the test below and for
+        // historical provenance. v3 adds concrete known-bad cross-domain
+        // mappings (Collatz→RLC, prime gaps→CTE) as exemplars to the
+        // physical_mechanism dimension, plus a new threshold_drift check.
         PromptTemplateRegistry r = freshSeededRegistry();
         PromptTemplate active = r.pickActive(PromptTemplateIds.NARRATION_AUDIT_ID).orElseThrow();
-        assertThat(active.version()).isEqualTo("v2-with-boundary-answer");
+        assertThat(active.version()).isEqualTo("v3-with-nonsequitur-exemplars");
 
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         "INTERDISCIPLINARY");
+        params.put("topicName",      "Collatz-RLC Depth Resonance");
+        params.put("classification", "SUPPORTED");
+        params.put("hypothesis",     "h");
+        params.put("findings",       "f");
+        params.put("conclusion",     "c");
+        String rendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+
+        // Non-sequitur exemplars must be visible to the audit LLM:
+        assertThat(rendered).contains("Collatz");
+        assertThat(rendered).contains("prime");
+        assertThat(rendered).contains("RLC");
+        assertThat(rendered).contains("thermal expansion");
+        assertThat(rendered).contains("no physical channel");
+
+        // New threshold_drift dimension catches the Hypothesis-vs-Conclusion
+        // numeric shift seen on P-347 (1%→5%), P-355 (5%→0.27%), P-357 (196→102 kJ/mol).
+        assertThat(rendered).contains("threshold_drift");
+        assertThat(rendered).contains("2×");
+
+        // Pre-existing v2 dimensions still present in v3:
+        assertThat(rendered).contains("boundary_answer");
+        assertThat(rendered).contains("Vf=1.00");
+        assertThat(rendered).contains("physical_mechanism");
+        assertThat(rendered).contains("duplicate_computation");
+    }
+
+    @Test
+    void narrationAuditV2RemainsAccessibleByExplicitVersion() {
+        // v2 stays in the registry for historical regression; tests that pin
+        // to it explicitly continue to render the v2 body.
+        PromptTemplateRegistry r = freshSeededRegistry();
         Map<String, Object> params = new java.util.LinkedHashMap<>();
         params.put("domain",         "MATERIALS");
         params.put("topicName",      "Composite Failure Mode");
@@ -430,13 +465,12 @@ class PromptTemplateRegistryTest {
         params.put("hypothesis",     "h");
         params.put("findings",       "f");
         params.put("conclusion",     "c");
-        String rendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
-        assertThat(rendered).contains("boundary_answer");
-        assertThat(rendered).contains("Vf=1.00");
-        assertThat(rendered).contains("range-saturation");
-        // The other v1 dimensions remain in v2 — only `boundary_answer` is new.
-        assertThat(rendered).contains("physical_mechanism");
-        assertThat(rendered).contains("duplicate_computation");
+        String v2 = r.render(PromptTemplateIds.NARRATION_AUDIT_ID,
+                "v2-with-boundary-answer", params);
+        assertThat(v2).contains("boundary_answer").contains("Vf=1.00");
+        // v2 should NOT have the v3-only additions.
+        assertThat(v2).doesNotContain("Collatz");
+        assertThat(v2).doesNotContain("threshold_drift");
     }
 
     @Test

@@ -87,13 +87,23 @@ class MathPhysicsEngineTest {
     }
 
     @Test
-    void compositeFailureValidatorDowngradesUnmodeledFractureClaim() {
+    void compositeFailureNowIncludesFibreFractureCriterion() {
+        // Phase 10 — the simulator now models both failure modes (fibre
+        // fracture vs matrix yield) and reports whichever is reached first.
+        // P-a328-343 / P-a328-346 reported 7.6–9.4 GPa composite stresses
+        // that were impossible for a steel-fibre system (steel UTS ≤ 3 GPa);
+        // the old "matrix yields first, fibre never fractures" assumption was
+        // wrong for the standard params. With ε_F=0.015 < ε_Y=0.067, fibre
+        // fracture is the actual failure mode, and the realistic max stress
+        // stays under 3 GPa.
         MathPhysicsEngine.ResearchResult result =
                 MathPhysicsEngine.compute("MATERIALS", 0, 40, 1.0);
 
-        assertThat(result.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.PARTIAL);
-        assertThat(result.claimAssessment()).contains("no fibre-strength");
-        assertThat(result.findings()).contains("Fibre fracture strength is not included");
+        assertThat(result.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.SUPPORTED);
+        assertThat(result.findings()).contains("σ_F-frac=3GPa");
+        assertThat(result.findings()).contains("mode=fibre-fracture");
+        // Max composite stress must be physically plausible — steel UTS ceiling.
+        assertThat(result.primaryValue()).isLessThan(3_000.0);
     }
 
     @Test
@@ -132,8 +142,12 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("MATERIALS", 0, 40, 1.0);
 
         assertThat(result.findings()).contains("σ_ym=200 MPa");
+        // secondaryValue is now the limiting failure strain
+        // (= min(ε_Y, ε_F)). For ε_F=3000/200000=0.015 < ε_Y=200/3000≈0.067,
+        // fibre-fracture is reached first, so the value is ε_F.
         assertThat(result.secondaryValue()).isLessThanOrEqualTo(200.0 / 3000.0);
-        assertThat(result.claimAssessment()).contains("10-200 MPa");
+        // Assessment surfaces the failure-mode determination.
+        assertThat(result.claimAssessment()).contains("fibre fractures first");
     }
 
     @Test
@@ -887,6 +901,27 @@ class MathPhysicsEngineTest {
                 MathPhysicsEngine.compute("CHEMISTRY", 4, 30, 2.0);
         // secondary = Z value at worst-deviation point.
         assertThat(Double.isFinite(r.secondaryValue())).isTrue();
+    }
+
+    @Test
+    void compressibilityZIsAlwaysPositive_evenInDenseRegime() {
+        // Phase 10 — P-a328-359 verbatim seed (param1=19, param2=2.9) lands
+        // at (Tr≈0.79, Pr≈1.73), which the bare Pitzer-Curl formula maps to
+        // Z≈-0.14 (unphysical: Z = PV/nRT must be > 0). The clamp introduced
+        // in this commit caps Pr to the validity envelope so Z stays
+        // physically meaningful even when the user's seed lands in the
+        // dense-gas regime. Sweep all (param1, param2) corners.
+        int[]    p1s = {10, 19, 50, 90, 99};
+        double[] p2s = {1.0, 2.9, 5.0, 7.0, 9.0};
+        for (int p1 : p1s) {
+            for (double p2 : p2s) {
+                MathPhysicsEngine.ResearchResult r =
+                        MathPhysicsEngine.compute("CHEMISTRY", 4, p1, p2);
+                assertThat(r.secondaryValue())
+                        .as("Z must be non-negative at param1=%d, param2=%.1f", p1, p2)
+                        .isGreaterThanOrEqualTo(0.0);
+            }
+        }
     }
 
     // ---- Phase 7 FX.3: ARCHITECTURE_TERRESTRIAL (generic across planetary g, ρ_atm) ----

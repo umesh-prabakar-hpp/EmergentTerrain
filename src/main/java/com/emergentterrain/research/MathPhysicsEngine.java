@@ -1910,24 +1910,58 @@ public class MathPhysicsEngine {
     }
 
     private static ResearchResult compositeFailureModeAt(double sigmaYm) {
+        // Phase 10 — add the fibre-fracture criterion the original simulator
+        // explicitly omitted. P-a328-343 reported 7.6 GPa at Vf=50%, P-a328-346
+        // extrapolated to 9.4 GPa at Vf=70% — both impossible for a steel
+        // fibre composite (steel UTS ≤ 3 GPa; the matrix would fail by fibre
+        // fracture long before reaching 9 GPa). The original "matrix-yields-
+        // first" assumption only holds when ε_matrix-yield < ε_fibre-fracture.
+        // For the standard params it does NOT: ε_F = 3000/200000 = 0.015 vs
+        // ε_Y = sigmaYm/3000 ≈ 0.067, so the fibre fractures first.
         double Ef = 200e3, Em = 3e3;
-        double epsY = sigmaYm / Em;
+        // Steel-fibre tensile strength. Generous bound on the high end of the
+        // commercial range (piano wire ≈ 2.5 GPa; ultra-high-strength steels
+        // ≈ 3 GPa). Below this, the fibre is intact and carries Vf-weighted
+        // load up to its fracture strain.
+        double sigmaFFracture = 3_000.0;  // MPa
+        double epsY = sigmaYm / Em;                       // matrix-yield strain
+        double epsF = sigmaFFracture / Ef;                // fibre-fracture strain
+        // The composite fails at whichever strain is reached first; the
+        // limiting stress is computed via the Voigt rule of mixtures at that
+        // strain.
+        double failureStrain = Math.min(epsY, epsF);
+        boolean fibreFirst = epsF < epsY;
         StringBuilder sb = new StringBuilder();
         double maxStress = 0, maxVf = 0;
         for (int vfPct = 10; vfPct <= 90; vfPct += 10) {
             double Vf = vfPct / 100.0;
-            double EL = Vf * Ef + (1 - Vf) * Em;
-            double sigmaC = EL * epsY;
+            // Voigt-rule composite stress at the limiting strain.
+            //   sigma_C = Vf * sigma_F + (1-Vf) * sigma_M
+            // where sigma_F = Ef*ε and sigma_M = Em*ε. At ε = failureStrain
+            // this is the actual composite stress when failure begins.
+            double sigmaC = (Vf * Ef + (1 - Vf) * Em) * failureStrain;
             if (sigmaC > maxStress) { maxStress = sigmaC; maxVf = Vf; }
             sb.append("Vf=%.0f%%→%.0fMPa ".formatted(Vf * 100, sigmaC));
         }
-        String assessment = "The linear stress-at-matrix-yield trend is validated within the bounded 10-200 MPa matrix-yield search range, but no fibre-strength or composite-fracture criterion is modeled; the matrix-yields-before-fracture claim is only partially supported.";
-        String hypothesis = "For a steel-fibre/polymer composite with σ_ym=%.0f MPa in the bounded matrix-yield search range, longitudinal stress at matrix yield will scale linearly with fibre volume fraction; any matrix-yields-before-fracture claim remains conditional without a fibre-strength criterion."
+        String mode = fibreFirst
+                ? "fibre fractures first (ε_F=%.4f < ε_Y=%.4f); matrix never reaches yield"
+                        .formatted(epsF, epsY)
+                : "matrix yields first (ε_Y=%.4f < ε_F=%.4f); fibre carries elastic load up to that point"
+                        .formatted(epsY, epsF);
+        String assessment = ("Composite stress at failure is bounded by the FIRST event reached. %s. "
+                + "Linear Vf-scaling holds within this regime; max at Vf=%.0f%% → %.0f MPa.")
+                .formatted(mode, maxVf * 100, maxStress);
+        String hypothesis = ("For a steel-fibre/polymer composite (Ef=200 GPa, Em=3 GPa, "
+                + "σ_F-fracture=3 GPa, σ_ym=%.0f MPa), composite failure occurs at the smaller "
+                + "of ε_Y=σ_ym/Em and ε_F=σ_F-fracture/Ef; the limiting stress scales linearly "
+                + "with Vf under the Voigt rule.")
                 .formatted(sigmaYm);
         return new ResearchResult(
-                "Composite failure (Ef=200GPa, Em=3GPa, σ_ym=%.0f MPa, ε_y=%.4f): longitudinal stress at matrix yield: %s. Stress rises linearly with Vf; max at Vf=%.0f%% → %.0f MPa. Fibre fracture strength is not included in this model."
-                        .formatted(sigmaYm, epsY, sb.toString().trim(), maxVf * 100, maxStress),
-                maxStress, epsY, maxVf, maxStress, ClaimStatus.PARTIAL, assessment, hypothesis);
+                ("Composite failure (Ef=200GPa, Em=3GPa, σ_ym=%.0f MPa, σ_F-frac=3GPa, ε_failure=%.4f, mode=%s): "
+                        + "longitudinal stress at failure: %s. Stress rises linearly with Vf; max at Vf=%.0f%% → %.0f MPa.")
+                        .formatted(sigmaYm, failureStrain, fibreFirst ? "fibre-fracture" : "matrix-yield",
+                                sb.toString().trim(), maxVf * 100, maxStress),
+                maxStress, failureStrain, maxVf, maxStress, ClaimStatus.SUPPORTED, assessment, hypothesis);
     }
 
     // Inner precision: candidateBreadth controls r sample density across [0.001, 0.65].
@@ -2939,12 +2973,30 @@ public class MathPhysicsEngine {
         double bestZ = 1.0;
         StringBuilder sb = new StringBuilder();
         int samples = 0;
+        int clampedSamples = 0;
         for (int i = 0; i < sp.candidateBreadth(); i++) {
             // Sweep reduced state (Tr, Pr). Use a small Pitzer-Curl style approximation.
             double Tr = Math.max(0.5, seedTr + i * sp.stepSize() * 0.05);
-            double Pr = Math.max(0.1, seedPr + i * sp.stepSize() * 0.2);
-            // Empirical Pitzer-Curl-ish: Z ≈ 1 + B0·Pr/Tr where B0 = 0.083 − 0.422·Tr^(-1.6)
+            double PrRaw = Math.max(0.1, seedPr + i * sp.stepSize() * 0.2);
+            // Empirical Pitzer-Curl-ish: Z ≈ 1 + B0·Pr/Tr where B0 = 0.083 − 0.422·Tr^(-1.6).
             double B0 = 0.083 - 0.422 * Math.pow(Tr, -1.6);
+            // Phase 10 — clamp Pr to the validity envelope of the truncated
+            // virial equation. The P-a328-359 paper reported Z = -0.142 at
+            // (Tr=0.79, Pr=1.73): the bare formula gives Z < 0 there, which
+            // is physically impossible (Z = PV/nRT must be positive). Without
+            // a fuller EOS (Peng-Robinson) we cap Pr so the linearised model
+            // stays in its valid envelope:
+            //   Z ≥ 0.05  ⇒  Pr ≤ 0.95·Tr / |B0|  when B0 < 0.
+            // Higher pressures need a cubic EOS; this simulator's value is to
+            // demonstrate real-gas departure, not to model the dense regime.
+            double Pr = PrRaw;
+            if (B0 < 0) {
+                double maxValidPr = 0.95 * Tr / Math.abs(B0);
+                if (PrRaw > maxValidPr) {
+                    Pr = maxValidPr;
+                    clampedSamples++;
+                }
+            }
             double Z = 1.0 + B0 * Pr / Tr;
             double dev = Math.abs(1.0 - Z);
             samples++;
@@ -2955,14 +3007,20 @@ public class MathPhysicsEngine {
         boolean physical = bestDev <= 0.5;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : bestDev > 0.1 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
-        String assessment = ("Z-factor: best (Tr=%.2f, Pr=%.2f, Z=%.3f) shows %.3f departure from ideal across %d samples. %s")
-                .formatted(bestTr, bestPr, bestZ, bestDev, samples,
+        String envelopeNote = clampedSamples > 0
+                ? " (%d of %d samples clamped to Pitzer-Curl validity envelope; dense regime needs cubic EOS)"
+                        .formatted(clampedSamples, samples)
+                : "";
+        String assessment = ("Z-factor: best (Tr=%.2f, Pr=%.2f, Z=%.3f) shows %.3f departure from ideal across %d samples.%s %s")
+                .formatted(bestTr, bestPr, bestZ, bestDev, samples, envelopeNote,
                         !physical ? "|1−Z| > 0.5 indicates the explored state is far from the corresponding-states regime"
                                 : bestDev > 0.1 ? "real-gas departure measurable — Pitzer correction important"
                                         : "near-ideal regime — Z ≈ 1");
         return new ResearchResult(
-                "Compressibility Z (%d (Tr, Pr) samples): max |1−Z|=%.3f at Tr=%.2f, Pr=%.2f (Z=%.3f). Sample: %s"
-                        .formatted(samples, bestDev, bestTr, bestPr, bestZ, sb.toString().trim()),
+                "Compressibility Z (%d (Tr, Pr) samples%s): max |1−Z|=%.3f at Tr=%.2f, Pr=%.2f (Z=%.3f). Sample: %s"
+                        .formatted(samples,
+                                clampedSamples > 0 ? ", " + clampedSamples + " clamped" : "",
+                                bestDev, bestTr, bestPr, bestZ, sb.toString().trim()),
                 bestDev, bestZ, bestPr, bestDev, status, assessment)
                 .withHypothesis(("Across reduced states sampled near (Tr=%.2f, Pr=%.2f), the Pitzer-Curl "
                         + "compressibility factor Z = 1 + B₀·Pr/Tr captures real-gas departure with |1−Z| ≤ 0.5.")

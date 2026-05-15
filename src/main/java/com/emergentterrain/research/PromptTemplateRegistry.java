@@ -374,7 +374,7 @@ public class PromptTemplateRegistry {
                 computation would add a meaningfully distinct data point.
 
                 Domain: {{ domain }} | Topic: {{ topicName }} | Methodology: {{ methodology }}
-                Primary parameters: param1={{ param1 }}, param2={{ param2 }}
+                Computation parameters: starting position {{ param1 }}, scale {{ param2 }}
                 Computations so far:
                 {{ accumulatedFindings }}
 
@@ -597,6 +597,62 @@ public class PromptTemplateRegistry {
                 - duplicate_computation: two or more computations tested identical parameter values
                 - uncertainty: quantitative claims lack uncertainty language or error bounds
                 - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """));
+
+        // Phase 10 — v3 extends physical_mechanism with anchored examples of
+        // known-bad cross-domain mappings. The May 2026 corpus had two papers
+        // (P-a328-345 "Collatz depth → RLC inductance" and P-a328-352
+        // "prime gaps → CTE / crystal defect spacing") that passed audit
+        // with 0gaps despite being canonical non-sequiturs in the rubric.
+        // The audit LLM evidently struggles to recognise the pattern without
+        // exemplars; spelling them out trades a few prompt tokens for a
+        // reliable refusal. Last-registered wins so v3 becomes active.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_AUDIT_ID,
+                "v3-with-nonsequitur-exemplars",
+                """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Classification: {{ classification }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal
+                  justification — there is no physical or mathematical channel that lets one quantity
+                  influence the other beyond a coincidence of numeric values. ALWAYS flag as CRITICAL
+                  when the mapping resembles any of these documented non-sequiturs:
+                    • integer-sequence depth (Collatz, aliquot, happy-number) → physical resonance,
+                      inductance, capacitance, oscillation frequency, or damping
+                    • prime-number gap statistics → coefficient of thermal expansion, lattice spacing,
+                      crystal-defect periodicity, or any mechanical/thermal property
+                    • number-theoretic predicate (abundant, perfect, squarefree) → wavelength,
+                      diffraction order, or other wave-mechanical quantity
+                    • twin-prime constellation density → material modulus, fatigue exponent, or strain
+                  These mappings have *no physical channel*: integers do not exert force or carry
+                  energy, so any apparent correlation is numeric coincidence at the harness level, not
+                  a discovered law. Reject regardless of how plausibly the Findings describe the
+                  numerical agreement.
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - boundary_answer: reported best parameter value sits exactly at a boundary of the swept
+                  range (e.g. volume fraction Vf=1.00 on a Vf∈[0,1] sweep, angle θ=90° on a [0°,90°]
+                  survey, or any "best at the edge" answer that indicates the true optimum is outside
+                  the searched region rather than inside it). Flag as moderate if the boundary value
+                  is the answer but the conclusion does not acknowledge the range-saturation; flag as
+                  critical if the conclusion treats the boundary value as an interior optimum.
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - overclaiming: conclusion asserts more than the data demonstrates
+                - threshold_drift: the Hypothesis states a numeric tolerance / threshold (e.g. "within
+                  1%", "≤ 5%", "below 196 kJ/mol") and the Conclusion either uses a *different* numeric
+                  threshold for the same quantity, or declares "confirmed" while the actual deviation
+                  is two or more orders of magnitude tighter/looser than predicted. Flag critical when
+                  the threshold shifts by more than 2× between sections.
 
                 Reply with ONLY valid JSON:
                 {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
