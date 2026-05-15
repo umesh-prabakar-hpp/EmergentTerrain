@@ -230,6 +230,13 @@ app:
     # non-JSON response, missing fields, or wrong tool-call shape.
     selection-tests:
       enabled: true
+      # Phase 9 follow-on (2026-05-14) — interval at which ModelRetestService
+      # re-probes models that failed initial selection. Surfaces dropped models
+      # for transient causes (NVIDIA's intermittent 503 ResourceExhausted,
+      # OpenRouter backend hiccups, etc.) — a passing re-probe moves the model
+      # back into activeModels and the registries pick it up immediately.
+      # Floor: 10 min (re-tests burn provider quota; tighter would thrash).
+      retestIntervalMinutes: 15
     # Phase 9 follow-on (2026-05-14) — single per-request HTTP read timeout
     # applied across every primary pool's chat-completions calls (Groq, NVIDIA,
     # OpenRouter, Cerebras). 7 minutes is long enough for slow reasoning models

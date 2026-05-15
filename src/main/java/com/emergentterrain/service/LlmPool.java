@@ -93,6 +93,33 @@ public interface LlmPool {
     default List<String> fastTierModelIds() { return List.of(); }
 
     /**
+     * Phase 9 follow-on (2026-05-14) — models that failed initial selection
+     * and should be re-probed periodically by {@code ModelRetestService}.
+     * Each entry carries the per-model dispatch lambdas the tester needs to
+     * re-run chat + JSON + (where applicable) tool probes. Default empty —
+     * pools without selection-test failures (or pools that don't run tests
+     * at all) return nothing.
+     */
+    default List<RetestableModel> pendingRetests() { return List.of(); }
+
+    /**
+     * Phase 9 follow-on — called by {@code ModelRetestService} when a
+     * previously-dropped model's re-probe passes. The pool should add
+     * {@code modelId} back to its active set so the registries pick it up
+     * on their next aggregation pass. Default no-op.
+     */
+    default void onModelRecovered(String modelId) {}
+
+    /**
+     * Phase 9 follow-on — bundle for a model awaiting periodic re-test.
+     * {@code toolDispatch} is null for non-tool-tier candidates (Ollama, fast-tier).
+     */
+    record RetestableModel(
+            String modelId,
+            java.util.function.BiFunction<String, String, String> syncDispatch,
+            ModelSelectionTester.ToolDispatch toolDispatch) {}
+
+    /**
      * True when this specific model has an active rate-limit / quota block.
      * Default implementation maps the question onto the pool-wide
      * {@link #allBlocked()} for pools that don't track per-model state.

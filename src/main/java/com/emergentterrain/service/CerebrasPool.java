@@ -18,6 +18,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
@@ -75,7 +76,16 @@ public class CerebrasPool implements LlmPool {
      *  indefinitely on a stalled response (client-level connectTimeout only
      *  covers connection setup). */
     private final java.time.Duration requestTimeout;
-    private final List<String> activeModels;
+    private final java.util.concurrent.CopyOnWriteArrayList<String> activeModels;
+    /**
+     * Phase 9 follow-on (2026-05-14) — candidates that failed initial selection.
+     * Re-tested by {@code ModelRetestService}; on a passing re-probe they
+     * move into {@link #activeModels}. Treated as blocked by
+     * {@link #isModelBlocked} so the registry doesn't route to them between
+     * probes.
+     */
+    private final java.util.Set<String> droppedSelectionTestModels =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<String, Long> rateLimitExpiry = new ConcurrentHashMap<>();
     private final Semaphore slots;
     private final AtomicInteger rrIndex = new AtomicInteger(0);
@@ -121,16 +131,24 @@ public class CerebrasPool implements LlmPool {
 
         // Phase 9 U5b — universal selection tests. Disabled in unit tests via
         // constructor flag.
-        this.activeModels = selectionTestsEnabled
+        List<String> passed = selectionTestsEnabled
                 ? ModelSelectionTester.filterPassing(
                         PROVIDER_ID, candidates,
                         (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
                         mid -> (sys, user, toolsJson, exec) ->
                                 runToolLoop(mid, sys, user, toolsJson, exec))
                 : candidates;
+        this.activeModels = new java.util.concurrent.CopyOnWriteArrayList<>(passed);
+        // Phase 9 follow-on — stash failed candidates for periodic re-test.
+        if (selectionTestsEnabled) {
+            for (String c : candidates) {
+                if (!passed.contains(c)) droppedSelectionTestModels.add(c);
+            }
+        }
 
-        log.info("CerebrasPool: models={} parallelism={} role={} selection-tests={}",
-                activeModels, parallelism, this.role.isEmpty() ? "(none)" : this.role,
+        log.info("CerebrasPool: models={} (dropped-awaiting-retest={}) parallelism={} role={} selection-tests={}",
+                activeModels, droppedSelectionTestModels, parallelism,
+                this.role.isEmpty() ? "(none)" : this.role,
                 selectionTestsEnabled ? "on" : "off");
     }
 
@@ -163,7 +181,37 @@ public class CerebrasPool implements LlmPool {
 
     // Phase 9 U1 — per-model entry points for the unified registry.
 
-    @Override public List<String> modelIds() { return activeModels; }
+    @Override public List<String> modelIds() {
+        // Phase 9 follow-on — include dropped models so the registry pre-creates
+        // handles for them. They report blocked until re-test recovery.
+        if (droppedSelectionTestModels.isEmpty()) return activeModels;
+        List<String> out = new ArrayList<>(activeModels.size() + droppedSelectionTestModels.size());
+        out.addAll(activeModels);
+        out.addAll(droppedSelectionTestModels);
+        return List.copyOf(out);
+    }
+
+    @Override
+    public List<RetestableModel> pendingRetests() {
+        if (droppedSelectionTestModels.isEmpty()) return List.of();
+        List<RetestableModel> out = new ArrayList<>();
+        for (String mid : droppedSelectionTestModels) {
+            out.add(new RetestableModel(
+                    mid,
+                    (m, prompt) -> syncCallWithBackoff(m, prompt, maxTokens),
+                    (sys, user, toolsJson, exec) ->
+                            runToolLoop(mid, sys, user, toolsJson, exec)));
+        }
+        return out;
+    }
+
+    @Override
+    public void onModelRecovered(String modelId) {
+        if (droppedSelectionTestModels.contains(modelId)) {
+            if (!activeModels.contains(modelId)) activeModels.add(modelId);
+            droppedSelectionTestModels.remove(modelId);
+        }
+    }
 
     @Override public String callSyncOnModel(String modelId, String prompt) {
         if (!activeModels.contains(modelId)) {
@@ -539,6 +587,7 @@ public class CerebrasPool implements LlmPool {
 
     @Override
     public boolean isModelBlocked(String modelId) {
+        if (droppedSelectionTestModels.contains(modelId)) return true;
         Long exp = rateLimitExpiry.get(modelId);
         return exp != null && System.currentTimeMillis() < exp;
     }

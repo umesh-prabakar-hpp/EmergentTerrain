@@ -95,14 +95,31 @@ public class GroqPool implements LlmPool {
     private final int toolMaxTokens;
     private final String ollamaJudgeUrl;
     private final String ollamaJudgeModel;
-    private final List<String> activeModels;
+    private final java.util.concurrent.CopyOnWriteArrayList<String> activeModels;
     /**
      * Phase 9 U7 — Groq's sub-70B chat models that passed selection probes.
      * Exposed via {@link #fastTierModelIds()} so {@code FastModelRegistry}
      * picks them up alongside Ollama. Stays empty when no Groq sub-70B model
      * passed (or when {@code preferredModels} pinned only primary-tier ids).
      */
-    private final List<String> fastTierActiveModels;
+    private final java.util.concurrent.CopyOnWriteArrayList<String> fastTierActiveModels;
+    /**
+     * Phase 9 follow-on (2026-05-14) — primary-tier candidates that failed
+     * the initial selection test (chat / JSON / tool probe). Re-tested every
+     * {@code app.ai.selection-tests.retestIntervalMinutes} by
+     * {@code ModelRetestService}; on a passing re-probe they move into
+     * {@link #activeModels}. Treated as blocked by {@link #isModelBlocked}
+     * so the registry doesn't route to them between probes.
+     */
+    private final java.util.Set<String> droppedPrimaryModels =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /**
+     * Phase 9 follow-on — fast-tier counterpart to {@link #droppedPrimaryModels}.
+     * Same lifecycle, but the re-probe runs chat + JSON only (no tool probe,
+     * matching the initial fast-tier selection contract).
+     */
+    private final java.util.Set<String> droppedFastTierModels =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Semaphore slots;
     private final AtomicInteger rrIndex = new AtomicInteger(0);
     private final ObjectMapper mapper;
@@ -181,25 +198,41 @@ public class GroqPool implements LlmPool {
         }
 
         // Phase 9 U5b — universal selection tests for primary tier (chat + JSON + tool).
-        this.activeModels = selectionTestsEnabled
+        List<String> primaryPassed = selectionTestsEnabled
                 ? ModelSelectionTester.filterPassing(
                         PROVIDER_ID, primaryCandidates,
                         (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
                         mid -> (sys, user, toolsJson, exec) ->
                                 runToolLoop(mid, sys, user, toolsJson, exec))
                 : primaryCandidates;
+        this.activeModels = new java.util.concurrent.CopyOnWriteArrayList<>(primaryPassed);
+        // Phase 9 follow-on — stash primaries that failed for later re-test.
+        if (selectionTestsEnabled) {
+            for (String c : primaryCandidates) {
+                if (!primaryPassed.contains(c)) droppedPrimaryModels.add(c);
+            }
+        }
 
         // Phase 9 U7 — fast-tier selection tests (chat + JSON only; no tool
         // probe since sub-70B models aren't expected to do tool-call work).
-        this.fastTierActiveModels = selectionTestsEnabled && !fastCandidates.isEmpty()
+        List<String> fastPassed = selectionTestsEnabled && !fastCandidates.isEmpty()
                 ? ModelSelectionTester.filterPassing(
                         PROVIDER_ID + "[fast]", fastCandidates,
                         (mid, prompt) -> syncCallWithBackoff(mid, prompt, maxTokens),
                         null)  // null toolDispatch → chat + JSON only
                 : fastCandidates;
+        this.fastTierActiveModels = new java.util.concurrent.CopyOnWriteArrayList<>(fastPassed);
+        if (selectionTestsEnabled) {
+            for (String c : fastCandidates) {
+                if (!fastPassed.contains(c)) droppedFastTierModels.add(c);
+            }
+        }
 
-        log.info("GroqPool: primary activeModels={} fastTier activeModels={} selection-tests={}",
-                activeModels, fastTierActiveModels, selectionTestsEnabled ? "on" : "off");
+        log.info("GroqPool: primary activeModels={} (dropped-awaiting-retest={}) "
+                        + "fastTier activeModels={} (dropped-awaiting-retest={}) selection-tests={}",
+                activeModels, droppedPrimaryModels,
+                fastTierActiveModels, droppedFastTierModels,
+                selectionTestsEnabled ? "on" : "off");
     }
 
     /**
@@ -246,11 +279,35 @@ public class GroqPool implements LlmPool {
     // Phase 9 U1 — per-model entry points so the unified registry can target
     // a specific Groq model rather than letting our round-robin pick.
 
-    @Override public List<String> modelIds() { return activeModels; }
+    /**
+     * Phase 9 U1 + 2026-05-14 follow-on — primary handles aggregated by
+     * {@code PrimaryModelRegistry}. Includes models awaiting re-test (so the
+     * registry can route to them the moment {@link #onModelRecovered} fires)
+     * along with currently-active models. Both kinds report
+     * {@link #isModelBlocked} truthfully so the registry filters dropped
+     * models out of dispatch.
+     */
+    @Override public List<String> modelIds() {
+        List<String> out = new ArrayList<>(activeModels.size() + droppedPrimaryModels.size());
+        out.addAll(activeModels);
+        out.addAll(droppedPrimaryModels);
+        return List.copyOf(out);
+    }
     /** Phase 9 U7 — sub-70B Groq chat models exposed to {@code FastModelRegistry}. */
-    @Override public List<String> fastTierModelIds() { return fastTierActiveModels; }
+    @Override public List<String> fastTierModelIds() {
+        List<String> out = new ArrayList<>(
+                fastTierActiveModels.size() + droppedFastTierModels.size());
+        out.addAll(fastTierActiveModels);
+        out.addAll(droppedFastTierModels);
+        return List.copyOf(out);
+    }
 
     @Override public boolean isModelBlocked(String modelId) {
+        // Phase 9 follow-on — drop-and-retest models stay blocked until they recover.
+        if (droppedPrimaryModels.contains(modelId)
+                || droppedFastTierModels.contains(modelId)) {
+            return true;
+        }
         long now = System.currentTimeMillis();
         Long tpd = tpdExpiry.get(modelId);
         if (tpd != null && now < tpd) return true;
@@ -261,6 +318,43 @@ public class GroqPool implements LlmPool {
     /** Phase 9 U7 — accept both primary and fast-tier model ids. */
     private boolean knowsModel(String modelId) {
         return activeModels.contains(modelId) || fastTierActiveModels.contains(modelId);
+    }
+
+    @Override
+    public List<RetestableModel> pendingRetests() {
+        if (droppedPrimaryModels.isEmpty() && droppedFastTierModels.isEmpty()) {
+            return List.of();
+        }
+        List<RetestableModel> out = new ArrayList<>();
+        // Primary: chat + JSON + tool probe.
+        for (String mid : droppedPrimaryModels) {
+            out.add(new RetestableModel(
+                    mid,
+                    (m, prompt) -> syncCallWithBackoff(m, prompt, maxTokens),
+                    (sys, user, toolsJson, exec) ->
+                            runToolLoop(mid, sys, user, toolsJson, exec)));
+        }
+        // Fast tier: chat + JSON only (no tool probe — matches initial selection).
+        for (String mid : droppedFastTierModels) {
+            out.add(new RetestableModel(
+                    mid,
+                    (m, prompt) -> syncCallWithBackoff(m, prompt, maxTokens),
+                    null));
+        }
+        return out;
+    }
+
+    @Override
+    public void onModelRecovered(String modelId) {
+        // Order: add to active before remove from dropped so concurrent readers
+        // see the model in at least one set at all times.
+        if (droppedPrimaryModels.contains(modelId)) {
+            if (!activeModels.contains(modelId)) activeModels.add(modelId);
+            droppedPrimaryModels.remove(modelId);
+        } else if (droppedFastTierModels.contains(modelId)) {
+            if (!fastTierActiveModels.contains(modelId)) fastTierActiveModels.add(modelId);
+            droppedFastTierModels.remove(modelId);
+        }
     }
 
     @Override public String callSyncOnModel(String modelId, String prompt) {
