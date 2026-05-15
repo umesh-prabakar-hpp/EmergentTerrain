@@ -377,9 +377,13 @@ app:
     #               on call_path. Never suppresses. Default for the rollout
     #               (Phase 11 C4 / 11a). Observe 2-3 REVIEW_REPORT refreshes
     #               before flipping.
-    #   downgrade — papers with mismatched/out-of-tolerance claims route to
-    #               NULL_RESULT with an honest preamble. Wired in Phase 11 C5a.
-    #   suppress  — those papers are dropped entirely. Wired in Phase 11 C5b.
+    #   downgrade — papers with mismatched/out-of-tolerance claims publish as
+    #               NULL_RESULT with an honest preamble naming the unverifiable
+    #               values. uncited-only papers stamp `citations:manual_review`
+    #               but still publish. (Phase 11 C5a.)
+    #   suppress  — papers with mismatched/out-of-tolerance claims are dropped
+    #               entirely (return null, like Phase 10's all_tools_failed gate).
+    #               Papers with uncited count >= 3 are also dropped. (Phase 11 C5b.)
     citations-as-schema:
       mode: warn
     # Phase 7 F2 — number of independent computation prose blocks the narrator

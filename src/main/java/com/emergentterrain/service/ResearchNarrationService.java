@@ -514,19 +514,26 @@ public class ResearchNarrationService {
                         null, List.of(), List.of(), null, null, discussion, relatedWork)
                         .withToolCallTrace(profTrace)
                         .withNumericClaims(revParsed.numericClaims());
-                // Phase 11 C4 — citation validator. Warn-only by default: every
-                // unattributed numeric value gets logged + stamped on call_path,
-                // but the paper still publishes. Downgrade/suppress modes are
-                // wired in C5. Validator short-circuits when the trace is empty
-                // or pre-Phase-11.
-                stampCitationValidation(revisedResult, profTrace, callPath, draft.paperId());
+                // Phase 11 C4-C5 — citation validator gate. Warn mode (default)
+                // returns the input unchanged but stamps call_path. Downgrade
+                // mode rewrites findings+conclusion to a NULL_RESULT preamble
+                // when claims don't trace. Suppress mode returns null which
+                // drops the paper via the same return-null pattern as the
+                // Phase 10 all_tools_failed→suppressed gate.
+                NarrationResult gated = applyCitationsGate(
+                        revisedResult, profTrace, callPath, draft.paperId());
+                if (gated == null) {
+                    log.warn("LLM citation gate: paperId={} suppressed by citations-as-schema",
+                            draft.paperId());
+                    return null;
+                }
                 // Phase 7 F7.2 — run the multi-reviewer panel against the revised
                 // narration + the trace, stamp the aggregated outcome on the result
                 // so UniversityService.publishPaper can persist it. The panel
                 // short-circuits to empty when disabled / no trace / no providers
                 // resolved — the publish path is bit-identical to pre-F7.2 in
                 // those cases.
-                return runPanelAndStamp(draft, revisedResult, callPath, auditGapDimensions);
+                return runPanelAndStamp(draft, gated, callPath, auditGapDimensions);
             }
             callPath.add("rev:parse_failed→fp");
         } catch (Exception e) {
@@ -564,42 +571,151 @@ public class ResearchNarrationService {
      * dimension under the {@code audit-cherry-picked-rejects} flag.
      */
     /**
-     * Phase 11 C4 — run the citation validator and stamp a summary on the call
-     * path. Warn-only by default; the {@code app.research.citations-as-schema.mode}
-     * flag controls downgrade/suppress behaviour wired in C5.
-     *
-     * <p>No-op when the validator bean isn't on the context (legacy test
-     * configurations), when the trace is empty, or when every trace entry has
-     * a null callId (pre-Phase-11 papers).
+     * Phase 11 C5 — number of {@code uncited} numbers above which {@code suppress}
+     * mode drops the paper even without any trace-mismatch. Three is the threshold
+     * because below that the LLM is plausibly missing markers for derived /
+     * meta-precision values that the validator's exclusion patterns didn't catch;
+     * three or more is strong signal that the inline-citation rule isn't being
+     * honoured at all.
      */
-    private void stampCitationValidation(NarrationResult narration,
-                                          java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
-                                          List<String> callPath,
-                                          String paperId) {
-        if (citationValidator == null) return;
-        if (trace == null || trace.isEmpty()) return;
+    private static final int CITATIONS_UNCITED_SUPPRESS_THRESHOLD = 3;
+
+    /**
+     * Phase 11 C4 — run the citation validator and apply the configured rollout
+     * mode. Returns the (possibly downgraded) narration, or null when {@code
+     * suppress} mode drops the paper.
+     *
+     * <p>Modes:
+     * <ul>
+     *   <li>{@code warn} (default) — stamp call_path, return narration unchanged
+     *       regardless of failures.</li>
+     *   <li>{@code downgrade} — when {@code unmatched > 0} OR {@code out_of_tolerance > 0},
+     *       rewrite findings + conclusion to an honest NULL_RESULT preamble naming
+     *       the unverifiable values. When only {@code uncited > 0}, stamp a
+     *       {@code citations:manual_review} marker and keep publishing.</li>
+     *   <li>{@code suppress} — same trigger condition as downgrade, but the paper
+     *       is dropped (return null). Additionally drops papers with {@code uncited
+     *       >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD}.</li>
+     * </ul>
+     *
+     * <p>No-op (return narration unchanged) when the validator bean isn't on
+     * the context, when the trace is empty, or when every trace entry has a
+     * null callId (pre-Phase-11 papers).
+     */
+    private NarrationResult applyCitationsGate(NarrationResult narration,
+                                                java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+                                                List<String> callPath,
+                                                String paperId) {
+        if (citationValidator == null) return narration;
+        if (trace == null || trace.isEmpty()) return narration;
+        com.emergentterrain.research.CitationValidator.CitationValidationResult cv;
         try {
-            com.emergentterrain.research.CitationValidator.CitationValidationResult cv =
-                    citationValidator.validate(narration, trace);
-            if (cv.hasFailures()) {
-                callPath.add("citations:uncited=" + cv.uncitedCount()
-                        + ":unmatched=" + cv.unmatchedClaimCount()
-                        + ":out_of_tolerance=" + cv.outOfToleranceCount());
-                log.warn("CitationValidator: paperId={} uncited={} unmatched={} "
-                                + "out_of_tolerance={} mode={} issues={}",
-                        paperId, cv.uncitedCount(), cv.unmatchedClaimCount(),
-                        cv.outOfToleranceCount(), citationsAsSchemaMode, cv.issues());
-            } else {
-                callPath.add("citations:ok");
-                log.debug("CitationValidator: paperId={} clean", paperId);
-            }
+            cv = citationValidator.validate(narration, trace);
         } catch (RuntimeException ex) {
             // Defensive — the validator must never break the pipeline. If a
             // regex or numeric parse blows up, stamp it and continue.
             callPath.add("citations:error");
             log.warn("CitationValidator: paperId={} failed with {}; continuing",
                     paperId, ex.getMessage());
+            return narration;
         }
+
+        if (!cv.hasFailures()) {
+            callPath.add("citations:ok");
+            log.debug("CitationValidator: paperId={} clean", paperId);
+            return narration;
+        }
+
+        String summary = "citations:uncited=" + cv.uncitedCount()
+                + ":unmatched=" + cv.unmatchedClaimCount()
+                + ":out_of_tolerance=" + cv.outOfToleranceCount();
+        boolean traceMismatch = cv.unmatchedClaimCount() > 0 || cv.outOfToleranceCount() > 0;
+        boolean uncitedHeavy  = cv.uncitedCount() >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD;
+        String mode = citationsAsSchemaMode == null ? "warn" : citationsAsSchemaMode.toLowerCase();
+
+        switch (mode) {
+            case "suppress" -> {
+                callPath.add(summary);
+                if (traceMismatch || uncitedHeavy) {
+                    callPath.add("prof:" + abbrev(router.primaryModel())
+                            + ":citations_failed→suppressed");
+                    log.warn("CitationValidator: paperId={} mode=suppress {} — paper "
+                                    + "dropped issues={}", paperId, summary, cv.issues());
+                    return null;
+                }
+                log.warn("CitationValidator: paperId={} mode=suppress {} below threshold — "
+                                + "publishing", paperId, summary);
+                return narration;
+            }
+            case "downgrade" -> {
+                callPath.add(summary);
+                if (traceMismatch) {
+                    callPath.add("citations:downgrade→null_result");
+                    log.warn("CitationValidator: paperId={} mode=downgrade {} — routing to "
+                                    + "NULL_RESULT issues={}", paperId, summary, cv.issues());
+                    return downgradeNarrationToNull(narration, cv);
+                }
+                callPath.add("citations:manual_review");
+                log.warn("CitationValidator: paperId={} mode=downgrade {} uncited-only — "
+                                + "MANUAL_REVIEW stamped, publishing", paperId, summary);
+                return narration;
+            }
+            default -> {  // "warn" or anything else
+                callPath.add(summary);
+                log.warn("CitationValidator: paperId={} mode={} {} issues={}",
+                        paperId, mode, summary, cv.issues());
+                return narration;
+            }
+        }
+    }
+
+    /**
+     * Phase 11 C5a — rewrite a paper's findings + conclusion to an honest
+     * NULL_RESULT preamble that names the citation-validator failures.
+     * Hypothesis is preserved (it's the question the paper set out to answer),
+     * but findings and conclusion are replaced so the published prose
+     * explicitly reports that direct computational evidence is missing.
+     *
+     * <p>Up to three example issues are included in the preamble; more would
+     * bloat the prose without adding signal.
+     */
+    static NarrationResult downgradeNarrationToNull(
+            NarrationResult narration,
+            com.emergentterrain.research.CitationValidator.CitationValidationResult cv) {
+        StringBuilder preamble = new StringBuilder();
+        preamble.append("NULL_RESULT — citation validator flagged ")
+                .append(cv.totalFailureCount())
+                .append(cv.totalFailureCount() == 1 ? " numeric value" : " numeric values")
+                .append(" in this draft that could not be traced to direct tool-call output. ")
+                .append("The hypothesis remains untested in this submission.");
+        if (!cv.issues().isEmpty()) {
+            preamble.append(" Specifically: ");
+            preamble.append(cv.issues().stream()
+                    .limit(3)
+                    .collect(java.util.stream.Collectors.joining("; ")));
+            preamble.append(".");
+        }
+        String conclusion = "The pre-registered prediction was not verified against direct "
+                + "computational evidence; this paper is recorded as a null result.";
+        return new NarrationResult(
+                narration.hypothesis(),
+                Map.of(1, preamble.toString()),
+                conclusion,
+                narration.followUp(),
+                narration.aiModel(),
+                narration.confidenceScore(),
+                narration.citedPaperIds(),
+                narration.callPath(),
+                narration.typedCitations(),
+                narration.formalFindings(),
+                narration.templateId(),
+                narration.templateVersion(),
+                narration.discussion(),
+                narration.relatedWork(),
+                narration.auditGapDimensions(),
+                narration.toolCallTrace(),
+                narration.panelOutcome(),
+                narration.numericClaims());
     }
 
     private NarrationResult runPanelAndStamp(PaperDraft draft, NarrationResult narration,
