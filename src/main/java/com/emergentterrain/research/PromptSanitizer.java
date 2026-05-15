@@ -12,6 +12,11 @@ import java.util.regex.Pattern;
  *       (P-a328-1, 5, 6, 7, 8, 13, 17, 20, 28, 31, 41)</li>
  *   <li>"…the actual quality score of 0.23 remained unaffected by changes
  *       in sampling parameters." (P-a328-28)</li>
+ *   <li>"…when the search starts at position 31" (P-a328-326)</li>
+ *   <li>"…applied from a starting cycle index of 41 with a scale factor of 6.2…"
+ *       (P-a328-329, em-dash-delimited parenthetical)</li>
+ *   <li>"…that start near position 270 and are examined with a scaling factor
+ *       of 5.5…" (P-a328-341)</li>
  * </ul>
  *
  * <p>These phrases come from the narrator LLM reading the {@link PaperDraft}
@@ -40,8 +45,14 @@ public final class PromptSanitizer {
     private static final Pattern STARTING_AT_POSITION =
             Pattern.compile(CONNECTOR_PREFIX + "starting at position \\d+", Pattern.CASE_INSENSITIVE);
 
+    /**
+     * Extended from {@code uses? a scale of [\d.]+} to also match "uses a scaling
+     * factor of N" / "uses a scale factor of N" — the P-a328-341 / P-a328-329
+     * variants from the research/a3289005 refresh. Optional "(factor)" head-noun.
+     */
     private static final Pattern USES_A_SCALE_OF =
-            Pattern.compile(CONNECTOR_PREFIX + "uses? a scale of [\\d.]+", Pattern.CASE_INSENSITIVE);
+            Pattern.compile(CONNECTOR_PREFIX + "uses? a scal(?:e|ing)(?:\\s+factor)? of [\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
 
     /**
      * "the actual quality score of 0.23 remained unaffected by …" — the P-a328-28
@@ -63,9 +74,17 @@ public final class PromptSanitizer {
                     + "(?:as observed from )?the starting position of \\d+ and scale of [\\d.]+",
                     Pattern.CASE_INSENSITIVE);
 
-    /** "with a scale of 1.0" — the P-256 leak (rec #14). */
+    /**
+     * "with a scale of 1.0" — the P-256 leak (rec #14). Extended to also match
+     * "with a scaling factor of N" / "with a scale factor of N" — the P-a328-341
+     * / P-a328-329 variants from the research/a3289005 refresh. Optional
+     * "(factor)" head-noun and an optional "(are\s+examined\s+)?" preamble that
+     * P-a328-341's phrasing requires.
+     */
     private static final Pattern WITH_A_SCALE_OF =
-            Pattern.compile(CONNECTOR_PREFIX + "with a scale of [\\d.]+", Pattern.CASE_INSENSITIVE);
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:are\\s+examined\\s+)?with a scal(?:e|ing)(?:\\s+factor)? of [\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
 
     /** "starting from parametric index 56" — the P-250 / P-288 leak (rec #14). */
     private static final Pattern STARTING_FROM_PARAMETRIC_INDEX =
@@ -91,6 +110,53 @@ public final class PromptSanitizer {
     private static final Pattern SCIENTIFIC_NOTATION_FORMATTING_BUG =
             Pattern.compile("(\\d+\\.\\d+)\\s*[×x]\\s*10\\^1\\b");
 
+    // Phase 9 G7 — additional patterns from REVIEW_REPORT.md (research/a3289005).
+
+    /**
+     * Em-dash-delimited parenthetical clause containing a harness leak.
+     * E.g., P-a328-329's "σ_a = σ'_f·(2·N_f)^b—applied from a starting cycle
+     * index of 41 with a scale factor of 6.2—will generate…" — the entire
+     * parenthetical is dropped (replaced with a single space) because the
+     * granular patterns alone would leave dangling "—applied from a —" debris.
+     * Run before the granular patterns.
+     */
+    private static final Pattern EMDASH_HARNESS_CLAUSE =
+            Pattern.compile("\\s*—[^—]*?(?:starting\\s+(?:cycle\\s+)?index\\s+of|"
+                    + "starts?\\s+(?:at|near)\\s+position|"
+                    + "scal(?:e|ing)\\s+factor\\s+of)[^—]*—\\s*",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * "when the search starts at position 31" — the P-a328-326 leak. The
+     * harness scaffolding bleeds into a sub-clause connected by "when", which
+     * the CONNECTOR_PREFIX-anchored patterns don't reach. Matches "at" or
+     * "near" as the preposition.
+     */
+    private static final Pattern WHEN_SEARCH_STARTS_AT_POSITION =
+            Pattern.compile("\\s*when the search starts? (?:at|near) position \\d+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * "(that) start(s) near position N" — the P-a328-341 leak. Sibling of
+     * {@link #STARTING_AT_POSITION} with "near" instead of "at" and an optional
+     * "(that)" relative-clause prefix that P-a328-341's phrasing requires.
+     */
+    private static final Pattern STARTS_NEAR_POSITION =
+            Pattern.compile(CONNECTOR_PREFIX + "(?:that\\s+)?starts?\\s+near\\s+position\\s+\\d+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * "starting cycle index of N" / "starting index of N" — the P-a328-329
+     * leak. Sibling of {@link #STARTING_FROM_PARAMETRIC_INDEX} with a
+     * different lead-in noun. Optional "(applied\s+from\s+a\s+)?" preamble
+     * accommodates the P-a328-329 phrasing when the em-dash strip fails to
+     * fire (e.g. only one em-dash present).
+     */
+    private static final Pattern STARTING_INDEX_OF =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:applied\\s+from\\s+a\\s+)?starting\\s+(?:cycle\\s+)?index\\s+of\\s+\\d+",
+                    Pattern.CASE_INSENSITIVE);
+
     /** Collapses any whitespace/punctuation debris left behind by removals. */
     private static final Pattern CLEANUP_DOUBLE_COMMA   = Pattern.compile("\\s*,\\s*,");
     private static final Pattern CLEANUP_DOUBLE_PERIOD  = Pattern.compile("\\.\\s*\\.");
@@ -107,6 +173,10 @@ public final class PromptSanitizer {
     public static String sanitize(String text) {
         if (text == null || text.isBlank()) return text;
         String cleaned = text;
+        // Phase 9 G7 wholesale clause strip runs FIRST so the em-dash-delimited
+        // parentheticals don't leave dangling "—applied from a —" debris after
+        // the granular patterns fire.
+        cleaned = EMDASH_HARNESS_CLAUSE.matcher(cleaned).replaceAll(" ");
         // Phase 5 A4 patterns
         cleaned = STARTING_AT_POSITION.matcher(cleaned).replaceAll("");
         cleaned = USES_A_SCALE_OF.matcher(cleaned).replaceAll("");
@@ -117,6 +187,10 @@ public final class PromptSanitizer {
         cleaned = STARTING_FROM_PARAMETRIC_INDEX.matcher(cleaned).replaceAll("");
         cleaned = DUMMY_CITATION_PLACEHOLDER.matcher(cleaned).replaceAll("");
         cleaned = SCIENTIFIC_NOTATION_FORMATTING_BUG.matcher(cleaned).replaceAll("$1");
+        // Phase 9 G7 granular patterns
+        cleaned = WHEN_SEARCH_STARTS_AT_POSITION.matcher(cleaned).replaceAll("");
+        cleaned = STARTS_NEAR_POSITION.matcher(cleaned).replaceAll("");
+        cleaned = STARTING_INDEX_OF.matcher(cleaned).replaceAll("");
         // Tidy up whatever stripping left behind.
         cleaned = CLEANUP_DOUBLE_COMMA.matcher(cleaned).replaceAll(",");
         cleaned = CLEANUP_DOUBLE_PERIOD.matcher(cleaned).replaceAll(".");
@@ -186,6 +260,10 @@ public final class PromptSanitizer {
                 || WITH_A_SCALE_OF.matcher(text).find()
                 || STARTING_FROM_PARAMETRIC_INDEX.matcher(text).find()
                 || DUMMY_CITATION_PLACEHOLDER.matcher(text).find()
-                || SCIENTIFIC_NOTATION_FORMATTING_BUG.matcher(text).find();
+                || SCIENTIFIC_NOTATION_FORMATTING_BUG.matcher(text).find()
+                || EMDASH_HARNESS_CLAUSE.matcher(text).find()
+                || WHEN_SEARCH_STARTS_AT_POSITION.matcher(text).find()
+                || STARTS_NEAR_POSITION.matcher(text).find()
+                || STARTING_INDEX_OF.matcher(text).find();
     }
 }

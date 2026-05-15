@@ -196,6 +196,94 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.detects("3.89×10^1")).isTrue();
     }
 
+    // ---- Phase 9 G7 — variants from research/a3289005 refresh ----
+
+    @Test
+    void phase9_G7_stripsWhenSearchStartsAtPosition() {
+        // P-a328-326 verbatim — sub-clause connected by "when" that the
+        // CONNECTOR_PREFIX-anchored patterns can't reach.
+        String input  = "the Reuss-bound effective transverse modulus will not reach 2 Em"
+                + " until the fibre volume fraction is well above 0.5, approaching unity"
+                + " when the search starts at position 31";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("search starts")
+                .doesNotContain("position 31")
+                .endsWith("approaching unity");
+    }
+
+    @Test
+    void phase9_G7_stripsStartsNearPositionAndScalingFactor() {
+        // P-a328-341 verbatim — "(that) start(s) near position N" + "with a
+        // scaling factor of N", linked by "and".
+        String input  = "For intervals of width 200 that start near position 270 and"
+                + " are examined with a scaling factor of 5.5, the empirical proportion"
+                + " of square-free numbers stays within 5% of 6/π²≈0.6079.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("position 270")
+                .doesNotContain("scaling factor")
+                .contains("For intervals of width 200")
+                .contains("empirical proportion");
+    }
+
+    @Test
+    void phase9_G7_stripsEmdashHarnessClause() {
+        // P-a328-329 verbatim — em-dash-delimited parenthetical containing
+        // "starting cycle index of N" + "with a scale factor of N".
+        String input  = "the power-law relation σ_a = σ'_f·(2·N_f)^b—applied from a"
+                + " starting cycle index of 41 with a scale factor of 6.2—will generate"
+                + " stress-amplitude values below the UTS.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("cycle index")
+                .doesNotContain("scale factor")
+                .doesNotContain("—applied")
+                .contains("σ_a = σ'_f·(2·N_f)^b")
+                .contains("will generate");
+    }
+
+    @Test
+    void phase9_G7_stripsStartingCycleIndexOfWithoutEmdash() {
+        // Variant without em-dashes — granular pattern must still fire.
+        String input  = "The sweep, starting cycle index of 100, covers the full range.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("cycle index")
+                .contains("The sweep")
+                .contains("covers the full range");
+    }
+
+    @Test
+    void phase9_G7_extendedUsesAScalingFactor() {
+        // The existing USES_A_SCALE_OF should now also catch "uses a scaling
+        // factor of N".
+        String input  = "The model uses a scaling factor of 2.5 to normalize.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("scaling factor")
+                .contains("The model")
+                .contains("to normalize");
+    }
+
+    @Test
+    void phase9_G7_detectsAllNewPatterns() {
+        assertThat(PromptSanitizer.detects("when the search starts at position 31")).isTrue();
+        assertThat(PromptSanitizer.detects("that start near position 270")).isTrue();
+        assertThat(PromptSanitizer.detects("starting cycle index of 41")).isTrue();
+        assertThat(PromptSanitizer.detects("with a scaling factor of 5.5")).isTrue();
+        assertThat(PromptSanitizer.detects("X—starting cycle index of 1 Y—Z")).isTrue();
+    }
+
+    @Test
+    void phase9_G7_doesNotTouchLegitimatePhysicsScaleFactor() {
+        // Phrases like "the cosmological scale factor a(t)" or "a Lorentz factor
+        // of 1.5" should NOT be stripped. SCALING_FACTOR_OF only matches inside
+        // a "(uses|with) a …" preamble, not bare "scale factor of N".
+        String input = "The cosmological scale factor a(t) grows with time.";
+        assertThat(PromptSanitizer.sanitize(input)).isEqualTo(input);
+    }
+
     // ---- Phase 7 G5 — boilerplate suppression on critique:skip ----
 
     @Test
