@@ -520,7 +520,7 @@ public class GroqPool implements LlmPool {
                 if ("tool_calls".equals(reason) && !lastRound) {
                     messages.add(message);
                     for (JsonNode tc : message.path("tool_calls")) {
-                        String callId = tc.path("id").asText();
+                        String providerCallId = tc.path("id").asText();
                         String fnName = tc.path("function").path("name").asText();
                         String fnArgs = tc.path("function").path("arguments").asText("{}");
                         String result;
@@ -532,13 +532,19 @@ public class GroqPool implements LlmPool {
                         } catch (Exception ex) {
                             result = "Tool error: " + ex.getMessage();
                         }
-                        log.info("GroqPool tools: fn={} result_len={}", fnName, result.length());
+                        // Phase 11 C1 — stable harness-assigned ID, monotonic across the
+                        // trace. The LLM sees this prefixed on the tool result so it can
+                        // cite the call as [call_N] in its synthesis. Citation validator
+                        // looks up these IDs in the persisted trace.
+                        String harnessCallId = "call_" + (trace.size() + 1);
+                        log.info("GroqPool tools: fn={} call_id={} result_len={}",
+                                fnName, harnessCallId, result.length());
                         trace.add(new com.emergentterrain.llm.ToolInvocation(
-                                fnName, fnArgs, result, round));
+                                fnName, fnArgs, result, round, harnessCallId));
                         messages.addObject()
                                 .put("role", "tool")
-                                .put("tool_call_id", callId)
-                                .put("content", result);
+                                .put("tool_call_id", providerCallId)
+                                .put("content", "[" + harnessCallId + "] " + result);
                     }
                 } else {
                     String content = message.path("content").asText("");

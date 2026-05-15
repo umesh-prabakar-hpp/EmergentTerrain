@@ -73,6 +73,25 @@ public class ResearchNarrationService {
     private final int maxComputations;
 
     /**
+     * Phase 11 C4 — citations-as-schema validator. Runs after the student-revision
+     * stage produces a NarrationResult with {@code numericClaims} and a tool-call
+     * trace with stable {@code call_N} IDs. Operates in three modes via
+     * {@code app.research.citations-as-schema.mode}:
+     * <ul>
+     *   <li>{@code warn} (default) — stamp call_path, never suppress</li>
+     *   <li>{@code downgrade} — route papers with mismatched/out-of-tolerance claims
+     *       to NULL_RESULT (C5a, future)</li>
+     *   <li>{@code suppress} — drop those papers entirely (C5b, future)</li>
+     * </ul>
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.CitationValidator citationValidator;
+
+    /** Phase 11 C4 — see {@link #citationValidator}. */
+    @org.springframework.beans.factory.annotation.Value("${app.research.citations-as-schema.mode:warn}")
+    private String citationsAsSchemaMode;
+
+    /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
      * that don't wire it. When closed, the affected stage short-circuits to a
@@ -278,7 +297,8 @@ public class ResearchNarrationService {
                 finalResult.discussion(), finalResult.relatedWork(),
                 List.copyOf(auditGapDimensions),
                 finalResult.toolCallTrace(),
-                finalResult.panelOutcome());
+                finalResult.panelOutcome(),
+                finalResult.numericClaims());
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -492,7 +512,14 @@ public class ResearchNarrationService {
                         followUp, router.primaryModel(),
                         revParsed.confidenceScore(), revParsed.citedPaperIds(),
                         null, List.of(), List.of(), null, null, discussion, relatedWork)
-                        .withToolCallTrace(profTrace);
+                        .withToolCallTrace(profTrace)
+                        .withNumericClaims(revParsed.numericClaims());
+                // Phase 11 C4 — citation validator. Warn-only by default: every
+                // unattributed numeric value gets logged + stamped on call_path,
+                // but the paper still publishes. Downgrade/suppress modes are
+                // wired in C5. Validator short-circuits when the trace is empty
+                // or pre-Phase-11.
+                stampCitationValidation(revisedResult, profTrace, callPath, draft.paperId());
                 // Phase 7 F7.2 — run the multi-reviewer panel against the revised
                 // narration + the trace, stamp the aggregated outcome on the result
                 // so UniversityService.publishPaper can persist it. The panel
@@ -536,6 +563,45 @@ public class ResearchNarrationService {
      * {@code auditGapDimensions}. UniversityService.publishPaper consumes that
      * dimension under the {@code audit-cherry-picked-rejects} flag.
      */
+    /**
+     * Phase 11 C4 — run the citation validator and stamp a summary on the call
+     * path. Warn-only by default; the {@code app.research.citations-as-schema.mode}
+     * flag controls downgrade/suppress behaviour wired in C5.
+     *
+     * <p>No-op when the validator bean isn't on the context (legacy test
+     * configurations), when the trace is empty, or when every trace entry has
+     * a null callId (pre-Phase-11 papers).
+     */
+    private void stampCitationValidation(NarrationResult narration,
+                                          java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+                                          List<String> callPath,
+                                          String paperId) {
+        if (citationValidator == null) return;
+        if (trace == null || trace.isEmpty()) return;
+        try {
+            com.emergentterrain.research.CitationValidator.CitationValidationResult cv =
+                    citationValidator.validate(narration, trace);
+            if (cv.hasFailures()) {
+                callPath.add("citations:uncited=" + cv.uncitedCount()
+                        + ":unmatched=" + cv.unmatchedClaimCount()
+                        + ":out_of_tolerance=" + cv.outOfToleranceCount());
+                log.warn("CitationValidator: paperId={} uncited={} unmatched={} "
+                                + "out_of_tolerance={} mode={} issues={}",
+                        paperId, cv.uncitedCount(), cv.unmatchedClaimCount(),
+                        cv.outOfToleranceCount(), citationsAsSchemaMode, cv.issues());
+            } else {
+                callPath.add("citations:ok");
+                log.debug("CitationValidator: paperId={} clean", paperId);
+            }
+        } catch (RuntimeException ex) {
+            // Defensive — the validator must never break the pipeline. If a
+            // regex or numeric parse blows up, stamp it and continue.
+            callPath.add("citations:error");
+            log.warn("CitationValidator: paperId={} failed with {}; continuing",
+                    paperId, ex.getMessage());
+        }
+    }
+
     private NarrationResult runPanelAndStamp(PaperDraft draft, NarrationResult narration,
                                               List<String> callPath,
                                               List<String> auditGapDimensions) {
@@ -1025,6 +1091,45 @@ public class ResearchNarrationService {
                 PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION, params);
     }
 
+    /**
+     * Phase 11 C2 — addendum appended to the student-revision prompt after the
+     * professor's tool calls have produced a trace with stable {@code call_N}
+     * IDs. Two things this asks the LLM to do:
+     * <ol>
+     *   <li>Place an inline {@code [call_N]} marker immediately after every
+     *       numeric value cited in findings or conclusion.</li>
+     *   <li>Emit a parallel {@code numeric_claims} array with one entry per
+     *       cited value, carrying the same {@code call_N} ID for cross-check.</li>
+     * </ol>
+     * The CitationValidator (C3) checks both shapes against the persisted
+     * {@link com.emergentterrain.llm.ToolInvocation} trace. In C4 warn-only
+     * mode the validator only stamps the call_path; in later modes it routes
+     * unattributable papers to NULL_RESULT or suppresses them.
+     *
+     * <p>Skipped on the first-pass and critique-loop prompts because no tool
+     * calls have run yet at those points — there are no {@code call_N} IDs to
+     * cite.
+     */
+    static final String CITATION_RULE_ADDENDUM = """
+
+
+            CITATION RULE (Phase 11): every numeric value in `findings` or `conclusion` \
+            (any number with or without units, except citation indices like [1], equation \
+            numbers like (eq. 3), and year mentions like 1884) must be IMMEDIATELY followed \
+            by a tool-call marker `[call_N]` referring to the tool call that produced or \
+            directly uses that value. Tool results in the professor's synthesis above are \
+            already prefixed with their `[call_N]` IDs — reuse those exact markers.
+
+            ALSO emit a parallel `numeric_claims` JSON array. One entry per cited value, \
+            shape: {"value": 7.553, "units": "", "tool_call_id": "call_2", \
+            "context": "ln(Kc/Kc0) at T=792 K", "source_location": "findings:1"}. \
+            `source_location` is one of "hypothesis", "findings:N" (1-based block index), or \
+            "conclusion". A number cited in prose without a matching `numeric_claims` entry \
+            (or with a `tool_call_id` whose value does not appear in that call's result) \
+            will reject the paper. Omit the array entirely if there are zero numeric values \
+            in your prose; do NOT emit fabricated entries to fill it.
+            """;
+
     static String buildRevisionPromptFromSynthesis(PromptTemplateRegistry registry,
                                                     PaperDraft draft, NarrationResult firstPass,
                                                     String professorSynthesis) {
@@ -1066,9 +1171,10 @@ public class ResearchNarrationService {
         if (literatureContext != null && !literatureContext.isEmpty()) {
             params.put("literatureContext", literatureContext);
             return registry.render(PromptTemplateIds.NARRATION_REVISION_ID,
-                    "v2-from-synthesis-with-literature", params);
+                    "v2-from-synthesis-with-literature", params) + CITATION_RULE_ADDENDUM;
         }
-        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params);
+        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params)
+                + CITATION_RULE_ADDENDUM;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -1723,13 +1829,17 @@ public class ResearchNarrationService {
             // keyed by computation_N. Either shape funnels into the canonical
             // Map<Integer, String> on NarrationResult.
             java.util.Map<Integer, String> findingsMap = parseFindingsShape(root.get("findings"));
+            // Phase 11 C2 — parse numeric_claims if present; null when absent (pre-Phase-11
+            // papers or runs where the prompt's new schema rule did not yet reach the LLM).
+            java.util.List<NarrationResult.NumericClaim> numericClaims =
+                    parseNumericClaims(root.get("numeric_claims"));
             return new NarrationResult(
                     root.path("hypothesis").asText(null),
                     findingsMap,
                     root.path("conclusion").asText(null),
                     followUp, null, confidenceScore, List.copyOf(citedPaperIds),
                     null, List.copyOf(typedCitations), List.copyOf(formalFindings),
-                    null, null, discussion, relatedWork, null, null, null);
+                    null, null, discussion, relatedWork, null, null, null, numericClaims);
         } catch (Exception e) {
             log.warn("LLM narration: JSON parse failed: {}", e.getMessage());
             return new NarrationResult(null, null, null, null, null, 0.5, List.of());
@@ -1786,6 +1896,46 @@ public class ResearchNarrationService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * Phase 11 C2 — parse the {@code numeric_claims} array on the LLM output.
+     * Returns null when the field is absent (pre-Phase-11 papers, or runs where
+     * the prompt's new schema rule hasn't reached the LLM yet). Returns an
+     * empty list when the array is present but empty. Skips malformed entries
+     * silently — the validator treats a too-short array as separate coverage
+     * failures, but a single bad entry must not poison the whole list.
+     *
+     * <p>Expected entry shape:
+     * <pre>{"value": 7.553, "units": "", "tool_call_id": "call_2",
+     *      "context": "ln(Kc/Kc0) at T=792 K", "source_location": "findings:1"}</pre>
+     */
+    static java.util.List<NarrationResult.NumericClaim> parseNumericClaims(
+            com.fasterxml.jackson.databind.JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) return null;
+        if (!node.isArray()) {
+            log.warn("LLM narration: numeric_claims is not an array (got {}); ignoring.",
+                    node.getNodeType());
+            return java.util.List.of();
+        }
+        java.util.List<NarrationResult.NumericClaim> out = new java.util.ArrayList<>();
+        for (com.fasterxml.jackson.databind.JsonNode entry : node) {
+            if (entry == null || !entry.isObject()) continue;
+            com.fasterxml.jackson.databind.JsonNode valueNode = entry.get("value");
+            if (valueNode == null || !valueNode.isNumber()) continue;
+            String toolCallId = optionalText(entry, "tool_call_id");
+            if (toolCallId == null) continue;
+            String units = optionalText(entry, "units");
+            String context = optionalText(entry, "context");
+            String sourceLocation = optionalText(entry, "source_location");
+            out.add(new NarrationResult.NumericClaim(
+                    valueNode.asDouble(),
+                    units == null ? "" : units,
+                    toolCallId,
+                    context == null ? "" : context,
+                    sourceLocation == null ? "" : sourceLocation));
+        }
+        return java.util.List.copyOf(out);
     }
 
     /** Phase 6 D2 — returns the JSON string at {@code key}, or null when absent / blank / non-string. */

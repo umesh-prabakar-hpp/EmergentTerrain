@@ -14,10 +14,22 @@ package com.emergentterrain.llm;
  * shape to it. F5.5's numerical-consistency check parses the result-side
  * structurally; the renderer (F5.4) treats both fields as opaque text for the
  * Methods appendix.
+ *
+ * <p>Phase 11 C1 — adds {@code callId} (stable, monotonic, harness-assigned)
+ * so the LLM can cite tool results by ID in its synthesis prose. Format is
+ * {@code "call_N"} where N is the 1-based position in the trace. Pre-Phase-11
+ * deserialization is preserved by a backward-compat constructor that defaults
+ * {@code callId} to {@code null}; the citation validator treats null IDs as
+ * pre-Phase-11 traces and exits early in warn mode.
  */
 public record ToolInvocation(
         String functionName,
         String argsJson,
         String resultJson,
-        int round) {
+        int round,
+        String callId) {
+
+    public ToolInvocation(String functionName, String argsJson, String resultJson, int round) {
+        this(functionName, argsJson, resultJson, round, null);
+    }
 }

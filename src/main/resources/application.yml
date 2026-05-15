@@ -369,6 +369,19 @@ app:
     # 8 papers") is what the live ON state exercises.
     structured-findings:
       enabled: true
+    # Phase 11 — citations-as-schema. The student-revision prompt asks the LLM
+    # to mark every numeric value with a [call_N] tool-call ID AND emit a
+    # parallel numeric_claims array. CitationValidator checks both shapes
+    # against the persisted tool-call trace.
+    #   warn      — log + stamp citations:{ok,uncited=N:unmatched=M:out_of_tolerance=K}
+    #               on call_path. Never suppresses. Default for the rollout
+    #               (Phase 11 C4 / 11a). Observe 2-3 REVIEW_REPORT refreshes
+    #               before flipping.
+    #   downgrade — papers with mismatched/out-of-tolerance claims route to
+    #               NULL_RESULT with an honest preamble. Wired in Phase 11 C5a.
+    #   suppress  — those papers are dropped entirely. Wired in Phase 11 C5b.
+    citations-as-schema:
+      mode: warn
     # Phase 7 F2 — number of independent computation prose blocks the narrator
     # produces (NOT the number of MathPhysicsEngine compute() calls, which is
     # still driven by the refinement loop). Clamped to 1 when

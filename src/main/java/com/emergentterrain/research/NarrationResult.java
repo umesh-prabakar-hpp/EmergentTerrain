@@ -63,10 +63,35 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
                                   no tool-call trace to grade). Carries the median grades,
                                   agreement score, consensus cited/contradiction lists, and the
                                   raw N reviews. Stamped via {@link #withPanelOutcome(PanelOutcome)}. */
-                               PanelOutcome panelOutcome) {
+                               PanelOutcome panelOutcome,
+                               /* Phase 11 C2 — structured numeric claims emitted alongside the
+                                  prose. Every [call_N] citation in the prose has a matching entry
+                                  here with the value, units, tool_call_id, and source location.
+                                  The citation validator checks these against the tool-call trace.
+                                  Null or empty when the LLM didn't emit the array (pre-Phase-11
+                                  papers, or papers that the prompt's new schema rule didn't yet
+                                  reach). Stamped via {@link #withNumericClaims(List)}. */
+                               List<NumericClaim> numericClaims) {
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
+
+    /**
+     * Phase 11 C2 — one numeric claim from Findings or Conclusion prose.
+     * {@code value} is the asserted number (parsed from the LLM's JSON, not the prose).
+     * {@code units} is a free-text unit string ("K", "kJ/mol", "MPa", "" for dimensionless).
+     * {@code toolCallId} is the {@code "call_N"} marker that the LLM cited; must match
+     * an ID in the persisted {@link com.emergentterrain.llm.ToolInvocation} trace.
+     * {@code context} is the LLM's free-text description of what this value represents.
+     * {@code sourceLocation} is one of: {@code "hypothesis"}, {@code "findings:N"} (1-based
+     * computation index), {@code "conclusion"}.
+     */
+    public record NumericClaim(
+            double value,
+            String units,
+            String toolCallId,
+            String context,
+            String sourceLocation) {}
 
     /**
      * Phase 4 Iter 9 — a single structured finding the narration LLM extracted
@@ -103,6 +128,28 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
     }
 
     /**
+     * Phase 11 C2 — 17-arg backward-compat for callers that already use the
+     * canonical {@code Map<Integer, String> findingsMap} shape (mostly tests).
+     * Defaults {@code numericClaims} to null (pre-Phase-11 behaviour: validator
+     * exits early in warn mode when the array is absent).
+     */
+    public NarrationResult(String hypothesis, Map<Integer, String> findingsMap, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations,
+                           List<ExtractedFinding> formalFindings,
+                           String templateId, String templateVersion,
+                           String discussion, String relatedWork,
+                           List<String> auditGapDimensions,
+                           List<com.emergentterrain.llm.ToolInvocation> toolCallTrace,
+                           PanelOutcome panelOutcome) {
+        this(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations,
+                formalFindings, templateId, templateVersion, discussion, relatedWork,
+                auditGapDimensions, toolCallTrace, panelOutcome, null);
+    }
+
+    /**
      * Phase 7 F2 — single-prose legacy String-shaped 15-arg constructor. Wraps
      * the prose as a single-entry map at key 1 so the canonical {@link #findingsMap()}
      * field stays consistent. Null prose stays null.
@@ -118,7 +165,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         this(hypothesis, wrapSingle(findings), conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations,
                 formalFindings, templateId, templateVersion, discussion, relatedWork,
-                auditGapDimensions, null, null);
+                auditGapDimensions, null, null, null);
     }
 
     /** 14-arg backward-compatible — null auditGapDimensions. */
@@ -187,7 +234,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome);
+                toolCallTrace, panelOutcome, numericClaims);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
@@ -195,7 +242,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome);
+                toolCallTrace, panelOutcome, numericClaims);
     }
 
     /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
@@ -203,7 +250,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome);
+                toolCallTrace, panelOutcome, numericClaims);
     }
 
     /** Phase 7 F5.3 — return a copy with the agentic tool-call trace stamped on. */
@@ -211,7 +258,7 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                trace, panelOutcome);
+                trace, panelOutcome, numericClaims);
     }
 
     /** Phase 7 F7.2 — return a copy with the panel outcome stamped on. */
@@ -219,7 +266,15 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, outcome);
+                toolCallTrace, outcome, numericClaims);
+    }
+
+    /** Phase 11 C2 — return a copy with the numeric-claims array stamped on. */
+    public NarrationResult withNumericClaims(List<NumericClaim> claims) {
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace, panelOutcome, claims);
     }
 
     /**
