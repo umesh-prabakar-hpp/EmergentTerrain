@@ -77,6 +77,13 @@ public class UniversityService {
     /** Phase 7 G6 — when on, RLC/Thermal-Stress/Arrhenius findings prose hitting known mis-label patterns publish as NEEDS_REVISION. */
     private final boolean topicSpecificFindingsValidatorEnabled;
     /**
+     * Phase 12 D6 — when on, conclusions that use the "no prior theoretical
+     * bound" boilerplate on a {@link TextbookBoundRegistry} topic publish as
+     * NEEDS_REVISION. Default off; opt-in flip once the registry's coverage
+     * has been measured against a refresh.
+     */
+    private final boolean closingProseValidatorEnabled;
+    /**
      * Phase 7 F7.3 — when on, SUPPORTED papers whose panel review surfaced
      * cherry_picked_evidence (≥2 reviewers flagged the same omitted-relevant
      * tool call) publish as REJECTED. Defaults off until the false-positive
@@ -196,6 +203,7 @@ public class UniversityService {
             @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
             @Value("${app.research.audit-cherry-picked-rejects.enabled:false}") boolean auditCherryPickedRejectsEnabled,
             @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
+            @Value("${app.research.closing-prose-validator.enabled:false}") boolean closingProseValidatorEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -231,6 +239,7 @@ public class UniversityService {
         this.auditPhysicalMechanismRejectsEnabled = auditPhysicalMechanismRejectsEnabled;
         this.auditCherryPickedRejectsEnabled       = auditCherryPickedRejectsEnabled;
         this.topicSpecificFindingsValidatorEnabled = topicSpecificFindingsValidatorEnabled;
+        this.closingProseValidatorEnabled = closingProseValidatorEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -279,6 +288,11 @@ public class UniversityService {
             log.info("UniversityService: topic-specific-findings-validator ENABLED — "
                     + "RLC / Thermal-Stress / Arrhenius prose hitting known mis-label "
                     + "patterns publish as NEEDS_REVISION.");
+        }
+        if (closingProseValidatorEnabled) {
+            log.info("UniversityService: closing-prose-validator ENABLED — conclusions "
+                    + "that use the 'no prior theoretical bound' boilerplate on a topic "
+                    + "with a known textbook bound publish as NEEDS_REVISION (Phase 12 D6).");
         }
         this.researchCycleService.setTopicsV2Enabled(topicsV2Enabled);
         if (topicsV2Enabled) {
@@ -520,6 +534,21 @@ public class UniversityService {
             log.warn("topic-specific findings check failed paperId={} reasons={}",
                     draft.paperId(), topicSpecificFailures);
         }
+        // Phase 12 D6 — "no prior theoretical bound" boilerplate on a topic
+        // with a known textbook closed-form. The closing-prose template
+        // defaults to this string when it can't identify a textbook
+        // reference; REVIEW_REPORT refresh #3 §1 rec #5 named five Reject
+        // papers (P-416 Mertens, P-422 Beer-Lambert, P-423 Stefan-Boltzmann,
+        // P-427 Doppler, P-432 Hall) where the boilerplate fired on topics
+        // whose bounds are well-known.
+        List<String> closingProseFailures = closingProseValidatorEnabled
+                ? ClosingProseValidator.validate(draft.domain(), draft.topicName(), conclusion)
+                : List.of();
+        boolean closingProseMismatch = !closingProseFailures.isEmpty();
+        if (closingProseMismatch) {
+            log.warn("closing-prose check failed paperId={} reasons={}",
+                    draft.paperId(), closingProseFailures);
+        }
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
@@ -647,6 +676,10 @@ public class UniversityService {
         } else if (topicSpecificMismatch) {
             // G6 — kept below truncation/validators (more severe), above the
             // call-path-driven NEEDS_REVISION clauses.
+            paperStatus = "NEEDS_REVISION";
+        } else if (closingProseMismatch) {
+            // Phase 12 D6 — boilerplate-on-textbook-topic. Same tier as G6:
+            // a content-quality issue that revision can fix.
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
             // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the

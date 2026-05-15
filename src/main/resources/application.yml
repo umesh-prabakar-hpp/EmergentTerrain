@@ -367,6 +367,16 @@ app:
     # validator is on. Fixable in revision (not REJECTED).
     topic-specific-findings-validator:
       enabled: true
+    # Phase 12 D6 — when on, conclusions that use the "no prior theoretical
+    # bound" boilerplate on a topic with a known textbook closed-form publish
+    # as NEEDS_REVISION. The TextbookBoundRegistry catalogs the bounded
+    # (domain, topic) pairs (Stefan-Boltzmann, Beer-Lambert, Hall-Petch,
+    # Mertens, Doppler, Hall, …) while explicitly excluding active conjectures
+    # (Twin Prime, Goldbach, Collatz, Aliquot, Happy Number) where the
+    # boilerplate is actually correct prose. Default off; opt-in flip after
+    # one refresh exercises the D-series suppression markers cleanly.
+    closing-prose-validator:
+      enabled: false
     # Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
     # in the findings section, keyed by 1-based computation index. The per-block
     # truncation guard then fails NEEDS_REVISION if any block ends mid-sentence,

@@ -56,6 +56,8 @@ class PublishPaperTest {
     private boolean auditCherryPickedRejectsEnabled = false;
     /** Phase 7 G6: tests that exercise topic-specific findings checks set this true. */
     private boolean topicSpecificFindingsValidatorEnabled = false;
+    /** Phase 12 D6: tests that exercise the closing-prose validator set this via {@link #enableClosingProseValidator()}. */
+    private boolean closingProseValidatorEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -133,6 +135,7 @@ class PublishPaperTest {
                 /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
                 /* auditCherryPickedRejectsEnabled       */ auditCherryPickedRejectsEnabled,
                 /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
+                /* closingProseValidatorEnabled          */ closingProseValidatorEnabled,
                 /* topicsV2Enabled               */ false,
                 mapper);
         roomId = UUID.randomUUID();
@@ -1336,6 +1339,92 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
     }
 
+    // ---- Phase 12 D6: closing-prose validator ----
+
+    @Test
+    void d6_boilerplateOnTextbookTopicRoutesToNeedsRevision() {
+        // P-a328-423 signature: Stefan-Boltzmann is textbook; the boilerplate
+        // sentence is factually wrong. Demote to NEEDS_REVISION.
+        enableClosingProseValidator();
+        PaperDraft draft = draftForTopic("PHYSICS", "Stefan-Boltzmann Total Flux",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Recovered σ within 5% of the reference value.",
+                "Σ-recovery proceeded. No prior theoretical bound constrains the "
+                        + "expected value in this region.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void d6_boilerplateOnOpenConjectureStillPublishes() {
+        // Twin Prime Clustering is an active conjecture — the boilerplate is
+        // correct prose. Don't demote.
+        enableClosingProseValidator();
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Twin Prime Clustering",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Pair counts within Hardy-Littlewood band.",
+                "Pattern beyond surveyed range remains open. No prior theoretical bound "
+                        + "constrains the expected value in this region.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void d6_textbookTopicWithoutBoilerplateStillPublishes() {
+        // Bounded topic but conclusion doesn't use the boilerplate. No flag.
+        enableClosingProseValidator();
+        PaperDraft draft = draftForTopic("CHEMISTRY", "Beer-Lambert Absorbance",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Recovered ε within 5% of literature value.",
+                "ε recovery within tolerance; Beer-Lambert linearity confirmed.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void d6_flagOffLeavesBoilerplateOnTextbookTopicAsPublished() {
+        // Default flag off — boilerplate on textbook topic still publishes (today's behaviour).
+        PaperDraft draft = draftForTopic("PHYSICS", "Stefan-Boltzmann Total Flux",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Recovered σ within 5% of the reference value.",
+                "Σ-recovery proceeded. No prior theoretical bound constrains the "
+                        + "expected value in this region.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void d6_truncatedTakesPrecedenceOverClosingProse() {
+        // Status precedence: truncation > closing-prose. Both fire; truncation wins.
+        enableClosingProseValidator();
+        enableTruncationGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "Stefan-Boltzmann Total Flux",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Recovered σ within 5% of the reference value.",
+                // Truncation guard fires (no terminator) AND boilerplate fires.
+                "Σ-recovery proceeded. No prior theoretical bound constrains the "
+                        + "expected value in this region cut off",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        // Both signals → status is the stronger one (NEEDS_REVISION either way,
+        // but truncation precedence is exercised here).
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
     @Test
     void nullResultStaysNullEvenWhenCritiqueWasSkipped() {
         service.publishPaper(
@@ -1678,6 +1767,12 @@ class PublishPaperTest {
     /** Phase 7 G6 — rebuilds the service with the topic-specific findings validator ON. */
     private void enableTopicSpecificFindingsValidator() {
         topicSpecificFindingsValidatorEnabled = true;
+        setUp();
+    }
+
+    /** Phase 12 D6 — rebuilds the service with the closing-prose validator ON. */
+    private void enableClosingProseValidator() {
+        closingProseValidatorEnabled = true;
         setUp();
     }
 
