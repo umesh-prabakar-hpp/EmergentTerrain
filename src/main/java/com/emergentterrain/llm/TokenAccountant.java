@@ -44,6 +44,21 @@ public class TokenAccountant {
         }
     }
 
+    /**
+     * Phase 9 G9 — internal API for pre-debit reservations and corrections.
+     * Accepts negative deltas so {@link TpmBudgetGate} can record a tentative
+     * reservation of (say) 800 tokens and later correct it to a 550-token
+     * actual via {@code recordDelta(provider, -250)}.
+     *
+     * <p>The public {@link #record(TokenUsage)} API still rejects non-positive
+     * totals to preserve its "completed call" semantics.
+     */
+    public void recordDelta(String provider, long delta) {
+        if (delta == 0 || provider == null) return;
+        byProvider.computeIfAbsent(provider, k -> new ConcurrentLinkedDeque<>())
+                .add(new Entry(System.currentTimeMillis(), delta));
+    }
+
     public long dailyTotal(String provider)  { return sumWindow(provider, DAY_MS); }
     public long minuteTotal(String provider) { return sumWindow(provider, MINUTE_MS); }
 

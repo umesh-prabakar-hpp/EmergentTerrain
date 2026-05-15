@@ -1,7 +1,9 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.BudgetExceededException;
 import com.emergentterrain.llm.TokenAccountant;
 import com.emergentterrain.llm.TokenUsage;
+import com.emergentterrain.llm.TpmBudgetGate;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -149,6 +151,17 @@ public class GroqPool implements LlmPool {
     // Optional: null when running tests that don't wire the accountant bean.
     @Autowired(required = false)
     private TokenAccountant tokenAccountant;
+
+    /**
+     * Phase 9 G9 — pre-debit budget gate. When wired, every HTTP call to Groq
+     * reserves its conservative token estimate BEFORE sending the request, so
+     * concurrent virtual threads cannot collectively overshoot the per-minute
+     * budget (observed at 172% in the research/a3289005 logs). Optional:
+     * null in tests; legacy post-spend {@link #recordUsage} runs as a fallback
+     * when this is null.
+     */
+    @Autowired(required = false)
+    private TpmBudgetGate budgetGate;
 
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
@@ -472,6 +485,16 @@ public class GroqPool implements LlmPool {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
                 String payload = buildConversationPayload(
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
+                // Phase 9 G9 — pre-debit per tool-loop round. The conversation
+                // grows each round as tool messages accumulate, so the estimate
+                // is recomputed from the current payload size (a reasonable
+                // proxy for prompt token count) plus the per-round max output.
+                long estimate = estimateTokens(payload, toolMaxTokens);
+                boolean reserved = false;
+                if (budgetGate != null) {
+                    budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
+                    reserved = true;
+                }
                 HttpRequest req = HttpRequest.newBuilder()
                         .uri(URI.create(BASE_URL + "/chat/completions"))
                         .header("Authorization", "Bearer " + apiKey)
@@ -487,7 +510,12 @@ public class GroqPool implements LlmPool {
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
                 String   reason  = choice.path("finish_reason").asText("stop");
-                recordUsage(modelId, body.path("usage"));
+                JsonNode usage   = body.path("usage");
+                if (reserved) {
+                    budgetGate.correct(PROVIDER_ID, modelId, estimate, totalFromUsage(usage));
+                } else {
+                    recordUsage(modelId, usage);
+                }
 
                 if ("tool_calls".equals(reason) && !lastRound) {
                     messages.add(message);
@@ -1013,6 +1041,16 @@ public class GroqPool implements LlmPool {
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {
+        // Phase 9 G9 — pre-debit reservation. Throws BudgetExceededException
+        // BEFORE any HTTP request when the estimate would push the per-minute
+        // budget past the pause threshold. When the gate isn't wired (tests),
+        // we fall back to the legacy post-spend recordUsage path below.
+        long estimate = estimateTokens(prompt, tokenLimit);
+        boolean reserved = false;
+        if (budgetGate != null) {
+            budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
+            reserved = true;
+        }
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + "/chat/completions"))
@@ -1033,7 +1071,13 @@ public class GroqPool implements LlmPool {
                 // and may leave "content" empty when token budget is exhausted mid-reasoning.
                 content = message.path("reasoning").asText("");
             }
-            recordUsage(modelId, root.path("usage"));
+            JsonNode usage = root.path("usage");
+            if (reserved) {
+                // Replace the pre-recorded estimate with actual usage via correct().
+                budgetGate.correct(PROVIDER_ID, modelId, estimate, totalFromUsage(usage));
+            } else {
+                recordUsage(modelId, usage);
+            }
             return content;
         } catch (RuntimeException e) {
             throw e;
@@ -1051,7 +1095,37 @@ public class GroqPool implements LlmPool {
                 PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));
     }
 
+    /**
+     * Phase 9 G9 — conservative token estimate for pre-debit reservation.
+     * Rough heuristic: ~3 chars per token (more conservative than the
+     * standard 4 chars/token because Groq's mix of English + code + math is
+     * tokenized denser than plain English). Total estimate = input + max
+     * output; we'd rather pause early than overshoot the budget by 72%.
+     */
+    private long estimateTokens(String prompt, int maxOutput) {
+        long inputEstimate = (prompt == null) ? 0L : Math.max(1L, prompt.length() / 3L);
+        return inputEstimate + Math.max(0, maxOutput);
+    }
+
+    /** Phase 9 G9 — extract prompt+completion totals from a {@code usage} JSON node. */
+    private long totalFromUsage(JsonNode usage) {
+        if (usage == null || usage.isMissingNode() || usage.isNull()) return 0L;
+        return usage.path("prompt_tokens").asLong(0)
+                + usage.path("completion_tokens").asLong(0);
+    }
+
     private void streamCall(String modelId, String prompt, Consumer<String> tokenConsumer) {
+        // Phase 9 G9 — pre-debit reservation, same shape as syncCall. Stream
+        // responses emit the final `usage` JSON in a terminating SSE chunk;
+        // we correct against that when it arrives.
+        final long estimate = estimateTokens(prompt, maxTokens);
+        final boolean reserved;
+        if (budgetGate != null) {
+            budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
+            reserved = true;
+        } else {
+            reserved = false;
+        }
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + "/chat/completions"))
@@ -1070,7 +1144,11 @@ public class GroqPool implements LlmPool {
                             // an empty choices[] and a populated `usage` field.
                             JsonNode usage = chunk.path("usage");
                             if (!usage.isMissingNode() && !usage.isNull()) {
-                                recordUsage(modelId, usage);
+                                if (reserved) {
+                                    budgetGate.correct(PROVIDER_ID, modelId, estimate, totalFromUsage(usage));
+                                } else {
+                                    recordUsage(modelId, usage);
+                                }
                             }
                             JsonNode choices = chunk.path("choices");
                             if (!choices.isArray() || choices.isEmpty()) return;
