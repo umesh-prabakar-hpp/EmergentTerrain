@@ -71,10 +71,15 @@ public class TokenBudgetReporter {
         }
         boolean gateOpen = (gate == null) || gate.isOpen();
         String gateState = gateOpen ? "OPEN" : "CLOSED";
+        // Phase 9 G8 — gate is a global kill-switch; surface its reason on every
+        // per-provider row so readers can tell which provider actually tripped it.
+        // Previously the row "provider=ollama gate=CLOSED" implied ollama was the
+        // cause when really only groq's TPM had blown past the pause threshold.
+        String gateReason = (gate == null) ? "(unconfigured)" : gate.reason();
         for (var entry : props.getProviders().entrySet()) {
             ProviderSnapshot s = snapshot(entry.getKey());
-            log.info("token-budget provider={} gate={} {} pauseLikely={}",
-                    s.provider(), gateState, s.toLogFields(), s.pauseLikely());
+            log.info("token-budget provider={} gate={} gateReason=\"{}\" {} pauseLikely={}",
+                    s.provider(), gateState, gateReason, s.toLogFields(), s.pauseLikely());
         }
     }
 
