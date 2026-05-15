@@ -109,7 +109,13 @@ public class ResearchPaper {
      * 4c Piece 3 will key per-variant rollback statistics on. Null on legacy
      * rows.
      */
-    @Column(name = "narration_template_version", length = 32)
+    /**
+     * Width matches narration_template_id (64). The original 32 capped before
+     * Phase 7 F2's longer variant ids landed (e.g. "v3-structured-findings-with-discussion"
+     * is 38 chars). Hibernate ddl-auto: update widens the column on next start;
+     * existing rows stay valid.
+     */
+    @Column(name = "narration_template_version", length = 64)
     private String narrationTemplateVersion;
 
     /**
