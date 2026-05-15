@@ -73,6 +73,20 @@ public class ResearchNarrationService {
     private final int maxComputations;
 
     /**
+     * Phase 12 D4 — when on, a panel that returns {@code got ∈ {2, 3}} of a
+     * configured 4 stamps a {@code panel:n=N:degraded:demoted_to_needs_revision}
+     * marker. {@link com.emergentterrain.research.UniversityService#publishPaper}
+     * reads the marker and routes status PUBLISHED → NEEDS_REVISION. The n=1
+     * suppression branch above this is unchanged (single-reviewer agreement is
+     * non-informative, suppress outright).
+     *
+     * <p>Default off; the operator flips it on after one REVIEW_REPORT refresh
+     * exercises the D-series suppressions so the demotion signal lands in a
+     * known baseline.
+     */
+    private final boolean panelDegradationDemoteEnabled;
+
+    /**
      * Phase 11 C4 — citations-as-schema validator. Runs after the student-revision
      * stage produces a NarrationResult with {@code numericClaims} and a tool-call
      * trace with stable {@code call_N} IDs. Operates in three modes via
@@ -129,7 +143,9 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.structured-findings.enabled:false}")
             boolean structuredFindingsEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.max-computations:2}")
-            int maxComputationsCfg) {
+            int maxComputationsCfg,
+            @org.springframework.beans.factory.annotation.Value("${app.research.panel-degradation-demote.enabled:false}")
+            boolean panelDegradationDemoteEnabled) {
         this.router                    = router;
         // Phase 8 Tier 4 — GpuEngineAdapter is @Autowired(required=false) so
         // tests and configurations without the GPU engine wired still construct
@@ -148,12 +164,15 @@ public class ResearchNarrationService {
         this.maxComputations           = structuredFindingsEnabled
                 ? Math.max(1, maxComputationsCfg)
                 : 1;
+        this.panelDegradationDemoteEnabled = panelDegradationDemoteEnabled;
         this.narrationSlot             = new Semaphore(router.primaryPoolSize());
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
                 + "discussionSectionEnabled={} ollamaFallbackEnabled={} "
-                + "structuredFindingsEnabled={} maxComputations={} (cfg={})",
+                + "structuredFindingsEnabled={} maxComputations={} (cfg={}) "
+                + "panelDegradationDemoteEnabled={}",
                 narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled,
-                ollamaFallbackEnabled, structuredFindingsEnabled, maxComputations, maxComputationsCfg);
+                ollamaFallbackEnabled, structuredFindingsEnabled, maxComputations, maxComputationsCfg,
+                panelDegradationDemoteEnabled);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
@@ -449,23 +468,25 @@ public class ResearchNarrationService {
                         draft.paperId(), System.currentTimeMillis() - start);
                 return null;
             }
-            // Phase 10 — widen the suppression gate. P-a328-352 (prime-gap →
-            // CTE) and P-a328-353 (aliquot sequences) each saw four sandbox
-            // rejections followed by zero successful tool calls, yet the LLM
-            // wrote a complete synthesis with fabricated linear-fit
-            // coefficients and Wilson confidence intervals. The blank-synthesis
-            // check above only catches genuinely empty outputs; a fabricated
-            // narrative around no data slips through. Suppress whenever:
-            //   total tool rejections >= 3  AND  total successful tool calls == 0.
-            // Three rejections is the threshold because the executor's retry
-            // loop typically allows up to 4 attempts — by call #3 the LLM has
-            // not converged on a parser-compatible form and further synthesis
-            // is unsupported by computation.
-            if (metrics.totalRejects() >= 3 && metrics.totalSuccesses() == 0) {
+            // Phase 12 D3 — widen the suppression gate. Phase 10's `>= 3 rejects
+            // AND 0 successes` threshold only caught safety-rejected calls; it
+            // missed the May 2026 refresh-#3 papers (P-a328-395, 402, 405, 411,
+            // 422) where every tool call threw a *runtime* error ("index out of
+            // bounds", "Cannot use array as scalar") rather than failing the
+            // safety review. ToolMetrics increments `sandboxRejectCount` only on
+            // safety rejections, so runtime-error papers accumulated zero rejects
+            // AND zero successes — slipping past `totalRejects >= 3`.
+            //
+            // The new threshold is just `totalSuccesses == 0`. A paper that
+            // produced any valid tool output still publishes; the only papers
+            // suppressed are those with literally no successful computation —
+            // which is exactly the fabrication signal refresh #3 named.
+            if (metrics.totalSuccesses() == 0) {
                 callPath.add("prof:" + abbrev(router.primaryModel())
-                        + ":all_tools_failed→suppressed");
-                log.warn("LLM professor tools: {} rejects, 0 successes paperId={} — draft suppressed "
-                                + "(fabrication pattern from REVIEW_REPORT.md refresh #2 P-352/P-353)",
+                        + ":zero_successes→suppressed");
+                log.warn("LLM professor tools: 0 successes (rejects={}) paperId={} — draft suppressed "
+                                + "(Phase 12 D3; fabrication pattern from REVIEW_REPORT.md refresh #3 "
+                                + "P-395/402/405/411/422)",
                         metrics.totalRejects(), draft.paperId());
                 return null;
             }
@@ -775,6 +796,21 @@ public class ResearchNarrationService {
                                 + "refresh #3 (P-360 fabrication pattern).",
                         draft != null ? draft.paperId() : "?", configuredSize);
                 return null;
+            }
+            // Phase 12 D4 — n ∈ {2, 3} of a configured 4 carries lower confidence
+            // than a full panel but is not non-informative the way n=1 is.
+            // REVIEW_REPORT refresh #3 §1 rec #6 named four Reject papers
+            // (P-417, P-419, P-428, P-431) that carried PUBLISHED despite
+            // degraded panels; D4 demotes them to NEEDS_REVISION so the lower
+            // confidence is surfaced. The paper still publishes — peer score,
+            // call path, and panel outcome are preserved — but the status
+            // reflects what actually happened in review.
+            if (panelDegradationDemoteEnabled
+                    && got >= 2 && got < configuredSize) {
+                callPath.add("panel:n=" + got + ":degraded:demoted_to_needs_revision");
+                log.info("ReviewPanelService: paperId={} panel n={} of configured {} — "
+                                + "demoting PUBLISHED → NEEDS_REVISION (Phase 12 D4).",
+                        draft != null ? draft.paperId() : "?", got, configuredSize);
             }
             return narration.withPanelOutcome(outcome);
         } catch (Exception e) {

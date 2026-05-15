@@ -423,6 +423,16 @@ app:
       enabled: true
       providers: "groq,nvidia,openrouter,cerebras"
       size: 4
+    # Phase 12 D4 — when on, panels that return n ∈ {2, 3} of the configured
+    # size demote the paper from PUBLISHED → NEEDS_REVISION (the paper still
+    # persists with its peer score / call path / panel outcome — only the
+    # status changes). REVIEW_REPORT refresh #3 §1 rec #6 named four Reject
+    # papers (P-417, P-419, P-428, P-431) that carried PUBLISHED despite
+    # degraded panels — the gate signal was there in the LLM path but not
+    # enforced. The n=1 suppression branch is unchanged (single-reviewer
+    # agreement is non-informative; suppress outright).
+    panel-degradation-demote:
+      enabled: false
     # Phase 7 F7.3 — when on, SUPPORTED papers whose panel surfaced the
     # cherry_picked_evidence audit-gap dimension (>=2 reviewers agreed the LLM
     # omitted a relevant tool result) publish as REJECTED rather than PUBLISHED.

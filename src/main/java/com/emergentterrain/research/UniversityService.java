@@ -648,6 +648,13 @@ public class UniversityService {
             // G6 — kept below truncation/validators (more severe), above the
             // call-path-driven NEEDS_REVISION clauses.
             paperStatus = "NEEDS_REVISION";
+        } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
+            // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the
+            // operator flipped the demote flag. The narration service stamps
+            // the marker on the callPath; the publishPaper ladder reads it
+            // before the prof:error→fp PUBLISHED_NO_PROFESSOR clause so the
+            // demotion wins when both apply.
+            paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("rev:ollama:ok")) {

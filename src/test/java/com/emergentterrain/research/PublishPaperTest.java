@@ -1106,6 +1106,70 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("REJECTED");
     }
 
+    // ---- Phase 12 D4: degraded-panel demotion via callPath marker ----
+    //
+    // ResearchNarrationService.runPanelAndStamp stamps the marker when the panel
+    // returns n ∈ {2, 3} and the demote flag is on. publishPaper reads the marker
+    // from narration.callPath() and routes the paper to NEEDS_REVISION. These
+    // tests exercise the publishPaper-side ladder directly by setting callPath
+    // on the NarrationResult, so they don't need a live ReviewPanelService.
+
+    @Test
+    void d4_demotionMarkerRoutesToNeedsRevision() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → panel:n=3:degraded:demoted_to_needs_revision");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void d4_demotionMarkerForNEqualsTwoAlsoRoutesToNeedsRevision() {
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → panel:n=2:degraded:demoted_to_needs_revision");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void d4_fullPanelNotDemoted() {
+        // n=4 of 4 — full panel. No demotion marker on the callPath. Status PUBLISHED.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → panel:n=4:agreement=0.91");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void d4_degradedPanelMarkerWithoutDemotionDoesNotRouteToNeedsRevision() {
+        // Phase 12 D4 is opt-in. When the demote flag is off, the panel still
+        // stamps `panel:n=3:degraded:from=4:agreement=0.X` but NOT the
+        // `:demoted_to_needs_revision` marker. publishPaper keeps PUBLISHED.
+        PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Findings are complete.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of(),
+                "rev:llama-70b:ok → panel:n=3:degraded:from=4:agreement=0.87");
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
     // ---- Phase 5 A4: harness-parameter leak filter ----
 
     @Test

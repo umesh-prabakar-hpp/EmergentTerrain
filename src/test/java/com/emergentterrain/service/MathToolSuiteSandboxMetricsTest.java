@@ -137,8 +137,10 @@ class MathToolSuiteSandboxMetricsTest {
     @Test
     void rejectAndSuccessTalliesAreIndependent() throws Exception {
         // One rejected call + one successful call → 1 reject and 1 success
-        // recorded separately. Confirms the "all tools failed" detector
-        // (rejects >= 3 AND successes == 0) wouldn't fire here.
+        // recorded separately. Confirms the Phase 12 D3 zero-successes gate
+        // (totalSuccesses == 0) wouldn't fire here — a single successful tool
+        // call is sufficient to land the paper, regardless of how many rejects
+        // accumulate alongside it.
         LlmRouter router = mock(LlmRouter.class);
         ObjectMapper mapper = new ObjectMapper();
         // First call: 4b says REJECTED. Second call: APPROVED.
