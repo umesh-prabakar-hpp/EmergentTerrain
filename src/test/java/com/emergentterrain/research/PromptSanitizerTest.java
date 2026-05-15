@@ -414,4 +414,60 @@ class PromptSanitizerTest {
         // Clean prose — no false positive.
         assertThat(PromptSanitizer.detects("the parameters were chosen carefully")).isFalse();
     }
+
+    // ── Phase 10 follow-on — bare-phrasing leak forms ───────────────────────
+
+    @Test
+    void phase10_followOn_stripsBarePositionAndScale_P375() {
+        // P-a328-375 Findings verbatim — the bare form that slipped past
+        // OBSERVED_FROM_POSITION_AND_SCALE because it has no "the" / "of".
+        String input = "Fitting the allometric relationship across 54 body masses "
+                + "centered at M=8.00 with starting position 15 and scale 8.5 "
+                + "yielded an exponential coefficient of 0.750.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("starting position 15");
+        assertThat(out).doesNotContain("scale 8.5");
+        // The surrounding sentence stays coherent.
+        assertThat(out).contains("Fitting the allometric relationship")
+                .contains("exponential coefficient of 0.750");
+    }
+
+    @Test
+    void phase10_followOn_stripsBareIndexAndScaleFactor_P376() {
+        // P-a328-376 Hypothesis verbatim — the bare-index form with no "of"
+        // connector. STARTING_INDEX_OF required "of"; STARTING_INDEX_BARE does not.
+        String input = "Within the explored grain-size window (starting index 53, "
+                + "scale factor 5.3), the yield strength follows σ_y = σ_0 + k·d^(-1/2).";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("starting index 53");
+        assertThat(out).doesNotContain("scale factor 5.3");
+        assertThat(out).contains("grain-size window")
+                .contains("yield strength follows σ_y");
+    }
+
+    @Test
+    void phase10_followOn_stripsBareIndexAlone() {
+        // The "scale factor" tail is optional — bare "starting index N" must
+        // also strip cleanly when the LLM omits the second value.
+        String input = "An additional sweep starting index 22 gave consistent results.";
+        String out = PromptSanitizer.sanitize(input);
+        assertThat(out).doesNotContain("starting index 22");
+        assertThat(out).contains("additional sweep").contains("consistent results");
+    }
+
+    @Test
+    void phase10_followOn_detectsBareForms() {
+        assertThat(PromptSanitizer.detects(
+                "with starting position 15 and scale 8.5 yielded results")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "(starting index 53, scale factor 5.3)")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "starting index 7 follows the relation")).isTrue();
+        // Pre-existing "of" forms still detected (regression guard).
+        assertThat(PromptSanitizer.detects(
+                "the starting position of 10 and scale of 7.7")).isTrue();
+        // Clean prose — no false positive even though it contains "starting".
+        assertThat(PromptSanitizer.detects(
+                "we are starting our analysis at the lowest grain size")).isFalse();
+    }
 }

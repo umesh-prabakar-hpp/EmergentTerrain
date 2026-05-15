@@ -157,6 +157,38 @@ public final class PromptSanitizer {
                     + "(?:applied\\s+from\\s+a\\s+)?starting\\s+(?:cycle\\s+)?index\\s+of\\s+\\d+",
                     Pattern.CASE_INSENSITIVE);
 
+    // Phase 10 follow-on (post-redeploy) — bare-phrasing leak patterns.
+    // The new room's first papers (P-a328-375 / P-376) carry leak phrasings
+    // that the connector-anchored patterns above miss:
+    //   "starting position 15 and scale 8.5"   (P-375 — no "the", no "of")
+    //   "starting index 53, scale factor 5.3"  (P-376 — no "of")
+    // The existing OBSERVED_FROM_POSITION_AND_SCALE and STARTING_INDEX_OF
+    // patterns both require the "of" connector. The bare forms read more
+    // naturally so the narrator LLM gravitates toward them once they see the
+    // numeric values in the refinement accumulator.
+
+    /**
+     * "starting position N and scale M.M" / "starting position N and scale
+     * factor M.M" — the P-a328-375 leak. Matches without requiring "the" or
+     * "of". Optional "factor" head-noun before the scale value.
+     */
+    private static final Pattern STARTING_POSITION_BARE_AND_SCALE =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "starting\\s+position\\s+\\d+\\s+and\\s+scale\\s+(?:factor\\s+)?[\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * "starting index N" / "starting cycle index N" — the P-a328-376 leak,
+     * sibling of {@link #STARTING_INDEX_OF} with no "of" connector. Optional
+     * "(, scale factor M.M)" trailing clause keeps the whole leak phrase
+     * removable in a single match so cleanup doesn't have to merge the comma.
+     */
+    private static final Pattern STARTING_INDEX_BARE =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "starting\\s+(?:cycle\\s+)?index\\s+\\d+"
+                    + "(?:\\s*,\\s*scale\\s+factor\\s+[\\d.]+)?",
+                    Pattern.CASE_INSENSITIVE);
+
     // Phase 10 — literal `paramN=N` leaks from the refinement-loop accumulator.
     // The May-2026 research/a3289005 refresh #3 found these patterns in ~10 of
     // 21 published papers (Hypothesis text on P-344, P-347, P-355, P-356,
@@ -237,6 +269,12 @@ public final class PromptSanitizer {
         cleaned = WHEN_SEARCH_STARTS_AT_POSITION.matcher(cleaned).replaceAll("");
         cleaned = STARTS_NEAR_POSITION.matcher(cleaned).replaceAll("");
         cleaned = STARTING_INDEX_OF.matcher(cleaned).replaceAll("");
+        // Phase 10 follow-on — bare-phrasing variants for the new room.
+        // STARTING_POSITION_BARE_AND_SCALE strips the whole pair so the
+        // simpler STARTING_INDEX_BARE doesn't carve "starting position 15"
+        // out of "starting position 15 and scale 8.5" first.
+        cleaned = STARTING_POSITION_BARE_AND_SCALE.matcher(cleaned).replaceAll("");
+        cleaned = STARTING_INDEX_BARE.matcher(cleaned).replaceAll("");
         // Phase 10 — paramN= literal leaks. Strip the parenthesised pair form
         // first (it's the longest match) so the single / label / bare patterns
         // don't carve it into debris.
@@ -318,6 +356,8 @@ public final class PromptSanitizer {
                 || WHEN_SEARCH_STARTS_AT_POSITION.matcher(text).find()
                 || STARTS_NEAR_POSITION.matcher(text).find()
                 || STARTING_INDEX_OF.matcher(text).find()
+                || STARTING_POSITION_BARE_AND_SCALE.matcher(text).find()
+                || STARTING_INDEX_BARE.matcher(text).find()
                 || PARAM_PARENTHESIZED_PAIR.matcher(text).find()
                 || PARAM_PARENTHESIZED_SINGLE.matcher(text).find()
                 || PARAM_PARENTHESIZED_LABEL.matcher(text).find()
