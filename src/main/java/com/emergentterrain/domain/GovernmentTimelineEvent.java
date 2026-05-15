@@ -30,7 +30,7 @@ public class GovernmentTimelineEvent {
     @Column(nullable = false)
     private Instant occurredAt;
 
-    @Column(nullable = false, length = 32)
+    @Column(nullable = false, length = 64)
     private String kind;
 
     @Column(nullable = false, length = 128)

@@ -46,7 +46,7 @@ public class University {
     private UUID hostingDistrictId;
 
     /** Emerges from member ResearchIdentity distribution; null until Phase 3b wires this. */
-    @Column(name = "dominant_methodology", length = 32)
+    @Column(name = "dominant_methodology", length = 64)
     private String dominantMethodology;
 
     /** Accumulates from member paper citation counts. Updated by InstitutionService. */
