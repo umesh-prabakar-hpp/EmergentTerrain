@@ -1,6 +1,7 @@
 package com.emergentterrain.llm;
 
 import java.io.IOException;
+import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -8,6 +9,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.slf4j.Logger;
@@ -15,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import com.sun.management.OperatingSystemMXBean;
 
 /**
  * Host-level resource kill-switch parallel to {@link SimulationGate}.
@@ -42,19 +46,23 @@ import org.springframework.stereotype.Component;
  *       are required to drop back below {@code CRITICAL} (anti-flap).</li>
  * </ul>
  *
- * Signals (any one trips the level):
- * <ul>
- *   <li>{@code /proc/meminfo MemAvailable} below
- *       {@code memAvailableElevatedMb} / {@code memAvailableCriticalMb}.</li>
- *   <li>{@code /proc/loadavg} 1-minute average above
- *       {@code loadPerCoreElevated} / {@code loadPerCoreCritical} ×
- *       {@code availableProcessors()}.</li>
- *   <li>JVM heap used / max above {@code heapElevatedPct} /
- *       {@code heapCriticalPct}.</li>
- * </ul>
+ * <h2>Dynamic memory thresholds</h2>
+ * Memory thresholds are sized to the actual host. The gate reads total
+ * physical memory at startup (and re-resolves periodically in case the
+ * host's reported capacity changes — e.g. cgroup ceiling adjustment in a
+ * container) and derives the elevated/critical floors as a percentage of
+ * that total. On a 4 GB box and a 64 GB box the same percentage gives
+ * sensibly different absolute floors. Absolute overrides
+ * ({@code memAvailableElevatedMb} / {@code memAvailableCriticalMb}) are
+ * honored when set to a positive value — useful for capping behavior in
+ * unusual environments. Percentages are the default ({@code 20%} elevated,
+ * {@code 7%} critical) so out-of-the-box defaults adapt to any host.
  *
- * <p>Disabled on non-Linux hosts (no {@code /proc/meminfo}) — only the JVM
- * heap check applies in that case.
+ * <p>Load and heap thresholds are already scale-aware: load is normalized
+ * by {@code availableProcessors()}, heap is a pct of {@code maxMemory()}.
+ *
+ * <p>Disabled on non-Linux hosts (no {@code /proc/meminfo}/{@code /proc/loadavg}) —
+ * only the JVM heap check applies in that case.
  */
 @Component
 public class SystemResourcesGate {
@@ -65,15 +73,25 @@ public class SystemResourcesGate {
 
     private static final Path MEMINFO = Paths.get("/proc/meminfo");
     private static final Path LOADAVG = Paths.get("/proc/loadavg");
+    private static final long THRESHOLD_RECHECK_MS = 60_000L;
 
     private final boolean enabled;
-    private final long memAvailableElevatedKb;
-    private final long memAvailableCriticalKb;
+    private final double memAvailableElevatedPct;
+    private final double memAvailableCriticalPct;
+    private final long memAvailableElevatedAbsKb; // 0 = derive from pct
+    private final long memAvailableCriticalAbsKb; // 0 = derive from pct
     private final double loadPerCoreElevated;
     private final double loadPerCoreCritical;
     private final double heapElevatedPct;
     private final double heapCriticalPct;
     private final int cores;
+
+    // Effective thresholds — resolved from host capacity, may drift if total
+    // memory changes. Reads under volatile; updates under the same.
+    private volatile long effectiveElevatedKb;
+    private volatile long effectiveCriticalKb;
+    private volatile long totalMemKb;
+    private final AtomicLong lastThresholdResolveMs = new AtomicLong(0L);
 
     private final AtomicReference<Level> level = new AtomicReference<>(Level.NORMAL);
     private final AtomicReference<String> reason = new AtomicReference<>("startup");
@@ -81,30 +99,62 @@ public class SystemResourcesGate {
     private final AtomicInteger criticalClearStreak = new AtomicInteger(0);
 
     public SystemResourcesGate(
-            @Value("${app.resources.enabled:true}")              boolean enabled,
-            @Value("${app.resources.memAvailableElevatedMb:1500}") long memAvailableElevatedMb,
-            @Value("${app.resources.memAvailableCriticalMb:500}")  long memAvailableCriticalMb,
-            @Value("${app.resources.loadPerCoreElevated:2.0}")     double loadPerCoreElevated,
-            @Value("${app.resources.loadPerCoreCritical:4.0}")     double loadPerCoreCritical,
-            @Value("${app.resources.heapElevatedPct:85}")          double heapElevatedPct,
-            @Value("${app.resources.heapCriticalPct:95}")          double heapCriticalPct) {
-        this.enabled                = enabled;
-        this.memAvailableElevatedKb = memAvailableElevatedMb * 1024L;
-        this.memAvailableCriticalKb = memAvailableCriticalMb * 1024L;
-        this.loadPerCoreElevated    = loadPerCoreElevated;
-        this.loadPerCoreCritical    = loadPerCoreCritical;
-        this.heapElevatedPct        = heapElevatedPct;
-        this.heapCriticalPct        = heapCriticalPct;
-        this.cores                  = Math.max(1, Runtime.getRuntime().availableProcessors());
-        log.info("SystemResourcesGate: enabled={} cores={} memElev={}MB memCrit={}MB "
-                        + "loadElev={}/core loadCrit={}/core heapElev={}% heapCrit={}%",
-                enabled, cores, memAvailableElevatedMb, memAvailableCriticalMb,
-                loadPerCoreElevated, loadPerCoreCritical, heapElevatedPct, heapCriticalPct);
+            @Value("${app.resources.enabled:true}")                  boolean enabled,
+            @Value("${app.resources.memAvailableElevatedPct:20}")    double memAvailableElevatedPct,
+            @Value("${app.resources.memAvailableCriticalPct:7}")     double memAvailableCriticalPct,
+            @Value("${app.resources.memAvailableElevatedMb:0}")      long memAvailableElevatedMb,
+            @Value("${app.resources.memAvailableCriticalMb:0}")      long memAvailableCriticalMb,
+            @Value("${app.resources.loadPerCoreElevated:2.0}")       double loadPerCoreElevated,
+            @Value("${app.resources.loadPerCoreCritical:4.0}")       double loadPerCoreCritical,
+            @Value("${app.resources.heapElevatedPct:85}")            double heapElevatedPct,
+            @Value("${app.resources.heapCriticalPct:95}")            double heapCriticalPct) {
+        this.enabled                   = enabled;
+        this.memAvailableElevatedPct   = memAvailableElevatedPct;
+        this.memAvailableCriticalPct   = memAvailableCriticalPct;
+        this.memAvailableElevatedAbsKb = memAvailableElevatedMb * 1024L;
+        this.memAvailableCriticalAbsKb = memAvailableCriticalMb * 1024L;
+        this.loadPerCoreElevated       = loadPerCoreElevated;
+        this.loadPerCoreCritical       = loadPerCoreCritical;
+        this.heapElevatedPct           = heapElevatedPct;
+        this.heapCriticalPct           = heapCriticalPct;
+        this.cores                     = Math.max(1, Runtime.getRuntime().availableProcessors());
+        resolveMemoryThresholds(true);
+    }
+
+    /**
+     * Re-read host total memory and recompute elevated/critical floors.
+     * Cheap (~one OS call + one /proc read on Linux); cached for
+     * {@code THRESHOLD_RECHECK_MS}. Absolute Mb overrides bypass derivation.
+     */
+    private void resolveMemoryThresholds(boolean forceLog) {
+        long totalKb = readTotalMemKb();
+        this.totalMemKb = totalKb;
+        long derivedElevatedKb = totalKb > 0 ? (long) (totalKb * memAvailableElevatedPct / 100.0) : 0L;
+        long derivedCriticalKb = totalKb > 0 ? (long) (totalKb * memAvailableCriticalPct / 100.0) : 0L;
+        long prevElevated = effectiveElevatedKb;
+        long prevCritical = effectiveCriticalKb;
+        this.effectiveElevatedKb = memAvailableElevatedAbsKb > 0 ? memAvailableElevatedAbsKb : derivedElevatedKb;
+        this.effectiveCriticalKb = memAvailableCriticalAbsKb > 0 ? memAvailableCriticalAbsKb : derivedCriticalKb;
+        lastThresholdResolveMs.set(System.currentTimeMillis());
+        if (forceLog || prevElevated != effectiveElevatedKb || prevCritical != effectiveCriticalKb) {
+            log.info("SystemResourcesGate: enabled={} cores={} totalMem={}MB "
+                            + "memElev={}MB({}% src={}) memCrit={}MB({}% src={}) "
+                            + "loadElev={}/core loadCrit={}/core heapElev={}% heapCrit={}%",
+                    enabled, cores, totalKb / 1024,
+                    effectiveElevatedKb / 1024, memAvailableElevatedPct,
+                    memAvailableElevatedAbsKb > 0 ? "override" : "derived",
+                    effectiveCriticalKb / 1024, memAvailableCriticalPct,
+                    memAvailableCriticalAbsKb > 0 ? "override" : "derived",
+                    loadPerCoreElevated, loadPerCoreCritical, heapElevatedPct, heapCriticalPct);
+        }
     }
 
     @Scheduled(fixedDelayString = "${app.resources.sampleIntervalMs:5000}", initialDelay = 2000L)
     public void sample() {
         if (!enabled) return;
+        if (System.currentTimeMillis() - lastThresholdResolveMs.get() > THRESHOLD_RECHECK_MS) {
+            resolveMemoryThresholds(false);
+        }
         Sample s = currentSample();
         Level next = classify(s);
         Level prev = level.get();
@@ -167,12 +217,12 @@ public class SystemResourcesGate {
 
     private Level classify(Sample s) {
         boolean critical =
-                (s.memAvailableKb >= 0 && s.memAvailableKb < memAvailableCriticalKb)
+                (s.memAvailableKb >= 0 && s.memAvailableKb < effectiveCriticalKb)
              || (s.load1 >= 0 && s.load1 > loadPerCoreCritical * cores)
              || (s.heapPct() > heapCriticalPct);
         if (critical) return Level.CRITICAL;
         boolean elevated =
-                (s.memAvailableKb >= 0 && s.memAvailableKb < memAvailableElevatedKb)
+                (s.memAvailableKb >= 0 && s.memAvailableKb < effectiveElevatedKb)
              || (s.load1 >= 0 && s.load1 > loadPerCoreElevated * cores)
              || (s.heapPct() > heapElevatedPct);
         return elevated ? Level.ELEVATED : Level.NORMAL;
@@ -184,14 +234,40 @@ public class SystemResourcesGate {
         Runtime rt = Runtime.getRuntime();
         long heapMax  = rt.maxMemory();
         long heapUsed = rt.totalMemory() - rt.freeMemory();
-        return new Sample(memAvailableKb, load1, heapUsed, heapMax, cores);
+        return new Sample(memAvailableKb, load1, heapUsed, heapMax, cores,
+                effectiveElevatedKb, effectiveCriticalKb, totalMemKb);
+    }
+
+    /**
+     * Total physical memory, in kB. Prefers /proc/meminfo on Linux (matches
+     * the kernel's own number), falls back to the cross-platform
+     * {@code OperatingSystemMXBean.getTotalMemorySize()}. Returns 0 if both
+     * lookups fail — in which case memory checks are effectively disabled
+     * and the gate runs purely on load+heap.
+     */
+    private static long readTotalMemKb() {
+        long fromProc = readMeminfoField("MemTotal:");
+        if (fromProc > 0) return fromProc;
+        try {
+            OperatingSystemMXBean os =
+                    (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
+            long bytes = os.getTotalMemorySize();
+            if (bytes > 0) return bytes / 1024L;
+        } catch (Throwable ignored) {
+            // OS bean not available — return 0
+        }
+        return 0L;
     }
 
     private static long readMemAvailableKb() {
+        return readMeminfoField("MemAvailable:");
+    }
+
+    private static long readMeminfoField(String prefix) {
         try {
             List<String> lines = Files.readAllLines(MEMINFO);
             for (String line : lines) {
-                if (line.startsWith("MemAvailable:")) {
+                if (line.startsWith(prefix)) {
                     String[] parts = line.split("\\s+");
                     if (parts.length >= 2) return Long.parseLong(parts[1]);
                 }
@@ -213,13 +289,18 @@ public class SystemResourcesGate {
         return -1.0;
     }
 
-    private record Sample(long memAvailableKb, double load1, long heapUsed, long heapMax, int cores) {
+    private record Sample(long memAvailableKb, double load1, long heapUsed, long heapMax,
+                          int cores, long elevatedKb, long criticalKb, long totalKb) {
         double heapPct() { return 100.0 * heapUsed / heapMax; }
         String summarize() {
-            String mem = memAvailableKb < 0 ? "n/a" : String.format("%.0fMB", memAvailableKb / 1024.0);
+            String mem = memAvailableKb < 0
+                    ? "n/a"
+                    : String.format("%.0fMB/%.0fMB", memAvailableKb / 1024.0, totalKb / 1024.0);
             String load = load1 < 0 ? "n/a" : String.format("%.2f", load1);
-            return String.format("memAvail=%s load1=%s/%d-cores heap=%.0f%%(%dMB/%dMB)",
-                    mem, load, cores, heapPct(), heapUsed >> 20, heapMax >> 20);
+            return String.format(
+                    "memAvail=%s (elev<%dMB crit<%dMB) load1=%s/%d-cores heap=%.0f%%(%dMB/%dMB)",
+                    mem, elevatedKb / 1024, criticalKb / 1024,
+                    load, cores, heapPct(), heapUsed >> 20, heapMax >> 20);
         }
     }
 }

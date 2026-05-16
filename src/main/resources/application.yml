@@ -502,15 +502,26 @@ app:
   # the gate closes and worker threads either return early or block in
   # awaitOpen(). Added after the 2026-05-16 system-wide hang to keep the app
   # from piling on more work while the kernel is thrashing.
+  #
+  # Memory thresholds are PERCENTAGES of total host memory by default — the
+  # gate reads MemTotal at startup (re-resolved every 60s) and computes the
+  # elevated/critical floors from that, so the same defaults work on a 4 GB
+  # laptop and a 64 GB workstation. Set memAvailableElevatedMb /
+  # memAvailableCriticalMb to a positive integer to override with absolute
+  # values (useful for capping behavior in containers with cgroup limits
+  # smaller than the host's MemTotal). Load and heap thresholds are already
+  # per-core / heap-pct and don't need overrides.
   resources:
     enabled: true
     sampleIntervalMs: 5000
-    memAvailableElevatedMb: 1500
-    memAvailableCriticalMb: 500
-    loadPerCoreElevated:    2.0
-    loadPerCoreCritical:    4.0
-    heapElevatedPct:        85
-    heapCriticalPct:        95
+    memAvailableElevatedPct: 20   # warn when free mem < 20% of total
+    memAvailableCriticalPct: 7    # pause when free mem < 7% of total
+    memAvailableElevatedMb:  0    # >0 overrides the pct above
+    memAvailableCriticalMb:  0    # >0 overrides the pct above
+    loadPerCoreElevated:     2.0
+    loadPerCoreCritical:     4.0
+    heapElevatedPct:         85
+    heapCriticalPct:         95
 
 logging:
   file:
