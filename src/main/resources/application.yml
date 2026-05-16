@@ -499,7 +499,7 @@ app:
 
 logging:
   file:
-    name: /tmp/et-app.log
+    name: logs/et-app.log
   level:
     org.springframework.boot.context.config: DEBUG
     com.emergentterrain.service.RoomService: INFO

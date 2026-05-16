@@ -35,6 +35,8 @@ Thumbs.db
 .env
 /sample-output/
 /research/
+/logs/
+/logs-archive-*/
 /simulation-history/**
 !/simulation-history/**/
 !/simulation-history/**/.gitkeep
