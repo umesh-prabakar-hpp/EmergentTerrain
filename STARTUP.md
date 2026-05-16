@@ -395,7 +395,8 @@ app:
 ## Logs
 
 ```bash
-tail -f /tmp/et-app.log
+tail -f logs/et-app.log
+# Previous runs at logs/archive/et-app-YYYYMMDD-HHMMSS.log
 ```
 
 LLM generation failures log at WARN level and do not affect game stability. Backend
@@ -423,13 +424,13 @@ Defaults: paper pattern `P-*.md`, report at `<dir>/REVIEW_REPORT.md`, no log sec
 WARN/ERROR root causes and map every `prof:error→fp` paper to its upstream Groq 429:
 
 ```
-/paper-review research/<room-id> --logs /tmp/et-app.log
+/paper-review research/<room-id> --logs logs/et-app.log
 ```
 
 **Periodic refresh every 15 minutes** — pair with the `loop` skill:
 
 ```
-/loop 15m /paper-review research/<room-id> --logs /tmp/et-app.log
+/loop 15m /paper-review research/<room-id> --logs logs/et-app.log
 ```
 
 The cron job lives only for the current Claude Code session (auto-expires after 7 days).
@@ -505,24 +506,24 @@ tests re-run against the new candidates.
 
 ## Startup checks
 
-After restart, the first 5–60 seconds of `/tmp/et-app.log` carry the highest-
+After restart, the first 5–60 seconds of `logs/et-app.log` carry the highest-
 signal information about what actually came up. Key things to grep for:
 
 ```bash
 # Did selection tests pass on every model?
-grep -E "selection-test " /tmp/et-app.log | head -50
+grep -E "selection-test " logs/et-app.log | head -50
 
 # Did any model fail a probe?
-grep -E "selection-test.*FAILED" /tmp/et-app.log
+grep -E "selection-test.*FAILED" logs/et-app.log
 
 # Per-pool summary
-grep -E "selection-tests complete" /tmp/et-app.log
+grep -E "selection-tests complete" logs/et-app.log
 
 # Final registry composition (primary + fast handles)
-grep -E "(PrimaryModel|FastModel|LlmRouter|ReviewPanelService): " /tmp/et-app.log
+grep -E "(PrimaryModel|FastModel|LlmRouter|ReviewPanelService): " logs/et-app.log
 
 # Phase 9 U4 — deprecation warnings for legacy Ollama config keys
-grep -E "OllamaPool: legacy" /tmp/et-app.log
+grep -E "OllamaPool: legacy" logs/et-app.log
 ```
 
 **What you want to see:**
