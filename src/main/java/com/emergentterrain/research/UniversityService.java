@@ -84,6 +84,15 @@ public class UniversityService {
      */
     private final boolean closingProseValidatorEnabled;
     /**
+     * Phase 13 E6 — when on, papers whose Findings cite unit-anchored
+     * numerics without any uncertainty indicator (± value, "exact closed
+     * form", "to within X%") publish as NEEDS_REVISION. Addresses the
+     * most-repeated panel critique in REVIEW_REPORT refresh #1
+     * (~38 mentions across ~18 of 23 papers). Default off; opt-in flip
+     * after one refresh confirms the template change took effect.
+     */
+    private final boolean uncertaintyDisclosureEnabled;
+    /**
      * Phase 7 F7.3 — when on, SUPPORTED papers whose panel review surfaced
      * cherry_picked_evidence (≥2 reviewers flagged the same omitted-relevant
      * tool call) publish as REJECTED. Defaults off until the false-positive
@@ -204,6 +213,7 @@ public class UniversityService {
             @Value("${app.research.audit-cherry-picked-rejects.enabled:false}") boolean auditCherryPickedRejectsEnabled,
             @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
             @Value("${app.research.closing-prose-validator.enabled:false}") boolean closingProseValidatorEnabled,
+            @Value("${app.research.uncertainty-disclosure.enabled:false}") boolean uncertaintyDisclosureEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -240,6 +250,7 @@ public class UniversityService {
         this.auditCherryPickedRejectsEnabled       = auditCherryPickedRejectsEnabled;
         this.topicSpecificFindingsValidatorEnabled = topicSpecificFindingsValidatorEnabled;
         this.closingProseValidatorEnabled = closingProseValidatorEnabled;
+        this.uncertaintyDisclosureEnabled = uncertaintyDisclosureEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -293,6 +304,12 @@ public class UniversityService {
             log.info("UniversityService: closing-prose-validator ENABLED — conclusions "
                     + "that use the 'no prior theoretical bound' boilerplate on a topic "
                     + "with a known textbook bound publish as NEEDS_REVISION (Phase 12 D6).");
+        }
+        if (uncertaintyDisclosureEnabled) {
+            log.info("UniversityService: uncertainty-disclosure ENABLED — papers whose "
+                    + "Findings cite unit-anchored numerics without any uncertainty "
+                    + "indicator (± / exact / to within) publish as NEEDS_REVISION "
+                    + "(Phase 13 E6).");
         }
         this.researchCycleService.setTopicsV2Enabled(topicsV2Enabled);
         if (topicsV2Enabled) {
@@ -549,6 +566,20 @@ public class UniversityService {
             log.warn("closing-prose check failed paperId={} reasons={}",
                     draft.paperId(), closingProseFailures);
         }
+        // Phase 13 E6 — uncertainty-disclosure discipline. Findings citing
+        // unit-anchored numerics must carry at least one uncertainty
+        // indicator (± / exact / to within); otherwise publish as
+        // NEEDS_REVISION. Addresses the single most-repeated panel
+        // critique in REVIEW_REPORT refresh #1 (~38 mentions across ~18 of
+        // 23 papers).
+        List<String> uncertaintyFailures = uncertaintyDisclosureEnabled
+                ? UncertaintyDisclosureValidator.validate(findingsBlocks)
+                : List.of();
+        boolean uncertaintyMissing = !uncertaintyFailures.isEmpty();
+        if (uncertaintyMissing) {
+            log.warn("uncertainty-disclosure check failed paperId={} reasons={}",
+                    draft.paperId(), uncertaintyFailures);
+        }
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
@@ -680,6 +711,11 @@ public class UniversityService {
         } else if (closingProseMismatch) {
             // Phase 12 D6 — boilerplate-on-textbook-topic. Same tier as G6:
             // a content-quality issue that revision can fix.
+            paperStatus = "NEEDS_REVISION";
+        } else if (uncertaintyMissing) {
+            // Phase 13 E6 — uncertainty-disclosure discipline. Same tier as
+            // G6 / D6: a content-quality issue that revision can fix by
+            // adding the ± clause or the "exact closed form" qualifier.
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
             // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the

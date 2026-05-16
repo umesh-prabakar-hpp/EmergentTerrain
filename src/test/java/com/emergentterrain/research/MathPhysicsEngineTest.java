@@ -246,6 +246,7 @@ class MathPhysicsEngineTest {
                 /* auditCherryPickedRejectsEnabled       */ false,
                 /* topicSpecificFindingsValidatorEnabled */ false,
                 /* closingProseValidatorEnabled          */ false,
+                /* uncertaintyDisclosureEnabled          */ false,
                 /* topicsV2Enabled               */ false,
                 mapper);
 

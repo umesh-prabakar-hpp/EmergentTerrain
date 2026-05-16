@@ -58,6 +58,8 @@ class PublishPaperTest {
     private boolean topicSpecificFindingsValidatorEnabled = false;
     /** Phase 12 D6: tests that exercise the closing-prose validator set this via {@link #enableClosingProseValidator()}. */
     private boolean closingProseValidatorEnabled = false;
+    /** Phase 13 E6: tests that exercise the uncertainty-disclosure validator set this via {@link #enableUncertaintyDisclosure()}. */
+    private boolean uncertaintyDisclosureEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -136,6 +138,7 @@ class PublishPaperTest {
                 /* auditCherryPickedRejectsEnabled       */ auditCherryPickedRejectsEnabled,
                 /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
                 /* closingProseValidatorEnabled          */ closingProseValidatorEnabled,
+                /* uncertaintyDisclosureEnabled          */ uncertaintyDisclosureEnabled,
                 /* topicsV2Enabled               */ false,
                 mapper);
         roomId = UUID.randomUUID();
@@ -556,6 +559,77 @@ class PublishPaperTest {
                 "Conclusion is complete.",
                 null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    // ---- Phase 13 E6: uncertainty-disclosure validator ----
+
+    @Test
+    void e6_missingUncertaintyRoutesToNeedsRevision() {
+        enableUncertaintyDisclosure();
+        PaperDraft draft = draftForTopic("MATERIALS", "Hall-Petch Grain Size Strengthening",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Maximum yield stress 2377 MPa at d=0.050 µm, with k=510 MPa·µm^½.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void e6_plusMinusValuePasses() {
+        enableUncertaintyDisclosure();
+        PaperDraft draft = draftForTopic("MATERIALS", "Hall-Petch Grain Size Strengthening",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Maximum yield stress 2377 MPa ± 12 MPa at d=0.050 µm.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void e6_exactClosedFormQualifierPasses() {
+        enableUncertaintyDisclosure();
+        PaperDraft draft = draftForTopic("PHYSICS", "Pendulum Breakdown Angle",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "1% period error threshold lands at θ ≈ 22.92°, exact closed-form bound.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void e6_flagOffLeavesMissingUncertaintyAsPublished() {
+        // Default flag off — missing uncertainty publishes as today.
+        PaperDraft draft = draftForTopic("MATERIALS", "Hall-Petch Grain Size Strengthening",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Maximum yield stress 2377 MPa at d=0.050 µm.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void e6_truncatedTakesPrecedenceOverUncertainty() {
+        // Status precedence: truncation > uncertainty. Both fire; truncation wins.
+        enableUncertaintyDisclosure();
+        enableTruncationGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "Pendulum Breakdown Angle",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                // Both missing uncertainty AND truncated.
+                "Maximum yield stress 2377 MPa at d=0.050 µm cut off",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        // Truncation takes precedence; status is still NEEDS_REVISION either way.
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
     }
 
@@ -1858,6 +1932,12 @@ class PublishPaperTest {
     /** Phase 12 D6 — rebuilds the service with the closing-prose validator ON. */
     private void enableClosingProseValidator() {
         closingProseValidatorEnabled = true;
+        setUp();
+    }
+
+    /** Phase 13 E6 — rebuilds the service with the uncertainty-disclosure validator ON. */
+    private void enableUncertaintyDisclosure() {
+        uncertaintyDisclosureEnabled = true;
         setUp();
     }
 

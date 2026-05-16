@@ -377,6 +377,14 @@ app:
     # one refresh exercises the D-series suppression markers cleanly.
     closing-prose-validator:
       enabled: false
+    # Phase 13 E6 — when on, papers whose Findings cite unit-anchored numerics
+    # without any uncertainty indicator (± value, "exact closed form",
+    # "to within X%") publish as NEEDS_REVISION. Addresses the most-repeated
+    # panel critique in REVIEW_REPORT refresh #1 (~38 mentions across ~18 of
+    # 23 papers). Default off; opt-in flip after one refresh confirms the
+    # narrator template change took effect.
+    uncertainty-disclosure:
+      enabled: false
     # Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
     # in the findings section, keyed by 1-based computation index. The per-block
     # truncation guard then fails NEEDS_REVISION if any block ends mid-sentence,
