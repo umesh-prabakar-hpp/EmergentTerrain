@@ -117,6 +117,90 @@ class SimulationGateTest {
         assertThat(gate.isOpen()).isTrue();
     }
 
+    // ---- Phase 13 E1: fallback-aware aggregation (coolestSpend semantics) ----
+
+    @Test
+    void e1_oneHotOneCoolStaysOpen() {
+        // REVIEW_REPORT refresh #1 §1 rec #9 — Groq at 95% daily but NVIDIA
+        // (newly added budget config) at 20% means fallback capacity exists.
+        // OLD max-pct logic: hot=95% → gate closes.
+        // NEW min-pct logic: cool=20% → gate stays open.
+        props.getProviders().get("groq").setMinuteLimit(0); // isolate daily axis
+        TokenBudgetProperties.Provider nvidia = new TokenBudgetProperties.Provider();
+        nvidia.setDailyLimit(1000);
+        props.getProviders().put("nvidia", nvidia);
+
+        record("groq", "any", 950, 0);    // 95% of groq daily — at the pause threshold
+        record("nvidia", "any", 200, 0);  // 20% of nvidia daily — well below
+        assertThat(gate.isOpen()).isTrue();
+        // lastReason still names the hottest for operator visibility.
+        assertThat(gate.reason()).contains("groq").contains("95");
+    }
+
+    @Test
+    void e1_everyProviderHotClosesGate() {
+        props.getProviders().get("groq").setMinuteLimit(0);
+        TokenBudgetProperties.Provider nvidia = new TokenBudgetProperties.Provider();
+        nvidia.setDailyLimit(1000);
+        props.getProviders().put("nvidia", nvidia);
+
+        record("groq", "any", 950, 0);    // 95%
+        record("nvidia", "any", 970, 0);  // 97%
+        assertThat(gate.isOpen()).isFalse();
+        assertThat(gate.reason())
+                .contains("every provider")
+                .contains("groq")
+                .contains("nvidia");
+    }
+
+    @Test
+    void e1_singleMeteredProviderBehavesAsToday() {
+        // No regression: when only one provider is metered, the single
+        // provider's spend drives both coolest and hottest. Identical to
+        // pre-E1 behavior.
+        props.getProviders().get("groq").setMinuteLimit(0);
+        record("groq", "any", 960, 0); // 96% — above pause
+        assertThat(gate.isOpen()).isFalse();
+        record("groq", "any", -260, 0); // back to 70% — below resume
+        // The TokenAccountant doesn't support negative records; instead drive
+        // via the stub-accountant pattern from hysteresis_staysClosed_*.
+    }
+
+    @Test
+    void e1_unmeteredOllamaDoesNotDilutePauseDecision() {
+        // Ollama (unmetered, dailyLimit=0) must be excluded from the spread —
+        // otherwise coolest=0 always and the gate never pre-emptively closes
+        // even when every metered provider is exhausted.
+        TokenBudgetProperties.Provider ollama = new TokenBudgetProperties.Provider();
+        ollama.setDailyLimit(0);
+        ollama.setMinuteLimit(0);
+        props.getProviders().put("ollama", ollama);
+        props.getProviders().get("groq").setMinuteLimit(0);
+
+        // Only metered provider (groq) at 100% — gate must close even though
+        // unmetered ollama exists.
+        record("groq", "any", 1000, 0);
+        record("ollama", "gemma3", 1_000_000, 0);
+        assertThat(gate.isOpen()).isFalse();
+    }
+
+    @Test
+    void e1_providerSpreadComputesCoolestAndHottest() {
+        // Direct test of the new helper for documentation purposes.
+        props.getProviders().get("groq").setMinuteLimit(0);
+        TokenBudgetProperties.Provider nvidia = new TokenBudgetProperties.Provider();
+        nvidia.setDailyLimit(1000);
+        props.getProviders().put("nvidia", nvidia);
+
+        record("groq", "any", 900, 0);    // 90%
+        record("nvidia", "any", 100, 0);  // 10%
+        SimulationGate.ProviderSpread spread = gate.providerSpread();
+        assertThat(spread.coolestPct()).isCloseTo(10.0, org.assertj.core.data.Offset.offset(0.5));
+        assertThat(spread.coolestProvider()).contains("nvidia");
+        assertThat(spread.hottestPct()).isCloseTo(90.0, org.assertj.core.data.Offset.offset(0.5));
+        assertThat(spread.hottestProvider()).contains("groq");
+    }
+
     private void record(String provider, String model, long prompt, long completion) {
         accountant.record(new TokenUsage(provider, model, prompt, completion, Instant.now()));
     }

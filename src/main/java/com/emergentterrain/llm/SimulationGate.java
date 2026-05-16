@@ -20,14 +20,24 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * The gate closes when any one of:
  *   <ul>
- *     <li>any configured provider's rolling daily or minute spend exceeds
- *         {@code pauseThresholdPct} of its limit (pre-emptive — counts every
- *         model the provider exposes, e.g. all Groq 70B+ models in aggregate),</li>
+ *     <li><b>every</b> configured provider's rolling daily or minute spend
+ *         exceeds {@code pauseThresholdPct} of its limit (pre-emptive — counts
+ *         every model the provider exposes, e.g. all Groq 70B+ models in
+ *         aggregate),</li>
  *     <li>the primary LlmPool reports every model is currently TPD-blocked
  *         ({@code router.primaryFullyExhausted()} — reactive 429-driven),</li>
  *   </ul>
  * and reopens only when both signals clear AND daily/minute spend falls below
  * {@code resumeThresholdPct} (hysteresis prevents flapping).
+ *
+ * <p>Phase 13 E1 — aggregation changed from {@code max} to {@code min} across
+ * providers. REVIEW_REPORT refresh #1 §1 rec #9 named the failure: Groq hit
+ * 95% daily, the old max-pct check closed the gate, and the simulation paused
+ * for ~85 minutes despite NVIDIA / OpenRouter / Cerebras (per
+ * {@code tool-calling.providers} and {@code review-panel.providers}) having
+ * headroom. The new min-pct check mirrors {@code primaryFullyExhausted()} —
+ * pause only when every budget-tracked provider crosses the threshold.
+ * {@code lastReason} still names the hottest provider for operator visibility.
  *
  * Provider-agnostic by design: the accountant aggregates by provider name, the
  * properties are a {@code Map<provider, ProviderLimits>}, and the router is
@@ -78,53 +88,94 @@ public class SimulationGate {
         }
 
         // Pre-emptive signal: per-provider budget pct.
-        HottestSpend hot = hottestSpend();
+        // Phase 13 E1 — gate decision uses the COOLEST (min) provider spend
+        // across metered providers. lastReason still names the hottest for
+        // operator visibility, but the gate only closes when even the
+        // coolest provider is above the pause threshold — i.e. fallback
+        // capacity is genuinely exhausted across the budget-tracked fleet.
+        ProviderSpread spread = providerSpread();
 
         if (closed.get()) {
-            if (hot.pct < props.getResumeThresholdPct()) {
+            if (spread.coolestPct < props.getResumeThresholdPct()) {
                 closed.set(false);
-                lastReason = String.format("reopened: hottest=%s @ %.0f%% < resume=%d%%",
-                        hot.provider, hot.pct, props.getResumeThresholdPct());
+                lastReason = String.format(
+                        "reopened: coolest=%s @ %.0f%% < resume=%d%% (hottest=%s @ %.0f%%)",
+                        spread.coolestProvider, spread.coolestPct, props.getResumeThresholdPct(),
+                        spread.hottestProvider, spread.hottestPct);
                 log.info("SimulationGate: {}", lastReason);
                 return true;
             }
-            lastReason = String.format("paused: %s @ %.0f%% (resume<%d%%)",
-                    hot.provider, hot.pct, props.getResumeThresholdPct());
+            lastReason = String.format(
+                    "paused: every provider >= %d%% (hottest=%s @ %.0f%%, coolest=%s @ %.0f%%, resume<%d%%)",
+                    props.getPauseThresholdPct(),
+                    spread.hottestProvider, spread.hottestPct,
+                    spread.coolestProvider, spread.coolestPct,
+                    props.getResumeThresholdPct());
             return false;
         }
 
-        if (hot.pct >= props.getPauseThresholdPct()) {
+        if (spread.coolestPct >= props.getPauseThresholdPct()) {
             closed.set(true);
-            lastReason = String.format("paused: %s @ %.0f%% >= pause=%d%%",
-                    hot.provider, hot.pct, props.getPauseThresholdPct());
+            lastReason = String.format(
+                    "paused: every provider >= %d%% (hottest=%s @ %.0f%%, coolest=%s @ %.0f%%)",
+                    props.getPauseThresholdPct(),
+                    spread.hottestProvider, spread.hottestPct,
+                    spread.coolestProvider, spread.coolestPct);
             log.warn("SimulationGate: {}", lastReason);
             return false;
         }
 
-        lastReason = String.format("open: hottest=%s @ %.0f%%", hot.provider, hot.pct);
+        lastReason = String.format(
+                "open: hottest=%s @ %.0f%% (coolest=%s @ %.0f%%)",
+                spread.hottestProvider, spread.hottestPct,
+                spread.coolestProvider, spread.coolestPct);
         return true;
     }
 
     public String  reason()   { return lastReason; }
     public Instant resumeAt() { return resumeAt; }
 
-    private HottestSpend hottestSpend() {
+    /**
+     * Phase 13 E1 — compute both the coolest and hottest metered provider
+     * percentages in a single pass. Unmetered providers (daily=0 AND minute=0)
+     * are excluded — they have no budget to exhaust, so including them would
+     * always pin coolest at 0% and effectively disable the pre-emptive
+     * pause. When no metered provider is configured, both ends are
+     * {@code (provider="(none)", pct=0)} and the gate behaves as if budget
+     * tracking were disabled.
+     *
+     * <p>The hottest is preserved purely for operator visibility in the
+     * {@code lastReason} string; the gate-close decision uses the coolest.
+     */
+    ProviderSpread providerSpread() {
+        double minPct = Double.POSITIVE_INFINITY;
         double maxPct = 0;
-        String which  = "(none)";
+        String coolest = "(none)";
+        String hottest = "(none)";
         for (var entry : props.getProviders().entrySet()) {
             String name = entry.getKey();
             TokenBudgetProperties.Provider p = entry.getValue();
+            // For each metered provider, take its worst (max of day-pct and
+            // minute-pct) as that provider's effective utilisation. Then take
+            // the min across providers.
+            double providerWorst = -1;
+            String providerWorstSlot = null;
             if (p.getDailyLimit() > 0) {
                 double pct = 100.0 * accountant.dailyTotal(name) / p.getDailyLimit();
-                if (pct > maxPct) { maxPct = pct; which = name + "/day"; }
+                if (pct > providerWorst) { providerWorst = pct; providerWorstSlot = name + "/day"; }
             }
             if (p.getMinuteLimit() > 0) {
                 double pct = 100.0 * accountant.minuteTotal(name) / p.getMinuteLimit();
-                if (pct > maxPct) { maxPct = pct; which = name + "/min"; }
+                if (pct > providerWorst) { providerWorst = pct; providerWorstSlot = name + "/min"; }
             }
+            if (providerWorst < 0) continue; // unmetered — skip
+            if (providerWorst < minPct) { minPct = providerWorst; coolest = providerWorstSlot; }
+            if (providerWorst > maxPct) { maxPct = providerWorst; hottest = providerWorstSlot; }
         }
-        return new HottestSpend(which, maxPct);
+        if (minPct == Double.POSITIVE_INFINITY) minPct = 0;
+        return new ProviderSpread(coolest, minPct, hottest, maxPct);
     }
 
-    private record HottestSpend(String provider, double pct) {}
+    record ProviderSpread(String coolestProvider, double coolestPct,
+                          String hottestProvider, double hottestPct) {}
 }

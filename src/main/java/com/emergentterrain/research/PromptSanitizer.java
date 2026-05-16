@@ -263,6 +263,36 @@ public final class PromptSanitizer {
     private static final Pattern OKAY_LETS_TACKLE =
             Pattern.compile("(?is)^\\s*Okay,\\s+let'?s\\s+tackle\\s+this\\s+query[^.]*\\.\\s*");
 
+    // Phase 13 E5 — literal `X` placeholder for an unsubstituted uncertainty
+    // value, e.g. "87.65% ± X%" (P-a328-467 signature in REVIEW_REPORT
+    // refresh #1). The closing-prose template's ± slot uses `X` as a
+    // placeholder; when the renderer fails to substitute, the literal "X"
+    // lands in the published prose. Strip the bare `± X%?` suffix; the
+    // value before it is the recovered measurement.
+    //
+    // The pattern requires the `± X` prefix so it doesn't touch `X` in
+    // unrelated contexts ("The uncertainty was X." stays unchanged because
+    // there's no `±` before X). Optional trailing `%` matches both
+    // `± X%` (P-467 form) and `± X` (bare X without percent).
+
+    /** Unsubstituted "± X" / "± X%" uncertainty placeholder. */
+    private static final Pattern UNSUBSTITUTED_UNCERTAINTY_X =
+            Pattern.compile("\\s*±\\s*X\\b\\s*%?", Pattern.CASE_INSENSITIVE);
+
+    // Phase 13 E3 — RLC Q-factor parenthetical regime hint that's frequently
+    // mis-paired with the leading noun. Three papers in REVIEW_REPORT
+    // refresh #1 (P-438, P-442, P-458) carried lines like:
+    //   Underdamped: Q=0.25(over)
+    //   Critical:    Q=0.50(crit)
+    //   Overdamped:  Q=0.13(under)
+    // The (over)/(crit)/(under) parens are redundant with the leading noun
+    // AND frequently swapped. Drop them; the leading noun carries the
+    // semantic. Run with the rest of the cleanup so any debris is
+    // collapsed by CLEANUP_DOUBLE_SPACE.
+    private static final Pattern Q_FACTOR_REGIME_PAREN = Pattern.compile(
+            "(Q\\s*=\\s*[0-9]+(?:\\.[0-9]+)?)\\s*\\(\\s*(?:under|over|crit)\\s*\\)",
+            Pattern.CASE_INSENSITIVE);
+
     /** Collapses any whitespace/punctuation debris left behind by removals. */
     private static final Pattern CLEANUP_DOUBLE_COMMA   = Pattern.compile("\\s*,\\s*,");
     private static final Pattern CLEANUP_DOUBLE_PERIOD  = Pattern.compile("\\.\\s*\\.");
@@ -308,6 +338,16 @@ public final class PromptSanitizer {
         // upstream template-fallback in UniversityService.publishPaper fires.
         cleaned = stripChainOfThought(cleaned);
         if (cleaned.isBlank()) return cleaned;
+        // Phase 13 E5 — strip unsubstituted "± X%" placeholders. Runs after
+        // the chain-of-thought strip but before harness-leak patterns so the
+        // leftover prose's grammar is still intact for downstream regexes.
+        cleaned = UNSUBSTITUTED_UNCERTAINTY_X.matcher(cleaned).replaceAll("");
+        // Phase 13 E3 — strip the (over)/(under)/(crit) regime parens on
+        // Q-factor values; keep the Q=<value> token intact via capture
+        // group 1. The leading noun (Underdamped/Critical/Overdamped) is
+        // preserved; the noun-vs-value mismatch (separate failure mode) is
+        // flagged by TopicSpecificFindingsValidator.
+        cleaned = Q_FACTOR_REGIME_PAREN.matcher(cleaned).replaceAll("$1");
         // Phase 9 G7 wholesale clause strip runs FIRST so the em-dash-delimited
         // parentheticals don't leave dangling "—applied from a —" debris after
         // the granular patterns fire.
@@ -404,6 +444,8 @@ public final class PromptSanitizer {
         return THINK_BLOCK_CLOSED.matcher(text).find()
                 || THINK_BLOCK_OPEN_UNCLOSED.matcher(text).find()
                 || OKAY_LETS_TACKLE.matcher(text).find()
+                || UNSUBSTITUTED_UNCERTAINTY_X.matcher(text).find()
+                || Q_FACTOR_REGIME_PAREN.matcher(text).find()
                 || STARTING_AT_POSITION.matcher(text).find()
                 || USES_A_SCALE_OF.matcher(text).find()
                 || QUALITY_SCORE_SENTENCE.matcher(text).find()

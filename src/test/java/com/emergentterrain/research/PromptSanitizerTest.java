@@ -531,4 +531,93 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.detects(
                 "We tackle the problem of prime gaps directly.")).isFalse();
     }
+
+    // ---- Phase 13 E5: unsubstituted "± X%" placeholder ----
+
+    @Test
+    void e5_stripsUnsubstitutedPercentPlaceholder() {
+        // P-a328-467 signature: literal X in "± X%" where the renderer failed
+        // to substitute the uncertainty value.
+        String input  = "The maximum deviation observed was 87.65% ± X%.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("± X")
+                .contains("87.65%")
+                .endsWith(".");
+    }
+
+    @Test
+    void e5_stripsBareUnsubstitutedX() {
+        // Without the trailing percent (some templates use ± X without %).
+        String input  = "Recovered ε = 0.111 ± X across five runs.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("± X")
+                .contains("0.111")
+                .contains("across five runs");
+    }
+
+    @Test
+    void e5_preservesRealUncertaintyValue() {
+        // Real numeric uncertainty must survive unchanged.
+        String input  = "Recovered σ within 1.92% ± 2.3% of the reference value.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).isEqualTo(input);
+    }
+
+    @Test
+    void e5_doesNotStripXInUnrelatedContext() {
+        // X in unrelated context (no ± prefix) must stay.
+        String input  = "The uncertainty was X.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).isEqualTo(input);
+    }
+
+    @Test
+    void e5_detectsXPlaceholder() {
+        assertThat(PromptSanitizer.detects("87.65% ± X%")).isTrue();
+        assertThat(PromptSanitizer.detects("0.111 ± X across runs")).isTrue();
+        // Real uncertainty value — not detected.
+        assertThat(PromptSanitizer.detects("87.65% ± 2.3%")).isFalse();
+        // X alone, no ± prefix — not detected.
+        assertThat(PromptSanitizer.detects("The uncertainty was X.")).isFalse();
+    }
+
+    // ---- Phase 13 E3: Q-factor (over)/(under)/(crit) parenthetical strip ----
+
+    @Test
+    void e3_stripsQFactorRegimeParens() {
+        // P-a328-458 signature.
+        String input  = "Underdamped: Q=0.25(over), Critical: Q=0.50(crit), Overdamped: Q=0.13(under)";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("(over)")
+                .doesNotContain("(crit)")
+                .doesNotContain("(under)")
+                .contains("Q=0.25")
+                .contains("Q=0.50")
+                .contains("Q=0.13");
+    }
+
+    @Test
+    void e3_qFactorParensWithSpaces() {
+        String input  = "Q = 5.00 (under)";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("(under)").contains("Q = 5.00");
+    }
+
+    @Test
+    void e3_preservesQFactorWithoutParens() {
+        String input  = "The peak Q=5.00 was observed at low R.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).isEqualTo(input);
+    }
+
+    @Test
+    void e3_detectsQFactorRegimeParen() {
+        assertThat(PromptSanitizer.detects("Q=0.25(over)")).isTrue();
+        assertThat(PromptSanitizer.detects("Q=0.50 (crit)")).isTrue();
+        // Without the regime word — not detected.
+        assertThat(PromptSanitizer.detects("Q=5.00 (peak)")).isFalse();
+    }
 }

@@ -51,6 +51,20 @@ public final class TopicSpecificFindingsValidator {
             "[0-9]+(?:\\.[0-9]+)?\\s*[×x]\\s*10\\^?[0-9]+");
 
     /**
+     * Phase 13 E3 — RLC Q-factor regime mis-labelled. Q-factor convention:
+     * Q&lt;0.5 = overdamped, Q=0.5 = critical, Q&gt;0.5 = underdamped.
+     * REVIEW_REPORT refresh #1 named three papers (P-438, P-442, P-458)
+     * with "Underdamped: Q=0.25" (should be Overdamped) or "Overdamped: Q=5.00"
+     * (should be Underdamped). The noun-vs-value mismatch is a deeper bug
+     * than the parenthetical hint stripped by {@code PromptSanitizer}; the
+     * validator flags it as NEEDS_REVISION.
+     *
+     * <p>Group 1 is the regime noun (lowercased), group 2 is the Q-factor value.
+     */
+    private static final Pattern RLC_Q_REGIME_LABEL = Pattern.compile(
+            "(?i)\\b(under|over)damped\\s*:?\\s*Q\\s*=\\s*([0-9]+(?:\\.[0-9]+)?)");
+
+    /**
      * Phase 7 F2 — structured-findings overload. Operates on the concatenation of
      * every block's prose — every per-topic anti-pattern is a regex match, so the
      * map and the joined String produce identical reason lists.
@@ -78,6 +92,27 @@ public final class TopicSpecificFindingsValidator {
             reasons.add("Arrhenius findings emit a rate multiplier in scientific "
                     + "notation (N×10^M); emit as a plain decimal to avoid the "
                     + "3.89× / 38.9× ambiguity flagged in refresh rec #26.");
+        }
+        // Phase 13 E3 — RLC Q-factor regime label mis-pairing. Underdamped
+        // requires Q > 0.5; Overdamped requires Q < 0.5. Flag any row where
+        // the noun and value disagree.
+        if (topic.contains("rlc")) {
+            java.util.regex.Matcher m = RLC_Q_REGIME_LABEL.matcher(findings);
+            while (m.find()) {
+                String regime = m.group(1).toLowerCase();
+                double qValue;
+                try { qValue = Double.parseDouble(m.group(2)); }
+                catch (NumberFormatException ex) { continue; }
+                boolean mismatch =
+                        ("under".equals(regime) && qValue < 0.5)
+                     || ("over".equals(regime)  && qValue > 0.5);
+                if (mismatch) {
+                    reasons.add(String.format(
+                            "RLC Q-factor regime mis-labelled: '%sdamped: Q=%s' contradicts "
+                                    + "the Q<0.5=overdamped / Q>0.5=underdamped convention.",
+                            regime, m.group(2)));
+                }
+            }
         }
         return List.copyOf(reasons);
     }
