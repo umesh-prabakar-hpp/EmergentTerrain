@@ -113,6 +113,8 @@ public class ResearchNarrationService {
      */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.llm.SimulationGate simulationGate;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.llm.SystemResourcesGate systemResourcesGate;
 
     /**
      * Phase 7 F7.2 — multi-reviewer panel. Runs after the professor stage's
@@ -186,6 +188,12 @@ public class ResearchNarrationService {
      * the paper skipped that stage.
      */
     private boolean gateClosed(String stage, PaperDraft draft, List<String> callPath) {
+        if (systemResourcesGate != null && !systemResourcesGate.isOpen()) {
+            callPath.add("gate:resources:" + stage);
+            log.warn("LLM stage skipped: resources gate CRITICAL paperId={} stage={} reason={}",
+                    draft.paperId(), stage, systemResourcesGate.reason());
+            return true;
+        }
         if (simulationGate == null || simulationGate.isOpen()) return false;
         String reason = simulationGate.reason();
         callPath.add("gate:closed:" + stage);

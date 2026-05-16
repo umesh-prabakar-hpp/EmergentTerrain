@@ -346,6 +346,7 @@ public class UniversityService {
         } catch (IOException e) {
             log.warn("Could not create research output directory {}: {}", researchOutputDir, e.getMessage());
         }
+        archivePreviousRunDirs(this.researchOutputDir);
 
         // Hand the replication service a cache-aware paper lookup so its mutations
         // are visible in the in-memory `published` cache without a re-read, and a
@@ -2115,4 +2116,50 @@ public class UniversityService {
         return tokens.length < MIN_PROSE_TOKENS_PER_BLOCK;
     }
 
+    private static final Pattern ROOM_DIR_NAME = Pattern.compile("^[0-9a-f]{8}$");
+    private static final DateTimeFormatter ARCHIVE_STAMP =
+            DateTimeFormatter.ofPattern("yyyyMMdd").withZone(ZoneId.systemDefault());
+
+    /**
+     * On startup, move any active room directories (8-hex-prefix names) under
+     * {@code researchOutputDir} into {@code researchOutputDir/archive/} with a
+     * date stamp suffix. Run-N collision suffix matches the {@code logs/archive/}
+     * scheme. {@code archive/} itself, loose .md files, and any directory whose
+     * name does not match the 8-hex pattern (legacy manual archives like
+     * {@code a3289005-archive-20260515}) are left in place.
+     */
+    private void archivePreviousRunDirs(Path root) {
+        Path archiveDir = root.resolve("archive");
+        try {
+            Files.createDirectories(archiveDir);
+        } catch (IOException e) {
+            log.warn("UniversityService: could not create {}: {}", archiveDir, e.getMessage());
+            return;
+        }
+        String stamp = ARCHIVE_STAMP.format(Instant.now());
+        try (var entries = Files.list(root)) {
+            entries
+                    .filter(Files::isDirectory)
+                    .filter(p -> ROOM_DIR_NAME.matcher(p.getFileName().toString()).matches())
+                    .forEach(src -> moveRoomToArchive(src, archiveDir, stamp));
+        } catch (IOException e) {
+            log.warn("UniversityService: could not scan {} for archival: {}", root, e.getMessage());
+        }
+    }
+
+    private static void moveRoomToArchive(Path src, Path archiveDir, String stamp) {
+        String name = src.getFileName().toString();
+        Path target = archiveDir.resolve(name + "-" + stamp);
+        int n = 2;
+        while (Files.exists(target)) {
+            target = archiveDir.resolve(name + "-" + stamp + "-" + n);
+            n++;
+        }
+        try {
+            Files.move(src, target);
+            log.info("UniversityService: archived previous run {} -> {}", src, target);
+        } catch (IOException e) {
+            log.warn("UniversityService: could not archive {} -> {}: {}", src, target, e.getMessage());
+        }
+    }
 }

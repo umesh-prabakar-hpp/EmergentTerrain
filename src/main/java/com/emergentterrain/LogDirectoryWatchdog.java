@@ -21,14 +21,15 @@ public class LogDirectoryWatchdog {
 
     @Scheduled(fixedDelay = 30_000L, initialDelay = 30_000L)
     public void ensureLogDir() {
-        if (Files.isDirectory(EmergentTerrainApplication.LOG_DIR)) return;
+        boolean missing = !Files.isDirectory(EmergentTerrainApplication.LOG_DIR);
         try {
-            Files.createDirectories(EmergentTerrainApplication.LOG_DIR);
+            Files.createDirectories(EmergentTerrainApplication.LOG_ARCHIVE_DIR);
         } catch (IOException e) {
             log.warn("LogDirectoryWatchdog: could not create {}: {}",
-                    EmergentTerrainApplication.LOG_DIR, e.getMessage());
+                    EmergentTerrainApplication.LOG_ARCHIVE_DIR, e.getMessage());
             return;
         }
+        if (!missing) return;
         reopenFileAppenders();
         log.info("LogDirectoryWatchdog: recreated {} and reopened file appender",
                 EmergentTerrainApplication.LOG_DIR);

@@ -70,7 +70,11 @@ public class RoomService {
     private com.emergentterrain.research.UniversityService universityService;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.llm.SimulationGate simulationGate;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.llm.SystemResourcesGate systemResourcesGate;
     private final java.util.concurrent.atomic.AtomicLong lastGateClosedLogMs =
+            new java.util.concurrent.atomic.AtomicLong(0L);
+    private final java.util.concurrent.atomic.AtomicLong lastResourceClosedLogMs =
             new java.util.concurrent.atomic.AtomicLong(0L);
     private final java.util.concurrent.ConcurrentHashMap<UUID, java.util.Map<String, Double>> roomTileNudges =
             new java.util.concurrent.ConcurrentHashMap<>();
@@ -813,6 +817,14 @@ public class RoomService {
             long last = lastGateClosedLogMs.get();
             if (now - last > 30_000L && lastGateClosedLogMs.compareAndSet(last, now)) {
                 log.info("maintenance skipped: simulation gate closed — {}", simulationGate.reason());
+            }
+            return;
+        }
+        if (systemResourcesGate != null && !systemResourcesGate.isOpen()) {
+            long now = System.currentTimeMillis();
+            long last = lastResourceClosedLogMs.get();
+            if (now - last > 30_000L && lastResourceClosedLogMs.compareAndSet(last, now)) {
+                log.warn("maintenance skipped: resources gate CRITICAL — {}", systemResourcesGate.reason());
             }
             return;
         }

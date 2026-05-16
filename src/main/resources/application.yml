@@ -497,6 +497,21 @@ app:
           dailyLimit: 0        # local, unmetered
           minuteLimit: 0
 
+  # SystemResourcesGate — host-level kill-switch. Scheduled samples /proc/meminfo
+  # and /proc/loadavg plus JVM heap; if any metric crosses the CRITICAL threshold
+  # the gate closes and worker threads either return early or block in
+  # awaitOpen(). Added after the 2026-05-16 system-wide hang to keep the app
+  # from piling on more work while the kernel is thrashing.
+  resources:
+    enabled: true
+    sampleIntervalMs: 5000
+    memAvailableElevatedMb: 1500
+    memAvailableCriticalMb: 500
+    loadPerCoreElevated:    2.0
+    loadPerCoreCritical:    4.0
+    heapElevatedPct:        85
+    heapCriticalPct:        95
+
 logging:
   file:
     name: logs/et-app.log
