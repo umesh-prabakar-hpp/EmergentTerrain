@@ -474,6 +474,91 @@ class PublishPaperTest {
         assertThat(UniversityService.firstTruncatedBlock(blocks)).isEqualTo(2);
     }
 
+    // ---- Phase 13 E4: header-only block truncation ----
+
+    @Test
+    void e4_isHeaderOnlyBlockFlagsHeaderPlusEquationOnly() {
+        // P-a328-453 / P-a328-466 / P-a328-468 signature: a block with only
+        // the H3 heading and the structured Equation row, no prose body.
+        String body = "### Computation 2 — Carnot Efficiency\n\n"
+                + "**Equation:** η_Carnot = 1 − T_c/T_h   (Carnot reversible-engine efficiency)";
+        assertThat(UniversityService.isHeaderOnlyBlock(body)).isTrue();
+    }
+
+    @Test
+    void e4_isHeaderOnlyBlockPassesBlockWithProseBody() {
+        // A block with heading + equation + adequate prose discussion.
+        String body = "### Computation 1 — Carnot Efficiency\n\n"
+                + "**Equation:** η_Carnot = 1 − T_c/T_h\n\n"
+                + "Across the T_h sweep from 575 K to 1200 K with T_c=361 K, "
+                + "the efficiency rose monotonically from 0.37 to 0.70, consistent "
+                + "with the Carnot bound and the hypothesis prediction.";
+        assertThat(UniversityService.isHeaderOnlyBlock(body)).isFalse();
+    }
+
+    @Test
+    void e4_isHeaderOnlyBlockFlagsEquationOnlyNoHeading() {
+        // A block with just the equation line — no narrative body. Should flag.
+        String body = "**Equation:** P = σ·A·T⁴.";
+        assertThat(UniversityService.isHeaderOnlyBlock(body)).isTrue();
+    }
+
+    @Test
+    void e4_isHeaderOnlyBlockPassesBriefBodyAtThreshold() {
+        // ~10 tokens minimum. A body with 12 tokens passes.
+        String body = "### Computation 1 — Test\n\n"
+                + "**Equation:** y = x.\n\n"
+                + "The peak value was zero point seventy nine at r equal to zero point four one.";
+        assertThat(UniversityService.isHeaderOnlyBlock(body)).isFalse();
+    }
+
+    @Test
+    void e4_firstTruncatedBlockCatchesHeaderOnlyEvenWithTerminator() {
+        // Block 2 has a clean terminator on the equation line but no prose.
+        // Pre-E4: firstTruncatedBlock would return null. After E4: returns 2.
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "### Computation 1 — Carnot\n\n**Equation:** η = 1 − T_c/T_h.\n\n"
+                + "Across the sweep the efficiency rose smoothly from forty percent to seventy percent.");
+        blocks.put(2, "### Computation 2 — Carnot\n\n**Equation:** η = 1 − T_c/T_h.");
+        assertThat(UniversityService.firstTruncatedBlock(blocks)).isEqualTo(2);
+    }
+
+    @Test
+    void e4_truncationGuardRoutesHeaderOnlyToNeedsRevision() {
+        // Full publish-path test: a paper with a header-only Computation 2
+        // block lands as NEEDS_REVISION (today: PUBLISHED).
+        enableTruncationGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "Stefan-Boltzmann Total Flux",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "### Computation 1 — Stefan-Boltzmann\n\n"
+                + "**Equation:** P = σ·A·T⁴.\n\n"
+                + "Recovered σ within five percent of the reference value across the sweep.");
+        blocks.put(2, "### Computation 2 — Stefan-Boltzmann\n\n"
+                + "**Equation:** P = σ·A·T⁴.");
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.", blocks, "Conclusion is complete.",
+                null, null, 0.8, List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    @Test
+    void e4_singleBlockWithHeaderOnlyFlaggedTooViaTruncationGuard() {
+        // The single-block path: only one block, header-only. Should also fail.
+        enableTruncationGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "Stefan-Boltzmann Total Flux",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "### Computation 1 — Stefan-Boltzmann\n\n**Equation:** P = σ·A·T⁴.",
+                "Conclusion is complete.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
     @Test
     void firstTruncatedBlockReturnsNullWhenEveryBlockIsClean() {
         java.util.Map<Integer, String> blocks = java.util.Map.of(

@@ -2000,17 +2000,83 @@ public class UniversityService {
     }
 
     /**
+     * Phase 13 E4 — minimum prose-token count required for a Findings block
+     * to count as "has a body discussing the result." Below this, the block
+     * is treated as truncated (header-only / equation-only).
+     *
+     * <p>10 tokens is conservative: a one-sentence summary like "The peak
+     * value was 0.79 at r=0.41, matching the octahedral void √2−1 result"
+     * is ~13 tokens, so the floor catches header-only blocks without
+     * false-positive-ing brief but legitimate prose.
+     */
+    static final int MIN_PROSE_TOKENS_PER_BLOCK = 10;
+
+    /**
+     * Phase 13 E4 — strip the per-block heading line and the structured
+     * Equation row so the truncation check sees only the prose body. The
+     * narrator emits blocks shaped like:
+     *
+     *   ### Computation N — Topic
+     *
+     *   **Equation:** f(x) = …
+     *
+     *   <prose discussing the result>
+     *
+     * P-a328-453 / P-a328-466 / P-a328-468 emit only the first two lines;
+     * the prose body is missing. {@code endsWithSentenceTerminator} passes
+     * because the equation line has a terminator. Strip the structural
+     * lines before counting words.
+     */
+    private static final java.util.regex.Pattern BLOCK_HEADER_LINE =
+            java.util.regex.Pattern.compile("(?m)^\\s*###[^\\n]*$");
+    private static final java.util.regex.Pattern BLOCK_EQUATION_LINE =
+            java.util.regex.Pattern.compile("(?m)^\\s*\\*\\*Equation:\\*\\*[^\\n]*$");
+
+    /**
      * Phase 7 F2 — returns the 1-based index of the FIRST block that ends mid-sentence,
      * or null when every block ends in a sentence terminator. Used by the per-block
      * truncation guard to flip a paper to NEEDS_REVISION and to surface the offending
      * block index in the warn log.
+     *
+     * <p>Phase 13 E4 — also returns the index of a block whose prose body
+     * (after stripping the heading and equation lines) has fewer than
+     * {@link #MIN_PROSE_TOKENS_PER_BLOCK} word tokens. Catches the
+     * header-only / equation-only signature where the block has a clean
+     * terminator on the equation line but no actual discussion of the
+     * result.
      */
     static Integer firstTruncatedBlock(java.util.Map<Integer, String> blocks) {
         if (blocks == null || blocks.isEmpty()) return null;
         for (java.util.Map.Entry<Integer, String> e : new java.util.TreeMap<>(blocks).entrySet()) {
-            if (!endsWithSentenceTerminator(e.getValue())) return e.getKey();
+            String body = e.getValue();
+            if (!endsWithSentenceTerminator(body)) return e.getKey();
+            if (isHeaderOnlyBlock(body)) return e.getKey();
         }
         return null;
+    }
+
+    /**
+     * Phase 13 E4 — true when a block strips to an empty / near-empty
+     * prose body after removing the heading and equation lines. Null /
+     * blank inputs return {@code false} (the upstream
+     * {@code endsWithSentenceTerminator} already handles blank text).
+     *
+     * <p>Only applies to blocks that carry the structured-findings layout
+     * (a {@code ### Computation N} heading OR a {@code **Equation:**}
+     * line). Plain-prose blocks without those markers are the legacy F1
+     * shape and stay untouched.
+     */
+    static boolean isHeaderOnlyBlock(String body) {
+        if (body == null || body.isBlank()) return false;
+        boolean hasHeader   = BLOCK_HEADER_LINE.matcher(body).find();
+        boolean hasEquation = BLOCK_EQUATION_LINE.matcher(body).find();
+        if (!hasHeader && !hasEquation) return false; // legacy single-block path
+        String prose = BLOCK_HEADER_LINE.matcher(body).replaceAll("");
+        prose = BLOCK_EQUATION_LINE.matcher(prose).replaceAll("");
+        prose = prose.trim();
+        if (prose.isEmpty()) return true;
+        String[] tokens = prose.split("\\s+");
+        return tokens.length < MIN_PROSE_TOKENS_PER_BLOCK;
     }
 
 }
