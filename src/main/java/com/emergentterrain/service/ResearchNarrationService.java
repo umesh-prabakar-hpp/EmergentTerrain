@@ -507,7 +507,20 @@ public class ResearchNarrationService {
             router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
                             professorSynthesis, literatureContext),
                     revised::append);
-            NarrationResult revParsed = parseNarrationResult(revised.toString());
+            // Phase 13 E2 — pre-parse repair of common malformed-JSON cases
+            // (code-fence wrappers, prose preamble, trailing commas, unclosed
+            // strings, unbalanced braces). REVIEW_REPORT refresh #1 §1 rec #3
+            // reported `rev:parse_failed→fp` on 9 of 23 published papers
+            // (39%); the lenient pre-parser repairs the majority of those
+            // before Jackson sees the input. When the repair fires AND parse
+            // succeeds, a `rev:parse_recovered:from=lenient` call-path stamp
+            // marks the recovered subset for operator correlation.
+            com.emergentterrain.research.LenientJsonParser.RepairResult repair =
+                    com.emergentterrain.research.LenientJsonParser.repair(revised.toString());
+            NarrationResult revParsed = parseNarrationResult(repair.text());
+            if (repair.repaired() && revParsed.hypothesis() != null) {
+                callPath.add("rev:parse_recovered:from=lenient");
+            }
             // Merge revision with firstPass field-by-field rather than requiring all-or-nothing.
             // The student-revision LLM under the v2 Discussion+Related-Work template sometimes
             // emits only the changed sections (discussion, related_work) and omits hypothesis /
