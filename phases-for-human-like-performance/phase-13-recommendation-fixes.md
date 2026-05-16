@@ -1,15 +1,17 @@
 # Phase 13 — Recommendation Fixes (scoping)
 
-**Scope:** Five concrete fixes drawn from REVIEW_REPORT refresh #1
-(post-rotation, 2026-05-15 18:30, papers 434 – 471). Each item is tied to
-a specific Recommendation entry in the report's §1 and to a specific
-file and line range in the code. Total work is modest (~7 hours across
-five pieces) but every item closes a *named* failure mode currently
+**Scope:** Six concrete fixes drawn from REVIEW_REPORT refresh #1
+(post-rotation, 2026-05-15 18:30, papers 434 – 471) and from a
+panel-recommendation pattern audit across the same corpus's 289 reviewer
+comments. Each item is tied to a specific Recommendation entry in the
+report's §1 or to a recurring panel-reviewer ask, and to a specific
+file and line range in the code. Total work is modest (~9 hours across
+six pieces) but every item closes a *named* failure mode currently
 visible in the corpus or in the running process — not a hypothetical
 quality lever.
 
 **Status:** Scoping document. No code in this phase yet. Implementation
-lands across five commits (E1–E5) plus this doc.
+lands across six commits (E1–E6) plus this doc.
 
 **Prerequisite:** Phase 12 shipped (4 commits `363b966 → 9b88c66`). The
 review skill confirms D3's `zero_successes→suppressed` gate, D7's
@@ -31,11 +33,18 @@ failures the refresh names are mostly mechanical:
    equation line as body (E4).
 5. One paper carries the literal `X` placeholder in `87.65% ± X%` —
    one sanitizer pattern would catch the class (E5).
+6. **NEW from panel-recommendation audit:** ~38 panel comments across
+   ~18 of the 23 published papers ask for "uncertainty / error bounds /
+   sensitivity analysis." Bots almost never put ± uncertainties on
+   reported values even when the engine computes σ over a sweep. The
+   narrator drops them. One template clause + one engine-output
+   passthrough would close the most-repeated panel ask in the corpus (E6).
 
 Each fix is independent, narrow, and acceptance-testable. Combined
 projection: acceptance rate moves from this refresh's 26.1% to ~50% on
 the same corpus shape (assumes E2 + E3 + E4 lift 7 papers from
-Reject/Major to Minor-or-better).
+Reject/Major to Minor-or-better; E6 reduces the recommendations-load on
+otherwise-clean papers but doesn't directly shift verdicts).
 
 **Why this is risky:**
 
@@ -54,6 +63,11 @@ Reject/Major to Minor-or-better).
   string change but the template runs on every RLC paper. Verify the
   fix doesn't regress the n=4 panels' validation on the four prior
   RLC papers (P-438, P-442, P-458 + any pre-rotation entries).
+- **E6 changes the narration prompt for every paper.** The
+  uncertainty-disclosure slot is a new required field in the
+  NARRATION_PRIMARY template. A flag-gated rollout (`uncertainty-
+  disclosure.enabled` default off) lets the operator observe one
+  REVIEW_REPORT refresh before enforcing.
 
 ---
 
@@ -65,16 +79,24 @@ Reject/Major to Minor-or-better).
   SimulationGate.isOpen()      ← E1 changes aggregation here
         │
         ▼
+  PromptTemplateRegistry       ← E6 adds Uncertainty slot to NARRATION_PRIMARY
+        │                         (and E3 corrects RLC Q-factor labels)
+        ▼
   professor synthesis ─▶ student revision ─▶ panel
                                   │
                                   ▼
                           parseNarrationResult
                           (rev:parse_failed→fp)  ← E2 inserts retry + lenient parser
 
+  MathPhysicsEngine.compute()  ← E6 also passes stddev/range through
+        │                         ResearchResult so the narrator sees it
+        ▼
+
   publishPaper
         │
         ├─ truncation guard       ← E4 extends to "header-only block"
         ├─ topic-specific check
+        ├─ uncertainty-disclosure ← E6 validator (NEW, flag-gated)
         ├─ numerical-consistency
         ├─ PromptSanitizer        ← E5 adds X-placeholder pattern
         └─ prose template (RLC)   ← E3 corrects Q-factor label parens
@@ -478,12 +500,140 @@ sentence terminator survives).
 
 ---
 
+## E6 — Uncertainty-disclosure requirement
+
+**Effort:** ~2 hours. **Pre-condition:** none. Independent of E1–E5.
+
+**The bug:** A panel-recommendation pattern audit across the 23
+published papers in this refresh found ~38 reviewer comments asking
+for some form of uncertainty/error/sensitivity quantification —
+appearing on ~18 of the 23 papers (~80% of the corpus). Worked examples:
+
+- P-a328-438 panel: *"Include a proper error analysis (tolerance of L,
+  C, and R, measurement noise, ESR) to substantiate the claim that
+  observed deviations are within expected limits."*
+- P-a328-442 panel: *"Include error bounds or sensitivity analysis for
+  component tolerances. … Explicitly compute and report uncertainty
+  bounds for all measured and derived quantities, especially R_crit
+  and Q-factor."*
+- P-a328-440 panel: *"Include sensitivity analyses and controls to
+  strengthen the methodology and increase the rigor of the study."*
+- P-a328-443 panel: *"Proper error propagation for the 4.04%
+  improvement claim. … Authors should derive the relationship through
+  first-principles analysis or empirical fitting with error bounds."*
+
+The root cause: the narrator template has no `**Uncertainty:**` slot
+and the engine's `ResearchResult` (`MathPhysicsEngine.java:27-35`) has
+no dedicated stddev / range field, so even when the sweep produces
+variance information (some compute branches do — e.g. Mertens, Bragg,
+Hall-Petch), the data is stringified into prose and the narrator drops
+it. The corpus's two highest-quality NULL_RESULTS (P-461 Pendulum, P-455
+Mertens) report exact closed-form recoveries — exactly the case where
+"uncertainty = none, exact closed form" should be stated explicitly but
+the prose stays silent.
+
+**Files touched:**
+- `src/main/java/com/emergentterrain/research/MathPhysicsEngine.java:27-35`
+  — extend `ResearchResult` with two optional fields:
+  `Double uncertaintyStddev` (null when not applicable), `String
+  uncertaintyKind` ("stddev" | "range" | "exact_closed_form" | "n/a").
+  Backward-compat constructors default both to null.
+- `src/main/java/com/emergentterrain/research/PromptTemplateRegistry.java`
+  (around line 146, the NARRATION_PRIMARY register call) — extend the
+  JSON schema block with a required `"uncertainty": "<string>"` slot.
+  Acceptable values: a `± N` numeric clause, the literal string
+  `"exact closed form"`, or `"not quantified"` with a one-sentence
+  reason. The prose findings template gains an instruction:
+  *"For each headline numeric, state its uncertainty inline using
+  `±` syntax OR mark as 'exact closed form' OR explain why none is
+  quantified."*
+- `src/main/java/com/emergentterrain/research/NarrationResult.java`
+  — add `String uncertainty` field; parser extracts it from the JSON
+  response.
+- `src/main/java/com/emergentterrain/research/UncertaintyDisclosureValidator.java`
+  (NEW) — `validate(findings)` flags Findings where the primary
+  numeric claim lacks any uncertainty indicator. Pattern: extract every
+  unit-anchored numeric (reuse `SALIENT_INTEGER_WITH_UNIT` from D2d)
+  and require that within 80 characters of it appears one of: `±`,
+  the word `approximately`/`exact`/`exactly`/`to within`, or an
+  explicit `[exact closed form]` marker.
+- `src/main/java/com/emergentterrain/research/UniversityService.java`
+  — wire the new validator after the closing-prose check; route
+  failures to NEEDS_REVISION (same tier as G6 / D6). New config flag
+  `app.research.uncertainty-disclosure.enabled` defaults OFF.
+
+**Engine-side passthrough — the load-bearing piece.** Today's compute
+branches that produce variance information drop it on the floor.
+Three concrete cases the audit named:
+
+| Topic | Engine variance source | Today's pass-through |
+|-------|------------------------|----------------------|
+| Mertens Partial Sums | `findings` string includes "worst |M|/√x ≈ X across N windows of width 200" — implicit sample size and range | Narrator quotes the worst value, loses the sample-size context |
+| Bragg X-ray Diffraction | Per-sample θ values computed across the sweep | Narrator quotes peak θ only; spread is in `findings` string but unstructured |
+| Hall-Petch Grain Size | σ_y computed at multiple d values | Narrator quotes max σ_y, no sample stddev |
+
+For E6's initial scope, surface the data the engine *already computes*
+via the new `uncertaintyStddev` field. A future phase can extend the
+engine to compute additional variance metrics for branches that
+currently don't.
+
+**Prompt template extension** (concrete diff to NARRATION_PRIMARY):
+
+```
+Existing schema slot:
+  "findings":"2-3 sentences …"
+
+After E6:
+  "findings":"2-3 sentences. Each headline numeric must carry an
+   inline uncertainty: either `± N` syntax with the same unit, the
+   literal phrase `exact closed form` when the result is a deterministic
+   closed-form recovery, or `not quantified — <one-line reason>` when
+   neither applies. Do not omit this clause."
+  "uncertainty":"<one-line summary of how uncertainty was determined
+   for the primary numeric; references the tool call by [call_N] if
+   the variance was sampled>"
+```
+
+**Acceptance:**
+- Unit test: a Findings string `"max σ_y ≈ 2377 MPa"` (no uncertainty)
+  → `UncertaintyDisclosureValidator.validate()` returns one reason.
+- Unit test: `"max σ_y ≈ 2377 MPa ± 12 MPa"` → empty list.
+- Unit test: `"E₁/kT = 0.118 [exact closed form]"` → empty list.
+- Unit test: `"η_Carnot = 1 − T_c/T_h, exact"` → empty list (the
+  trailing `, exact` qualifier counts).
+- After E6 ships in `warn` mode (flag off), the narrator template
+  produces an `uncertainty:` field on ≥80% of papers across a 20-paper
+  batch. Tells us the template change took effect.
+- After flipping `uncertainty-disclosure.enabled=true`, replay over the
+  ~18 panel-flagged papers: ≥12 now carry inline uncertainty clauses
+  on their primary numeric. Tells us the validator routes correctly.
+- The next REVIEW_REPORT refresh shows panel-recommendation lines
+  asking for "uncertainty" / "error bounds" / "sensitivity analysis"
+  drop by ≥40%. Tells us the panels actually credit the new disclosure.
+
+**Risk:**
+- A `± N` slot that the LLM populates with fabricated uncertainty
+  values is worse than no uncertainty at all. Mitigation: the
+  `uncertainty:` field's one-line summary should reference a tool call
+  ID (`[call_N]`); the Phase 11 citation validator can verify that the
+  cited call's resultJson actually carries the stated variance. If the
+  citation doesn't trace, the existing
+  `citations:out_of_tolerance` flag fires.
+- A template change affects every paper. The flag-off default ensures
+  one REVIEW_REPORT refresh exercises the new path before enforcement.
+
+---
+
 ## What Phase 13 deliberately does NOT change
 
-- **No new validators.** TextbookBoundRegistry, ClosingProseValidator,
+- **No new validators.** ~~TextbookBoundRegistry, ClosingProseValidator,
   NumericalConsistencyValidator, MagnitudeRangeValidator,
   TopicSpecificFindingsValidator — all unchanged. Phase 13 is
-  exclusively about fixing named bugs in existing paths.
+  exclusively about fixing named bugs in existing paths.~~
+  *(Updated for E6: one new validator,
+  `UncertaintyDisclosureValidator`, follows the same shape as the
+  existing topic-specific / closing-prose validators — single static
+  `validate()` method returning textual reasons.)*
 - **No prompt-template rewrites.** E3 corrects one specific
   parenthetical pattern; it does not redesign the RLC prose. Wishlist
   P1/P2 cover broader prompt-engineering work if/when scheduled.
@@ -512,9 +662,15 @@ E5 (X placeholder)  ─┘
 
 E4 (header-only block) ─→ Independent.
 
-E2 (rev:parse_failed) ──→ Larger change; ship last (its lenient parser
+E6 (uncertainty)    ───→ Independent of E1/E3/E4/E5. Touches the same
+                          NarrationResult parse path as E2, so ship E6
+                          after E2 lands or in a separate PR with a
+                          merge resolution plan if parallel.
+
+E2 (rev:parse_failed) ──→ Larger change; ship before E6 (its lenient parser
                           touches the same code path as E4's truncation
-                          guard via UniversityService.publishPaper).
+                          guard and E6's NarrationResult extension via
+                          UniversityService.publishPaper).
 ```
 
 **Suggested PR shape:**
@@ -524,6 +680,7 @@ E2 (rev:parse_failed) ──→ Larger change; ship last (its lenient parser
 | #1 | E1 + E3 + E5 | ~2 hours | Low. Three narrow fixes; each closes a named refresh item. |
 | #2 | E4 | ~1 hour | Low. One-method extension. |
 | #3 | E2 | ~3 hours | Medium. Lenient parser is new code; verify against the 9 failing papers in this refresh. |
+| #4 | E6 | ~2 hours | Medium. Template change affects every paper; flag-gated rollout. Ship after PR #3 to avoid a NarrationResult-shape merge with E2. |
 
 ---
 
@@ -536,6 +693,7 @@ E2 (rev:parse_failed) ──→ Larger change; ship last (its lenient parser
 | **E3** | No published RLC paper carries `(over)` / `(crit)` / `(under)` parens after E3 ships. Regression test on the engine's RLC compute output. |
 | **E4** | A paper with a header-only Computation 2 block publishes as NEEDS_REVISION (not PUBLISHED). Three unit tests cover header-only, equation-only, and "block with adequate prose body" pass-through. |
 | **E5** | Unit tests cover stripping `± X%`, preserving `± 2.3%`, and not touching `X` in unrelated context. After ship, no published paper contains `± X%` literal. |
+| **E6** | After flag-on, ≥80% of papers carry an inline uncertainty clause on their primary numeric (± syntax, "exact closed form", or "not quantified — reason"). Next REVIEW_REPORT refresh shows panel "uncertainty/error bounds/sensitivity" recommendation count drops ≥40%. |
 
 **Phase 13 complete when:**
 
@@ -550,14 +708,19 @@ E2 (rev:parse_failed) ──→ Larger change; ship last (its lenient parser
   not formatting drift the lenient parser could repair.
 - SimulationGate stays open when only one of multiple budget-tracked
   providers crosses the pause threshold.
+- Panel "uncertainty/error bounds/sensitivity" recommendation count
+  drops ≥40% from this refresh's ~38 mentions across ~18 papers
+  (the corpus-wide signal that E6 actually moved the needle on the
+  most-repeated panel ask).
 
-That last bullet is the operational success criterion. Today the
-review skill's `/loop` couldn't refresh because the room went silent
+That last-but-one bullet is the operational success criterion. Today
+the review skill's `/loop` couldn't refresh because the room went silent
 for 85 minutes from a single-provider exhaustion; after E1, that
 silence becomes a per-provider warning, not a simulation-wide pause.
 
 ---
 
 *This is a queued phase, not a wishlist. Each item is named in
-REVIEW_REPORT refresh #1's §1 recommendations and has a concrete
-acceptance test against the corpus the refresh observed.*
+REVIEW_REPORT refresh #1's §1 recommendations OR in the panel-
+recommendation pattern audit across the same corpus (E6), and has a
+concrete acceptance test against the corpus the refresh observed.*
