@@ -532,6 +532,43 @@ app:
           # of 11 simultaneous double-Groq-blackouts in the 2026-05-13 a3289005 room corpus.
           dailyLimit: 270000
           minuteLimit: 8000    # matches observed TPM rate-limit
+        # 2026-05-17 (room a3289005): nvidia/openrouter/cerebras were unconfigured here,
+        # so SimulationGate.providerSpread() only saw groq. When groq hit 95%/day the gate
+        # closed globally for ~3.5 h, even though NVIDIA/OpenRouter/Cerebras handles in
+        # PrimaryModelRegistry had unspent capacity. Adding them below restores the
+        # Phase 13 E1 min-across-metered semantics: gate closes only when EVERY metered
+        # provider is over pauseThresholdPct. Tune the limits against each provider's
+        # actual dashboard reading.
+        nvidia:
+          # NVIDIA NIM free tier: per build.nvidia.com, accounts get a one-time
+          # allocation of API credits (currently advertised as ~5000 inference
+          # credits for newly-verified developer accounts; some legacy accounts
+          # have 1000 — STARTUP.md was written against the 1000-credit cohort).
+          # Credits debit per call, not per token, and only paid-tier models like
+          # nemotron-4-340b draw multiple credits per call. The token-based cap
+          # below is a proxy: at ~3500 tokens per primary call (observed in
+          # logs/et-app.log), 100K tokens ≈ 30 calls/day. Check live remaining
+          # at build.nvidia.com → Profile → API Credits and adjust.
+          dailyLimit: 100000
+          minuteLimit: 20000
+        openrouter:
+          # OpenRouter ":free" routes: hard-capped per-account at 50 RPM and 200
+          # requests/day for unverified accounts; 1000 req/day after $10 lifetime
+          # spend. Beyond that, 429 from upstream. Token cap is the indirect
+          # signal — at ~3500 tokens/call × 200 calls = 700K. Setting to 500K to
+          # gate at ~70% of the request-rate cap, leaving headroom for retries.
+          # Check live usage at openrouter.ai/activity.
+          dailyLimit: 500000
+          minuteLimit: 175000  # ≈50 RPM × 3500 tok/call
+        cerebras:
+          # Cerebras Cloud free tier: 30 RPM per model. Daily uncapped (subject
+          # to monthly free-tier ceiling which Cerebras does not publish a hard
+          # number for; observe at cloud.cerebras.ai usage page). Currently
+          # role-tagged fast-audit only — calls are short ("OK"-style probes,
+          # ~200 tokens). 30 RPM × 200 tok ≈ 6000 tok/min. Daily left at 0
+          # (unmetered) — only the per-minute gate is meaningful.
+          dailyLimit: 0
+          minuteLimit: 6000
         ollama:
           dailyLimit: 0        # local, unmetered
           minuteLimit: 0
