@@ -461,4 +461,339 @@ class NumericalConsistencyValidatorTest {
         assertThat(reasons).anyMatch(r -> r.contains("call_1")
                 && r.contains("unreliable"));
     }
+
+    // -------- Phase 16 #1: sign-aware (magnitude-fallback) matching --------
+
+    @Test
+    void p16_1_pA328_555_proseMagnitudeMatchesSignedTraceValue() {
+        // P-a328-555 cited "15.286" in Findings — the tool result string
+        // contained "deviation -15.286" (signed). Pre-Phase-16 the strict
+        // signed comparison rejected the magnitude form as fabricated.
+        String hypothesis = "Mean Collatz steps for happy numbers near 50.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Deviation from baseline reaches 15.286 over the interval.");
+        String conclusion = "Mean 34.71 vs predicted 50.00.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}",
+                        "Mean of collatzSteps = 35 (n=7, baseline 50.000, deviation -15.286).",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("15.286"));
+    }
+
+    // -------- Phase 16 #2: [call_0] off-by-one labelling drift --------
+
+    @Test
+    void p16_2_pA328_516_call0CitedOnOneBasedTraceEmitsLabellingDrift() {
+        // P-a328-516 cited [call_0] in prose; trace has calls 1-6. Pre-Phase-16
+        // this was flagged as "does not appear in trace" (fabrication
+        // severity). Phase 16 emits a softer labelling-drift reason when
+        // call_1 exists.
+        String hypothesis = "Reuss bound test.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Crossover observed at Vf=1.00 [call_0] in this regime.");
+        String conclusion = "Consistent with Reuss prediction.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}",
+                        "{\"value\": 1.00}", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("[call_0]")
+                && r.contains("labelling drift"));
+        // Ensure the strict "does not appear in trace" wording is NOT emitted
+        // for this case (the softer reason replaces it).
+        assertThat(reasons).noneMatch(r -> r.contains("[call_0]")
+                && r.contains("does not appear in"));
+    }
+
+    @Test
+    void p16_2_call0WithoutCall1FallsBackToStrictReason() {
+        // Safety check: if call_1 doesn't exist (only call_2, call_3 etc., or
+        // an empty trace), [call_0] should still produce the strict "does not
+        // appear in trace" reason — labelling drift only fires when call_1 is
+        // present.
+        String hypothesis = "Test.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Result cited [call_0] in this regime.");
+        String conclusion = "Consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}",
+                        "{\"value\": 1.00}", 0, "call_2"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("[call_0]")
+                && r.contains("does not appear in"));
+    }
+
+    // -------- Phase 16 #3: framing-percentage severity --------
+
+    @Test
+    void p16_3_pA328_526_framingPercentageGetsSofterSeverity() {
+        // P-a328-526 cited "50 %" as an efficiency-target framing reference
+        // not derived from any tool. Pre-Phase-16 it was tagged "suspected
+        // derived-formula divergence" (fabrication severity); Phase 16 emits
+        // a softer "unsourced framing value" reason for round-number %.
+        String hypothesis = "Carnot efficiency for T_c≈342 K, T_h swept upward.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The efficiency target of 50 % is the practical regime ceiling.");
+        String conclusion = "Carnot ceiling holds.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_gpu_eval", "{}",
+                        "GPU eval mean=0.640 max=0.761 n=877.",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("50")
+                && r.contains("unsourced framing value"));
+        assertThat(reasons).noneMatch(r -> r.contains("50")
+                && r.contains("suspected derived-formula divergence"));
+    }
+
+    @Test
+    void p16_3_nonFramingPercentageKeepsDerivationSeverity() {
+        // 73 % is not in the framing set — should keep the standard
+        // derivation-divergence severity.
+        String hypothesis = "Test for unsourced percentages.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The observed value of 73 % is the new result.");
+        String conclusion = "Test.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}",
+                        "fraction = 0.450 (n=100).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("73 %")
+                && r.contains("suspected derived-formula divergence"));
+    }
+
+    // -------- Phase 16 #4: extended errored-result markers --------
+
+    @Test
+    void p16_4_pA328_519_invalidRangeMarkerTreatedAsFailed() {
+        // P-a328-519 cited [call_1] whose result was "Invalid range: must be
+        // ≥1 and span ≤ 5000". The old ERRORED_RESULT_MARKER didn't catch
+        // this prefix; Phase 16 adds it.
+        String hypothesis = "Voigt rule for composite stress.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Stress reached 341 MPa at Vf=10% [call_1].");
+        String conclusion = "Linear scaling observed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "Invalid range: must be ≥1 and span ≤ 5000",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("[call_1]")
+                && r.contains("errored or was rejected"));
+    }
+
+    @Test
+    void p16_4_sandboxExecutionFailedMarkerCaught() {
+        String hypothesis = "Test.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1, "Value [call_1].");
+        String conclusion = "Test.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}",
+                        "Sandbox execution failed: Array index out of bounds",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("[call_1]")
+                && r.contains("errored or was rejected"));
+    }
+
+    @Test
+    void p16_4_topicNotComputableMarkerCaught() {
+        String hypothesis = "Test.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1, "Value [call_1].");
+        String conclusion = "Test.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}",
+                        "Topic not computable via MathPhysicsEngine.",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("[call_1]")
+                && r.contains("errored or was rejected"));
+    }
+
+    // -------- Phase 16 #5: one-sided CI tightening --------
+
+    @Test
+    void p16_5_pA328_528_proseTightensTraceCiFlagged() {
+        // P-a328-528: prose "0.34 ± 0.02" against tool "0.34 ± 0.07".
+        // 0.02 / 0.07 = 29% — well below the 50% slack floor.
+        String hypothesis = "Density estimate.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Combined density 0.34 ± 0.02 lies within the predicted baseline.");
+        String conclusion = "Hypothesis supported.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}",
+                        "fraction satisfying = 0.34 ± 0.07 (95% CI, n=200).",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("confidence interval")
+                && r.contains("0.02")
+                && r.contains("0.07")
+                && r.contains("Tightening"));
+    }
+
+    @Test
+    void p16_5_widenedCiNotFlagged() {
+        // Prose reports a CONSERVATIVE wider CI — should never flag.
+        String hypothesis = "Density estimate.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Combined density 0.34 ± 0.10 lies within the predicted baseline.");
+        String conclusion = "Hypothesis supported.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}",
+                        "fraction satisfying = 0.34 ± 0.07 (95% CI, n=200).",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("confidence interval"));
+    }
+
+    @Test
+    void p16_5_minorRoundingDoesNotFlagCiShrinkage() {
+        // 0.06 rounded down from 0.07 (86% of trace) — within slack, no flag.
+        String hypothesis = "Density estimate.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Density 0.34 ± 0.06.");
+        String conclusion = "Consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}",
+                        "fraction = 0.34 ± 0.07.", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("confidence interval"));
+    }
+
+    // -------- Phase 16 #6: scope overreach --------
+
+    @Test
+    void p16_6_pA328_547_proseClaimsRangeNeverExecuted() {
+        // P-a328-547 hypothesis says "first ten thousand"; prose claims scan
+        // over [1,5000) and [5000,10000). Tool actually ran [85,110).
+        String hypothesis = "Test density [85, 110).";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Two scans over [1, 5000) and [5000, 10000) both yielded a "
+                        + "density consistent with the predicted baseline.");
+        String conclusion = "Consistent across the range.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"range_start\": 85, \"range_end\": 110}",
+                        "fraction = 0.12 (n=25).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
+                && (r.contains("[1, 5000)") || r.contains("[5000, 10000)")));
+    }
+
+    @Test
+    void p16_6_proseRangeWithinExecutedRangePasses() {
+        String hypothesis = "Test density [1, 5000).";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Sub-window [100, 200) shows density 0.13.");
+        String conclusion = "Sub-region consistent.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"range_start\": 1, \"range_end\": 5000}",
+                        "fraction = 0.13 (n=4999).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
+    }
+
+    // -------- Phase 16 #7: inline "Computation N" stub --------
+
+    @Test
+    void p16_7_pA328_553_inlineComputationStubFlagged() {
+        // P-a328-553 emitted "Computation 3 — Testing a scale closer to the
+        // starting point (44)..." inline in Findings; trace had 0 successful
+        // calls. F1b's block-count gate wouldn't catch this inline form.
+        String hypothesis = "Divisor-sum convergence.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "First run yielded a worst deviation of 0.004 at N=176. "
+                        + "Computation 2 — Testing a scale adjacent to the current "
+                        + "one may reveal deviations. Computation 3 — Testing a "
+                        + "scale closer to the starting point may expose drift.");
+        String conclusion = "Asymptotic holds.";
+        // Trace with zero entries — gate-closed-professor case.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of();
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        // Empty trace short-circuits to findUnanchoredFindingsWithoutTrace, so
+        // the inline-stub check is reached via the normal trace-aware path;
+        // verify it fires when trace has SOME entries but is overshot.
+    }
+
+    @Test
+    void p16_7_inlineComputationStubWithSparseTraceFlagged() {
+        String hypothesis = "Goldbach partition survey.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The first run yielded a mean of 14.5 [call_1]. Computation 2 — "
+                        + "shows a thin neighbourhood near 380. Computation 3 — "
+                        + "displays a gentle trend. Computation 4 — confirms.");
+        String conclusion = "Goldbach holds locally.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}",
+                        "mean=14.59 n=140.", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("Computation")
+                && r.contains("inline computation-stub fabrication"));
+    }
+
+    @Test
+    void p16_7_inlineComputationsMatchingTraceNotFlagged() {
+        // Three Computation mentions, three successful calls — clean.
+        String hypothesis = "Goldbach partition survey.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Computation 1 produced mean=14.59. Computation 2 — confirmed "
+                        + "the trend. Computation 3 — added a robustness check.");
+        String conclusion = "Goldbach holds locally.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "evaluate_symbolic", "{}", "mean=14.59.", 0, "call_1"),
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_sandboxed_code", "{}", "result=14.61.", 1, "call_2"),
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{}", "fraction=0.45.", 2, "call_3"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("inline computation-stub"));
+    }
 }

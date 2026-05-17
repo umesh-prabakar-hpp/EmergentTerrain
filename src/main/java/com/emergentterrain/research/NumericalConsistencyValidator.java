@@ -127,13 +127,31 @@ public final class NumericalConsistencyValidator {
      * exception handler (line ~533). Case-insensitive; the check fires when
      * any of these tokens appears as a JSON key or as a phrase in the
      * stringified body.
+     *
+     * <p>Phase 16 — extended to cover the failure-text variants observed in
+     * refresh #3 of {@code research/a3289005/} that the original set missed.
+     * Affected papers: P-a328-519 (4 of 5 sandbox calls returned "Invalid
+     * range: must be ≥1 and span ≤ 5000" yet were cited as evidence),
+     * P-a328-532 (same "Invalid range" pattern, plus a fifth call that
+     * failed with "Cannot use array 'result' as scalar"), P-a328-539 (calls 3-6
+     * each failed with "REJECTED: The code calculates..." which the validator
+     * now needs to treat the same as REJECTED-by-safety), P-a328-543 (call 2
+     * sandbox parse-failure). The general pattern is short status prefixes
+     * that the sandbox/runtime emits in plain text rather than JSON shape.
      */
     private static final Pattern ERRORED_RESULT_MARKER = Pattern.compile(
             "(?i)\"(?:error|rejected|status)\"\\s*:\\s*\"?(?:true|rejected|error|fail)"
             + "|tool\\s+error\\s*:"
             + "|index\\s+out\\s+of\\s+bounds"
-            + "|cannot\\s+use\\s+array\\s+as\\s+scalar"
-            + "|REJECTED\\s+by\\s+safety");
+            + "|cannot\\s+use\\s+array\\s+(?:'[^']+'\\s+)?as\\s+scalar"
+            + "|REJECTED\\s+by\\s+safety"
+            + "|REJECTED\\s*\\(static\\)\\s*:"
+            + "|REJECTED\\s*:\\s*"
+            + "|Invalid\\s+range\\s*:"
+            + "|Invalid\\s+params\\s*:"
+            + "|Sandbox(?:ed)?\\s+execution\\s+failed"
+            + "|Symbolic\\s+evaluation\\s+failed"
+            + "|Topic\\s+not\\s+computable");
 
     /**
      * Phase 12 D2e — high-deviation marker in a tool result. P-a328-405 /
@@ -153,6 +171,46 @@ public final class NumericalConsistencyValidator {
 
     /** Phase 12 D2e — magnitude above which a deviation is treated as unreliable evidence. */
     private static final double HIGH_DEVIATION_THRESHOLD = 50.0;
+
+    /**
+     * Phase 16 — common "framing" percentage values the LLM cites as targets
+     * or thresholds rather than computed quantities. P-a328-526 cited "50 %"
+     * as an efficiency-target framing reference; the existing D2d check
+     * flagged it as a fabricated derivation. These values are textbook
+     * round-number markers and warrant a softer severity than
+     * "suspected derived-formula divergence." Anything outside this set falls
+     * back to the standard derivation-flag severity.
+     */
+    private static final java.util.Set<Double> COMMON_FRAMING_PERCENTAGES = java.util.Set.of(
+            5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 33.0, 40.0, 50.0,
+            60.0, 67.0, 70.0, 75.0, 80.0, 90.0, 95.0, 99.0, 100.0);
+
+    /**
+     * Phase 16 — confidence-interval pattern. Matches {@code X ± Y} where X is
+     * the central value and Y is the half-width. Accepts the Unicode ± plus the
+     * ASCII {@code +/-} and {@code +-} variants the LLM sometimes emits. Y can
+     * be in scientific notation; X is restricted to plain decimal so the
+     * pattern doesn't fire on exponent fragments like "1.2e-3".
+     *
+     * <p>Group 1 = central value X, group 2 = half-width Y.
+     */
+    private static final Pattern CI_PATTERN = Pattern.compile(
+            "([+-]?[0-9]+(?:\\.[0-9]+)?)\\s*(?:±|\\+/-|\\+-)\\s*"
+                    + "([0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
+
+    /**
+     * Phase 16 — slack factor for CI matching. A prose half-width must be at
+     * least {@code traceHalfWidth × CI_SHRINKAGE_SLACK} to pass. P-a328-528
+     * narrowed 0.07 → 0.02 (29% of trace) — well below this floor. Tight
+     * rounding ("0.07" → "0.06") would be 86% of trace and passes; "0.07" →
+     * "0.04" is 57% and passes; "0.07" → "0.02" is 29% and fails.
+     *
+     * <p>0.5 chosen because halving an uncertainty band is a strong fabrication
+     * signal: it doubles the apparent significance of any deviation from
+     * baseline. Numbers below this are not within the range that rounding,
+     * sample-resampling, or statistical model swaps would explain.
+     */
+    private static final double CI_SHRINKAGE_SLACK = 0.5;
 
     /**
      * Validates the three checks above. Returns a list of textual reasons for
@@ -241,6 +299,17 @@ public final class NumericalConsistencyValidator {
         // result with 99.9% deviation against its own cited baseline is
         // unreliable evidence even when the prose's numeric matches.
         findHighDeviationCalls(toolCallTrace, reasons);
+        // Phase 16 — one-sided CI tightening. Prose "0.34 ± 0.02" against a
+        // trace "0.34 ± 0.07" is a fabrication direction; widening uncertainty
+        // is fine. P-a328-528 / P-a328-521 pattern.
+        findCiShrinkage(findings, toolCallTrace, reasons);
+        // Phase 16 — Hypothesis-vs-executed-range scope overreach. Prose
+        // claims results over a range never executed by any tool call.
+        // P-a328-547 pattern.
+        findScopeOverreach(hypothesis, findings, toolCallTrace, reasons);
+        // Phase 16 — inline "Computation N" stub embedded in findings prose
+        // beyond what F1b's block-count gate catches. P-a328-553 pattern.
+        findInlineComputationStubs(findings, toolCallTrace, reasons);
         return reasons;
     }
 
@@ -363,6 +432,18 @@ public final class NumericalConsistencyValidator {
             String key = numTok + " " + unit;
             if (!alreadyFlaggedUnit.add(key)) continue;
             if (!isPermittedNumber(n, permitted)) {
+                // Phase 16 — softer severity for "% framing" values like
+                // "50 %", "75 %", "100 %". P-a328-526 cited "50 %" as a target
+                // framing reference for Carnot-efficiency discussion; the
+                // standard derivation-divergence severity over-reads such a
+                // round-number reference as a fabricated calculation.
+                if ("%".equals(unit) && COMMON_FRAMING_PERCENTAGES.contains(n)) {
+                    reasons.add(String.format(
+                            "Findings cites '%s %%' as an unsourced framing value — round-number target "
+                                    + "not derived from any hypothesis, conclusion, or tool-call source.",
+                            numTok));
+                    continue;
+                }
                 reasons.add(String.format(
                         "Findings cites unit-anchored value '%s %s' that is not within ±1%% of any "
                                 + "number in the hypothesis, conclusion, or tool-call trace results "
@@ -384,6 +465,21 @@ public final class NumericalConsistencyValidator {
         }
     }
 
+    /**
+     * Phase 7 F5.5 / Phase 16 — match a prose-cited value against the permitted
+     * source set within ±1%. Phase 16 adds a *magnitude* fallback: when the
+     * prose number doesn't match a signed source value, also try the absolute
+     * value of the source. Rationale (P-a328-555): tool result strings often
+     * carry signed numbers like "deviation -15.286" while the prose cites the
+     * magnitude "15.286" — these refer to the same quantity. The check was
+     * fabrication-flagging the unsigned prose form despite the trace
+     * containing the signed source. Magnitude-only fallback closes that gap
+     * without making the validator permissive in other directions, because:
+     * (a) the strict sign-matching branch runs first, so signed-vs-signed
+     * comparisons still catch real polarity disagreements; (b) the magnitude
+     * branch is symmetric, so a prose claim of "5" matches a trace "-5" or
+     * "5", which is the prose-as-magnitude semantics the LLM intends.
+     */
     private static boolean isPermittedNumber(double value, List<Double> permitted) {
         for (double p : permitted) {
             if (p == 0.0) {
@@ -391,6 +487,10 @@ public final class NumericalConsistencyValidator {
                 continue;
             }
             if (Math.abs(value - p) / Math.abs(p) <= F5_5_RELATIVE_TOLERANCE) return true;
+            // Phase 16 — magnitude fallback. Match prose unsigned-magnitude
+            // citations against signed trace values (e.g. prose "15.286" vs
+            // trace "-15.286").
+            if (Math.abs(value - Math.abs(p)) / Math.abs(p) <= F5_5_RELATIVE_TOLERANCE) return true;
         }
         return false;
     }
@@ -451,6 +551,21 @@ public final class NumericalConsistencyValidator {
             if (!alreadyFlagged.add(callId)) continue;
             com.emergentterrain.llm.ToolInvocation inv = byId.get(callId);
             if (inv == null) {
+                // Phase 16 — [call_0] labelling-drift heuristic. The harness
+                // assigns 1-based callIds (Phase 11 C1, "call_1" is the first
+                // entry). P-a328-516 emitted prose citations to [call_0]; the
+                // trace contained calls 1-6. The fabrication-pattern severity
+                // ("does not appear in trace") over-reads the prose's intent —
+                // the LLM almost certainly meant call_1 and slipped a zero-
+                // indexed citation in. Emit a softer reason that names the
+                // labelling drift, when AND only when a "call_1" exists.
+                if ("call_0".equals(callId) && byId.containsKey("call_1")) {
+                    reasons.add(
+                            "Findings cites '[call_0]' which appears to be a zero-indexed labelling drift "
+                                    + "— call_1 is the first call in the trace (callIds are 1-based per Phase "
+                                    + "11 C1). Renumber to call_1 or strip the citation.");
+                    continue;
+                }
                 reasons.add(String.format(
                         "Findings cites '[%s]' which does not appear in the persisted tool-call trace "
                                 + "(only %d call%s in trace).",
@@ -502,6 +617,227 @@ public final class NumericalConsistencyValidator {
                 } catch (NumberFormatException ignored) {}
             }
         }
+    }
+
+    /**
+     * Phase 16 — flag prose "X ± Y" pairs whose half-width Y is materially
+     * tighter than the matching trace half-width. Matching is by central
+     * value within ±1% (the same tolerance F5.5 uses for value matching).
+     * If no matching central value exists in the trace, the prose pair is
+     * skipped (we cannot pair an orphan prose CI against a missing trace
+     * counterpart without false-positives).
+     *
+     * <p>Sole direction flagged is *tightening* — the prose claims a narrower
+     * CI than the trace. Widening (prose Y > trace Y) is treated as a
+     * conservative restatement and never flagged.
+     */
+    private static void findCiShrinkage(
+            String findings,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (findings == null || findings.isBlank()) return;
+        if (trace == null || trace.isEmpty()) return;
+
+        // Collect (central, halfWidth) pairs from every trace result.
+        List<double[]> tracePairs = new ArrayList<>();
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null || inv.resultJson() == null) continue;
+            Matcher tm = CI_PATTERN.matcher(inv.resultJson());
+            while (tm.find()) {
+                try {
+                    double x = Double.parseDouble(tm.group(1));
+                    double y = Double.parseDouble(tm.group(2));
+                    if (y > 0) tracePairs.add(new double[]{x, y});
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        if (tracePairs.isEmpty()) return;
+
+        Matcher pm = CI_PATTERN.matcher(findings);
+        java.util.Set<String> alreadyFlagged = new java.util.HashSet<>();
+        while (pm.find()) {
+            double proseX;
+            double proseY;
+            try {
+                proseX = Double.parseDouble(pm.group(1));
+                proseY = Double.parseDouble(pm.group(2));
+            } catch (NumberFormatException ex) { continue; }
+            if (proseY <= 0) continue;
+
+            // Find the closest trace central X to the prose X (within ±1%
+            // F5.5 tolerance). If none, skip — no pairing means no inference.
+            double bestY = -1;
+            for (double[] pair : tracePairs) {
+                double tx = pair[0];
+                double ty = pair[1];
+                if (tx == 0) {
+                    if (proseX != 0) continue;
+                } else if (Math.abs(proseX - tx) / Math.abs(tx) > F5_5_RELATIVE_TOLERANCE) {
+                    continue;
+                }
+                // Accept this pair; pick the LARGEST trace half-width that
+                // matches the central value, so the strictest comparison
+                // (smallest trace Y) doesn't unfairly favour the prose.
+                if (ty > bestY) bestY = ty;
+            }
+            if (bestY < 0) continue;
+
+            if (proseY < bestY * CI_SHRINKAGE_SLACK) {
+                String key = proseX + "_" + proseY + "_" + bestY;
+                if (!alreadyFlagged.add(key)) continue;
+                reasons.add(String.format(
+                        "Findings cites confidence interval '%s ± %s' but the matching tool result "
+                                + "reports '± %s' for the same central value — prose half-width is "
+                                + "%.0f%% of trace half-width (slack floor: %.0f%%). Tightening "
+                                + "uncertainty without statistical justification is a fabrication "
+                                + "direction; widening would not flag.",
+                        pm.group(1), pm.group(2),
+                        formatTrim(bestY),
+                        100.0 * proseY / bestY, 100.0 * CI_SHRINKAGE_SLACK));
+            }
+        }
+    }
+
+    /**
+     * Phase 16 — flag prose range claims that aren't covered by any executed
+     * tool call's range. Range parsing is intentionally conservative — we only
+     * pick up the unambiguous {@code [a, b)} and {@code [a, b]} bracket forms.
+     * Natural-language ranges ("between X and Y", "from X to Y") are deferred
+     * because the false-positive surface is wider (those phrasings also appear
+     * in chemistry-style "from 25 to 30 °C" measurements, etc.).
+     *
+     * <p>An executed range is extracted from each {@link
+     * com.emergentterrain.llm.ToolInvocation#argsJson} by parsing
+     * {@code range_start}/{@code range_end} or {@code start}/{@code end} pairs.
+     * The union of those intervals is the executed-range set.
+     */
+    private static void findScopeOverreach(
+            String hypothesis, String findings,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (trace == null || trace.isEmpty()) return;
+
+        // Collect executed ranges from the trace.
+        List<double[]> executed = new ArrayList<>();
+        Pattern rangeArgs = Pattern.compile(
+                "(?i)\"(?:range_start|start)\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?"
+                        + "[^}]*?"
+                        + "\"(?:range_end|end)\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?");
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null || inv.argsJson() == null) continue;
+            Matcher am = rangeArgs.matcher(inv.argsJson());
+            while (am.find()) {
+                try {
+                    double a = Double.parseDouble(am.group(1));
+                    double b = Double.parseDouble(am.group(2));
+                    if (b > a) executed.add(new double[]{a, b});
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        if (executed.isEmpty()) return;
+
+        // Parse "[a, b)" or "[a, b]" from hypothesis + findings.
+        Pattern bracketRange = Pattern.compile(
+                "\\[\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*[\\)\\]]");
+        String combined = (hypothesis != null ? hypothesis : "") + "\n"
+                + (findings != null ? findings : "");
+        Matcher pm = bracketRange.matcher(combined);
+        java.util.Set<String> alreadyFlagged = new java.util.HashSet<>();
+        while (pm.find()) {
+            double a;
+            double b;
+            try {
+                a = Double.parseDouble(pm.group(1));
+                b = Double.parseDouble(pm.group(2));
+            } catch (NumberFormatException ex) { continue; }
+            if (b <= a) continue;
+
+            // Pass when SOME executed range covers [a, b] within ±1% on each
+            // edge. Slack matches F5_5_RELATIVE_TOLERANCE so a prose
+            // "[326, 466)" is allowed to ride a trace "[325, 467)" etc.
+            boolean covered = false;
+            for (double[] ex : executed) {
+                double slackA = Math.max(Math.abs(ex[0]), 1.0) * F5_5_RELATIVE_TOLERANCE;
+                double slackB = Math.max(Math.abs(ex[1]), 1.0) * F5_5_RELATIVE_TOLERANCE;
+                if (a >= ex[0] - slackA && b <= ex[1] + slackB) {
+                    covered = true;
+                    break;
+                }
+            }
+            if (covered) continue;
+
+            String key = a + "_" + b;
+            if (!alreadyFlagged.add(key)) continue;
+            reasons.add(String.format(
+                    "Prose claims results over range [%s, %s) but no tool call executed against this "
+                            + "interval — the executed-range union does not cover it (scope overreach).",
+                    formatTrim(a), formatTrim(b)));
+        }
+    }
+
+    /**
+     * Phase 16 — count {@code Computation N —} mentions in the findings prose
+     * and flag when the total exceeds the number of successful tool calls.
+     * Complementary to F1b's {@code block-count-guard}: F1b counts *block
+     * headers* (separate markdown blocks), while this check counts *every*
+     * occurrence of the marker including ones embedded mid-paragraph.
+     * P-a328-553 emitted "Computation 3 — Testing a scale closer to the
+     * starting point..." inside a Findings paragraph; F1b did not increment
+     * its block counter so the gate let it through.
+     */
+    private static void findInlineComputationStubs(
+            String findings,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
+            List<String> reasons) {
+        if (findings == null || findings.isBlank()) return;
+        Pattern compMarker = Pattern.compile("\\bComputation\\s+([0-9]+)\\s+(?:—|-)");
+        Matcher m = compMarker.matcher(findings);
+        java.util.Set<Integer> mentioned = new java.util.TreeSet<>();
+        while (m.find()) {
+            try { mentioned.add(Integer.parseInt(m.group(1))); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (mentioned.isEmpty()) return;
+        int successes = countSuccessfulCalls(trace);
+        int highest = mentioned.stream().max(Integer::compare).orElse(0);
+        if (highest <= Math.max(1, successes)) return;
+        // Build a sorted list of the mentioned IDs that exceed the success
+        // count for the reason text.
+        List<Integer> overshoot = new ArrayList<>();
+        for (int id : mentioned) {
+            if (id > successes) overshoot.add(id);
+        }
+        reasons.add(String.format(
+                "Findings prose mentions Computation %s but the trace contains only %d successful "
+                        + "tool call%s — inline computation-stub fabrication (per-paragraph stub "
+                        + "form that F1b's block-count gate does not catch).",
+                overshoot, successes, successes == 1 ? "" : "s"));
+    }
+
+    /**
+     * Count tool invocations whose result is non-empty and does not match an
+     * errored-result marker. Shared between F1b-companion checks and any
+     * future caller that needs a "this many calls actually succeeded" view of
+     * the trace.
+     */
+    private static int countSuccessfulCalls(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null) return 0;
+        int n = 0;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null) continue;
+            String body = inv.resultJson();
+            if (body == null || body.isBlank()) continue;
+            if (ERRORED_RESULT_MARKER.matcher(body).find()) continue;
+            n++;
+        }
+        return n;
+    }
+
+    /** Trim a trailing {@code .0} when the value is integral, otherwise format the double normally. */
+    private static String formatTrim(double v) {
+        if (v == Math.floor(v) && !Double.isInfinite(v)) return String.valueOf((long) v);
+        return String.valueOf(v);
     }
 
     private static String formatList(List<Double> values) {
