@@ -427,11 +427,21 @@ WARN/ERROR root causes and map every `prof:error→fp` paper to its upstream Gro
 /paper-review research/<room-id> --logs logs/et-app.log
 ```
 
-**Periodic refresh every 15 minutes** — pair with the `loop` skill:
+**Periodic refresh** — pair with the `loop` skill:
 
 ```
 /loop 15m /paper-review research/<room-id> --logs logs/et-app.log
 ```
+
+Copy-pastable example used against room `a3289005` on a 40-minute cadence:
+
+```
+/loop 40m /paper-review research/a3289005 --logs logs/et-app.log
+```
+
+> Note: 40 doesn't divide 60 cleanly, so the `loop` skill rounds the interval
+> to `30m` (cron `*/30 * * * *`). Use a clean divisor of 60 — `15m`, `20m`,
+> `30m` — to get exact-cadence firing.
 
 The cron job lives only for the current Claude Code session (auto-expires after 7 days).
 For a durable cloud-based loop, use `/schedule` instead.
