@@ -513,6 +513,18 @@ app:
     # (REJECTED) and re-fabricated the same convergence claim.
     corpus-citations:
       suppress-rejected: false
+    # Phase 16 P6b — prior-result injection at formulation time. When on
+    # AND exactly one PUBLISHED prior with peer score >= min-score exists
+    # on the (domain, topic) pair, the formulation prompt gains a
+    # "STRONG-CONFIDENCE PRIOR" hint asking the bot to replicate, refute,
+    # or shift sub-question. Default OFF for rollout-discipline — flip on
+    # after P6a's verdict-tag has soaked for one corpus refresh. Targets
+    # the P-a328-541 (inverts P-a328-516 Reuss V_f=1) and P-a328-539
+    # (re-fabricates P-a328-534 convergence) failures. min-score=0.5
+    # admits the corpus baseline (P-516 at 0.535, P-552 at 0.723).
+    prior-result-injection:
+      enabled: false
+      min-score: 0.5
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

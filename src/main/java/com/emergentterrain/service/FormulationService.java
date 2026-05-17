@@ -63,6 +63,33 @@ public class FormulationService {
     private final double literatureNoveltyCapScore;
     private final Semaphore formulationSlot = new Semaphore(1);
 
+    /**
+     * Phase 16 P6b — when on, the formulation prompt injects a "Strong-
+     * confidence prior" hint when exactly one PUBLISHED prior with
+     * {@code peerScore >= priorResultMinScore} exists for the (domain, topic)
+     * pair. The hint asks the bot to either replicate, refute-with-citation,
+     * or shift sub-question so a same-topic re-attempt doesn't silently
+     * contradict (or silently re-fabricate) the prior. P-a328-541 inverted
+     * P-a328-516's correct Reuss V_f=1 result without acknowledging it;
+     * P-a328-539 re-fabricated P-a328-534's rejected convergence claim.
+     *
+     * <p>Default off so the rollout matches the discipline used for other
+     * phase-16 prompt-stage flags — flip on after one corpus refresh
+     * exercises P6a's verdict-tag behaviour first.
+     */
+    @Value("${app.research.prior-result-injection.enabled:false}")
+    private boolean priorResultInjectionEnabled;
+
+    /**
+     * Phase 16 P6b — peer-score floor for a prior to qualify as
+     * "math-verified" for the prior-result hint. The corpus baseline (per
+     * REVIEW_REPORT refresh #3) puts P-a328-516 at 0.535 and P-a328-552 at
+     * 0.723, both math-correct. The 0.50 floor is conservative — it admits
+     * P-516 and excludes the lower-quality cluster (0.30s and below).
+     */
+    @Value("${app.research.prior-result-injection.min-score:0.5}")
+    private double priorResultMinScore;
+
     public FormulationService(LlmRouter router, ObjectMapper objectMapper,
                               PromptTemplateRegistry promptRegistry,
                               @Value("${app.research.intra-room-novelty-window-minutes:30}")
@@ -213,13 +240,25 @@ public class FormulationService {
 
         String identitySection = identityHint(identity);
 
+        // Phase 16 P6b — when exactly one math-verified PUBLISHED prior
+        // exists on this (domain, topic), inject a "Strong-confidence prior"
+        // hint asking the bot to replicate, refute-with-citation, or shift
+        // sub-question. Empty string when the flag is off, when zero
+        // qualifying priors exist, or when ≥2 exist (the scoping doc's
+        // single-prior restriction). Sequenced AFTER identity / hypothesis /
+        // novelty so it lands closest to the priorPapers block where the
+        // bot will see it during prompt scanning.
+        String priorResultHint = priorResultInjectionEnabled
+                ? buildPriorResultHint(domain, topicName, priorPapers, priorResultMinScore)
+                : "";
+
         // The three optional context blocks (identity / hypothesis / novelty) are
         // pre-carve concatenated by the positional "%s%s%s" pattern; the new
         // template uses a single composite slot {{ optionalContext }} so the
         // renderer stays free of conditional logic. priorSection is trimmed
         // before concatenation with anomalyContext into the {{ priorPapers }}
         // + {{ anomalyContext }} pair, matching pre-carve byte-for-byte.
-        String optionalContext = identitySection + hypothesisSection + noveltyContext;
+        String optionalContext = identitySection + hypothesisSection + noveltyContext + priorResultHint;
         Map<String, Object> params = new java.util.LinkedHashMap<>();
         params.put("domain",          domain);
         params.put("topicName",       topicName);
@@ -231,6 +270,80 @@ public class FormulationService {
         params.put("priorPapers",     priorSection.trim());
         params.put("anomalyContext",  anomalyContext);
         return promptRegistry.render(PromptTemplateIds.FORMULATION_MAIN_ID, params);
+    }
+
+    /**
+     * Phase 16 P6b — render the prior-result hint for the formulation prompt.
+     *
+     * <p>Selects the highest-peer-score PUBLISHED prior on the (domain,
+     * topic) pair whose peer score is at or above
+     * {@link #priorResultMinScore}. When *exactly one* such prior exists,
+     * inject the hint. When zero exist (fresh topic or only-low-score
+     * priors), return empty — the existing priorPapers block is the only
+     * context the bot needs. When two or more exist (disagreeing priors
+     * possible), return empty too — the scoping doc's first-iteration
+     * restriction. A future P6b.2 may add disagreement detection to handle
+     * the multi-prior case explicitly.
+     *
+     * <p>Static + pure: takes the min-score as a parameter so unit tests
+     * can exercise selection + formatting without spinning up the full LLM
+     * router or constructing a FormulationService instance.
+     */
+    static String buildPriorResultHint(String domain, String topicName,
+                                       List<ResearchPaper> priorPapers,
+                                       double minScore) {
+        if (priorPapers == null || priorPapers.isEmpty()) return "";
+        List<ResearchPaper> qualifying = priorPapers.stream()
+                .filter(p -> p.domain() != null && p.domain().equalsIgnoreCase(domain))
+                .filter(p -> p.topic() != null && p.topic().equalsIgnoreCase(topicName))
+                .filter(p -> "PUBLISHED".equalsIgnoreCase(p.status()))
+                .filter(p -> p.peerScore() >= minScore)
+                .sorted((a, b) -> Double.compare(b.peerScore(), a.peerScore()))
+                .toList();
+        if (qualifying.size() != 1) return "";  // 0 or 2+ → skip injection
+        ResearchPaper best = qualifying.get(0);
+        String conclusionSummary = firstSentence(best.conclusion(), 200);
+        if (conclusionSummary.isBlank()) {
+            // Fall back to a short slice of findings if the conclusion is
+            // empty / non-sentential.
+            conclusionSummary = firstSentence(best.findings(), 200);
+        }
+        if (conclusionSummary.isBlank()) return "";
+        return String.format(
+                "STRONG-CONFIDENCE PRIOR: %s (score %.2f) established that %s "
+                        + "Choose one path: (1) replicate at materially different parameters and "
+                        + "confirm or extend the trend, (2) refute with new evidence and explicitly "
+                        + "cite the contradiction in your hypothesis, (3) shift to a different "
+                        + "sub-question of this topic. Do NOT implicitly contradict the prior "
+                        + "without acknowledging it.%n",
+                best.paperId(), best.peerScore(), conclusionSummary);
+    }
+
+    /**
+     * Phase 16 P6b — extract the first sentence (terminated by `.`, `!`,
+     * or `?`) from {@code text}, truncated to {@code maxLen} chars. Returns
+     * the empty string when {@code text} is null, blank, or contains no
+     * sentence terminator within the cap. Trailing whitespace is trimmed
+     * but the terminator is preserved so the hint reads naturally.
+     */
+    static String firstSentence(String text, int maxLen) {
+        if (text == null || text.isBlank()) return "";
+        String trimmed = text.trim();
+        int n = Math.min(trimmed.length(), maxLen);
+        for (int i = 0; i < n; i++) {
+            char c = trimmed.charAt(i);
+            if (c == '.' || c == '!' || c == '?') {
+                return trimmed.substring(0, i + 1).trim();
+            }
+        }
+        // No terminator within the cap — return the capped prefix with an
+        // ellipsis so the hint still ends cleanly.
+        if (trimmed.length() > maxLen) {
+            return trimmed.substring(0, maxLen).trim() + "…";
+        }
+        // Whole text < maxLen but no terminator — append a period so the
+        // injected sentence reads as a complete clause in the hint.
+        return trimmed + ".";
     }
 
     /**
