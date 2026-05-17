@@ -1516,7 +1516,7 @@ contains the symptom without depending on upstream relief. F7 remains
 on [phase-wishlist.md](phase-wishlist.md) pending a future phase doc.
 
 Flags introduced (default off in code; live state tracked in
-[phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md)):
+[phase-flags.md](phase-flags.md)):
 
 | Flag | State |
 |------|-------|
@@ -1540,7 +1540,7 @@ Tracks the validator flags that are coded + shipped across Phases 7 /
 observation. Phase 15 ships no Java — its commits are
 `application.yml` configuration changes that arrive ad-hoc as
 REVIEW_REPORT refresh evidence accumulates. See
-[phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md) for
+[phase-flags.md](phase-flags.md) for
 per-flag trigger conditions, risk, and acceptance.
 
 Current queue (4 of 5 remaining; F1b flipped 2026-05-17 in `918ac90`):
@@ -1580,7 +1580,7 @@ cover:
 
 Scope lives across two existing docs:
 
-- [phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md)
+- [phase-flags.md](phase-flags.md)
   "Known validator FPs blocking D2 escalation" + "Coverage gaps to
   ship alongside the FP fixes" — items 1-7 (the validator side).
 - [phase-wishlist.md](phase-wishlist.md) P5, P6, P7 — the narrator
@@ -1691,7 +1691,7 @@ phase-11-citations-as-schema.md              ← inline [call_N] markers + numer
 phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
 phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
 phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
-phase-15-flag-rollout-queue.md               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers
+phase-flags.md                               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers (renamed from phase-15-flag-rollout-queue.md after Phase 16 added three more flags)
 phase-wishlist.md                            ← quality levers reference (not queued; not a phase)
 ```
 

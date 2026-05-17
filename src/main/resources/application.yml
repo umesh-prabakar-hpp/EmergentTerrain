@@ -424,7 +424,7 @@ app:
     # research/a3289005 showed 4 of 11 papers (P-526, P-533, P-540, P-548)
     # carrying `(no data — call_N missing)` markers — within refresh #2's
     # ~6-of-20 baseline (±2), so F1a's heuristic is calibrated and the gate
-    # is safe to flip. See phase-15-flag-rollout-queue.md "Recently flipped
+    # is safe to flip. See phase-flags.md "Recently flipped
     # — Tier 2" log entry.
     block-count-guard:
       enabled: true

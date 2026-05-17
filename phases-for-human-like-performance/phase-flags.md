@@ -1,10 +1,19 @@
-# Phase 15 — Flag Rollout Queue
+# Phase Flags — Rollout Queue
 
-**Scope:** Rolling tracker for validator flags that are coded + shipped
-across Phases 7 / 11 / 12 / 14 but deliberately held at default-off (or
-warn-mode) pending corpus observation. Each entry names the **trigger
-condition** that flips the flag from off to on (or escalates a mode
-from `warn` to `downgrade` / `suppress`).
+**Scope:** Rolling tracker for validator + narrator + scheduler flags
+that are coded + shipped across Phases 7 / 11 / 12 / 14 / 16 but
+deliberately held at default-off (or warn-mode) pending corpus
+observation. Each entry names the **trigger condition** that flips the
+flag from off to on (or escalates a mode from `warn` to `downgrade` /
+`suppress`).
+
+**File-rename note:** This file was renamed from
+`phase-15-flag-rollout-queue.md` to `phase-flags.md` after Phase 16
+landed three more default-off flags. The doc was originally created
+under Phase 15 (a rolling tracker that ships no code on its own), but
+the flags it tracks come from every phase that lands code-with-a-flag.
+Keeping `phase-flags.md` as the long-lived name avoids a confusing
+`phase-15-` prefix on a doc that outlives Phase 15.
 
 **Status:** Created 2026-05-17 after Tier 1 of Phase 14 flipped on
 (commit `041671a` — Phase 12 D6, Phase 13 E6, Phase 14 F1a / F3 / F4 /
@@ -14,18 +23,19 @@ window already met by REVIEW_REPORT refresh #1 + #2 in
 `research/a3289005/`. The flags below need either *more* corpus
 evidence or operator-judgement before flipping.
 
-Phase 15 is unlike Phases 0–14 in that it ships no new code on its own
-— its commits are configuration changes that arrive ad-hoc as refresh
-evidence accumulates. Update each row's *State* / *Trigger met?* /
-*Decision* columns when REVIEW_REPORT refreshes land. Phase 15 closes
-when this queue is empty (every flag either flipped on or removed as a
-deliberate keep-off).
+This tracker is unlike Phases 0–14/16 in that it ships no new code on
+its own — its commits are configuration changes that arrive ad-hoc as
+refresh evidence accumulates. Update each row's *State* / *Trigger
+met?* / *Decision* columns when REVIEW_REPORT refreshes land. The
+queue closes when every entry has either flipped on or been removed
+as a deliberate keep-off.
 
-**Queue depth**: 4 of 5 original entries remaining. Tier 1 (six flags)
-flipped 2026-05-17 in commit `041671a`. Tier 2 (one flag — F1b
-`block-count-guard`) flipped 2026-05-17 in commit `918ac90`. The four
-remaining are all Tier 3 (operator-judgement or larger-sample
-prerequisites) — see Snapshot below.
+**Queue depth**: 7 entries pending. Phase 15 Tier 1 (six flags)
+flipped 2026-05-17 in commit `041671a`. Phase 15 Tier 2 (one flag —
+F1b `block-count-guard`) flipped 2026-05-17 in commit `918ac90`. The
+four original-Phase-15 holdouts plus three new Phase 16 default-off
+flags (P6a `suppress-rejected`, P6b `prior-result-injection`, P7
+`topic-clone-backoff`) make up the current queue — see Snapshot below.
 
 ---
 
@@ -37,6 +47,9 @@ prerequisites) — see Snapshot below.
 | 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) | Medium — status-changing |
 | 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") | High — flips structural validator from log-only to enforcing |
 | 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates | High — flips citation validator from log-only to enforcing |
+| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode shows the verdict tag does not over-fire on legitimate RELATED_WORK citations | Low — narration prompt content only; no status change |
+| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a's verdict-tag soak; the narrator's Related Work reaction to disclaimer tags is observable before adding the formulation-stage hint | Medium — prompt expansion (~80-120 tokens) may shift hypothesis style |
+| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b's prior-injection soak; the prior-injection should reduce topic-clone-reject rates first, leaving the scheduler backoff as a backstop rather than a primary fix | Medium — coupled to existing reward dynamics (Phase 5 C1 citation scoring, Phase 1 program rewards) |
 
 ## Recently flipped — Tier 1 (commit `041671a`, 2026-05-17)
 
@@ -62,7 +75,7 @@ exercise. E1, E2, E4, E5 were already verified by refresh #2 evidence.
 
 ---
 
-## Recently flipped — Tier 2 (commit `<pending>`, 2026-05-17)
+## Recently flipped — Tier 2 (commit `918ac90`, 2026-05-17)
 
 The second wave. Same criterion as Tier 1: a clear "flag-off path is
 bit-identical to today" guarantee, a named failure mode, and the
@@ -215,6 +228,142 @@ the paper drops entirely.
 
 ---
 
+## P6a — corpus-citations suppress-rejected (Phase 16)
+
+**Phase:** 16 P6a. **Current:** `app.research.corpus-citations.suppress-rejected:
+false`. **File:** `src/main/resources/application.yml`. **Code:**
+`PromptSanitizer.isRejectedStatus` / `verdictTagFor` +
+`ResearchNarrationService.buildNarrationPrompt`.
+
+**What flipping it does:** The verdict-tag behaviour (REJECTED priors
+get `[REJECTED — do not propagate]` prepended; DISPUTED get
+`[DISPUTED — under replication review]`) **already runs unconditionally**
+in disclaimer mode — that part of P6a is on for every paper today.
+Flipping this flag escalates to *suppression mode*: REJECTED priors
+are dropped from the priorPapers context block entirely. The narrator
+LLM never sees them and so cannot cite them in Related Work, even with
+the disclaimer caveat.
+
+**Trigger condition:** One REVIEW_REPORT refresh under disclaimer mode
+shows the verdict tag is doing its job — REJECTED priors that DO
+appear in the prompt either don't get cited at all in Related Work, or
+get cited with explicit "we reject the prior's claim because…"
+language. If instead the narrator continues to cite REJECTED priors
+silently (without acknowledging the tag), the tag's signal is too weak
+and suppression mode is the right next step.
+
+**Risk:** Low. The narration prompt content changes; paper status does
+not. Flipping back to disclaimer mode is one YAML edit. The only loss
+is the narrator's ability to reference rejected priors at all — but
+that's the explicit intent.
+
+**Acceptance:** After flip, zero RELATED_WORK sections cite a paper
+whose verdict was REJECTED. The disclaimer-mode tag stops appearing in
+the prompt entirely (the priors aren't even surfaced).
+
+---
+
+## P6b — prior-result injection at formulation time (Phase 16)
+
+**Phase:** 16 P6b. **Current:** `app.research.prior-result-injection.enabled:
+false` (with `min-score: 0.5` knob). **File:**
+`src/main/resources/application.yml`. **Code:**
+`FormulationService.buildPriorResultHint` + the wiring in
+`buildFormulationPrompt`'s `optionalContext` assembly.
+
+**What flipping it does:** When the formulator selects a (domain, topic)
+that has exactly one PUBLISHED prior with `peerScore >= min-score`, the
+formulation prompt gains a `STRONG-CONFIDENCE PRIOR: P-XXX (score
+0.YY) established that <one-sentence conclusion>. Choose one path:
+(1) replicate, (2) refute with citation, (3) shift sub-question.`
+hint. Zero qualifying priors → no change. Two or more → no change
+(the size-1 restriction in the scoping doc; disagreeing priors stay
+on the deferred P6b.2 list).
+
+**Trigger condition:** One REVIEW_REPORT refresh under P6a's
+verdict-tag soak. Sequencing matters: P6a's disclaimer mode changes
+how the narrator handles existing priorPapers context; P6b adds a
+new context line at the formulation stage. Soaking P6a first lets us
+observe whether the verdict tag alone resolves the
+re-fabrication-of-rejected-priors pattern (P-a328-539 → P-a328-534)
+before adding the more invasive formulation-stage hint.
+
+If P6a alone closes the failure (no new "rejected prior re-fabricated"
+papers in the next refresh), P6b's marginal value drops and the flip
+can be deferred. If P6a doesn't close the failure but the narrator
+*does* engage with the tag (acknowledging it without then ignoring
+its content), P6b is the right next step — surface the prior's
+conclusion earlier in the pipeline.
+
+**Risk:** Medium. Prompt expansion adds ~80–120 tokens to formulation,
+which slightly changes hypothesis-style distribution even before the
+hint's content effect lands. The min-score knob is the safety valve:
+raise it to 0.6 / 0.7 if low-score priors seed weak hints.
+
+**Acceptance:** After flip, papers landing on a topic with a strong-
+confidence prior either (a) cite the prior in Related Work AND its
+parameters differ materially from the prior, (b) explicitly refute
+the prior's claim in Conclusion, or (c) the new Hypothesis's
+question text is materially different from the prior's. The next
+refresh's "Topic clone collisions" recommendation count drops vs the
+baseline (refresh #3 §1 rec #7 named divisor-sum-average and
+stiffness-crossover as the canonical cases).
+
+---
+
+## P7 — topic-clone scheduler backoff (Phase 16)
+
+**Phase:** 16 P7. **Current:** `app.research.topic-clone-backoff.enabled:
+false` (with `window-size: 5` and `max-retries: 3` knobs). **File:**
+`src/main/resources/application.yml`. **Code:**
+`TopicCloneBackoff` utility + the wiring in
+`ResearchCycleService.runCycle` after `selectTopicIndex`.
+
+**What flipping it does:** After the initial topic pick, count REJECTED
+papers on the chosen (domain, topic) in the last `window-size` (=5)
+published papers in the room. Probability of keeping the topic is
+`0.5^rejections`. On resample, `selectTopicIndex` is invoked again
+with the same flags up to `max-retries` (=3) times. After
+`max-retries`, the current candidate is accepted regardless — never
+blocks on a fully cooled domain.
+
+Geometric decay:
+- 0 rejections → keep 1.0
+- 1 → keep 0.5
+- 2 → keep 0.25
+- 3 → keep 0.125 (so 7 of 8 attempts resample)
+
+**Trigger condition:** One REVIEW_REPORT refresh under P6b's
+prior-injection soak. P7 is the *backstop* for the topic-clone
+failure: P6b's prior-injection should reduce repeat-topic-reject
+rates by giving the formulator clearer guidance; P7 catches the
+residual cases where the formulator still hits the same topic.
+Flipping P7 before P6b risks the scheduler resampling away from
+topics where P6b would have produced a clean follow-up paper.
+
+If P6b alone drops repeat-topic-reject rates substantially, P7's
+marginal value is small and the flip can be deferred indefinitely.
+If repeat-topic-rejects persist despite P6b, P7 is the right
+next-line defence.
+
+**Risk:** Medium. Coupling to existing reward dynamics (Phase 5 C1
+citation scoring, Phase 1 program rewards) means a topic that's
+rejected for fabrication reasons looks identical at the
+selection-weight layer to a topic that is genuinely hard. The 5-paper
+rolling window naturally decays the penalty — topics with merit
+recover once the oldest rejection ages out. The `window-size` knob
+is the safety valve if the window proves too aggressive or too
+forgiving.
+
+**Acceptance:** After flip, no topic accumulates ≥3 consecutive
+rejections within a 5-paper sliding window. Per-refresh log inspection
+shows `topic-clone backoff: bot=… domain=… initial=X → final=Y` lines
+when the backoff fires; `final == initial` means the topic survived
+the keep-roll despite rejections (acceptable; the random keep is the
+intended behaviour at low rejection counts).
+
+---
+
 ## Known validator FPs blocking D2 escalation
 
 **Status (2026-05-17):** Items #1-#3 below shipped in commit `f6b89b9`
@@ -352,6 +501,7 @@ When a refresh confirms a trigger condition:
    delete if the change is self-evident from `git log application.yml`).
 4. Commit with a `config:` prefix matching `041671a`'s style.
 
-When a new flag joins the queue (a future phase ships a default-off
-validator), add it to the table + a per-flag section. Future Phase 15+
-deferred flips arrive this way.
+When a new flag joins the queue (any phase that ships a default-off
+validator, narrator scrub, or scheduler hook), add it to the Snapshot
+table + write a per-flag section. The Phase 16 P6a/P6b/P7 entries
+below are the most recent example of this pattern.
