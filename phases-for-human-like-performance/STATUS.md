@@ -17,7 +17,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 flags ON; Phase 15 rolling flag-rollout queue tracks 5 deferred flags** |
+| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 + F1b (Tier 2) flags ON; Phase 15 rolling flag-rollout queue tracks 4 remaining deferred flags; Phase 16 scoped from REVIEW_REPORT refresh #3/#4** |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 |
 | Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) lines |
@@ -1543,18 +1543,87 @@ REVIEW_REPORT refresh evidence accumulates. See
 [phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md) for
 per-flag trigger conditions, risk, and acceptance.
 
-Current queue:
+Current queue (4 of 5 remaining; F1b flipped 2026-05-17 in `918ac90`):
 
 | Tier | Flag | Phase | Trigger |
 |------|------|-------|---------|
-| 2 | `app.research.block-count-guard.enabled` | 14 F1b | One refresh of F1a stamp-mode observation |
 | 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | F7.2 panel agreement scores stable + ≥30 papers |
-| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | False-positive rate measured over ≥30 SUPPORTED papers |
-| 3 | `app.research.numerical-consistency.mode` (warn) | 12 D2 | Operator review of warn-mode suppress markers |
+| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 from ≥30 after refresh-#3 showed 0/5 FPs) |
+| 3 | `app.research.numerical-consistency.mode` (warn) | 12 D2 | Operator review of warn-mode suppress markers **AND** three known validator FPs fixed (see phase-15 doc) |
 | 3 | `app.research.citations-as-schema.mode` (warn) | 11 C5b | Two refreshes with stable uncited / unmatched / out_of_tolerance distributions |
+
+Recently flipped — Tier 2 (commit `918ac90`, 2026-05-17): F1b
+`block-count-guard`. Closed by refresh #3 evidence — 4 of 11 new papers
+(P-526, P-533, P-540, P-548) carried `(no data — call_N missing)`
+markers, tracking refresh #2's ~30% baseline within the ±2 trigger
+window.
 
 **Phase 15 closes when** the queue is empty — every flag either
 flipped on or removed as a deliberate keep-off.
+
+---
+
+## Phase 16 — Recommendation Fixes #3 📋 (scoped; not yet implemented)
+
+Eight concrete items drawn from REVIEW_REPORT refreshes #3 + #4
+(2026-05-17, papers P-a328-514..555 in `research/a3289005/`). Phase 16
+addresses three distinct failure classes the earlier phases did not
+cover:
+
+1. **Validator coverage extensions** (4 items) — strengthen what
+   `NumericalConsistencyChecker` catches at `warn` mode.
+2. **Narrator-stage scrubs + corpus awareness** (3 items) — close
+   defects in the narration pipeline surfaced when the math substrate
+   started reliably producing correct arithmetic in refresh #3.
+3. **Scheduler-stage topic-clone backoff** (1 item) — stop the
+   formulation pipeline from cycling on already-rejected topics.
+
+Scope lives across two existing docs:
+
+- [phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md)
+  "Known validator FPs blocking D2 escalation" + "Coverage gaps to
+  ship alongside the FP fixes" — items 1-7 (the validator side).
+- [phase-wishlist.md](phase-wishlist.md) P5, P6, P7 — the narrator
+  and scheduler items.
+
+| Group | Item | Source | Type |
+|-------|------|--------|------|
+| Validator FPs | Negative-number tokeniser miss (P-555) | Phase 15 doc #1 | Fix existing FP |
+| Validator FPs | Off-by-one `[call_0]` labelling drift (P-516) | Phase 15 doc #2 | Fix existing FP |
+| Validator FPs | Unsourced framing-percentage severity (P-526) | Phase 15 doc #3 | Fix existing FP |
+| Validator coverage | `[call_N]` resolves but the call failed (P-519, 532, 539, 543) | Phase 15 doc #4 | New check |
+| Validator coverage | One-sided CI tightening (P-528, 521) | Phase 15 doc #5 | New check |
+| Validator coverage | Hypothesis-vs-executed-range scope mismatch (P-547) | Phase 15 doc #6 | New check |
+| Validator coverage | Inline `Computation N` stub in Findings prose (P-553) | Phase 15 doc #7 | New check |
+| Narrator scrub | Suppress canned conclusion when status ≠ PUBLISHED (P-553) | Wishlist P5a | Narrator gate |
+| Narrator scrub | Strip number-words harness leaks (P-541) | Wishlist P5b | Narrator filter |
+| Corpus-aware narration | Cross-citation verdict propagation (P-539 → P-534) | Wishlist P6a | Prompt-context fetch |
+| Corpus-aware narration | Prior-result injection at formulation time (P-541 vs P-516) | Wishlist P6b | Prompt-context fetch |
+| Scheduler | Topic-clone backoff (divisor-sum-average 4× rejected) | Wishlist P7 | Selection-weight decay |
+
+**Implementation order** (recommended, not prescribed):
+
+1. The seven validator items (Phase 15 docs #1-7) ship as a single
+   commit because they all live in `NumericalConsistencyChecker`. This
+   commit also gates the D2 warn → downgrade escalation in
+   [phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md).
+2. P5a + P5b together as one narrator-scrub commit (single file edit
+   each, no architecture risk).
+3. P6a (disclaimer mode, flag-gated) as a standalone commit. P6b
+   sequences after P6a once the prior-fetch query is in place.
+4. P7 last — has the most coupling to existing reward dynamics and
+   benefits from one refresh of P6b's prior-injection behaviour before
+   sequencing.
+
+**Phase 16 complete when** acceptance rate on a 25-paper window with
+all eight items shipped reaches ≥25% (refresh #3 cumulative: 5.3%;
+projected upper bound after items 1+2+3 alone: ~25%, per refresh #3
+§operational-logs). Per-item acceptance gates live in their respective
+source docs.
+
+**No dedicated phase-16-*.md scoping doc yet.** Following Phase 10's
+precedent — if the scope grows or the implementation surfaces an
+architecture question, a dedicated doc gets added at that point.
 
 ---
 
