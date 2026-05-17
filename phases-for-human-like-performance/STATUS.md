@@ -17,12 +17,12 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 7 of 7 (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 |
+| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped; E1/E2/E4/E5 verified against REVIEW_REPORT refresh #2, E3/E6 unverified; Phase 14 F1–F6 scoped (no code yet)** |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 15 Phase 5 + 5 Phase 6 |
-| Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) lines |
-| Tests | 135 → 577 → 690 → 704 → 709 → 717 (+582) |
-| Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 (literature-search prompt integration, Discussion / Related-Work sections), all behind feature flags |
+| Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 |
+| Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) lines |
+| Tests | 135 → 577 → 690 → 704 → 709 → 717 → 1,400+ (+1,265) |
+| Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 + Phase 7 multi-provider/structured-findings/topic-expansion + Phase 8 unrestricted-math + Phase 9 unified-registry + Phases 10–13 corpus-driven hardening, all behind feature flags |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -704,6 +704,44 @@ app.research.dispute-reconciliation.enabled # Phase 5 C2 — DISPUTED papers emi
 app.research.citation-aware-scoring.enabled # Phase 5 C1 — peer score gains +0.02 per high-quality cited prior, -0.04 per critique:skip cited prior
 app.research.literature-search.enabled  # Phase 6 D1.3 — professor stage sees a curated literature block (v2-with-literature templates)
 app.research.discussion-section.enabled # Phase 6 D2 — first-pass narrator emits discussion + related_work JSON keys (v2-with-discussion template)
+
+# Phase 7 E1–E4 — multi-provider LLM + budget / router infrastructure
+app.ai.openrouter.enabled               # Phase 7 E1.2 — OpenRouter pool (Qwen, GPT-oss-120b)
+app.ai.nvidia.enabled                   # Phase 7 E1.3 — NVIDIA NIM API pool (Llama-3.3-70b, Qwen, Nemotron)
+app.ai.cerebras.enabled                 # Phase 7 E1.4 — Cerebras pool (low-latency, audit-focused)
+app.ai.cerebras.role                    # Phase 7 E1.4 — role assignment for Cerebras (e.g. "fast-audit")
+app.ai.tool-calling.providers           # Phase 7 E2 — whitelist of providers for professor-stage tool calls (default "groq"; widened to all four post-Phase 9)
+app.research.ollama-fallback.enabled    # Phase 7 E3 — route critique→revision through Ollama when all primary pools exhausted
+
+# Phase 7 F2–F3 — structured findings + multi-topic expansion
+app.research.structured-findings.enabled # Phase 7 F2 — narrator emits N H3 prose blocks per paper (flipped ON in F2.10)
+app.research.max-computations           # Phase 7 F2 — computations-per-paper cap (default 1; bumped to 5 post-F4)
+app.research.topics-v2.enabled          # Phase 7 F3 — uniform sampling over full 38-topic set vs. 5-topic bot-weighted selection (flipped ON in F3.6)
+app.research.intra-room-novelty-window-minutes # Phase 7 G9 — duplicate-discouragement window; second paper in same (domain, topic) docked −0.5 novelty (default 30 min)
+
+# Phase 7 F7 + G — panel review + audit-gap routing
+app.research.review-panel.enabled       # Phase 7 F7.2 — multi-reviewer panel fan-out (default ON; Phase 9 migrated to PrimaryModelRegistry)
+app.research.review-panel.providers     # Phase 7 F7.2 — CSV of providers to fan panel out to (default "*"; pinned to "groq,nvidia,openrouter,cerebras" post-Phase 9)
+app.research.review-panel.size          # Phase 7 F7.2 — panel size cap (default 4)
+app.research.audit-cherry-picked-rejects.enabled # Phase 7 F7.3 — SUPPORTED papers with ≥2-reviewer cherry_picked_evidence gate publish REJECTED
+app.research.audit-physical-mechanism-rejects.enabled # Phase 7 G8 — SUPPORTED papers carrying audit-4b physical_mechanism gap publish REJECTED
+app.research.topic-specific-findings-validator.enabled # Phase 7 G6 — RLC R_c boilerplate + Arrhenius scientific-notation prose validator
+
+# Phase 9 — selection-test + HTTP unification
+app.ai.selection-tests.enabled          # Phase 9 U5 — startup model validation (chat / JSON / tool probes)
+app.ai.selection-tests.retestIntervalMinutes # Phase 9 follow-on — periodic re-probe of dropped models
+app.ai.http.requestTimeoutSeconds       # Phase 9 follow-on — unified HTTP read timeout across all pools (default 420s = 7 min)
+
+# Phase 11 — citations-as-schema
+app.research.citations-as-schema.mode   # Phase 11 C1–C5b — citation validation mode (warn / downgrade / suppress; default warn)
+
+# Phase 12 — fabrication-gate hardening
+app.research.numerical-consistency.mode # Phase 12 D2 — numerical validation mode (warn / downgrade / suppress; replaces the boolean .enabled flag from Phase 5 B1)
+app.research.panel-degradation-demote.enabled # Phase 12 D4 — demote PUBLISHED → NEEDS_REVISION when panel degraded (n ∈ {2,3})
+app.research.closing-prose-validator.enabled # Phase 12 D6 — reject conclusions citing "no prior theoretical bound" on bounded topics (paired with TextbookBoundRegistry)
+
+# Phase 13 — recommendation fixes
+app.research.uncertainty-disclosure.enabled # Phase 13 E6 — reject Findings whose unit-anchored numerics lack uncertainty indicators (default OFF; flag-gated rollout)
 ```
 
 Phase 0 (refactor), Phase 1 Iter 2 (identity view), Phase 1 Iter 3 (typed
@@ -724,18 +762,20 @@ so existing rooms pick up the feature without a data migration.
 ## Service map
 
 After Phase 0 + four behavioural phases (plus Phase 4b and nine
-Phase 2.5 carves), the research package is 17 specialist services + 9
-RoomService-derived services in `com.emergentterrain.service`
-(BotArchetypeBehaviorService, HighwayEmergenceService,
-BotMovementService, MapIndexService, RoomStateOrchestrator,
-TileValidatorService, OccupancyService, BotSimulationGpuService,
-RoomProposalService) + 14 entities. Refreshed against the working tree
-(post-`ab42534`):
+Phase 2.5 carves) and Phases 5–13, the research package now spans the
+original 17 specialist services + 9 RoomService-derived services in
+`com.emergentterrain.service` (BotArchetypeBehaviorService,
+HighwayEmergenceService, BotMovementService, MapIndexService,
+RoomStateOrchestrator, TileValidatorService, OccupancyService,
+BotSimulationGpuService, RoomProposalService) + 14 entities + ~22 new
+services/pools/validators/registries added across Phases 5–13 (listed
+in the second table below). Pre-Phase-7 services that grew substantially
+are flagged with their current line counts (post-`dab1724`):
 
 | Service | Lines | Responsibility |
 |---------|-------|----------------|
-| ResearchNarrationService | 1304 | narration pipeline + critique + audit + professor experiments |
-| UniversityService | 954 | orchestrator + citation tracking + bridging + classification + paper persistence |
+| ResearchNarrationService | 2188 | narration pipeline + critique + audit + professor experiments + panel integration (grew from 1304 across Phases 7–13) |
+| UniversityService | 2165 | orchestrator + citation tracking + bridging + classification + paper persistence + validator routing for all Phase 5–13 gates (grew from 954) |
 | ResearchCycleService | 529 | author selection + computation + peer review + drafts |
 | GenomeMentoringService | 427 | LLM genome deltas + dynamic directives + skepticism drift |
 | InstitutionService | 326 | University/Journal/FundingAgency/Council bootstrap + journal editors + impact factor + council triggering + dominant-methodology |
@@ -765,6 +805,33 @@ RoomProposalService) + 14 entities. Refreshed against the working tree
 | WorldInterventionService | 272 | bot-filed interventions routed through the constitutional process (Phase 3 Iter 6 write side) |
 | BotArchetypeBehaviorService | 89 | seven-archetype dispatch + prosperity + prefers/dislikes rules (Phase 2.5) |
 | PopulationEcologyService | 73 | K + lifespan + dating cooldown |
+
+### New services / pools / validators / registries (Phase 5–13)
+
+| Service | Lines | Responsibility | Phase |
+|---------|-------|----------------|-------|
+| OpenRouterPool | 669 | LLM pool targeting OpenRouter free/paid backends (Qwen, GPT-oss-120b) | 7 E1.2 |
+| NvidiaPool | 636 | LLM pool for NVIDIA NIM API (Llama-3.3-70b, Qwen, Nemotron) | 7 E1.3 |
+| CerebrasPool | 610 | Low-latency Cerebras WSE-3 pool, role-routed for fast audit | 7 E1.4 |
+| LlmRouter | 467 | Multi-pool routing for chat, JSON-mode, and tool-calling calls; "first non-exhausted wins" policy | 7 E1.5 |
+| PromptSanitizer | 468 | Strips harness-parameter leak phrases ("starting at position N", "± X%", chain-of-thought) from prose | 5 A4 → 13 (extended in 7 G4, 9 G7, 10, 12 D1, 13 E5) |
+| TopicValidatorRegistry | 404 | Per-(domain, topic) validator dispatch (magnitude bounds, prose patterns); replaces inline `compute*` validators | 7 F1 |
+| ModelSelectionTester | 275 | Startup chat / JSON / tool-call probes for every registered model | 9 U5a |
+| ReviewPanelService | 230 | Multi-reviewer panel fan-out + deterministic aggregation; cherry-picked-evidence + degraded-panel handling | 7 F7.2 |
+| SandboxStaticChecker | 206 | Deterministic safety predicate for `run_sandboxed_code` inputs (replaces reviewer-side heuristic) | 5/8/10 |
+| SimulationGate | 181 | Pauses room maintenance when budget-tracked providers cross pause threshold; coolest-spend aggregation post-Phase 13 E1 | 7 |
+| LenientJsonParser | 164 | Repair pre-pass for malformed JSON (code-fence strip, brace balance, trailing-comma trim) before Jackson; recovers `rev:parse_failed` | 13 E2 |
+| TextbookBoundRegistry | 161 | Per-(domain, topic) catalog of known closed-form bounds (Stefan-Boltzmann, Hall-Petch, …) used by ClosingProseValidator | 12 D6 |
+| GpuEvalStaticChecker | 153 | Safety checker for `run_gpu_eval` tool inputs | 8 P4 |
+| SymbolicStaticChecker | 153 | Head-level syntax rejection for symbolic input before SymbolicEngine executes | 8 P3 |
+| LiteratureSearchService | 153 | Read-only corpus lookup (`findFor(domain, topic)`) over `literature-corpus.yml`; ranks by priority + alphabetical citation | 6 D1.2 |
+| PrimaryModelRegistry | 153 | Aggregated 70B+ tool-capable model registry across all providers; substrate for LlmRouter.callPrimary* | 9 U2 |
+| SymbolicEngine | 150 | Symja wrapper for the `run_symbolic` tool (with time/iteration bounds) | 8 P3 |
+| FastModelRegistry | 146 | Sub-70B chat-only fast-tier registry; backs LlmRouter.callFast | 9 U6 |
+| ModelRetestService | 132 | Background re-probing of models that failed initial selection tests | 9 follow-on |
+| UncertaintyDisclosureValidator | 119 | Rejects Findings whose unit-anchored numerics lack `±` / "exact closed form" / "not quantified" indicators | 13 E6 |
+| TokenAccountant | 105 | Aggregates LLM token usage per provider in rolling minute/day windows; provider-agnostic | 7 E1 |
+| ClosingProseValidator | 61 | Rejects conclusions citing "no prior theoretical bound" on topics where TextbookBoundRegistry has an entry | 12 D6 |
 
 The Phase 0 carve dropped `LlmService` from 1988 lines and
 `UniversityService` from 1326 lines. Together those two services account
@@ -1102,6 +1169,352 @@ Phase 6 is complete.
 
 ---
 
+## Phase 7 — Multi-Provider LLM Routing + Math Rule Engine Expansion ✅
+
+Three intertwined workstreams: **E** (provider pluralism — first non-Groq
+primaries), **F** (math rule engine: registry + structured findings + topic
+expansion + computations-per-paper ramp), **G** (14 critical-path fixes from
+REVIEW_REPORT.md refresh #1–#12). Ship-gate was the room producing its first
+`PUBLISHED rev:*:ok` paper after E1 unblocked the professor stage. See
+[phase-7-multi-provider-and-math-expansion.md](phase-7-multi-provider-and-math-expansion.md).
+
+```
+E — Multi-provider LLM routing
+  7000  scope doc + multi-provider config scaffold                  7dce079
+  E1.0  provider-pluralise LlmPool interface                        cd2326d
+  E1.2  OpenRouterPool                                              5dd1338
+  E1.3  NvidiaPool                                                  573337a
+  E1.4  CerebrasPool                                                a5d978a
+  E1.5  multi-provider routing chain in LlmRouter                   62c6844
+  E1.6  Cerebras-as-fast-audit role routing                         ada0845
+  E1    enable OpenRouter, NVIDIA, Cerebras provider pools          f10cdc1
+  E2    tool-calling.providers opt-in filter (default groq)         7d21dfc
+  E3    Ollama fallback for exhausted primary chain                 5e44806
+  E4    per-provider ranked-model list in budget heartbeat          b8e9508
+
+F — Math Rule Engine Expansion
+  F1    TopicValidatorRegistry + MagnitudeRangeValidator delegate   555ec4a
+  F2.1  ResearchResult.equation field + per-topic wiring            48aacad
+  F2.2  NarrationResult.findings → Map<Integer, String>             d27f103
+  F2.3  structured-findings flag + max-computations clamp           4dc92ee
+  F2.4  parseNarrationResult learns the findings-map shape          5a67c24
+  F2.5  NARRATION_PRIMARY v3 — structured-findings variants         33015b4
+  F2.6  per-block truncation guard                                  1f342c0
+  F2.7  validators accept the structured-findings map shape         e145d8e
+  F2.8  formatPaperAsMarkdown emits per-block H3 with equation      366f7e0
+  F2.9  audit/professor/revision prompts see per-block layout       ee171c7
+  F2.10 flip structured-findings.enabled ON                         d76ac9c
+  F3.1  variable topic count + topics-v2 flag plumbing              a011f36
+  F3.2  5 new PHYSICS topics (Wien, Schrödinger, Kepler, …)         926dca8
+  F3.3  5 new MATERIALS topics (Hall-Petch, Bragg, Carnot, …)       42f38b8
+  F3.4  5 new MATHEMATICS topics (Mertens, Riemann, …)              21e824c
+  F3.5  3 new INTERDISCIPLINARY topics + physicalMechanism          fc728bf
+  F3.6  flip topics-v2.enabled ON                                   2b7a697
+  FX.1  new BIOLOGY domain (5 topics)                               bb1a454
+  FX.2  new CHEMISTRY domain (5 topics)                             df2b704
+  FX.3  new ARCHITECTURE_TERRESTRIAL domain (generic over planet)   abb93d6
+  FX.4  new ARCHITECTURE_LIQUID domain (generic over any liquid)    460a443
+  FX.5  new ARCHITECTURE_SPACE domain (5 topics)                    585ef4b
+  FX.6  expand BotGenome.DOMAINS — bots spawn into all 9 domains    5858a04
+  F5.1  ToolInvocation record + GroqPool local trace capture        d15f1a2
+  F5.2  ToolCallResponse return type across pools                   48ac7d5
+  F5.3  NarrationResult carries tool-call trace                     66114f1
+  F5.4  persist tool-call trace + Methods appendix in markdown      ba93be0
+  F5.5  NumericalConsistencyValidator covers tool-call trace        e121d89
+  F5+F7 scope doc: tool-call provenance + multi-reviewer panel      db2553f
+  F7.1  panel review prompt template + PanelReview JSON schema      bf21911
+  F7.2  multi-reviewer panel fan-out + deterministic aggregation    08d6f87
+  F7.3+F7.4  cherry-picked-evidence gate + degraded panel fallback  ab62a77
+
+G — Critical-path fixes (REVIEW_REPORT refresh #1–#12)
+  G1    partial-revision merge for incomplete first-pass            66be2f3
+  G2    dedup Jaccard fallback for truncated/extended clones        7b1cd75
+  G3    clamp peer-score to [0, 1]                                  221479e
+  G4    harness-leak + dummy-citation + formatting fixes            06707a2
+  G5    suppress boilerplate conclusion when peer review skipped    78815d2
+  G6    topic-specific findings prose validator                     5ae1679
+  G7    boundary_answer audit dimension                             3f5e10a
+  G8    physical_mechanism audit gap routes to REJECTED             622a85a
+  G9    intra-room sibling novelty penalty                          c93d7d8
+  G10   periodic scan for orphaned DISPUTED papers                  221532f
+  follow-ons:
+        provider-agnostic rate-limit header parsing                 9e3db91
+        sequential reviewer panel; auditable model fallthrough      92a82c7
+```
+
+Phase 7 closed the multi-provider gap that had stalled the room on
+`prof:error→fp` against Groq alone, lifted the topic surface from 20 to
+roughly 45 (across 9 domains), and ramped computations-per-paper from 2 to
+N with structured per-block findings replacing the single prose blob.
+Flags introduced: `app.ai.providers.enabled`, `app.research.topics-v2.enabled`,
+`app.research.structured-findings.enabled`, `app.research.review-panel.enabled`.
+
+---
+
+## Phase 8 — Unrestricted LLM Math Formulas ✅
+
+Layered math sandbox: numeric DSL → user-defined functions → Symja symbolic
+engine → GPU eval RPC. The LLM can now express effectively arbitrary math
+formulas; the system executes them safely via a static checker per layer.
+See [phase-8-unrestricted-math-formulas.md](phase-8-unrestricted-math-formulas.md).
+
+```
+P1    reflective Math.* dispatch + SI constants + number-theory helpers   b1bac81
+P2    user-defined functions in the sandbox DSL                           deaee89
+P3.1  pull in Symja (matheclipse-core 3.2.0) + correct LGPL note          dbfe0da
+P3    SymbolicEngine + SymbolicStaticChecker + run_symbolic tool          6d95724
+P4.1  add EvalExpr RPC to terrain_gpu.proto (Java side)                   ad56b4e
+P4    run_gpu_eval tool — Java client + static checker + tests            5b7463c
+P5    Pattern C bridges — integrate / differentiate / simplify            ad50f81
+```
+
+Each layer carries its own static checker (`SandboxStaticChecker`,
+`SymbolicStaticChecker`, `GpuEvalStaticChecker`) so unsafe expressions fail
+before execution. `sandbox_reject` telemetry from Phase 5 C3 tells operators
+which unrestricted-math gaps the narrator actually reaches for.
+
+---
+
+## Phase 9 — Unified Model Registry + Two-Tier Architecture ✅
+
+Replace per-provider pool walking with a model-centric registry that
+aggregates every 70B+ model across providers, plus a parallel "fast tier"
+sub-70B registry with the same selection-test contract. Ollama config
+migrates into the unified `app.ai.*` namespace. See
+[phase-9-unified-model-registry.md](phase-9-unified-model-registry.md).
+
+```
+9000  scope doc: unified model registry + two-tier architecture     b07e7dc
+U1    LlmPool surface expansion for unified model registry          ba13db2
+U2    PrimaryModelRegistry standalone — aggregated 70B+ models      3d29746
+U3a   wire ReviewPanelService onto PrimaryModelRegistry             f9324ca
+U3b   wire LlmRouter onto PrimaryModelRegistry                      12558e6
+U4    OllamaPool config migration + multi-model support             1ca6993
+U5a   ModelSelectionTester utility — chat + JSON + tool probes      ef05ede
+U5b   integrate ModelSelectionTester into every pool                a7a3b24
+U6    FastModelRegistry + wire LlmRouter.callFast through it        c73d65e
+U7    fast-tier expansion to primary pools' sub-70B chat models     9450c03
+follow-ons:
+      retry-after-aware + 429-tolerant selection tests              56ddb10
+      HTTP read timeouts + open tool-calling to all 4 providers     33c0edb
+      bump HTTP read timeout 180s → 7 min                           719d0e4
+      HTTP read timeout from a single config key                    7dfd630
+      load-balanced registries + GroqPool TPM tracking + 10s backoff 0822291
+      widen narration_template_version 32→64                        09ab0b3
+      periodic re-test of dropped selection-test models             f0c03f1
+      widen remaining varchar(32) columns 32→64                     a475d14
+G7    PromptSanitizer patterns for research/a3289005 leaks          abc25a3
+G8    surface SimulationGate reason on every token-budget row       78fc512
+G9    pre-debit budget gate for GroqPool to stop TPM overshoot      1c9ac24
+```
+
+After Phase 9 the router selects by model, not by pool; selection tests run
+periodically so dropped models can return to the eligible set; and the
+unified `app.ai.*` namespace replaces Spring AI's Ollama auto-config keys.
+
+---
+
+## Phase 10 — REVIEW_REPORT refresh #3 fixes ✅
+
+No dedicated scoping doc — landed as a single corpus-driven batch
+addressing failure clusters from REVIEW_REPORT.md refresh #3.
+
+```
+10    REVIEW_REPORT refresh #3 fixes                                5d87a57
+       follow-on: PromptSanitizer bare-phrasing patterns            f3f340d
+```
+
+Sandbox subset relaxations (bounded arrays, `while`, `===`, `recordSample`,
+`signedDevPercent`, grammar template in rejections) plus ten harness
+patches targeting: param-prose mismatch leak (P-344/347/351/355/356/362),
+cross-domain non-sequitur audit exemplars (P-345/352), threshold-drift
+audit dimension (P-347/355/357), all-tools-failed fabrication gate
+(P-352/353), single-reviewer publish suppression (P-360), Solve `=` → `==`
+normalize (P-364), signed deviation builtin (P-363), Z-factor clamp to
+validity envelope (P-359), composite-failure fibre-fracture criterion
+(P-343/346/360).
+
+---
+
+## Phase 11 — Citations-as-Schema ✅
+
+Make numeric fabrication structurally unrepresentable. Every numeric value
+in `findings` and `conclusion` carries an inline `[call_N]` marker that
+resolves to a real tool-call result; a parallel `numeric_claims` array is
+validated against the persisted tool-call trace before publish. See
+[phase-11-citations-as-schema.md](phase-11-citations-as-schema.md).
+
+```
+C1–C4  citations-as-schema warn-only rollout                        2a14a79
+C5a+C5b  downgrade + suppress modes for citations-as-schema         403c6d3
+```
+
+Rolled out warn-only first so operators could observe one REVIEW_REPORT
+refresh before enforcement; C5a/C5b add the `downgrade` and `suppress`
+mode flips. Flag: `app.research.citations-as-schema.mode`
+(`warn` | `downgrade` | `suppress`).
+
+---
+
+## Phase 12 — Fabrication-Gate Hardening ✅
+
+Close the gap between *checks that fire* and *publications that get
+stopped*. The May 2026 REVIEW_REPORT refresh #3 showed 88.2% of a 34-paper
+batch still Reject-or-Major even with every Phase 5/7/10/11 validator
+running, because the validators reported but didn't always route. See
+[phase-12-fabrication-gate-hardening.md](phase-12-fabrication-gate-hardening.md).
+
+```
+D1+D5+D7  chain-of-thought strip + truncation patterns +
+          additive call-path                                        363b966
+D2        numerical-consistency mode flag + five gap-closing checks 05b2140
+D3+D4     widen zero-successes gate + degraded-panel demotion       197c68d
+D6        TextbookBoundRegistry + ClosingProseValidator             9b88c66
+```
+
+D1 strips LLM chain-of-thought from prose; D2 flips
+`numerical-consistency` from warn to enforcing and adds five gap-closing
+checks; D3 widens the zero-successes-in-tool-trace gate to suppress;
+D4 demotes panel-degraded papers; D5 adds new truncation patterns;
+D6 introduces the per-topic `TextbookBoundRegistry` + `ClosingProseValidator`
+so reported numbers must agree with a textbook range; D7 makes the call-path
+additive so multiple validators can stamp their verdicts.
+
+---
+
+## Phase 13 — Recommendation Fixes 🟡 (code shipped; verification pending)
+
+Six concrete fixes from REVIEW_REPORT refresh #1 (post-rotation) plus a
+panel-recommendation pattern audit across the same corpus. Each item
+closes a *named* failure mode visible in the corpus or in the running
+process. See [phase-13-recommendation-fixes.md](phase-13-recommendation-fixes.md).
+
+```
+0     scoping: five recommendation fixes from REVIEW_REPORT refresh #1  11ca4c4
+      E6 scoping: uncertainty-disclosure requirement (panel audit)      6727eac
+E1+E3+E5  SimulationGate coolest-spend + Q-factor labels +
+          X placeholder                                                 f83aa12
+E4    truncation guard for header-only computation blocks               83af22b
+E2    LenientJsonParser for rev:parse_failed recovery                   b7326ab
+E6    UncertaintyDisclosureValidator (panel-recommendation audit)       dab1724
+```
+
+E1 flips `SimulationGate` aggregation from hottest-provider to coolest-
+provider so the room doesn't pause when only one of four budget-tracked
+providers exhausts. E2's lenient JSON pre-parser recovers
+`rev:parse_failed→fp` cases (39% of published papers in the refresh) before
+falling through to the first-pass narration. E3 corrects swapped Q-factor
+parentheticals in the RLC prose template. E4 extends the truncation guard
+to flag header-only computation blocks. E5 adds a sanitizer pattern for the
+literal `X` placeholder in `± X%`. E6 introduces the
+`UncertaintyDisclosureValidator` and a new `uncertainty` slot in
+`NARRATION_PRIMARY`, addressing the ~38 panel comments asking for error
+bounds across ~18 of the 23 published papers.
+
+All six pieces are committed. **Phase 13 is not yet closed** — the
+phase doc's "Phase 13 complete when" gates
+([phase-13-recommendation-fixes.md](phase-13-recommendation-fixes.md))
+are measured against post-rollout REVIEW_REPORT refreshes. Status
+against [research/a3289005/REVIEW_REPORT.md](../research/a3289005/REVIEW_REPORT.md)
+**refresh #2** (2026-05-16 08:25 EDT, n=20 papers P-476..P-512):
+
+- ❌ **Acceptance rate ≥ 40% over a 25-paper window** — refresh #2 shows
+      **0% Acceptable + 0% Minor + 25% Major + 75% Reject** (cumulative
+      n=20). The headline number got *worse*, not better, but for reasons
+      mostly orthogonal to Phase 13's targets: refresh #2 surfaces two
+      **new** failure modes the phase didn't address — the "Five-
+      Computation stub block" fabrication pattern (6 of 20 papers) and
+      zero-tool-call publishing (P-496, P-505). Both are recommendation
+      items #1 and #2 of the refresh, and queue work beyond Phase 13.
+- ✅ **`SimulationGate` stays open under partial exhaustion (E1)** —
+      explicitly verified: "Phase 13 E1's coolest-spend aggregation is
+      letting the simulation reopen each time a non-Groq provider has
+      headroom; without E1 the room would have been silent for the full
+      hour" (gate paused/reopened 3× in the 55-minute window vs. one
+      85-minute silent stretch in refresh #1).
+- ✅ **`LenientJsonParser` recovers rev-stage parse failures (E2)** —
+      `rev:parse_recovered:from=lenient` stamp visible on P-482 (refresh #1)
+      and P-512 (refresh #2). Both would have been `rev:parse_failed→fp`
+      pre-E2.
+- ⚠️ **`rev:parse_failed→fp` rate ≤ 20%** — P-503 still ends at
+      `rev:parse_failed→fp` (refresh #2's no-Methods-section paper), so
+      E2 doesn't catch every case. Exact rate over the 20-paper window
+      not tabulated in refresh #2; a follow-on count is needed.
+- ◻ **Zero RLC Q-factor paren swap (E3)** — unverified: no RLC papers in
+      refresh #2 batch (materials slots were Young-Laplace, Arrhenius,
+      Carnot).
+- ✅ **Zero header-only `### Computation N — …` blocks (E4)** — no
+      header-only signature flagged in refresh #2; the residual
+      Computation-block failure has shifted to *prose-bodied* fabricated
+      blocks (recommendation #1), which is a separate gate from E4.
+- ✅ **Zero `± X%` literals (E5)** — no occurrences flagged in refresh #2.
+- ◻ **Panel "uncertainty / error bounds / sensitivity" recommendation
+      count drops ≥ 40% (E6)** — unverified: E6 still in warn-only
+      (`app.research.uncertainty-disclosure.enabled` defaults off), and
+      refresh #2's top recommendations are dominated by the new
+      Five-Computation / zero-tool-call failures, not by uncertainty asks.
+      A refresh after flipping the E6 flag is needed.
+
+**Net read:** four of seven gates verified ✅, one explicitly ❌ (the
+headline acceptance rate, derailed by new orthogonal failure modes),
+two unverified ◻ (E3 needs an RLC paper, E6 needs the flag flipped),
+one partial ⚠️ (E2 working but not on every case). Phase 13 stays open
+until: (a) the next refresh after E6's `uncertainty-disclosure.enabled`
+flip provides the panel-recommendation drop measurement, and (b) the
+`rev:parse_failed→fp` rate is tabulated and confirmed ≤ 20%. The
+headline acceptance-rate miss is *not* a Phase 13 regression — it's a
+queue item for the next phase (recommendations #1 + #2 of refresh #2).
+
+---
+
+## Phase 14 — Recommendation Fixes #2 📋 (scoped; no code yet)
+
+Six concrete fixes (F1–F6, ~12 hours total) drawn from REVIEW_REPORT
+refresh #2 (2026-05-16, papers P-476..P-512). Phase 14 closes the
+publishing-layer failure modes that derailed refresh #2's acceptance
+rate to 0% — distinct from Phase 13's targets. See
+[phase-14-recommendation-fixes-refresh2.md](phase-14-recommendation-fixes-refresh2.md).
+
+```
+F1  Computation-block-count guard         — rec #1, 6 of 20 papers      (not started)
+F2  Zero-successes gate leak (diagnose+fix) — rec #2, P-496 + P-505       (not started)
+F3  Single-point sweep claim validator    — rec #4, 3 papers            (not started)
+F4  Direction-of-finding validator        — rec #3, 3 papers            (not started)
+F5  Missing Methods-section publish gate  — rec #5, P-503               (not started)
+F6  Cross-domain non-sequitur scan ext.   — rec #6, P-484               (not started)
+```
+
+F1 is the highest-leverage piece — closes the "Five-Computation stub
+block" fabrication cluster (6 of 20 papers) by stamping each block with
+the `[call_N]` it draws from and emitting `(no data — call_N missing)`
+markers for blocks beyond the successful-call count.
+
+F2 is **diagnosis-first**: the report's recommended one-line fix is
+incomplete because `ResearchNarrationService.java:490` already tests
+`metrics.totalSuccesses() == 0`. P-496 and P-505 must be slipping past
+via a different path (likely the `rev:parse_failed→fp` fallback or
+panel-degradation re-entry). F2a is structured logging to name the
+leak; F2b patches the named path.
+
+**Excluded from Phase 14** (queued as candidate Phase 15): F7 —
+sandbox grammar relaxation (wishlist P2 Layer 1, ~3 days). 60
+`MathToolSuite: sandbox code rejected by 4b review` WARN entries per
+55-minute window are the *upstream cause* of the Five-Computation
+fabrications, but F7 deserves its own scoping pass with a Layer 1 /
+Layer 2 / Layer 3 plan. F1's block-count guard contains the symptom
+without depending on upstream relief.
+
+New flags Phase 14 introduces:
+- `app.research.block-count-guard.enabled` (F1b, default off)
+- `app.research.direction-of-finding.enabled` (F4, default off)
+
+**Phase 14 complete when** the next REVIEW_REPORT refresh shows
+acceptance rate ≥ 30% over a 25-paper window (refresh #2: 0%) and all
+six named per-piece gates are clean. Full acceptance criteria in the
+phase doc.
+
+---
+
 ## How to read this directory
 
 ```
@@ -1118,7 +1531,19 @@ phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 dec
 phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
 phase-6-novelty-levers.md                    ← scoping doc for literature search + Discussion section
 phase-6-piece-1-memo.md                      ← D1.1 memo locking literature-corpus decisions
+phase-7-multi-provider-and-math-expansion.md ← multi-provider routing + topic + structured-findings expansion
+phase-8-unrestricted-math-formulas.md        ← layered math sandbox (numeric / symbolic / GPU)
+phase-9-unified-model-registry.md            ← unified primary + fast model registries
+phase-11-citations-as-schema.md              ← inline [call_N] markers + numeric_claims schema
+phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
+phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
+phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
+phase-wishlist.md                            ← quality levers reference (not queued; not a phase)
 ```
+
+Phase 10 has no dedicated scoping doc — it shipped as the
+`5d87a57` corpus-driven batch addressing REVIEW_REPORT refresh #3 failure
+clusters.
 
 Each phase doc retains its full design content. `STATUS.md` is the live
 tracker of what's been shipped; the per-phase docs are the shape of
