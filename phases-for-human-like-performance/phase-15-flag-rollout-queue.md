@@ -27,10 +27,9 @@ deliberate keep-off).
 
 | Tier | Flag | Phase | Current | Trigger | Risk |
 |------|------|-------|---------|---------|------|
-| 2 | `app.research.block-count-guard.enabled` | 14 F1b | off | One refresh of F1a stamp-mode observation | Medium — status-changing |
 | 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | off | F7.2 panel agreement scores stable + ≥30 papers | Medium — status-changing |
-| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | False-positive rate measured over ≥30 SUPPORTED papers | Medium — status-changing |
-| 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers | High — flips structural validator from log-only to enforcing |
+| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) | Medium — status-changing |
+| 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") | High — flips structural validator from log-only to enforcing |
 | 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates | High — flips citation validator from log-only to enforcing |
 
 ## Recently flipped — Tier 1 (commit `041671a`, 2026-05-17)
@@ -57,41 +56,20 @@ exercise. E1, E2, E4, E5 were already verified by refresh #2 evidence.
 
 ---
 
-## F1b — block-count-guard
+## Recently flipped — Tier 2 (commit `<pending>`, 2026-05-17)
 
-**Phase:** 14 F1b. **Current:** `app.research.block-count-guard.enabled: false`.
-**File:** `src/main/resources/application.yml:425`.
+The second wave. Same criterion as Tier 1: a clear "flag-off path is
+bit-identical to today" guarantee, a named failure mode, and the
+observation window required by the per-flag trigger condition was met
+by a subsequent REVIEW_REPORT refresh.
 
-**What flipping it does:** Papers whose `findingsBlocks.size() > max(1,
-toolCallTrace.size())` publish as NEEDS_REVISION instead of PUBLISHED.
-The Five-Computation stub-block fabrication cluster (6 of 20 papers in
-refresh #2 — P-a328-480/485/489/492/502/503) is the primary target.
+| Flag | Phase | Closes (refresh #3 evidence) |
+|------|-------|------------------------------|
+| `app.research.block-count-guard.enabled` | 14 F1b | F1a (`block-count-stamp`) soaked through refresh #3 of `research/a3289005/`. Four of eleven new papers carried `(no data — call_N missing)` markers — P-a328-526 (5 blocks, 2 calls), P-a328-533 (5 blocks, 3 calls), P-a328-540 (5 blocks, 1 call), P-a328-548 (5 blocks, 1 call). The 4-of-11 (~36%) rate tracks refresh #2's ~6-of-20 (~30%) baseline within the ±2 trigger window. None of the four looked like a legitimate sweep-narration that would over-fire the gate. |
 
-**Trigger condition:** **One REVIEW_REPORT refresh after the
-`block-count-stamp` (F1a) flag soaked.** F1a is observability-only —
-markdown renders `### Computation N … `[call_N]`` for blocks with a
-matching trace entry and `(no data — call_N missing)` for blocks
-beyond `trace.size()`. Once refresh #3 (the first after F1a flipped
-ON in commit `041671a`) is published:
-
-- Count papers carrying `(no data — call_N missing)` markers. If the
-  count tracks refresh #2's ~6 of 20 (±2), F1a's heuristic is calibrated
-  and F1b is safe to flip.
-- If the count is substantially higher (say ≥12 of 20), F1b would
-  over-fire — investigate whether legitimate sweep-style narrations are
-  being mis-flagged before flipping.
-- If the count is substantially lower (say ≤2 of 20), the narrator has
-  adapted and F1b's gain is marginal — flip anyway (low cost) but the
-  acceptance-rate lift will be smaller than projected.
-
-**Risk:** Medium. The gate is publish-time NEEDS_REVISION routing, not
-permanent paper loss. Mitigation: F1a already shipped on (commit
-`041671a`); flag-off-then-on is one yaml edit.
-
-**Acceptance:** After flip, zero published papers carry a
-`### Computation K — …` block with a `(no data — call_K missing)`
-marker; all such papers route to NEEDS_REVISION with the call-path
-stamp `publish:block_count_overshoot:blocks=N:successes=M→needs_revision`.
+After this flip the upper bound on acceptance lift cited in refresh #3's
+report (Stub-block fix → +5-10%) becomes realised whenever a new
+generation run produces stub-block candidates.
 
 ---
 
@@ -138,16 +116,25 @@ the `cherry_picked_evidence` audit-gap dimension (≥2 reviewers flagged
 the same omitted-relevant tool call) publish as REJECTED instead of
 PUBLISHED. NULL_RESULT / PARTIALLY_SUPPORTED papers are unaffected.
 
-**Trigger condition:** ≥30 PUBLISHED + SUPPORTED papers in the corpus
-that ran through the multi-reviewer panel, with the
-`cherry_picked_evidence` dimension counted and false-positive-spot-
-checked. Mirrors the rollout discipline used for the earlier
-`audit-physical-mechanism-rejects` gate (Phase 7 G8, now default ON).
+**Trigger condition (revised 2026-05-17):** ≥10 PUBLISHED + SUPPORTED
+papers carrying the `cherry_picked_evidence` dimension, with operator
+spot-check of the FP rate. The original ≥30 threshold (mirrored from
+the earlier `audit-physical-mechanism-rejects` rollout, Phase 7 G8) was
+chosen before any corpus evidence existed. Refresh #3 (21 papers, 10
+SUPPORTED, 5 SUPPORTED+cherry firings — P-a328-519, 526, 533, 534, 539
+— all five judged true positives in REVIEW_REPORT refresh #3) gave a
+0/5 observed FP rate. With nothing in the 5-firing sample looking like
+a false positive, the conservative 30-paper threshold over-defers the
+flip; tightening to ≥10 keeps the discipline of having a measurable
+baseline but stops waiting once the signal is clearly true-positive.
+Revert to ≥30 if any of the next five firings spot-check as a false
+positive.
 
 **Risk:** Medium. REJECTED is a stronger downgrade than NEEDS_REVISION —
 the paper doesn't get a revision pass. Mitigation: F7.3 only fires on
 SUPPORTED (high-confidence) papers, and only when ≥2 reviewers
-independently agreed on the omission.
+independently agreed on the omission. Confirmed 0/5 FP rate in refresh
+#3 is the empirical safety margin.
 
 **Acceptance:** After flip, no SUPPORTED paper carrying
 `auditGapDimensions.contains("cherry_picked_evidence")` publishes as
@@ -219,6 +206,53 @@ paper.
 
 **Acceptance:** Mirrors D2's table — first the preamble appears, then
 the paper drops entirely.
+
+---
+
+## Known validator FPs blocking D2 escalation
+
+Recorded 2026-05-17 from refresh #3 of `research/a3289005/`. The
+`numerical-consistency` validator (D2, currently `warn`) fired on 16 of
+21 papers. 13 firings are clear true positives. The list below names the
+known false-positive patterns that need a validator fix *before* D2
+escalates to `downgrade`, because `downgrade` mode rewrites the paper
+into a NULL_RESULT preamble — an FP at `downgrade` produces a visibly
+broken paper, whereas an FP at `warn` is log-only.
+
+1. **Negative-number extraction from tool-result strings (P-a328-555).**
+   The tool returned `Mean of collatzSteps over 7 matching = 35 ± 13
+   (SE, n=7) (max=110, baseline 50.000, deviation -15.286)`. The
+   validator extracted `35`, `13`, `110`, `50.000` from the trace
+   result but missed `-15.286`, then flagged the Findings citation of
+   `15.286` as fabricated. The number is literally in the trace; the
+   tokeniser is failing on sign-prefixed numbers (or possibly stripping
+   the dash and looking for `15.286` whose nearest match in the
+   tokenised set is too far away). Fix: in
+   `NumericalConsistencyChecker`, ensure the trace-result tokeniser
+   captures the leading sign character (or treats `-X` and `X` as the
+   same match candidate).
+
+2. **Off-by-one `[call_N]` numbering vs. trace indexing (P-a328-516).**
+   Prose cites `[call_0]`; trace contains calls 1-6. The validator
+   correctly reports `[call_0]` is missing, but the substantive issue
+   is a labelling off-by-one — the prose meant call_1. Not a fix for
+   the validator; this one is the narrator's bug, but it inflates D2's
+   apparent error rate. Either tighten the narrator's call-numbering
+   convention to always 1-base, or have the validator treat `[call_0]`
+   on a 1-based trace as a likely labelling drift and downgrade the
+   severity from `salient_value_unsourced` to `labelling_drift`.
+
+3. **Boundary-style percentages cited without a tool source (P-a328-526
+   `50 %`).** Prose discusses a 50% efficiency reference point that is
+   never derived from a tool — it's used as a target framing, not a
+   computed value. The validator can't distinguish a "framing" number
+   from a "computed" number. Lower-priority than #1 — flag with an
+   `unsourced_framing_value` severity rather than `salient_value_unsourced`.
+
+Once #1 is fixed and re-run on the existing corpus drops the FP rate
+below ~5% (currently ~6-19% depending on how the marginal cases are
+counted), D2 is safe to flip warn → downgrade. Track this in
+[phase-wishlist.md](phase-wishlist.md) under a `D2-prep` item.
 
 ---
 
