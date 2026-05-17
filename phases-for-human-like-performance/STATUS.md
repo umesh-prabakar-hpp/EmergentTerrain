@@ -17,7 +17,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 + F1b (Tier 2) flags ON; Phase 15 rolling flag-rollout queue tracks 4 remaining deferred flags; Phase 16 scoped from REVIEW_REPORT refresh #3/#4** |
+| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 + F1b (Tier 2) flags ON; Phase 15 rolling flag-rollout queue tracks 4 remaining deferred flags; Phase 16 code shipped (validator + narrator + scheduler), four new flags joining Phase 15 queue** |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 |
 | Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) lines |
@@ -1563,7 +1563,7 @@ flipped on or removed as a deliberate keep-off.
 
 ---
 
-## Phase 16 — Recommendation Fixes #3 🟡 (in progress — validator step shipped)
+## Phase 16 — Recommendation Fixes #3 ✅ (code shipped; flag rollout in queue)
 
 Eight concrete items drawn from REVIEW_REPORT refreshes #3 + #4
 (2026-05-17, papers P-a328-514..555 in `research/a3289005/`). Phase 16
@@ -1637,9 +1637,24 @@ Scope lives across two existing docs:
    (`buildPriorResultHint`, `firstSentence`) on `FormulationService`;
    12 new tests (19 → 31). Default OFF for rollout discipline — flip on
    after one corpus refresh under P6a's verdict-tag behaviour.
-5. P7 last — has the most coupling to existing reward dynamics and
-   benefits from one refresh of P6b's prior-injection behaviour before
-   sequencing.
+5. ✅ **P7 — topic-clone scheduler backoff** — shipped 2026-05-17 in
+   commit `4d9cad3`. New `TopicCloneBackoff` utility (pure-static
+   helpers); wired into `ResearchCycleService.runCycle` after the
+   initial `selectTopicIndex` call. Flag
+   `app.research.topic-clone-backoff.enabled` (default off) plus
+   `window-size` (default 5) and `max-retries` (default 3). 13 new
+   tests. Targets the divisor-sum-average cluster (P-534/539/553 all
+   REJECTED for the same convergence-fabrication pattern).
+
+**Phase 16 complete when** all four new flags
+(`app.research.corpus-citations.suppress-rejected`,
+`app.research.prior-result-injection.enabled`,
+`app.research.topic-clone-backoff.enabled`, and D2's warn → downgrade
+escalation) reach their flip triggers across REVIEW_REPORT refreshes.
+The four flags join Phase 15's rolling rollout queue once a corpus
+refresh exercises P6a's verdict-tag behaviour (P6a is unconditional in
+disclaimer mode; P6b, P7 default off pending one refresh of corpus
+observation).
 
 **Phase 16 complete when** acceptance rate on a 25-paper window with
 all eight items shipped reaches ≥25% (refresh #3 cumulative: 5.3%;
