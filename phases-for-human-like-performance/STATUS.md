@@ -1627,9 +1627,16 @@ Scope lives across two existing docs:
    `app.research.corpus-citations.suppress-rejected: false` (default
    off → disclaimer mode). 6 new tests (71 → 77). P6b sequences next
    once the prior-fetch query is in place.
-4. P6b (prior-result injection at formulation time) — pending; needs a
-   "best PUBLISHED + SUPPORTED prior per (domain, topic)" lookup which
-   doesn't exist yet.
+4. ✅ **P6b — prior-result injection at formulation time** — shipped
+   2026-05-17 in commit `72e99e1`. When the flag
+   `app.research.prior-result-injection.enabled=true` AND exactly one
+   PUBLISHED prior with `peerScore >= min-score` (default 0.5) exists
+   for the (domain, topic) pair, the formulation prompt carries a
+   STRONG-CONFIDENCE PRIOR hint asking the bot to replicate, refute-
+   with-citation, or shift sub-question. Pure-static helpers
+   (`buildPriorResultHint`, `firstSentence`) on `FormulationService`;
+   12 new tests (19 → 31). Default OFF for rollout discipline — flip on
+   after one corpus refresh under P6a's verdict-tag behaviour.
 5. P7 last — has the most coupling to existing reward dynamics and
    benefits from one refresh of P6b's prior-injection behaviour before
    sequencing.
