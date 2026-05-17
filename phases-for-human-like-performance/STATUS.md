@@ -1618,9 +1618,19 @@ Scope lives across two existing docs:
    leak patterns (`fifty`, `seven point one`) sibling to the existing
    digit-form scrubs. 13 new tests (58 → 71) anchor each rule to
    either P-a328-553 (P5a) or P-a328-541 (P5b).
-3. P6a (disclaimer mode, flag-gated) as a standalone commit. P6b
-   sequences after P6a once the prior-fetch query is in place.
-4. P7 last — has the most coupling to existing reward dynamics and
+3. ✅ **P6a — cross-citation verdict propagation** — shipped 2026-05-17
+   in commit `af4cc97`. Narration prompt's priorPapers context block
+   now carries a verdict tag (`[REJECTED — do not propagate]` /
+   `[DISPUTED — under replication review]`) per prior paper.
+   Helpers (`isRejectedStatus`, `verdictTagFor`) live on
+   `PromptSanitizer`; the suppress-rejected flag lives at
+   `app.research.corpus-citations.suppress-rejected: false` (default
+   off → disclaimer mode). 6 new tests (71 → 77). P6b sequences next
+   once the prior-fetch query is in place.
+4. P6b (prior-result injection at formulation time) — pending; needs a
+   "best PUBLISHED + SUPPORTED prior per (domain, topic)" lookup which
+   doesn't exist yet.
+5. P7 last — has the most coupling to existing reward dynamics and
    benefits from one refresh of P6b's prior-injection behaviour before
    sequencing.
 
