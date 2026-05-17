@@ -586,7 +586,18 @@ public class ResearchNarrationService {
                 // those cases.
                 return runPanelAndStamp(draft, gated, callPath, auditGapDimensions);
             }
+            // Phase 14 F2a — diagnostic logging for the rev:parse_failed→fp
+            // path. Refresh #2 §1 rec #2 named this stamp as one of the leaks
+            // through which P-505 published with "0 successful sandbox calls"
+            // despite the line 492 gate. Future refreshes can correlate the
+            // WARN against published-paper trace size to confirm whether
+            // additional suppression is needed here.
             callPath.add("rev:parse_failed→fp");
+            log.warn("FALLBACK rev:parse_failed→fp paperId={} profTraceSize={} "
+                            + "firstPassBlocks={} (Phase 14 F2a)",
+                    draft.paperId(),
+                    profTrace != null ? profTrace.size() : 0,
+                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
         } catch (Exception e) {
             if (router.primaryFullyExhausted()) {
                 java.time.Instant recovery = router.earliestPrimaryRecovery();
@@ -595,9 +606,26 @@ public class ResearchNarrationService {
                         "Earliest recovery: {}. paperId={} suppressed.", recovery, draft.paperId());
                 return null;
             }
+            // Phase 14 F2b — when the professor stage threw before producing
+            // any successful tool calls, the metrics gate at line 492 is
+            // bypassed. The exception leaves profTrace empty AND firstPass
+            // carries un-validated multi-block fabricated prose. Suppress
+            // when both conditions hold; otherwise fall through to the
+            // legacy firstPass-fallback path.
+            int profSuccesses = profTrace != null ? profTrace.size() : 0;
+            int firstPassBlocks = firstPass.findingsMap() != null
+                    ? firstPass.findingsMap().size() : 0;
+            if (shouldSuppressOnProfessorException(profSuccesses, firstPassBlocks)) {
+                callPath.add("prof:error→zero_successes→suppressed");
+                log.warn("LLM professor exception with 0 successes AND multi-block firstPass "
+                                + "paperId={} blocks={} cause={} — suppressed (Phase 14 F2b)",
+                        draft.paperId(), firstPassBlocks, e.getMessage());
+                return null;
+            }
             callPath.add("prof:error→fp");
-            log.warn("LLM professor tools path failed paperId={}: {} — using first-pass narration",
-                    draft.paperId(), e.getMessage());
+            log.warn("LLM professor tools path failed paperId={} profTraceSize={} "
+                            + "firstPassBlocks={} cause={} — using first-pass narration (Phase 14 F2a)",
+                    draft.paperId(), profSuccesses, firstPassBlocks, e.getMessage());
         }
         // Phase 7 F5.3 — stamp whatever trace accumulated before the failure so
         // the partial professor work survives in the audit record.
@@ -856,6 +884,26 @@ public class ResearchNarrationService {
         return "panel:n=" + got + ":agreement=" + agreement;
     }
 
+    /**
+     * Phase 14 F2b — decide whether to suppress the professor-stage exception
+     * fallback. Returns true when the professor produced zero successful tool
+     * calls AND the first-pass narration carries multi-block findings (the
+     * "the narrator emitted N Computation blocks for computations that never
+     * ran" pattern). Visibility is package-private so tests can pin the
+     * decision logic without standing up a full
+     * {@link ResearchNarrationService}.
+     *
+     * <p>Why the multi-block guard: single-block fabricated firstPass is
+     * structurally indistinguishable from a legitimate single-computation
+     * narration that lost its trace to an exception, so suppressing on a
+     * 1-block paper would over-fire. The Five-Computation cluster the report
+     * names is multi-block by definition.
+     */
+    static boolean shouldSuppressOnProfessorException(int profSuccesses,
+                                                       int firstPassBlocks) {
+        return profSuccesses == 0 && firstPassBlocks > 1;
+    }
+
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
     private NarrationResult maybeCritiqueAndReviseJsonPath(PaperDraft draft, NarrationResult firstPass,
                                                             List<String> callPath) {
@@ -904,10 +952,21 @@ public class ResearchNarrationService {
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
             callPath.add("json_rev:parse_failed→fp");
+            // Phase 14 F2a — diagnostic for the JSON path's parse-failed
+            // fallback. JSON path runs without tool calls (firstPass has no
+            // trace), so a multi-block firstPass surviving here means a
+            // narrator emitted multiple Computation N blocks with no
+            // computation supporting them.
+            log.warn("FALLBACK json_rev:parse_failed→fp paperId={} firstPassBlocks={} (Phase 14 F2a)",
+                    draft.paperId(),
+                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
         } catch (Exception e) {
             callPath.add("json_critique:error→fp");
-            log.warn("LLM professor+revision (json) failed paperId={}: {} — using first-pass narration",
-                    draft.paperId(), e.getMessage());
+            log.warn("LLM professor+revision (json) failed paperId={} firstPassBlocks={}: {} "
+                            + "— using first-pass narration (Phase 14 F2a)",
+                    draft.paperId(),
+                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0,
+                    e.getMessage());
         }
         return firstPass;
     }
@@ -967,10 +1026,20 @@ public class ResearchNarrationService {
                         revParsed.confidenceScore(), revParsed.citedPaperIds());
             }
             callPath.add("rev:ollama:parse_failed→fp");
+            // Phase 14 F2a — diagnostic for the Ollama path's parse-failed
+            // fallback. Like the JSON path, Ollama runs without tool calls
+            // so firstPass has no trace; a multi-block firstPass surviving
+            // here means the same fabrication pattern.
+            log.warn("FALLBACK rev:ollama:parse_failed→fp paperId={} firstPassBlocks={} (Phase 14 F2a)",
+                    draft.paperId(),
+                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
         } catch (Exception e) {
             callPath.add("ollama_critique:error→fp");
-            log.warn("LLM professor+revision (ollama) failed paperId={}: {} — using first-pass narration",
-                    draft.paperId(), e.getMessage());
+            log.warn("LLM professor+revision (ollama) failed paperId={} firstPassBlocks={}: {} "
+                            + "— using first-pass narration (Phase 14 F2a)",
+                    draft.paperId(),
+                    firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0,
+                    e.getMessage());
         }
         return firstPass;
     }

@@ -47,4 +47,34 @@ class ResearchNarrationServiceCallPathTest {
         String stamp = ResearchNarrationService.buildPanelCallPathStamp(3, 3, 0.876543);
         assertThat(stamp).isEqualTo("panel:n=3:agreement=0.88");
     }
+
+    // ---- Phase 14 F2b: professor-exception zero-successes suppression ----
+
+    @Test
+    void f2_zeroSuccessesAndMultiBlockSuppressesOnException() {
+        // P-505-class signature: 0 successful tool calls, multi-block firstPass.
+        // Suppress instead of falling through to firstPass-fallback so the
+        // un-validated fabricated prose never reaches publishPaper.
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(0, 5)).isTrue();
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(0, 2)).isTrue();
+    }
+
+    @Test
+    void f2_zeroSuccessesAndSingleBlockDoesNotSuppress() {
+        // Single-block firstPass on exception is structurally indistinguishable
+        // from a legitimate single-computation narration that lost its trace
+        // to the exception; falling through to firstPass-fallback is safer
+        // than suppressing.
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(0, 1)).isFalse();
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(0, 0)).isFalse();
+    }
+
+    @Test
+    void f2_nonZeroSuccessesNeverSuppresses() {
+        // The metrics gate at line 492 already handles the case where the
+        // professor produced *some* successful calls. F2b's check fires
+        // ONLY when no successes accumulated before the exception.
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(1, 5)).isFalse();
+        assertThat(ResearchNarrationService.shouldSuppressOnProfessorException(2, 5)).isFalse();
+    }
 }
