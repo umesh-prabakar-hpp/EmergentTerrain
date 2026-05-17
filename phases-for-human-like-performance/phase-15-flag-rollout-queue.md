@@ -217,6 +217,15 @@ the paper drops entirely.
 
 ## Known validator FPs blocking D2 escalation
 
+**Status (2026-05-17):** Items #1-#3 below shipped in commit `f6b89b9`
+(Phase 16 step 1). Items #4-#7 in the "Coverage gaps" subsection also
+shipped in the same commit. The validator now emits the softer reasons
+in `warn` mode; D2's warn → downgrade escalation still gates on a
+post-fix corpus re-run confirming the FP rate drops below ~5%. Re-run
+is pending the next active generation run (paper pipeline has been
+idle since 2026-05-17 04:04 EDT — Groq daily budget exhaustion, see
+STATUS.md Phase 15).
+
 Recorded 2026-05-17 from refresh #3 of `research/a3289005/`. The
 `numerical-consistency` validator (D2, currently `warn`) fired on 16 of
 21 papers. 13 firings are clear true positives. The list below names the

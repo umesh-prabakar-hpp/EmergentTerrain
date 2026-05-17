@@ -1563,7 +1563,7 @@ flipped on or removed as a deliberate keep-off.
 
 ---
 
-## Phase 16 — Recommendation Fixes #3 📋 (scoped; not yet implemented)
+## Phase 16 — Recommendation Fixes #3 🟡 (in progress — validator step shipped)
 
 Eight concrete items drawn from REVIEW_REPORT refreshes #3 + #4
 (2026-05-17, papers P-a328-514..555 in `research/a3289005/`). Phase 16
@@ -1603,10 +1603,12 @@ Scope lives across two existing docs:
 
 **Implementation order** (recommended, not prescribed):
 
-1. The seven validator items (Phase 15 docs #1-7) ship as a single
-   commit because they all live in `NumericalConsistencyChecker`. This
-   commit also gates the D2 warn → downgrade escalation in
-   [phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md).
+1. ✅ **The seven validator items (Phase 15 doc #1-7)** — shipped
+   2026-05-17 in commit `f6b89b9`. All seven extensions live in
+   `NumericalConsistencyValidator.java`; 16 new tests anchor each
+   change to a refresh-#3 paper ID. The new reasons emit in `warn`
+   mode; D2's warn → downgrade escalation still gates on a post-fix
+   corpus re-run.
 2. P5a + P5b together as one narrator-scrub commit (single file edit
    each, no architecture risk).
 3. P6a (disclaimer mode, flag-gated) as a standalone commit. P6b
