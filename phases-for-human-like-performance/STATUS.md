@@ -17,7 +17,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped; E1/E2/E4/E5 verified against REVIEW_REPORT refresh #2, E3/E6 unverified; Phase 14 F1–F6 scoped (no code yet)** |
+| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 flags ON; Phase 15 rolling flag-rollout queue tracks 5 deferred flags** |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
 | Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 |
 | Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) lines |
@@ -1467,51 +1467,94 @@ queue item for the next phase (recommendations #1 + #2 of refresh #2).
 
 ---
 
-## Phase 14 — Recommendation Fixes #2 📋 (scoped; no code yet)
+## Phase 14 — Recommendation Fixes #2 🟡 (code shipped; rollout in progress)
 
-Six concrete fixes (F1–F6, ~12 hours total) drawn from REVIEW_REPORT
-refresh #2 (2026-05-16, papers P-476..P-512). Phase 14 closes the
-publishing-layer failure modes that derailed refresh #2's acceptance
-rate to 0% — distinct from Phase 13's targets. See
+Six concrete fixes (F1–F6) drawn from REVIEW_REPORT refresh #2
+(2026-05-16, papers P-476..P-512). Phase 14 closes the publishing-layer
+failure modes that derailed refresh #2's acceptance rate to 0% —
+distinct from Phase 13's targets. See
 [phase-14-recommendation-fixes-refresh2.md](phase-14-recommendation-fixes-refresh2.md).
 
 ```
-F1  Computation-block-count guard         — rec #1, 6 of 20 papers      (not started)
-F2  Zero-successes gate leak (diagnose+fix) — rec #2, P-496 + P-505       (not started)
-F3  Single-point sweep claim validator    — rec #4, 3 papers            (not started)
-F4  Direction-of-finding validator        — rec #3, 3 papers            (not started)
-F5  Missing Methods-section publish gate  — rec #5, P-503               (not started)
-F6  Cross-domain non-sequitur scan ext.   — rec #6, P-484               (not started)
+F3+F4+F5+F6  four publishing-layer validators (flag-gated)        74ca517
+F1           computation-block-count guard (stamp + gate)         f02c343
+F2           zero-successes leak diagnosis + exception-path patch ef4a3fb
+config       flip Tier 1 validators ON (Phase 14 F1a/F3/F4/F5)    041671a
 ```
 
-F1 is the highest-leverage piece — closes the "Five-Computation stub
-block" fabrication cluster (6 of 20 papers) by stamping each block with
-the `[call_N]` it draws from and emitting `(no data — call_N missing)`
-markers for blocks beyond the successful-call count.
+All six pieces are shipped. Tier 1 rollout flipped on 2026-05-17 (commit
+`041671a`): F5 (missing-methods-gate), F3 (single-point-sweep), F4
+(direction-of-finding), and F1a (block-count-stamp — observability-only
+rendering). F1b (block-count-guard — status-changing gate) holds at
+default-off pending one refresh of F1a stamp-mode observation; tracked
+in Phase 15 below. F2 ships without a flag (a defensive patch on the
+`prof:error→fp` exception path, gated narrowly on
+`profSuccesses == 0 && firstPassBlocks > 1`). F6 also ships unflagged —
+it modifies the audit-4b template directly and reuses the existing
+`audit-physical-mechanism-rejects` routing.
 
-F2 is **diagnosis-first**: the report's recommended one-line fix is
-incomplete because `ResearchNarrationService.java:490` already tests
-`metrics.totalSuccesses() == 0`. P-496 and P-505 must be slipping past
-via a different path (likely the `rev:parse_failed→fp` fallback or
-panel-degradation re-entry). F2a is structured logging to name the
-leak; F2b patches the named path.
+F4 scope re-decision: skipped the planned `claimPolarity` field on
+`NarrationResult` + NARRATION_PRIMARY prompt edit in favour of
+pure-prose parsing in `DirectionOfFindingValidator`. Same corpus impact
+(P-491, P-496, P-511) without churn across NarrationResult constructor
+overloads.
 
-**Excluded from Phase 14** (queued as candidate Phase 15): F7 —
-sandbox grammar relaxation (wishlist P2 Layer 1, ~3 days). 60
-`MathToolSuite: sandbox code rejected by 4b review` WARN entries per
-55-minute window are the *upstream cause* of the Five-Computation
-fabrications, but F7 deserves its own scoping pass with a Layer 1 /
-Layer 2 / Layer 3 plan. F1's block-count guard contains the symptom
-without depending on upstream relief.
+F2 scope re-decision: the REVIEW_REPORT's recommended one-line fix is
+incomplete because `ResearchNarrationService.java:492` already tests
+`metrics.totalSuccesses() == 0`. The actual leak is at three fallback
+exits (`prof:error→fp`, `json_rev:parse_failed→fp`,
+`rev:ollama:parse_failed→fp`) that bypass the gate. F2a adds
+diagnostic WARN logging at all three; F2b patches the exception path
+defensively.
 
-New flags Phase 14 introduces:
-- `app.research.block-count-guard.enabled` (F1b, default off)
-- `app.research.direction-of-finding.enabled` (F4, default off)
+**Excluded from Phase 14**: F7 — sandbox grammar relaxation (wishlist
+P2 Layer 1, ~3 days). 60 `MathToolSuite: sandbox code rejected by 4b
+review` WARN entries per 55-minute window are the *upstream cause* of
+the Five-Computation fabrications, but F7 deserves its own scoping
+pass with a Layer 1 / Layer 2 / Layer 3 plan. F1's block-count guard
+contains the symptom without depending on upstream relief. F7 remains
+on [phase-wishlist.md](phase-wishlist.md) pending a future phase doc.
 
-**Phase 14 complete when** the next REVIEW_REPORT refresh shows
-acceptance rate ≥ 30% over a 25-paper window (refresh #2: 0%) and all
-six named per-piece gates are clean. Full acceptance criteria in the
-phase doc.
+Flags introduced (default off in code; live state tracked in
+[phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md)):
+
+| Flag | State |
+|------|-------|
+| `app.research.missing-methods-gate.enabled` (F5) | **ON** (2026-05-17) |
+| `app.research.single-point-sweep.enabled` (F3) | **ON** (2026-05-17) |
+| `app.research.direction-of-finding.enabled` (F4) | **ON** (2026-05-17) |
+| `app.research.block-count-stamp.enabled` (F1a) | **ON** (2026-05-17) |
+| `app.research.block-count-guard.enabled` (F1b) | off — see Phase 15 |
+
+**Phase 14 complete when** the next REVIEW_REPORT refresh (the first
+with the Tier 1 flags ON) shows acceptance rate ≥ 30% over a 25-paper
+window (refresh #2: 0%) and all six named per-piece gates are clean.
+Full acceptance criteria in the phase doc.
+
+---
+
+## Phase 15 — Flag Rollout Queue 🟡 (rolling tracker; no code on its own)
+
+Tracks the validator flags that are coded + shipped across Phases 7 /
+11 / 12 / 14 but held at default-off (or `mode: warn`) pending corpus
+observation. Phase 15 ships no Java — its commits are
+`application.yml` configuration changes that arrive ad-hoc as
+REVIEW_REPORT refresh evidence accumulates. See
+[phase-15-flag-rollout-queue.md](phase-15-flag-rollout-queue.md) for
+per-flag trigger conditions, risk, and acceptance.
+
+Current queue:
+
+| Tier | Flag | Phase | Trigger |
+|------|------|-------|---------|
+| 2 | `app.research.block-count-guard.enabled` | 14 F1b | One refresh of F1a stamp-mode observation |
+| 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | F7.2 panel agreement scores stable + ≥30 papers |
+| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | False-positive rate measured over ≥30 SUPPORTED papers |
+| 3 | `app.research.numerical-consistency.mode` (warn) | 12 D2 | Operator review of warn-mode suppress markers |
+| 3 | `app.research.citations-as-schema.mode` (warn) | 11 C5b | Two refreshes with stable uncited / unmatched / out_of_tolerance distributions |
+
+**Phase 15 closes when** the queue is empty — every flag either
+flipped on or removed as a deliberate keep-off.
 
 ---
 
@@ -1538,6 +1581,7 @@ phase-11-citations-as-schema.md              ← inline [call_N] markers + numer
 phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
 phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
 phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
+phase-15-flag-rollout-queue.md               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers
 phase-wishlist.md                            ← quality levers reference (not queued; not a phase)
 ```
 
