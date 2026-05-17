@@ -547,6 +547,15 @@ public class UniversityService {
             // conclusion and stamp an explicit disclaimer. Refresh #1-#12 of
             // REVIEW_REPORT.md found this falsehood on ~75% of corpus papers.
             conclusion = PromptSanitizer.suppressBoilerplateOnSkip(conclusion, narration.callPath());
+            // Phase 16 P5a — broader strip for the same boilerplate when the
+            // call path indicates publish-stage failure beyond critique:skip
+            // (gate:closed:professor, publish:no_methods, →needs_revision).
+            // P-a328-553 shipped with the canned "values reproduced by peer
+            // reviewers" line despite ending at publish:no_methods→needs_revision;
+            // the Phase 7 G5 strip didn't fire because that path doesn't
+            // mention critique:skip.
+            conclusion = PromptSanitizer.suppressBoilerplateOnNeedsRevision(
+                    conclusion, narration.callPath());
         }
         // Phase 7 F2 — the joined-prose form drives every legacy consumer (validators,
         // markdown when the structured flag is off, audit re-prompt). Multi-block maps

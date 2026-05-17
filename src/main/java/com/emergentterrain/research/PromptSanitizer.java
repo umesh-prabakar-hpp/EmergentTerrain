@@ -235,6 +235,71 @@ public final class PromptSanitizer {
                     + "param[12]\\s*[=:]\\s*-?\\d+(?:\\.\\d+)?(?:°|m|s|kJ|MPa|GPa|Hz|nm|µm|mm)?",
                     Pattern.CASE_INSENSITIVE);
 
+    // Phase 16 P5b — number-words harness-leak patterns.
+    //
+    // The existing PARAM_PARENTHESIZED_* / STARTING_POSITION_* patterns all
+    // require digit forms (param1=10, scale=4.7). P-a328-541 emitted the
+    // values in *spelled-out* form: "(starting position = fifty, scale =
+    // seven point one)". The digit-anchored regexes don't match, so the leak
+    // shipped on-disk.
+    //
+    // The narrator must be converting integer param1 ∈ [10, 99] to its
+    // English form, and decimal param2 ∈ [1.0, 9.0] to "<digit-word> point
+    // <fractional-digit-word>". Either the LLM did it spontaneously or a
+    // prompt template asked for it; either way the surface manifestation is
+    // the same leak as the digit form and needs the same scrub.
+
+    /**
+     * Cardinal-number word atom: zero through one-hundred + ten-multiples.
+     * Allows compound forms via {@link #NUMWORD_PHRASE}. Hyphenated forms
+     * like "twenty-five" are reduced to two atoms by the compound rule rather
+     * than enumerated here (keeps the alternation list short).
+     */
+    private static final String NUMWORD_ATOM =
+            "(?:zero|one|two|three|four|five|six|seven|eight|nine|ten"
+                    + "|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen"
+                    + "|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy"
+                    + "|eighty|ninety|hundred|thousand)";
+
+    /**
+     * Compound number word — one to four atoms separated by space or hyphen.
+     * Matches "fifty", "twenty-five", "one hundred", "one hundred twenty-five",
+     * "seven point one" (the "point" form is handled separately so the regex
+     * stays bounded).
+     */
+    private static final String NUMWORD_PHRASE =
+            NUMWORD_ATOM + "(?:[-\\s]+" + NUMWORD_ATOM + "){0,3}"
+                    + "(?:\\s+point\\s+" + NUMWORD_ATOM + "(?:[-\\s]+" + NUMWORD_ATOM + "){0,2})?";
+
+    /**
+     * Parenthesized number-words pair — "(starting position = fifty, scale =
+     * seven point one)". The P-a328-541 leak shape. Allows {@code =}, {@code :},
+     * or {@code of} as the connector, optional whitespace, and an optional
+     * "factor" head-noun on the scale slot.
+     */
+    private static final Pattern PARAM_PARENTHESIZED_WORDS_PAIR =
+            Pattern.compile(
+                    "\\s*\\(\\s*starting\\s+position\\s*(?:[=:]|of)\\s*"
+                            + NUMWORD_PHRASE
+                            + "\\s*,\\s*scal(?:e|ing)(?:\\s+factor)?\\s*(?:[=:]|of)\\s*"
+                            + NUMWORD_PHRASE
+                            + "\\s*\\)",
+                    Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Bare number-words assignment — sibling of {@link #PARAM_BARE_ASSIGN}
+     * but with word-form values. Catches "starting position = fifty" or
+     * "scale of seven point one" when the surrounding parens are absent.
+     * The {@link #CONNECTOR_PREFIX} prefix keeps surrounding sentence grammar
+     * stable after removal, same convention as the digit-form patterns.
+     */
+    private static final Pattern PARAM_BARE_WORDS_ASSIGN =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:starting\\s+position|scal(?:e|ing)(?:\\s+factor)?)"
+                    + "\\s*(?:[=:]|of)\\s*"
+                    + NUMWORD_PHRASE,
+                    Pattern.CASE_INSENSITIVE);
+
     // Phase 12 D1 — chain-of-thought leak patterns.
     //
     // P-a328-427 (Doppler) and P-a328-432 (Hall) Findings began with the literal
@@ -372,6 +437,13 @@ public final class PromptSanitizer {
         // out of "starting position 15 and scale 8.5" first.
         cleaned = STARTING_POSITION_BARE_AND_SCALE.matcher(cleaned).replaceAll("");
         cleaned = STARTING_INDEX_BARE.matcher(cleaned).replaceAll("");
+        // Phase 16 P5b — number-words leaks. Strip the parenthesised pair
+        // form first (longest match) before the bare form. Both run BEFORE
+        // the digit-form PARAM_PARENTHESIZED_* patterns so a hypothetical
+        // mixed leak like "(starting position = fifty, scale = 4.7)" gets
+        // the words half stripped here and the digit half stripped below.
+        cleaned = PARAM_PARENTHESIZED_WORDS_PAIR.matcher(cleaned).replaceAll("");
+        cleaned = PARAM_BARE_WORDS_ASSIGN.matcher(cleaned).replaceAll("");
         // Phase 10 — paramN= literal leaks. Strip the parenthesised pair form
         // first (it's the longest match) so the single / label / bare patterns
         // don't carve it into debris.
@@ -394,9 +466,24 @@ public final class PromptSanitizer {
     // ~75% of the corpus had critique:skip in the call path yet carried these
     // three sentences claiming peer review. Suppressing this restores the
     // rubric's "no-boilerplate" requirement on conclusions.
+    // Phase 16 P5a — extended to match the two comma-continuation forms
+    // produced by MathPhysicsEngine.generateConclusion for SUPPORTED and
+    // REFUTED claim statuses:
+    //   "...peer reviewers, and the topic-specific validator supports the hypothesis. %s"
+    //   "...peer reviewers, but the topic-specific validator does not support the hypothesis: %s"
+    // The original pattern only caught the OBSERVATIONAL/PARTIAL period
+    // form ("...peer reviewers. These findings represent..."). The comma
+    // forms slipped through and shipped on P-a328-553 (SUPPORTED) — the
+    // canonical refresh-#4 P5a target.
+    //
+    // The alternation matches either:
+    //   - `, and|but <text>.` (comma-continuation, stops at the next period)
+    //   - `.` (the original period form)
+    // followed by any trailing whitespace.
     private static final Pattern BOILERPLATE_INDEPENDENTLY_REPRODUCED =
             Pattern.compile(
-                    "\\s*Computed values were independently reproduced by peer reviewers\\.",
+                    "\\s*Computed values were independently reproduced by peer reviewers"
+                            + "(?:\\s*,\\s*(?:and|but)\\b[^.]*\\.|\\.)\\s*",
                     Pattern.CASE_INSENSITIVE);
     private static final Pattern BOILERPLATE_OBSERVATIONAL_BASELINE =
             Pattern.compile(
@@ -409,6 +496,23 @@ public final class PromptSanitizer {
 
     private static final String CRITIQUE_SKIP_DISCLAIMER =
             " [critique:skip — no peer review performed; this paper has not been validated].";
+
+    // Phase 16 P5a — broader disclaimer set for boilerplate suppression under
+    // pipeline failures beyond the original `critique:skip` case. P-a328-553's
+    // call path ended at `gate:closed:professor → publish:no_methods→needs_revision`,
+    // never touching `critique:skip`, so the existing Phase 7 G5 strip did not
+    // fire and the canned "Computed values were independently reproduced by
+    // peer reviewers, and the topic-specific validator supports the hypothesis"
+    // line shipped on a paper with zero successful tool calls and a
+    // NEEDS_REVISION stamp.
+
+    /** Phase 16 P5a — disclaimer for {@code gate:closed:professor} (no tool calls ran). */
+    private static final String GATE_CLOSED_DISCLAIMER =
+            " [gate:closed — no professor-stage evidence; conclusion is not supported by tool calls].";
+
+    /** Phase 16 P5a — generic disclaimer for any {@code →needs_revision} suffix. */
+    private static final String NEEDS_REVISION_DISCLAIMER =
+            " [needs_revision — this paper has been flagged for further work and is not validated for publication].";
 
     /**
      * Phase 7 G5 — suppress the "independently reproduced by peer reviewers" boilerplate
@@ -438,6 +542,67 @@ public final class PromptSanitizer {
         return cleaned;
     }
 
+    /**
+     * Phase 16 P5a — suppress the same "independently reproduced" boilerplate
+     * trio when the call path indicates the pipeline failed BEYOND the
+     * {@code critique:skip} case that {@link #suppressBoilerplateOnSkip}
+     * handles. P-a328-553's call path ended at
+     * {@code gate:closed:professor → publish:no_methods→needs_revision} — the
+     * professor stage never ran because the budget gate closed, so there were
+     * zero successful tool calls. The {@code MathPhysicsEngine.generateConclusion}
+     * SUPPORTED branch still emitted the canned "Computed values were
+     * independently reproduced" line on output, and Phase 7 G5's strip didn't
+     * fire because the call path doesn't mention {@code critique:skip}.
+     *
+     * <p>Triggers (any of):
+     * <ul>
+     *   <li>{@code gate:closed:professor} — appended explicit gate disclaimer.</li>
+     *   <li>{@code publish:no_methods} — same gate-closed disclaimer (no calls
+     *       means no methods means no evidence behind the conclusion).</li>
+     *   <li>{@code →needs_revision} — generic "flagged for further work"
+     *       disclaimer for any other publish-stage demotion that doesn't have
+     *       a more specific marker.</li>
+     * </ul>
+     *
+     * <p>Idempotent: if the disclaimer phrase is already present (e.g. from a
+     * second call on the same conclusion), no second append happens. Safe to
+     * call after {@link #suppressBoilerplateOnSkip} on the same conclusion;
+     * each method's disclaimer is distinct so a paper triggering both will
+     * carry both markers, which is the right operator signal.
+     *
+     * @param conclusion the conclusion prose
+     * @param callPath   the call path string from {@code NarrationResult.callPath()}
+     * @return the conclusion with boilerplate stripped + disclaimer appended
+     *         iff a failure marker fired
+     */
+    public static String suppressBoilerplateOnNeedsRevision(String conclusion, String callPath) {
+        if (conclusion == null || conclusion.isBlank()) return conclusion;
+        if (callPath == null) return conclusion;
+        boolean gateClosed     = callPath.contains("gate:closed:professor")
+                                 || callPath.contains("publish:no_methods");
+        boolean needsRevision  = callPath.contains("→needs_revision")
+                                 || callPath.contains("->needs_revision");
+        if (!gateClosed && !needsRevision) return conclusion;
+
+        String cleaned = conclusion;
+        cleaned = BOILERPLATE_INDEPENDENTLY_REPRODUCED.matcher(cleaned).replaceAll("");
+        cleaned = BOILERPLATE_OBSERVATIONAL_BASELINE.matcher(cleaned).replaceAll("");
+        cleaned = BOILERPLATE_FINITE_AND_REPRODUCED.matcher(cleaned).replaceAll("");
+        cleaned = CLEANUP_DOUBLE_SPACE.matcher(cleaned).replaceAll(" ").trim();
+
+        // Gate-closed is more specific than generic needs_revision; if both
+        // apply, prefer the more specific disclaimer so the operator can see
+        // why the paper is unsupported.
+        String disclaimer = gateClosed ? GATE_CLOSED_DISCLAIMER : NEEDS_REVISION_DISCLAIMER;
+        String markerToken = gateClosed ? "[gate:closed" : "[needs_revision";
+        if (!cleaned.contains(markerToken)) {
+            cleaned = cleaned.isEmpty()
+                    ? disclaimer.trim()
+                    : cleaned + disclaimer;
+        }
+        return cleaned;
+    }
+
     /** True iff {@link #sanitize} would change the input — useful for telemetry. */
     public static boolean detects(String text) {
         if (text == null || text.isBlank()) return false;
@@ -463,6 +628,8 @@ public final class PromptSanitizer {
                 || PARAM_PARENTHESIZED_PAIR.matcher(text).find()
                 || PARAM_PARENTHESIZED_SINGLE.matcher(text).find()
                 || PARAM_PARENTHESIZED_LABEL.matcher(text).find()
-                || PARAM_BARE_ASSIGN.matcher(text).find();
+                || PARAM_BARE_ASSIGN.matcher(text).find()
+                || PARAM_PARENTHESIZED_WORDS_PAIR.matcher(text).find()
+                || PARAM_BARE_WORDS_ASSIGN.matcher(text).find();
     }
 }

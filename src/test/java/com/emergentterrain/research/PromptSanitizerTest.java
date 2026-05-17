@@ -620,4 +620,166 @@ class PromptSanitizerTest {
         // Without the regime word — not detected.
         assertThat(PromptSanitizer.detects("Q=5.00 (peak)")).isFalse();
     }
+
+    // -------- Phase 16 P5a — suppressBoilerplateOnNeedsRevision --------
+
+    @Test
+    void p16_p5a_gateClosedStripsBoilerplateAndAppendsDisclaimer() {
+        // P-a328-553 shape: pipeline ended at gate:closed:professor /
+        // publish:no_methods. The canned conclusion still got generated;
+        // strip it and stamp the gate-closed disclaimer.
+        String conclusion =
+                "Computed values were independently reproduced by peer reviewers, "
+                        + "and the topic-specific validator supports the hypothesis.";
+        String callPath = "fp:openai/gpt-oss-120 → critique:partial:3_filled → "
+                + "audit:4b:0gaps → gate:closed:professor → "
+                + "publish:no_methods→needs_revision";
+
+        String output = PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, callPath);
+        assertThat(output).doesNotContain("independently reproduced by peer reviewers");
+        assertThat(output).contains("[gate:closed");
+        assertThat(output).contains("not supported by tool calls");
+    }
+
+    @Test
+    void p16_p5a_needsRevisionOnlyAppendsGenericDisclaimer() {
+        // No gate:closed marker — only the →needs_revision suffix. Generic
+        // disclaimer fires.
+        String conclusion =
+                "Computed values were independently reproduced by peer reviewers. "
+                        + "These findings represent an observational baseline.";
+        String callPath = "fp:... → publish:single_point_sweep→needs_revision";
+
+        String output = PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, callPath);
+        assertThat(output).doesNotContain("independently reproduced by peer reviewers");
+        assertThat(output).doesNotContain("observational baseline");
+        assertThat(output).contains("[needs_revision");
+    }
+
+    @Test
+    void p16_p5a_gateClosedPreferredOverGenericWhenBothApply() {
+        // P-553 itself: callPath has BOTH gate:closed:professor and
+        // →needs_revision. Gate-closed is more specific, should win.
+        String conclusion =
+                "Computed values were independently reproduced by peer reviewers, "
+                        + "and the topic-specific validator supports the hypothesis.";
+        String callPath = "fp:... → gate:closed:professor → publish:no_methods→needs_revision";
+
+        String output = PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, callPath);
+        assertThat(output).contains("[gate:closed");
+        assertThat(output).doesNotContain("[needs_revision");
+    }
+
+    @Test
+    void p16_p5a_cleanCallPathReturnsConclusionUnchanged() {
+        // Successful peer-reviewed paper — no failure marker. Function
+        // returns the conclusion unchanged.
+        String conclusion =
+                "Computed values were independently reproduced by peer reviewers, "
+                        + "and the topic-specific validator supports the hypothesis.";
+        String callPath = "fp:openai/gpt-oss-120 → audit:4b:0gaps → "
+                + "prof:openai/gpt-oss-120:ok → rev:openai/gpt-oss-120:ok → "
+                + "panel:n=4:agreement=0.85";
+
+        String output = PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, callPath);
+        assertThat(output).isEqualTo(conclusion);
+    }
+
+    @Test
+    void p16_p5a_idempotentDoesNotDoubleAppend() {
+        // Calling twice on the same conclusion should not append the
+        // disclaimer twice.
+        String conclusion =
+                "Computed values were independently reproduced by peer reviewers, "
+                        + "and the topic-specific validator supports the hypothesis.";
+        String callPath = "fp:... → gate:closed:professor → publish:no_methods→needs_revision";
+
+        String first  = PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, callPath);
+        String second = PromptSanitizer.suppressBoilerplateOnNeedsRevision(first, callPath);
+        // The disclaimer marker should appear exactly once.
+        long count = second.chars().filter(c -> c == '[').count();
+        assertThat(count).isEqualTo(1L);
+    }
+
+    @Test
+    void p16_p5a_nullAndBlankConclusionReturnsUnchanged() {
+        String callPath = "fp:... → gate:closed:professor";
+        assertThat(PromptSanitizer.suppressBoilerplateOnNeedsRevision(null, callPath)).isNull();
+        assertThat(PromptSanitizer.suppressBoilerplateOnNeedsRevision("", callPath)).isEmpty();
+        assertThat(PromptSanitizer.suppressBoilerplateOnNeedsRevision("   ", callPath)).isEqualTo("   ");
+    }
+
+    @Test
+    void p16_p5a_nullCallPathReturnsConclusionUnchanged() {
+        String conclusion = "Some conclusion text.";
+        assertThat(PromptSanitizer.suppressBoilerplateOnNeedsRevision(conclusion, null))
+                .isEqualTo(conclusion);
+    }
+
+    // -------- Phase 16 P5b — number-words harness-leak scrub --------
+
+    @Test
+    void p16_p5b_pA328_541_parenthesizedNumberWordsLeakStripped() {
+        // P-a328-541 prose included "(starting position = fifty, scale =
+        // seven point one)". Digit-form patterns missed it; words pattern
+        // catches it.
+        String input = "Experimental evaluation of the Reuss bound using the "
+                + "declared survey parameters (starting position = fifty, scale = "
+                + "seven point one) showed that the transverse stiffness approaches "
+                + "the target value before the fibre volume fraction reaches unity.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("starting position = fifty");
+        assertThat(output).doesNotContain("scale = seven point one");
+        // The surrounding clause survives (the parens are stripped cleanly).
+        assertThat(output).contains("survey parameters")
+                .contains("transverse stiffness approaches");
+    }
+
+    @Test
+    void p16_p5b_bareNumberWordsLeakStripped() {
+        // Bare form — no parens. "starting position of fifty"
+        String input  = "We ran the search, starting position of fifty, with consistent results.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("starting position of fifty");
+        assertThat(output).doesNotContain("fifty");
+    }
+
+    @Test
+    void p16_p5b_compoundNumberWords() {
+        // "twenty-five" / "one point five" forms.
+        String input  = "Survey starting position of twenty-five and scale of one point five.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("twenty-five");
+        assertThat(output).doesNotContain("one point five");
+    }
+
+    @Test
+    void p16_p5b_decimalNumberWords() {
+        // "seven point one" decimal form.
+        String input  = "The scale of seven point one was applied.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("seven point one");
+    }
+
+    @Test
+    void p16_p5b_legitimateNumericProseUnaffected() {
+        // Words that happen to appear in prose ("one of three reviewers")
+        // should not trigger; the pattern requires "starting position" /
+        // "scale" / "scaling" as the lead noun.
+        String input = "One of three reviewers flagged the result. The seven samples "
+                + "consistently produced the same value.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).isEqualTo(input);
+    }
+
+    @Test
+    void p16_p5b_detectsNumberWordsLeak() {
+        // detects() picks up both parenthesised and bare forms.
+        assertThat(PromptSanitizer.detects(
+                "Survey (starting position = fifty, scale = seven point one)")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "With starting position of twenty-five we observed...")).isTrue();
+        assertThat(PromptSanitizer.detects(
+                "The seven samples consistently produced...")).isFalse();
+    }
 }
