@@ -260,6 +260,59 @@ below ~5% (currently ~6-19% depending on how the marginal cases are
 counted), D2 is safe to flip warn → downgrade. Track this in
 [phase-wishlist.md](phase-wishlist.md) under a `D2-prep` item.
 
+### Coverage gaps to ship alongside the FP fixes
+
+Recorded 2026-05-17 from REVIEW_REPORT refreshes #1-#4 of
+`research/a3289005/`. These four checks live in the same validator file
+(`NumericalConsistencyChecker`) as the FPs above and can ship in one
+commit, but they're net-new coverage — the validator does not fire on
+these patterns today. Independent of D2's mode escalation: each
+strengthens what `warn` *catches*, not whether it suppresses.
+
+4. **`[call_N]` resolves but the call failed.** Today the validator
+   checks `[call_N]` against `trace.size()` only. It does not check
+   whether `trace[N-1].status == ok`. Affected papers: P-a328-519 (cites
+   `[call_2]`/`[call_3]` whose results were "REJECTED by safety review"),
+   P-a328-532 (`[call_2]` rejected, cited), P-a328-539 (`[call_3]`/
+   `[call_4]` rejected, cited), P-a328-543 (`[call_1]`/`[call_2]` failed,
+   cited instead of successful call_3/call_5). Refresh #3 noted the
+   warn-mode stamp already flags some of these as "numerics tied to this
+   marker are unsourced" — the check needs to be unconditional. Severity:
+   `unsourced_failed_call` (high — pure fabrication signature).
+
+5. **One-sided CI tightening.** Prose cites `± X` where `X` is *smaller*
+   than the matching `± Y` in the tool trace. Tightening uncertainty is
+   the fabrication direction; widening is fine. Affected: P-a328-528
+   (prose `±0.02`, tool `±0.07` — a 71% reduction), P-a328-521 (similar
+   pattern, prose narrows the CI to make the deviation look significant).
+   Design: extract every `± X` pattern from Findings; for each, find the
+   nearest `± Y` in the tool trace with a matching central value; flag
+   when `X < Y × (1 − tolerance)`. Severity: `ci_shrinkage`.
+
+6. **Hypothesis-vs-executed-range scope mismatch.** Prose claims results
+   over a range that is not a subset of the union of executed
+   `range_start, range_end` arguments. Affected: P-a328-547 (Hypothesis
+   says "first ten thousand positive integers", Findings claims scans
+   over `[1,5000)` and `[5000,10000)` that were never executed; only
+   `[85,110)` actually ran). Design: parse `[X, Y)` and similar interval
+   notations from Hypothesis + Findings; compare against the executed-
+   ranges union extracted from the tool trace; flag when a prose interval
+   is not contained in the executed set within tolerance. Severity:
+   `scope_overreach`.
+
+7. **Inline `Computation N` stub in Findings prose.** F1b's
+   `block-count-guard` (flipped on in commit `918ac90`) catches stub
+   blocks that appear as separate `### Computation N` markdown blocks.
+   It does *not* catch stubs embedded inside a Findings paragraph as a
+   sentence. Affected: P-a328-553 — "*Computation 3 — Testing a scale
+   closer to the starting point (44) with a slightly smaller scale may
+   expose deviations from the asymptotic trend.*" That phrase is inside
+   the Findings prose, so `findingsBlocks.size()` does not increment
+   and F1b lets it through. Design: regex-match `\bComputation [0-9]+
+   —` anywhere in Findings prose; count occurrences against
+   `trace.size()` the same way F1b does; route to NEEDS_REVISION when
+   mentions exceed successes. Severity: `inline_computation_stub`.
+
 ---
 
 ## What this doc deliberately does NOT track

@@ -1,11 +1,17 @@
 # Phase Wishlist — Quality Levers (reference, not queued)
 
 **Status:** **Wishlist document.** Not a queued PR, not scheduled work. This
-file captures four high-leverage interventions that move the system from
+file captures high-leverage interventions that move the system from
 "fewer fabrications" (Phase 12's defensive scope) to "actually better
 content." Each piece is sized and pointed at concrete files so future
 planning can pull from this catalog directly, but the order of execution
 and the decision to start at all is deliberately deferred.
+
+**Pieces:** P1-P4 are the original four high-leverage levers (~3w, ~2w,
+~1.5w, ~2w respectively). P5-P7 were added 2026-05-17 from REVIEW_REPORT
+refreshes #3-#4 of `research/a3289005/` — three smaller items
+(narrator scrubs, corpus-aware narration, topic-clone backoff) that
+target net-new failure modes the original four did not cover.
 
 **Why this is wishlist, not queue:**
 
@@ -491,6 +497,225 @@ which signal the next REVIEW_REPORT refresh names loudest.
 
 ---
 
+## P5 — Narrator scrub list (small defensive items)
+
+Two small narrator-stage rules surfaced by REVIEW_REPORT refreshes #3-#4
+of `research/a3289005/`. Neither needs architecture changes — each is a
+guarded `if` at a single point in the narration pipeline. Packaged
+together because they ship as one commit.
+
+### P5a — Suppress canned conclusion when status ≠ PUBLISHED
+
+**What:** When the narrator-fallback path emits the canned line
+*"Computed values were independently reproduced by peer reviewers, and
+the topic-specific validator supports the hypothesis"*, gate it on the
+pipeline status. If `status ∈ {NEEDS_REVISION, REJECTED}` or
+`successful_tool_calls == 0`, fall through to a neutral "No verified
+evidence produced this submission" string instead.
+
+**Why:** P-a328-553 shipped with the canned line despite `LLM Call
+Path = gate:closed:professor → publish:no_methods→needs_revision` —
+zero successful tool calls, status NEEDS_REVISION, no Methods section,
+yet the published markdown claims "values were independently
+reproduced." The boilerplate is emitted by a fallback path that does
+not consult the publish status.
+
+**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
+— grep for the literal canned-line string to find the emit site.
+
+**Risk:** Very low. The replacement string is bit-identical to today
+when status == PUBLISHED.
+
+### P5b — Strip number-words harness leaks
+
+**What:** Extend the existing Hypothesis/Findings scrub to also strip
+number-words tokens (`one|two|...|hundred`, plus decimal compound forms
+like `point` glue: `seven point one`). Pair with the existing numeric-
+form scrub (`param2=4.7` etc.).
+
+**Why:** Existing scrub catches numeric forms but P-a328-541 emitted
+"*starting position = fifty, scale = seven point one*" in Findings —
+number-words form defeats the digit-regex. Alternative implementation:
+scrub the structured `param1=…, param2=…` BEFORE it reaches the LLM
+prompt rather than catching it on the way out (more robust but a
+larger change).
+
+**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
+or `src/main/java/com/emergentterrain/research/PromptTemplateRegistry.java`
+— wherever the existing parameter-leak filter lives.
+
+**Acceptance:** Across one REVIEW_REPORT refresh after ship, zero
+papers carry `starting position = <number-word>` or `scale = <number-
+word>` phrasing in Hypothesis or Findings.
+
+**Risk:** Low. The number-word list is closed (zero through hundred +
+common decimals), regex-replaceable.
+
+---
+
+## P6 — Corpus-aware narration (cross-citation verdict + prior-conclusion injection)
+
+Two related upgrades that feed prior-paper knowledge into the narration
++ formulation prompts. Both surfaced as "the system treats the corpus
+as topic-indexed but not conclusion-indexed" in REVIEW_REPORT refresh
+#3 §1 rec #7 and the quality-and-novelty section.
+
+### Why this matters
+
+Refresh #3 produced three cross-paper citations (P-521 → P-510;
+P-538 → P-526; P-539 → P-534) — a first for the corpus and a
+methodological positive. Two went well:
+
+- P-538 → P-526: cited values η ≈ 0.761 at T_c ≈ 357 K, T_h ≈ 1496 K
+  *match* P-526's reported numbers. Verified true.
+
+The third failed because the citing author had no access to the cited
+paper's review verdict:
+
+- P-539 → P-534: P-534 was REJECTED for the same `(1/N)` vs `(1/N²)`
+  convergence-fabrication failure that P-539 then **re-committed**.
+  Because the narrator only saw "prior paper exists on this topic," it
+  treated the prior as supportive rather than seeing it was rejected
+  for the exact pattern P-539 was about to repeat.
+
+A separate but related case: P-541 directly **inverts** P-516's correct
+Reuss `V_f = 1` math, claiming an "interior crossover" that contradicts
+the closed-form solution. The system treats the topic as un-tackled
+when in fact a prior paper has a strong-confidence answer.
+
+### P6a — Cross-paper citation verdict propagation
+
+**What:** When the narrator includes a Related Work cross-citation,
+attach the cited paper's `panel_verdict` (and Honesty score) to the
+prompt context. Two policy options:
+
+1. **Disclaimer mode** (lower risk): prepend "*Note: the cited paper
+   P-X was classified <verdict>. Do not propagate its conclusions
+   without independently verifying its tool-call trace.*"
+2. **Suppression mode** (stronger): suppress cross-citations whose
+   target is REJECTED or DISPUTED.
+
+Default to disclaimer mode; flag suppression behind
+`app.research.corpus-citations.suppress-rejected` (default off, escalate
+after one refresh).
+
+**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
+(prompt assembly). The verdict fetch is a single query against the
+`papers` table — already keyed by `paperId` in `PapersRepository`.
+
+**Acceptance:** After ship, zero papers cite a REJECTED prior in
+Related Work without the disclaimer phrase appearing in the published
+markdown. If suppression flag is on, zero REJECTED priors appear in
+Related Work at all.
+
+**Risk:** Low for disclaimer mode (extra prompt context, no behaviour
+change). Medium for suppression mode (drops one signal the LLM might
+use for novelty assessment).
+
+### P6b — Prior-result injection at formulation time
+
+**What:** When a new paper is formulated on a topic that already has a
+`classification == SUPPORTED, panelHonesty ≥ 0.5, math-verified` prior,
+the formulator's prompt should include:
+
+> *Prior result: <citation> established that <one-sentence
+> conclusion>. Either replicate the result at different parameters,
+> refute it with new evidence and explicitly cite the contradiction,
+> or pick a different sub-question.*
+
+Picks the highest-peer-score PUBLISHED + SUPPORTED prior on the topic.
+If none exists, the prompt is bit-identical to today.
+
+**File:** wherever topic-selection + formulation lives — likely
+`src/main/java/com/emergentterrain/research/ExperimentPlannerService.java`
+or `ResearchProgramService`. The "best prior" lookup is a SQL `SELECT`
+ordered by `peer_score DESC` with the filter predicates.
+
+**Acceptance:** After ship, papers landing on a topic with a high-
+confidence prior either (a) cite that prior in Related Work, (b) cite
+it explicitly in the Conclusion as "extends" / "refutes", or (c) shift
+sub-question and the new Hypothesis is materially different from the
+prior. A papers-vs-priors audit script can spot-check by querying for
+same-topic papers and diffing Hypothesis text.
+
+**Risk:** Medium. Prompt expansion adds ~80-120 tokens. The "best
+prior" selector could be game-able if multiple priors disagree —
+restrict the injection to topics where exactly one math-verified prior
+exists in the first iteration.
+
+### Open questions before sequencing P6
+
+- **Pull or push?** P6a is a *pull* (narrator fetches the verdict at
+  citation time); P6b is a *push* (formulator gets the prior context
+  before any LLM call). Same data source, two different injection
+  points. P6b is the bigger ergonomic shift but also the more useful
+  one — it shapes the hypothesis, not just the prose.
+- **Verdict granularity.** Today verdict is one of
+  `PUBLISHED|REJECTED|DISPUTED|NEEDS_REVISION|NULL_RESULT`. For P6a's
+  disclaimer mode that's enough. For P6b's "refute with explicit
+  contradiction" path, the LLM also needs the cited paper's
+  *conclusion* — see if `paper.conclusion` is already a column or if
+  it needs to be derived from the markdown.
+- **De-duplication with Phase 5 C1.** C1 already does citation-aware
+  scoring at publish time. P6 is upstream of that — feeding context
+  at narration/formulation. Confirm we're not duplicating logic.
+
+---
+
+## P7 — Topic-clone scheduler backoff
+
+**What:** In the topic-selection logic, count recent rejections per
+topic; multiply the selection weight by `0.5 ^ consecutive_rejections`.
+After two consecutive rejections the topic is effectively de-
+prioritised; after four, it falls below all positive-weight
+alternatives.
+
+**Why:** Divisor-sum-average was attempted **four times** in the
+corpus (P-a328-534, 539, 553, plus one more attempt rejected pre-disk
+per the operational-log §). All four failed with overlapping `(1/N)`
+vs `(1/N²)` convergence-fabrication patterns. The scheduler kept
+re-picking the topic because nothing in the picker reflected "this
+topic has been failing." Cited as REVIEW_REPORT refresh #3 §1 rec #7.
+
+**Files:**
+
+- Topic-selection logic — likely
+  `src/main/java/com/emergentterrain/research/ExperimentPlannerService.java`
+  (the planner is where topic picks happen) or
+  `src/main/java/com/emergentterrain/research/ResearchProgramService.java`
+  (where programs are seeded). Grep for `selectTopic` /
+  `pickTopic` / weight-computation methods.
+- New: a small `TopicHealthService` (or method on an existing service)
+  that counts rejections per `(domain, topic)` over a configurable
+  rolling window (default 5 most-recent attempts) and exposes a
+  `multiplier(domain, topic) → double` for the picker.
+
+**Acceptance:** After ship, no topic accumulates ≥3 consecutive
+rejections within a 5-paper sliding window without being de-
+prioritised. A "topic heat" debug log line per refresh shows the top-5
+hottest topics; the formulation pipeline routes around them
+automatically.
+
+**Risk:** Medium. Coupling to existing reward dynamics (Phase 5 C1
+citation scoring, Phase 1 program rewards) needs care — a topic that
+is rejected for fabrication reasons looks identical at the
+selection-weight layer to a topic that is genuinely hard. Mitigation:
+the multiplier *decays* with time (a 5-paper rolling window) rather
+than permanently penalising. Topics with merit will recover once the
+oldest rejection ages out.
+
+**Open questions:**
+
+- **Window size.** Five is a guess. Worth a one-line YAML knob
+  (`app.research.topic-backoff.window-size`) so refresh evidence can
+  tune it.
+- **Domain-level fallback.** If every topic in a domain is on cooldown
+  (possible if the domain just had a bad batch), what's the fallback?
+  Probably: pick the coolest topic regardless of multiplier rather
+  than block the domain entirely.
+
+---
+
 ## What this phase deliberately does NOT include
 
 - **Better prompt templates** — every refresh has highlighted prompt-
@@ -523,6 +748,9 @@ which signal the next REVIEW_REPORT refresh names loudest.
 | **P2** | After P2, sandbox-reject count down ≥50%; the 10 papers in §7 with ≥5 rejects each produce ≥1 successful tool call when replayed. |
 | **P3** | rev:parse_failed events down ≥80%; ≥90% of panels reach n=4. |
 | **P4** | Every INTERDISCIPLINARY paper has a parseable Coupling Equation; dimensionally-imbalanced couplings publish as REJECTED; the 3 May 2026 Rejects (P-410/427/432) get caught at the new gate when replayed. |
+| **P5** | Zero papers ship with the canned "values reproduced by peer reviewers" line under NEEDS_REVISION; zero papers carry number-words harness phrasing in Hypothesis/Findings across one refresh after flip. |
+| **P6** | Cross-citation of a REJECTED prior appears with the disclaimer line (or doesn't appear at all under suppression mode). Papers landing on a topic with a high-confidence prior either replicate, refute-with-citation, or shift sub-question — measured by Hypothesis-text diff. |
+| **P7** | No topic accumulates ≥3 consecutive rejections within a 5-paper window without being de-prioritised. Per-refresh "topic heat" log lists the top-5 hottest topics; formulation routes around them. |
 
 **Phase-level success:** acceptance rate moves from Phase 12's projected
 ~15% to ≥25% over a 20-paper window. The bar is **content quality**, not
