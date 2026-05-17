@@ -373,17 +373,56 @@ app:
     # (domain, topic) pairs (Stefan-Boltzmann, Beer-Lambert, Hall-Petch,
     # Mertens, Doppler, Hall, …) while explicitly excluding active conjectures
     # (Twin Prime, Goldbach, Collatz, Aliquot, Happy Number) where the
-    # boilerplate is actually correct prose. Default off; opt-in flip after
-    # one refresh exercises the D-series suppression markers cleanly.
+    # boilerplate is actually correct prose. Flipped ON 2026-05-17 — the
+    # D-series suppression markers are visible on refresh #1 and #2; one-refresh
+    # observation window is met.
     closing-prose-validator:
-      enabled: false
+      enabled: true
     # Phase 13 E6 — when on, papers whose Findings cite unit-anchored numerics
     # without any uncertainty indicator (± value, "exact closed form",
     # "to within X%") publish as NEEDS_REVISION. Addresses the most-repeated
     # panel critique in REVIEW_REPORT refresh #1 (~38 mentions across ~18 of
-    # 23 papers). Default off; opt-in flip after one refresh confirms the
-    # narrator template change took effect.
+    # 23 papers). Flipped ON 2026-05-17 — Phase 13's remaining verification
+    # gate. Refresh #3 measures the panel-recommendation drop.
     uncertainty-disclosure:
+      enabled: true
+    # Phase 14 F5 — when on, papers reaching publishPaper with a null or
+    # empty tool-call trace (i.e. no Methods section content) publish as
+    # NEEDS_REVISION. Catches the refresh-#2 P-503 signature (Hypothesis →
+    # Findings → Conclusion → Discussion → Related Work, no Methods + no
+    # Panel). Flipped ON 2026-05-17.
+    missing-methods-gate:
+      enabled: true
+    # Phase 14 F3 — when on, papers whose Findings prose claims a sample
+    # count exceeding 2 × trace.size() (e.g. "sixteen sampled cases" backed
+    # by 1 call) publish as NEEDS_REVISION. Catches refresh-#2 P-494 /
+    # P-507 / P-512. Flipped ON 2026-05-17.
+    single-point-sweep:
+      enabled: true
+    # Phase 14 F4 — when on, papers whose Conclusion polarity (within /
+    # outside / confirmed / refuted) contradicts the Findings number vs
+    # Hypothesis bound publish as NEEDS_REVISION. Conservative: returns
+    # empty on any ambiguity. Catches refresh-#2 P-491 / P-496 / P-511.
+    # Flipped ON 2026-05-17.
+    direction-of-finding:
+      enabled: true
+    # Phase 14 F1a — when on, the structured-findings markdown renderer
+    # annotates each ### Computation N header with `[call_N]` and replaces
+    # blocks beyond trace.size() with `(no data — call_N missing)`. Does
+    # NOT change paper status — observability only. Ship-stamp-first per
+    # the phase doc: refresh #3 should see markers on the Five-Computation
+    # cluster (refresh-#2 P-480 / 485 / 489 / 492 / 502 / 503) so the
+    # would-be-gate rate is visible before F1b's block-count-guard flips on.
+    # Flipped ON 2026-05-17; block-count-guard (F1b) stays off pending
+    # one refresh of stamp-mode observation.
+    block-count-stamp:
+      enabled: true
+    # Phase 14 F1b — when on, papers whose findingsBlocks size exceeds
+    # max(1, trace.size()) publish as NEEDS_REVISION. The Five-Computation
+    # stub block fabrication cluster (refresh-#2 §1 rec #1, 6 of 20 papers)
+    # is the target. Default off; flip after one refresh of F1a stamp-mode
+    # observation confirms the would-be-gate rate is acceptable.
+    block-count-guard:
       enabled: false
     # Phase 7 F2 — when on, the narrator emits one H3 prose block per computation
     # in the findings section, keyed by 1-based computation index. The per-block
