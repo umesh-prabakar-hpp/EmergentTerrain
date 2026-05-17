@@ -1609,8 +1609,15 @@ Scope lives across two existing docs:
    change to a refresh-#3 paper ID. The new reasons emit in `warn`
    mode; D2's warn → downgrade escalation still gates on a post-fix
    corpus re-run.
-2. P5a + P5b together as one narrator-scrub commit (single file edit
-   each, no architecture risk).
+2. ✅ **P5a + P5b narrator scrubs** — shipped 2026-05-17 in commit
+   `8b5c46a`. P5a (`suppressBoilerplateOnNeedsRevision`) adds the
+   gate-closed / needs-revision disclaimer paths the Phase 7 G5 strip
+   missed; this also quietly back-fills the comma-continuation form
+   of `BOILERPLATE_INDEPENDENTLY_REPRODUCED` that Phase 7 G5 had been
+   missing for SUPPORTED/REFUTED claim statuses. P5b adds number-words
+   leak patterns (`fifty`, `seven point one`) sibling to the existing
+   digit-form scrubs. 13 new tests (58 → 71) anchor each rule to
+   either P-a328-553 (P5a) or P-a328-541 (P5b).
 3. P6a (disclaimer mode, flag-gated) as a standalone commit. P6b
    sequences after P6a once the prior-fetch query is in place.
 4. P7 last — has the most coupling to existing reward dynamics and
