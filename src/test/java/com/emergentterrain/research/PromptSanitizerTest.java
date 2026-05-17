@@ -782,4 +782,64 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.detects(
                 "The seven samples consistently produced...")).isFalse();
     }
+
+    // -------- Phase 16 P6a — cross-citation verdict propagation --------
+
+    @Test
+    void p16_p6a_isRejectedStatusRejectedOnly() {
+        assertThat(PromptSanitizer.isRejectedStatus("REJECTED")).isTrue();
+        assertThat(PromptSanitizer.isRejectedStatus("rejected")).isTrue();
+        assertThat(PromptSanitizer.isRejectedStatus("  REJECTED  ")).isTrue();
+    }
+
+    @Test
+    void p16_p6a_isRejectedStatusFalseForOtherStatuses() {
+        assertThat(PromptSanitizer.isRejectedStatus("PUBLISHED")).isFalse();
+        assertThat(PromptSanitizer.isRejectedStatus("DISPUTED")).isFalse();
+        assertThat(PromptSanitizer.isRejectedStatus("NEEDS_REVISION")).isFalse();
+        assertThat(PromptSanitizer.isRejectedStatus("NULL_RESULT")).isFalse();
+        // null / blank treated as "no info" → not rejected.
+        assertThat(PromptSanitizer.isRejectedStatus(null)).isFalse();
+        assertThat(PromptSanitizer.isRejectedStatus("")).isFalse();
+        assertThat(PromptSanitizer.isRejectedStatus("  ")).isFalse();
+    }
+
+    @Test
+    void p16_p6a_verdictTagRejectedPrependsDoNotPropagate() {
+        // Target: P-a328-534 (REJECTED for fabricated convergence). When
+        // surfacing it in priorPapers context, the tag warns the narrator
+        // not to propagate its conclusions.
+        String tag = PromptSanitizer.verdictTagFor("REJECTED");
+        assertThat(tag).contains("REJECTED").contains("do not propagate");
+        // Tag is non-empty and ends with a space so the paperId follows
+        // cleanly: "[REJECTED — do not propagate] P-a328-534".
+        assertThat(tag).endsWith(" ");
+    }
+
+    @Test
+    void p16_p6a_verdictTagDisputedPrependsReplicationReview() {
+        String tag = PromptSanitizer.verdictTagFor("DISPUTED");
+        assertThat(tag).contains("DISPUTED").contains("replication review");
+        assertThat(tag).endsWith(" ");
+    }
+
+    @Test
+    void p16_p6a_verdictTagCleanStatusReturnsEmpty() {
+        // PUBLISHED / NULL_RESULT / NEEDS_REVISION are not stigmatised at
+        // citation time — the narrator can cite them cleanly.
+        assertThat(PromptSanitizer.verdictTagFor("PUBLISHED")).isEmpty();
+        assertThat(PromptSanitizer.verdictTagFor("NULL_RESULT")).isEmpty();
+        assertThat(PromptSanitizer.verdictTagFor("NEEDS_REVISION")).isEmpty();
+        assertThat(PromptSanitizer.verdictTagFor(null)).isEmpty();
+        assertThat(PromptSanitizer.verdictTagFor("")).isEmpty();
+        assertThat(PromptSanitizer.verdictTagFor("UNKNOWN_NEW_STATUS")).isEmpty();
+    }
+
+    @Test
+    void p16_p6a_verdictTagCaseInsensitive() {
+        // Status values come from various paths in UniversityService; ensure
+        // the tag predicate is case-insensitive.
+        assertThat(PromptSanitizer.verdictTagFor("rejected")).contains("REJECTED");
+        assertThat(PromptSanitizer.verdictTagFor("Disputed")).contains("DISPUTED");
+    }
 }

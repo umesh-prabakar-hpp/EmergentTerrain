@@ -7,6 +7,7 @@ import com.emergentterrain.research.MathPhysicsEngine;
 import com.emergentterrain.research.NarrationResult;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.PromptSanitizer;
 import com.emergentterrain.research.PromptTemplateIds;
 import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResultClassification;
@@ -104,6 +105,29 @@ public class ResearchNarrationService {
     /** Phase 11 C4 — see {@link #citationValidator}. */
     @org.springframework.beans.factory.annotation.Value("${app.research.citations-as-schema.mode:warn}")
     private String citationsAsSchemaMode;
+
+    /**
+     * Phase 16 P6a — cross-citation verdict propagation. Controls how the
+     * narration prompt assembles the {@code priorPapers} context block for
+     * papers in the room with the same domain + topic as the draft.
+     *
+     * <p>Default (false): disclaimer mode — REJECTED priors appear in the
+     * context with a {@code [REJECTED — do not propagate]} tag prepended;
+     * DISPUTED priors with {@code [DISPUTED — under replication review]}.
+     * The narrator LLM still sees the paper and can choose to cite it, but
+     * with appropriate care.
+     *
+     * <p>Set true to enable suppression mode — REJECTED priors are dropped
+     * from the context entirely; the narrator never sees them. DISPUTED
+     * priors still appear with the disclaimer tag.
+     *
+     * <p>Targets the P-a328-539 → P-a328-534 failure where P-539 cited P-534
+     * (REJECTED for fabricated convergence) in Related Work and re-committed
+     * the same fabrication.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.corpus-citations.suppress-rejected:false}")
+    private boolean corpusCitationsSuppressRejected;
 
     /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
@@ -1791,12 +1815,23 @@ public class ResearchNarrationService {
         draft.recentPapers().stream()
                 .filter(p -> p.domain().equalsIgnoreCase(draft.domain())
                           && p.topic().equalsIgnoreCase(draft.topicName()))
+                // Phase 16 P6a — when corpus-citations.suppress-rejected is on,
+                // drop REJECTED priors entirely so the narrator can't cite
+                // them. Default false: include all priors with verdict tags
+                // (see the .map step below).
+                .filter(p -> !corpusCitationsSuppressRejected
+                          || !PromptSanitizer.isRejectedStatus(p.status()))
                 .limit(3)
                 .forEach(p -> {
                     String snippet = p.findings().length() > 160
                             ? p.findings().substring(0, 160) + "…" : p.findings();
-                    priorWork.append("  %s [score %.2f]: %s%n"
-                            .formatted(p.paperId(), p.peerScore(), snippet));
+                    // Phase 16 P6a — prepend a verdict tag for REJECTED /
+                    // DISPUTED priors so the narrator LLM sees the verdict
+                    // alongside the paperId and adjusts its Related Work
+                    // citation accordingly. Empty string for clean statuses.
+                    String verdictTag = PromptSanitizer.verdictTagFor(p.status());
+                    priorWork.append("  %s%s [score %.2f]: %s%n"
+                            .formatted(verdictTag, p.paperId(), p.peerScore(), snippet));
                 });
         String priorSection = priorWork.isEmpty()
                 ? "  (no prior papers in this domain/topic yet)\n"

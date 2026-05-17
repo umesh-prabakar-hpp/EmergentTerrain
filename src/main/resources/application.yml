@@ -502,6 +502,17 @@ app:
     # gate soaked before going live.
     audit-cherry-picked-rejects:
       enabled: false
+    # Phase 16 P6a — cross-citation verdict propagation. Default OFF runs
+    # disclaimer mode: REJECTED priors appear in the priorPapers context
+    # with a [REJECTED — do not propagate] tag prepended; DISPUTED priors
+    # with [DISPUTED — under replication review]. The narrator LLM still
+    # sees the paper but with verdict-aware context. Set true to enable
+    # suppression mode — REJECTED priors are dropped from the context
+    # entirely (DISPUTED still appear with the disclaimer tag). Targets
+    # the P-a328-539 → P-a328-534 failure where P-539 cited P-534
+    # (REJECTED) and re-fabricated the same convergence claim.
+    corpus-citations:
+      suppress-rejected: false
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

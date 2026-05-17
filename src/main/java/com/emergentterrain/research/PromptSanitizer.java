@@ -603,6 +603,62 @@ public final class PromptSanitizer {
         return cleaned;
     }
 
+    // Phase 16 P6a — cross-citation verdict propagation.
+    //
+    // The narration prompt assembles a "priorPapers" context block from the
+    // room's recent same-topic published papers. The narrator LLM uses that
+    // block to write its Related Work section. P-a328-539 cited P-a328-534
+    // (REJECTED for fabricated convergence) and re-fabricated the same
+    // claim — the prompt context surfaced P-534 with no indication that it
+    // had failed peer review.
+    //
+    // The two helpers below let the prompt-builder propagate a paper's
+    // verdict into the context line:
+    //   isRejectedStatus(s) — true when the paper should be suppressed in
+    //   suppress-rejected mode (REJECTED or its closely-related variants).
+    //   verdictTagFor(s)    — returns a bracketed tag to prepend to the
+    //   context line in disclaimer mode (default), or an empty string
+    //   when the paper is in good standing.
+    //
+    // Status values come from UniversityService.publishPaper's stamp set
+    // (REJECTED, DISPUTED, NEEDS_REVISION, NULL_RESULT, PUBLISHED, plus
+    // legacy variants from earlier phases). NULL_RESULT is *not* tagged —
+    // a cleanly stamped null is a valid contribution and should be cite-
+    // worthy as such. NEEDS_REVISION also untagged for now (the paper
+    // hasn't been judged failed, just not yet validated for publication).
+
+    /**
+     * True when the given paper status indicates the paper was rejected and
+     * its conclusions should not be propagated. Returns false on null,
+     * blank, or any status other than REJECTED. Used in P6a suppression mode
+     * to drop the paper from the priorPapers context entirely; in
+     * disclaimer mode, see {@link #verdictTagFor(String)}.
+     */
+    public static boolean isRejectedStatus(String status) {
+        if (status == null) return false;
+        return "REJECTED".equalsIgnoreCase(status.trim());
+    }
+
+    /**
+     * Returns the bracketed verdict tag to prepend to a prior-paper context
+     * line when surfacing the paper to the narrator's prompt. Empty string
+     * for statuses that should be cited cleanly (PUBLISHED, NULL_RESULT,
+     * NEEDS_REVISION, null, blank). REJECTED gets a strong "do not
+     * propagate" warning; DISPUTED gets a softer "under replication review"
+     * caveat so the narrator can still cite it but with appropriate care.
+     */
+    public static String verdictTagFor(String status) {
+        if (status == null) return "";
+        String s = status.trim();
+        if ("REJECTED".equalsIgnoreCase(s)) {
+            return "[REJECTED — do not propagate] ";
+        }
+        if ("DISPUTED".equalsIgnoreCase(s)) {
+            return "[DISPUTED — under replication review] ";
+        }
+        return "";
+    }
+
     /** True iff {@link #sanitize} would change the input — useful for telemetry. */
     public static boolean detects(String text) {
         if (text == null || text.isBlank()) return false;
