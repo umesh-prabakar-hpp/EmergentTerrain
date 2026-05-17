@@ -1662,9 +1662,14 @@ projected upper bound after items 1+2+3 alone: ~25%, per refresh #3
 §operational-logs). Per-item acceptance gates live in their respective
 source docs.
 
-**No dedicated phase-16-*.md scoping doc yet.** Following Phase 10's
-precedent — if the scope grows or the implementation surfaces an
-architecture question, a dedicated doc gets added at that point.
+**See [phase-16-recommendation-fixes-refresh3.md](phase-16-recommendation-fixes-refresh3.md)**
+for the as-shipped per-piece breakdown and the flag-flip
+specifications (What flipping does / Trigger / Risk / Acceptance) for
+the three default-OFF Phase 16 flags (P6a suppression mode, P6b
+prior-injection, P7 topic-clone-backoff). The Phase 16 doc captures
+those operator-facing rollout details that `phase-flags.md` doesn't
+carry (the flag queue is a thin reference; feature/flag details live
+in the source phase doc).
 
 ---
 
@@ -1691,6 +1696,7 @@ phase-11-citations-as-schema.md              ← inline [call_N] markers + numer
 phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
 phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
 phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
+phase-16-recommendation-fixes-refresh3.md    ← eight fixes from REVIEW_REPORT refresh #3/#4 (as shipped) — D2-prep, P5a/b, P6a/b, P7
 phase-flags.md                               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers (renamed from phase-15-flag-rollout-queue.md after Phase 16 added three more flags)
 phase-wishlist.md                            ← quality levers reference (not queued; not a phase)
 ```
