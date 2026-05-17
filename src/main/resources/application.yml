@@ -525,6 +525,19 @@ app:
     prior-result-injection:
       enabled: false
       min-score: 0.5
+    # Phase 16 P7 — topic-clone scheduler backoff. When on, after the initial
+    # topic selection, ResearchCycleService counts REJECTED papers on the
+    # chosen (domain, topic) over the last window-size published papers in
+    # the room. Probability of keeping the topic is 0.5^rejections; on
+    # resample, selectTopicIndex is invoked again with the same flags up to
+    # max-retries times. Default OFF — flip on after P6's prior-injection
+    # behaviour has soaked for one corpus refresh. Targets the divisor-sum-
+    # average cluster (P-a328-534/539/553 all REJECTED for the same (1/N)
+    # vs (1/N²) convergence-fabrication pattern; scheduler kept re-picking).
+    topic-clone-backoff:
+      enabled: false
+      window-size: 5
+      max-retries: 3
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

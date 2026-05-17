@@ -253,6 +253,9 @@ class MathPhysicsEngineTest {
                 /* blockCountStampEnabled                */ false,
                 /* blockCountGuardEnabled                */ false,
                 /* topicsV2Enabled               */ false,
+                /* topicCloneBackoffEnabled      */ false,
+                /* topicCloneBackoffWindow       */ 5,
+                /* topicCloneBackoffMaxRetries   */ 3,
                 mapper);
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");

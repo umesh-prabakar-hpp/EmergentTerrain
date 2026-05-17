@@ -112,6 +112,31 @@ public class ResearchCycleService {
         this.topicsV2Enabled = enabled;
     }
 
+    /**
+     * Phase 16 P7 — when true, the topic-selection step applies a backoff
+     * after the initial pick: count REJECTED papers on the (domain, topic)
+     * pair in the room's recent history, and re-roll the selection with
+     * probability {@code 1 − 0.5^rejections}. Default off; flip on after
+     * one corpus refresh under P6 has soaked. See
+     * {@link TopicCloneBackoff} for the math and the
+     * {@code app.research.topic-clone-backoff.*} family of YAML knobs.
+     */
+    private volatile boolean topicCloneBackoffEnabled = false;
+    private volatile int topicCloneBackoffWindow     = 5;
+    private volatile int topicCloneBackoffMaxRetries = 3;
+
+    public void setTopicCloneBackoffEnabled(boolean enabled) {
+        this.topicCloneBackoffEnabled = enabled;
+    }
+
+    public void setTopicCloneBackoffWindow(int window) {
+        this.topicCloneBackoffWindow = Math.max(1, window);
+    }
+
+    public void setTopicCloneBackoffMaxRetries(int retries) {
+        this.topicCloneBackoffMaxRetries = Math.max(0, retries);
+    }
+
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
     public int draftQueueSize()                  { return draftQueueSize.get(); }
@@ -142,6 +167,34 @@ public class ResearchCycleService {
         // to a domain-clamped index in either case.
         int topicIndex = MathPhysicsEngine.selectTopicIndex(
                 domain, author.selectTopic(rng), topicsV2Enabled, rng);
+
+        // Phase 16 P7 — topic-clone backoff. When the chosen (domain, topic)
+        // has accumulated REJECTED published papers in the room's recent
+        // history, probabilistically resample. Default off; flip on per the
+        // app.research.topic-clone-backoff.* family. Targets the divisor-sum-
+        // average cluster (P-534/539/553) where the scheduler kept picking
+        // the same topic despite three consecutive rejections.
+        if (topicCloneBackoffEnabled) {
+            final List<ResearchPaper> historyForBackoff =
+                    ctx.getPublishedPapers(roomId, topicCloneBackoffWindow);
+            final int initialTopic = topicIndex;
+            String initialName = MathPhysicsEngine.topicName(domain, initialTopic);
+            final String domainForResample = domain;
+            TopicCloneBackoff.ResampleSupplier resample = TopicCloneBackoff.fromSuppliers(
+                    () -> MathPhysicsEngine.selectTopicIndex(
+                            domainForResample, author.selectTopic(rng), topicsV2Enabled, rng),
+                    idx -> MathPhysicsEngine.topicName(domainForResample, idx));
+            int finalIndex = TopicCloneBackoff.applyBackoff(
+                    initialTopic, initialName, domain, historyForBackoff,
+                    resample, topicCloneBackoffMaxRetries, rng);
+            if (finalIndex != initialTopic) {
+                log.info("topic-clone backoff: bot={} domain={} initial={} (rej={}) → final={}",
+                        author.getBotId(), domain, initialName,
+                        TopicCloneBackoff.countRecentRejections(historyForBackoff, domain, initialName),
+                        MathPhysicsEngine.topicName(domain, finalIndex));
+            }
+            topicIndex = finalIndex;
+        }
 
         FollowUpParams pendingFollowUp = author.getState().getPendingFollowUp();
         boolean isFollowUp = (pendingFollowUp != null);

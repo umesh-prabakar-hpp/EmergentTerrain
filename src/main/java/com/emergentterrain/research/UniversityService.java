@@ -267,6 +267,9 @@ public class UniversityService {
             @Value("${app.research.block-count-stamp.enabled:false}") boolean blockCountStampEnabled,
             @Value("${app.research.block-count-guard.enabled:false}") boolean blockCountGuardEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
+            @Value("${app.research.topic-clone-backoff.enabled:false}") boolean topicCloneBackoffEnabled,
+            @Value("${app.research.topic-clone-backoff.window-size:5}") int topicCloneBackoffWindow,
+            @Value("${app.research.topic-clone-backoff.max-retries:3}") int topicCloneBackoffMaxRetries,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -398,6 +401,16 @@ public class UniversityService {
             log.info("UniversityService: topics-v2 ENABLED — bot topic selection samples "
                     + "uniformly over the FULL topic list per domain (current 5 per main "
                     + "domain + F3 additions).");
+        }
+        this.researchCycleService.setTopicCloneBackoffEnabled(topicCloneBackoffEnabled);
+        this.researchCycleService.setTopicCloneBackoffWindow(topicCloneBackoffWindow);
+        this.researchCycleService.setTopicCloneBackoffMaxRetries(topicCloneBackoffMaxRetries);
+        if (topicCloneBackoffEnabled) {
+            log.info("UniversityService: topic-clone-backoff ENABLED (window={}, "
+                    + "maxRetries={}) — bot topic selection probabilistically resamples "
+                    + "when (domain, topic) has accumulated REJECTED priors in recent "
+                    + "history. Phase 16 P7.",
+                    topicCloneBackoffWindow, topicCloneBackoffMaxRetries);
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.
