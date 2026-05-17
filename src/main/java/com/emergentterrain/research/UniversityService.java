@@ -122,6 +122,24 @@ public class UniversityService {
      */
     private final boolean directionOfFindingEnabled;
     /**
+     * Phase 14 F1a — when on, the structured-findings markdown renderer
+     * annotates each {@code ### Computation N — <topic>} header with the
+     * {@code [call_N]} marker it draws from, and replaces blocks beyond
+     * the successful-call count with an explicit
+     * {@code (no data — call_N missing)} placeholder. Observable on every
+     * paper rendering but does NOT change paper status. Default off.
+     */
+    private final boolean blockCountStampEnabled;
+    /**
+     * Phase 14 F1b — when on, papers whose structured-findings block count
+     * exceeds the successful-call count (size of toolCallTrace) publish
+     * as NEEDS_REVISION. The Five-Computation stub block fabrication
+     * cluster from REVIEW_REPORT refresh #2 §1 rec #1 (6 of 20 papers) is
+     * the target. Default off; ship behind F1a's stamp first so operators
+     * can observe the would-be gate rate before enforcement.
+     */
+    private final boolean blockCountGuardEnabled;
+    /**
      * Phase 7 F7.3 — when on, SUPPORTED papers whose panel review surfaced
      * cherry_picked_evidence (≥2 reviewers flagged the same omitted-relevant
      * tool call) publish as REJECTED. Defaults off until the false-positive
@@ -246,6 +264,8 @@ public class UniversityService {
             @Value("${app.research.missing-methods-gate.enabled:false}") boolean missingMethodsGateEnabled,
             @Value("${app.research.single-point-sweep.enabled:false}") boolean singlePointSweepEnabled,
             @Value("${app.research.direction-of-finding.enabled:false}") boolean directionOfFindingEnabled,
+            @Value("${app.research.block-count-stamp.enabled:false}") boolean blockCountStampEnabled,
+            @Value("${app.research.block-count-guard.enabled:false}") boolean blockCountGuardEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -286,6 +306,8 @@ public class UniversityService {
         this.missingMethodsGateEnabled    = missingMethodsGateEnabled;
         this.singlePointSweepEnabled      = singlePointSweepEnabled;
         this.directionOfFindingEnabled    = directionOfFindingEnabled;
+        this.blockCountStampEnabled       = blockCountStampEnabled;
+        this.blockCountGuardEnabled       = blockCountGuardEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -360,6 +382,16 @@ public class UniversityService {
             log.info("UniversityService: direction-of-finding ENABLED — papers whose "
                     + "Conclusion polarity contradicts Findings vs Hypothesis bound "
                     + "publish as NEEDS_REVISION (Phase 14 F4).");
+        }
+        if (blockCountStampEnabled) {
+            log.info("UniversityService: block-count-stamp ENABLED — Findings markdown "
+                    + "renderer annotates each block header with [call_N] and elides "
+                    + "blocks beyond trace.size() with '(no data — call_N missing)' "
+                    + "(Phase 14 F1a).");
+        }
+        if (blockCountGuardEnabled) {
+            log.info("UniversityService: block-count-guard ENABLED — papers whose block "
+                    + "count exceeds trace.size() publish as NEEDS_REVISION (Phase 14 F1b).");
         }
         this.researchCycleService.setTopicsV2Enabled(topicsV2Enabled);
         if (topicsV2Enabled) {
@@ -670,6 +702,21 @@ public class UniversityService {
             log.warn("direction-of-finding check failed paperId={} reasons={}",
                     draft.paperId(), directionOfFindingFailures);
         }
+        // Phase 14 F1b — flag the Five-Computation stub-block fabrication
+        // pattern. When the structured-findings map has more blocks than the
+        // tool-call trace has successful entries, the narrator emitted prose
+        // for computations that never ran. Refresh #2 §1 rec #1 named 6 of
+        // 20 papers (P-480/485/489/492/502/503) with per-paper success
+        // counts of 1, 1, 1, 2, 2, 0 against block counts of 5.
+        int blockCount   = findingsBlocks != null ? findingsBlocks.size() : 0;
+        int successCount = narration.toolCallTrace() != null
+                ? narration.toolCallTrace().size() : 0;
+        boolean blockCountOvershoot = blockCountGuardEnabled
+                && blockCount > Math.max(1, successCount);
+        if (blockCountOvershoot) {
+            log.warn("block-count-guard check failed paperId={} blocks={} successes={}",
+                    draft.paperId(), blockCount, successCount);
+        }
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
@@ -823,6 +870,13 @@ public class UniversityService {
             // revision can fix the prose by aligning the verdict with the
             // observed deviation.
             paperStatus = "NEEDS_REVISION";
+        } else if (blockCountOvershoot) {
+            // Phase 14 F1b — Five-Computation stub-block fabrication. Block
+            // count > trace.size() means the narrator wrote prose for
+            // computations that never ran. Same tier as F3/F4/F5/E6/D6:
+            // a content-quality issue that revision can fix by re-running
+            // the professor stage or by tightening the narrator prompt.
+            paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
             // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the
             // operator flipped the demote flag. The narration service stamps
@@ -875,6 +929,14 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:direction_inversion→needs_revision"
                     : persistedCallPath + " → publish:direction_inversion→needs_revision";
+        }
+        // Phase 14 F1b — additive stamp for block-count overshoot.
+        if (blockCountOvershoot) {
+            String stamp = "publish:block_count_overshoot:blocks=" + blockCount
+                    + ":successes=" + successCount + "→needs_revision";
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
         }
         // Phase 7 F2 — when the structured-findings map carries more than one block,
         // persist the JSON-serialised map into the (text) findings column so the
@@ -1778,14 +1840,42 @@ public class UniversityService {
         java.util.Map<Integer, String> blocks = tryParseFindingsMap(raw);
         if (blocks == null || blocks.size() <= 1) return raw;
         String equation = MathPhysicsEngine.equationFor(paper.domain(), paper.topic());
+        // Phase 14 F1a — count successful tool-call entries so each block can
+        // be tagged with the call_N it draws from, and blocks beyond
+        // successCount can be elided as "(no data — call_N missing)".
+        int successCount = 0;
+        if (blockCountStampEnabled) {
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace =
+                    tryParseToolCallTrace(paper.toolCallTrace());
+            successCount = trace != null ? trace.size() : 0;
+        }
         StringBuilder sb = new StringBuilder();
         boolean first = true;
         for (java.util.Map.Entry<Integer, String> e :
                 new java.util.TreeMap<>(blocks).entrySet()) {
             if (!first) sb.append("\n\n");
             first = false;
-            sb.append("### Computation ").append(e.getKey())
-                    .append(" — ").append(paper.topic()).append("\n\n");
+            int blockIdx = e.getKey();
+            sb.append("### Computation ").append(blockIdx)
+                    .append(" — ").append(paper.topic());
+            if (blockCountStampEnabled) {
+                if (blockIdx <= successCount) {
+                    sb.append(" `[call_").append(blockIdx).append("]`");
+                } else {
+                    sb.append(" `(no data — call_").append(blockIdx).append(" missing)`");
+                }
+            }
+            sb.append("\n\n");
+            if (blockCountStampEnabled && blockIdx > successCount) {
+                // Elide the LLM's prose body — the narrator wrote text for a
+                // computation that never ran. Operators see the gap.
+                sb.append("*[Block elided — narrator emitted ")
+                        .append(blocks.size())
+                        .append(" blocks but trace shows only ")
+                        .append(successCount)
+                        .append(" successful call(s).]*");
+                continue;
+            }
             if (equation != null && !equation.isBlank()) {
                 sb.append("**Equation:** ").append(equation).append("\n\n");
             }

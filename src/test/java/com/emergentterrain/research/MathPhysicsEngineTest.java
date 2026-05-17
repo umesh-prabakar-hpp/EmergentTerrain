@@ -250,6 +250,8 @@ class MathPhysicsEngineTest {
                 /* missingMethodsGateEnabled             */ false,
                 /* singlePointSweepEnabled               */ false,
                 /* directionOfFindingEnabled             */ false,
+                /* blockCountStampEnabled                */ false,
+                /* blockCountGuardEnabled                */ false,
                 /* topicsV2Enabled               */ false,
                 mapper);
 

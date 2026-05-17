@@ -66,6 +66,10 @@ class PublishPaperTest {
     private boolean singlePointSweepEnabled = false;
     /** Phase 14 F4: tests that exercise the direction-of-finding validator set this via {@link #enableDirectionOfFinding()}. */
     private boolean directionOfFindingEnabled = false;
+    /** Phase 14 F1a: tests that exercise the block-count stamp renderer set this via {@link #enableBlockCountStamp()}. */
+    private boolean blockCountStampEnabled = false;
+    /** Phase 14 F1b: tests that exercise the block-count publish gate set this via {@link #enableBlockCountGuard()}. */
+    private boolean blockCountGuardEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -148,6 +152,8 @@ class PublishPaperTest {
                 /* missingMethodsGateEnabled             */ missingMethodsGateEnabled,
                 /* singlePointSweepEnabled               */ singlePointSweepEnabled,
                 /* directionOfFindingEnabled             */ directionOfFindingEnabled,
+                /* blockCountStampEnabled                */ blockCountStampEnabled,
+                /* blockCountGuardEnabled                */ blockCountGuardEnabled,
                 /* topicsV2Enabled               */ false,
                 mapper);
         roomId = UUID.randomUUID();
@@ -780,6 +786,179 @@ class PublishPaperTest {
                 "Maximum deviation 0.694%.",
                 "Hypothesis ruled out by the observed data.",
                 null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 14 F1a/F1b: computation-block-count guard ----
+
+    @Test
+    void f1a_fiveBlockTwoCallTraceRendersStampsAndElisionMarkers() throws Exception {
+        // Refresh-#2 P-485 / P-502 signature: 5 blocks emitted but only
+        // 2 successful calls. Stamp mode annotates the markdown so the
+        // gap is visible.
+        enableBlockCountStamp();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "Block 1 prose.");
+        blocks.put(2, "Block 2 prose.");
+        blocks.put(3, "Block 3 fabricated prose.");
+        blocks.put(4, "Block 4 fabricated prose.");
+        blocks.put(5, "Block 5 fabricated prose.");
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 0),
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 1));
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null)
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        // Blocks 1 + 2 carry [call_N] stamps.
+        assertThat(content).contains("### Computation 1 — RLC Damping Transition `[call_1]`");
+        assertThat(content).contains("### Computation 2 — RLC Damping Transition `[call_2]`");
+        // Blocks 3-5 carry the elision marker and the prose is replaced.
+        assertThat(content).contains("### Computation 3 — RLC Damping Transition `(no data — call_3 missing)`");
+        assertThat(content).contains("### Computation 5 — RLC Damping Transition `(no data — call_5 missing)`");
+        assertThat(content).contains("*[Block elided — narrator emitted 5 blocks but trace shows only 2 successful call(s).]*");
+        // The fabricated prose for the elided blocks is NOT rendered.
+        assertThat(content).doesNotContain("Block 3 fabricated prose");
+        assertThat(content).doesNotContain("Block 5 fabricated prose");
+    }
+
+    @Test
+    void f1a_blockCountMatchingTraceRendersStampsOnly() throws Exception {
+        // Block count = trace size: every block legitimate. Stamps appear,
+        // no elision markers, prose preserved.
+        enableBlockCountStamp();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "Real block 1 prose.");
+        blocks.put(2, "Real block 2 prose.");
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 0),
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 1));
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null)
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        assertThat(content).contains("`[call_1]`");
+        assertThat(content).contains("`[call_2]`");
+        assertThat(content).doesNotContain("(no data");
+        assertThat(content).doesNotContain("Block elided");
+        assertThat(content).contains("Real block 1 prose");
+        assertThat(content).contains("Real block 2 prose");
+    }
+
+    @Test
+    void f1a_flagOffRendersUnstampedHeadersAsToday() throws Exception {
+        // Default flag off — render is bit-identical to pre-F1 behaviour:
+        // no [call_N] markers and the LLM prose passes through verbatim.
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "Block 1 prose.");
+        blocks.put(2, "Block 2 fabricated prose.");
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 0));
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null)
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        String content = readPublishedMarkdown();
+        // Headers present but no [call_N] / (no data) markers.
+        assertThat(content).contains("### Computation 1 — RLC Damping Transition");
+        assertThat(content).contains("### Computation 2 — RLC Damping Transition");
+        assertThat(content).doesNotContain("[call_1]");
+        assertThat(content).doesNotContain("(no data");
+        // The "fabricated" block's prose is still rendered (no gate today).
+        assertThat(content).contains("Block 2 fabricated prose");
+    }
+
+    @Test
+    void f1b_blockCountOvershootRoutesToNeedsRevision() {
+        // 5 blocks against 1 call: blockCountOvershoot. F1b routes the
+        // paper to NEEDS_REVISION with the publish stamp on the call path.
+        enableBlockCountGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        for (int i = 1; i <= 5; i++) blocks.put(i, "Block " + i + " prose.");
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 0));
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null)
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:block_count_overshoot:blocks=5:successes=1→needs_revision");
+    }
+
+    @Test
+    void f1b_blockCountMatchingTracePublishesNormally() {
+        // 2 blocks against 2 calls: within slack (max(1, 2) = 2, not > 2).
+        enableBlockCountGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "Block 1 prose.");
+        blocks.put(2, "Block 2 prose.");
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 0),
+                new com.emergentterrain.llm.ToolInvocation("run_param_sweep", "{}", "{}", 1));
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null)
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void f1b_flagOffLeavesOvershootAsPublished() {
+        // Default flag off — even a 5-block / 0-call paper publishes as today.
+        PaperDraft draft = draftForTopic("PHYSICS", "RLC Damping Transition",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        for (int i = 1; i <= 5; i++) blocks.put(i, "Block " + i + " prose.");
+        NarrationResult narration = new NarrationResult(
+                "h", blocks, "c", null, null, 0.7,
+                List.of(), null, List.of(), List.of(),
+                null, null, null, null, null, null, null);
+        service.publishPaper(draft, narration);
+
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void f1b_singleBlockPaperNeverOvershoots() {
+        // Legacy single-block / flag-off-structured papers: blockCount == 1
+        // and the gate uses max(1, successCount), so blockCount > max(1, …)
+        // is false even when trace is empty. Doesn't regress existing
+        // single-block paths.
+        enableBlockCountGuard();
+        PaperDraft draft = draftForTopic("PHYSICS", "Pendulum Breakdown Angle",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "h", "Single-block prose without a trace.", "c",
+                null, null, 0.7, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
@@ -2139,6 +2318,18 @@ class PublishPaperTest {
     /** Phase 14 F4 — rebuilds the service with the direction-of-finding validator ON. */
     private void enableDirectionOfFinding() {
         directionOfFindingEnabled = true;
+        setUp();
+    }
+
+    /** Phase 14 F1a — rebuilds the service with the block-count stamp renderer ON. */
+    private void enableBlockCountStamp() {
+        blockCountStampEnabled = true;
+        setUp();
+    }
+
+    /** Phase 14 F1b — rebuilds the service with the block-count publish gate ON. */
+    private void enableBlockCountGuard() {
+        blockCountGuardEnabled = true;
         setUp();
     }
 
