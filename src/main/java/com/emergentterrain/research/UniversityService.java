@@ -93,6 +93,35 @@ public class UniversityService {
      */
     private final boolean uncertaintyDisclosureEnabled;
     /**
+     * Phase 14 F5 — when on, papers reaching publishPaper with a null or
+     * empty tool-call trace (i.e. no Methods section content available)
+     * publish as NEEDS_REVISION. Catches the refresh-#2 P-503 signature
+     * where the paper renders Hypothesis → Findings → Conclusion →
+     * Discussion → Related Work with no Methods or Panel section. Default
+     * off; opt-in flip once one refresh confirms the gate doesn't catch
+     * legitimate non-tool-call paths (Ollama-fallback, JSON-only).
+     */
+    private final boolean missingMethodsGateEnabled;
+    /**
+     * Phase 14 F3 — when on, papers whose Findings prose claims a sample
+     * count (e.g. "sixteen sampled cases") that exceeds {@code 2 ×
+     * trace.size()} publish as NEEDS_REVISION. Addresses the refresh-#2
+     * P-507 / P-512 / P-494 "inflated sweep size" failure pattern.
+     * Default off; opt-in flip after one refresh confirms the slack
+     * factor doesn't catch legitimate within-call sweep output.
+     */
+    private final boolean singlePointSweepEnabled;
+    /**
+     * Phase 14 F4 — when on, papers whose Conclusion makes a directional
+     * claim (confirmed/refuted/within/outside) contradicting the Findings
+     * number vs Hypothesis bound publish as NEEDS_REVISION. Addresses
+     * refresh-#2 P-491 / P-496 / P-511 inversions. Conservative: returns
+     * empty on any ambiguity (no bound, no actual, no polarity word).
+     * Default off; opt-in flip after one refresh confirms the regex set
+     * doesn't catch legitimate prose patterns.
+     */
+    private final boolean directionOfFindingEnabled;
+    /**
      * Phase 7 F7.3 — when on, SUPPORTED papers whose panel review surfaced
      * cherry_picked_evidence (≥2 reviewers flagged the same omitted-relevant
      * tool call) publish as REJECTED. Defaults off until the false-positive
@@ -214,6 +243,9 @@ public class UniversityService {
             @Value("${app.research.topic-specific-findings-validator.enabled:true}") boolean topicSpecificFindingsValidatorEnabled,
             @Value("${app.research.closing-prose-validator.enabled:false}") boolean closingProseValidatorEnabled,
             @Value("${app.research.uncertainty-disclosure.enabled:false}") boolean uncertaintyDisclosureEnabled,
+            @Value("${app.research.missing-methods-gate.enabled:false}") boolean missingMethodsGateEnabled,
+            @Value("${app.research.single-point-sweep.enabled:false}") boolean singlePointSweepEnabled,
+            @Value("${app.research.direction-of-finding.enabled:false}") boolean directionOfFindingEnabled,
             @Value("${app.research.topics-v2.enabled:false}") boolean topicsV2Enabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
@@ -251,6 +283,9 @@ public class UniversityService {
         this.topicSpecificFindingsValidatorEnabled = topicSpecificFindingsValidatorEnabled;
         this.closingProseValidatorEnabled = closingProseValidatorEnabled;
         this.uncertaintyDisclosureEnabled = uncertaintyDisclosureEnabled;
+        this.missingMethodsGateEnabled    = missingMethodsGateEnabled;
+        this.singlePointSweepEnabled      = singlePointSweepEnabled;
+        this.directionOfFindingEnabled    = directionOfFindingEnabled;
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -310,6 +345,21 @@ public class UniversityService {
                     + "Findings cite unit-anchored numerics without any uncertainty "
                     + "indicator (± / exact / to within) publish as NEEDS_REVISION "
                     + "(Phase 13 E6).");
+        }
+        if (missingMethodsGateEnabled) {
+            log.info("UniversityService: missing-methods-gate ENABLED — papers reaching "
+                    + "publishPaper with a null or empty tool-call trace publish as "
+                    + "NEEDS_REVISION (Phase 14 F5).");
+        }
+        if (singlePointSweepEnabled) {
+            log.info("UniversityService: single-point-sweep ENABLED — papers whose "
+                    + "Findings claim a sample count exceeding 2 × trace.size() "
+                    + "publish as NEEDS_REVISION (Phase 14 F3).");
+        }
+        if (directionOfFindingEnabled) {
+            log.info("UniversityService: direction-of-finding ENABLED — papers whose "
+                    + "Conclusion polarity contradicts Findings vs Hypothesis bound "
+                    + "publish as NEEDS_REVISION (Phase 14 F4).");
         }
         this.researchCycleService.setTopicsV2Enabled(topicsV2Enabled);
         if (topicsV2Enabled) {
@@ -581,6 +631,45 @@ public class UniversityService {
             log.warn("uncertainty-disclosure check failed paperId={} reasons={}",
                     draft.paperId(), uncertaintyFailures);
         }
+        // Phase 14 F5 — papers reaching publishPaper with a null or empty
+        // tool-call trace have no Methods section content to render. The
+        // renderer would emit a paper missing the Methods (and likely Panel)
+        // sections entirely, the signature P-503 carried in REVIEW_REPORT
+        // refresh #2 §1 rec #5. "What computations support the claims" is
+        // the most-asked panel-review recommendation in the corpus, so route
+        // these to NEEDS_REVISION. Flag-off path is bit-identical to today.
+        boolean noMethods = missingMethodsGateEnabled
+                && (narration.toolCallTrace() == null
+                        || narration.toolCallTrace().isEmpty());
+        if (noMethods) {
+            log.warn("missing-methods check failed paperId={} (toolCallTrace null/empty)",
+                    draft.paperId());
+        }
+        // Phase 14 F3 — flag papers whose Findings prose claims a sample
+        // count unsupported by the persisted tool-call trace (e.g. "sixteen
+        // sampled cases" backed by one call). Refresh #2 §1 rec #4 named
+        // P-507, P-512, P-494 as the named occurrences.
+        List<String> singlePointSweepFailures = singlePointSweepEnabled
+                ? SinglePointSweepValidator.validate(findingsBlocks,
+                        narration.toolCallTrace())
+                : List.of();
+        boolean singlePointSweep = !singlePointSweepFailures.isEmpty();
+        if (singlePointSweep) {
+            log.warn("single-point-sweep check failed paperId={} reasons={}",
+                    draft.paperId(), singlePointSweepFailures);
+        }
+        // Phase 14 F4 — flag Conclusion polarity inversions against the
+        // Findings number vs Hypothesis bound. Refresh #2 §1 rec #3 named
+        // P-491 (0.694% well within 5% but Conclusion "rules out"), P-496
+        // (quality-score talk against ratio hypothesis), P-511 (wrong Tc).
+        List<String> directionOfFindingFailures = directionOfFindingEnabled
+                ? DirectionOfFindingValidator.validate(hypothesis, findingsBlocks, conclusion)
+                : List.of();
+        boolean directionOfFindingInverted = !directionOfFindingFailures.isEmpty();
+        if (directionOfFindingInverted) {
+            log.warn("direction-of-finding check failed paperId={} reasons={}",
+                    draft.paperId(), directionOfFindingFailures);
+        }
         // Phase 5 B1 — flag papers whose Conclusion contradicts the Hypothesis or
         // Findings on a numerical claim. The validator returns a list of textual
         // reasons; non-empty list means the paper failed at least one check.
@@ -718,6 +807,22 @@ public class UniversityService {
             // G6 / D6: a content-quality issue that revision can fix by
             // adding the ± clause or the "exact closed form" qualifier.
             paperStatus = "NEEDS_REVISION";
+        } else if (noMethods) {
+            // Phase 14 F5 — missing Methods section. Structurally stronger
+            // than uncertaintyMissing (no math at all vs unlabeled math).
+            // Slotted at this tier because revision CAN fix it by re-running
+            // the professor stage with a non-empty trace.
+            paperStatus = "NEEDS_REVISION";
+        } else if (singlePointSweep) {
+            // Phase 14 F3 — inflated sweep size in Findings. Same tier as
+            // F5 / E6 / D6: a content-quality issue that revision can fix
+            // by rewording the prose to match the trace.
+            paperStatus = "NEEDS_REVISION";
+        } else if (directionOfFindingInverted) {
+            // Phase 14 F4 — Conclusion polarity inversion. Same tier as F3:
+            // revision can fix the prose by aligning the verdict with the
+            // observed deviation.
+            paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
             // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the
             // operator flipped the demote flag. The narration service stamps
@@ -751,6 +856,25 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "audit:cherry_picked_evidence→REJECTED"
                     : persistedCallPath + " → audit:cherry_picked_evidence→REJECTED";
+        }
+        // Phase 14 F5 — additive stamp so operators can correlate
+        // NEEDS_REVISION papers against the missing-Methods cause.
+        if (noMethods) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:no_methods→needs_revision"
+                    : persistedCallPath + " → publish:no_methods→needs_revision";
+        }
+        // Phase 14 F3 — additive stamp for inflated-sweep failures.
+        if (singlePointSweep) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:single_point_sweep→needs_revision"
+                    : persistedCallPath + " → publish:single_point_sweep→needs_revision";
+        }
+        // Phase 14 F4 — additive stamp for polarity inversions.
+        if (directionOfFindingInverted) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:direction_inversion→needs_revision"
+                    : persistedCallPath + " → publish:direction_inversion→needs_revision";
         }
         // Phase 7 F2 — when the structured-findings map carries more than one block,
         // persist the JSON-serialised map into the (text) findings column so the

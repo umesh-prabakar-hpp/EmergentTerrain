@@ -621,6 +621,7 @@ public class PromptTemplateRegistry {
                 Hypothesis: {{ hypothesis }}
                 Findings: {{ findings }}
                 Conclusion: {{ conclusion }}
+                Discussion (first ~150 words): {{ discussion }}
 
                 Check only these dimensions (skip if not problematic):
                 - physical_mechanism: cross-domain mapping is purely definitional with no causal
@@ -638,6 +639,12 @@ public class PromptTemplateRegistry {
                   energy, so any apparent correlation is numeric coincidence at the harness level, not
                   a discovered law. Reject regardless of how plausibly the Findings describe the
                   numerical agreement.
+                  Phase 14 F6: ALSO flag physical_mechanism as CRITICAL when the stated Domain is NOT
+                  INTERDISCIPLINARY and the Discussion or Conclusion drifts into vocabulary from a
+                  different domain's mechanism (e.g. a MATHEMATICS paper that invokes Van der Waals,
+                  Schrödinger, lattice strain, or other physical-science concepts with no causal
+                  bridge from the Hypothesis). INTERDISCIPLINARY papers are exempt; they bridge
+                  domains intentionally.
                 - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
                 - boundary_answer: reported best parameter value sits exactly at a boundary of the swept
                   range (e.g. volume fraction Vf=1.00 on a Vf∈[0,1] sweep, angle θ=90° on a [0°,90°]

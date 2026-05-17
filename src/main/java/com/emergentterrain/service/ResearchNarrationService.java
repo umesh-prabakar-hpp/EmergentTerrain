@@ -1128,7 +1128,32 @@ public class ResearchNarrationService {
         // is bit-identical to the legacy single-string findings.
         params.put("findings",       formatFindingsForPrompt(narration));
         params.put("conclusion",     narration.conclusion());
+        // Phase 14 F6 — Discussion sliced to ~200 tokens (~150 words) so the
+        // audit-4b reviewer can flag cross-domain drift in non-INTERDISCIPLINARY
+        // papers. Refresh #2 P-484 (MATHEMATICS paper whose Discussion drifts
+        // into Van der Waals + Schrödinger) was caught by recommendation #6 as
+        // a Discussion-only failure that the Hypothesis-only audit input
+        // missed.
+        params.put("discussion",     truncateToWords(narration.discussion(), 150));
         return registry.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+    }
+
+    /**
+     * Phase 14 F6 — return the first {@code maxWords} whitespace-separated
+     * tokens of {@code text}, with an ellipsis if truncated. Empty / null
+     * input returns the empty string so the prompt slot renders cleanly.
+     */
+    static String truncateToWords(String text, int maxWords) {
+        if (text == null || text.isBlank()) return "";
+        String[] words = text.trim().split("\\s+");
+        if (words.length <= maxWords) return text.trim();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < maxWords; i++) {
+            if (i > 0) sb.append(' ');
+            sb.append(words[i]);
+        }
+        sb.append(" …");
+        return sb.toString();
     }
 
     /**

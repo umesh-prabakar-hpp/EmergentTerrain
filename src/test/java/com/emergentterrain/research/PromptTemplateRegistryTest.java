@@ -432,6 +432,8 @@ class PromptTemplateRegistryTest {
         params.put("hypothesis",     "h");
         params.put("findings",       "f");
         params.put("conclusion",     "c");
+        // Phase 14 F6 — v3 now references {{ discussion }} too.
+        params.put("discussion",     "");
         String rendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
 
         // Non-sequitur exemplars must be visible to the audit LLM:
@@ -451,6 +453,34 @@ class PromptTemplateRegistryTest {
         assertThat(rendered).contains("Vf=1.00");
         assertThat(rendered).contains("physical_mechanism");
         assertThat(rendered).contains("duplicate_computation");
+
+        // Phase 14 F6 — Discussion slot is rendered + cross-domain-drift
+        // instruction is present in the template body.
+        assertThat(rendered).contains("Discussion (first ~150 words):");
+        assertThat(rendered).contains("Phase 14 F6");
+        assertThat(rendered).contains("INTERDISCIPLINARY");
+        assertThat(rendered).contains("Van der Waals");
+    }
+
+    @Test
+    void narrationAuditV3RendersDiscussionContentWhenProvided() {
+        // Phase 14 F6 — when the caller supplies a Discussion slice, it
+        // renders into the prompt so the audit-4b reviewer can scan for
+        // cross-domain drift outside of Hypothesis / Findings / Conclusion.
+        PromptTemplateRegistry r = freshSeededRegistry();
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",         "MATHEMATICS");
+        params.put("topicName",      "Collatz Stopping Time");
+        params.put("classification", "SUPPORTED");
+        params.put("hypothesis",     "h");
+        params.put("findings",       "f");
+        params.put("conclusion",     "c");
+        params.put("discussion",
+                "The mean stopping time aligns with Van der Waals critical exponents");
+        String rendered = r.render(PromptTemplateIds.NARRATION_AUDIT_ID, params);
+
+        assertThat(rendered).contains(
+                "Discussion (first ~150 words): The mean stopping time aligns with Van der Waals");
     }
 
     @Test

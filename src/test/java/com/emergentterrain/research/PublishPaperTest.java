@@ -60,6 +60,12 @@ class PublishPaperTest {
     private boolean closingProseValidatorEnabled = false;
     /** Phase 13 E6: tests that exercise the uncertainty-disclosure validator set this via {@link #enableUncertaintyDisclosure()}. */
     private boolean uncertaintyDisclosureEnabled = false;
+    /** Phase 14 F5: tests that exercise the missing-Methods gate set this via {@link #enableMissingMethodsGate()}. */
+    private boolean missingMethodsGateEnabled = false;
+    /** Phase 14 F3: tests that exercise the single-point-sweep validator set this via {@link #enableSinglePointSweep()}. */
+    private boolean singlePointSweepEnabled = false;
+    /** Phase 14 F4: tests that exercise the direction-of-finding validator set this via {@link #enableDirectionOfFinding()}. */
+    private boolean directionOfFindingEnabled = false;
 
     @BeforeEach
     void setUp() {
@@ -139,6 +145,9 @@ class PublishPaperTest {
                 /* topicSpecificFindingsValidatorEnabled */ topicSpecificFindingsValidatorEnabled,
                 /* closingProseValidatorEnabled          */ closingProseValidatorEnabled,
                 /* uncertaintyDisclosureEnabled          */ uncertaintyDisclosureEnabled,
+                /* missingMethodsGateEnabled             */ missingMethodsGateEnabled,
+                /* singlePointSweepEnabled               */ singlePointSweepEnabled,
+                /* directionOfFindingEnabled             */ directionOfFindingEnabled,
                 /* topicsV2Enabled               */ false,
                 mapper);
         roomId = UUID.randomUUID();
@@ -631,6 +640,180 @@ class PublishPaperTest {
         service.publishPaper(draft, narration);
         // Truncation takes precedence; status is still NEEDS_REVISION either way.
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+    }
+
+    // ---- Phase 14 F5: missing-Methods publish gate ----
+
+    @Test
+    void f5_nullToolCallTraceRoutesToNeedsRevision() {
+        enableMissingMethodsGate();
+        PaperDraft draft = draftForTopic("MATERIALS", "Young-Laplace Capillary Rise",
+                ResultClassification.SUPPORTED, 0.5);
+        // toolCallTrace defaults to null on this constructor.
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Capillary rise h ≈ 26.3 cm at r=0.053 mm.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:no_methods→needs_revision");
+    }
+
+    @Test
+    void f5_emptyToolCallTraceRoutesToNeedsRevision() {
+        enableMissingMethodsGate();
+        PaperDraft draft = draftForTopic("MATERIALS", "Young-Laplace Capillary Rise",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Capillary rise h ≈ 26.3 cm at r=0.053 mm.",
+                "Conclusion is complete.", null, null, 0.8, List.of())
+                .withToolCallTrace(java.util.List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:no_methods→needs_revision");
+    }
+
+    @Test
+    void f5_nonEmptyToolCallTracePublishes() {
+        enableMissingMethodsGate();
+        PaperDraft draft = draftForTopic("MATERIALS", "Young-Laplace Capillary Rise",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep",
+                        "{\"param1\":\"r\"}",
+                        "{\"h_cm\":26.3}", 0));
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Capillary rise h ≈ 26.3 cm at r=0.053 mm.",
+                "Conclusion is complete.", null, null, 0.8, List.of())
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 14 F3: single-point sweep validator (integration with publishPaper) ----
+
+    @Test
+    void f3_sixteenSampledCasesAgainstOneCallRoutesToNeedsRevision() {
+        enableSinglePointSweep();
+        PaperDraft draft = draftForTopic("MATERIALS", "Arrhenius Rule Validity",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep",
+                        "{\"Ea\":167,\"T\":1081}",
+                        "{\"ratio\":1.18568}", 0));
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "The Arrhenius multiplier was averaged over sixteen sampled cases.",
+                "Conclusion is complete.", null, null, 0.8, List.of())
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:single_point_sweep→needs_revision");
+    }
+
+    @Test
+    void f3_smallCountWithinSlackPublishes() {
+        enableSinglePointSweep();
+        PaperDraft draft = draftForTopic("MATERIALS", "Arrhenius Rule Validity",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{}", 0),
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{}", 1));
+        // 4 cases against 2 calls: 4 ≤ 2·2 → within slack.
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "The 4 measured cases agreed within tolerance.",
+                "Conclusion is complete.", null, null, 0.8, List.of())
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    // ---- Phase 14 F4: direction-of-finding validator (integration with publishPaper) ----
+
+    @Test
+    void f4_p491SignatureRoutesToNeedsRevision() {
+        enableDirectionOfFinding();
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Riemann Euler-Product Convergence",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "We expect convergence within 5% across the survey window.",
+                "Maximum deviation 0.694% across the evaluations.",
+                "The hypothesis is therefore ruled out by the observed data.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        assertThat(firstPaper().llmCallPath())
+                .contains("publish:direction_inversion→needs_revision");
+    }
+
+    @Test
+    void f4_consistentPolarityPublishes() {
+        enableDirectionOfFinding();
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Riemann Euler-Product Convergence",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Convergence within 5%.",
+                "Maximum deviation 0.694% across evaluations.",
+                "Hypothesis confirmed by the close agreement.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void f4_flagOffLeavesInvertedPolarityAsPublished() {
+        // Default flag off — even an obvious inversion publishes as today.
+        PaperDraft draft = draftForTopic("MATHEMATICS", "Riemann Euler-Product Convergence",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Convergence within 5%.",
+                "Maximum deviation 0.694%.",
+                "Hypothesis ruled out by the observed data.",
+                null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void f3_flagOffLeavesInflatedSweepAsPublished() {
+        // Default flag off — even the worst sample-size inflation publishes
+        // as today.
+        PaperDraft draft = draftForTopic("MATERIALS", "Arrhenius Rule Validity",
+                ResultClassification.SUPPORTED, 0.5);
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}", "{\"ratio\":1.186}", 0));
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Averaged over sixteen sampled cases at the activation range.",
+                "Conclusion is complete.", null, null, 0.8, List.of())
+                .withToolCallTrace(trace);
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+    }
+
+    @Test
+    void f5_flagOffLeavesNullTraceAsPublished() {
+        // Default flag off — null toolCallTrace publishes as today (legacy /
+        // Ollama-fallback path that doesn't run tools).
+        PaperDraft draft = draftForTopic("MATERIALS", "Young-Laplace Capillary Rise",
+                ResultClassification.SUPPORTED, 0.5);
+        NarrationResult narration = new NarrationResult(
+                "Hypothesis is complete.",
+                "Capillary rise h ≈ 26.3 cm at r=0.053 mm.",
+                "Conclusion is complete.", null, null, 0.8, List.of());
+        service.publishPaper(draft, narration);
+        assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
     }
 
     @Test
@@ -1938,6 +2121,24 @@ class PublishPaperTest {
     /** Phase 13 E6 — rebuilds the service with the uncertainty-disclosure validator ON. */
     private void enableUncertaintyDisclosure() {
         uncertaintyDisclosureEnabled = true;
+        setUp();
+    }
+
+    /** Phase 14 F5 — rebuilds the service with the missing-Methods gate ON. */
+    private void enableMissingMethodsGate() {
+        missingMethodsGateEnabled = true;
+        setUp();
+    }
+
+    /** Phase 14 F3 — rebuilds the service with the single-point-sweep validator ON. */
+    private void enableSinglePointSweep() {
+        singlePointSweepEnabled = true;
+        setUp();
+    }
+
+    /** Phase 14 F4 — rebuilds the service with the direction-of-finding validator ON. */
+    private void enableDirectionOfFinding() {
+        directionOfFindingEnabled = true;
         setUp();
     }
 

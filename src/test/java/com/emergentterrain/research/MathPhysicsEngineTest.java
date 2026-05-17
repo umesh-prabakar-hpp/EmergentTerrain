@@ -247,6 +247,9 @@ class MathPhysicsEngineTest {
                 /* topicSpecificFindingsValidatorEnabled */ false,
                 /* closingProseValidatorEnabled          */ false,
                 /* uncertaintyDisclosureEnabled          */ false,
+                /* missingMethodsGateEnabled             */ false,
+                /* singlePointSweepEnabled               */ false,
+                /* directionOfFindingEnabled             */ false,
                 /* topicsV2Enabled               */ false,
                 mapper);
 
