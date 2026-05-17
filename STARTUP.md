@@ -162,6 +162,86 @@ app:
 
 ---
 
+## 2.5. Token-budget tracking (every active provider must be listed)
+
+The `SimulationGate` pauses scheduled simulation work when the configured
+primary providers are collectively close to their daily/minute token caps.
+Per Phase 13 E1, the gate uses the **min across metered providers** — it
+closes only when *every* budget-tracked provider has crossed
+`pauseThresholdPct` (default 95%). This is the whole reason multi-provider
+cascade exists: when groq's daily TPD trips, NVIDIA / OpenRouter / Cerebras
+should keep absorbing primary calls until they too run out.
+
+**The gotcha**: the gate iterates over `app.tokens.budget.providers`. If a
+provider is wired up in `PrimaryModelRegistry` but **missing from this map**,
+the gate doesn't know about it. The "min across metered" then degenerates to
+"max of 1" — a single provider hitting 95% closes the gate globally, even
+when the unmetered providers still have headroom. Room `a3289005` sat idle
+~3.5 hours on 2026-05-17 from exactly this — groq hit 95%/day at 04:08 EDT
+and NVIDIA / OpenRouter / Cerebras were configured for cascade but not
+budget-tracked.
+
+**Configure every provider you actually use** under `app.tokens.budget.providers`:
+
+```yaml
+app:
+  tokens:
+    budget:
+      enabled: true
+      pauseThresholdPct: 95
+      resumeThresholdPct: 80    # hysteresis floor — gate stays closed until spend drops below this
+      providers:
+        groq:
+          dailyLimit: 270000    # 90% of aggregate Groq daily cap (~300K across gpt-oss-120b + llama-3.3-70b)
+          minuteLimit: 8000     # matches observed TPM rate-limit
+        nvidia:
+          dailyLimit: 100000    # ≈30 calls/day at ~3500 tokens/call; tune to your actual NVIDIA NIM credit balance
+          minuteLimit: 20000
+        openrouter:
+          dailyLimit: 500000    # gates at ~70% of the per-account request-rate cap on :free routes
+          minuteLimit: 175000
+        cerebras:
+          dailyLimit: 0         # unmetered daily — free-tier monthly ceiling not published
+          minuteLimit: 6000     # 30 RPM × ~200 tok/call for audit-only short probes
+        ollama:
+          dailyLimit: 0         # local, unmetered
+          minuteLimit: 0
+```
+
+**Limits are starting points**; verify against each provider's actual dashboard
+and adjust before relying on them.
+
+| Provider   | Where to read live remaining        | Cap unit                           |
+|------------|--------------------------------------|-------------------------------------|
+| Groq       | console.groq.com → API Keys → Usage  | TPD per model (aggregated by pool) |
+| NVIDIA NIM | build.nvidia.com → Profile → Credits | API credits per call (not tokens)  |
+| OpenRouter | openrouter.ai/activity               | RPM + requests/day per route       |
+| Cerebras   | cloud.cerebras.ai → Usage            | RPM per model                      |
+
+> **Cap-unit mismatch note**: NVIDIA / OpenRouter / Cerebras enforce in
+> *calls* or *requests-per-minute*, not tokens. The token-based budget here
+> is a proxy — at the observed ~3,500 tokens per primary call you can
+> back-convert `dailyLimit` to ≈ (calls remaining) × 3,500. The gate's
+> usefulness is keeping you below the upstream 429, not exactly matching
+> the upstream cap.
+
+**Heartbeat logging.** `TokenBudgetReporter` prints a one-line-per-provider
+summary every `app.tokens.reportIntervalMs` (default 60s):
+
+```
+token-budget provider=nvidia gate=OPEN gateReason="open: hottest=groq/day @ 91% (coolest=nvidia/day @ 12%)" {day=12134/100000, dayRemaining=87866, …} pauseLikely=false
+```
+
+Use it to watch all configured providers spend in parallel and confirm the
+gate stays open as long as at least one provider is below `resumeThresholdPct`.
+
+> **Without entries here**: `NvidiaPool` / `OpenRouterPool` / `CerebrasPool`
+> still *record* their spend to `TokenAccountant`, but `SimulationGate`
+> doesn't query it for unconfigured providers — so the data is recorded
+> and discarded. Adding the entries is what activates per-provider gating.
+
+---
+
 ## 3. Set up PostgreSQL
 
 Create the database if it doesn't exist:
