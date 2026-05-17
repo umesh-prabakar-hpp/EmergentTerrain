@@ -21,6 +21,12 @@ evidence accumulates. Update each row's *State* / *Trigger met?* /
 when this queue is empty (every flag either flipped on or removed as a
 deliberate keep-off).
 
+**Queue depth**: 4 of 5 original entries remaining. Tier 1 (six flags)
+flipped 2026-05-17 in commit `041671a`. Tier 2 (one flag — F1b
+`block-count-guard`) flipped 2026-05-17 in commit `918ac90`. The four
+remaining are all Tier 3 (operator-judgement or larger-sample
+prerequisites) — see Snapshot below.
+
 ---
 
 ## Snapshot
