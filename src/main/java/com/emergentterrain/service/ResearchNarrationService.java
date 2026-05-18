@@ -407,7 +407,12 @@ public class ResearchNarrationService {
         PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
         narrationSlot.acquireUninterruptibly();
         try {
-            runNarration(framedDraft);
+            // Scope the paperId so any LLM call made during narration (primary
+            // stream, critique tool loop, MathToolSuite sandbox safety review on
+            // the same virtual thread) is captured per-paper by LlmTraceWriter.
+            com.emergentterrain.llm.LlmCallContext.withPaperId(
+                    framedDraft.paperId(),
+                    () -> runNarration(framedDraft));
         } finally {
             narrationSlot.release();
         }

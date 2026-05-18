@@ -49,6 +49,7 @@ public final class LlmCallContext {
 
     private static final ThreadLocal<Double>  TEMPERATURE      = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> JSON_OUTPUT_MODE = new ThreadLocal<>();
+    private static final ThreadLocal<String>  PAPER_ID         = new ThreadLocal<>();
 
     /**
      * Returns the temperature override for the current thread, or
@@ -149,6 +150,45 @@ public final class LlmCallContext {
     }
 
     /**
+     * Current paper ID scope for any LLM call this thread makes, or
+     * {@code null} when no caller set one. Read by {@code LlmTraceWriter}
+     * at the HTTP-send site so per-call traces can be written to
+     * {@code research/llm-traces/{paperId}.jsonl}.
+     */
+    public static String currentPaperId() {
+        return PAPER_ID.get();
+    }
+
+    /**
+     * Run {@code body} with the given paper ID visible to any LLM call
+     * this thread makes within the scope. PaperId is cleared on normal
+     * completion AND on exception, so it never leaks to subsequent
+     * unrelated calls. Same finally discipline as {@link #withTemperature}.
+     */
+    public static void withPaperId(String paperId, Runnable body) {
+        String prior = PAPER_ID.get();
+        PAPER_ID.set(paperId);
+        try {
+            body.run();
+        } finally {
+            if (prior == null) PAPER_ID.remove();
+            else PAPER_ID.set(prior);
+        }
+    }
+
+    /** Supplier overload — see {@link #withPaperId(String, Runnable)}. */
+    public static <T> T withPaperId(String paperId, Supplier<T> body) {
+        String prior = PAPER_ID.get();
+        PAPER_ID.set(paperId);
+        try {
+            return body.get();
+        } finally {
+            if (prior == null) PAPER_ID.remove();
+            else PAPER_ID.set(prior);
+        }
+    }
+
+    /**
      * Clear the override unconditionally. Tests use this to guarantee a
      * clean slate; production code should prefer the
      * {@link #withTemperature} / {@link #withJsonOutputMode} helpers
@@ -157,5 +197,6 @@ public final class LlmCallContext {
     public static void clear() {
         TEMPERATURE.remove();
         JSON_OUTPUT_MODE.remove();
+        PAPER_ID.remove();
     }
 }

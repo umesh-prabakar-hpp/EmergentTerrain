@@ -99,6 +99,9 @@ public class NvidiaPool implements LlmPool {
     @Autowired(required = false)
     private LlmCallMetrics callMetrics;
 
+    @Autowired(required = false)
+    private com.emergentterrain.llm.LlmTraceWriter traceWriter;
+
     public NvidiaPool(
             @Value("${app.ai.nvidia.apiKey:}") String apiKey,
             @Value("${app.ai.nvidia.baseUrl:https://integrate.api.nvidia.com/v1}") String baseUrl,
@@ -326,8 +329,13 @@ public class NvidiaPool implements LlmPool {
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
                 String roundOutcome = "ok";
                 HttpResponse<String> resp;
+                long t0 = System.currentTimeMillis();
+                int respStatus = 0;
+                String respBody = "";
                 try {
                     resp = postChat(payload);
+                    respStatus = resp.statusCode();
+                    respBody = resp.body();
                     if (resp.statusCode() != 200) {
                         roundOutcome = "http_error";
                         handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
@@ -337,12 +345,27 @@ public class NvidiaPool implements LlmPool {
                 } catch (RuntimeException e) {
                     if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
                     recordCall(modelId, "tools", roundOutcome);
+                    if (traceWriter != null) {
+                        traceWriter.record(com.emergentterrain.llm.LlmCallContext.currentPaperId(),
+                                PROVIDER_ID, modelId, "tools", respStatus,
+                                System.currentTimeMillis() - t0, payload, respBody);
+                    }
                     throw e;
                 } catch (Exception e) {
                     recordCall(modelId, "tools", "io_error");
+                    if (traceWriter != null) {
+                        traceWriter.record(com.emergentterrain.llm.LlmCallContext.currentPaperId(),
+                                PROVIDER_ID, modelId, "tools", respStatus,
+                                System.currentTimeMillis() - t0, payload, respBody);
+                    }
                     throw e;
                 }
                 recordCall(modelId, "tools", roundOutcome);
+                if (traceWriter != null) {
+                    traceWriter.record(com.emergentterrain.llm.LlmCallContext.currentPaperId(),
+                            PROVIDER_ID, modelId, "tools", respStatus,
+                            System.currentTimeMillis() - t0, payload, respBody);
+                }
                 JsonNode body    = mapper.readTree(resp.body());
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
@@ -473,9 +496,14 @@ public class NvidiaPool implements LlmPool {
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {
         String outcome = "ok";
+        String payload = buildPayload(modelId, prompt, false, tokenLimit);
+        long t0 = System.currentTimeMillis();
+        int respStatus = 0;
+        String respBody = "";
         try {
-            String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
+            respStatus = resp.statusCode();
+            respBody = resp.body();
             if (resp.statusCode() != 200) {
                 outcome = "http_error";
                 handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
@@ -496,17 +524,27 @@ public class NvidiaPool implements LlmPool {
             throw new RuntimeException("NvidiaPool sync call failed", e);
         } finally {
             recordCall(modelId, "sync", outcome);
+            if (traceWriter != null) {
+                traceWriter.record(com.emergentterrain.llm.LlmCallContext.currentPaperId(),
+                        PROVIDER_ID, modelId, "sync", respStatus,
+                        System.currentTimeMillis() - t0, payload, respBody);
+            }
         }
     }
 
     private void streamCall(String modelId, String prompt, Consumer<String> tokenConsumer) {
         String outcome = "ok";
+        String payload = buildPayload(modelId, prompt, true, maxTokens);
+        long t0 = System.currentTimeMillis();
+        StringBuilder accum = new StringBuilder();
+        int respStatus = 0;
         try {
-            String payload = buildPayload(modelId, prompt, true, maxTokens);
             HttpRequest req = chatRequestBuilder()
                     .POST(HttpRequest.BodyPublishers.ofString(payload)).build();
-            http.send(req, HttpResponse.BodyHandlers.ofLines())
-                    .body()
+            HttpResponse<java.util.stream.Stream<String>> sresp =
+                    http.send(req, HttpResponse.BodyHandlers.ofLines());
+            respStatus = sresp.statusCode();
+            sresp.body()
                     .filter(line -> line.startsWith("data: ") && !line.equals("data: [DONE]"))
                     .forEach(line -> {
                         try {
@@ -520,7 +558,10 @@ public class NvidiaPool implements LlmPool {
                             JsonNode content = choices.get(0).path("delta").path("content");
                             if (!content.isMissingNode() && !content.isNull()) {
                                 String token = content.asText();
-                                if (!token.isEmpty()) tokenConsumer.accept(token);
+                                if (!token.isEmpty()) {
+                                    accum.append(token);
+                                    tokenConsumer.accept(token);
+                                }
                             }
                         } catch (Exception ignored) {}
                     });
@@ -532,6 +573,11 @@ public class NvidiaPool implements LlmPool {
             throw new RuntimeException("NvidiaPool stream call failed", e);
         } finally {
             recordCall(modelId, "stream", outcome);
+            if (traceWriter != null) {
+                traceWriter.record(com.emergentterrain.llm.LlmCallContext.currentPaperId(),
+                        PROVIDER_ID, modelId, "stream", respStatus,
+                        System.currentTimeMillis() - t0, payload, accum.toString());
+            }
         }
     }
 
