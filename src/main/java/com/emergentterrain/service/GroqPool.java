@@ -530,6 +530,10 @@ public class GroqPool implements LlmPool {
                                 PROVIDER_ID, modelId, "tools", respStatus,
                                 System.currentTimeMillis() - t0, payload, respBody);
                     }
+                    String em = e.getMessage();
+                    if (em != null && em.contains("429")) {
+                        recordGroqRateLimitBlock(modelId, em);
+                    }
                     throw e;
                 } catch (Exception e) {
                     recordCall(modelId, "tools", "io_error");
@@ -647,6 +651,10 @@ public class GroqPool implements LlmPool {
                 return syncCall(modelId, prompt, maxTokens);
             } catch (RuntimeException e) {
                 last = e;
+                String em = e.getMessage();
+                if (em != null && em.contains("429")) {
+                    recordGroqRateLimitBlock(modelId, em);
+                }
                 int next = (start + i + 1) % size;
                 if (i < size - 1) {
                     log.warn("GroqPool: model={} failed, trying next model={}: {}",
@@ -1052,15 +1060,54 @@ public class GroqPool implements LlmPool {
         throw last;
     }
 
+    /**
+     * Phase 18 — record a TPD or TPM block window from a Groq 429 so
+     * subsequent {@link #isModelBlocked} checks return true and the
+     * registry's availability filter skips this model until the window
+     * expires. Shared by every path that surfaces a Groq 429:
+     * {@link #syncCallWithBackoff} (inline), {@link #runToolLoop}, and
+     * {@link #callSyncWithFallback}.
+     *
+     * <p>Pre-Phase-18 only {@code syncCallWithBackoff} wrote these maps. A
+     * 429 on the tool-call path left no client-side block state, so the
+     * next caller re-hit the limit every 2–6 minutes — well inside the
+     * server's stated retry-after window.
+     *
+     * <p>Uses {@code merge(..., Math::max)} so concurrent writes from
+     * sibling threads never shorten an already-recorded longer block.
+     */
+    private void recordGroqRateLimitBlock(String modelId, String msg) {
+        if (msg == null) return;
+        long now = System.currentTimeMillis();
+        if (msg.contains("tokens per day") || msg.contains("TPD")) {
+            long waitMs = parseRetryAfterMs(msg).orElse(60 * 60 * 1000L);
+            tpdExpiry.merge(modelId, now + waitMs, Math::max);
+            log.warn("GroqPool: TPD quota exhausted model={} — blocked for {}ms until ~{}",
+                    modelId, waitMs, java.time.Instant.ofEpochMilli(tpdExpiry.get(modelId)));
+        } else {
+            long waitMs = parseRetryAfterMs(msg).orElse(INITIAL_BACKOFF_MS);
+            tpmExpiry.merge(modelId, now + waitMs, Math::max);
+            log.warn("GroqPool: TPM 429 model={} — blocked for {}ms until ~{}",
+                    modelId, waitMs, java.time.Instant.ofEpochMilli(tpmExpiry.get(modelId)));
+        }
+    }
+
     // Groq embeds retry-after as "4.82s" or "43m51.312s" or "1h23m45s"
     OptionalLong parseRetryAfterMs(String message) {
         if (message == null) return OptionalLong.empty();
-        // "Xm Y.Zs" form
-        Matcher mm = Pattern.compile("(\\d+)m(\\d+\\.?\\d*)s").matcher(message);
+        // "[Xh][Y]m Z.Ws" form. Hours optional; minutes required for this
+        // branch so a bare "5.5s" falls through to the seconds-only matcher
+        // below. Pre-Phase-18 this regex was "(\\d+)m(\\d+\\.?\\d*)s" — the
+        // missing hour group meant "1h22m35.04s" parsed as just "22m35.04s"
+        // (22.6 min) so per-day TPD blocks were under-counted by 60+ min and
+        // the next request fired well inside the server's retry-after window.
+        Matcher mm = Pattern.compile("(?:(\\d+)h)?(\\d+)m(\\d+\\.?\\d*)s").matcher(message);
         if (mm.find()) {
             try {
-                long ms = Long.parseLong(mm.group(1)) * 60_000
-                        + (long)(Double.parseDouble(mm.group(2)) * 1000) + 500;
+                long h = mm.group(1) != null ? Long.parseLong(mm.group(1)) : 0;
+                long ms = h * 3_600_000
+                        + Long.parseLong(mm.group(2)) * 60_000
+                        + (long)(Double.parseDouble(mm.group(3)) * 1000) + 500;
                 return OptionalLong.of(ms);
             } catch (NumberFormatException ignored) {}
         }
