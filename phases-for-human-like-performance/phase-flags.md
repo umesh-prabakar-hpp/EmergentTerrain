@@ -50,6 +50,19 @@ stay in the source phase doc (or `phase-wishlist.md`), not here.
 | 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode (see `phase-wishlist.md` P6a) | Low — narration prompt only |
 | 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a soak (see `phase-wishlist.md` P6b) | Medium — prompt expansion |
 | 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-wishlist.md` P7) | Medium — touches reward dynamics |
+| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure | Medium — defers publish; on give-up still produces NEEDS_REVISION |
+| 4 | `app.research.panel-revision.enabled` | 17 P2 | off | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly | Medium — overwrites findings/conclusion |
+
+## Recently flipped — Tier 3 (commit `cb07f10`, 2026-05-17, post-hang #1)
+
+Out-of-band flip after the 2026-05-17 host-thrash incident. The failure mode
+was visible *during* the incident (7 of 12 papers with `gate:resources:professor`
+fabricated quantitative Conclusions), the gate was scoped and tested before
+the flip, and the rollback path is a single yaml edit.
+
+| Flag | Phase | Closes (post-hang refresh #1) |
+|------|-------|-------------------------------|
+| `app.research.gate-resources-quantitative-suppress.enabled` | 17 D3-ext | Papers whose call path carries `gate:resources:professor` AND whose first-pass Conclusion contains a quantitative claim (any digit outside `[call_N]` / "Computation N" refs) are suppressed pre-publish — same shape as D3's `zero_successes→suppressed` but for the gate-skipped case D3 misses. Targets P-559 ("25°"), P-568 ("1480 kN"), P-570/573/575/580 from `research/a3289005/REVIEW_REPORT.md` post-hang refresh #1. |
 
 ## Recently flipped — Tier 1 (commit `041671a`, 2026-05-17)
 
@@ -225,6 +238,102 @@ paper.
 
 **Acceptance:** Mirrors D2's table — first the preamble appears, then
 the paper drops entirely.
+
+---
+
+## 17 gate-retry — defer-publish queue for gate-killed-professor drafts
+
+**Phase:** 17 (post-hang refresh #1 follow-on). **Current:**
+`app.research.gate-retry.enabled: false`. **File:**
+`src/main/resources/application.yml` (under the `gate-retry:` block).
+
+**What flipping it does:** When the `SystemResourcesGate` kills the
+professor stage (`gate:resources:professor`), the publish is deferred
+instead of immediately landing as NEEDS_REVISION with a fabricated
+Conclusion. The draft + cached first-pass go into an in-memory bounded
+queue (`GateRetryQueue`); a `@Scheduled` tick (every 30s by default)
+re-dispatches the draft via `enqueueNarration` when the resources gate
+recovers, up to `max-attempts` (3). On success the new narration
+publishes normally and the queue entry is removed. On give-up after
+max-attempts, the queue publishes the cached first-pass as
+NEEDS_REVISION with a `gate-retry:gave-up:attempts=N` stamp — same
+visibility as pre-Phase-17 behaviour, just delayed.
+
+**Scope:** `gate:resources:professor` only. The revision-gate site
+(where the professor already spent tokens before the gate fired) keeps
+its existing publish-firstPass-with-trace behaviour; re-running the full
+pipeline there would waste already-spent professor tokens.
+
+**Interaction with D3-ext:** D3-ext's `quantitative_fp→suppressed`
+check runs *first*. A quantitatively fabricated first-pass is dropped
+before this queue sees it (a healthy host wouldn't change what the
+narrator would write). The queue catches the qualitative gate-skipped
+papers where retrying actually has a chance to produce a clean publish.
+
+**Trigger condition for flipping:** One REVIEW_REPORT refresh produced
+under D3-ext (already flipped) showing the queue would meaningfully
+help — i.e. the corpus has ≥3 papers with `gate-retry:deferred` /
+`gate-retry:gave-up` stamps (or would carry them if the flag were on).
+The acceptance check is that no `gate-retry:gave-up` paper carries a
+contradictory NULL_RESULT-but-confirmed shape that the queue introduced.
+
+**Risk:** Medium. The deferred-publish window means the planner
+decrements its draft counter while the paper is pending; if the gate
+stays CRITICAL for the whole `max-attempts × poll-interval-ms` window
+(~90s default), the paper publishes as NEEDS_REVISION just like today.
+Rollback: flip the flag back to false (an in-flight queue drains
+naturally on next tick since the flag is checked there too).
+
+**Acceptance:** A paper that hits the gate during pressure but lands
+on disk after recovery carries `panel:n=…:agreement=…` *and*
+`gate-retry:` stamps absent from its call path — i.e. the retry's
+narration was clean, no gate stamp leaked in. Stretch acceptance: ≥1
+paper in the next refresh has a clean PUBLISHED status that would have
+been NEEDS_REVISION pre-flag.
+
+---
+
+## 17 P2 — panel-revision (panel-recommendations-as-feedback)
+
+**Phase:** 17 P2. **Current:**
+`app.research.panel-revision.enabled: false`. **File:**
+`src/main/resources/application.yml` (under the `panel-revision:` block).
+
+**What flipping it does:** After the multi-reviewer panel produces its
+outcome, when its feedback is actionable (≥1 consensus contradiction
+with ≥2 reviewers agreeing OR ≥2 deduplicated recommendations), the
+student model runs a focused second revision with the panel's feedback
+in the prompt. The hypothesis is pinned; findings and conclusion may
+be rewritten. The prompt explicitly forbids new numerics not in the
+trace and forbids inventing new tool calls. Downstream validators
+(numerical-consistency, magnitude-range, dedup) still run on the
+revised content as a backstop.
+
+**Trigger condition:** One REVIEW_REPORT refresh where the panel
+actually fires often enough for the gate to matter — empirically the
+panel triggers on ~30-50% of papers, so an ~20-paper batch is enough.
+Acceptance is text-quality of the revised papers: spot-check 5-10
+`panel_revision:ok` outputs against their pre-revision versions; the
+panel's specific concerns should be addressed *and* no new fabrication
+should appear.
+
+**Risk:** Medium. Overwrites findings/conclusion before they reach the
+publish path. If the revision LLM hallucinates against the constraints
+(introduces a new numeric value), the downstream numerical-consistency
+validator catches it as `out_of_tolerance` or `unsourced_failed_call`
+and routes the paper to NEEDS_REVISION. Rollback: flip back to false
+(no state to clean up; per-paper decision).
+
+**Acceptance:** ≥1 `panel_revision:ok` paper in the next refresh
+passes all downstream validators *and* has at least one of the
+panel's named issues resolved (citation drop, numerical correction,
+prose-vs-trace alignment).
+
+**Cost note:** One extra primary-model call per qualifying paper.
+With ~30-50% panel-trigger rate and ~50% actionability rate, this
+adds ~15-25% to revision-stage token spend. Resources-gate-aware
+(skips when host is under pressure), so the cost is bounded by
+host capacity.
 
 ---
 
