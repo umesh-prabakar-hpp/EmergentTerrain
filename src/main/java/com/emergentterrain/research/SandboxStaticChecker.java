@@ -112,8 +112,12 @@ public final class SandboxStaticChecker {
 
                 Sandbox grammar (NOT JavaScript — a deliberately small safe subset):
                   Statements:  var X = expr;   X = expr;   return expr;
-                               if (c) { ... } else { ... }
-                               for (init; cond; upd) { ... }   while (cond) { ... }
+                               if (c) { ... } else { ... }   ← braces optional
+                               for (init; cond; upd) { ... }   ← braces optional
+                               while (cond) { ... }            ← braces optional
+                               (single-statement form also accepted, e.g.
+                               `if (cond) return x;` or
+                               `while (n > 0) n = n - 1;`)
                                function f(args) { ... }
                   Operators:   + - * / % **   ==  !=  <  >  <=  >=   &&  ||  !   ?:
                                (=== and !== are accepted as aliases for == and !=)

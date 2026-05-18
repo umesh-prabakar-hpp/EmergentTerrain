@@ -413,7 +413,7 @@ public class SandboxEngine {
         Stmt whileStmt() {
             advance(); // while
             expect(TT.LPAR); Expr cond = expr(); expect(TT.RPAR);
-            List<Stmt> body = block();
+            List<Stmt> body = blockOrSingleStmt();
             return new Stmt.While(cond, body);
         }
 
@@ -452,7 +452,7 @@ public class SandboxEngine {
             expect(TT.SEMI);
             Expr upd  = updateExpr();
             expect(TT.RPAR);
-            List<Stmt> body = block();
+            List<Stmt> body = blockOrSingleStmt();
             return new Stmt.For(varName, init, cond, upd, body);
         }
 
@@ -482,8 +482,10 @@ public class SandboxEngine {
         Stmt ifStmt() {
             advance(); // if
             expect(TT.LPAR); Expr cond = expr(); expect(TT.RPAR);
-            List<Stmt> then = block();
-            List<Stmt> els  = at(TT.ELSE) ? (advance() != null ? block() : List.of()) : List.of();
+            List<Stmt> then = blockOrSingleStmt();
+            List<Stmt> els  = at(TT.ELSE)
+                    ? (advance() != null ? blockOrSingleStmt() : List.of())
+                    : List.of();
             return new Stmt.If(cond, then, els);
         }
 
@@ -542,6 +544,23 @@ public class SandboxEngine {
             while (!at(TT.RBRACE) && !at(TT.EOF)) out.add(stmt());
             expect(TT.RBRACE);
             return out;
+        }
+
+        /**
+         * Phase 19 Layer 1d — accept either a {@code { … }} block or a
+         * single statement as the body of {@code if}/{@code else}/
+         * {@code while}/{@code for}. The single-statement form returns a
+         * one-element list so the existing {@code Stmt.If}/{@code While}/
+         * {@code For} AST nodes don't change shape.
+         *
+         * <p>Targets the JS-idiom emissions like {@code if (cond) return x;}
+         * and {@code if (cond) x = 1;} that today's grammar rejects with
+         * "Expected LBRACE got '…'". Layer 2's hint nudged the LLM to wrap
+         * in braces; this removes the friction entirely.
+         */
+        List<Stmt> blockOrSingleStmt() {
+            if (at(TT.LBRACE)) return block();
+            return List.of(stmt());
         }
 
         // Expressions (precedence climbing)

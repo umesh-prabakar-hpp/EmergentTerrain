@@ -587,6 +587,99 @@ class SandboxStaticCheckerTest {
                 .isEqualTo("recordSample(sqrt(len(xs))); recordSample(PI); return sqrt(len(xs));");
     }
 
+    // ── Phase 19 Layer 1d — single-statement after if/while/for ────────────
+
+    @Test
+    void singleStmt_ifReturnWithoutBraces_isApproved() {
+        // The JS reflex `if (cond) return x;` no longer requires braces.
+        String code = """
+                var x = start;
+                if (x > 0) return x;
+                return 0;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void singleStmt_ifAssignWithoutBraces_isApproved() {
+        String code = """
+                var x = 0;
+                if (start > end) x = end;
+                return x;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void singleStmt_ifElseWithoutBraces_isApproved() {
+        String code = """
+                var x = 0;
+                if (start > end) x = start;
+                else              x = end;
+                return x;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void singleStmt_forBodyWithoutBraces_isApproved() {
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) s = s + i;
+                return s;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void singleStmt_whileBodyWithoutBraces_isApproved() {
+        String code = """
+                var n = end;
+                while (n > start) n = n - 1;
+                return n;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void singleStmt_runsAndProducesCorrectValue() {
+        // End-to-end: verify the runtime ALSO accepts the new form and
+        // produces the right answer. SandboxEngine.run flows the same code
+        // through the parser, so this is the integration check that the
+        // parser change isn't only-static.
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) s = s + 1;
+                if (s > 0) return s;
+                return -1;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 1, 4, 0, 0.0);
+        assertThat(r.value()).isEqualTo(3.0);  // 4 - 1 = 3 iterations
+    }
+
+    @Test
+    void singleStmt_existingBraceFormStillWorks() {
+        // Regression: the change must accept BOTH forms.
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) {
+                  s = s + i;
+                }
+                if (s > 0) {
+                  return s;
+                } else {
+                  return -1;
+                }
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
     @Test
     void mathPrefix_rewriteIsSemanticsPreserving() {
         // Direct unit test on the helper: input → expected rewritten output.
