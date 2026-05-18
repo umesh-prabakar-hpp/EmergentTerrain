@@ -46,16 +46,23 @@ features), not here.
 
 | Tier | Flag | Phase | Current | Trigger | Risk |
 |------|------|-------|---------|---------|------|
-| 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | off | F7.2 panel agreement scores stable + ≥30 papers | Medium — status-changing |
-| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) | Medium — status-changing |
-| 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") | High — flips structural validator from log-only to enforcing |
-| 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates **[MET: refresh #2 P-611 out_of_tolerance=5, P-598 unmatched=6, P-603 out_of_tolerance=2; recommend `warn→downgrade`]** | High — flips citation validator from log-only to enforcing |
-| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode (see `phase-16-recommendation-fixes-refresh3.md` P6a) | Low — narration prompt only |
-| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a soak (see `phase-16-recommendation-fixes-refresh3.md` P6b) | Medium — prompt expansion |
-| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-16-recommendation-fixes-refresh3.md` P7) **[MET in spirit: refresh #2 P-602↔P-608 byte-clones (identical VdW hypothesis 12 min apart, different bots) — P6a chain-dep recommended-not-required]** | Medium — touches reward dynamics |
-| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure **[PARTIAL: refresh #2 first D3-ext firing on P-a328-618; one more refresh recommended]** | Medium — defers publish; on give-up still produces NEEDS_REVISION |
-| 4 | `app.research.panel-revision.enabled` | 17 P2 | off | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly | Medium — overwrites findings/conclusion |
-| 4 | `app.research.panel-grade-floor.enabled` | 17 (refresh #1 follow-on) | off | One refresh confirms zero false positives **[MET: refresh #2 would fire on P-603 / P-605 / P-613 — all already REJECTED/DISPUTED by other validators; no FPs observed; recommend flip]** | Medium — status-changing |
+| 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | off | F7.2 panel agreement scores stable + ≥30 papers **[≥30 MET (34 cumulative); panel-agreement stability needs explicit read]** | Medium — status-changing |
+| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) **[NOT MET: only 2 PUBLISHED cumulatively (P-617, P-660)]** | Medium — status-changing |
+| 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") **[FP fixes shipped `f6b89b9` but not yet in running JVM; restart + one refresh needed]** | High — flips structural validator from log-only to enforcing |
+| 3 | `app.research.citations-as-schema.mode` | 11 C5b | **`downgrade`** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | Two refreshes with stable uncited / out_of_tolerance rates **[MET — flipped]** | High — flips citation validator from log-only to enforcing |
+| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | **on** (2026-05-18) | One refresh under disclaimer mode **[MET: 4-refresh soak refreshes #2 → #5]** | Low — narration prompt only |
+| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | **on** (2026-05-18) | One refresh under P6a soak **[MET via P6a's 4-refresh window]** | Medium — prompt expansion |
+| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | **on** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | One refresh under P6b soak **[MET in spirit: refresh #2 P-602↔P-608 byte-clones; refresh #5 added Stefan-Boltzmann + Pendulum same-topic clusters]** | Medium — touches reward dynamics |
+| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure **[PARTIAL: refresh #2 first D3-ext firing on P-a328-618; refresh #5 added 0 new firings — still 1 total — wait for 2nd observed case]** | Medium — defers publish; on give-up still produces NEEDS_REVISION |
+| 4 | `app.research.panel-revision.enabled` | 17 P2 | **on** (2026-05-18) | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly **[Chicken-and-egg under flag-off; flipped to gather first observation window — ~3 panel-with-contradiction papers/refresh expected (P-660/665/667 in refresh #5)]** | Medium — overwrites findings/conclusion |
+| 4 | `app.research.panel-grade-floor.enabled` | 17 (refresh #1 follow-on) | **on** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | One refresh confirms zero false positives **[MET — flipped]** | Medium — status-changing |
+
+**Deployment status (refresh #5, 2026-05-18 02:35 EDT):** PID 87679
+started 00:00 EDT — *before* the flip commits below — so even the
+yaml-on flags are running with flag-off semantics in the live JVM.
+**App restart required** to deploy the yaml-on state. See
+`research/a3289005/REVIEW_REPORT.md` §0 for the full deployment-gap
+explanation.
 
 ## Recently flipped — Tier 3 (commit `cb07f10`, 2026-05-17, post-hang #1)
 

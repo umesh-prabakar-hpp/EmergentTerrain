@@ -519,7 +519,15 @@ app:
     # the P-a328-539 → P-a328-534 failure where P-539 cited P-534
     # (REJECTED) and re-fabricated the same convergence claim.
     corpus-citations:
-      suppress-rejected: false
+      # 2026-05-18 false → true. Trigger "one refresh under disclaimer mode"
+      # comfortably met: P6a code shipped 2026-05-17 (af4cc97); disclaimer
+      # mode has been the default for refreshes #2 → #5 (4 refreshes of
+      # soak). Refresh #5 evidence: zero papers cited a REJECTED prior
+      # without the disclaimer phrase appearing in the published markdown.
+      # Suppression mode now drops REJECTED priors from cross-citation
+      # context entirely (DISPUTED still appear with the disclaimer tag).
+      # Rollback: set back to false.
+      suppress-rejected: true
     # Phase 16 P6b — prior-result injection at formulation time. When on
     # AND exactly one PUBLISHED prior with peer score >= min-score exists
     # on the (domain, topic) pair, the formulation prompt gains a
@@ -530,7 +538,16 @@ app:
     # (re-fabricates P-a328-534 convergence) failures. min-score=0.5
     # admits the corpus baseline (P-516 at 0.535, P-552 at 0.723).
     prior-result-injection:
-      enabled: false
+      # 2026-05-18 false → true. Chain dependency on P6a (just flipped
+      # above) is satisfied; the documented "one refresh under P6a soak"
+      # trigger has been comfortably met by the 4-refresh disclaimer-mode
+      # window. Refresh #5 evidence: P-663 Pendulum NULL_RESULT correctly
+      # recovered the textbook θ²/16 result that P-559/P-613/P-623
+      # fabricated — exactly the shape P6b is designed to short-circuit
+      # at formulation time. Risk: prompt-context expansion ~80-120
+      # tokens per paper landing on a high-confidence-prior topic.
+      # Rollback: set back to false.
+      enabled: true
       min-score: 0.5
     # Phase 16 P7 — topic-clone scheduler backoff. When on, after the initial
     # topic selection, ResearchCycleService counts REJECTED papers on the
@@ -617,7 +634,16 @@ app:
     # pressure). Default off; flip after one corpus refresh confirms
     # revision text quality matches the pre-revision text.
     panel-revision:
-      enabled: false
+      # 2026-05-18 false → true. The "≥10 panel_revision:ok stamps pass
+      # validators cleanly" trigger is chicken-and-egg with the flag off;
+      # flipping now gathers first-refresh observability. Refresh #5
+      # evidence: ~3 papers per refresh produce ≥2 reviewer-agreed
+      # contradictions (P-660, P-665, P-667 this refresh) — the exact
+      # shape that benefits from a second focused revision. Resources-
+      # gate-aware (skips when host under pressure). Cost: one extra
+      # primary-model call per paper with a non-empty actionable panel.
+      # Rollback: set back to false.
+      enabled: true
     # Phase 17 panel-grade-floor — orthogonal to D4 (panel-degradation-
     # demote). D4 fires on reviewer-count (n=2 or n=3 of configured 4);
     # this gate fires on the grades themselves — even a full panel
