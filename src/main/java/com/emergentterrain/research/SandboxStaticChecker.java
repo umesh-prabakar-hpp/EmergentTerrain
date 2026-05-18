@@ -38,14 +38,10 @@ public final class SandboxStaticChecker {
             return new Result.Rejected("empty code");
         }
 
-        // Phase 19 Layer 1a — Math.<builtin> rewrite. The LLM keeps emitting
-        // `Math.sqrt`, `Math.PI`, etc. because that's the JavaScript stdlib
-        // shape. The sandbox grammar has the same names as flat builtins;
-        // before any parse/scan, strip the `Math.` prefix when the trailing
-        // identifier is in `SandboxEngine.BUILTINS`. Math.<non-builtin>
-        // (e.g. `Math.random`) is left alone so preScan still rejects it
-        // with the existing member-access message.
-        String normalized = rewriteMathPrefix(code);
+        // Phase 19 Layer 1 — pre-parse rewrites: Math.<builtin> → flat
+        // builtin (1a); <ident>.length → len(<ident>) (1b). Centralised in
+        // normalizeForSandbox so the engine's runtime entry stays in lockstep.
+        String normalized = normalizeForSandbox(code);
 
         // Phase 17 (post-hang analyses §1.3) — pre-parse pattern detection
         // for the two dominant LLM mis-translations: JavaScript member-access
@@ -123,7 +119,9 @@ public final class SandboxStaticChecker {
                                (=== and !== are accepted as aliases for == and !=)
                   Arrays:      var xs = [1, 2, 3];   xs[i] = v;   xs[i] += v;
                                len(xs)  — max 1024 elements per array, no resize,
-                                          no .length property, no push/pop/splice
+                                          no push/pop/splice. `xs.length` is
+                                          auto-rewritten to `len(xs)`, so the JS
+                                          reflex is fine to emit.
                   Stats:       recordSample(v)  accumulates n/mean/std/min/max
                                                 across the run; the harness sees
                                                 them alongside your return value.
@@ -168,7 +166,7 @@ public final class SandboxStaticChecker {
                 """;
     }
 
-    // ── Phase 19 Layer 1a: Math.<builtin> rewrite ─────────────────────────
+    // ── Phase 19 Layer 1a/1b: pre-parse rewrites ──────────────────────────
 
     /**
      * {@code Math\.<name>} occurrences where {@code <name>} is in
@@ -180,6 +178,17 @@ public final class SandboxStaticChecker {
      */
     private static final java.util.regex.Pattern MATH_PREFIX =
             java.util.regex.Pattern.compile("(?<![A-Za-z_0-9])Math\\.([A-Za-z_]\\w*)\\b");
+
+    /**
+     * {@code <ident>.length} where {@code <ident>} is any simple
+     * identifier other than {@code Math} (which doesn't have a length
+     * property even in JS, so leave the existing member-access reject
+     * intact for the diagnostic message). The capture group is the
+     * receiver identifier so the rewrite produces {@code len(<ident>)}.
+     */
+    private static final java.util.regex.Pattern LENGTH_ACCESS =
+            java.util.regex.Pattern.compile(
+                    "(?<![A-Za-z_0-9])(?!Math\\b)([A-Za-z_]\\w*)\\.length\\b");
 
     /**
      * Strips the {@code Math.} prefix from any {@code Math.<name>} where
@@ -215,6 +224,43 @@ public final class SandboxStaticChecker {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    /**
+     * Phase 19 Layer 1b — rewrites {@code <ident>.length} to the flat
+     * builtin {@code len(<ident>)}. Same motivation as the Math.* rewrite:
+     * the JS reflex is {@code arr.length}; the sandbox runtime exposes
+     * {@code len(arr)} as a flat builtin returning the same value, so the
+     * rewrite is semantics-preserving when {@code <ident>} resolves to an
+     * array at runtime. For non-array receivers, {@code len()} throws a
+     * clearer error than the lexer's {@code "Unexpected char '.'"}.
+     *
+     * <p>{@code Math.length} is deliberately excluded — Math has no length
+     * even in JS, so leave the member-access reject intact for a useful
+     * diagnostic.
+     *
+     * <p>Package-private for {@link SandboxEngine} runtime use and tests.
+     */
+    static String rewriteArrayLength(String code) {
+        if (code == null || code.indexOf(".length") < 0) return code;
+        java.util.regex.Matcher m = LENGTH_ACCESS.matcher(code);
+        StringBuilder sb = new StringBuilder(code.length());
+        while (m.find()) {
+            String receiver = m.group(1);
+            m.appendReplacement(sb,
+                    java.util.regex.Matcher.quoteReplacement("len(" + receiver + ")"));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Applies all Phase 19 Layer-1 pre-parse rewrites in order. Centralises
+     * the call so {@link #check(String)} and {@link SandboxEngine#run(String, int, int, int, double)}
+     * stay in lockstep.
+     */
+    static String normalizeForSandbox(String code) {
+        return rewriteArrayLength(rewriteMathPrefix(code));
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────

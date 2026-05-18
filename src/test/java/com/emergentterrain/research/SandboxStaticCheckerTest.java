@@ -375,11 +375,13 @@ class SandboxStaticCheckerTest {
 
     @Test
     void mathPrefix_nonMathIdentifierMemberAccess_stillRejected() {
-        // Only `Math.<name>` is rewritten — `obj.sqrt` or `arr.length` stays
-        // an error so the existing member-access guidance still fires.
+        // Only `Math.<name>` is rewritten by Layer 1a (and `.length` by
+        // Layer 1b). Other member access (e.g. `.push`, `.toFixed`) still
+        // hits the existing member-access guidance.
         String code = """
-                var arr = [1, 2, 3];
-                return arr.length;
+                var arr = [0, 0, 0];
+                arr.push(1);
+                return arr[0];
                 """;
         SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
         assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
@@ -396,6 +398,86 @@ class SandboxStaticCheckerTest {
         // member-access) — that's the expected outcome.
         SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
         assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+    }
+
+    // ── Phase 19 Layer 1b — <ident>.length auto-rewrite ────────────────────
+
+    @Test
+    void arrLength_inForLoopCondition_isApproved() {
+        // The JS reflex `for (var i=0; i<arr.length; i++)` is the most
+        // common .length use in the corpus. Must rewrite cleanly.
+        String code = """
+                var xs = [start, start+1, start+2, start+3];
+                var s = 0;
+                for (var i = 0; i < xs.length; i++) {
+                  s = s + xs[i];
+                }
+                return s;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void arrLength_asScalarAssignment_isApproved() {
+        String code = """
+                var xs = [1, 2, 3];
+                var n = xs.length;
+                return n;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void arrLength_mathLength_stillRejected() {
+        // Math doesn't have a length property even in JS — leave it as
+        // member access so the diagnostic fires.
+        String code = "return Math.length;";
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+        assertThat(((SandboxStaticChecker.Result.Rejected) r).reason())
+                .contains("member access");
+    }
+
+    @Test
+    void arrLength_substringNotMatched() {
+        // `mylength` shouldn't trigger; the rewrite is anchored to `.length`
+        // with a word boundary. Code that uses `mylength` as a var name has
+        // no member access at all — should be approved.
+        String code = """
+                var mylength = 10;
+                return mylength;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void arrLength_rewriteIsSemanticsPreserving() {
+        assertThat(SandboxStaticChecker.rewriteArrayLength("var n = xs.length;"))
+                .isEqualTo("var n = len(xs);");
+        assertThat(SandboxStaticChecker.rewriteArrayLength("for (var i=0; i<arr.length; i++) {}"))
+                .isEqualTo("for (var i=0; i<len(arr); i++) {}");
+        // Math.length — untouched.
+        assertThat(SandboxStaticChecker.rewriteArrayLength("return Math.length;"))
+                .isEqualTo("return Math.length;");
+        // mylength as a var — untouched (no `.length` substring at all).
+        assertThat(SandboxStaticChecker.rewriteArrayLength("var mylength = 10;"))
+                .isEqualTo("var mylength = 10;");
+        // No `.length` at all — fast path returns same string.
+        assertThat(SandboxStaticChecker.rewriteArrayLength("return len(xs);"))
+                .isEqualTo("return len(xs);");
+        // Null safety.
+        assertThat(SandboxStaticChecker.rewriteArrayLength(null)).isNull();
+    }
+
+    @Test
+    void normalizeForSandbox_appliesBothRewrites() {
+        // Combined pipeline test — Math.* AND .length in the same snippet.
+        String input = "var n = Math.sqrt(xs.length);";
+        assertThat(SandboxStaticChecker.normalizeForSandbox(input))
+                .isEqualTo("var n = sqrt(len(xs));");
     }
 
     @Test
