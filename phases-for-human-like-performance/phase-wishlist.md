@@ -920,6 +920,89 @@ the FP rate is < 5%.
   defer to F3's existing handling for sample-size and target only
   the derivative / uncertainty / error-magnitude trio.
 
+### P8e — Internal-fragment detector ("conjunction + bare number" shape)
+
+**What:** A new validator that flags mid-sentence fragments of the form
+*"<conjunction>, <number>, <continuation-word>"* — e.g.
+`"However,30, suggesting..."` — where a sentence-starting connective
+is followed by a bare comma-bound number with no unit, no noun phrase,
+and no antecedent. Ship in `warn` mode first (stamps
+`internal_fragment:warn` on call_path without changing status), soak
+one refresh, escalate to `downgrade` only if the false-positive rate
+is acceptable.
+
+**Why:** P-a328-647 (refresh #4) had Conclusion *"…mean deviation of
+0.001. However,30, suggesting that the divisor-sum average's behavior
+is more complex than initially anticipated."* The fragment
+*"However,30,"* is grammatically broken — likely a JSON re-serialization
+or LLM-generation glitch that elided the original *"However, with only
+30 samples, suggesting…"*. The existing Phase 5 A1 truncation-guard
+correctly does NOT fire because the text ends with `anticipated.` — a
+proper terminator. The malformation is internal, not tail. Documented
+by `PublishPaperTest.d5_p647InternalMalformationIsNotATailTruncation`
+(commit `164d541`) which pins the truncation-guard's correct
+non-firing behavior on this exact text.
+
+**Files:**
+
+- New: `src/main/java/com/emergentterrain/research/InternalFragmentValidator.java`
+  — single static method
+  `List<String> detect(String hypothesis, Map<Integer,String> findingsBlocks, String conclusion)`
+  returning the set of detected fragment phrases. Returns empty list
+  when no match — bit-identical to flag-off behaviour.
+- `src/main/java/com/emergentterrain/research/UniversityService.java`
+  — wire the validator at the same publish-time layer as
+  `direction-of-finding` / `single-point-sweep`. Stamp
+  `internal_fragment:warn` on call_path when matches found; route
+  status NEEDS_REVISION only in `downgrade` mode.
+
+**Acceptance:**
+
+- `warn` mode: re-running P-647 produces `internal_fragment:warn`
+  stamp on the call_path; status unchanged. Refresh #5 measures
+  observed firings — fewer than ~1/30 papers is acceptable
+  false-positive rate for the LLM's typical prose density.
+- `downgrade` mode (escalate after FP rate confirmed): same paper
+  shape routes NEEDS_REVISION with `internal_fragment:downgraded`
+  stamp.
+
+**Risk:** Medium → High depending on regex tightness. The risk is
+real because the legitimate phrasing *"However, 30 samples were
+collected, suggesting..."* — after whitespace normalization or a
+JSON-stream tokenization quirk — could match the same pattern. The
+guard must distinguish "30," followed by a continuation word (broken)
+from "30 samples" followed by a verb (legitimate). One signal: in
+the legitimate case, the number is followed by a noun phrase before
+the next comma. The regex should require that the next 1-2 tokens
+after `,\d+,` are non-noun (verbs like *suggesting*, *implying*,
+*indicating* — i.e. participles). Ship behind a flag.
+
+**Open questions:**
+
+- **Conjunction vocabulary.** Initial set: *However, Therefore, Thus,
+  Hence, Furthermore, Moreover, Consequently, Nonetheless, Nevertheless*.
+  Add to a config-driven list so refresh-driven tuning is a yaml flip.
+- **Continuation-word allow/deny lists.** Should the validator
+  require the post-number token to be a present-participle verb
+  (suggesting / implying / indicating / showing) to fire? That tightens
+  the FP rate substantially but risks under-fire on novel broken
+  shapes.
+- **Single-shot vs corpus-aware.** Run only at publish time, or fold
+  into the Phase 17 panel-revision prompt as an explicit "do not emit
+  bare comma-bound numbers after conjunctions" guidance line? The
+  prompt-side fix is cheaper but less observable.
+- **Could the existing `harness-leak-filter` regex be extended?**
+  It already strips simulator-coord phrases. Adding the
+  conjunction-fragment pattern there would reuse infrastructure, but
+  the leak-filter rewrites text whereas this validator should
+  *flag*, not rewrite — different semantics, separate validator is
+  cleaner.
+
+**Status:** Wishlist only. Single observed occurrence (P-a328-647).
+Hold for one more refresh — if a second example appears with the
+same shape, promote to a flag-gated implementation. If the corpus
+goes 3+ refreshes without a recurrence, deprioritise.
+
 ---
 
 ## What this phase deliberately does NOT include
