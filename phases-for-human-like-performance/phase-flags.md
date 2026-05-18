@@ -37,7 +37,7 @@ remaining entry lives here as a one-row pointer to the phase doc
 that defines what flipping the flag does — the feature details
 stay in the source phase doc (or `phase-wishlist-human-level.md` for
 P1–P4, `phase-18-pending-followups.md` for P8c/P8d, the
-phase-16-recommendation-fixes-refresh3 doc for the now-shipped P5/P6/P7
+`archive/phase-16-recommendation-fixes-refresh3.md` doc for the now-shipped P5/P6/P7
 features), not here.
 
 ---

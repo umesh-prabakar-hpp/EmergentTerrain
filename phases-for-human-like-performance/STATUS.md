@@ -1,8 +1,8 @@
 # Phases for Human-Like Performance — Implementation Status
 
 This file is the rolling index of what's been shipped against the original
-design docs in this directory. The phase docs ([phase-0](phase-0-prerequisites.md)
-through [phase-4](phase-4-formal-knowledge-and-meta-science.md)) describe the
+design docs in this directory. The phase docs ([phase-0](archive/phase-0-prerequisites.md)
+through [phase-4](archive/phase-4-formal-knowledge-and-meta-science.md)) describe the
 intended architecture; `STATUS.md` tracks what's actually in `main`.
 
 The original 10-iteration design lives in [readme.md](readme.md) for
@@ -54,7 +54,7 @@ Ten commits landed in a tight series.
 `LlmService`: 1988 → 209 lines.
 `UniversityService`: 1326 → 858 lines.
 
-See [phase-0-prerequisites.md](phase-0-prerequisites.md).
+See [phase-0-prerequisites.md](archive/phase-0-prerequisites.md).
 
 ---
 
@@ -76,7 +76,7 @@ Iter 4  ResearchProgram + ProgramOpenQuestion + ProgramFailedApproach c07aa17
   `app.research.programs.enabled`. A program accumulates evidenceFor /
   evidenceAgainst and closes as CONVERGED when the margin crosses 5.0.
 
-See [phase-1-foundation.md](phase-1-foundation.md).
+See [phase-1-foundation.md](archive/phase-1-foundation.md).
 
 ---
 
@@ -98,7 +98,7 @@ Iter 5  ExperimentPlannerService (4 strategies, flag-gated)           03bdcf3
   uses recent-paper peerScore to scale the sweep radius — exploits the
   bot's learned region when the recent track record is strong.
 
-See [phase-2-active-experimentation.md](phase-2-active-experimentation.md).
+See [phase-2-active-experimentation.md](archive/phase-2-active-experimentation.md).
 
 ---
 
@@ -127,7 +127,7 @@ Closes two explicit deferrals from Phase 1/2:
 ### Phase 2.5 — RoomService refactor ✅
 
 Pre-Phase-3 refactor. All five extractions originally enumerated by the
-design doc ([phase-2-5-roomservice-refactor.md](phase-2-5-roomservice-refactor.md))
+design doc ([phase-2-5-roomservice-refactor.md](archive/phase-2-5-roomservice-refactor.md))
 have now shipped, plus a dead-audit-code deletion that preceded the
 RoomStateOrchestrator carve and three additional second-wave carves
 (`TileValidatorService`, `OccupancyService`, `BotSimulationGpuService`),
@@ -638,7 +638,7 @@ Iter 7              EpistemicMarketService                              0309225
   something to consume (currently 0.33 default; the allocation loop that
   reads it is Phase 3b).
 
-See [phase-3-world-integration.md](phase-3-world-integration.md).
+See [phase-3-world-integration.md](archive/phase-3-world-integration.md).
 
 ---
 
@@ -665,7 +665,7 @@ Iter 10  MetaResearchService                                          ab42534
   polluting domain stats. Write-back evolution targets (reviewer
   routing, funding weights, prompt evolution) are Phase 4b.
 
-See [phase-4-formal-knowledge-and-meta-science.md](phase-4-formal-knowledge-and-meta-science.md).
+See [phase-4-formal-knowledge-and-meta-science.md](archive/phase-4-formal-knowledge-and-meta-science.md).
 
 ---
 
@@ -984,12 +984,12 @@ Per the phase doc's ordering (ascending risk):
 4. **Prompt-template evolution** — versioned templates, A/B testing,
    automatic rollback if downstream replication rates degrade. Highest
    risk; needs guardrails. Scoping doc:
-   [phase-4c-prompt-template-evolution.md](phase-4c-prompt-template-evolution.md).
+   [phase-4c-prompt-template-evolution.md](archive/phase-4c-prompt-template-evolution.md).
    Three pieces (memo / registry refactor / evolution loop); only the
    first can start immediately. The evolution loop is gated on 2–4
    weeks of observed runtime with the existing Phase 4b flags on.
    - ✅ **Piece 1 (memo)** shipped — see
-     [phase-4c-piece-1-memo.md](phase-4c-piece-1-memo.md). Locks
+     [phase-4c-piece-1-memo.md](archive/phase-4c-piece-1-memo.md). Locks
      decisions on slot syntax (`{{ name }}`), allocation
      (epsilon-greedy ε=0.10), per-paper split stratified by bot,
      1000-paper rolling window, two-proportion z-test α=0.01 with
@@ -1077,7 +1077,7 @@ Lifts the 27% acceptance-rate plateau the automated peer review
 ([REVIEW_REPORT.md](../research/a3289005-archive/REVIEW_REPORT.md))
 identified across 91 papers + 13 refreshes. Each piece is anchored to
 the specific recommendation # it addresses. See
-[phase-5-quality-pipeline.md](phase-5-quality-pipeline.md) for the
+[phase-5-quality-pipeline.md](archive/phase-5-quality-pipeline.md) for the
 full scoping doc.
 
 ```
@@ -1119,7 +1119,7 @@ papers cited (+0.02 per high-quality citation, −0.04 per critique-skip
 citation).
 
 Wave 6 (D1 LiteratureSearchService + D2 Discussion/Related-Work
-section) has been **scoped** as [phase-6-novelty-levers.md](phase-6-novelty-levers.md);
+section) has been **scoped** as [phase-6-novelty-levers.md](archive/phase-6-novelty-levers.md);
 no code lands until the phase doc's pre-conditions (≥ 2 weeks of
 Phase 5 runtime, fresh REVIEW_REPORT.md confirming the quality lift
 has held) are met. Phase 6 is the first phase that attempts to lift
@@ -1128,7 +1128,7 @@ crosses the boundary from "verify known closed-forms" to "extend
 beyond them" and is the single largest lever the review report names.
 
 D1.1 (the corpus scoping memo) has landed —
-[phase-6-piece-1-memo.md](phase-6-piece-1-memo.md). It carries the
+[phase-6-piece-1-memo.md](archive/phase-6-piece-1-memo.md). It carries the
 per-topic bibliography for all 15 non-INTERDISCIPLINARY engine methods
 plus the record-shape, prompt-integration, coverage, and curation
 decisions D1.2 will execute against.
@@ -1176,7 +1176,7 @@ primaries), **F** (math rule engine: registry + structured findings + topic
 expansion + computations-per-paper ramp), **G** (14 critical-path fixes from
 REVIEW_REPORT.md refresh #1–#12). Ship-gate was the room producing its first
 `PUBLISHED rev:*:ok` paper after E1 unblocked the professor stage. See
-[phase-7-multi-provider-and-math-expansion.md](phase-7-multi-provider-and-math-expansion.md).
+[phase-7-multi-provider-and-math-expansion.md](archive/phase-7-multi-provider-and-math-expansion.md).
 
 ```
 E — Multi-provider LLM routing
@@ -1256,7 +1256,7 @@ Flags introduced: `app.ai.providers.enabled`, `app.research.topics-v2.enabled`,
 Layered math sandbox: numeric DSL → user-defined functions → Symja symbolic
 engine → GPU eval RPC. The LLM can now express effectively arbitrary math
 formulas; the system executes them safely via a static checker per layer.
-See [phase-8-unrestricted-math-formulas.md](phase-8-unrestricted-math-formulas.md).
+See [phase-8-unrestricted-math-formulas.md](archive/phase-8-unrestricted-math-formulas.md).
 
 ```
 P1    reflective Math.* dispatch + SI constants + number-theory helpers   b1bac81
@@ -1281,7 +1281,7 @@ Replace per-provider pool walking with a model-centric registry that
 aggregates every 70B+ model across providers, plus a parallel "fast tier"
 sub-70B registry with the same selection-test contract. Ollama config
 migrates into the unified `app.ai.*` namespace. See
-[phase-9-unified-model-registry.md](phase-9-unified-model-registry.md).
+[phase-9-unified-model-registry.md](archive/phase-9-unified-model-registry.md).
 
 ```
 9000  scope doc: unified model registry + two-tier architecture     b07e7dc
@@ -1342,7 +1342,7 @@ Make numeric fabrication structurally unrepresentable. Every numeric value
 in `findings` and `conclusion` carries an inline `[call_N]` marker that
 resolves to a real tool-call result; a parallel `numeric_claims` array is
 validated against the persisted tool-call trace before publish. See
-[phase-11-citations-as-schema.md](phase-11-citations-as-schema.md).
+[phase-11-citations-as-schema.md](archive/phase-11-citations-as-schema.md).
 
 ```
 C1–C4  citations-as-schema warn-only rollout                        2a14a79
@@ -1362,7 +1362,7 @@ Close the gap between *checks that fire* and *publications that get
 stopped*. The May 2026 REVIEW_REPORT refresh #3 showed 88.2% of a 34-paper
 batch still Reject-or-Major even with every Phase 5/7/10/11 validator
 running, because the validators reported but didn't always route. See
-[phase-12-fabrication-gate-hardening.md](phase-12-fabrication-gate-hardening.md).
+[phase-12-fabrication-gate-hardening.md](archive/phase-12-fabrication-gate-hardening.md).
 
 ```
 D1+D5+D7  chain-of-thought strip + truncation patterns +
@@ -1387,7 +1387,7 @@ additive so multiple validators can stamp their verdicts.
 Six concrete fixes from REVIEW_REPORT refresh #1 (post-rotation) plus a
 panel-recommendation pattern audit across the same corpus. Each item
 closes a *named* failure mode visible in the corpus or in the running
-process. See [phase-13-recommendation-fixes.md](phase-13-recommendation-fixes.md).
+process. See [phase-13-recommendation-fixes.md](archive/phase-13-recommendation-fixes.md).
 
 ```
 0     scoping: five recommendation fixes from REVIEW_REPORT refresh #1  11ca4c4
@@ -1413,7 +1413,7 @@ bounds across ~18 of the 23 published papers.
 
 All six pieces are committed. **Phase 13 is not yet closed** — the
 phase doc's "Phase 13 complete when" gates
-([phase-13-recommendation-fixes.md](phase-13-recommendation-fixes.md))
+([phase-13-recommendation-fixes.md](archive/phase-13-recommendation-fixes.md))
 are measured against post-rollout REVIEW_REPORT refreshes. Status
 against [research/a3289005/REVIEW_REPORT.md](../research/a3289005/REVIEW_REPORT.md)
 **refresh #2** (2026-05-16 08:25 EDT, n=20 papers P-476..P-512):
@@ -1473,7 +1473,7 @@ Six concrete fixes (F1–F6) drawn from REVIEW_REPORT refresh #2
 (2026-05-16, papers P-476..P-512). Phase 14 closes the publishing-layer
 failure modes that derailed refresh #2's acceptance rate to 0% —
 distinct from Phase 13's targets. See
-[phase-14-recommendation-fixes-refresh2.md](phase-14-recommendation-fixes-refresh2.md).
+[phase-14-recommendation-fixes-refresh2.md](archive/phase-14-recommendation-fixes-refresh2.md).
 
 ```
 F3+F4+F5+F6  four publishing-layer validators (flag-gated)        74ca517
@@ -1665,7 +1665,7 @@ projected upper bound after items 1+2+3 alone: ~25%, per refresh #3
 §operational-logs). Per-item acceptance gates live in their respective
 source docs.
 
-**See [phase-16-recommendation-fixes-refresh3.md](phase-16-recommendation-fixes-refresh3.md)**
+**See [phase-16-recommendation-fixes-refresh3.md](archive/phase-16-recommendation-fixes-refresh3.md)**
 for the as-shipped per-piece breakdown and the flag-flip
 specifications (What flipping does / Trigger / Risk / Acceptance) for
 the three default-OFF Phase 16 flags (P6a suppression mode, P6b
@@ -1681,28 +1681,30 @@ in the source phase doc).
 ```
 STATUS.md                                    ← you are here (shipped vs deferred)
 readme.md                                    ← original 10-iteration design doc
-phase-0-prerequisites.md                     ← JPA migration + service carves
-phase-1-foundation.md                        ← identity + graph + programs
-phase-2-active-experimentation.md            ← surprise + planner
-phase-2-5-roomservice-refactor.md            ← deferred RoomService refactor
-phase-3-world-integration.md                 ← world + institutions + markets
-phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
-phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template evolution
-phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
-phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
-phase-6-novelty-levers.md                    ← scoping doc for literature search + Discussion section
-phase-6-piece-1-memo.md                      ← D1.1 memo locking literature-corpus decisions
-phase-7-multi-provider-and-math-expansion.md ← multi-provider routing + topic + structured-findings expansion
-phase-8-unrestricted-math-formulas.md        ← layered math sandbox (numeric / symbolic / GPU)
-phase-9-unified-model-registry.md            ← unified primary + fast model registries
-phase-11-citations-as-schema.md              ← inline [call_N] markers + numeric_claims schema
-phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
-phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
-phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
-phase-16-recommendation-fixes-refresh3.md    ← eight fixes from REVIEW_REPORT refresh #3/#4 (as shipped) — D2-prep, P5a/b, P6a/b, P7
+phase-18-pending-followups.md                ← consolidated open items (P8c, P8d, Phase 4c Piece 3 decision); pointer to phase-flags.md for flag flips
 phase-flags.md                               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers (renamed from phase-15-flag-rollout-queue.md after Phase 16 added three more flags)
 phase-wishlist-human-level.md                ← human-level paper-building quality levers (P1–P4); reference, not queued; renamed from phase-wishlist.md on 2026-05-18 with P5–P8 trimmed out (migrated per its bottom table)
-phase-18-pending-followups.md                ← consolidated open items (P8c, P8d, Phase 4c Piece 3 decision); pointer to phase-flags.md for flag flips
+archive/                                     ← shipped / historical phase docs (Phase 0 through Phase 17); moved here 2026-05-18 to keep the active set lean
+  phase-0-prerequisites.md                     ← JPA migration + service carves
+  phase-1-foundation.md                        ← identity + graph + programs
+  phase-2-active-experimentation.md            ← surprise + planner
+  phase-2-5-roomservice-refactor.md            ← deferred RoomService refactor (OBSOLETE — superseded by later architecture)
+  phase-3-world-integration.md                 ← world + institutions + markets
+  phase-4-formal-knowledge-and-meta-science.md ← formal findings + meta-science
+  phase-4c-prompt-template-evolution.md        ← scoping doc for prompt-template evolution (Piece 3 decision pending — see phase-18 §18.3)
+  phase-4c-piece-1-memo.md                     ← design memo locking Piece 1 decisions
+  phase-5-quality-pipeline.md                  ← quality-pipeline fixes from the peer-review corpus
+  phase-6-novelty-levers.md                    ← scoping doc for literature search + Discussion section
+  phase-6-piece-1-memo.md                      ← D1.1 memo locking literature-corpus decisions
+  phase-7-multi-provider-and-math-expansion.md ← multi-provider routing + topic + structured-findings expansion
+  phase-8-unrestricted-math-formulas.md        ← layered math sandbox (numeric / symbolic / GPU)
+  phase-9-unified-model-registry.md            ← unified primary + fast model registries
+  phase-11-citations-as-schema.md              ← inline [call_N] markers + numeric_claims schema
+  phase-12-fabrication-gate-hardening.md       ← close the gap between checks-fire and publications-stopped
+  phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REPORT refresh #1 + panel audit
+  phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
+  phase-16-recommendation-fixes-refresh3.md    ← eight fixes from REVIEW_REPORT refresh #3/#4 (as shipped) — D2-prep, P5a/b, P6a/b, P7
+  phase-17-analyses.md                         ← Phase 17 analyses + post-hang refresh #1/#2 follow-on decisions
 ```
 
 Phase 10 has no dedicated scoping doc — it shipped as the

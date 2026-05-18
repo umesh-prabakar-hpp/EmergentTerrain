@@ -139,7 +139,7 @@ sweep.
 
 ### 18.3 — Phase 4c Piece 3 decision (A/B testing + epsilon-greedy)
 
-**Source:** `phase-4c-piece-1-memo.md` + `phase-4c-prompt-template-evolution.md`.
+**Source:** `archive/phase-4c-piece-1-memo.md` + `archive/phase-4c-prompt-template-evolution.md`.
 
 **Context:** The Phase 4c memo (dated 2026-05-11) locked the eight
 cross-cutting decisions for A/B template testing with epsilon-greedy
@@ -192,15 +192,15 @@ done. Skip on re-read unless verifying the audit.
 
 | Source doc | Item | Status | Evidence |
 |------------|------|--------|----------|
-| phase-0-prerequisites.md | All 10 unchecked boxes | DONE | `ResearchPaper`, `PaperCitation`, `LlmService` (209 lines), `ResearchNarrationService`, `FormulationService`, `GenomeMentoringService`, `BotLifecycleService`, `ResearchCycleService`, `ReplicationService`, `PopulationEcologyService` all exist |
-| phase-1-foundation.md | All 12 unchecked boxes | DONE | `ResearchIdentity` record, `skepticismLevel` field on `BotLifecycleState:34`, `ReputationHistory`, `PaperCitation` (=PaperRelationship), `PaperGraphService`, `ResearchProgram` + `ProgramOpenQuestion` + `ProgramFailedApproach` entities |
-| phase-2-active-experimentation.md | All 12 unchecked boxes | DONE | `ExpectationModelService`, `SurpriseEvent`, `ExperimentPlannerService`, `PlanStrategy` enum |
-| phase-2-5-roomservice-refactor.md | All 7 unchecked boxes | OBSOLETE | Architecture moved past — Phase 5+ designs supersede the standalone refactor |
-| phase-3-world-integration.md | All 19 unchecked boxes | DONE | `WorldDataQueryService`, `WorldInterventionService`, `University` / `Journal` / `FundingAgency` / `ReplicationCouncil` entities, `EpistemicMarketService` |
-| phase-4-formal-knowledge-and-meta-science.md | All 17 unchecked boxes | DONE | `FormalFinding`, `KnowledgeBaseService.detectContradictions`, `MetaResearchService` (`PromptPathStats` / `BotMetaStats` / `MethodMetaStats`), `PaperKind` enum, `PromptTemplateRegistry` |
-| phase-4c-prompt-template-evolution.md | Piece 1 + 2 | DONE | Memo locked; registry shipped. **Piece 3: deferred — see 18.3** |
-| phase-7 F3 | `topics-v2.enabled` | DONE | `application.yml:678` — flag on; 38 topics across 4 domains |
-| phase-7 F4 | `max-computations` bump | DONE | `application.yml:470` — bumped 2 → 5 |
+| archive/phase-0-prerequisites.md | All 10 unchecked boxes | DONE | `ResearchPaper`, `PaperCitation`, `LlmService` (209 lines), `ResearchNarrationService`, `FormulationService`, `GenomeMentoringService`, `BotLifecycleService`, `ResearchCycleService`, `ReplicationService`, `PopulationEcologyService` all exist |
+| archive/phase-1-foundation.md | All 12 unchecked boxes | DONE | `ResearchIdentity` record, `skepticismLevel` field on `BotLifecycleState:34`, `ReputationHistory`, `PaperCitation` (=PaperRelationship), `PaperGraphService`, `ResearchProgram` + `ProgramOpenQuestion` + `ProgramFailedApproach` entities |
+| archive/phase-2-active-experimentation.md | All 12 unchecked boxes | DONE | `ExpectationModelService`, `SurpriseEvent`, `ExperimentPlannerService`, `PlanStrategy` enum |
+| archive/phase-2-5-roomservice-refactor.md | All 7 unchecked boxes | OBSOLETE | Architecture moved past — Phase 5+ designs supersede the standalone refactor |
+| archive/phase-3-world-integration.md | All 19 unchecked boxes | DONE | `WorldDataQueryService`, `WorldInterventionService`, `University` / `Journal` / `FundingAgency` / `ReplicationCouncil` entities, `EpistemicMarketService` |
+| archive/phase-4-formal-knowledge-and-meta-science.md | All 17 unchecked boxes | DONE | `FormalFinding`, `KnowledgeBaseService.detectContradictions`, `MetaResearchService` (`PromptPathStats` / `BotMetaStats` / `MethodMetaStats`), `PaperKind` enum, `PromptTemplateRegistry` |
+| archive/phase-4c-prompt-template-evolution.md | Piece 1 + 2 | DONE | Memo locked; registry shipped. **Piece 3: deferred — see 18.3** |
+| archive/phase-7-multi-provider-and-math-expansion.md F3 | `topics-v2.enabled` | DONE | `application.yml:678` — flag on; 38 topics across 4 domains |
+| archive/phase-7-multi-provider-and-math-expansion.md F4 | `max-computations` bump | DONE | `application.yml:470` — bumped 2 → 5 |
 | phase-12 D1–D7 | All 7 steps | DONE | Commits `363b966`, `05b2140`, `197c68d`, `041671a`, `5c06acd`. Mode escalation for D2 still pending — see `phase-flags.md`. |
 | phase-13 E1–E6 | All 6 fixes | DONE | Commits `f83aa12`, `b7326ab`, `83af22b`, flag-flip `041671a` |
 | phase-14 F1–F6 | All 6 validators | DONE | Commits `f02c343`, `74ca517`, `ef4a3fb`, `918ac90`, flag-flip `041671a` |
@@ -223,7 +223,7 @@ This phase closes when:
 2. 18.3 (Phase 4c Piece 3 decision) is either resolved by starting
    Piece 3 implementation under its own phase doc OR explicitly
    retired with a "Piece 3 deferred indefinitely — reason X" note in
-   `phase-4c-piece-1-memo.md`.
+   `archive/phase-4c-piece-1-memo.md`.
 
 When all three close, this doc becomes historical; new pending items
 get a successor doc rather than appending here.

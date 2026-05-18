@@ -559,7 +559,7 @@ under labels P5–P8. None of them were "human-level paper-building" in
 the original sense; they were defensive narrator scrubs, corpus-aware
 narration upgrades, scheduler backoff, and Phase 17 diagnostics. This
 table records where each former piece lives now so that historical
-references (`phase-13` line 311 et al.) remain traceable.
+references (`archive/phase-13-recommendation-fixes.md` line 311 et al.) remain traceable.
 
 | Former label | Title | Disposition | Where it lives now |
 |--------------|-------|-------------|--------------------|
