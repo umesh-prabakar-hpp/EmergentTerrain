@@ -573,7 +573,8 @@ public class GroqPool implements LlmPool {
             node.put("model", modelId);
             node.put("stream", false);
             node.put("max_tokens", tokenLimit);
-            node.put("temperature", 0.7);
+            node.put("temperature",
+                    com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
             node.set("messages", messages);
             if (tools != null && tools.isArray() && !tools.isEmpty()) {
                 node.set("tools", tools);
@@ -1178,7 +1179,8 @@ public class GroqPool implements LlmPool {
             node.put("model", modelId);
             node.put("stream", stream);
             node.put("max_tokens", tokenLimit);
-            node.put("temperature", 0.7);
+            node.put("temperature",
+                    com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
             if (stream) {
                 // Groq emits a final SSE chunk with usage.{prompt,completion}_tokens
                 // when stream_options.include_usage=true. Required for budget tracking.

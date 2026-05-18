@@ -652,12 +652,19 @@ public class ResearchNarrationService {
                 return firstPass.withToolCallTrace(profTrace);
             }
 
-            // Phase 3 — Student revision incorporating professor's findings
+            // Phase 3 — Student revision incorporating professor's findings.
+            // Phase 17 (analyses §2.4) — pin temperature to 0.0 for the
+            // revision pass. The professor synthesis is already in hand and
+            // the revision's job is to reformat it into the schema'd JSON,
+            // not to introduce creative variation. Lower temperature ↓
+            // rev:parse_failed rate AND ↓ chance the LLM invents new
+            // numerics absent from the professor synthesis.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
-                            professorSynthesis, literatureContext),
-                    revised::append);
+            com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
+                    router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
+                                    professorSynthesis, literatureContext),
+                            revised::append));
             // Phase 13 E2 — pre-parse repair of common malformed-JSON cases
             // (code-fence wrappers, prose preamble, trailing commas, unclosed
             // strings, unbalanced braces). REVIEW_REPORT refresh #1 §1 rec #3
@@ -1061,7 +1068,13 @@ public class ResearchNarrationService {
         try {
             String prompt = buildPanelRevisionPrompt(narration, outcome);
             StringBuilder buf = new StringBuilder();
-            router.streamPrimary(prompt, buf::append);
+            // Phase 17 (analyses §2.4) — temperature 0.0 for the panel
+            // revision: the constraints (no new numerics, fix citations,
+            // pin hypothesis) leave the model no creative slack worth
+            // exercising, and a lower temperature shrinks the chance of
+            // schema-violating output.
+            com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
+                    router.streamPrimary(prompt, buf::append));
             com.emergentterrain.research.LenientJsonParser.RepairResult repair =
                     com.emergentterrain.research.LenientJsonParser.repair(buf.toString());
             NarrationResult parsed = parseNarrationResult(repair.text());

@@ -586,7 +586,8 @@ public class NvidiaPool implements LlmPool {
             node.put("model", modelId);
             node.put("stream", stream);
             node.put("max_tokens", tokenLimit);
-            node.put("temperature", 0.7);
+            node.put("temperature",
+                    com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
             if (stream) node.putObject("stream_options").put("include_usage", true);
             ArrayNode messages = node.putArray("messages");
             messages.addObject().put("role", "user").put("content", prompt);
@@ -601,7 +602,8 @@ public class NvidiaPool implements LlmPool {
             node.put("model", modelId);
             node.put("stream", false);
             node.put("max_tokens", tokenLimit);
-            node.put("temperature", 0.7);
+            node.put("temperature",
+                    com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
             node.set("messages", messages);
             if (tools != null && tools.isArray() && !tools.isEmpty()) {
                 node.set("tools", tools);
