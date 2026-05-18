@@ -30,39 +30,71 @@ met?* / *Decision* columns when REVIEW_REPORT refreshes land. The
 queue closes when every entry has either flipped on or been removed
 as a deliberate keep-off.
 
-**Queue depth**: 7 entries pending. Tier 1 (six flags) flipped
-2026-05-17 in commit `041671a`. Tier 2 (one flag — F1b
-`block-count-guard`) flipped 2026-05-17 in commit `918ac90`. Each
-remaining entry lives here as a one-row pointer to the phase doc
-that defines what flipping the flag does — the feature details
-stay in the source phase doc (or `phase-wishlist-human-level.md` for
-P1–P4, `phase-18-pending-followups.md` for P8c/P8d, the
-`archive/phase-16-recommendation-fixes-refresh3.md` doc for the now-shipped P5/P6/P7
-features), not here.
+**Queue depth**: 0 entries pending (as of 2026-05-18 Tier 5 flip). Tier 1
+(six flags) flipped 2026-05-17 in commit `041671a`. Tier 2 (one flag — F1b
+`block-count-guard`) flipped 2026-05-17 in commit `918ac90`. Tier 3 (three
+flags) flipped 2026-05-18 in commit `5c06acd`. Tier 4 (three flags) flipped
+2026-05-18 in commit `6f50957`. **Tier 5 (four flags: D2 mode, D4
+panel-degradation-demote, F7.3 cherry-picked-rejects, gate-retry) flipped
+2026-05-18 — operator-directed despite three of the four explicit trigger
+conditions being NOT MET (see Tier 5 section below for the per-flag risk
+notes and rollback paths).** This doc now retains only historical "Recently
+flipped" sections; the queue is empty.
 
 ---
 
 ## Snapshot
 
-| Tier | Flag | Phase | Current | Trigger | Risk |
-|------|------|-------|---------|---------|------|
-| 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | off | F7.2 panel agreement scores stable + ≥30 papers **[≥30 MET (34 cumulative); panel-agreement stability needs explicit read]** | Medium — status-changing |
-| 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) **[NOT MET: only 2 PUBLISHED cumulatively (P-617, P-660)]** | Medium — status-changing |
-| 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") **[FP fixes shipped `f6b89b9` but not yet in running JVM; restart + one refresh needed]** | High — flips structural validator from log-only to enforcing |
-| 3 | `app.research.citations-as-schema.mode` | 11 C5b | **`downgrade`** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | Two refreshes with stable uncited / out_of_tolerance rates **[MET — flipped]** | High — flips citation validator from log-only to enforcing |
-| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | **on** (2026-05-18) | One refresh under disclaimer mode **[MET: 4-refresh soak refreshes #2 → #5]** | Low — narration prompt only |
-| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | **on** (2026-05-18) | One refresh under P6a soak **[MET via P6a's 4-refresh window]** | Medium — prompt expansion |
-| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | **on** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | One refresh under P6b soak **[MET in spirit: refresh #2 P-602↔P-608 byte-clones; refresh #5 added Stefan-Boltzmann + Pendulum same-topic clusters]** | Medium — touches reward dynamics |
-| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure **[PARTIAL: refresh #2 first D3-ext firing on P-a328-618; refresh #5 added 0 new firings — still 1 total — wait for 2nd observed case]** | Medium — defers publish; on give-up still produces NEEDS_REVISION |
-| 4 | `app.research.panel-revision.enabled` | 17 P2 | **on** (2026-05-18) | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly **[Chicken-and-egg under flag-off; flipped to gather first observation window — ~3 panel-with-contradiction papers/refresh expected (P-660/665/667 in refresh #5)]** | Medium — overwrites findings/conclusion |
-| 4 | `app.research.panel-grade-floor.enabled` | 17 (refresh #1 follow-on) | **on** (commit `5c06acd`, 2026-05-18; not yet in running JVM) | One refresh confirms zero false positives **[MET — flipped]** | Medium — status-changing |
+All 10 tracked flags are now ON in `application.yml`. Per-flag rollout
+history lives in the "Recently flipped" sections below.
 
-**Deployment status (refresh #5, 2026-05-18 02:35 EDT):** PID 87679
-started 00:00 EDT — *before* the flip commits below — so even the
-yaml-on flags are running with flag-off semantics in the live JVM.
-**App restart required** to deploy the yaml-on state. See
-`research/a3289005/REVIEW_REPORT.md` §0 for the full deployment-gap
-explanation.
+| Tier | Flag                                                  | Current | Flipped (commit / date) |
+|------|-------------------------------------------------------|---------|-------------------------|
+| 3    | `app.research.corpus-citations.suppress-rejected`     | on      | `6f50957` 2026-05-18    |
+| 3    | `app.research.prior-result-injection.enabled`         | on      | `6f50957` 2026-05-18    |
+| 3    | `app.research.topic-clone-backoff.enabled`            | on      | `5c06acd` 2026-05-18    |
+| 3    | `app.research.citations-as-schema.mode = downgrade`   | downgrade | `5c06acd` 2026-05-18  |
+| 4    | `app.research.panel-revision.enabled`                 | on      | `6f50957` 2026-05-18    |
+| 4    | `app.research.panel-grade-floor.enabled`              | on      | `5c06acd` 2026-05-18    |
+| 5    | `app.research.numerical-consistency.mode = downgrade` | downgrade | (this commit) 2026-05-18 |
+| 5    | `app.research.panel-degradation-demote.enabled`       | on      | (this commit) 2026-05-18 |
+| 5    | `app.research.audit-cherry-picked-rejects.enabled`    | on      | (this commit) 2026-05-18 |
+| 5    | `app.research.gate-retry.enabled`                     | on      | (this commit) 2026-05-18 |
+
+**Deployment status (2026-05-18 07:30 EDT):** Running JVM PID 3881 started
+06:50 EDT — picks up Tier 3 and Tier 4 commits but **not** the Tier 5 flips
+in this same commit. App restart required to deploy Tier 5. The previous
+PID-87679 deployment-gap note (it was the prior session's running JVM)
+is obsolete and was cleared from STATUS.md in the same commit as Tier 5.
+
+## Recently flipped — Tier 5 (2026-05-18, operator-directed)
+
+Operator-directed batch flip of the remaining four queued flags despite
+three of the four trigger conditions being NOT MET in the corpus
+evidence column. Each carries a rollback path; the cost of waiting for
+the trigger to organically clear (low corpus-generation rate has kept
+F7.3 and gate-retry sample sizes below threshold for ~2 weeks) outweighed
+the per-flag-met discipline for this batch. Re-tighten the doc's trigger
+discipline in the next refresh — these flips are an exception, not a
+new policy.
+
+| Flag                                                | Trigger (status at flip)                | Rollback                                |
+|-----------------------------------------------------|-----------------------------------------|-----------------------------------------|
+| `numerical-consistency.mode = downgrade` (D2)       | FP fixes shipped `f6b89b9`; not re-checked under restart-+-refresh | Revert yaml line; restart. Per-paper, no state cleanup. |
+| `panel-degradation-demote.enabled` (D4)             | ≥30 papers MET; agreement-stability read NOT documented | Flip to false; per-paper status computed at publish. |
+| `audit-cherry-picked-rejects.enabled` (F7.3)        | ≥10 PUBLISHED+SUPPORTED-with-cherry NOT MET (only 2 cumulative: P-617, P-660) | Flip to false; revert paper status next publish. |
+| `gate-retry.enabled` (17)                           | 2nd D3-ext firing NOT MET (only P-a328-618 to date) | Flip to false; in-flight queue drains naturally. |
+
+**Acceptance for the Tier 5 batch:** Next REVIEW_REPORT refresh should
+show (a) ≥1 paper carrying `numeric_inconsistent` + NULL_RESULT preamble
+from D2, (b) ≥1 paper with `panel:n=N:degraded:demoted_to_needs_revision`
+from D4, (c) zero false-positive REJECTED from F7.3 (per the refresh #3
+0/5 FP rate; revert if any FP appears), (d) ≥1 `gate-retry:deferred` or
+`gate-retry:gave-up` stamp from gate-retry. If F7.3 shows any FP in the
+next 5 firings, revert to false and re-tighten the trigger to the
+original ≥30 threshold.
+
+---
 
 ## Recently flipped — Tier 3 (commit `cb07f10`, 2026-05-17, post-hang #1)
 
@@ -118,8 +150,11 @@ generation run produces stub-block candidates.
 
 ## D4 — panel-degradation-demote
 
+**Status (2026-05-18):** **FLIPPED → on.** See Tier 5 section above. The
+detail below is retained as historical context.
+
 **Phase:** 12 D4. **Current:** `app.research.panel-degradation-demote.enabled:
-false`. **File:** `src/main/resources/application.yml:453`.
+true` (was `false`). **File:** `src/main/resources/application.yml:502`.
 
 **What flipping it does:** Papers whose panel review degraded to n=2 or
 n=3 of the configured 4 reviewers demote from PUBLISHED to NEEDS_REVISION.
@@ -150,9 +185,12 @@ unchanged).
 
 ## F7.3 — audit-cherry-picked-rejects
 
+**Status (2026-05-18):** **FLIPPED → on.** See Tier 5 section above. The
+detail below is retained as historical context.
+
 **Phase:** 7 F7.3. **Current:**
-`app.research.audit-cherry-picked-rejects.enabled: false`. **File:**
-`src/main/resources/application.yml:461`.
+`app.research.audit-cherry-picked-rejects.enabled: true` (was `false`).
+**File:** `src/main/resources/application.yml:510`.
 
 **What flipping it does:** SUPPORTED papers whose panel review surfaced
 the `cherry_picked_evidence` audit-gap dimension (≥2 reviewers flagged
@@ -188,8 +226,12 @@ PUBLISHED; each routes to REJECTED with the call-path stamp
 
 ## D2 — numerical-consistency mode escalation
 
+**Status (2026-05-18):** **FLIPPED warn → downgrade.** See Tier 5 section
+above. The `downgrade → suppress` step remains operator-gated; see the
+acceptance/risk text below for what flipping that next step would do.
+
 **Phase:** 12 D2. **Current:** `app.research.numerical-consistency.mode:
-warn`. **File:** `src/main/resources/application.yml:329`.
+downgrade` (was `warn`). **File:** `src/main/resources/application.yml:329`.
 
 **What flipping it does:** Mode escalation from `warn` (log + stamp,
 never suppress) through `downgrade` (rewrite findings + conclusion to a
@@ -254,9 +296,12 @@ the paper drops entirely.
 
 ## 17 gate-retry — defer-publish queue for gate-killed-professor drafts
 
+**Status (2026-05-18):** **FLIPPED → on.** See Tier 5 section above. The
+detail below is retained as historical context.
+
 **Phase:** 17 (post-hang refresh #1 follow-on). **Current:**
-`app.research.gate-retry.enabled: false`. **File:**
-`src/main/resources/application.yml` (under the `gate-retry:` block).
+`app.research.gate-retry.enabled: true` (was `false`). **File:**
+`src/main/resources/application.yml:612` (under the `gate-retry:` block).
 
 **What flipping it does:** When the `SystemResourcesGate` kills the
 professor stage (`gate:resources:professor`), the publish is deferred

@@ -326,7 +326,11 @@ app:
       #               status + prose.
       #   suppress  — paper is dropped entirely before addPaper (no disk, no DB);
       #               operational log carries `numeric_inconsistent→suppressed`.
-      mode: warn
+      # 2026-05-18 warn → downgrade. FP fixes in commit f6b89b9 now in main;
+      # operator-flipped per phase-flags.md D2 row despite the post-restart
+      # FP-rate re-check not yet observed in a refresh. Rollback: revert this
+      # line and restart.
+      mode: downgrade
     magnitude-range:
       enabled: true        # Phase 5 B2 — per-(domain, topic) physical bounds (composite ≤ 3 GPa, Arrhenius ≤ 12×, …)
     dedup:
@@ -500,7 +504,11 @@ app:
     # enforced. The n=1 suppression branch is unchanged (single-reviewer
     # agreement is non-informative; suppress outright).
     panel-degradation-demote:
-      enabled: false
+      # 2026-05-18 false → true. Cumulative ≥30 met (34 papers); operator-
+      # flipped despite the explicit panel-agreement-stability read not yet
+      # documented. Rollback: flip to false (per-paper status is computed
+      # at publish time, so reverting takes effect on next paper).
+      enabled: true
     # Phase 7 F7.3 — when on, SUPPORTED papers whose panel surfaced the
     # cherry_picked_evidence audit-gap dimension (>=2 reviewers agreed the LLM
     # omitted a relevant tool result) publish as REJECTED rather than PUBLISHED.
@@ -508,7 +516,11 @@ app:
     # rate is measured over >=30 papers, mirroring how G8's physical_mechanism
     # gate soaked before going live.
     audit-cherry-picked-rejects:
-      enabled: false
+      # 2026-05-18 false → true. Operator-flipped despite the ≥10 PUBLISHED+
+      # SUPPORTED-with-cherry threshold not met (only 2 cumulative — P-617,
+      # P-660). Refresh #3's 0/5 FP observation is the empirical safety
+      # margin; revert if any of the next five firings spot-check as FP.
+      enabled: true
     # Phase 16 P6a — cross-citation verdict propagation. Default OFF runs
     # disclaimer mode: REJECTED priors appear in the priorPapers context
     # with a [REJECTED — do not propagate] tag prepended; DISPUTED priors
@@ -610,7 +622,11 @@ app:
     # Default OFF for safe rollout. Flip ON after one corpus refresh
     # confirms the deferral semantics don't deadlock the planner.
     gate-retry:
-      enabled: false
+      # 2026-05-18 false → true. Operator-flipped despite the "2nd observed
+      # D3-ext firing" trigger not yet met (only P-a328-618 to date).
+      # Rollback: flip to false — in-flight queue drains on next tick since
+      # the flag is checked there too.
+      enabled: true
       max-attempts: 3
       max-queue-size: 100
       poll-interval-ms: 30000

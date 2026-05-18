@@ -158,6 +158,11 @@ sandbox runtime if `numerical_integrate` etc. need a separate adapter.
 
 ## P2 — Reduced sandbox friction
 
+**Status (2026-05-18):** **PROMOTED to scoping doc** —
+`phase-19-sandbox-friction.md`. Layer 3 (Python fallback) explicitly
+deferred there. The detail below is retained as the original wishlist
+text; the scoping doc supersedes it for any actual implementation.
+
 **Effort:** ~2 weeks. **Pre-condition:** none.
 
 **The bug:** REVIEW_REPORT refresh #3 §7 reports 28 `REJECTED by safety
