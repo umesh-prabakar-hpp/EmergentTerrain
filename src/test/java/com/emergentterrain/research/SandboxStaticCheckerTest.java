@@ -225,4 +225,103 @@ class SandboxStaticCheckerTest {
         // Working example:
         assertThat(help).contains("Working example");
     }
+
+    // ── Phase 19 Layer 2 — per-rejection rewrite hints ──────────────────────
+
+    @Test
+    void rewriteHint_memberAccessPush_pointsAtFixedSizeArray() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): member access not supported: '.push' — the safe grammar has no objects.");
+        assertThat(hint).startsWith("Quick fix:");
+        assertThat(hint).contains("fixed-size");
+        assertThat(hint).contains("xs[n] = v");
+    }
+
+    @Test
+    void rewriteHint_memberAccessLength_pointsAtLenBuiltin() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): member access not supported: '.length' — …");
+        assertThat(hint).contains("len(arr)");
+    }
+
+    @Test
+    void rewriteHint_memberAccessMap_pointsAtForLoop() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): member access not supported: '.map' — …");
+        assertThat(hint).contains("for (var i = 0");
+        assertThat(hint).contains("len(arr)");
+    }
+
+    @Test
+    void rewriteHint_mathPrefix_pointsAtFlatIdentifier() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): member access not supported: '.sqrt' — …");
+        assertThat(hint).contains("drop the `Math.` prefix");
+        assertThat(hint).contains("sqrt");
+    }
+
+    @Test
+    void rewriteHint_objectLiteral_pointsAtRecordSample() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): object literals `{key: value}` not supported — …");
+        assertThat(hint).contains("recordSample");
+        assertThat(hint).contains("return x");
+    }
+
+    @Test
+    void rewriteHint_multiVarComma_pointsAtOnePerLine() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Expected EQ got ',' line 7");
+        assertThat(hint).contains("one variable per statement");
+        assertThat(hint).contains("var a = 1; var b = 2;");
+    }
+
+    @Test
+    void rewriteHint_breakOutsideBlock_pointsAtBraces() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Expected LBRACE got 'break' line 14");
+        assertThat(hint).contains("if (cond) { break; }");
+    }
+
+    @Test
+    void rewriteHint_stringLiteral_pointsAtNoStrings() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Unexpected char '\"' line 26");
+        assertThat(hint).contains("no strings");
+        assertThat(hint).contains("//");
+    }
+
+    @Test
+    void rewriteHint_letDeclaration_pointsAtVar() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Unexpected token 'let' at line 3");
+        assertThat(hint).contains("use `var`");
+    }
+
+    @Test
+    void rewriteHint_nonWhitelistedFn_pointsAtBuiltinList() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): non-whitelisted function(s): foo, bar");
+        assertThat(hint).contains("builtin");
+        assertThat(hint).contains("function");
+    }
+
+    @Test
+    void rewriteHint_shadowsBuiltin_pointsAtRename() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): user function 'abs' shadows a builtin");
+        assertThat(hint).contains("rename");
+        assertThat(hint).contains("myAbs");
+    }
+
+    @Test
+    void rewriteHint_unknownReason_returnsEmpty() {
+        // Reasons that don't match a known pattern fall back to the generic
+        // helpText() — the rewrite-hint layer must NOT invent a fix.
+        assertThat(SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): some new error mode no one has seen yet"))
+                .isEmpty();
+        assertThat(SandboxStaticChecker.rewriteHintFor("")).isEmpty();
+        assertThat(SandboxStaticChecker.rewriteHintFor(null)).isEmpty();
+    }
 }

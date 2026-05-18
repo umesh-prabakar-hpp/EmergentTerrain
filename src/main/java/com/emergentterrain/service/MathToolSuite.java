@@ -573,9 +573,17 @@ public class MathToolSuite {
             // which JS construct the sandbox subset omits. Intent-stage
             // rejections (model said REJECTED with a sentence) get no hint —
             // those are semantic, not syntactic.
-            String hint = reviewVerdict.startsWith("REJECTED (static)")
-                    ? com.emergentterrain.research.SandboxStaticChecker.helpText()
-                    : "";
+            // Phase 19 Layer 2 — prepend a specific one-line rewrite when
+            // the rejection matches a known pattern, before the generic
+            // grammar dump. The specific rewrite empirically cuts retry
+            // counts more than the grammar dump alone.
+            String hint = "";
+            if (reviewVerdict.startsWith("REJECTED (static)")) {
+                String rewrite = com.emergentterrain.research.SandboxStaticChecker
+                        .rewriteHintFor(reviewVerdict);
+                hint = (rewrite.isEmpty() ? "" : "\n\n" + rewrite)
+                        + com.emergentterrain.research.SandboxStaticChecker.helpText();
+            }
             return "REJECTED by safety review: " + reviewVerdict +
                     " — Please revise the pseudocode to address this issue and call run_sandboxed_code again."
                     + hint;

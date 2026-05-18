@@ -156,6 +156,110 @@ public final class SandboxStaticChecker {
                 """;
     }
 
+    // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────
+
+    /**
+     * Returns a single-line concrete rewrite suggestion for the most common
+     * rejection patterns, or {@code ""} when no specific rewrite applies.
+     *
+     * <p>The generic {@link #helpText()} spells out the whole sandbox grammar
+     * for the LLM; that's useful but verbose. When a rejection matches a
+     * known pattern (member access on a JS-style method, object literal,
+     * comma-separated declaration, etc.), the LLM benefits from seeing the
+     * <em>specific</em> fix one line above the grammar dump. Empirically the
+     * specific rewrite cuts retry counts more than the grammar dump alone.
+     *
+     * <p>Match order is most-specific-first. The {@code reason} argument is
+     * the verdict string from {@link Result.Rejected#reason()} — typically
+     * something like {@code "REJECTED (static): member access not
+     * supported: '.push' — …"}; the prefix stripping is handled here so
+     * callers can pass the full verdict.
+     */
+    public static String rewriteHintFor(String reason) {
+        if (reason == null || reason.isBlank()) return "";
+        String r = reason;
+        // Strip the "REJECTED (static): " prefix that MathToolSuite prepends
+        // before forwarding to the LLM, so the match below can pin on the
+        // bare static-rule message.
+        int idx = r.indexOf("static):");
+        if (idx >= 0) r = r.substring(idx + "static):".length()).trim();
+
+        // Member-access cases — extract the specific method to tailor the hint.
+        if (r.startsWith("member access not supported: '.")) {
+            int q1 = r.indexOf('\'');
+            int q2 = r.indexOf('\'', q1 + 1);
+            String method = (q1 >= 0 && q2 > q1) ? r.substring(q1 + 2, q2) : "";
+            return switch (method) {
+                case "push", "pop", "shift", "unshift", "splice" ->
+                        "Quick fix: arrays are fixed-size. Declare `var xs = [0, 0, 0, …];` "
+                        + "with the max length you need, track a count `var n = 0;`, "
+                        + "and assign `xs[n] = v; n = n + 1;` instead of `.push`.";
+                case "length" ->
+                        "Quick fix: replace `arr.length` with `len(arr)`.";
+                case "map", "filter", "reduce", "forEach" ->
+                        "Quick fix: replace `arr." + method + "(f)` with an explicit "
+                        + "`for (var i = 0; i < len(arr); i++) { … }` loop.";
+                case "sqrt", "pow", "exp", "log", "sin", "cos", "tan", "abs",
+                        "floor", "ceil", "min", "max", "PI", "E" ->
+                        "Quick fix: drop the `Math.` prefix — call `" + method + "(…)` "
+                        + "directly (every java.lang.Math method is a flat builtin here).";
+                case "toFixed", "toString", "toPrecision" ->
+                        "Quick fix: return the raw number — formatting is the caller's job, "
+                        + "not the sandbox's.";
+                default ->
+                        "Quick fix: the sandbox has no objects or methods. If you need "
+                        + "to extract a property, compute the value directly; if you "
+                        + "need to call a function, look up the builtin name in the "
+                        + "grammar reference below.";
+            };
+        }
+
+        if (r.startsWith("object literals")) {
+            return "Quick fix: replace `return {a: x, b: y}` with `recordSample(x); "
+                    + "recordSample(y); return x;` — the harness returns n/mean/std/min/max "
+                    + "alongside your scalar, covering the multi-value case.";
+        }
+
+        if (r.startsWith("parse failed:")) {
+            String pf = r.substring("parse failed:".length()).trim();
+            if (pf.contains("got ','")) {
+                return "Quick fix: declare one variable per statement. "
+                        + "`var a = 1, b = 2;` is not allowed; use `var a = 1; var b = 2;`.";
+            }
+            if (pf.contains("got 'break'") || pf.contains("got 'continue'")) {
+                return "Quick fix: `break` / `continue` must appear inside a `{ }` block. "
+                        + "Wrap the conditional: `if (cond) { break; }` rather than "
+                        + "`if (cond) break;`.";
+            }
+            if (pf.contains("Unexpected char '\"'") || pf.contains("Unexpected char '\\''")) {
+                return "Quick fix: the sandbox has no strings. Drop the quoted literal — "
+                        + "if it was a comment label, use `//` line comments instead.";
+            }
+            if (pf.contains("Unexpected char '['")) {
+                return "Quick fix: array literals must appear on the right-hand side of a "
+                        + "declaration (`var xs = [1, 2, 3];`), not inside an expression "
+                        + "or function call.";
+            }
+            if (pf.contains("Unexpected token 'let'") || pf.contains("got 'let'")
+                    || pf.contains("got 'const'")) {
+                return "Quick fix: use `var` for all declarations. `let` and `const` "
+                        + "are not in the sandbox grammar.";
+            }
+        }
+
+        if (r.startsWith("non-whitelisted function(s):")) {
+            return "Quick fix: every called name must be a builtin (see grammar below) "
+                    + "or a `function` you defined earlier in the same code block.";
+        }
+
+        if (r.startsWith("user function") && r.contains("shadows a builtin")) {
+            return "Quick fix: rename your function — the name collides with a sandbox "
+                    + "builtin. Add a domain prefix (e.g. `myAbs` instead of `abs`).";
+        }
+
+        return "";
+    }
+
     // ── Phase 17: pre-parse pattern detection ─────────────────────────────
 
     /**
