@@ -549,6 +549,19 @@ The remaining nine carry no hard blockers; a few have soft
 dependencies (20.1 wants Phase 18.1 live first; 20.3 wants a
 provider-docs check; 20.5 wants 20.4's `currentRole()` plumbing).
 
+| Item | What it is | Feasibility | Blocker / dependency |
+|------|------------|-------------|----------------------|
+| 20.1 | Condense repeated `tool_result` payloads (sweep tables, intermediate values) before re-sending to the LLM on later rounds | ✅ implementable | Wants Phase 18.1 (trace-scan validator) live first so compression doesn't hide values the validator needs |
+| 20.2 | Stage-1 tag truncation + stage-2 whole-turn drop, so long tool loops degrade gracefully instead of failing at the context-window cap | ✅ implementable | None — pure additive Java service |
+| 20.3 | Cache the tool-spec JSON per `(modelId, paperId)` so it's sent only on round 1 (plus periodic re-send insurance) | ✅ implementable | 30-min provider-docs check on Groq / Cerebras / NVIDIA tool-stickiness behavior before flipping the flag |
+| 20.4 | Extend `NarrationResult` with `startedAt` / `completedAt` / input+output tokens / status enum so callers branch on enum instead of parsing call-path strings | ✅ implementable | None — additive record-field change, non-breaking |
+| 20.5 | YAML `app.ai.role-overrides:` block so operators can prefer-providers or avoid-models per role (e.g. `fast-audit`, `professor-tools`) without code edits | ✅ implementable | None — new `RoleRouterPolicy` + one-field `LlmCallContext` extension |
+| 20.6 | Expose ET's tools as MCP servers and/or consume third-party MCP servers (filesystem, web fetch, literature search) | ⛔ **DEFERRED by design** | No mature Java MCP SDK; trigger is "a second consumer of ET's tools appears" OR "a third-party MCP server appears worth consuming" — neither has fired |
+| 20.7 | Per-pipeline GPU instrumentation: `wgpu::QuerySet` timestamps + bytes-in/out + FLOPs estimates → MFU / MBU percentages on each RPC response | ✅ implementable | `TIMESTAMP_QUERY` wgpu feature should be present on the operator's AMD GPU; CPU wall-clock fallback covers the gap |
+| 20.8 | Convert long-pole `SimulateBots` from unary gRPC to server-streaming so callers see progress updates instead of just a blocked channel | ✅ implementable | Breaking proto change; mitigated by adding `SimulateBotsV2` streaming and leaving `SimulateBots` unary until callers migrate |
+| 20.9 | Split `main.rs` into a `pipelines/` directory with one file per compute pipeline behind a `ComputePipeline` trait; pipelines testable in isolation | ✅ implementable | None — pure refactor; golden tests prove behavior identity |
+| 20.10 | Move `forest_threshold` / `water_threshold` / `industry_threshold` / `highway_spacing` from the WGSL constant into a `gpu.toml` config | ✅ implementable | None — smallest change in the doc |
+
 ## Suggested order — three waves + a backlog
 
 Operator's call; this is the author's read. Items within a wave are
