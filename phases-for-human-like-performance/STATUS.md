@@ -17,12 +17,13 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 
 | Metric | Value |
 |--------|-------|
-| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7; **Phase 13 E1–E6 code shipped (E1/E2/E4/E5 verified vs refresh #2; E3 awaits an RLC paper; E6 flipped ON 2026-05-17); Phase 14 F1–F6 code shipped, Tier 1 + F1b (Tier 2) flags ON; Phase 15 rolling flag-rollout queue tracks 4 remaining deferred flags; Phase 16 code shipped (validator + narrator + scheduler), four new flags joining Phase 15 queue** |
+| Phases shipped | 13 closed (0, 1, 2, 2b, 2.5, 3, 4) + Phase 5 Waves 0–5 + Phase 6 D1.1–D2 + Phase 7 E/F/G + Phase 8 P1–P5 + Phase 9 U1–U7 + Phase 10 + Phase 11 C1–C5b + Phase 12 D1–D7 + Phase 13 E1–E6 + Phase 14 F1–F6 + Phase 16 (validator coverage + narrator scrubs + corpus-aware narration + scheduler backoff) + **Phase 17 (analyses + sandbox pre-scan + hypothesis-carryover + JSON output mode + temperature plumbing + D3-ext quantitative-fp suppress + gate-retry queue + panel-revision + panel-grade-floor + P8a byte-capture + P8b counter-symmetry + LLM metrics)**; **Phase 18 🟡 tracking doc (3 open items: P8c, P8d, Phase 4c Piece 3 decision)**. Phase 15 rolling flag-rollout queue (now `phase-flags.md`): 6 of 10 flags ON (panel-grade-floor, topic-clone-backoff, citations-as-schema=downgrade in `5c06acd` 2026-05-18; P6a suppress-rejected, P6b prior-injection, panel-revision in `6f50957` 2026-05-18); 4 remaining (D2 mode, D4 panel-degradation-demote, F7.3 cherry-picked-rejects, gate-retry). **Deployment gap (2026-05-18):** the running JVM PID 87679 started 00:00 EDT before today's flag flips and Phase-17 follow-on commits; app restart required to deploy. |
 | Iterations shipped | 10 of 10 (every Iter from the design docs) |
-| Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 |
-| Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) lines |
-| Tests | 135 → 577 → 690 → 704 → 709 → 717 → 1,400+ (+1,265) |
-| Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 + Phase 7 multi-provider/structured-findings/topic-expansion + Phase 8 unrestricted-math + Phase 9 unified-registry + Phases 10–13 corpus-driven hardening, all behind feature flags |
+| Commits | 24 + 15 Phase 5 + 5 Phase 6 + 102 Phase 7–13 + ~30 Phase 14–17 |
+| Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) + ~3,000 (Phase 14–17) lines |
+| Tests | 135 → 577 → 690 → 704 → 709 → 717 → 1,400+ → 1,500+ (with Phase 17 P8a/P8b/panel-grade-floor + truncation-guard pin) |
+| Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 + Phase 7 multi-provider/structured-findings/topic-expansion + Phase 8 unrestricted-math + Phase 9 unified-registry + Phases 10–17 corpus-driven hardening, all behind feature flags |
+| Doc reorganization (2026-05-18) | `phase-wishlist.md` → `phase-wishlist-human-level.md` with P5–P8 trimmed (commit `cc440f4`); new `phase-18-pending-followups.md` consolidating open items; `phase-0` through `phase-17` moved to `archive/` (commit `144999e`). Active set: STATUS.md, readme.md, phase-18, phase-flags.md, phase-wishlist-human-level.md. |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -1649,30 +1650,147 @@ Scope lives across two existing docs:
    tests. Targets the divisor-sum-average cluster (P-534/539/553 all
    REJECTED for the same convergence-fabrication pattern).
 
-**Phase 16 complete when** all four new flags
-(`app.research.corpus-citations.suppress-rejected`,
-`app.research.prior-result-injection.enabled`,
-`app.research.topic-clone-backoff.enabled`, and D2's warn → downgrade
-escalation) reach their flip triggers across REVIEW_REPORT refreshes.
-The four flags join Phase 15's rolling rollout queue once a corpus
-refresh exercises P6a's verdict-tag behaviour (P6a is unconditional in
-disclaimer mode; P6b, P7 default off pending one refresh of corpus
-observation).
+**Phase 16 flag-flip progress (2026-05-18):**
 
-**Phase 16 complete when** acceptance rate on a 25-paper window with
-all eight items shipped reaches ≥25% (refresh #3 cumulative: 5.3%;
-projected upper bound after items 1+2+3 alone: ~25%, per refresh #3
-§operational-logs). Per-item acceptance gates live in their respective
-source docs.
+| Flag | Trigger | State | Commit |
+|------|---------|-------|--------|
+| `corpus-citations.suppress-rejected` (P6a) | One refresh under disclaimer mode | **ON** | `6f50957` |
+| `prior-result-injection.enabled` (P6b) | One refresh under P6a soak | **ON** | `6f50957` |
+| `topic-clone-backoff.enabled` (P7) | One refresh under P6b soak | **ON** | `5c06acd` |
+| `numerical-consistency.mode: warn → downgrade` (D2) | FP rate < 5% post-fix corpus re-run | **still `warn`** | FP fixes shipped `f6b89b9`; await one refresh after JVM restart |
+
+Three of four Phase-16 rollout flags are now ON in yaml; the running
+JVM started before the flip commits so an app restart is needed to
+deploy. The fourth flag (D2 mode escalation) is the last remaining
+dependency.
+
+**Phase 16 acceptance-rate target:** ≥25% on a 25-paper window. As of
+refresh #5 cumulative (34 papers), acceptance rate is 11.8% (4/34 Minor
+revisions). Target not yet met; depends on the deployed effect of the
+six newly-flipped flags (Phase 16 trio + the three Phase 17 flags
+flipped in the same commits) which cannot be measured until restart.
 
 **See [phase-16-recommendation-fixes-refresh3.md](archive/phase-16-recommendation-fixes-refresh3.md)**
-for the as-shipped per-piece breakdown and the flag-flip
-specifications (What flipping does / Trigger / Risk / Acceptance) for
-the three default-OFF Phase 16 flags (P6a suppression mode, P6b
-prior-injection, P7 topic-clone-backoff). The Phase 16 doc captures
-those operator-facing rollout details that `phase-flags.md` doesn't
-carry (the flag queue is a thin reference; feature/flag details live
-in the source phase doc).
+for the as-shipped per-piece breakdown and the original flag-flip
+specifications. The current live state of each flag lives in
+`phase-flags.md` (the rolling rollout tracker).
+
+---
+
+## Phase 17 — Analyses + Post-Hang Follow-On ✅ (code shipped; flag rollout in queue)
+
+Scoping doc + a sustained burst of refresh-driven fixes triggered by
+the 2026-05-17 host-thrash incident ("post-hang") in
+`research/a3289005/`. Phase 17's scope grew refresh-by-refresh:
+
+1. **Analyses doc** (commit `42446f2`) — captures 4b safety-review
+   rejection patterns, hallucination determinism, and per-model
+   attribution from the post-hang corpus. Doc-only; no code.
+2. **Sandbox pre-scan** (commit `c919a19`) — `SandboxStaticChecker`
+   emits instructive rejection messages for the two dominant LLM
+   mis-translations (JS member-access, object literals) instead of the
+   opaque "Unexpected char" / "Unexpected token" lexer errors. 43% +
+   22% of static-parse fails over 18h of logs.
+3. **Hypothesis-carryover gate** (commit `7c4b45e`) — only validated
+   `claimStatus` values propagate the Conclusion into the next paper's
+   researchHypothesis; fabricated-and-rejected claim chains are
+   broken at the planner stage.
+4. **JSON output mode** (commit `2ac020d`) — schema-pin revision-class
+   LLM calls via `response_format: json_object` to make
+   `rev:parse_failed→fp` recoverable at the provider boundary.
+5. **Temperature plumbing** (commit `6cc1636`) — per-thread sampling-
+   temperature override for deterministic narrator calls.
+6. **D3-ext quantitative-fp suppress** (commits `1e46030` + flag-flip
+   `cb07f10`) — suppresses gate-killed-professor papers whose
+   first-pass Conclusion contains a quantitative claim, closing the
+   gap D3's `zero_successes` test missed during the post-hang batch.
+   Flipped ON immediately after the incident (post-hang refresh #1
+   evidence: 7 of 12 papers with `gate:resources:professor` had
+   fabricated quantitative Conclusions).
+7. **Gate-retry queue** (commit `2f9c5b8`) — papers whose professor
+   stage is killed by `SystemResourcesGate` defer to an in-memory
+   retry queue with a 30-s scheduled tick; on give-up, the cached
+   first-pass publishes as NEEDS_REVISION with a
+   `gate-retry:gave-up:attempts=N` stamp. Default OFF; trigger requires
+   one refresh under D3-ext + no planner deadlock.
+8. **Panel-revision / panel-recommendations-as-feedback** (commit
+   `cdb5f66`) — when the panel returns ≥1 consensus contradiction OR
+   ≥2 deduplicated recommendations, the student model runs a focused
+   second revision with the panel's feedback in the prompt. Hypothesis
+   is pinned; prompt forbids new numerics not in the trace. Flipped ON
+   2026-05-18 in `6f50957` to gather first observation window.
+9. **Panel-grade-floor demote** (commit `d50595e`) — demotes
+   PUBLISHED → NEEDS_REVISION when `median(honesty, completeness,
+   rigor) < 0.30` AND consensus contradictions are non-empty. Targets
+   the P-617 / P-660 class (panel says 0/0/0/0 but status PUBLISHED).
+   Flipped ON 2026-05-18 in `5c06acd`.
+10. **P8a — `rev:parse_failed→fp` raw-byte diagnostic** (commit
+    `90cb52f`) — observability-only flag captures the first 500 chars
+    of revised text when the parse falls back, so the
+    provider-vs-parser hypothesis can be discriminated. Default off.
+11. **P8b — D3 counter-symmetry fix** (commit `840b9b4`) — refactors
+    `MathToolSuite.ToolMetrics` success classifier from an implicit
+    "else-if-not-failed" to an explicit `SUCCESS_PREFIXES` whitelist,
+    closing the asymmetry where `run_symbolic` rejections didn't
+    increment `sandboxRejectCount`. P-a328-613 (5/5 symbolic rejects,
+    PUBLISHED then DISPUTED) is the canonical case the new classifier
+    catches at the D3 gate.
+12. **LLM call metrics + Cerebras fast-audit fail-fast** (commit
+    `1c2eea8`) — per-call latency / token / status metrics; the
+    Cerebras fast-audit pool fails fast when the provider returns
+    `429` instead of retrying through the daily budget.
+
+**Phase 17 flag-flip state (2026-05-18):**
+
+| Flag | State | Commit |
+|------|-------|--------|
+| `gate-resources-quantitative-suppress` (D3-ext) | ON | `cb07f10` (2026-05-17) |
+| `panel-grade-floor.enabled` | ON | `5c06acd` (2026-05-18) |
+| `citations-as-schema.mode: warn → downgrade` | downgrade | `5c06acd` (2026-05-18) |
+| `topic-clone-backoff.enabled` (16 P7) | ON | `5c06acd` (2026-05-18) |
+| `panel-revision.enabled` | ON | `6f50957` (2026-05-18) |
+| `gate-retry.enabled` | off | trigger PARTIAL: 1 D3-ext firing total; await 2nd |
+| `rev-parse-failed-byte-capture` (P8a) | off | diagnostic-only; flip when sampling needed |
+
+**Deployment status (2026-05-18 02:35 EDT):** The running JVM PID
+87679 started 00:00 EDT — before any of today's Phase-17 follow-on
+commits or flag flips. **App restart required** to deploy. See
+`research/a3289005/REVIEW_REPORT.md` §0 for the full deployment-gap
+explanation; counterfactual table §7 details the refresh-#5 papers
+each flag would have caught.
+
+**Phase 17 complete when** D2 mode escalation + gate-retry flip
+trigger conditions are met (one refresh under each), and acceptance
+rate on a 25-paper post-restart window exceeds 15%.
+
+**See [phase-17-analyses.md](archive/phase-17-analyses.md)** for the
+analyses doc + the post-hang recommended-next-steps section.
+
+---
+
+## Phase 18 — Pending Follow-Ups 🟡 (tracking doc; no code on its own)
+
+Consolidates the few items that survived the 2026-05-18 audit of every
+unchecked / pending entry across all prior phase docs. Most prior
+unchecked boxes were DONE-DESPITE-UNCHECKED (Phase 0–4 entities +
+services already exist; Phase 7 F3 topics-v2 flipped on; F4
+max-computations bumped 2 → 5; Phase 12–16 D/E/F/P all shipped; Phase
+17 P8a/P8b/P8e shipped). Three items remain genuinely open:
+
+| § | Item | Type |
+|---|------|------|
+| 18.1 | P8c — `MagnitudeRangeValidator` scans tool-call trace, not just Findings prose | Code (validator extension) |
+| 18.2 | P8d — `UnsourcedClaimValidator` for "math right, prose fabricated" pattern | Code (new validator) |
+| 18.3 | Phase 4c Piece 3 — A/B + epsilon-greedy infrastructure | Decision-pending (2-4 week observation window opened 2026-05-11) |
+
+Phase 18 deliberately does NOT track flag flips (`phase-flags.md`
+handles those) or P1–P4 wishlist items (`phase-wishlist-human-level.md`
+handles those). The closing condition for Phase 18 is when 18.1 + 18.2
+ship and 18.3 either starts implementation under its own phase doc or
+is explicitly retired.
+
+**See [phase-18-pending-followups.md](phase-18-pending-followups.md)**
+for the full audit table + per-item file pointers + acceptance criteria.
 
 ---
 
