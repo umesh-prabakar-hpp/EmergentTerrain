@@ -118,6 +118,142 @@ public final class MagnitudeRangeValidator {
         return sb.length() == 0 ? null : sb.toString();
     }
 
+    /**
+     * Phase 18 §18.1 (P8c) — scan tool-call trace results for magnitude
+     * violations the Findings prose may have dropped. Targets P-a328-593's
+     * "5790 MPa hidden in call_4 result, not surfaced in prose" pattern.
+     *
+     * <p>Scans the final {@code result} field of every successful (non-error,
+     * non-rejected) tool call against the same (domain, topic) bound table as
+     * the prose overload. Intermediate sweep grid values are not extracted —
+     * only the terminal scalar / aggregate the tool returned. This keeps
+     * legitimate parameter-sweep papers (whose grid values legitimately
+     * straddle the ceiling) from false-positive flagging.
+     *
+     * <p>Returns a list of reasons tagged with {@code "[trace]"} so the
+     * UniversityService stamp can distinguish prose violations from trace
+     * violations on the call_path.
+     */
+    public static List<String> validateTrace(
+            String domain, String topic,
+            List<com.emergentterrain.llm.ToolInvocation> trace) {
+        return validateTrace(TopicValidatorRegistry.defaultRegistry(),
+                domain, topic, trace, null);
+    }
+
+    /** Phase 18 §18.1 (P8c) — corpus-aware overload, same fallback as
+     *  {@link #validate(String, String, String, LiteratureSearchService)}. */
+    public static List<String> validateTrace(
+            String domain, String topic,
+            List<com.emergentterrain.llm.ToolInvocation> trace,
+            LiteratureSearchService literature) {
+        return validateTrace(TopicValidatorRegistry.defaultRegistry(),
+                domain, topic, trace, literature);
+    }
+
+    /** Phase 18 §18.1 (P8c) — registry-injectable seam for tests. */
+    public static List<String> validateTrace(
+            TopicValidatorRegistry registry,
+            String domain, String topic,
+            List<com.emergentterrain.llm.ToolInvocation> trace,
+            LiteratureSearchService literature) {
+        List<String> reasons = new ArrayList<>();
+        if (domain == null || topic == null || trace == null || trace.isEmpty()) {
+            return reasons;
+        }
+        Optional<TopicValidatorRegistry.ValidatorSpec> maybeSpec = registry.findFor(domain, topic);
+        Pattern regex = null;
+        double upper = 0.0;
+        String unit = "";
+        String reasonForBound = "";
+        boolean fromCorpus = false;
+        if (maybeSpec.isPresent() && maybeSpec.get().hasMagnitudeBound()) {
+            TopicValidatorRegistry.ValidatorSpec spec = maybeSpec.get();
+            regex = spec.magnitudeRegex();
+            upper = spec.upperLimit();
+            unit = spec.unit();
+            reasonForBound = spec.reasonForBound();
+        } else if (literature != null) {
+            for (LiteratureReference r : literature.findFor(domain, topic)) {
+                if (!r.hasStructuredMagnitudeBound()) continue;
+                try {
+                    regex = Pattern.compile(r.magnitudeRegex());
+                } catch (PatternSyntaxException e) {
+                    continue;
+                }
+                upper = r.magnitudeMax();
+                unit = r.magnitudeUnit();
+                reasonForBound = r.citation();
+                fromCorpus = true;
+                break;
+            }
+        }
+        if (regex == null) return reasons;
+
+        // The registry/corpus regex is tuned to the prose-validator's
+        // `Vf=80%→9620MPa` notation — too tight for trace summaries that
+        // intersperse prose (`→ longitudinal σ=5790MPa`). Build a looser
+        // unit-only fallback from `unit` so trace summaries also match.
+        Pattern unitFallback = null;
+        if (unit != null && !unit.isBlank()) {
+            try {
+                unitFallback = Pattern.compile(
+                        "([0-9]+(?:\\.[0-9]+)?)\\s*\\Q" + unit + "\\E\\b");
+            } catch (PatternSyntaxException e) {
+                unitFallback = null;
+            }
+        }
+
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            String result = inv.resultJson();
+            if (result == null || result.isBlank()) continue;
+            // Skip calls the harness reported as failed — the rejection text
+            // contains arbitrary tokens that can FP-match a numeric regex.
+            if (result.startsWith("REJECTED") || result.startsWith("Tool error")
+                    || result.contains("not computable")) continue;
+            // Only inspect the final scalar result when the tool used the
+            // `result=<scalar>` convention; the sandbox/sweep response format
+            // puts the terminal scalar after `result=`, so intermediate sweep
+            // grid values that legitimately straddle the bound stay invisible.
+            // For tool shapes without that marker (one-line summaries like
+            // P-593's `Best: T=... → σ=5790MPa`), scan the full result.
+            String scanTarget = result;
+            int resultEq = result.indexOf("result=");
+            if (resultEq >= 0) {
+                int eol = result.indexOf('\n', resultEq);
+                scanTarget = eol > 0 ? result.substring(resultEq, eol) : result.substring(resultEq);
+            }
+            // Try registry regex first; fall back to the unit-only pattern.
+            Double hit = firstViolation(regex, scanTarget, upper);
+            if (hit == null && unitFallback != null) {
+                hit = firstViolation(unitFallback, scanTarget, upper);
+            }
+            if (hit != null) {
+                reasons.add(String.format(
+                        "[trace] %s (%s observed %.0f %s in %s result, bound %.0f %s): %s.",
+                        topic, fromCorpus ? "corpus" : "registry",
+                        hit, unit, inv.callId() != null ? inv.callId() : "call",
+                        upper, unit, reasonForBound));
+                return reasons;  // one trace violation is enough
+            }
+        }
+        return reasons;
+    }
+
+    private static Double firstViolation(Pattern regex, String text, double upper) {
+        Matcher m = regex.matcher(text);
+        while (m.find()) {
+            double value;
+            try {
+                value = Double.parseDouble(m.group(1));
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (value > upper) return value;
+        }
+        return null;
+    }
+
     /** Test/DI seam — same behaviour, registry passed in explicitly. */
     public static List<String> validate(TopicValidatorRegistry registry,
                                          String domain, String topic, String findings) {

@@ -759,9 +759,20 @@ public class UniversityService {
         // Phase 5 B2 — flag papers whose findings contain magnitudes outside the
         // physically-reasonable range for their (domain, topic).
         // Phase 7 F2 — Map overload concatenates blocks before checking magnitudes.
-        List<String> magnitudeFailures = magnitudeRangeEnabled
-                ? MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(), findingsBlocks, literatureSearch)
-                : List.of();
+        // Phase 18 §18.1 (P8c) — also scan the tool-call trace for violations
+        // the Findings prose may have dropped (P-a328-593 hidden-5790-MPa pattern).
+        // Same bound table; trace violations carry a "[trace]" prefix.
+        List<String> magnitudeFailures;
+        if (magnitudeRangeEnabled) {
+            magnitudeFailures = new java.util.ArrayList<>(
+                    MagnitudeRangeValidator.validate(draft.domain(), draft.topicName(),
+                            findingsBlocks, literatureSearch));
+            magnitudeFailures.addAll(
+                    MagnitudeRangeValidator.validateTrace(draft.domain(), draft.topicName(),
+                            narration.toolCallTrace(), literatureSearch));
+        } else {
+            magnitudeFailures = List.of();
+        }
         boolean magnitudeOutOfRange = !magnitudeFailures.isEmpty();
         if (magnitudeOutOfRange) {
             log.warn("magnitude-range check failed paperId={} reasons={}",

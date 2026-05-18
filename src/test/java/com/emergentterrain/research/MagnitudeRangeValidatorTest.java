@@ -187,4 +187,109 @@ class MagnitudeRangeValidatorTest {
         svc.loadCorpus();
         return svc;
     }
+
+    // -------- Phase 18 §18.1 (P8c) — tool-call trace scan --------
+
+    @Test
+    void p593_hiddenInTrace_compositeStressFlaggedFromTrace() {
+        // P-a328-593 pattern: call result reported "→5790MPa" (composite
+        // longitudinal stress, 5.79 GPa, above the 3 GPa bound), but the
+        // Findings prose dropped the number. validateTrace must catch it.
+        // Real P-593 call_4 was a single-shot summary, no result= marker.
+        // The validator must scan the full string in that case.
+        var inv = new com.emergentterrain.llm.ToolInvocation(
+                "run_param_sweep",
+                "{\"param1\":\"785\",\"param2\":\"1.2\"}",
+                "Best: T=785 K → P_c=52 atm → longitudinal σ=5790MPa",
+                0,
+                "call_4");
+        List<String> reasons = MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", List.of(inv));
+        assertThat(reasons).isNotEmpty();
+        assertThat(reasons.get(0))
+                .startsWith("[trace]")
+                .contains("Composite Failure Mode")
+                .contains("5790")
+                .contains("call_4");
+    }
+
+    @Test
+    void traceScan_skipsRejectedTool() {
+        // Sandbox-rejected calls contain arbitrary tokens (e.g. the rule
+        // text) that can FP-match a numeric regex. validateTrace must skip
+        // them entirely.
+        var rejected = new com.emergentterrain.llm.ToolInvocation(
+                "run_sandboxed_code",
+                "{\"code\":\"…\"}",
+                "REJECTED by safety review: parse failed line 17 (12345)",
+                1,
+                "call_2");
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", List.of(rejected)))
+                .isEmpty();
+    }
+
+    @Test
+    void traceScan_skipsToolError() {
+        var err = new com.emergentterrain.llm.ToolInvocation(
+                "run_param_sweep",
+                "{}",
+                "Tool error: connection refused (9999)",
+                0,
+                "call_1");
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", List.of(err)))
+                .isEmpty();
+    }
+
+    @Test
+    void traceScan_intermediateSweepValuesNotScannedWhenResultMarkerPresent() {
+        // Parameter-sweep papers legitimately report intermediate values above
+        // the bound (e.g. Vf=90% → 12020 MPa in the grid scan), with the
+        // *terminal* result being a different scalar. When the tool result
+        // includes "result=<scalar>", validateTrace only scans from result=
+        // forward — the intermediate values stay invisible to this check.
+        var inv = new com.emergentterrain.llm.ToolInvocation(
+                "run_param_sweep",
+                "{}",
+                "Grid: Vf=90%→12020MPa Vf=10%→500MPa\nresult=1850MPa",
+                0,
+                "call_3");
+        // 1850 MPa is below the 3000 MPa bound — must not flag.
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", List.of(inv)))
+                .isEmpty();
+    }
+
+    @Test
+    void traceScan_topicWithoutBoundReturnsEmpty() {
+        var inv = new com.emergentterrain.llm.ToolInvocation(
+                "run_predicate_scan", "{}", "result=99999", 0, "call_1");
+        // MATHEMATICS / Prime Constellation Search has no magnitude bound
+        // in the default registry — must return empty regardless of value.
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATHEMATICS", "Prime Constellation Search", List.of(inv)))
+                .isEmpty();
+    }
+
+    @Test
+    void traceScan_nullSafe() {
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                null, "T", List.of())).isEmpty();
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", null)).isEmpty();
+        assertThat(MagnitudeRangeValidator.validateTrace(
+                "MATERIALS", "Composite Failure Mode", List.of())).isEmpty();
+    }
+
+    @Test
+    void traceScan_proseValidatorStillWorksIndependently() {
+        // Regression: the new trace overload must not change prose-validator
+        // behaviour. The original P-a328-2 fixture still flags.
+        String findings = "Composite failure (...): Vf=80%→9620MPa Vf=90%→12020MPa.";
+        List<String> reasons = MagnitudeRangeValidator.validate(
+                "MATERIALS", "Composite Failure Mode", findings);
+        assertThat(reasons).isNotEmpty();
+        assertThat(reasons.get(0)).contains("9620");
+    }
 }
