@@ -37,7 +37,10 @@ correct Reuss result; P-a328-539 re-fabricating P-a328-534's rejected
 convergence claim).
 
 **Scoping origin:** P5/P6/P7 originated in `phase-wishlist.md` as
-high-leverage levers (added 2026-05-17 from refresh #3/#4 evidence).
+high-leverage levers (added 2026-05-17 from refresh #3/#4 evidence;
+the wishlist has since been renamed to `phase-wishlist-human-level.md`
+and the P5–P8 sections trimmed — see its Migration table for the
+disposition of each former item).
 The validator items originated in `phase-flags.md` (then named
 `phase-15-flag-rollout-queue.md`) under "Known validator FPs blocking
 D2 escalation" + "Coverage gaps to ship alongside the FP fixes".

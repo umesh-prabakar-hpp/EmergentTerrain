@@ -1513,7 +1513,7 @@ review` WARN entries per 55-minute window are the *upstream cause* of
 the Five-Computation fabrications, but F7 deserves its own scoping
 pass with a Layer 1 / Layer 2 / Layer 3 plan. F1's block-count guard
 contains the symptom without depending on upstream relief. F7 remains
-on [phase-wishlist.md](phase-wishlist.md) pending a future phase doc.
+on [phase-wishlist-human-level.md](phase-wishlist-human-level.md) pending a future phase doc.
 
 Flags introduced (default off in code; live state tracked in
 [phase-flags.md](phase-flags.md)):
@@ -1583,8 +1583,11 @@ Scope lives across two existing docs:
 - [phase-flags.md](phase-flags.md)
   "Known validator FPs blocking D2 escalation" + "Coverage gaps to
   ship alongside the FP fixes" — items 1-7 (the validator side).
-- [phase-wishlist.md](phase-wishlist.md) P5, P6, P7 — the narrator
-  and scheduler items.
+- `phase-wishlist.md` (since renamed to
+  [phase-wishlist-human-level.md](phase-wishlist-human-level.md) and trimmed)
+  P5, P6, P7 — the narrator and scheduler items. After the 2026-05-18
+  rename, the Migration table at the bottom of that doc records where
+  each former item now lives.
 
 | Group | Item | Source | Type |
 |-------|------|--------|------|
@@ -1698,7 +1701,8 @@ phase-13-recommendation-fixes.md             ← six named fixes from REVIEW_REP
 phase-14-recommendation-fixes-refresh2.md    ← six named fixes from REVIEW_REPORT refresh #2 (scoping)
 phase-16-recommendation-fixes-refresh3.md    ← eight fixes from REVIEW_REPORT refresh #3/#4 (as shipped) — D2-prep, P5a/b, P6a/b, P7
 phase-flags.md                               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers (renamed from phase-15-flag-rollout-queue.md after Phase 16 added three more flags)
-phase-wishlist.md                            ← quality levers reference (not queued; not a phase)
+phase-wishlist-human-level.md                ← human-level paper-building quality levers (P1–P4); reference, not queued; renamed from phase-wishlist.md on 2026-05-18 with P5–P8 trimmed out (migrated per its bottom table)
+phase-18-pending-followups.md                ← consolidated open items (P8c, P8d, Phase 4c Piece 3 decision); pointer to phase-flags.md for flag flips
 ```
 
 Phase 10 has no dedicated scoping doc — it shipped as the

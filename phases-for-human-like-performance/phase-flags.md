@@ -35,7 +35,10 @@ as a deliberate keep-off.
 `block-count-guard`) flipped 2026-05-17 in commit `918ac90`. Each
 remaining entry lives here as a one-row pointer to the phase doc
 that defines what flipping the flag does — the feature details
-stay in the source phase doc (or `phase-wishlist.md`), not here.
+stay in the source phase doc (or `phase-wishlist-human-level.md` for
+P1–P4, `phase-18-pending-followups.md` for P8c/P8d, the
+phase-16-recommendation-fixes-refresh3 doc for the now-shipped P5/P6/P7
+features), not here.
 
 ---
 
@@ -47,9 +50,9 @@ stay in the source phase doc (or `phase-wishlist.md`), not here.
 | 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) | Medium — status-changing |
 | 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") | High — flips structural validator from log-only to enforcing |
 | 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates **[MET: refresh #2 P-611 out_of_tolerance=5, P-598 unmatched=6, P-603 out_of_tolerance=2; recommend `warn→downgrade`]** | High — flips citation validator from log-only to enforcing |
-| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode (see `phase-wishlist.md` P6a) | Low — narration prompt only |
-| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a soak (see `phase-wishlist.md` P6b) | Medium — prompt expansion |
-| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-wishlist.md` P7) **[MET in spirit: refresh #2 P-602↔P-608 byte-clones (identical VdW hypothesis 12 min apart, different bots) — P6a chain-dep recommended-not-required]** | Medium — touches reward dynamics |
+| 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode (see `phase-16-recommendation-fixes-refresh3.md` P6a) | Low — narration prompt only |
+| 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a soak (see `phase-16-recommendation-fixes-refresh3.md` P6b) | Medium — prompt expansion |
+| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-16-recommendation-fixes-refresh3.md` P7) **[MET in spirit: refresh #2 P-602↔P-608 byte-clones (identical VdW hypothesis 12 min apart, different bots) — P6a chain-dep recommended-not-required]** | Medium — touches reward dynamics |
 | 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure **[PARTIAL: refresh #2 first D3-ext firing on P-a328-618; one more refresh recommended]** | Medium — defers publish; on give-up still produces NEEDS_REVISION |
 | 4 | `app.research.panel-revision.enabled` | 17 P2 | off | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly | Medium — overwrites findings/conclusion |
 | 4 | `app.research.panel-grade-floor.enabled` | 17 (refresh #1 follow-on) | off | One refresh confirms zero false positives **[MET: refresh #2 would fire on P-603 / P-605 / P-613 — all already REJECTED/DISPUTED by other validators; no FPs observed; recommend flip]** | Medium — status-changing |
@@ -484,8 +487,8 @@ broken paper, whereas an FP at `warn` is log-only.
 
 Once #1 is fixed and re-run on the existing corpus drops the FP rate
 below ~5% (currently ~6-19% depending on how the marginal cases are
-counted), D2 is safe to flip warn → downgrade. Track this in
-[phase-wishlist.md](phase-wishlist.md) under a `D2-prep` item.
+counted), D2 is safe to flip warn → downgrade. Track this in this
+doc's D2 row in the Snapshot table above.
 
 ### Coverage gaps to ship alongside the FP fixes
 
@@ -548,7 +551,7 @@ strengthens what `warn` *catches*, not whether it suppresses.
   selection) — these are runtime tuning, not rollout decisions.
 - **Phase wishlist items** (sandbox grammar relaxation, schema-pinned
   reviewer prompts, fit_curve tool) — those need *code*, not just a
-  flag flip. See [phase-wishlist.md](phase-wishlist.md). The
+  flag flip. See [phase-wishlist-human-level.md](phase-wishlist-human-level.md). The
   sandbox-grammar-relaxation item (wishlist P2 Layer 1) is the
   highest-leverage one named in Phase 14's "deliberately does NOT
   change" section and is a candidate for its own scoping doc once the

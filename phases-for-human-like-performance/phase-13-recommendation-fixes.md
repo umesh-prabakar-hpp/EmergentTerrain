@@ -308,9 +308,10 @@ if (revParsed.hypothesis() != null && repaired) {
   valid JSON.
 
 **Open question for E2:** does a bounded LLM-retry on persistent parse
-failure also make sense? The phase-wishlist P3 (schema-pinned reviewer
-prompts) covers that for the reviewer stage; the same shape could
-extend to the revision stage. Treat as E2-followon, not initial scope.
+failure also make sense? The `phase-wishlist-human-level.md` P3
+(schema-pinned reviewer prompts) covers that for the reviewer stage;
+the same shape could extend to the revision stage. Treat as
+E2-followon, not initial scope.
 
 ---
 

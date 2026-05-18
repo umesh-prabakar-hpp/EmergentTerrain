@@ -1,17 +1,26 @@
-# Phase Wishlist — Quality Levers (reference, not queued)
+# Phase Wishlist — Human-Level Paper-Building Levers (reference, not queued)
 
 **Status:** **Wishlist document.** Not a queued PR, not scheduled work. This
 file captures high-leverage interventions that move the system from
 "fewer fabrications" (Phase 12's defensive scope) to "actually better
-content." Each piece is sized and pointed at concrete files so future
-planning can pull from this catalog directly, but the order of execution
-and the decision to start at all is deliberately deferred.
+content" — papers that read as genuine, human-level research artifacts.
+Each piece is sized and pointed at concrete files so future planning can
+pull from this catalog directly, but the order of execution and the
+decision to start at all is deliberately deferred.
 
-**Pieces:** P1-P4 are the original four high-leverage levers (~3w, ~2w,
-~1.5w, ~2w respectively). P5-P7 were added 2026-05-17 from REVIEW_REPORT
-refreshes #3-#4 of `research/a3289005/` — three smaller items
-(narrator scrubs, corpus-aware narration, topic-clone backoff) that
-target net-new failure modes the original four did not cover.
+**Scope:** P1–P4 only — the original four high-leverage levers (~3w, ~2w,
+~1.5w, ~2w respectively). Each one upgrades what a paper *can do* (more
+tools, lower sandbox friction, structured reviewer signals, derived
+cross-domain couplings) rather than patching a specific failure mode.
+
+**File-rename + scope-narrowing note (2026-05-18):** Renamed from
+`phase-wishlist.md` to `phase-wishlist-human-level.md`. Sections P5–P8
+were trimmed out because they were tactical, REVIEW_REPORT-driven items
+(narrator scrubs, corpus-aware narration, topic-clone backoff, Phase 17
+diagnostics) rather than human-level paper-building work. Most of P5–P8
+shipped between 2026-05-17 and 2026-05-18; the still-pending P8c + P8d
+items moved to `phase-18-pending-followups.md`. The migration table at
+the bottom of this doc records where each former P5–P8 item now lives.
 
 **Why this is wishlist, not queue:**
 
@@ -497,514 +506,6 @@ which signal the next REVIEW_REPORT refresh names loudest.
 
 ---
 
-## P5 — Narrator scrub list (small defensive items)
-
-Two small narrator-stage rules surfaced by REVIEW_REPORT refreshes #3-#4
-of `research/a3289005/`. Neither needs architecture changes — each is a
-guarded `if` at a single point in the narration pipeline. Packaged
-together because they ship as one commit.
-
-### P5a — Suppress canned conclusion when status ≠ PUBLISHED
-
-**What:** When the narrator-fallback path emits the canned line
-*"Computed values were independently reproduced by peer reviewers, and
-the topic-specific validator supports the hypothesis"*, gate it on the
-pipeline status. If `status ∈ {NEEDS_REVISION, REJECTED}` or
-`successful_tool_calls == 0`, fall through to a neutral "No verified
-evidence produced this submission" string instead.
-
-**Why:** P-a328-553 shipped with the canned line despite `LLM Call
-Path = gate:closed:professor → publish:no_methods→needs_revision` —
-zero successful tool calls, status NEEDS_REVISION, no Methods section,
-yet the published markdown claims "values were independently
-reproduced." The boilerplate is emitted by a fallback path that does
-not consult the publish status.
-
-**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
-— grep for the literal canned-line string to find the emit site.
-
-**Risk:** Very low. The replacement string is bit-identical to today
-when status == PUBLISHED.
-
-### P5b — Strip number-words harness leaks
-
-**What:** Extend the existing Hypothesis/Findings scrub to also strip
-number-words tokens (`one|two|...|hundred`, plus decimal compound forms
-like `point` glue: `seven point one`). Pair with the existing numeric-
-form scrub (`param2=4.7` etc.).
-
-**Why:** Existing scrub catches numeric forms but P-a328-541 emitted
-"*starting position = fifty, scale = seven point one*" in Findings —
-number-words form defeats the digit-regex. Alternative implementation:
-scrub the structured `param1=…, param2=…` BEFORE it reaches the LLM
-prompt rather than catching it on the way out (more robust but a
-larger change).
-
-**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
-or `src/main/java/com/emergentterrain/research/PromptTemplateRegistry.java`
-— wherever the existing parameter-leak filter lives.
-
-**Acceptance:** Across one REVIEW_REPORT refresh after ship, zero
-papers carry `starting position = <number-word>` or `scale = <number-
-word>` phrasing in Hypothesis or Findings.
-
-**Risk:** Low. The number-word list is closed (zero through hundred +
-common decimals), regex-replaceable.
-
----
-
-## P6 — Corpus-aware narration (cross-citation verdict + prior-conclusion injection)
-
-Two related upgrades that feed prior-paper knowledge into the narration
-+ formulation prompts. Both surfaced as "the system treats the corpus
-as topic-indexed but not conclusion-indexed" in REVIEW_REPORT refresh
-#3 §1 rec #7 and the quality-and-novelty section.
-
-### Why this matters
-
-Refresh #3 produced three cross-paper citations (P-521 → P-510;
-P-538 → P-526; P-539 → P-534) — a first for the corpus and a
-methodological positive. Two went well:
-
-- P-538 → P-526: cited values η ≈ 0.761 at T_c ≈ 357 K, T_h ≈ 1496 K
-  *match* P-526's reported numbers. Verified true.
-
-The third failed because the citing author had no access to the cited
-paper's review verdict:
-
-- P-539 → P-534: P-534 was REJECTED for the same `(1/N)` vs `(1/N²)`
-  convergence-fabrication failure that P-539 then **re-committed**.
-  Because the narrator only saw "prior paper exists on this topic," it
-  treated the prior as supportive rather than seeing it was rejected
-  for the exact pattern P-539 was about to repeat.
-
-A separate but related case: P-541 directly **inverts** P-516's correct
-Reuss `V_f = 1` math, claiming an "interior crossover" that contradicts
-the closed-form solution. The system treats the topic as un-tackled
-when in fact a prior paper has a strong-confidence answer.
-
-### P6a — Cross-paper citation verdict propagation
-
-**What:** When the narrator includes a Related Work cross-citation,
-attach the cited paper's `panel_verdict` (and Honesty score) to the
-prompt context. Two policy options:
-
-1. **Disclaimer mode** (lower risk): prepend "*Note: the cited paper
-   P-X was classified <verdict>. Do not propagate its conclusions
-   without independently verifying its tool-call trace.*"
-2. **Suppression mode** (stronger): suppress cross-citations whose
-   target is REJECTED or DISPUTED.
-
-Default to disclaimer mode; flag suppression behind
-`app.research.corpus-citations.suppress-rejected` (default off, escalate
-after one refresh).
-
-**File:** `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
-(prompt assembly). The verdict fetch is a single query against the
-`papers` table — already keyed by `paperId` in `PapersRepository`.
-
-**Acceptance:** After ship, zero papers cite a REJECTED prior in
-Related Work without the disclaimer phrase appearing in the published
-markdown. If suppression flag is on, zero REJECTED priors appear in
-Related Work at all.
-
-**Risk:** Low for disclaimer mode (extra prompt context, no behaviour
-change). Medium for suppression mode (drops one signal the LLM might
-use for novelty assessment).
-
-### P6b — Prior-result injection at formulation time
-
-**What:** When a new paper is formulated on a topic that already has a
-`classification == SUPPORTED, panelHonesty ≥ 0.5, math-verified` prior,
-the formulator's prompt should include:
-
-> *Prior result: <citation> established that <one-sentence
-> conclusion>. Either replicate the result at different parameters,
-> refute it with new evidence and explicitly cite the contradiction,
-> or pick a different sub-question.*
-
-Picks the highest-peer-score PUBLISHED + SUPPORTED prior on the topic.
-If none exists, the prompt is bit-identical to today.
-
-**File:** wherever topic-selection + formulation lives — likely
-`src/main/java/com/emergentterrain/research/ExperimentPlannerService.java`
-or `ResearchProgramService`. The "best prior" lookup is a SQL `SELECT`
-ordered by `peer_score DESC` with the filter predicates.
-
-**Acceptance:** After ship, papers landing on a topic with a high-
-confidence prior either (a) cite that prior in Related Work, (b) cite
-it explicitly in the Conclusion as "extends" / "refutes", or (c) shift
-sub-question and the new Hypothesis is materially different from the
-prior. A papers-vs-priors audit script can spot-check by querying for
-same-topic papers and diffing Hypothesis text.
-
-**Risk:** Medium. Prompt expansion adds ~80-120 tokens. The "best
-prior" selector could be game-able if multiple priors disagree —
-restrict the injection to topics where exactly one math-verified prior
-exists in the first iteration.
-
-### Open questions before sequencing P6
-
-- **Pull or push?** P6a is a *pull* (narrator fetches the verdict at
-  citation time); P6b is a *push* (formulator gets the prior context
-  before any LLM call). Same data source, two different injection
-  points. P6b is the bigger ergonomic shift but also the more useful
-  one — it shapes the hypothesis, not just the prose.
-- **Verdict granularity.** Today verdict is one of
-  `PUBLISHED|REJECTED|DISPUTED|NEEDS_REVISION|NULL_RESULT`. For P6a's
-  disclaimer mode that's enough. For P6b's "refute with explicit
-  contradiction" path, the LLM also needs the cited paper's
-  *conclusion* — see if `paper.conclusion` is already a column or if
-  it needs to be derived from the markdown.
-- **De-duplication with Phase 5 C1.** C1 already does citation-aware
-  scoring at publish time. P6 is upstream of that — feeding context
-  at narration/formulation. Confirm we're not duplicating logic.
-
----
-
-## P7 — Topic-clone scheduler backoff
-
-**What:** In the topic-selection logic, count recent rejections per
-topic; multiply the selection weight by `0.5 ^ consecutive_rejections`.
-After two consecutive rejections the topic is effectively de-
-prioritised; after four, it falls below all positive-weight
-alternatives.
-
-**Why:** Divisor-sum-average was attempted **four times** in the
-corpus (P-a328-534, 539, 553, plus one more attempt rejected pre-disk
-per the operational-log §). All four failed with overlapping `(1/N)`
-vs `(1/N²)` convergence-fabrication patterns. The scheduler kept
-re-picking the topic because nothing in the picker reflected "this
-topic has been failing." Cited as REVIEW_REPORT refresh #3 §1 rec #7.
-
-**Files:**
-
-- Topic-selection logic — likely
-  `src/main/java/com/emergentterrain/research/ExperimentPlannerService.java`
-  (the planner is where topic picks happen) or
-  `src/main/java/com/emergentterrain/research/ResearchProgramService.java`
-  (where programs are seeded). Grep for `selectTopic` /
-  `pickTopic` / weight-computation methods.
-- New: a small `TopicHealthService` (or method on an existing service)
-  that counts rejections per `(domain, topic)` over a configurable
-  rolling window (default 5 most-recent attempts) and exposes a
-  `multiplier(domain, topic) → double` for the picker.
-
-**Acceptance:** After ship, no topic accumulates ≥3 consecutive
-rejections within a 5-paper sliding window without being de-
-prioritised. A "topic heat" debug log line per refresh shows the top-5
-hottest topics; the formulation pipeline routes around them
-automatically.
-
-**Risk:** Medium. Coupling to existing reward dynamics (Phase 5 C1
-citation scoring, Phase 1 program rewards) needs care — a topic that
-is rejected for fabrication reasons looks identical at the
-selection-weight layer to a topic that is genuinely hard. Mitigation:
-the multiplier *decays* with time (a 5-paper rolling window) rather
-than permanently penalising. Topics with merit will recover once the
-oldest rejection ages out.
-
-**Open questions:**
-
-- **Window size.** Five is a guess. Worth a one-line YAML knob
-  (`app.research.topic-backoff.window-size`) so refresh evidence can
-  tune it.
-- **Domain-level fallback.** If every topic in a domain is on cooldown
-  (possible if the domain just had a bad batch), what's the fallback?
-  Probably: pick the coolest topic regardless of multiplier rather
-  than block the domain entirely.
-
----
-
-## P8 — Phase 17 follow-on: diagnostics + narrator scrubs (refresh #1+#2 evidence)
-
-Four small items surfaced in post-Phase-17 refreshes #1 + #2 (see
-`research/a3289005/REVIEW_REPORT.md`). Each is narrower than P1–P7 —
-paired diagnostic/fix work or a targeted narrator scrub. Listed by
-triage priority.
-
-### P8a — `rev:parse_failed→fp` raw-byte diagnostic + repair
-
-**What:** Capture the first 500 chars of the raw revision stream when
-`rev:parse_failed→fp` fires, at WARN level. After one refresh of
-captured bytes, decide whether the fix is provider-side (Groq not
-honoring `response_format: json_object` for v3 structured-findings
-templates) or parser-side (LenientJsonParser missing a repair pattern).
-
-**Why:** `rev:parse_failed→fp` is the dominant tier-2 failure across
-refreshes #1 and #2 — 24 occurrences in refresh #2 alone, 6 of 10
-disk-resident papers carry the stamp. Phase 17 JSON-output mode
-(commit `2ac020d`) was supposed to close this and hasn't. Without
-raw bytes, both hypotheses (provider-side ignore vs parser gap) are
-equally plausible and a guess-fix has 50/50 odds of being wrong.
-
-**Files:**
-
-- `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
-  — the `rev:parse_failed→fp` stamp site (around line 770–780). Add
-  a WARN log with `revised.toString().substring(0, Math.min(500,
-  revised.length()))` before the fallback. Guard behind a flag
-  (`app.research.rev-parse-failed-byte-capture.enabled`).
-- `src/main/java/com/emergentterrain/research/LenientJsonParser.java`
-  — likely site for any parser fix once bytes are captured.
-
-**Acceptance:** Diagnostic ships behind a flag, observability-only.
-After one refresh produces 10+ captured samples, the dominant
-failure shape is named. The fix that follows (in `LenientJsonParser`
-or the revision prompt) drops `rev:parse_failed→fp` to under 10% of
-revisions over one refresh.
-
-**Risk:** Low — diagnostic flag is observability-only. Subsequent
-parser/prompt change is bounded by the existing `:parse_failed→fp`
-fallback chain.
-
-**Open questions:**
-
-- **Log volume.** 500 chars × 24 firings per 30-min refresh is ~12 KB
-  of log per refresh — bounded. No PII risk on a research pipeline.
-- **Cap.** Should the diagnostic auto-disable after N captures?
-  Maybe — a `max-captures: 50` cap prevents log floods on a
-  pathologically broken release.
-
-### P8b — D3 `zero_successes` counter audit + symmetry fix
-
-**What:** Audit `MathToolSuite.ToolMetrics` to confirm that
-`run_symbolic` rejections increment `sandboxRejectCount` /
-decrement `totalSuccesses` the same way `run_sandboxed_code`
-rejections do. Hypothesis is asymmetric counter increment, causing
-D3 (`totalSuccesses == 0` gate) to miss papers where every tool
-call was a `run_symbolic` failure.
-
-**Why:** P-a328-613 (Phase 17 refresh #2) had 5/5 tool calls
-rejected — 4 `run_symbolic` syntax errors on `\theta` escapes + 1
-timeout — and still got `prof:llama:ok` stamped instead of
-`zero_successes→suppressed`. The paper then published with
-fabricated "experimental measurements" content and was caught only
-by Phase 5 C2 replication (DISPUTED). D3 should have caught it at
-the professor stage. The call_path shows `sandbox_reject=1` but
-visibly 5 calls failed — the increment count is wrong by 4×.
-
-**Files:**
-
-- `src/main/java/com/emergentterrain/service/MathToolSuite.java` —
-  inspect `ToolMetrics` increment paths in the executor closure.
-  Likely the `run_symbolic` branch increments only on
-  static-rejected calls, not on `run_symbolic`-side rejections
-  (non-whitelisted heads, timeouts, parse failures).
-- Test: a new test class `MathToolSuiteCounterSymmetryTest.java`
-  that pins both tool types' rejection paths against the same
-  counter.
-
-**Acceptance:** A paper with 5/5 `run_symbolic` rejections produces
-`metrics.totalSuccesses() == 0` AND `metrics.totalRejects() == 5`;
-D3 fires and stamps `zero_successes→suppressed`. Existing D3 tests
-continue to pass.
-
-**Risk:** Low. Counter symmetry is a bug fix, not a feature change.
-The D3 gate's behaviour on existing well-counted papers is preserved.
-
-**Open questions:**
-
-- **Backfill.** Do we re-evaluate already-published papers with the
-  corrected count? Probably no — the gate is forward-looking;
-  retroactive status changes would invalidate existing citations.
-
-### P8c — Magnitude-range validator scans tool-call results, not just Findings prose
-
-**What:** Extend `MagnitudeRangeValidator` to iterate
-`narration.toolCallTrace()` entries (in addition to the prose) and
-apply the same per-(domain, topic) ceilings to numeric results in
-tool outputs. Today the validator only scans Findings text, so an
-unphysical magnitude that lives in the trace but doesn't surface
-in the prose escapes.
-
-**Why:** P-a328-593 (Phase 17 refresh #1) had call_4 reporting
-`Best: T=785 K → P_c=52 atm → longitudinal σ=5790 MPa` — 5.79 GPa,
-clearly above the 3 GPa composite-stress ceiling the validator
-already enforces. The Findings prose dropped the 5790 MPa number,
-so the validator's prose-scanning pass found nothing to flag.
-Status PUBLISHED. The new panel-grade-floor gate (once flipped)
-catches the panel-grade aspect; this item closes the
-magnitude-range aspect at the same publish-time tier.
-
-**Files:**
-
-- `src/main/java/com/emergentterrain/research/MagnitudeRangeValidator.java`
-  — add a tool-call-trace overload alongside the existing
-  findings-text overload; share the per-topic ceiling table.
-- `src/main/java/com/emergentterrain/research/UniversityService.java`
-  — at the call site (around line 800–810), pass the trace alongside
-  the findingsBlocks.
-
-**Acceptance:** Replaying P-a328-593 through the publish pipeline
-with this change produces a `magnitude-range:trace_violation` stamp
-and routes REJECTED based on the 5790 MPa trace value, independent
-of the Findings prose. Existing prose-violation papers continue to
-flag as before.
-
-**Risk:** Low–medium. False positives if a tool legitimately returns
-intermediate numerics that exceed the ceiling but aren't final
-results (e.g. a parameter sweep that finds the max and then filters
-to the operating window). Mitigation: only scan the final
-`result` field of completed calls, not the sweep grid.
-
-**Open questions:**
-
-- **Per-topic granularity.** The existing ceiling table is keyed by
-  (domain, topic). Should the trace scan use a wider net to catch
-  cross-topic spillover (e.g. a `materials/basquin` paper that
-  computes a composite stress)? Default to topic-scoped for v1.
-
-### P8d — Narrator scrub: "math right, prose fabricated" pattern
-
-**What:** Add to the existing P5-class narrator scrub list a rule
-that flags Findings prose making quantitative claims (derivatives,
-uncertainty propagation, error magnitudes, sample sizes) without a
-corresponding `[call_N]` reference. Currently the panel catches
-these (honesty/completeness sink to 0.00–0.10) but the LLM keeps
-emitting them; only the panel-grade-floor demote (once flipped)
-saves the corpus from publishing them.
-
-**Why:** Phase 17 refresh #2 had two papers in this shape — both
-with **correct tool-call math** but Findings prose that invented
-specific numeric claims no call produced:
-
-- **P-a328-603 Snell.** Call 3 returned exact
-  `arcsin(1.49/1.50) = 83.3804°`. Findings prose then invented
-  "1.5° maximum observed error" and "331° per unit n₂ derivative"
-  — neither has a supporting tool call.
-- **P-a328-605 Kepler.** Calls 3 and 5 returned exact 4.12% and
-  4.08% T²/a³ deviations. Findings prose then claimed "53 samples"
-  and "20 samples" — only 5 calls ran. `single_point_sweep`
-  validator caught the sample-size claim; nothing caught the
-  derivative claim.
-
-The pattern: LLM produces an honest computation, then pads the
-prose with "physical interpretation" content that reads plausible
-but has no tool-call provenance. Looks like P-571's textbook-canon
-drift but at a finer grain (no clear single tweaked-number; entire
-claim is invented).
-
-**Files:**
-
-- `src/main/java/com/emergentterrain/research/NumericalConsistencyValidator.java`
-  — likely site for a new check. Existing Check-C
-  (unsourced-failed-call) targets specific numbers without a
-  `[call_N]`; this extends to *types of claim* (derivative /
-  uncertainty / sample-size) that should always carry a citation.
-- Or: a new validator `UnsourcedClaimValidator.java` co-located
-  with the others.
-
-**Acceptance:** Replaying P-603 + P-605 through the publish pipeline
-produces an `unsourced_claim:derivative` /
-`unsourced_claim:sample_size` stamp that routes NEEDS_REVISION
-when derivative/uncertainty/sample-size prose appears without a
-paired `[call_N]`. P-595 Basquin (correct math AND correct prose)
-continues to pass.
-
-**Risk:** Medium. The regex for "derivative / uncertainty / sample-
-size phrase" is fuzzy; false positives on legitimately-cited claims
-are plausible. Mitigation: ship in `warn` mode first (stamps but
-doesn't route), promote to `downgrade` after one refresh confirms
-the FP rate is < 5%.
-
-**Open questions:**
-
-- **Vocabulary list.** Which phrases are the canonical
-  derivative/uncertainty/sample-size triggers? Likely:
-  `derivative\s+(of|dθ_c/d|d\w/d)`, `uncertainty\s+of`,
-  `(\d+)\s+samples?`, `error\s+(magnitude|propagation)`,
-  `±\s*\d`. Empirical from refresh #2's two examples.
-- **Interaction with `single_point_sweep`.** That validator already
-  catches the "53 samples" claim. P8d should not double-stamp;
-  defer to F3's existing handling for sample-size and target only
-  the derivative / uncertainty / error-magnitude trio.
-
-### P8e — Internal-fragment detector ("conjunction + bare number" shape)
-
-**What:** A new validator that flags mid-sentence fragments of the form
-*"<conjunction>, <number>, <continuation-word>"* — e.g.
-`"However,30, suggesting..."` — where a sentence-starting connective
-is followed by a bare comma-bound number with no unit, no noun phrase,
-and no antecedent. Ship in `warn` mode first (stamps
-`internal_fragment:warn` on call_path without changing status), soak
-one refresh, escalate to `downgrade` only if the false-positive rate
-is acceptable.
-
-**Why:** P-a328-647 (refresh #4) had Conclusion *"…mean deviation of
-0.001. However,30, suggesting that the divisor-sum average's behavior
-is more complex than initially anticipated."* The fragment
-*"However,30,"* is grammatically broken — likely a JSON re-serialization
-or LLM-generation glitch that elided the original *"However, with only
-30 samples, suggesting…"*. The existing Phase 5 A1 truncation-guard
-correctly does NOT fire because the text ends with `anticipated.` — a
-proper terminator. The malformation is internal, not tail. Documented
-by `PublishPaperTest.d5_p647InternalMalformationIsNotATailTruncation`
-(commit `164d541`) which pins the truncation-guard's correct
-non-firing behavior on this exact text.
-
-**Files:**
-
-- New: `src/main/java/com/emergentterrain/research/InternalFragmentValidator.java`
-  — single static method
-  `List<String> detect(String hypothesis, Map<Integer,String> findingsBlocks, String conclusion)`
-  returning the set of detected fragment phrases. Returns empty list
-  when no match — bit-identical to flag-off behaviour.
-- `src/main/java/com/emergentterrain/research/UniversityService.java`
-  — wire the validator at the same publish-time layer as
-  `direction-of-finding` / `single-point-sweep`. Stamp
-  `internal_fragment:warn` on call_path when matches found; route
-  status NEEDS_REVISION only in `downgrade` mode.
-
-**Acceptance:**
-
-- `warn` mode: re-running P-647 produces `internal_fragment:warn`
-  stamp on the call_path; status unchanged. Refresh #5 measures
-  observed firings — fewer than ~1/30 papers is acceptable
-  false-positive rate for the LLM's typical prose density.
-- `downgrade` mode (escalate after FP rate confirmed): same paper
-  shape routes NEEDS_REVISION with `internal_fragment:downgraded`
-  stamp.
-
-**Risk:** Medium → High depending on regex tightness. The risk is
-real because the legitimate phrasing *"However, 30 samples were
-collected, suggesting..."* — after whitespace normalization or a
-JSON-stream tokenization quirk — could match the same pattern. The
-guard must distinguish "30," followed by a continuation word (broken)
-from "30 samples" followed by a verb (legitimate). One signal: in
-the legitimate case, the number is followed by a noun phrase before
-the next comma. The regex should require that the next 1-2 tokens
-after `,\d+,` are non-noun (verbs like *suggesting*, *implying*,
-*indicating* — i.e. participles). Ship behind a flag.
-
-**Open questions:**
-
-- **Conjunction vocabulary.** Initial set: *However, Therefore, Thus,
-  Hence, Furthermore, Moreover, Consequently, Nonetheless, Nevertheless*.
-  Add to a config-driven list so refresh-driven tuning is a yaml flip.
-- **Continuation-word allow/deny lists.** Should the validator
-  require the post-number token to be a present-participle verb
-  (suggesting / implying / indicating / showing) to fire? That tightens
-  the FP rate substantially but risks under-fire on novel broken
-  shapes.
-- **Single-shot vs corpus-aware.** Run only at publish time, or fold
-  into the Phase 17 panel-revision prompt as an explicit "do not emit
-  bare comma-bound numbers after conjunctions" guidance line? The
-  prompt-side fix is cheaper but less observable.
-- **Could the existing `harness-leak-filter` regex be extended?**
-  It already strips simulator-coord phrases. Adding the
-  conjunction-fragment pattern there would reuse infrastructure, but
-  the leak-filter rewrites text whereas this validator should
-  *flag*, not rewrite — different semantics, separate validator is
-  cleaner.
-
-**Status:** Wishlist only. Single observed occurrence (P-a328-647).
-Hold for one more refresh — if a second example appears with the
-same shape, promote to a flag-gated implementation. If the corpus
-goes 3+ refreshes without a recurrence, deprioritise.
-
----
-
 ## What this phase deliberately does NOT include
 
 - **Better prompt templates** — every refresh has highlighted prompt-
@@ -1037,9 +538,6 @@ goes 3+ refreshes without a recurrence, deprioritise.
 | **P2** | After P2, sandbox-reject count down ≥50%; the 10 papers in §7 with ≥5 rejects each produce ≥1 successful tool call when replayed. |
 | **P3** | rev:parse_failed events down ≥80%; ≥90% of panels reach n=4. |
 | **P4** | Every INTERDISCIPLINARY paper has a parseable Coupling Equation; dimensionally-imbalanced couplings publish as REJECTED; the 3 May 2026 Rejects (P-410/427/432) get caught at the new gate when replayed. |
-| **P5** | Zero papers ship with the canned "values reproduced by peer reviewers" line under NEEDS_REVISION; zero papers carry number-words harness phrasing in Hypothesis/Findings across one refresh after flip. |
-| **P6** | Cross-citation of a REJECTED prior appears with the disclaimer line (or doesn't appear at all under suppression mode). Papers landing on a topic with a high-confidence prior either replicate, refute-with-citation, or shift sub-question — measured by Hypothesis-text diff. |
-| **P7** | No topic accumulates ≥3 consecutive rejections within a 5-paper window without being de-prioritised. Per-refresh "topic heat" log lists the top-5 hottest topics; formulation routes around them. |
 
 **Phase-level success:** acceptance rate moves from Phase 12's projected
 ~15% to ≥25% over a 20-paper window. The bar is **content quality**, not
@@ -1051,6 +549,30 @@ That last sentence is the load-bearing one. Phase 12 stopped publishing
 fabricated content. The next phase (whichever subset of P1–P4 ships) starts
 producing better content. Without that distinction this document is
 nothing more than the next round of defensive plumbing.
+
+---
+
+## Migration table — former P5–P8 sections (2026-05-18 trim)
+
+The pre-trim wishlist accumulated tactical REVIEW_REPORT-driven items
+under labels P5–P8. None of them were "human-level paper-building" in
+the original sense; they were defensive narrator scrubs, corpus-aware
+narration upgrades, scheduler backoff, and Phase 17 diagnostics. This
+table records where each former piece lives now so that historical
+references (`phase-13` line 311 et al.) remain traceable.
+
+| Former label | Title | Disposition | Where it lives now |
+|--------------|-------|-------------|--------------------|
+| P5a | Suppress canned conclusion when status ≠ PUBLISHED | SHIPPED | commit `8b5c46a`; site in `PromptSanitizer` |
+| P5b | Strip number-words harness leaks | SHIPPED | commit `8b5c46a` |
+| P6a | Cross-paper citation verdict propagation | SHIPPED; flag flip tracked | commit `af4cc97`; flag in `phase-flags.md` |
+| P6b | Prior-result injection at formulation time | SHIPPED; flag flip tracked | commit `72e99e1`; flag in `phase-flags.md` |
+| P7 | Topic-clone scheduler backoff | SHIPPED; flag flip tracked | commit `4d9cad3`; flag in `phase-flags.md` |
+| P8a | `rev:parse_failed→fp` raw-byte diagnostic | SHIPPED | commit `90cb52f` |
+| P8b | D3 zero-successes counter symmetry | SHIPPED | commit `840b9b4` |
+| P8c | Magnitude-range validator scans tool-call trace | OPEN | `phase-18-pending-followups.md` §18.1 |
+| P8d | Unsourced-claim validator ("math right, prose fabricated") | OPEN | `phase-18-pending-followups.md` §18.2 |
+| P8e | Internal-fragment detector ("conjunction + bare number") | TEST-PINNED, wishlist-only | commit `133fe83` pins the test on P-647; promote to implementation only after a second observed occurrence |
 
 ---
 
