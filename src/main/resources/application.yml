@@ -454,7 +454,14 @@ app:
     #               entirely (return null, like Phase 10's all_tools_failed gate).
     #               Papers with uncited count >= 3 are also dropped. (Phase 11 C5b.)
     citations-as-schema:
-      mode: warn
+      # 2026-05-18 warn → downgrade. Refresh #3 evidence: P-a328-623
+      # carried citations:out_of_tolerance=8 (corpus single-paper record);
+      # P-611 ootol=5, P-598 unmatched=6, P-603 ootol=2 across earlier
+      # refreshes. Downgrade mode rewrites findings + conclusion to a
+      # NULL_RESULT preamble naming the unverifiable values; the paper
+      # still publishes (peer score + call path + panel outcome
+      # preserved). Rollback: set back to `warn`.
+      mode: downgrade
     # Phase 7 F2 — number of independent computation prose blocks the narrator
     # produces (NOT the number of MathPhysicsEngine compute() calls, which is
     # still driven by the refinement loop). Clamped to 1 when
@@ -535,7 +542,17 @@ app:
     # average cluster (P-a328-534/539/553 all REJECTED for the same (1/N)
     # vs (1/N²) convergence-fabrication pattern; scheduler kept re-picking).
     topic-clone-backoff:
-      enabled: false
+      # 2026-05-18 false → true. Refresh #2 evidence: P-a328-602 and
+      # P-a328-608 are byte-near-identical VdW Crossover papers
+      # (identical hypothesis "At T=344 K, CO₂... within 1-100 atm",
+      # identical boilerplate Conclusion) generated 12 minutes apart
+      # by different author bots — the scheduler picked the same
+      # (PHYSICS, Van der Waals Crossover) topic+params twice. The
+      # documented chain dependency on P6a is recommended-not-required;
+      # P7 runs at formulation-time (different pipeline stage than P6a's
+      # narration-time corpus-citation context), so they don't block
+      # each other.
+      enabled: true
       window-size: 5
       max-retries: 3
     # Phase 17 D3-ext — when on, papers whose call path contains
@@ -626,7 +643,14 @@ app:
     #
     # Default off; flip after one refresh confirms zero false positives.
     panel-grade-floor:
-      enabled: false
+      # 2026-05-18 false → true. Refresh #3 surfaced the headline case:
+      # P-a328-617 (Black-body Wien Peak) shipped PUBLISHED with panel
+      # honesty=0.00, completeness=0.00, rigor=0.00, novelty=0.00 + 2
+      # reviewer-agreed contradictions. Status precedence didn't catch
+      # it (D6 boilerplate phrase fresh; no other validator firing).
+      # Refresh #2 evidence stands: P-603/P-605/P-613 also would fire.
+      # Zero false positives across the 22 observed papers.
+      enabled: true
       threshold: 0.30
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
@@ -728,6 +752,12 @@ app:
     loadPerCoreCritical:     4.0
     heapElevatedPct:         85
     heapCriticalPct:         95
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
 
 logging:
   file:
