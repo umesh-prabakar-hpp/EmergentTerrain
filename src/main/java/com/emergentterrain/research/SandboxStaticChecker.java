@@ -118,6 +118,7 @@ public final class SandboxStaticChecker {
                                (single-statement form also accepted, e.g.
                                `if (cond) return x;` or
                                `while (n > 0) n = n - 1;`)
+                               break;  continue;  ← loop control inside for/while
                                function f(args) { ... }
                   Operators:   + - * / % **   ==  !=  <  >  <=  >=   &&  ||  !   ?:
                                (=== and !== are accepted as aliases for == and !=)
@@ -552,6 +553,8 @@ public final class SandboxStaticChecker {
             case SandboxEngine.Stmt.Decl d   -> walkExpr(d.init(), userFunctions, bad);
             case SandboxEngine.Stmt.ExprS e  -> walkExpr(e.expr(), userFunctions, bad);
             case SandboxEngine.Stmt.Return r -> walkExpr(r.val(), userFunctions, bad);
+            case SandboxEngine.Stmt.Break b  -> { /* leaf */ }
+            case SandboxEngine.Stmt.Continue c -> { /* leaf */ }
             case SandboxEngine.Stmt.If f -> {
                 walkExpr(f.cond(), userFunctions, bad);
                 for (SandboxEngine.Stmt b : f.then()) collectBadCalls(b, userFunctions, bad);

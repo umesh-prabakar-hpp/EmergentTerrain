@@ -185,6 +185,12 @@ public class SandboxEngine {
             result = interp.exec(program);
         } catch (ReturnSignal r) {
             result = r.value;
+        } catch (BreakSignal | ContinueSignal e) {
+            // Phase 19 Layer 1e — break/continue must be inside a loop.
+            // If we get here, neither For nor While caught the signal.
+            throw new RuntimeException(
+                    (e instanceof BreakSignal ? "break" : "continue")
+                            + " used outside of a loop");
         }
         return interp.buildResult(result);
     }
@@ -224,7 +230,7 @@ public class SandboxEngine {
         LT, GT, LE, GE, EQ2, NEQ,
         AND2, OR2, BANG,
         EQ, SEMI, COMMA, LPAR, RPAR, LBRACE, RBRACE, LBRACK, RBRACK, QMARK, COLON,
-        IF, ELSE, FOR, WHILE, VAR, RET, TRUE, FALSE,
+        IF, ELSE, FOR, WHILE, VAR, RET, BREAK, CONTINUE, TRUE, FALSE,
         FUNCTION,  // Phase 8 Tier 2 — user-defined function declarations
         EOF
     }
@@ -271,6 +277,7 @@ public class SandboxEngine {
                     case "if"       -> TT.IF;       case "else"   -> TT.ELSE;
                     case "for"      -> TT.FOR;      case "while"  -> TT.WHILE;
                     case "var"      -> TT.VAR;      case "return" -> TT.RET;
+                    case "break"    -> TT.BREAK;    case "continue" -> TT.CONTINUE;
                     case "true"     -> TT.TRUE;     case "false"  -> TT.FALSE;
                     case "function" -> TT.FUNCTION;
                     default -> TT.IDENT;
@@ -352,7 +359,8 @@ public class SandboxEngine {
     }
 
     sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.While,
-                                  Stmt.If, Stmt.Return, Stmt.FuncDef {
+                                  Stmt.If, Stmt.Return, Stmt.Break, Stmt.Continue,
+                                  Stmt.FuncDef {
         record Decl  (String name, Expr init)                            implements Stmt {}
         record ExprS (Expr expr)                                         implements Stmt {}
         record For   (String var, Expr init, Expr cond, Expr upd,
@@ -363,6 +371,11 @@ public class SandboxEngine {
         record While (Expr cond, List<Stmt> body)                        implements Stmt {}
         record If    (Expr cond, List<Stmt> then, List<Stmt> els)        implements Stmt {}
         record Return(Expr val)                                          implements Stmt {}
+        // Phase 19 Layer 1e — loop-control statements. Interpreter throws a
+        // BreakSignal / ContinueSignal at exec time; enclosing For/While
+        // catches the signal. Escaping signals at run() top → error.
+        record Break ()                                                  implements Stmt {}
+        record Continue()                                                implements Stmt {}
         // Phase 8 Tier 2 — top-level user-defined function. The parser only
         // accepts these in parseProgram(); they are illegal inside if/for/
         // function bodies so all definitions are hoistable in one scan.
@@ -407,6 +420,8 @@ public class SandboxEngine {
             if (at(TT.WHILE)) return whileStmt();
             if (at(TT.IF))  return ifStmt();
             if (at(TT.RET)) return retStmt();
+            if (at(TT.BREAK))    { advance(); eatSemi(); return new Stmt.Break(); }
+            if (at(TT.CONTINUE)) { advance(); eatSemi(); return new Stmt.Continue(); }
             return exprStmt();
         }
 
@@ -648,6 +663,16 @@ public class SandboxEngine {
         ReturnSignal(double v) { super(null, null, true, false); this.value = v; }
     }
 
+    /** Phase 19 Layer 1e — thrown by Stmt.Break, caught by enclosing For/While. */
+    static class BreakSignal extends RuntimeException {
+        BreakSignal() { super(null, null, true, false); }
+    }
+
+    /** Phase 19 Layer 1e — thrown by Stmt.Continue, caught by enclosing For/While. */
+    static class ContinueSignal extends RuntimeException {
+        ContinueSignal() { super(null, null, true, false); }
+    }
+
     static class LimitExceeded extends RuntimeException {
         LimitExceeded(String msg) { super(msg); }
     }
@@ -829,22 +854,38 @@ public class SandboxEngine {
                 }
                 case Stmt.ExprS  e -> eval(e.expr());
                 case Stmt.Return r -> throw new ReturnSignal(eval(r.val()));
+                case Stmt.Break    b -> throw new BreakSignal();
+                case Stmt.Continue c -> throw new ContinueSignal();
                 case Stmt.If     f -> {
                     if (truthy(eval(f.cond()))) for (Stmt b : f.then()) execStmt(b);
                     else                         for (Stmt b : f.els())  execStmt(b);
                 }
                 case Stmt.For    f -> {
                     writeVar(f.var(), eval(f.init()));
+                    forLoop:
                     while (truthy(eval(f.cond()))) {
                         if (++iterCount > MAX_ITERATIONS) throw new LimitExceeded("Loop limit exceeded");
-                        for (Stmt b : f.body()) execStmt(b);
+                        try {
+                            for (Stmt b : f.body()) execStmt(b);
+                        } catch (BreakSignal br) {
+                            break forLoop;
+                        } catch (ContinueSignal cn) {
+                            // fall through to update + cond re-check
+                        }
                         eval(f.upd());
                     }
                 }
                 case Stmt.While  w -> {
+                    whileLoop:
                     while (truthy(eval(w.cond()))) {
                         if (++iterCount > MAX_ITERATIONS) throw new LimitExceeded("Loop limit exceeded");
-                        for (Stmt b : w.body()) execStmt(b);
+                        try {
+                            for (Stmt b : w.body()) execStmt(b);
+                        } catch (BreakSignal br) {
+                            break whileLoop;
+                        } catch (ContinueSignal cn) {
+                            // fall through to cond re-check
+                        }
                     }
                 }
                 // Hoisted in exec(); ignored if it survives to this point.

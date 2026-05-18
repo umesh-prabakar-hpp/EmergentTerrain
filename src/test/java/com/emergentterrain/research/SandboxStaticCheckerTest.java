@@ -662,6 +662,127 @@ class SandboxStaticCheckerTest {
         assertThat(r.value()).isEqualTo(3.0);  // 4 - 1 = 3 iterations
     }
 
+    // ── Phase 19 Layer 1e — break/continue as real keywords ────────────────
+
+    @Test
+    void breakInForLoop_exitsEarly() {
+        // Static check passes, and runtime exits the loop at iteration 3.
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) {
+                  if (i >= start + 3) break;
+                  s = s + 1;
+                }
+                return s;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 100, 0, 0.0);
+        assertThat(r.value()).isEqualTo(3.0);
+    }
+
+    @Test
+    void continueInForLoop_skipsIteration() {
+        // Sum odd indices in [0, 10): 1+3+5+7+9 = 25.
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) {
+                  if (i % 2 == 0) continue;
+                  s = s + i;
+                }
+                return s;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 10, 0, 0.0);
+        assertThat(r.value()).isEqualTo(25.0);
+    }
+
+    @Test
+    void breakInWhileLoop_exitsEarly() {
+        String code = """
+                var n = start;
+                while (n < end) {
+                  if (n >= start + 5) break;
+                  n = n + 1;
+                }
+                return n;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1000, 0, 0.0);
+        assertThat(r.value()).isEqualTo(5.0);
+    }
+
+    @Test
+    void continueInWhileLoop_skipsToCondCheck() {
+        // Count iterations where n is odd in [0, 10): 5.
+        String code = """
+                var n = start;
+                var count = 0;
+                while (n < end) {
+                  n = n + 1;
+                  if (n % 2 == 0) continue;
+                  count = count + 1;
+                }
+                return count;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 10, 0, 0.0);
+        assertThat(r.value()).isEqualTo(5.0);
+    }
+
+    @Test
+    void breakWithSingleStmtBody_isApproved() {
+        // The classic JS reflex: `if (cond) break;` — combines Layer 1d
+        // (single-stmt body) with Layer 1e (break keyword).
+        String code = """
+                var n = start;
+                while (n < end) {
+                  if (n > start + 3) break;
+                  n = n + 1;
+                }
+                return n;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 100, 0, 0.0);
+        assertThat(r.value()).isEqualTo(4.0);  // 0, 1, 2, 3, 4 — break at n=4
+    }
+
+    @Test
+    void breakOutsideLoop_throwsRuntimeError() {
+        // Parser accepts it (no static depth tracking); runtime catches the
+        // escaping signal and throws a clear error.
+        String code = "break; return 0;";
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> SandboxEngine.run(code, 0, 1, 0, 0.0))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("break used outside of a loop");
+    }
+
+    @Test
+    void continueOutsideLoop_throwsRuntimeError() {
+        String code = "continue; return 0;";
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> SandboxEngine.run(code, 0, 1, 0, 0.0))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("continue used outside of a loop");
+    }
+
+    @Test
+    void nestedLoops_breakOnlyExitsInnerLoop() {
+        // 3 outer iterations × (inner runs until break at j=2) = 3 × 2 = 6
+        // outer iterations completed; sum of i values per inner break is 0+1+2.
+        String code = """
+                var s = 0;
+                for (var i = start; i < end; i++) {
+                  for (var j = 0; j < 10; j++) {
+                    if (j >= 2) break;
+                    s = s + 1;
+                  }
+                }
+                return s;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 3, 0, 0.0);
+        assertThat(r.value()).isEqualTo(6.0);  // 3 outer × 2 inner
+    }
+
     @Test
     void singleStmt_existingBraceFormStillWorks() {
         // Regression: the change must accept BOTH forms.
