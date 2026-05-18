@@ -173,10 +173,15 @@ public class SandboxEngine {
     // ── Public API ────────────────────────────────────────────────────────────
 
     public static SandboxResult run(String code, int start, int end, int param1, double param2) {
+        // Phase 19 Layer 1a — apply the same Math.<builtin> rewrite the
+        // static checker does, so the runtime sees flat builtin names even
+        // if the LLM emitted the JS-style prefix. No-op when the code has
+        // no `Math.` substring.
+        String normalized = SandboxStaticChecker.rewriteMathPrefix(code);
         Interpreter interp = new Interpreter(start, end, param1, param2);
         double result;
         try {
-            List<Token> tokens  = lex(code);
+            List<Token> tokens  = lex(normalized);
             List<Stmt>  program = new Parser(tokens).parseProgram();
             result = interp.exec(program);
         } catch (ReturnSignal r) {

@@ -120,10 +120,12 @@ class SandboxStaticCheckerTest {
     }
 
     @Test
-    void memberAccess_isRejectedAtLexer() {
-        // Math.sqrt would lex `Math`, then bare `.` which isn't tokenized
-        // outside numeric literals; lexer throws.
-        String code = "return Math.sqrt(param1);";
+    void memberAccess_isRejectedAtPreScan() {
+        // Phase 19 Layer 1a — `Math.<builtin>` is now auto-rewritten before
+        // parse, so we pick a different member-access shape to pin the
+        // rejection path. `obj.method` (non-Math identifier) still goes
+        // through preScanForJavascriptIdioms and rejects.
+        String code = "return arr.someMethod();";
         assertThat(SandboxStaticChecker.check(code))
                 .isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
     }
@@ -323,5 +325,95 @@ class SandboxStaticCheckerTest {
                 .isEmpty();
         assertThat(SandboxStaticChecker.rewriteHintFor("")).isEmpty();
         assertThat(SandboxStaticChecker.rewriteHintFor(null)).isEmpty();
+    }
+
+    // ── Phase 19 Layer 1a — Math.<builtin> auto-rewrite ─────────────────────
+
+    @Test
+    void mathPrefix_sqrt_isApproved() {
+        // The LLM emits `Math.sqrt(x)` from its JS training corpus; the
+        // sandbox already exposes `sqrt` as a flat builtin. Rewrite strips
+        // the prefix before parse so the checker approves.
+        String code = """
+                var r = Math.sqrt(start * start + end * end);
+                return r;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void mathPrefix_PI_isApproved() {
+        String code = """
+                var circumference = 2 * Math.PI * start;
+                return circumference;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void mathPrefix_multipleInOneLine_isApproved() {
+        String code = """
+                var d = Math.sqrt(Math.pow(end - start, 2) + Math.pow(end, 2));
+                return d;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void mathPrefix_nonBuiltin_stillRejected() {
+        // Math.random is not in the sandbox builtin set (deterministic-only).
+        // The rewrite leaves it alone so the member-access pre-scan rejects.
+        String code = "return Math.random() * 100;";
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+        assertThat(((SandboxStaticChecker.Result.Rejected) r).reason())
+                .contains("member access");
+    }
+
+    @Test
+    void mathPrefix_nonMathIdentifierMemberAccess_stillRejected() {
+        // Only `Math.<name>` is rewritten — `obj.sqrt` or `arr.length` stays
+        // an error so the existing member-access guidance still fires.
+        String code = """
+                var arr = [1, 2, 3];
+                return arr.length;
+                """;
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+        assertThat(((SandboxStaticChecker.Result.Rejected) r).reason())
+                .contains("member access");
+    }
+
+    @Test
+    void mathPrefix_substringNotMatched() {
+        // `myMath.sqrt` must NOT be rewritten — the rewrite is anchored to
+        // a word boundary so it only fires on the exact `Math` identifier.
+        String code = "return myMath.sqrt(x);";
+        // Either the rewrite leaves it alone (so it gets rejected as
+        // member-access) — that's the expected outcome.
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+    }
+
+    @Test
+    void mathPrefix_rewriteIsSemanticsPreserving() {
+        // Direct unit test on the helper: input → expected rewritten output.
+        assertThat(SandboxStaticChecker.rewriteMathPrefix("Math.sqrt(4)"))
+                .isEqualTo("sqrt(4)");
+        assertThat(SandboxStaticChecker.rewriteMathPrefix("var r = Math.PI / 2;"))
+                .isEqualTo("var r = PI / 2;");
+        assertThat(SandboxStaticChecker.rewriteMathPrefix("Math.pow(Math.E, 2)"))
+                .isEqualTo("pow(E, 2)");
+        // Non-builtin: untouched.
+        assertThat(SandboxStaticChecker.rewriteMathPrefix("Math.random()"))
+                .isEqualTo("Math.random()");
+        // No `Math.` at all: same string back (fast path).
+        assertThat(SandboxStaticChecker.rewriteMathPrefix("return sqrt(x);"))
+                .isEqualTo("return sqrt(x);");
+        // Null safety.
+        assertThat(SandboxStaticChecker.rewriteMathPrefix(null)).isNull();
     }
 }

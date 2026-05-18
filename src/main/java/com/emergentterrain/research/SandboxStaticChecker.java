@@ -38,6 +38,15 @@ public final class SandboxStaticChecker {
             return new Result.Rejected("empty code");
         }
 
+        // Phase 19 Layer 1a — Math.<builtin> rewrite. The LLM keeps emitting
+        // `Math.sqrt`, `Math.PI`, etc. because that's the JavaScript stdlib
+        // shape. The sandbox grammar has the same names as flat builtins;
+        // before any parse/scan, strip the `Math.` prefix when the trailing
+        // identifier is in `SandboxEngine.BUILTINS`. Math.<non-builtin>
+        // (e.g. `Math.random`) is left alone so preScan still rejects it
+        // with the existing member-access message.
+        String normalized = rewriteMathPrefix(code);
+
         // Phase 17 (post-hang analyses §1.3) — pre-parse pattern detection
         // for the two dominant LLM mis-translations: JavaScript member-access
         // (`.push`, `.length`, etc., 43% of static-parse fails across 18h of
@@ -48,12 +57,12 @@ public final class SandboxStaticChecker {
         // arrays. Detection is line-based and only triggers on clear
         // member-access or object-literal shapes; numeric literals like
         // `1.5e-3` are unaffected.
-        Result preScan = preScanForJavascriptIdioms(code);
+        Result preScan = preScanForJavascriptIdioms(normalized);
         if (preScan instanceof Result.Rejected) return preScan;
 
         List<SandboxEngine.Stmt> program;
         try {
-            List<SandboxEngine.Token> tokens = SandboxEngine.lex(code);
+            List<SandboxEngine.Token> tokens = SandboxEngine.lex(normalized);
             program = new SandboxEngine.Parser(tokens).parseProgram();
         } catch (RuntimeException e) {
             // Lexer rejects unsupported chars (strings, arrays, member access).
@@ -130,7 +139,10 @@ public final class SandboxStaticChecker {
                                                 flipped in narrative — positive
                                                 = above, negative = below.
                   NOT supported: "string literals", {object: literals},
-                                 member access ( Math.pow → just call pow ),
+                                 member access on arbitrary objects
+                                 (Math.<builtin> is auto-rewritten to the
+                                 flat form — Math.sqrt → sqrt — so this
+                                 specific case is fine to emit),
                                  let / const, arrow functions (=>),
                                  try / catch / throw, classes, imports
                   Built-in functions: every java.lang.Math method is available
@@ -154,6 +166,55 @@ public final class SandboxStaticChecker {
                     }
                     return s;
                 """;
+    }
+
+    // ── Phase 19 Layer 1a: Math.<builtin> rewrite ─────────────────────────
+
+    /**
+     * {@code Math\.<name>} occurrences where {@code <name>} is in
+     * {@link SandboxEngine#BUILTINS}. The capture group is the bare name
+     * so the rewrite can replace the whole match with just {@code <name>}.
+     * Word-boundary lookbehind avoids matching inside identifier names
+     * like {@code myMath.sqrt}; word-boundary lookahead avoids partial
+     * matches inside {@code Math.sqrtish}.
+     */
+    private static final java.util.regex.Pattern MATH_PREFIX =
+            java.util.regex.Pattern.compile("(?<![A-Za-z_0-9])Math\\.([A-Za-z_]\\w*)\\b");
+
+    /**
+     * Strips the {@code Math.} prefix from any {@code Math.<name>} where
+     * {@code <name>} is a sandbox builtin. The LLM's training corpus
+     * emphasises the JavaScript {@code Math.*} static namespace; the
+     * sandbox grammar already exposes every {@code java.lang.Math} double
+     * method (plus {@code PI}, {@code E}) as a flat identifier, so the
+     * rewrite is a no-semantics-change normalisation.
+     *
+     * <p>{@code Math.<non-builtin>} (e.g. {@code Math.random}) is left as
+     * a literal so {@link #preScanForJavascriptIdioms} rejects it with
+     * the existing member-access message — useful since the runtime
+     * couldn't execute it anyway.
+     *
+     * <p>Visibility is package-private so {@link SandboxEngine} can apply
+     * the same normalisation to its runtime entry point, and so tests
+     * can pin the regex behaviour without standing up the full pipeline.
+     */
+    static String rewriteMathPrefix(String code) {
+        if (code == null || code.indexOf("Math.") < 0) return code;
+        java.util.regex.Matcher m = MATH_PREFIX.matcher(code);
+        StringBuilder sb = new StringBuilder(code.length());
+        while (m.find()) {
+            String name = m.group(1);
+            // Treat `PI` / `E` as builtins too — the sandbox runtime
+            // resolves them via the same dispatch table.
+            if (SandboxEngine.BUILTINS.contains(name)
+                    || "PI".equals(name) || "E".equals(name)) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(name));
+            } else {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────
