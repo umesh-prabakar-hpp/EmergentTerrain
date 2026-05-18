@@ -1076,7 +1076,25 @@ public class UniversityService {
 
         // Update bot state in one read+write: follow-up params and research hypothesis
         FollowUpParams followUp = narration.followUp();
-        String newHypothesis = (conclusion != null && !conclusion.isBlank()) ? conclusion : null;
+        // Phase 17 hypothesis-carryover gate — only propagate the Conclusion as the
+        // bot's next researchHypothesis when the paper landed in a *validated* status
+        // (PUBLISHED, PUBLISHED_NO_PROFESSOR, or NULL_RESULT). Skip for
+        // NEEDS_REVISION / REJECTED / DISPUTED — those statuses signal the
+        // conclusion has known issues (fabrication, truncation, dispute), and
+        // carrying it forward as the next hypothesis propagates the failure
+        // mode into the next generation. Targets the gate-skipped-professor
+        // path where the first-pass Conclusion is fabricated; D3-ext now
+        // suppresses many of those pre-publish, but the residual that publish
+        // as NEEDS_REVISION (qualitative conclusions) should not steer the
+        // next experiment.
+        boolean carryoverAllowed = isCarryoverAllowed(paperStatus);
+        String newHypothesis =
+                (carryoverAllowed && conclusion != null && !conclusion.isBlank())
+                        ? conclusion : null;
+        if (!carryoverAllowed && conclusion != null && !conclusion.isBlank()) {
+            log.debug("university hypothesis carryover skipped paperId={} status={}",
+                    draft.paperId(), paperStatus);
+        }
         if (followUp != null || newHypothesis != null) {
             UUID botId = UUID.fromString(draft.authorBotId());
             botRepository.findById(botId).ifPresent(bot -> {
@@ -2153,6 +2171,27 @@ public class UniversityService {
      * degrade silently to {@code warn} so a misconfiguration never lifts
      * the default suppression behaviour to the harshest mode.
      */
+    /**
+     * Phase 17 hypothesis-carryover gate — should the paper's Conclusion
+     * propagate to the author bot's {@code researchHypothesis} field, where
+     * it seeds the next generation's draft? Allowed only for validated
+     * statuses: PUBLISHED, PUBLISHED_NO_PROFESSOR, NULL_RESULT. Blocked for
+     * NEEDS_REVISION (fabrication / truncation flagged but paper persisted),
+     * REJECTED (validator caught a structural defect), and DISPUTED (an
+     * independent replication produced a divergent result). Unknown statuses
+     * default to <em>blocked</em> — propagation should be opt-in, not opt-out.
+     *
+     * <p>Package-private static for unit testing without standing up the full
+     * service. Parallel to {@code normalizeMode} below.
+     */
+    static boolean isCarryoverAllowed(String paperStatus) {
+        if (paperStatus == null) return false;
+        return switch (paperStatus) {
+            case "PUBLISHED", "PUBLISHED_NO_PROFESSOR", "NULL_RESULT" -> true;
+            default -> false;
+        };
+    }
+
     static String normalizeMode(String raw) {
         if (raw == null) return "warn";
         String trimmed = raw.trim().toLowerCase();
