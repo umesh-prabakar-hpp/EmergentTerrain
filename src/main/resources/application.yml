@@ -580,6 +580,27 @@ app:
       max-attempts: 3
       max-queue-size: 100
       poll-interval-ms: 30000
+    # Phase 17 P2 — panel-recommendations-as-feedback. After the multi-
+    # reviewer panel produces its outcome, when it includes ≥1 consensus
+    # contradiction (≥2 reviewers agreed) OR ≥2 deduplicated
+    # recommendations, the student model runs a focused second revision
+    # with the panel's feedback in the prompt. The hypothesis is pinned;
+    # findings/conclusion may be rewritten. The prompt forbids new
+    # numerics not in the trace and forbids inventing new tool calls.
+    # Downstream validators (numerical-consistency, magnitude-range,
+    # dedup, etc.) run on the revised content as a backstop.
+    #
+    # Targets the P-571-class failures named in REVIEW_REPORT.md post-hang
+    # refresh #1, where the panel said exactly what to fix ("Remove call_2
+    # / call_3 citations — only call_1 exists", "Peak η=0.788 at r=0.40,
+    # not 0.793 at 0.414") but no code path picked up the feedback.
+    #
+    # Cost: one extra primary-model call per paper that has a non-empty
+    # actionable panel. Resources-gate-aware (skips when host is under
+    # pressure). Default off; flip after one corpus refresh confirms
+    # revision text quality matches the pre-revision text.
+    panel-revision:
+      enabled: false
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

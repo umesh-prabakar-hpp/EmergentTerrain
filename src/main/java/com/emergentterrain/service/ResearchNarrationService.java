@@ -154,6 +154,32 @@ public class ResearchNarrationService {
     private boolean gateResourcesQuantitativeSuppressEnabled;
 
     /**
+     * Phase 17 P2 — panel-recommendations-as-feedback. When the
+     * multi-reviewer panel produces actionable feedback
+     * ({@link com.emergentterrain.research.PanelOutcome#consensusContradictions}
+     * non-empty OR {@code recommendations.size() >= 2}), the student model
+     * runs a focused second-revision pass that asks it to address the
+     * panel's specific concerns: rewrite prose to match the trace, drop
+     * citations the panel flagged as broken, etc.
+     *
+     * <p>Targets the P-571-class failure where the panel said exactly what
+     * to fix ("Remove references to call_2/call_3 — only call_1 exists",
+     * "Peak η=0.788 at r=0.40, not 0.793 at 0.414") but no code path
+     * picked up the feedback. Today it lives only in the rendered
+     * markdown — humans read it; the pipeline doesn't.
+     *
+     * <p>Guardrails: revision prompt forbids new numeric values not in
+     * the trace, forbids inventing new tool calls, preserves the
+     * hypothesis. Runs only when SystemResourcesGate is open and the
+     * panel's feedback is non-vague. Default off; flip after one corpus
+     * refresh confirms revision text quality is on-par with the
+     * pre-revision text.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.panel-revision.enabled:false}")
+    private boolean panelRevisionEnabled;
+
+    /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
      * that don't wire it. When closed, the affected stage short-circuits to a
@@ -701,7 +727,16 @@ public class ResearchNarrationService {
                 // short-circuits to empty when disabled / no trace / no providers
                 // resolved — the publish path is bit-identical to pre-F7.2 in
                 // those cases.
-                return runPanelAndStamp(draft, gated, callPath, auditGapDimensions);
+                NarrationResult paneled =
+                        runPanelAndStamp(draft, gated, callPath, auditGapDimensions);
+                // Phase 17 P2 — when the panel produced actionable feedback
+                // (consensus contradictions or specific recommendations),
+                // run a focused second revision so the published paper
+                // incorporates the panel's corrections. No-op when the
+                // flag is off, the panel was empty, or the feedback is
+                // too vague to act on. Validators in publishPaper still
+                // run on the revised content as a backstop.
+                return maybeApplyPanelRevision(draft, paneled, profTrace, callPath);
             }
             // Phase 14 F2a — diagnostic logging for the rev:parse_failed→fp
             // path. Refresh #2 §1 rec #2 named this stamp as one of the leaks
@@ -985,6 +1020,210 @@ public class ResearchNarrationService {
             callPath.add("panel:error");
             return narration;
         }
+    }
+
+    /**
+     * Phase 17 P2 — panel-recommendations-as-feedback. When the panel returned
+     * actionable signal (consensus contradictions or specific recommendations),
+     * run a focused second revision through the student model with the panel's
+     * feedback in the prompt. Replace the narration's findings/conclusion with
+     * the revised content, preserving hypothesis + toolCallTrace + panelOutcome.
+     *
+     * <p>Returns the input narration unchanged when:
+     * <ul>
+     *   <li>flag is off ({@code app.research.panel-revision.enabled=false})</li>
+     *   <li>narration or its panelOutcome is null/empty</li>
+     *   <li>feedback is not actionable
+     *       (per {@link #isPanelFeedbackActionable})</li>
+     *   <li>SystemResourcesGate is closed (avoid token spend during host
+     *       pressure)</li>
+     *   <li>parse failure, blank stream, or no-change revision</li>
+     * </ul>
+     */
+    private NarrationResult maybeApplyPanelRevision(PaperDraft draft,
+                                                     NarrationResult narration,
+                                                     List<com.emergentterrain.llm.ToolInvocation> profTrace,
+                                                     List<String> callPath) {
+        if (!panelRevisionEnabled || narration == null) return narration;
+        com.emergentterrain.research.PanelOutcome outcome = narration.panelOutcome();
+        if (outcome == null || outcome.isEmpty()) return narration;
+        if (!isPanelFeedbackActionable(outcome)) {
+            callPath.add("panel_revision:skip:not_actionable");
+            return narration;
+        }
+        if (systemResourcesGate != null && !systemResourcesGate.isOpen()) {
+            callPath.add("panel_revision:gate_skipped");
+            log.info("LLM panel-revision: paperId={} skipped (resources gate not open)",
+                    draft != null ? draft.paperId() : "?");
+            return narration;
+        }
+        long start = System.currentTimeMillis();
+        try {
+            String prompt = buildPanelRevisionPrompt(narration, outcome);
+            StringBuilder buf = new StringBuilder();
+            router.streamPrimary(prompt, buf::append);
+            com.emergentterrain.research.LenientJsonParser.RepairResult repair =
+                    com.emergentterrain.research.LenientJsonParser.repair(buf.toString());
+            NarrationResult parsed = parseNarrationResult(repair.text());
+            if (parsed.hypothesis() == null && parsed.findings() == null
+                    && parsed.conclusion() == null) {
+                callPath.add("panel_revision:parse_failed");
+                log.warn("LLM panel-revision: paperId={} parse_failed ms={}",
+                        draft != null ? draft.paperId() : "?",
+                        System.currentTimeMillis() - start);
+                return narration;
+            }
+            // Hypothesis is pinned to the original (pre-registration). Findings
+            // and conclusion may be revised. Discussion / related-work optional.
+            String newFindings   = parsed.findings()   != null ? parsed.findings()   : narration.findings();
+            String newConclusion = parsed.conclusion() != null ? parsed.conclusion() : narration.conclusion();
+            if (isNoChangeRevision(narration.findings(), newFindings,
+                    narration.conclusion(), newConclusion)) {
+                callPath.add("panel_revision:no_change");
+                log.info("LLM panel-revision: paperId={} produced no_change ms={}",
+                        draft != null ? draft.paperId() : "?",
+                        System.currentTimeMillis() - start);
+                return narration;
+            }
+            callPath.add("panel_revision:ok");
+            log.info("LLM panel-revision: paperId={} ms={} contradictions={} recs={}",
+                    draft != null ? draft.paperId() : "?",
+                    System.currentTimeMillis() - start,
+                    outcome.consensusContradictions().size(),
+                    outcome.recommendations().size());
+            // Preserve hypothesis (pre-registration), trace, panel outcome,
+            // audit-gap dimensions, and template provenance. Replace
+            // findings/conclusion + optionally discussion/related-work.
+            NarrationResult revised = new NarrationResult(
+                    narration.hypothesis(),
+                    newFindings,
+                    newConclusion,
+                    narration.followUp(),
+                    narration.aiModel(),
+                    narration.confidenceScore(),
+                    narration.citedPaperIds(),
+                    null, List.of(), List.of(), null, null,
+                    parsed.discussion()  != null ? parsed.discussion()  : narration.discussion(),
+                    parsed.relatedWork() != null ? parsed.relatedWork() : narration.relatedWork())
+                    .withToolCallTrace(profTrace)
+                    .withPanelOutcome(outcome)
+                    .withAuditGapDimensions(narration.auditGapDimensions())
+                    .withNumericClaims(narration.numericClaims());
+            return revised;
+        } catch (Exception e) {
+            callPath.add("panel_revision:error");
+            log.warn("LLM panel-revision: paperId={} error ms={} cause={} — keeping original",
+                    draft != null ? draft.paperId() : "?",
+                    System.currentTimeMillis() - start, e.getMessage());
+            return narration;
+        }
+    }
+
+    /**
+     * Phase 17 P2 — is the panel's feedback specific enough to act on?
+     * Triggers when ≥1 consensus contradiction (≥2 reviewers agreed) OR
+     * ≥2 deduplicated recommendations exist. Vague panels (only grades,
+     * one wishy-washy recommendation) don't fire.
+     *
+     * <p>Visibility is package-private so tests can pin the trigger
+     * without standing up a full service.
+     */
+    static boolean isPanelFeedbackActionable(com.emergentterrain.research.PanelOutcome outcome) {
+        if (outcome == null || outcome.isEmpty()) return false;
+        int contradictions = outcome.consensusContradictions() != null
+                ? outcome.consensusContradictions().size() : 0;
+        int recommendations = outcome.recommendations() != null
+                ? outcome.recommendations().size() : 0;
+        return contradictions >= 1 || recommendations >= 2;
+    }
+
+    /**
+     * Phase 17 P2 — heuristic "did the revision actually change anything?"
+     * check. A panel-revision that returns text identical to (or trivially
+     * close to) the input wastes the validator's time downstream and
+     * should be marked {@code no_change} rather than {@code ok}. We use a
+     * normalized-content comparison: if findings AND conclusion are
+     * unchanged when whitespace-collapsed, treat as no_change. Otherwise
+     * accept the revision (downstream validators catch quality regressions).
+     *
+     * <p>Package-private for tests.
+     */
+    static boolean isNoChangeRevision(String oldFindings, String newFindings,
+                                       String oldConclusion, String newConclusion) {
+        return safeEquals(normalize(oldFindings), normalize(newFindings))
+                && safeEquals(normalize(oldConclusion), normalize(newConclusion));
+    }
+
+    private static String normalize(String s) {
+        if (s == null) return "";
+        return s.replaceAll("\\s+", " ").trim();
+    }
+
+    private static boolean safeEquals(String a, String b) {
+        return a == null ? b == null : a.equals(b);
+    }
+
+    /**
+     * Phase 17 P2 — build the panel-revision prompt. Static + package-private
+     * for unit testing without standing up a router. The prompt explicitly
+     * forbids new numerics not in the trace, forbids inventing new tool
+     * calls, and pins the hypothesis to the original.
+     */
+    static String buildPanelRevisionPrompt(NarrationResult narration,
+                                            com.emergentterrain.research.PanelOutcome outcome) {
+        StringBuilder p = new StringBuilder();
+        p.append("You wrote a research paper that a multi-reviewer panel has just evaluated. ")
+                .append("The panel agreed on specific issues. Your task is a FOCUSED REVISION ")
+                .append("that addresses ONLY the panel's findings — not a rewrite.\n\n");
+
+        p.append("=== ORIGINAL HYPOTHESIS (pin — do not change) ===\n")
+                .append(safeText(narration.hypothesis())).append("\n\n");
+
+        p.append("=== ORIGINAL FINDINGS ===\n")
+                .append(safeText(narration.findings())).append("\n\n");
+
+        p.append("=== ORIGINAL CONCLUSION ===\n")
+                .append(safeText(narration.conclusion())).append("\n\n");
+
+        List<com.emergentterrain.research.PanelReview.Contradiction> contradictions =
+                outcome.consensusContradictions();
+        if (contradictions != null && !contradictions.isEmpty()) {
+            p.append("=== PANEL CONSENSUS CONTRADICTIONS (≥2 reviewers agreed) ===\n");
+            for (com.emergentterrain.research.PanelReview.Contradiction c : contradictions) {
+                p.append("- At tool call ").append(c.traceIdx()).append(": ")
+                        .append(safeText(c.vsProse())).append("\n");
+            }
+            p.append("\n");
+        }
+
+        List<String> recs = outcome.recommendations();
+        if (recs != null && !recs.isEmpty()) {
+            p.append("=== PANEL RECOMMENDATIONS ===\n");
+            for (String r : recs) {
+                p.append("- ").append(safeText(r)).append("\n");
+            }
+            p.append("\n");
+        }
+
+        p.append("=== REVISION CONSTRAINTS (binding) ===\n")
+                .append("1. The Hypothesis is pinned: emit it unchanged in the output.\n")
+                .append("2. Do NOT introduce numeric values that are not in the original tool-call trace.\n")
+                .append("3. Do NOT invent new tool calls or new computation results.\n")
+                .append("4. Where the panel said a [call_N] citation doesn't exist or contradicts ")
+                .append("the prose, either replace it with the correct citation from the trace or ")
+                .append("remove the unsupported claim entirely.\n")
+                .append("5. Keep prose factual and concise; do not pad with boilerplate.\n\n");
+
+        p.append("=== OUTPUT FORMAT ===\n")
+                .append("Return ONLY valid JSON with this exact schema:\n")
+                .append("{\"hypothesis\": \"...\", \"findings\": \"...\", \"conclusion\": \"...\"}\n")
+                .append("No code fences, no preamble, no trailing prose.\n");
+
+        return p.toString();
+    }
+
+    private static String safeText(String s) {
+        return s == null ? "" : s;
     }
 
     /**

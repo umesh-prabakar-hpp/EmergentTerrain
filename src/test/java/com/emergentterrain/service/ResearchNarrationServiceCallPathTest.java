@@ -1,6 +1,11 @@
 package com.emergentterrain.service;
 
+import java.util.List;
+
 import org.junit.jupiter.api.Test;
+
+import com.emergentterrain.research.PanelOutcome;
+import com.emergentterrain.research.PanelReview;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -151,5 +156,146 @@ class ResearchNarrationServiceCallPathTest {
                 "[call_1] supports the result at threshold 0.05.")).isTrue();
         assertThat(ResearchNarrationService.conclusionHasQuantitativeClaim(
                 "Computation 1 yields a mean of 42.")).isTrue();
+    }
+
+    // ---- Phase 17 P2: panel-revision feedback gate + prompt builder ----
+
+    private static PanelOutcome panelOutcome(int contradictionCount, int recommendationCount) {
+        List<PanelReview.Contradiction> contradictions = new java.util.ArrayList<>();
+        for (int i = 0; i < contradictionCount; i++) {
+            contradictions.add(new PanelReview.Contradiction(i, "prose claims X but trace shows Y"));
+        }
+        List<String> recs = new java.util.ArrayList<>();
+        for (int i = 0; i < recommendationCount; i++) {
+            recs.add("Recommendation " + i);
+        }
+        // Build a fake panel with a single review so isEmpty() returns false.
+        PanelReview fake = new PanelReview(
+                "fake-reviewer",
+                new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
+                List.of(), List.of(),
+                contradictions, recs);
+        return new PanelOutcome(
+                new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
+                0.8,
+                List.of(), List.of(),
+                contradictions, recs,
+                List.of(fake));
+    }
+
+    @Test
+    void panelRevision_actionableWhenOneContradiction() {
+        assertThat(ResearchNarrationService.isPanelFeedbackActionable(panelOutcome(1, 0))).isTrue();
+    }
+
+    @Test
+    void panelRevision_actionableWhenTwoRecommendations() {
+        assertThat(ResearchNarrationService.isPanelFeedbackActionable(panelOutcome(0, 2))).isTrue();
+    }
+
+    @Test
+    void panelRevision_notActionableWhenSingleRecommendation() {
+        // A lone "could be clearer" recommendation is too vague to act on
+        // — the revision would likely no-op or fabricate.
+        assertThat(ResearchNarrationService.isPanelFeedbackActionable(panelOutcome(0, 1))).isFalse();
+    }
+
+    @Test
+    void panelRevision_notActionableOnEmptyPanel() {
+        assertThat(ResearchNarrationService.isPanelFeedbackActionable(PanelOutcome.empty())).isFalse();
+        assertThat(ResearchNarrationService.isPanelFeedbackActionable(null)).isFalse();
+    }
+
+    @Test
+    void panelRevision_noChangeDetectsIdenticalText() {
+        assertThat(ResearchNarrationService.isNoChangeRevision(
+                "Found a peak of 0.788.", "Found a peak of 0.788.",
+                "Peak found.", "Peak found.")).isTrue();
+    }
+
+    @Test
+    void panelRevision_noChangeIgnoresWhitespace() {
+        assertThat(ResearchNarrationService.isNoChangeRevision(
+                "Found  a   peak.",         "Found a peak.",
+                "  Peak found.\n\n",        "Peak found.")).isTrue();
+    }
+
+    @Test
+    void panelRevision_changeDetectedOnFindingsDiff() {
+        assertThat(ResearchNarrationService.isNoChangeRevision(
+                "Found a peak of 0.793.", "Found a peak of 0.788.",
+                "Peak found.",            "Peak found.")).isFalse();
+    }
+
+    @Test
+    void panelRevision_changeDetectedOnConclusionDiff() {
+        assertThat(ResearchNarrationService.isNoChangeRevision(
+                "Findings.",  "Findings.",
+                "Peak at 0.793.", "Peak at 0.788.")).isFalse();
+    }
+
+    @Test
+    void panelRevision_promptIncludesPinnedHypothesis() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hypothesis under test.",
+                "Findings prose.",
+                "Conclusion prose.",
+                null, "test-model", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(2, 3));
+        assertThat(prompt).contains("Hypothesis under test.");
+        assertThat(prompt).contains("pin — do not change");
+    }
+
+    @Test
+    void panelRevision_promptListsContradictions() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(2, 0));
+        // Both contradictions show up with their trace index.
+        assertThat(prompt).contains("PANEL CONSENSUS CONTRADICTIONS");
+        assertThat(prompt).contains("At tool call 0:");
+        assertThat(prompt).contains("At tool call 1:");
+    }
+
+    @Test
+    void panelRevision_promptListsRecommendations() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(0, 3));
+        assertThat(prompt).contains("PANEL RECOMMENDATIONS");
+        assertThat(prompt).contains("Recommendation 0");
+        assertThat(prompt).contains("Recommendation 1");
+        assertThat(prompt).contains("Recommendation 2");
+    }
+
+    @Test
+    void panelRevision_promptStatesNoNewNumericsConstraint() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(1, 0));
+        // The critical guardrail: no fabricated numbers.
+        assertThat(prompt).contains("Do NOT introduce numeric values that are not in the original tool-call trace");
+        assertThat(prompt).contains("Do NOT invent new tool calls");
+    }
+
+    @Test
+    void panelRevision_promptRequestsExactJsonSchema() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(1, 0));
+        assertThat(prompt).contains("Return ONLY valid JSON");
+        assertThat(prompt).contains("\"hypothesis\"");
+        assertThat(prompt).contains("\"findings\"");
+        assertThat(prompt).contains("\"conclusion\"");
+    }
+
+    @Test
+    void panelRevision_promptOmitsContradictionSectionWhenEmpty() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        // Only recommendations, no contradictions.
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(0, 2));
+        assertThat(prompt).doesNotContain("PANEL CONSENSUS CONTRADICTIONS");
+        assertThat(prompt).contains("PANEL RECOMMENDATIONS");
     }
 }
