@@ -255,12 +255,118 @@ public final class SandboxStaticChecker {
     }
 
     /**
+     * Return-position object literal pattern. Multi-line aware (DOTALL).
+     * The capture group is the body between {@code {} and {@code }}.
+     * Restricted to a single flat object — nested braces in the body cause
+     * the simple {@code [^{}]+} class to miss, and we let the rewrite
+     * skip them (the existing reject path fires instead).
+     */
+    private static final java.util.regex.Pattern RETURN_OBJECT_LITERAL =
+            java.util.regex.Pattern.compile(
+                    "\\breturn\\s*\\{\\s*([^{}]+?)\\s*\\}\\s*;",
+                    java.util.regex.Pattern.DOTALL);
+
+    /**
+     * Phase 19 Layer 1c — rewrites {@code return {k1: v1, k2: v2, …};} to
+     * a sequence of {@code recordSample(v_i);} calls followed by
+     * {@code return v_1;}. Targets the structured-multi-value return shape
+     * (P-a328-678 RLC: {@code return {Rcrit:Rcrit, omega0:omega0, Qcrit:Qcrit};})
+     * that today's grammar rejects as an object literal.
+     *
+     * <p>Semantics preserved for the LLM's purposes: each returned value
+     * appears in the SandboxResult's recordSample aggregates (n/mean/std/
+     * min/max), and the primary scalar is the first value. The LLM's
+     * output prose can recover the multi-value information from the
+     * tool-response summary.
+     *
+     * <p>Conservative scoping: only single-flat-object returns rewrite.
+     * Nested braces in the body (sub-object literals, function bodies)
+     * cause the regex to miss; those fall through to the existing reject
+     * path with the Layer-2 hint message. No regression vs today.
+     *
+     * <p>Key/value splitting respects parenthesis depth so values with
+     * sub-calls like {@code {a: pow(2, 3), b: sqrt(5)}} parse correctly
+     * (the comma inside {@code pow(2, 3)} is not a separator).
+     *
+     * <p>Package-private for runtime use and tests.
+     */
+    static String rewriteReturnObjectLiteral(String code) {
+        if (code == null || code.indexOf("return") < 0 || code.indexOf("{") < 0) {
+            return code;
+        }
+        java.util.regex.Matcher m = RETURN_OBJECT_LITERAL.matcher(code);
+        StringBuilder sb = new StringBuilder(code.length());
+        while (m.find()) {
+            String body = m.group(1).trim();
+            java.util.List<String> values = splitObjectLiteralValues(body);
+            if (values == null || values.isEmpty()) {
+                // Couldn't parse the body cleanly (e.g. unbalanced parens);
+                // leave the original text in place so the existing reject
+                // path fires with the standard hint.
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
+                continue;
+            }
+            StringBuilder replacement = new StringBuilder();
+            for (String v : values) {
+                replacement.append("recordSample(").append(v).append("); ");
+            }
+            replacement.append("return ").append(values.get(0)).append(";");
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement.toString()));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Splits an object-literal body ({@code "k1: v1, k2: v2"}) into a
+     * list of value expressions, respecting parenthesis depth so commas
+     * inside function calls don't split values. Returns {@code null} on
+     * malformed input (unbalanced parens, missing colon) so the caller
+     * can fall back to the no-rewrite path.
+     */
+    private static java.util.List<String> splitObjectLiteralValues(String body) {
+        java.util.List<String> pairs = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < body.length(); i++) {
+            char c = body.charAt(i);
+            if (c == '(' || c == '[') depth++;
+            else if (c == ')' || c == ']') {
+                if (--depth < 0) return null;
+            }
+            else if (c == ',' && depth == 0) {
+                pairs.add(body.substring(start, i));
+                start = i + 1;
+            }
+        }
+        if (depth != 0) return null;
+        pairs.add(body.substring(start));
+
+        java.util.List<String> values = new ArrayList<>(pairs.size());
+        for (String pair : pairs) {
+            int colon = pair.indexOf(':');
+            if (colon < 0) return null;
+            String value = pair.substring(colon + 1).trim();
+            if (value.isEmpty()) return null;
+            values.add(value);
+        }
+        return values;
+    }
+
+    /**
      * Applies all Phase 19 Layer-1 pre-parse rewrites in order. Centralises
      * the call so {@link #check(String)} and {@link SandboxEngine#run(String, int, int, int, double)}
      * stay in lockstep.
+     *
+     * <p>Order matters: Math.* first (so `Math.sqrt(arr.length)` becomes
+     * `sqrt(arr.length)`), then `.length` (becomes `sqrt(len(arr))`), then
+     * return-object-literal (so values like `Math.sqrt(x)` and `arr.length`
+     * inside object literals are already normalised by the time we copy
+     * them into the recordSample calls).
      */
     static String normalizeForSandbox(String code) {
-        return rewriteArrayLength(rewriteMathPrefix(code));
+        return rewriteReturnObjectLiteral(
+                rewriteArrayLength(rewriteMathPrefix(code)));
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────

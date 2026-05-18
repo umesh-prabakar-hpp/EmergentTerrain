@@ -181,8 +181,12 @@ class SandboxStaticCheckerPreScanTest {
 
     @Test
     void checkEndToEndRejectsObjectLiteralWithSpecificMessage() {
+        // Phase 19 Layer 1c — return-position object literals now rewrite
+        // to recordSample(...) sequences. Use a non-return-position object
+        // literal (var assignment) to pin the original intent that the
+        // rejection message is specific, not the generic lexer error.
         SandboxStaticChecker.Result r = SandboxStaticChecker.check(
-                "var s = 1; return {min: s, max: s};");
+                "var pair = {min: 1, max: 5}; return pair;");
         String reason = rejectionReason(r);
         assertThat(reason).contains("object literal");
         assertThat(reason).doesNotContain("Unexpected token");

@@ -480,6 +480,113 @@ class SandboxStaticCheckerTest {
                 .isEqualTo("var n = sqrt(len(xs));");
     }
 
+    // ── Phase 19 Layer 1c — return-position object-literal rewrite ─────────
+
+    @Test
+    void p678_rlcObjectLiteralReturn_isApproved() {
+        // Exact shape from P-a328-678 RLC call_4 (the case rejected by
+        // today's grammar). After the rewrite, the LLM gets a working
+        // tool call with Rcrit as the primary scalar and the other two
+        // values surfaced via recordSample aggregates.
+        String code = """
+                var L = 0.0009;
+                var C = 1.52e-6;
+                var Rcrit = 2*sqrt(L/C);
+                var omega0 = 1/sqrt(L*C);
+                var Qcrit = omega0*L / Rcrit;
+                return {Rcrit:Rcrit, omega0:omega0, Qcrit:Qcrit};
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void returnObjectLiteral_multiLine_isApproved() {
+        String code = """
+                var a = 1;
+                var b = 2;
+                return {
+                  first: a,
+                  second: b
+                };
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void returnObjectLiteral_valuesWithSubcalls_isApproved() {
+        // Commas inside sub-calls must NOT be treated as object-literal
+        // separators. The splitter respects paren depth.
+        String code = """
+                return {x: pow(2, 3), y: sqrt(5)};
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void objectLiteralInNonReturnPosition_stillRejected() {
+        // Only return-position object literals are rewritten. A `var x =
+        // {a: 1};` style assignment must still hit the existing
+        // object-literal pre-scan reject.
+        String code = """
+                var x = {a: 1, b: 2};
+                return x;
+                """;
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+        assertThat(((SandboxStaticChecker.Result.Rejected) r).reason())
+                .contains("object literals");
+    }
+
+    @Test
+    void returnObjectLiteral_nestedBraces_fallsThroughToReject() {
+        // Nested braces in the body cause the simple regex to miss; the
+        // existing reject path fires. This is the conservative no-regression
+        // guarantee.
+        String code = "return {outer: {inner: 1}};";
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+    }
+
+    @Test
+    void returnObjectLiteral_rewriteIsSemanticsPreserving() {
+        // Single value: recordSample(v); return v;
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral(
+                "return {x: 5};"))
+                .isEqualTo("recordSample(5); return 5;");
+
+        // Multiple flat values: recordSample(v) for each, return first.
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral(
+                "return {a: 1, b: 2, c: 3};"))
+                .isEqualTo("recordSample(1); recordSample(2); recordSample(3); return 1;");
+
+        // Sub-call values with commas inside parens: split respects depth.
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral(
+                "return {x: pow(2, 3), y: sqrt(5)};"))
+                .isEqualTo("recordSample(pow(2, 3)); recordSample(sqrt(5)); return pow(2, 3);");
+
+        // No object literal in return: untouched.
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral("return 42;"))
+                .isEqualTo("return 42;");
+
+        // Fast path: no `return` and no `{` — same string back.
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral("var x = 5;"))
+                .isEqualTo("var x = 5;");
+
+        // Null safety.
+        assertThat(SandboxStaticChecker.rewriteReturnObjectLiteral(null)).isNull();
+    }
+
+    @Test
+    void normalizeForSandbox_appliesAllThreeRewrites() {
+        // Pipeline test — Math.*, .length, AND object-literal return in one snippet.
+        String input = "return {n: Math.sqrt(xs.length), m: Math.PI};";
+        assertThat(SandboxStaticChecker.normalizeForSandbox(input))
+                .isEqualTo("recordSample(sqrt(len(xs))); recordSample(PI); return sqrt(len(xs));");
+    }
+
     @Test
     void mathPrefix_rewriteIsSemanticsPreserving() {
         // Direct unit test on the helper: input → expected rewritten output.
