@@ -49,6 +49,41 @@ public class MathToolSuite {
      * claim was computed or hand-waved. 18 sandbox rejections in the May 2026
      * corpus run mapped 1:1 to vague Findings sections.
      */
+    /**
+     * Phase 17 P8b — known result-prefix set for "a real computational
+     * result was produced." Anything not starting with one of these is
+     * either a safety rejection (REJECTED by safety review), a runtime
+     * failure (Sandbox/Symbolic/GPU/Predicate scan failed), an
+     * invalid-argument refusal (Missing, Invalid, Range too large,
+     * Topic not computable, etc.), or an unknown-tool error — none of
+     * which should increment the success counter that D3
+     * (zero_successes→suppressed) reads.
+     *
+     * <p>Visibility is package-private so unit tests pin the contract
+     * without standing up the full executor.
+     */
+    static final java.util.List<String> SUCCESS_PREFIXES = java.util.List.of(
+            "Param sweep (",
+            "Predicate scan:",
+            "Symbolic result for",
+            "Symbolic evaluation of",
+            "GPU eval of",
+            "Sandboxed computation —");
+
+    /**
+     * Phase 17 P8b — is this tool-call result a real computational
+     * success? Returns true iff the result string starts with one of
+     * {@link #SUCCESS_PREFIXES}. Visibility is package-private for
+     * unit tests.
+     */
+    static boolean isSuccessResult(String result) {
+        if (result == null || result.isEmpty()) return false;
+        for (String prefix : SUCCESS_PREFIXES) {
+            if (result.startsWith(prefix)) return true;
+        }
+        return false;
+    }
+
     public static final class ToolMetrics {
         private int sandboxRejectCount  = 0;
         private int symbolicRejectCount = 0;
@@ -261,30 +296,54 @@ public class MathToolSuite {
                 // synthesis prose was written anyway" pattern (P-352, P-353
                 // each had 4 sandbox rejects, 0 successes, then fabricated
                 // statistics into the published Findings).
+                //
+                // Phase 17 P8b — counter symmetry fix. The prior logic
+                // classified a result as "success" whenever it wasn't
+                // REJECTED-by-safety AND didn't start with one of the
+                // five known runtime-failure prefixes. Holes:
+                //   - "Missing expression./code./formula." (invalid args)
+                //   - "Invalid range:", "Invalid params:", "Invalid metric:",
+                //     "Invalid predicate scan:", "Invalid predicate token:"
+                //   - "Param sweep failed:" (not in the failed list)
+                //   - "Topic not computable via MathPhysicsEngine."
+                //   - "Range too large:", "run_gpu_eval not configured:"
+                //   - "Unknown tool:"
+                // All of these would slip into the `else if (!failed)` branch
+                // and increment the success counter. P-a328-613 + P-a328-623
+                // both had all-`run_symbolic` traces with no actual successful
+                // result yet were marked `prof:ok` (D3 didn't fire because
+                // totalSuccesses ended up > 0 from one invalid-args call
+                // somewhere).
+                //
+                // The fix: invert to a default-deny model. A call counts as
+                // success ONLY when the result starts with a known
+                // success-marker prefix. Anything else (rejected, runtime
+                // failure, invalid args, unknown tool) does not increment
+                // the success counter. The reject counter still tracks
+                // safety-review rejections separately for the
+                // sandbox_reject=N call-path stamp.
                 boolean rejected = result.startsWith("REJECTED by safety review");
-                boolean failed   = result.startsWith("Sandbox execution failed")
-                        || result.startsWith("Symbolic evaluation failed")
-                        || result.startsWith("GPU eval failed")
-                        || result.startsWith("Predicate scan failed")
-                        || result.startsWith("Tool execution error");
-                if ("run_sandboxed_code".equals(name) && rejected) {
-                    metrics.incrementSandboxRejects();
-                } else if ("run_sandboxed_code".equals(name) && !failed) {
-                    metrics.incrementSandboxSuccesses();
+                boolean success  = isSuccessResult(result);
+                if ("run_sandboxed_code".equals(name)) {
+                    if (rejected) metrics.incrementSandboxRejects();
+                    if (success)  metrics.incrementSandboxSuccesses();
                 }
-                if ("run_symbolic".equals(name) && rejected) {
-                    metrics.incrementSymbolicRejects();
-                } else if ("run_symbolic".equals(name) && !failed) {
-                    metrics.incrementSymbolicSuccesses();
+                if ("run_symbolic".equals(name) || "evaluate_symbolic".equals(name)) {
+                    if (rejected) metrics.incrementSymbolicRejects();
+                    if (success)  metrics.incrementSymbolicSuccesses();
                 }
-                if ("run_gpu_eval".equals(name) && rejected) {
-                    metrics.incrementGpuEvalRejects();
-                } else if ("run_gpu_eval".equals(name) && !failed) {
-                    metrics.incrementGpuEvalSuccesses();
+                if ("run_gpu_eval".equals(name)) {
+                    if (rejected) metrics.incrementGpuEvalRejects();
+                    if (success)  metrics.incrementGpuEvalSuccesses();
                 }
-                if ("run_predicate_scan".equals(name) && !failed) {
+                if ("run_predicate_scan".equals(name) && success) {
                     metrics.incrementPredicateScanSuccesses();
                 }
+                // run_param_sweep is intentionally not counted here — same
+                // as pre-Phase-17. Param-sweep papers are rare enough on
+                // INTERDISCIPLINARY topics that the D3 gate wasn't relying
+                // on their contribution; adding a counter for them is a
+                // feature change, not the bug-fix this commit scopes to.
                 return result;
             } catch (Exception e) {
                 log.warn("MathToolSuite: tool call failed: {}", e.getMessage());
