@@ -363,6 +363,34 @@ class PublishPaperTest {
     }
 
     @Test
+    void d5_p647InternalMalformationIsNotATailTruncation() {
+        // P-a328-647 (refresh #4) had Conclusion:
+        // "...with a mean deviation of 0.001. However,30, suggesting that the
+        //  divisor-sum average's behavior is more complex than initially
+        //  anticipated."
+        //
+        // REVIEW_REPORT refresh #4 initially flagged this as a
+        // truncation-guard miss. It is NOT — the text ends with "anticipated."
+        // The guard correctly does not fire. The malformation
+        // ("However,30,") is INTERNAL — a different validator shape would
+        // be needed to catch it (e.g. "conjunction,bare_number,word"
+        // fragments). This test pins the current correct behavior so a
+        // future "fix" doesn't over-fire on legitimate tails ending with
+        // a period.
+        String p647Conclusion = "The computed values confirm the preliminary "
+                + "hypothesis, with a divisor-sum average max deviation of "
+                + "0.004 from π²/12 ≈ 0.8225 at N=200, and a mean deviation "
+                + "of 0.001. However,30, suggesting that the divisor-sum "
+                + "average's behavior is more complex than initially "
+                + "anticipated.";
+        assertThat(UniversityService.endsWithSentenceTerminator(p647Conclusion))
+                .as("Conclusion ends with 'anticipated.' — terminator check "
+                        + "must return true. The internal 'However,30,' "
+                        + "fragment is not a tail-truncation pattern.")
+                .isTrue();
+    }
+
+    @Test
     void d5_truncationGuardOnDowngradesTruncatedHypothesis() {
         enableTruncationGuard();
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
