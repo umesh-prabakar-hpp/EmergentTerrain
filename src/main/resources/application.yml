@@ -642,6 +642,20 @@ app:
     # in `:demoted_to_needs_revision`).
     #
     # Default off; flip after one refresh confirms zero false positives.
+    # Phase 17 P8a — rev:parse_failed→fp raw-byte diagnostic. When on,
+    # the existing FALLBACK WARN log is followed by a second WARN line
+    # carrying the first `chars` characters of the raw revision stream.
+    # The goal: distinguish provider-side response_format ignore (raw
+    # bytes contain markdown fences / prose preamble) from parser-side
+    # LenientJsonParser coverage gap (bytes look like JSON but with a
+    # quirk the parser doesn't repair). 33 occurrences in refresh #3;
+    # one observation window should produce 10-30 samples to name the
+    # dominant shape.
+    # Default off; flip during a deliberate diagnostic window then
+    # flip back. Behaviour without the flag is bit-identical to today.
+    rev-parse-failed-byte-capture:
+      enabled: false
+      chars: 500
     panel-grade-floor:
       # 2026-05-18 false → true. Refresh #3 surfaced the headline case:
       # P-a328-617 (Black-body Wien Peak) shipped PUBLISHED with panel

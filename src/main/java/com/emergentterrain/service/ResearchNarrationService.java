@@ -180,6 +180,39 @@ public class ResearchNarrationService {
     private boolean panelRevisionEnabled;
 
     /**
+     * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
+     * When on, the FALLBACK log line is followed by a separate WARN log
+     * line carrying the first {@link #revParseFailedByteCaptureChars}
+     * characters of the raw revision-stream output. The goal is to
+     * distinguish two hypotheses for why `rev:parse_failed→fp` keeps
+     * firing despite Phase 17 JSON-output mode:
+     * <ol>
+     *   <li>Provider-side: Groq's {@code llama-3.3-70b-versatile} is not
+     *       honoring {@code response_format: json_object} when the
+     *       request includes a v3 structured-findings template — the
+     *       raw bytes would contain markdown code-fences, prose
+     *       preamble, or trailing comments.</li>
+     *   <li>Parser-side: provider returns valid JSON but with a quirk
+     *       {@link com.emergentterrain.research.LenientJsonParser}
+     *       doesn't repair (e.g. double-encoded strings, trailing
+     *       commas in arrays).</li>
+     * </ol>
+     *
+     * <p>One refresh's worth of captured bytes (~10-30 samples) should
+     * suffice to name the dominant failure shape; the fix then ships
+     * in either the parser or the request-shape. Default off so the
+     * diagnostic doesn't bloat logs in normal operation; flip during
+     * a deliberate observation window then flip back.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.rev-parse-failed-byte-capture.enabled:false}")
+    private boolean revParseFailedByteCaptureEnabled;
+
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.rev-parse-failed-byte-capture.chars:500}")
+    private int revParseFailedByteCaptureChars;
+
+    /**
      * Phase 17 panel-grade-floor demote — parallel to Phase 12 D4 (panel-
      * degradation-demote which fires on reviewer-count) but fires on
      * grade-floor. When the panel's median across honesty + completeness +
@@ -803,6 +836,26 @@ public class ResearchNarrationService {
                     draft.paperId(),
                     profTrace != null ? profTrace.size() : 0,
                     firstPass.findingsMap() != null ? firstPass.findingsMap().size() : 0);
+            // Phase 17 P8a — raw-byte capture diagnostic. When the
+            // operator flips `rev-parse-failed-byte-capture.enabled=true`,
+            // a separate WARN line carries the first N chars of the
+            // unrepaired revision stream so the dominant failure shape
+            // (provider-side response_format ignored vs parser repair
+            // gap) can be named. Default off; flip for one refresh, gather
+            // ~10-30 samples, flip back. See REVIEW_REPORT.md refresh #3
+            // §1 rec #6 — 33 occurrences in the latest run, JSON-output
+            // mode (commit 2ac020d) didn't close it.
+            if (revParseFailedByteCaptureEnabled) {
+                String raw = revised.toString();
+                int cap = Math.max(0, revParseFailedByteCaptureChars);
+                String preview = raw.length() <= cap ? raw
+                        : raw.substring(0, cap);
+                log.warn("rev:parse_failed→fp BYTE_CAPTURE paperId={} rawLen={} "
+                                + "preview={} (Phase 17 P8a)",
+                        draft.paperId(), raw.length(),
+                        // Sanitize newlines so the WARN remains single-line.
+                        preview.replace('\n', '⏎').replace('\r', '¶'));
+            }
         } catch (Exception e) {
             if (router.primaryFullyExhausted()) {
                 java.time.Instant recovery = router.earliestPrimaryRecovery();
