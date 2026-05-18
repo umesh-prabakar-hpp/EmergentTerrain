@@ -1,6 +1,7 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.llm.BudgetExceededException;
+import com.emergentterrain.llm.LlmCallMetrics;
 import com.emergentterrain.llm.TokenAccountant;
 import com.emergentterrain.llm.TokenUsage;
 import com.emergentterrain.llm.TpmBudgetGate;
@@ -151,6 +152,9 @@ public class GroqPool implements LlmPool {
     // Optional: null when running tests that don't wire the accountant bean.
     @Autowired(required = false)
     private TokenAccountant tokenAccountant;
+
+    @Autowired(required = false)
+    private LlmCallMetrics callMetrics;
 
     /**
      * Phase 9 G9 — pre-debit budget gate. When wired, every HTTP call to Groq
@@ -495,16 +499,30 @@ public class GroqPool implements LlmPool {
                     budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
                     reserved = true;
                 }
-                HttpRequest req = HttpRequest.newBuilder()
-                        .uri(URI.create(BASE_URL + "/chat/completions"))
-                        .header("Authorization", "Bearer " + apiKey)
-                        .header("Content-Type", "application/json")
-                        .POST(HttpRequest.BodyPublishers.ofString(payload))
-                        .timeout(requestTimeout)
-                        .build();
-                HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
-                if (resp.statusCode() != 200)
-                    throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
+                String roundOutcome = "ok";
+                HttpResponse<String> resp;
+                try {
+                    HttpRequest req = HttpRequest.newBuilder()
+                            .uri(URI.create(BASE_URL + "/chat/completions"))
+                            .header("Authorization", "Bearer " + apiKey)
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .timeout(requestTimeout)
+                            .build();
+                    resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                    if (resp.statusCode() != 200) {
+                        roundOutcome = "http_error";
+                        throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
+                    }
+                } catch (RuntimeException e) {
+                    if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
+                    recordCall(modelId, "tools", roundOutcome);
+                    throw e;
+                } catch (Exception e) {
+                    recordCall(modelId, "tools", "io_error");
+                    throw e;
+                }
+                recordCall(modelId, "tools", roundOutcome);
 
                 JsonNode body    = mapper.readTree(resp.body());
                 JsonNode choice  = body.path("choices").get(0);
@@ -1061,6 +1079,7 @@ public class GroqPool implements LlmPool {
             budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
             reserved = true;
         }
+        String outcome = "ok";
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + "/chat/completions"))
@@ -1071,6 +1090,7 @@ public class GroqPool implements LlmPool {
                     .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString());
             if (resp.statusCode() != 200) {
+                outcome = "http_error";
                 throw new RuntimeException("Groq API error " + resp.statusCode() + ": " + resp.body());
             }
             JsonNode root    = mapper.readTree(resp.body());
@@ -1090,10 +1110,18 @@ public class GroqPool implements LlmPool {
             }
             return content;
         } catch (RuntimeException e) {
+            if ("ok".equals(outcome)) outcome = "io_error";
             throw e;
         } catch (Exception e) {
+            outcome = "io_error";
             throw new RuntimeException("GroqPool sync call failed", e);
+        } finally {
+            recordCall(modelId, "sync", outcome);
         }
+    }
+
+    private void recordCall(String modelId, String mode, String outcome) {
+        if (callMetrics != null) callMetrics.record(PROVIDER_ID, modelId, mode, outcome);
     }
 
     private void recordUsage(String model, JsonNode usage) {
@@ -1136,6 +1164,7 @@ public class GroqPool implements LlmPool {
         } else {
             reserved = false;
         }
+        String outcome = "ok";
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(BASE_URL + "/chat/completions"))
@@ -1170,9 +1199,13 @@ public class GroqPool implements LlmPool {
                         } catch (Exception ignored) {}
                     });
         } catch (RuntimeException e) {
+            outcome = "io_error";
             throw e;
         } catch (Exception e) {
+            outcome = "io_error";
             throw new RuntimeException("GroqPool stream call failed", e);
+        } finally {
+            recordCall(modelId, "stream", outcome);
         }
     }
 

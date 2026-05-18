@@ -1,8 +1,10 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.LlmCallMetrics;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
 import org.springframework.ai.ollama.api.OllamaOptions;
@@ -69,6 +71,10 @@ public class OllamaPool implements LlmPool {
 
     private static final int  MAX_FAILURES   = 3;
     private static final long PROBE_DELAY_MS = 30_000;
+    private static final String PROVIDER_ID = "ollama";
+
+    @Autowired(required = false)
+    private LlmCallMetrics callMetrics;
 
     private record Backend(String modelName, ChatClient client, Semaphore slots, String url,
                            AtomicBoolean healthy, AtomicInteger consecutiveFailures) {}
@@ -253,31 +259,41 @@ public class OllamaPool implements LlmPool {
     @Override
     public String callSyncOnModel(String modelId, String prompt) {
         Backend backend = acquire(modelId);
+        String outcome = "ok";
         try {
             String result = backend.client().prompt().user(prompt).call().content();
             backend.consecutiveFailures().set(0);
             return result;
         } catch (RuntimeException e) {
+            outcome = "io_error";
             recordFailure(backend);
             throw e;
         } finally {
             backend.slots().release();
+            recordCall(modelId, "sync", outcome);
         }
     }
 
     @Override
     public void callStreamOnModel(String modelId, String prompt, Consumer<String> tokenConsumer) {
         Backend backend = acquire(modelId);
+        String outcome = "ok";
         try {
             backend.client().prompt().user(prompt).stream().content()
                     .toStream().forEach(tokenConsumer);
             backend.consecutiveFailures().set(0);
         } catch (RuntimeException e) {
+            outcome = "io_error";
             recordFailure(backend);
             throw e;
         } finally {
             backend.slots().release();
+            recordCall(modelId, "stream", outcome);
         }
+    }
+
+    private void recordCall(String modelId, String mode, String outcome) {
+        if (callMetrics != null) callMetrics.record(PROVIDER_ID, modelId, mode, outcome);
     }
 
     @Override

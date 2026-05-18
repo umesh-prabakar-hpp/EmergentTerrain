@@ -1,5 +1,6 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.LlmCallMetrics;
 import com.emergentterrain.llm.TokenAccountant;
 import com.emergentterrain.llm.TokenUsage;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -94,6 +95,9 @@ public class NvidiaPool implements LlmPool {
 
     @Autowired(required = false)
     private TokenAccountant tokenAccountant;
+
+    @Autowired(required = false)
+    private LlmCallMetrics callMetrics;
 
     public NvidiaPool(
             @Value("${app.ai.nvidia.apiKey:}") String apiKey,
@@ -320,12 +324,25 @@ public class NvidiaPool implements LlmPool {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
                 String payload = buildConversationPayload(
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
-                HttpResponse<String> resp = postChat(payload);
-                if (resp.statusCode() != 200) {
-                    handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
-                    throw new RuntimeException("NVIDIA API error " + resp.statusCode()
-                            + ": " + resp.body());
+                String roundOutcome = "ok";
+                HttpResponse<String> resp;
+                try {
+                    resp = postChat(payload);
+                    if (resp.statusCode() != 200) {
+                        roundOutcome = "http_error";
+                        handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
+                        throw new RuntimeException("NVIDIA API error " + resp.statusCode()
+                                + ": " + resp.body());
+                    }
+                } catch (RuntimeException e) {
+                    if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
+                    recordCall(modelId, "tools", roundOutcome);
+                    throw e;
+                } catch (Exception e) {
+                    recordCall(modelId, "tools", "io_error");
+                    throw e;
                 }
+                recordCall(modelId, "tools", roundOutcome);
                 JsonNode body    = mapper.readTree(resp.body());
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
@@ -455,10 +472,12 @@ public class NvidiaPool implements LlmPool {
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {
+        String outcome = "ok";
         try {
             String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
             if (resp.statusCode() != 200) {
+                outcome = "http_error";
                 handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                 throw new RuntimeException("NVIDIA API error " + resp.statusCode()
                         + ": " + resp.body());
@@ -469,11 +488,19 @@ public class NvidiaPool implements LlmPool {
             if (content.isBlank()) content = message.path("reasoning_content").asText("");
             recordUsage(modelId, root.path("usage"));
             return content;
-        } catch (RuntimeException e) { throw e; }
-        catch (Exception e) { throw new RuntimeException("NvidiaPool sync call failed", e); }
+        } catch (RuntimeException e) {
+            if ("ok".equals(outcome)) outcome = "io_error";
+            throw e;
+        } catch (Exception e) {
+            outcome = "io_error";
+            throw new RuntimeException("NvidiaPool sync call failed", e);
+        } finally {
+            recordCall(modelId, "sync", outcome);
+        }
     }
 
     private void streamCall(String modelId, String prompt, Consumer<String> tokenConsumer) {
+        String outcome = "ok";
         try {
             String payload = buildPayload(modelId, prompt, true, maxTokens);
             HttpRequest req = chatRequestBuilder()
@@ -497,8 +524,19 @@ public class NvidiaPool implements LlmPool {
                             }
                         } catch (Exception ignored) {}
                     });
-        } catch (RuntimeException e) { throw e; }
-        catch (Exception e) { throw new RuntimeException("NvidiaPool stream call failed", e); }
+        } catch (RuntimeException e) {
+            outcome = "io_error";
+            throw e;
+        } catch (Exception e) {
+            outcome = "io_error";
+            throw new RuntimeException("NvidiaPool stream call failed", e);
+        } finally {
+            recordCall(modelId, "stream", outcome);
+        }
+    }
+
+    private void recordCall(String modelId, String mode, String outcome) {
+        if (callMetrics != null) callMetrics.record(PROVIDER_ID, modelId, mode, outcome);
     }
 
     // --- HTTP helpers ---

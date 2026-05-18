@@ -1,5 +1,6 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.LlmCallMetrics;
 import com.emergentterrain.llm.TokenAccountant;
 import com.emergentterrain.llm.TokenUsage;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -94,6 +95,9 @@ public class CerebrasPool implements LlmPool {
 
     @Autowired(required = false)
     private TokenAccountant tokenAccountant;
+
+    @Autowired(required = false)
+    private LlmCallMetrics callMetrics;
 
     public CerebrasPool(
             @Value("${app.ai.cerebras.apiKey:}") String apiKey,
@@ -311,12 +315,25 @@ public class CerebrasPool implements LlmPool {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
                 String payload = buildConversationPayload(
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
-                HttpResponse<String> resp = postChat(payload);
-                if (resp.statusCode() != 200) {
-                    handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
-                    throw new RuntimeException("Cerebras API error " + resp.statusCode()
-                            + ": " + resp.body());
+                String roundOutcome = "ok";
+                HttpResponse<String> resp;
+                try {
+                    resp = postChat(payload);
+                    if (resp.statusCode() != 200) {
+                        roundOutcome = "http_error";
+                        handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
+                        throw new RuntimeException("Cerebras API error " + resp.statusCode()
+                                + ": " + resp.body());
+                    }
+                } catch (RuntimeException e) {
+                    if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
+                    recordCall(modelId, "tools", roundOutcome);
+                    throw e;
+                } catch (Exception e) {
+                    recordCall(modelId, "tools", "io_error");
+                    throw e;
                 }
+                recordCall(modelId, "tools", roundOutcome);
                 JsonNode body    = mapper.readTree(resp.body());
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
@@ -413,6 +430,15 @@ public class CerebrasPool implements LlmPool {
     }
 
     private String syncCallWithBackoff(String modelId, String prompt, int tokenLimit) {
+        // Cerebras is wired with role=fast-audit and is paired with an Ollama
+        // (gemma3:4b) fallback in LlmRouter.callForRole. The whole reason this
+        // pool exists is the 14ms WSE-3 inference — sleeping minutes inside a
+        // retry loop here defeats that contract: the router would otherwise
+        // fall back to the local Ollama audit in sub-millisecond time, and the
+        // rateLimitExpiry recorded by handleErrorResponse makes the NEXT call
+        // skip Cerebras via allBlocked() until the block recovers. So on 429
+        // we throw immediately and let the router do its thing. Non-429
+        // RuntimeExceptions propagate the same way — keeping behaviour simple.
         long backoffMs = INITIAL_BACKOFF_MS;
         RuntimeException last = null;
         for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -421,15 +447,14 @@ public class CerebrasPool implements LlmPool {
             } catch (RuntimeException e) {
                 last = e;
                 String msg = e.getMessage();
-                if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
-                    // Phase 9 follow-on — honor the just-set rateLimitExpiry from
-                    // handleErrorResponse (header- or body-derived) so the retry
-                    // actually waits long enough. Falls back to exponential when
-                    // no expiry was recorded. Capped at 90s so a misconfigured
-                    // long block doesn't stall startup.
+                if (msg != null && msg.contains("429")) {
+                    // Block-state already recorded; let the router fall back.
+                    throw e;
+                }
+                if (attempt < MAX_RETRIES) {
                     long waitMs = retryWaitMsFor(modelId, backoffMs);
-                    log.warn("CerebrasPool: 429 model={} attempt={} retrying in {}ms",
-                            modelId, attempt + 1, waitMs);
+                    log.warn("CerebrasPool: model={} attempt={} retrying in {}ms cause={}",
+                            modelId, attempt + 1, waitMs, msg);
                     sleep(waitMs);
                     backoffMs = Math.min(backoffMs * 2, 30_000);
                 } else { throw e; }
@@ -447,10 +472,12 @@ public class CerebrasPool implements LlmPool {
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {
+        String outcome = "ok";
         try {
             String payload = buildPayload(modelId, prompt, false, tokenLimit);
             HttpResponse<String> resp = postChat(payload);
             if (resp.statusCode() != 200) {
+                outcome = "http_error";
                 handleErrorResponse(modelId, resp.statusCode(), resp.headers(), resp.body());
                 throw new RuntimeException("Cerebras API error " + resp.statusCode()
                         + ": " + resp.body());
@@ -460,11 +487,19 @@ public class CerebrasPool implements LlmPool {
             String content = message.path("content").asText("");
             recordUsage(modelId, root.path("usage"));
             return content;
-        } catch (RuntimeException e) { throw e; }
-        catch (Exception e) { throw new RuntimeException("CerebrasPool sync call failed", e); }
+        } catch (RuntimeException e) {
+            if ("ok".equals(outcome)) outcome = "io_error";
+            throw e;
+        } catch (Exception e) {
+            outcome = "io_error";
+            throw new RuntimeException("CerebrasPool sync call failed", e);
+        } finally {
+            recordCall(modelId, "sync", outcome);
+        }
     }
 
     private void streamCall(String modelId, String prompt, Consumer<String> tokenConsumer) {
+        String outcome = "ok";
         try {
             String payload = buildPayload(modelId, prompt, true, maxTokens);
             HttpRequest req = chatRequestBuilder()
@@ -488,8 +523,19 @@ public class CerebrasPool implements LlmPool {
                             }
                         } catch (Exception ignored) {}
                     });
-        } catch (RuntimeException e) { throw e; }
-        catch (Exception e) { throw new RuntimeException("CerebrasPool stream call failed", e); }
+        } catch (RuntimeException e) {
+            outcome = "io_error";
+            throw e;
+        } catch (Exception e) {
+            outcome = "io_error";
+            throw new RuntimeException("CerebrasPool stream call failed", e);
+        } finally {
+            recordCall(modelId, "stream", outcome);
+        }
+    }
+
+    private void recordCall(String modelId, String mode, String outcome) {
+        if (callMetrics != null) callMetrics.record(PROVIDER_ID, modelId, mode, outcome);
     }
 
     // --- HTTP helpers ---
