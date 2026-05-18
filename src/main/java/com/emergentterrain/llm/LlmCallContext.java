@@ -47,7 +47,8 @@ public final class LlmCallContext {
 
     private LlmCallContext() {}
 
-    private static final ThreadLocal<Double> TEMPERATURE = new ThreadLocal<>();
+    private static final ThreadLocal<Double>  TEMPERATURE      = new ThreadLocal<>();
+    private static final ThreadLocal<Boolean> JSON_OUTPUT_MODE = new ThreadLocal<>();
 
     /**
      * Returns the temperature override for the current thread, or
@@ -99,11 +100,62 @@ public final class LlmCallContext {
     }
 
     /**
+     * Phase 17 (analyses §2.3) — should the next LLM call constrain its
+     * output to valid JSON via {@code response_format: {"type":
+     * "json_object"}}? Pools that support OpenAI-compatible
+     * response_format read this flag just before serialising and add the
+     * directive when true. The provider then guarantees the response
+     * starts with {@code {} and ends with {@code }} — no markdown code
+     * fences, no prose preamble, no trailing comments.
+     *
+     * <p>Closes the {@code rev:parse_failed→fp} failure mode named in
+     * REVIEW_REPORT.md refresh #1 §1 rec #3 (9 of 23 published papers in
+     * one refresh — ~39%). Pair with {@link #withTemperature} at 0.0 on
+     * revision-class calls.
+     *
+     * <p>Returns {@code false} when unset (today's behaviour).
+     */
+    public static boolean isJsonOutputMode() {
+        Boolean v = JSON_OUTPUT_MODE.get();
+        return v != null && v;
+    }
+
+    /**
+     * Run {@code body} with the JSON-output-mode flag set on this thread.
+     * Auto-clears on body completion AND on exception — same finally
+     * discipline as {@link #withTemperature}.
+     */
+    public static void withJsonOutputMode(Runnable body) {
+        Boolean prior = JSON_OUTPUT_MODE.get();
+        JSON_OUTPUT_MODE.set(Boolean.TRUE);
+        try {
+            body.run();
+        } finally {
+            if (prior == null) JSON_OUTPUT_MODE.remove();
+            else JSON_OUTPUT_MODE.set(prior);
+        }
+    }
+
+    /** Supplier overload — see {@link #withJsonOutputMode(Runnable)}. */
+    public static <T> T withJsonOutputMode(Supplier<T> body) {
+        Boolean prior = JSON_OUTPUT_MODE.get();
+        JSON_OUTPUT_MODE.set(Boolean.TRUE);
+        try {
+            return body.get();
+        } finally {
+            if (prior == null) JSON_OUTPUT_MODE.remove();
+            else JSON_OUTPUT_MODE.set(prior);
+        }
+    }
+
+    /**
      * Clear the override unconditionally. Tests use this to guarantee a
      * clean slate; production code should prefer the
-     * {@link #withTemperature} helpers since they auto-clear via finally.
+     * {@link #withTemperature} / {@link #withJsonOutputMode} helpers
+     * since they auto-clear via finally.
      */
     public static void clear() {
         TEMPERATURE.remove();
+        JSON_OUTPUT_MODE.remove();
     }
 }

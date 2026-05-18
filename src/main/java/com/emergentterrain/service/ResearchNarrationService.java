@@ -659,12 +659,21 @@ public class ResearchNarrationService {
             // not to introduce creative variation. Lower temperature ↓
             // rev:parse_failed rate AND ↓ chance the LLM invents new
             // numerics absent from the professor synthesis.
+            //
+            // Phase 17 (analyses §2.3) — also engage JSON-output mode so the
+            // provider enforces response_format: json_object. The prompt
+            // template's "Output ONLY valid JSON" instruction was being
+            // violated by markdown code-fence wrappers, prose preamble,
+            // and trailing comments — 9 of 23 papers in refresh #1 hit
+            // rev:parse_failed→fp. Provider-side JSON mode shuts that
+            // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
             com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
-                    router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
-                                    professorSynthesis, literatureContext),
-                            revised::append));
+                    com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
+                            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
+                                            professorSynthesis, literatureContext),
+                                    revised::append)));
             // Phase 13 E2 — pre-parse repair of common malformed-JSON cases
             // (code-fence wrappers, prose preamble, trailing commas, unclosed
             // strings, unbalanced braces). REVIEW_REPORT refresh #1 §1 rec #3
@@ -1073,8 +1082,15 @@ public class ResearchNarrationService {
             // pin hypothesis) leave the model no creative slack worth
             // exercising, and a lower temperature shrinks the chance of
             // schema-violating output.
+            //
+            // Phase 17 (analyses §2.3) — also engage JSON-output mode so
+            // the provider enforces response_format: json_object. The
+            // prompt's "Return ONLY valid JSON" line was sometimes
+            // ignored by the previous-temperature default; JSON mode
+            // makes the provider drop any non-JSON prose.
             com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
-                    router.streamPrimary(prompt, buf::append));
+                    com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
+                            router.streamPrimary(prompt, buf::append)));
             com.emergentterrain.research.LenientJsonParser.RepairResult repair =
                     com.emergentterrain.research.LenientJsonParser.repair(buf.toString());
             NarrationResult parsed = parseNarrationResult(repair.text());

@@ -563,6 +563,9 @@ public class CerebrasPool implements LlmPool {
             node.put("max_tokens", tokenLimit);
             node.put("temperature",
                     com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
+            if (com.emergentterrain.llm.LlmCallContext.isJsonOutputMode()) {
+                node.putObject("response_format").put("type", "json_object");
+            }
             if (stream) node.putObject("stream_options").put("include_usage", true);
             ArrayNode messages = node.putArray("messages");
             messages.addObject().put("role", "user").put("content", prompt);
@@ -579,6 +582,9 @@ public class CerebrasPool implements LlmPool {
             node.put("max_tokens", tokenLimit);
             node.put("temperature",
                     com.emergentterrain.llm.LlmCallContext.currentTemperature().orElse(0.7));
+            if (com.emergentterrain.llm.LlmCallContext.isJsonOutputMode()) {
+                node.putObject("response_format").put("type", "json_object");
+            }
             node.set("messages", messages);
             if (tools != null && tools.isArray() && !tools.isEmpty()) {
                 node.set("tools", tools);

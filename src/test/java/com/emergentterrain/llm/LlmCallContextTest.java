@@ -118,4 +118,64 @@ class LlmCallContextTest {
             assertThat(LlmCallContext.currentTemperature()).isEmpty();
         });
     }
+
+    // ---- Phase 17: JSON output mode ----
+
+    @Test
+    void jsonOutputModeUnsetReturnsFalse() {
+        assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+    }
+
+    @Test
+    void withJsonOutputModeMakesValueVisibleInsideBody() {
+        java.util.concurrent.atomic.AtomicBoolean seen = new java.util.concurrent.atomic.AtomicBoolean();
+        LlmCallContext.withJsonOutputMode(() -> seen.set(LlmCallContext.isJsonOutputMode()));
+        assertThat(seen.get()).isTrue();
+    }
+
+    @Test
+    void jsonOutputModeClearsAfterBody() {
+        LlmCallContext.withJsonOutputMode(() -> {});
+        assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+    }
+
+    @Test
+    void jsonOutputModeClearsEvenWhenBodyThrows() {
+        assertThatThrownBy(() ->
+                LlmCallContext.withJsonOutputMode(() -> { throw new RuntimeException("boom"); }))
+                .isInstanceOf(RuntimeException.class);
+        assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+    }
+
+    @Test
+    void jsonOutputModeSupplierOverloadReturnsValue() {
+        String result = LlmCallContext.withJsonOutputMode(() -> {
+            assertThat(LlmCallContext.isJsonOutputMode()).isTrue();
+            return "value";
+        });
+        assertThat(result).isEqualTo("value");
+        assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+    }
+
+    @Test
+    void temperatureAndJsonModeComposeIndependently() {
+        // The revision-class call wraps both: withTemperature(0.0, withJsonOutputMode(...)).
+        // Inside, both overrides must be active; outside, both must be empty.
+        LlmCallContext.withTemperature(0.0, () ->
+                LlmCallContext.withJsonOutputMode(() -> {
+                    assertThat(LlmCallContext.currentTemperature().getAsDouble()).isEqualTo(0.0);
+                    assertThat(LlmCallContext.isJsonOutputMode()).isTrue();
+                }));
+        assertThat(LlmCallContext.currentTemperature()).isEmpty();
+        assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+    }
+
+    @Test
+    void clearAlsoResetsJsonMode() {
+        LlmCallContext.withJsonOutputMode(() -> {
+            assertThat(LlmCallContext.isJsonOutputMode()).isTrue();
+            LlmCallContext.clear();
+            assertThat(LlmCallContext.isJsonOutputMode()).isFalse();
+        });
+    }
 }
