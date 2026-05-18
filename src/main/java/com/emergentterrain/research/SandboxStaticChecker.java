@@ -38,6 +38,19 @@ public final class SandboxStaticChecker {
             return new Result.Rejected("empty code");
         }
 
+        // Phase 17 (post-hang analyses §1.3) — pre-parse pattern detection
+        // for the two dominant LLM mis-translations: JavaScript member-access
+        // (`.push`, `.length`, etc., 43% of static-parse fails across 18h of
+        // logs) and object literals (`{key: value}`, 22%). The lexer's
+        // "Unexpected char '.'" / "Unexpected token '{'" rejections don't
+        // tell the LLM *what* failed; specific messages here cut the retry
+        // count and steer the LLM toward `recordSample()` / fixed-size
+        // arrays. Detection is line-based and only triggers on clear
+        // member-access or object-literal shapes; numeric literals like
+        // `1.5e-3` are unaffected.
+        Result preScan = preScanForJavascriptIdioms(code);
+        if (preScan instanceof Result.Rejected) return preScan;
+
         List<SandboxEngine.Stmt> program;
         try {
             List<SandboxEngine.Token> tokens = SandboxEngine.lex(code);
@@ -141,6 +154,72 @@ public final class SandboxStaticChecker {
                     }
                     return s;
                 """;
+    }
+
+    // ── Phase 17: pre-parse pattern detection ─────────────────────────────
+
+    /**
+     * Member-access pattern: identifier or close-bracket, followed by `.`,
+     * followed by an identifier (the would-be method/property name) — and
+     * <em>not</em> a digit (which would be a numeric literal continuation).
+     *
+     * <p>Anchored examples that match: {@code xs.push(1)}, {@code arr.length},
+     * {@code Math.pow(2, 3)}, {@code result.toFixed(2)}, {@code }gaps[i].push(v)}.
+     * Anchored examples that do <em>not</em> match: {@code 1.5}, {@code .5e-3}
+     * (no identifier before the dot), {@code 2e3}, {@code N.0} (digit after dot).
+     */
+    private static final java.util.regex.Pattern MEMBER_ACCESS =
+            java.util.regex.Pattern.compile("(?:[A-Za-z_]\\w*|\\])\\.([A-Za-z_]\\w*)");
+
+    /**
+     * Object-literal pattern: open-brace, optional whitespace, identifier,
+     * optional whitespace, colon. Excludes the legitimate cases:
+     *   - block opener after a control-flow keyword: `if (cond) {` — no
+     *     `identifier:` follows the brace
+     *   - ternary `cond ? a : b` — colon is not preceded by `{ ident`
+     */
+    private static final java.util.regex.Pattern OBJECT_LITERAL =
+            java.util.regex.Pattern.compile("\\{\\s*[A-Za-z_]\\w*\\s*:");
+
+    /**
+     * Phase 17 (post-hang analyses §1.3) — detect JavaScript idioms the
+     * LLM keeps emitting (member-access {@code .push}/{@code .length}/etc.;
+     * object literals {@code {key: value}}) and reject with a
+     * specific, instructive message <em>before</em> the lexer produces its
+     * less-helpful "Unexpected char" output.
+     *
+     * <p>Visibility is package-private so unit tests can pin the regex
+     * decisions without standing up the full {@link #check(String)}
+     * pipeline.
+     */
+    static Result preScanForJavascriptIdioms(String code) {
+        if (code == null) return new Result.Approved();
+        // Member-access first (the larger cluster: 43% of static-parse fails).
+        java.util.regex.Matcher m = MEMBER_ACCESS.matcher(code);
+        if (m.find()) {
+            String method = m.group(1);
+            return new Result.Rejected(
+                    "member access not supported: '." + method + "' — "
+                            + "the safe grammar has no objects or methods. "
+                            + "For arrays: declare a fixed size `var xs = [0, 0, …]` "
+                            + "and index into it (`xs[i] = v`); use `len(xs)` for length. "
+                            + "For Math: call `pow`, `sqrt`, `sin`, etc. as flat "
+                            + "identifiers (no `Math.` prefix). To collect statistics "
+                            + "across iterations, call `recordSample(value)` at each "
+                            + "step — the harness returns n/mean/std/min/max alongside "
+                            + "your return value.");
+        }
+        // Object literal second (22% of static-parse fails).
+        if (OBJECT_LITERAL.matcher(code).find()) {
+            return new Result.Rejected(
+                    "object literals `{key: value}` not supported — "
+                            + "the safe grammar has no objects. To return multiple "
+                            + "correlated statistics, call `recordSample(value)` at "
+                            + "each computation step; the harness exposes "
+                            + "n/mean/std/min/max for free. Your return statement "
+                            + "should be a single representative scalar.");
+        }
+        return new Result.Approved();
     }
 
     // ── AST walk ──────────────────────────────────────────────────────────────
