@@ -567,7 +567,7 @@ public class MathToolSuite {
         String reviewVerdict = reviewCodeWith4b(code, description);
         if (!reviewVerdict.startsWith("APPROVED")) {
             log.warn("MathToolSuite: sandbox code rejected by 4b review: {} code=\"{}\"",
-                    reviewVerdict, code.length() > 80 ? code.substring(0, 80) + "…" : code);
+                    reviewVerdict, code);
             // Phase 10 — append the grammar reference for static-stage
             // rejections so the LLM doesn't burn another 3 retries discovering
             // which JS construct the sandbox subset omits. Intent-stage
@@ -580,8 +580,8 @@ public class MathToolSuite {
                     " — Please revise the pseudocode to address this issue and call run_sandboxed_code again."
                     + hint;
         }
-        log.info("MathToolSuite: sandbox code approved, executing range=[{},{}) description=\"{}\"",
-                rangeStart, rangeEnd, description);
+        log.info("MathToolSuite: sandbox code approved, executing range=[{},{}) description=\"{}\" code=\"{}\"",
+                rangeStart, rangeEnd, description, code);
 
         int param1 = draft.param1() != null ? draft.param1() : 42;
         double param2 = draft.param2() != null ? draft.param2() : 1.0;
