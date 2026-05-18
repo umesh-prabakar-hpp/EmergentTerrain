@@ -146,6 +146,16 @@ public class UniversityService {
      * rate is measured over ≥30 papers.
      */
     private final boolean auditCherryPickedRejectsEnabled;
+    /**
+     * Phase 18 §18.2 (P8d) — when on, runs
+     * {@link UnsourcedClaimValidator} against Findings + Conclusion. The
+     * paired {@code unsourcedClaimMode} field controls whether failures
+     * log only ({@code warn}) or route the paper to NEEDS_REVISION with a
+     * {@code publish:unsourced_claim:<type>→needs_revision} stamp
+     * ({@code downgrade}).
+     */
+    private final boolean unsourcedClaimEnabled;
+    private final String  unsourcedClaimMode;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -270,6 +280,8 @@ public class UniversityService {
             @Value("${app.research.topic-clone-backoff.enabled:false}") boolean topicCloneBackoffEnabled,
             @Value("${app.research.topic-clone-backoff.window-size:5}") int topicCloneBackoffWindow,
             @Value("${app.research.topic-clone-backoff.max-retries:3}") int topicCloneBackoffMaxRetries,
+            @Value("${app.research.unsourced-claim.enabled:false}") boolean unsourcedClaimEnabled,
+            @Value("${app.research.unsourced-claim.mode:warn}") String unsourcedClaimMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -311,6 +323,8 @@ public class UniversityService {
         this.directionOfFindingEnabled    = directionOfFindingEnabled;
         this.blockCountStampEnabled       = blockCountStampEnabled;
         this.blockCountGuardEnabled       = blockCountGuardEnabled;
+        this.unsourcedClaimEnabled        = unsourcedClaimEnabled;
+        this.unsourcedClaimMode           = normalizeMode(unsourcedClaimMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -724,6 +738,24 @@ public class UniversityService {
             log.warn("direction-of-finding check failed paperId={} reasons={}",
                     draft.paperId(), directionOfFindingFailures);
         }
+        // Phase 18 §18.2 (P8d) — unsourced derivative / uncertainty / error /
+        // ±N claims in Findings/Conclusion with no paired [call_N] reference
+        // in the same sentence. Targets P-603 (Snell "1.5° error", "331° per
+        // unit derivative") and P-605 (Kepler) "math right, prose fabricated"
+        // pattern. Sample-size claims are SinglePointSweepValidator's
+        // territory and are deliberately NOT flagged here.
+        List<String> unsourcedClaimFailures = unsourcedClaimEnabled
+                ? UnsourcedClaimValidator.validate(findingsBlocks, conclusion)
+                : List.of();
+        boolean unsourcedClaimFlagged = !unsourcedClaimFailures.isEmpty();
+        // Only route the paper when mode=downgrade; warn mode logs+stamps
+        // without changing status.
+        boolean unsourcedClaimRoutes = unsourcedClaimFlagged
+                && "downgrade".equals(unsourcedClaimMode);
+        if (unsourcedClaimFlagged) {
+            log.warn("unsourced-claim check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), unsourcedClaimMode, unsourcedClaimFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -903,6 +935,13 @@ public class UniversityService {
             // revision can fix the prose by aligning the verdict with the
             // observed deviation.
             paperStatus = "NEEDS_REVISION";
+        } else if (unsourcedClaimRoutes) {
+            // Phase 18 §18.2 (P8d) — unsourced derivative / uncertainty /
+            // error / ±N claim with no paired [call_N] in the same sentence.
+            // Same tier as F3/F4: a content-quality issue revision can fix.
+            // Only routes here in mode=downgrade; warn mode stamps without
+            // changing status.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -969,6 +1008,20 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:direction_inversion→needs_revision"
                     : persistedCallPath + " → publish:direction_inversion→needs_revision";
+        }
+        // Phase 18 §18.2 (P8d) — additive stamp for unsourced-claim flags.
+        // Stamps in BOTH warn and downgrade modes so the operator can observe
+        // the would-be-route rate; only downgrade mode actually re-routes the
+        // status above. Stamp carries the first-flagged claim type.
+        if (unsourcedClaimFlagged) {
+            String claimType = unsourcedClaimFailures.get(0)
+                    .replaceFirst("^unsourced_claim:", "")
+                    .replaceFirst("\\s.*", "");
+            String suffix = unsourcedClaimRoutes ? "→needs_revision" : ":warn";
+            String stamp = "publish:unsourced_claim:" + claimType + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
         }
         // Phase 14 F1b — additive stamp for block-count overshoot.
         if (blockCountOvershoot) {

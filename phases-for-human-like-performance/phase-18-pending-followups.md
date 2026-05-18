@@ -76,6 +76,19 @@ values; mitigation is the "final `result` only" scoping above.
 
 ### 18.2 — P8d: unsourced-claim validator ("math right, prose fabricated")
 
+**Status (2026-05-18):** **SHIPPED in warn mode** (commit forthcoming).
+`UnsourcedClaimValidator.validate(findingsBlocks, conclusion)` returns
+`unsourced_claim:<type>` reasons for derivative / uncertainty / error /
+±N triggers without a same-sentence `[call_N]` reference. Wired at the
+publish-time validator layer; `app.research.unsourced-claim.enabled` =
+true, `mode = warn`. Stamps the call_path with
+`publish:unsourced_claim:<type>:warn`; does not change status until
+`mode` is flipped to `downgrade` after one refresh confirms FP rate < 5%.
+The detail below is retained as historical context for the design
+decisions (sentence-scoped matching, sample-size deferral to
+SinglePointSweepValidator).
+
+
 **Source:** former `phase-wishlist.md` (now `phase-wishlist-human-level.md` Migration table) P8d (refresh #2 evidence on P-a328-603 +
 P-a328-605).
 
@@ -219,8 +232,11 @@ update this table rather than starting a new tracking doc.
 ## Closing condition for Phase 18
 
 This phase closes when:
-1. 18.1 (P8c trace scan) and 18.2 (P8d unsourced-claim validator) ship.
-2. 18.3 (Phase 4c Piece 3 decision) is either resolved by starting
+1. ~~18.1 (P8c trace scan)~~ ✅ SHIPPED 2026-05-18 (commit `ff2a0eb`).
+2. 18.2 (P8d unsourced-claim validator) — ✅ **SHIPPED in warn mode**
+   2026-05-18; close fully when `mode` flips to `downgrade` after one
+   refresh confirms FP rate < 5%.
+3. 18.3 (Phase 4c Piece 3 decision) is either resolved by starting
    Piece 3 implementation under its own phase doc OR explicitly
    retired with a "Piece 3 deferred indefinitely — reason X" note in
    `archive/phase-4c-piece-1-memo.md`.

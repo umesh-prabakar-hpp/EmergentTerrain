@@ -410,6 +410,20 @@ app:
     # Flipped ON 2026-05-17.
     direction-of-finding:
       enabled: true
+    # Phase 18 §18.2 (P8d) — when on, flags Findings/Conclusion sentences
+    # asserting derivative / uncertainty / error / ±N claims with no paired
+    # [call_N] reference in the same sentence. Targets P-a328-603 (Snell)
+    # and P-a328-605 (Kepler) "math right, prose fabricated" pattern.
+    # Mode escalation matches D2:
+    #   warn      — log + stamp the call_path, do not change status.
+    #   downgrade — route to NEEDS_REVISION with publish:unsourced_claim:<type>
+    #               on the call_path.
+    # Default: enabled+warn for rollout. Flip mode to downgrade after one
+    # refresh confirms FP rate < 5%. Sample-size claims are deliberately
+    # NOT flagged here — they're SinglePointSweepValidator's territory.
+    unsourced-claim:
+      enabled: true
+      mode: warn
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does
