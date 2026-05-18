@@ -130,6 +130,30 @@ public class ResearchNarrationService {
     private boolean corpusCitationsSuppressRejected;
 
     /**
+     * Phase 17 — extension of D3's zero-successes suppression to cover the
+     * gate-killed-professor failure mode surfaced in {@code REVIEW_REPORT.md}
+     * post-hang refresh #1 (papers P-559/568/570/573/575/580). D3's
+     * precondition is {@code prof:llama:zero_successes}, which requires the
+     * professor stage to have *run* and produced zero successes — so it
+     * misses papers where {@link SystemResourcesGate} killed the professor
+     * stage before any tool call was issued. In those cases the first-pass
+     * narrator's conclusion is preserved verbatim and, for ~60% of papers in
+     * the named refresh, contains a fabricated quantitative claim
+     * (e.g. "maximum buoyant force of 1480 kN at a volume of 25.8 m³",
+     * "worst-case deviation 3.00% at T=4121 K") that no computation backs.
+     *
+     * <p>When this flag is on, a paper that hits {@code gate:resources:professor}
+     * AND carries a quantitative first-pass conclusion (per
+     * {@link #conclusionHasQuantitativeClaim(String)}) is suppressed
+     * pre-publish, the same way D3 suppresses {@code zero_successes} papers.
+     * Off by default so the operator can soak the gate against one refresh
+     * before flipping in production.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.gate-resources-quantitative-suppress.enabled:false}")
+    private boolean gateResourcesQuantitativeSuppressEnabled;
+
+    /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
      * that don't wire it. When closed, the affected stage short-circuits to a
@@ -452,7 +476,24 @@ public class ResearchNarrationService {
             // Pre-emptive gate check before the heaviest call in the pipeline:
             // professor tools can spend 5+ rounds × toolMaxTokens. Fall back to
             // first-pass narration if the budget tripped during audit.
+            //
+            // Phase 17 D3-ext — when the gate kills the professor stage AND the
+            // first-pass narrator already committed a quantitative conclusion,
+            // suppress the paper instead of publishing the unverified claim.
+            // The fall-through to firstPass remains the default so honest
+            // gate-skipped papers (no quantitative claim in the conclusion)
+            // still land on disk with the no_methods stamp.
             if (gateClosed("professor", draft, callPath)) {
+                if (gateResourcesQuantitativeSuppressEnabled
+                        && conclusionHasQuantitativeClaim(firstPass.conclusion())) {
+                    callPath.add("quantitative_fp→suppressed");
+                    log.warn("LLM gate-skipped professor with quantitative first-pass "
+                                    + "conclusion paperId={} — draft suppressed (Phase 17 "
+                                    + "D3-ext; fabrication pattern from REVIEW_REPORT.md "
+                                    + "post-hang refresh #1 P-559/568/570/573/575/580)",
+                            draft.paperId());
+                    return null;
+                }
                 return firstPass;
             }
 
@@ -926,6 +967,37 @@ public class ResearchNarrationService {
     static boolean shouldSuppressOnProfessorException(int profSuccesses,
                                                        int firstPassBlocks) {
         return profSuccesses == 0 && firstPassBlocks > 1;
+    }
+
+    private static final java.util.regex.Pattern CALL_CITATION_PATTERN =
+            java.util.regex.Pattern.compile("\\[call_\\d+\\]");
+    private static final java.util.regex.Pattern COMPUTATION_REF_PATTERN =
+            java.util.regex.Pattern.compile("(?i)\\bComputation\\s+\\d+\\b");
+    private static final java.util.regex.Pattern DIGIT_PATTERN =
+            java.util.regex.Pattern.compile("\\d");
+
+    /**
+     * Phase 17 D3-ext — does the first-pass conclusion contain a quantitative
+     * claim that requires a tool-call result to back it? Returns true when,
+     * after stripping {@code [call_N]} citation markers and "Computation N"
+     * structural references, any decimal digit remains in the conclusion.
+     *
+     * <p>Rationale: a paper whose professor stage was killed by the resources
+     * gate has no methods trace. An honest first-pass conclusion in that case
+     * is qualitative — e.g. "the hypothesis remains untested in this
+     * submission." Any specific number (percentage, magnitude with unit,
+     * threshold, ratio) in the conclusion is by definition not derivable
+     * from the (empty) trace and is the fabrication signal D3-ext targets.
+     *
+     * <p>Visibility is package-private so tests can pin the detector without
+     * standing up a full {@link ResearchNarrationService} (parallel to
+     * {@link #shouldSuppressOnProfessorException(int, int)}).
+     */
+    static boolean conclusionHasQuantitativeClaim(String conclusion) {
+        if (conclusion == null || conclusion.isBlank()) return false;
+        String stripped = CALL_CITATION_PATTERN.matcher(conclusion).replaceAll("");
+        stripped = COMPUTATION_REF_PATTERN.matcher(stripped).replaceAll("");
+        return DIGIT_PATTERN.matcher(stripped).find();
     }
 
     /** Legacy JSON-based path — fast Ollama critique + prescribed experiment + Groq revision. */
