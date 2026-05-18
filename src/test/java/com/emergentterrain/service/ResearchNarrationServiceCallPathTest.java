@@ -298,4 +298,117 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(prompt).doesNotContain("PANEL CONSENSUS CONTRADICTIONS");
         assertThat(prompt).contains("PANEL RECOMMENDATIONS");
     }
+
+    // ---- Phase 17 panel-grade-floor demote gate ----
+
+    private static PanelOutcome panelOutcomeWithGrades(
+            double honesty, double completeness, double rigor, double novelty,
+            int contradictionCount) {
+        List<PanelReview.Contradiction> contradictions = new java.util.ArrayList<>();
+        for (int i = 0; i < contradictionCount; i++) {
+            contradictions.add(new PanelReview.Contradiction(i, "claim X but trace Y"));
+        }
+        PanelReview.Grades grades = new PanelReview.Grades(honesty, completeness, rigor, novelty);
+        PanelReview fake = new PanelReview(
+                "fake-reviewer", grades, List.of(), List.of(),
+                contradictions, List.of());
+        return new PanelOutcome(
+                grades, 0.9,
+                List.of(), List.of(),
+                contradictions, List.of(),
+                List.of(fake));
+    }
+
+    @Test
+    void gradeFloor_p593CaseFires() {
+        // Real grades from P-a328-593 (post-Phase-17 refresh #1):
+        // honesty=0.10, completeness=0.00, rigor=0.10, novelty=0.00
+        // 2 consensus contradictions on the 1147× unit error.
+        PanelOutcome o = panelOutcomeWithGrades(0.10, 0.00, 0.10, 0.00, 2);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isTrue();
+        // avg(h,c,r) = 0.0667 — well below 0.30
+        assertThat(ResearchNarrationService.honestyCompletenessRigorAverage(o))
+                .isCloseTo(0.0667, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
+    void gradeFloor_p595BasquinDoesNotFire() {
+        // Real grades from P-595 (highest in this batch):
+        // honesty=1.00, completeness=1.00, rigor=1.00, novelty=0.00
+        // No contradictions. Don't fire — textbook topic, valid math.
+        PanelOutcome o = panelOutcomeWithGrades(1.00, 1.00, 1.00, 0.00, 0);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isFalse();
+        // avg(h,c,r) = 1.00 — novelty correctly excluded
+        assertThat(ResearchNarrationService.honestyCompletenessRigorAverage(o))
+                .isCloseTo(1.00, org.assertj.core.data.Offset.offset(0.01));
+    }
+
+    @Test
+    void gradeFloor_lowGradesAloneDoNotFire() {
+        // Catastrophically low grades but NO contradictions — could be a
+        // noisy or harsh panel; don't demote without specific evidence.
+        PanelOutcome o = panelOutcomeWithGrades(0.05, 0.05, 0.05, 0.00, 0);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isFalse();
+    }
+
+    @Test
+    void gradeFloor_contradictionsAloneDoNotFire() {
+        // One contradiction on an otherwise good paper — the panel-revision
+        // pass can fix this; don't downgrade just because one issue surfaced.
+        PanelOutcome o = panelOutcomeWithGrades(0.80, 0.80, 0.80, 0.50, 1);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isFalse();
+    }
+
+    @Test
+    void gradeFloor_atThresholdDoesNotFire() {
+        // Strict-less-than semantics: at exactly threshold, don't fire.
+        PanelOutcome o = panelOutcomeWithGrades(0.30, 0.30, 0.30, 0.00, 1);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isFalse();
+    }
+
+    @Test
+    void gradeFloor_justBelowThresholdFires() {
+        // Average h,c,r = 0.27 (below 0.30) + ≥1 contradiction → fire.
+        PanelOutcome o = panelOutcomeWithGrades(0.27, 0.27, 0.27, 0.00, 1);
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isTrue();
+    }
+
+    @Test
+    void gradeFloor_noveltyExcluded() {
+        // Novelty 0 must not pull the avg down when h, c, r are healthy.
+        // P-a328-595 shape: h=1.0, c=1.0, r=1.0, novelty=0.0, 5 contradictions.
+        PanelOutcome o = panelOutcomeWithGrades(1.00, 1.00, 1.00, 0.00, 5);
+        // Even with 5 contradictions, avg(h,c,r)=1.00 ≥ 0.30 so don't fire.
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isFalse();
+    }
+
+    @Test
+    void gradeFloor_emptyOutcomeDoesNotFire() {
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(PanelOutcome.empty(), 0.30))
+                .isFalse();
+    }
+
+    @Test
+    void gradeFloor_nullOutcomeDoesNotFire() {
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(null, 0.30)).isFalse();
+    }
+
+    @Test
+    void gradeFloor_averageIgnoresNovelty() {
+        // honesty=0.6, completeness=0.6, rigor=0.6, novelty=0.0
+        // Including novelty: avg = 0.45. Excluding (the gate's contract): avg = 0.60.
+        PanelOutcome o = panelOutcomeWithGrades(0.60, 0.60, 0.60, 0.00, 0);
+        assertThat(ResearchNarrationService.honestyCompletenessRigorAverage(o))
+                .isCloseTo(0.60, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    void gradeFloor_thresholdConfigurable() {
+        // Same outcome, two thresholds — the gate must respect the parameter.
+        PanelOutcome o = panelOutcomeWithGrades(0.25, 0.25, 0.25, 0.00, 1);
+        // At threshold 0.20, avg=0.25 ≥ 0.20 → don't fire.
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.20)).isFalse();
+        // At threshold 0.30, avg=0.25 < 0.30 → fire.
+        assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isTrue();
+    }
 }

@@ -899,12 +899,19 @@ public class UniversityService {
             // a content-quality issue that revision can fix by re-running
             // the professor stage or by tightening the narrator prompt.
             paperStatus = "NEEDS_REVISION";
-        } else if (callPath != null && callPath.contains(":degraded:demoted_to_needs_revision")) {
-            // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) AND the
-            // operator flipped the demote flag. The narration service stamps
-            // the marker on the callPath; the publishPaper ladder reads it
-            // before the prof:error→fp PUBLISHED_NO_PROFESSOR clause so the
-            // demotion wins when both apply.
+        } else if (callPath != null && callPath.contains(":demoted_to_needs_revision")) {
+            // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) — stamp
+            // is `panel:n=N:degraded:demoted_to_needs_revision`.
+            //
+            // Phase 17 panel-grade-floor — full panel but grade-floor +
+            // contradictions fired — stamp is
+            // `panel:grade_floor=N.NN:demoted_to_needs_revision`.
+            //
+            // Both gates share the `:demoted_to_needs_revision` suffix so a
+            // single contains() check catches either. The narration service
+            // stamps the marker on the callPath; this ladder reads it BEFORE
+            // the prof:error→fp PUBLISHED_NO_PROFESSOR clause so the demotion
+            // wins when both apply.
             paperStatus = "NEEDS_REVISION";
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";

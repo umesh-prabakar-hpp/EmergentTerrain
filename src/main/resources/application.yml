@@ -601,6 +601,33 @@ app:
     # revision text quality matches the pre-revision text.
     panel-revision:
       enabled: false
+    # Phase 17 panel-grade-floor — orthogonal to D4 (panel-degradation-
+    # demote). D4 fires on reviewer-count (n=2 or n=3 of configured 4);
+    # this gate fires on the grades themselves — even a full panel
+    # (n=configured) can return rock-bottom grades with specific
+    # consensus contradictions. P-a328-593 in the post-Phase-17 refresh
+    # #1 is the canonical case: panel honesty=0.10, completeness=0.00,
+    # rigor=0.10 + two reviewer-agreed contradictions on a 1147× unit
+    # error, yet status PUBLISHED.
+    #
+    # The gate fires when:
+    #   median(honesty, completeness, rigor) < threshold (default 0.30)
+    #   AND consensus contradictions are non-empty (≥2 reviewers agreed)
+    #
+    # Both clauses required to avoid false-positives. Novelty is
+    # excluded from the average because textbook topics legitimately
+    # score novelty=0 without being poor papers (P-595 Basquin
+    # honesty/completeness/rigor=1.00 with novelty=0.00 — clearly fine).
+    #
+    # When the gate fires, the stamp is
+    # `panel:grade_floor=N.NN:demoted_to_needs_revision`, caught by the
+    # same UniversityService.publishPaper clause as D4's stamp (both end
+    # in `:demoted_to_needs_revision`).
+    #
+    # Default off; flip after one refresh confirms zero false positives.
+    panel-grade-floor:
+      enabled: false
+      threshold: 0.30
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)

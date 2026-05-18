@@ -180,6 +180,43 @@ public class ResearchNarrationService {
     private boolean panelRevisionEnabled;
 
     /**
+     * Phase 17 panel-grade-floor demote — parallel to Phase 12 D4 (panel-
+     * degradation-demote which fires on reviewer-count) but fires on
+     * grade-floor. When the panel's median across honesty + completeness +
+     * rigor (excluding novelty, which is often legitimately 0 on textbook
+     * topics) is below {@link #panelGradeFloorThreshold} AND there's at
+     * least one consensus contradiction (≥2 reviewers agreed on a
+     * prose-vs-trace conflict), the paper is demoted PUBLISHED →
+     * NEEDS_REVISION.
+     *
+     * <p>Targets the P-a328-593 failure surfaced in post-Phase-17 refresh #1:
+     * panel honesty=0.10, completeness=0.00, rigor=0.10, novelty=0.00,
+     * 2 contradictions agreed by ≥2 reviewers (1147× unit error in
+     * VdW→stress conversion), yet status PUBLISHED. The existing D4
+     * cannot catch it because the panel was full (n=4 of 4) — D4 fires
+     * only on n ∈ {2, 3} of configured 4.
+     *
+     * <p>Default off; flip after one refresh confirms the gate has zero
+     * false positives on the corpus.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.panel-grade-floor.enabled:false}")
+    private boolean panelGradeFloorEnabled;
+
+    /**
+     * Phase 17 panel-grade-floor demote — threshold for the median(honesty,
+     * completeness, rigor) average. A median of 0.30 corresponds to all
+     * three axes at "weak but present" — below that, the reviewers are
+     * essentially telling us the paper is unsupported by its own trace.
+     * The contradiction requirement (≥1 consensus contradiction) is the
+     * hard quality signal; the grade floor is a redundancy check that
+     * keeps the gate from firing on quiet-disagreement papers.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.panel-grade-floor.threshold:0.30}")
+    private double panelGradeFloorThreshold;
+
+    /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
      * that don't wire it. When closed, the affected stage short-circuits to a
@@ -1029,6 +1066,28 @@ public class ResearchNarrationService {
                                 + "demoting PUBLISHED → NEEDS_REVISION (Phase 12 D4).",
                         draft != null ? draft.paperId() : "?", got, configuredSize);
             }
+            // Phase 17 panel-grade-floor — orthogonal to D4. Even a full panel
+            // can return rock-bottom grades AND specific consensus
+            // contradictions (P-a328-593 in refresh #1: honesty=0.10,
+            // completeness=0.00, rigor=0.10, 2 reviewer-agreed
+            // contradictions on a 1147× unit error). D4 cannot catch those
+            // because the panel was full (n = configured); the grade-floor
+            // gate fires on the grades themselves. Both gates can fire on
+            // the same paper; both produce the same demote semantics and
+            // both stamps end in `:demoted_to_needs_revision` so the
+            // publishPaper ladder catches either.
+            if (panelGradeFloorEnabled
+                    && shouldDemoteByPanelGradeFloor(outcome, panelGradeFloorThreshold)) {
+                double avg = honestyCompletenessRigorAverage(outcome);
+                callPath.add(String.format("panel:grade_floor=%.2f:demoted_to_needs_revision", avg));
+                log.info("ReviewPanelService: paperId={} panel grade-floor avg(h,c,r)={} < {} "
+                                + "with {} contradiction(s) — demoting PUBLISHED → NEEDS_REVISION "
+                                + "(Phase 17 panel-grade-floor).",
+                        draft != null ? draft.paperId() : "?",
+                        String.format("%.2f", avg),
+                        String.format("%.2f", panelGradeFloorThreshold),
+                        outcome.consensusContradictions().size());
+            }
             return narration.withPanelOutcome(outcome);
         } catch (Exception e) {
             log.warn("LLM panel review path failed paperId={}: {}",
@@ -1267,6 +1326,58 @@ public class ResearchNarrationService {
                     + ":agreement=" + agreement;
         }
         return "panel:n=" + got + ":agreement=" + agreement;
+    }
+
+    /**
+     * Phase 17 panel-grade-floor demote — average of honesty +
+     * completeness + rigor from the panel's aggregated (median) grades.
+     * Novelty is excluded because textbook topics legitimately score
+     * novelty=0 without indicating poor quality (P-595 Basquin is the
+     * canonical example: honesty=1.00, completeness=1.00, rigor=1.00,
+     * novelty=0.00 — clearly a good-quality paper). The grade-floor
+     * gate operates on the three quality axes that signal "the paper
+     * is supported by its trace."
+     *
+     * <p>Package-private for unit tests.
+     */
+    static double honestyCompletenessRigorAverage(
+            com.emergentterrain.research.PanelOutcome outcome) {
+        if (outcome == null || outcome.aggregateGrades() == null) return 0.0;
+        com.emergentterrain.research.PanelReview.Grades g = outcome.aggregateGrades();
+        return (g.honesty() + g.completeness() + g.rigor()) / 3.0;
+    }
+
+    /**
+     * Phase 17 panel-grade-floor demote — should the paper be demoted
+     * PUBLISHED → NEEDS_REVISION based on panel grades? Fires when:
+     * <ol>
+     *   <li>The panel's median(honesty, completeness, rigor) is strictly
+     *       below {@code threshold} (default 0.30).</li>
+     *   <li>AND the panel surfaced at least one consensus contradiction
+     *       (≥2 reviewers agreed on a specific prose-vs-trace conflict
+     *       at a trace index).</li>
+     * </ol>
+     *
+     * <p>Both clauses are required to avoid false-positives:
+     * <ul>
+     *   <li>Low grades alone could be a noisy or harsh panel on a
+     *       legitimate paper.</li>
+     *   <li>One contradiction alone might be a minor issue the
+     *       panel-revision pass can fix.</li>
+     *   <li>Both together signal "the reviewers agreed the paper is
+     *       weak <em>and</em> have specific evidence why" — the
+     *       P-a328-593 shape.</li>
+     * </ul>
+     *
+     * <p>Package-private for unit tests.
+     */
+    static boolean shouldDemoteByPanelGradeFloor(
+            com.emergentterrain.research.PanelOutcome outcome, double threshold) {
+        if (outcome == null || outcome.isEmpty()) return false;
+        double avg = honestyCompletenessRigorAverage(outcome);
+        if (avg >= threshold) return false;
+        return outcome.consensusContradictions() != null
+                && !outcome.consensusContradictions().isEmpty();
     }
 
     /**
