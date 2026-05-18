@@ -278,6 +278,20 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
     }
 
     /**
+     * Phase 17 — return a copy with the call_path string replaced. Used by
+     * {@link GateRetryQueue} to stamp {@code gate-retry:gave-up:attempts=N}
+     * on the cached first-pass before the give-up publish so the persisted
+     * call_path explains why the paper landed on disk despite its
+     * {@code gate:resources:professor} stamp.
+     */
+    public NarrationResult withCallPath(String newCallPath) {
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, newCallPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace, panelOutcome, numericClaims);
+    }
+
+    /**
      * Phase 7 F2 — wrap a single prose string into the canonical {1: prose} single-entry
      * map. Null prose returns null (downstream null-checks behave identically to the
      * pre-F2 String field).

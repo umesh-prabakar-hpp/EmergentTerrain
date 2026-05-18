@@ -165,6 +165,17 @@ public class ResearchNarrationService {
     private com.emergentterrain.llm.SystemResourcesGate systemResourcesGate;
 
     /**
+     * Phase 17 — when wired, papers whose professor or revision stage is
+     * killed by {@link com.emergentterrain.llm.SystemResourcesGate} can be
+     * deferred for retry instead of publishing as NEEDS_REVISION on the
+     * first attempt. See {@link com.emergentterrain.research.GateRetryQueue}
+     * for the lifecycle (enqueue → tick when gate recovers → markCompleted
+     * on success / give-up after max-attempts).
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.GateRetryQueue gateRetryQueue;
+
+    /**
      * Phase 7 F7.2 — multi-reviewer panel. Runs after the professor stage's
      * synthesis and stamps a {@link com.emergentterrain.research.PanelOutcome}
      * onto the returned {@link NarrationResult}. Optional dependency so tests
@@ -260,6 +271,20 @@ public class ResearchNarrationService {
             university.setNarratingCallback(this::enqueueNarration);
             this.narrationPublisher = university::publishPaper;
             log.info("ResearchNarrationService: narration callback wired to UniversityService");
+        }
+        // Phase 17 — wire the gate-retry queue. retryDispatch goes through the
+        // standard enqueueNarration path (fresh narration on a virtual thread);
+        // giveUpPublisher forwards to the same narrationPublisher the normal
+        // path uses, so the cached first-pass lands on disk via the existing
+        // publishPaper validation ladder.
+        if (gateRetryQueue != null) {
+            gateRetryQueue.wireCallbacks(
+                    this::enqueueNarration,
+                    (draft, narration) -> {
+                        if (narrationPublisher != null) {
+                            narrationPublisher.accept(draft, narration);
+                        }
+                    });
         }
     }
 
@@ -377,6 +402,13 @@ public class ResearchNarrationService {
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
+        // Phase 17 — clear the retry queue entry on a successful retry publish.
+        // No-op for non-retry papers (the common case) and for retries that
+        // re-hit the gate (result is null then; the queue entry stays for the
+        // next tick). markCompleted itself is null-safe on missing entries.
+        if (gateRetryQueue != null && result != null) {
+            gateRetryQueue.markCompleted(draft.paperId());
+        }
     }
 
     // --- Self-critique + revision ---
@@ -483,6 +515,18 @@ public class ResearchNarrationService {
             // The fall-through to firstPass remains the default so honest
             // gate-skipped papers (no quantitative claim in the conclusion)
             // still land on disk with the no_methods stamp.
+            //
+            // Phase 17 gate-retry — when the queue is enabled and accepts the
+            // draft, defer the publish entirely: return null so the existing
+            // publishPaper(draft, null) handler discards cleanly (no DB row,
+            // no disk write, no side-effects). The queue holds the cached
+            // first-pass and re-dispatches when the resources gate recovers;
+            // on give-up after max-attempts the queue publishes the cached
+            // first-pass as NEEDS_REVISION with a gate-retry stamp.
+            // Ordering note: the D3-ext suppression check wins over the
+            // retry-defer when both apply, because a quantitatively
+            // fabricated first-pass shouldn't be retried — the same
+            // narrator on a healthy host would produce the same prose.
             if (gateClosed("professor", draft, callPath)) {
                 if (gateResourcesQuantitativeSuppressEnabled
                         && conclusionHasQuantitativeClaim(firstPass.conclusion())) {
@@ -491,6 +535,14 @@ public class ResearchNarrationService {
                                     + "conclusion paperId={} — draft suppressed (Phase 17 "
                                     + "D3-ext; fabrication pattern from REVIEW_REPORT.md "
                                     + "post-hang refresh #1 P-559/568/570/573/575/580)",
+                            draft.paperId());
+                    return null;
+                }
+                if (gateRetryQueue != null
+                        && gateRetryQueue.enqueue(draft, firstPass, callPath, "professor")) {
+                    callPath.add("gate-retry:deferred");
+                    log.info("LLM gate:resources:professor deferred to retry queue "
+                                    + "paperId={} — publish suppressed pending retry",
                             draft.paperId());
                     return null;
                 }

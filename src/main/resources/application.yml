@@ -554,6 +554,32 @@ app:
     # driver in the post-hang batch.
     gate-resources-quantitative-suppress:
       enabled: true
+    # Phase 17 gate-retry — when on, papers whose professor stage is killed
+    # by SystemResourcesGate are deferred to an in-memory retry queue
+    # instead of publishing immediately as NEEDS_REVISION. The queue's
+    # @Scheduled tick re-dispatches drafts when the resources gate
+    # recovers, up to max-attempts. On give-up, the cached first-pass
+    # is published as NEEDS_REVISION with a `gate-retry:gave-up:attempts=N`
+    # stamp on the call_path — same content the pre-Phase-17 code would
+    # have shipped immediately, just delayed.
+    #
+    # Scoped to the gate:resources:PROFESSOR site only. The revision-gate
+    # site (where the professor already ran and spent tokens) keeps the
+    # existing behavior: publish the professor-decorated first-pass with
+    # no student revision, no retry. Re-running the full pipeline for
+    # those would waste the professor's spent tokens.
+    #
+    # The D3-ext suppression (above) wins over retry-defer when both
+    # apply: a quantitatively fabricated first-pass shouldn't be retried —
+    # the same narrator on a healthy host would produce the same prose.
+    #
+    # Default OFF for safe rollout. Flip ON after one corpus refresh
+    # confirms the deferral semantics don't deadlock the planner.
+    gate-retry:
+      enabled: false
+      max-attempts: 3
+      max-queue-size: 100
+      poll-interval-ms: 30000
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)
