@@ -716,6 +716,212 @@ oldest rejection ages out.
 
 ---
 
+## P8 — Phase 17 follow-on: diagnostics + narrator scrubs (refresh #1+#2 evidence)
+
+Four small items surfaced in post-Phase-17 refreshes #1 + #2 (see
+`research/a3289005/REVIEW_REPORT.md`). Each is narrower than P1–P7 —
+paired diagnostic/fix work or a targeted narrator scrub. Listed by
+triage priority.
+
+### P8a — `rev:parse_failed→fp` raw-byte diagnostic + repair
+
+**What:** Capture the first 500 chars of the raw revision stream when
+`rev:parse_failed→fp` fires, at WARN level. After one refresh of
+captured bytes, decide whether the fix is provider-side (Groq not
+honoring `response_format: json_object` for v3 structured-findings
+templates) or parser-side (LenientJsonParser missing a repair pattern).
+
+**Why:** `rev:parse_failed→fp` is the dominant tier-2 failure across
+refreshes #1 and #2 — 24 occurrences in refresh #2 alone, 6 of 10
+disk-resident papers carry the stamp. Phase 17 JSON-output mode
+(commit `2ac020d`) was supposed to close this and hasn't. Without
+raw bytes, both hypotheses (provider-side ignore vs parser gap) are
+equally plausible and a guess-fix has 50/50 odds of being wrong.
+
+**Files:**
+
+- `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
+  — the `rev:parse_failed→fp` stamp site (around line 770–780). Add
+  a WARN log with `revised.toString().substring(0, Math.min(500,
+  revised.length()))` before the fallback. Guard behind a flag
+  (`app.research.rev-parse-failed-byte-capture.enabled`).
+- `src/main/java/com/emergentterrain/research/LenientJsonParser.java`
+  — likely site for any parser fix once bytes are captured.
+
+**Acceptance:** Diagnostic ships behind a flag, observability-only.
+After one refresh produces 10+ captured samples, the dominant
+failure shape is named. The fix that follows (in `LenientJsonParser`
+or the revision prompt) drops `rev:parse_failed→fp` to under 10% of
+revisions over one refresh.
+
+**Risk:** Low — diagnostic flag is observability-only. Subsequent
+parser/prompt change is bounded by the existing `:parse_failed→fp`
+fallback chain.
+
+**Open questions:**
+
+- **Log volume.** 500 chars × 24 firings per 30-min refresh is ~12 KB
+  of log per refresh — bounded. No PII risk on a research pipeline.
+- **Cap.** Should the diagnostic auto-disable after N captures?
+  Maybe — a `max-captures: 50` cap prevents log floods on a
+  pathologically broken release.
+
+### P8b — D3 `zero_successes` counter audit + symmetry fix
+
+**What:** Audit `MathToolSuite.ToolMetrics` to confirm that
+`run_symbolic` rejections increment `sandboxRejectCount` /
+decrement `totalSuccesses` the same way `run_sandboxed_code`
+rejections do. Hypothesis is asymmetric counter increment, causing
+D3 (`totalSuccesses == 0` gate) to miss papers where every tool
+call was a `run_symbolic` failure.
+
+**Why:** P-a328-613 (Phase 17 refresh #2) had 5/5 tool calls
+rejected — 4 `run_symbolic` syntax errors on `\theta` escapes + 1
+timeout — and still got `prof:llama:ok` stamped instead of
+`zero_successes→suppressed`. The paper then published with
+fabricated "experimental measurements" content and was caught only
+by Phase 5 C2 replication (DISPUTED). D3 should have caught it at
+the professor stage. The call_path shows `sandbox_reject=1` but
+visibly 5 calls failed — the increment count is wrong by 4×.
+
+**Files:**
+
+- `src/main/java/com/emergentterrain/service/MathToolSuite.java` —
+  inspect `ToolMetrics` increment paths in the executor closure.
+  Likely the `run_symbolic` branch increments only on
+  static-rejected calls, not on `run_symbolic`-side rejections
+  (non-whitelisted heads, timeouts, parse failures).
+- Test: a new test class `MathToolSuiteCounterSymmetryTest.java`
+  that pins both tool types' rejection paths against the same
+  counter.
+
+**Acceptance:** A paper with 5/5 `run_symbolic` rejections produces
+`metrics.totalSuccesses() == 0` AND `metrics.totalRejects() == 5`;
+D3 fires and stamps `zero_successes→suppressed`. Existing D3 tests
+continue to pass.
+
+**Risk:** Low. Counter symmetry is a bug fix, not a feature change.
+The D3 gate's behaviour on existing well-counted papers is preserved.
+
+**Open questions:**
+
+- **Backfill.** Do we re-evaluate already-published papers with the
+  corrected count? Probably no — the gate is forward-looking;
+  retroactive status changes would invalidate existing citations.
+
+### P8c — Magnitude-range validator scans tool-call results, not just Findings prose
+
+**What:** Extend `MagnitudeRangeValidator` to iterate
+`narration.toolCallTrace()` entries (in addition to the prose) and
+apply the same per-(domain, topic) ceilings to numeric results in
+tool outputs. Today the validator only scans Findings text, so an
+unphysical magnitude that lives in the trace but doesn't surface
+in the prose escapes.
+
+**Why:** P-a328-593 (Phase 17 refresh #1) had call_4 reporting
+`Best: T=785 K → P_c=52 atm → longitudinal σ=5790 MPa` — 5.79 GPa,
+clearly above the 3 GPa composite-stress ceiling the validator
+already enforces. The Findings prose dropped the 5790 MPa number,
+so the validator's prose-scanning pass found nothing to flag.
+Status PUBLISHED. The new panel-grade-floor gate (once flipped)
+catches the panel-grade aspect; this item closes the
+magnitude-range aspect at the same publish-time tier.
+
+**Files:**
+
+- `src/main/java/com/emergentterrain/research/MagnitudeRangeValidator.java`
+  — add a tool-call-trace overload alongside the existing
+  findings-text overload; share the per-topic ceiling table.
+- `src/main/java/com/emergentterrain/research/UniversityService.java`
+  — at the call site (around line 800–810), pass the trace alongside
+  the findingsBlocks.
+
+**Acceptance:** Replaying P-a328-593 through the publish pipeline
+with this change produces a `magnitude-range:trace_violation` stamp
+and routes REJECTED based on the 5790 MPa trace value, independent
+of the Findings prose. Existing prose-violation papers continue to
+flag as before.
+
+**Risk:** Low–medium. False positives if a tool legitimately returns
+intermediate numerics that exceed the ceiling but aren't final
+results (e.g. a parameter sweep that finds the max and then filters
+to the operating window). Mitigation: only scan the final
+`result` field of completed calls, not the sweep grid.
+
+**Open questions:**
+
+- **Per-topic granularity.** The existing ceiling table is keyed by
+  (domain, topic). Should the trace scan use a wider net to catch
+  cross-topic spillover (e.g. a `materials/basquin` paper that
+  computes a composite stress)? Default to topic-scoped for v1.
+
+### P8d — Narrator scrub: "math right, prose fabricated" pattern
+
+**What:** Add to the existing P5-class narrator scrub list a rule
+that flags Findings prose making quantitative claims (derivatives,
+uncertainty propagation, error magnitudes, sample sizes) without a
+corresponding `[call_N]` reference. Currently the panel catches
+these (honesty/completeness sink to 0.00–0.10) but the LLM keeps
+emitting them; only the panel-grade-floor demote (once flipped)
+saves the corpus from publishing them.
+
+**Why:** Phase 17 refresh #2 had two papers in this shape — both
+with **correct tool-call math** but Findings prose that invented
+specific numeric claims no call produced:
+
+- **P-a328-603 Snell.** Call 3 returned exact
+  `arcsin(1.49/1.50) = 83.3804°`. Findings prose then invented
+  "1.5° maximum observed error" and "331° per unit n₂ derivative"
+  — neither has a supporting tool call.
+- **P-a328-605 Kepler.** Calls 3 and 5 returned exact 4.12% and
+  4.08% T²/a³ deviations. Findings prose then claimed "53 samples"
+  and "20 samples" — only 5 calls ran. `single_point_sweep`
+  validator caught the sample-size claim; nothing caught the
+  derivative claim.
+
+The pattern: LLM produces an honest computation, then pads the
+prose with "physical interpretation" content that reads plausible
+but has no tool-call provenance. Looks like P-571's textbook-canon
+drift but at a finer grain (no clear single tweaked-number; entire
+claim is invented).
+
+**Files:**
+
+- `src/main/java/com/emergentterrain/research/NumericalConsistencyValidator.java`
+  — likely site for a new check. Existing Check-C
+  (unsourced-failed-call) targets specific numbers without a
+  `[call_N]`; this extends to *types of claim* (derivative /
+  uncertainty / sample-size) that should always carry a citation.
+- Or: a new validator `UnsourcedClaimValidator.java` co-located
+  with the others.
+
+**Acceptance:** Replaying P-603 + P-605 through the publish pipeline
+produces an `unsourced_claim:derivative` /
+`unsourced_claim:sample_size` stamp that routes NEEDS_REVISION
+when derivative/uncertainty/sample-size prose appears without a
+paired `[call_N]`. P-595 Basquin (correct math AND correct prose)
+continues to pass.
+
+**Risk:** Medium. The regex for "derivative / uncertainty / sample-
+size phrase" is fuzzy; false positives on legitimately-cited claims
+are plausible. Mitigation: ship in `warn` mode first (stamps but
+doesn't route), promote to `downgrade` after one refresh confirms
+the FP rate is < 5%.
+
+**Open questions:**
+
+- **Vocabulary list.** Which phrases are the canonical
+  derivative/uncertainty/sample-size triggers? Likely:
+  `derivative\s+(of|dθ_c/d|d\w/d)`, `uncertainty\s+of`,
+  `(\d+)\s+samples?`, `error\s+(magnitude|propagation)`,
+  `±\s*\d`. Empirical from refresh #2's two examples.
+- **Interaction with `single_point_sweep`.** That validator already
+  catches the "53 samples" claim. P8d should not double-stamp;
+  defer to F3's existing handling for sample-size and target only
+  the derivative / uncertainty / error-magnitude trio.
+
+---
+
 ## What this phase deliberately does NOT include
 
 - **Better prompt templates** — every refresh has highlighted prompt-

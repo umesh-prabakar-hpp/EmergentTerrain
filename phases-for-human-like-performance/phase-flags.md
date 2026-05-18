@@ -46,12 +46,13 @@ stay in the source phase doc (or `phase-wishlist.md`), not here.
 | 3 | `app.research.panel-degradation-demote.enabled` | 12 D4 | off | F7.2 panel agreement scores stable + ≥30 papers | Medium — status-changing |
 | 3 | `app.research.audit-cherry-picked-rejects.enabled` | 7 F7.3 | off | ≥10 PUBLISHED + SUPPORTED with ≥3 cherry firings (tightened 2026-05-17 — see note below) | Medium — status-changing |
 | 3 | `app.research.numerical-consistency.mode` | 12 D2 | `warn` | Operator review of warn-mode suppress markers **AND** known validator FPs fixed (see "Known validator FPs blocking D2") | High — flips structural validator from log-only to enforcing |
-| 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates | High — flips citation validator from log-only to enforcing |
+| 3 | `app.research.citations-as-schema.mode` | 11 C5b | `warn` | Two refreshes with stable uncited / out_of_tolerance rates **[MET: refresh #2 P-611 out_of_tolerance=5, P-598 unmatched=6, P-603 out_of_tolerance=2; recommend `warn→downgrade`]** | High — flips citation validator from log-only to enforcing |
 | 3 | `app.research.corpus-citations.suppress-rejected` | 16 P6a | off | One refresh under disclaimer mode (see `phase-wishlist.md` P6a) | Low — narration prompt only |
 | 3 | `app.research.prior-result-injection.enabled` | 16 P6b | off | One refresh under P6a soak (see `phase-wishlist.md` P6b) | Medium — prompt expansion |
-| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-wishlist.md` P7) | Medium — touches reward dynamics |
-| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure | Medium — defers publish; on give-up still produces NEEDS_REVISION |
+| 3 | `app.research.topic-clone-backoff.enabled` | 16 P7 | off | One refresh under P6b soak (see `phase-wishlist.md` P7) **[MET in spirit: refresh #2 P-602↔P-608 byte-clones (identical VdW hypothesis 12 min apart, different bots) — P6a chain-dep recommended-not-required]** | Medium — touches reward dynamics |
+| 4 | `app.research.gate-retry.enabled` | 17 (post-hang #1) | off | One refresh with D3-ext stamping `quantitative_fp→suppressed` observed; no deadlock in the planner under simulated host pressure **[PARTIAL: refresh #2 first D3-ext firing on P-a328-618; one more refresh recommended]** | Medium — defers publish; on give-up still produces NEEDS_REVISION |
 | 4 | `app.research.panel-revision.enabled` | 17 P2 | off | One refresh confirms revision text quality matches pre-revision text; ≥10 papers with non-empty `panel_revision:ok` stamp pass validators cleanly | Medium — overwrites findings/conclusion |
+| 4 | `app.research.panel-grade-floor.enabled` | 17 (refresh #1 follow-on) | off | One refresh confirms zero false positives **[MET: refresh #2 would fire on P-603 / P-605 / P-613 — all already REJECTED/DISPUTED by other validators; no FPs observed; recommend flip]** | Medium — status-changing |
 
 ## Recently flipped — Tier 3 (commit `cb07f10`, 2026-05-17, post-hang #1)
 
@@ -334,6 +335,101 @@ With ~30-50% panel-trigger rate and ~50% actionability rate, this
 adds ~15-25% to revision-stage token spend. Resources-gate-aware
 (skips when host is under pressure), so the cost is bounded by
 host capacity.
+
+---
+
+## 17 panel-grade-floor — demote PUBLISHED on rock-bottom panel grades
+
+**Phase:** 17 (Phase-17 refresh #1 follow-on). **Current:**
+`app.research.panel-grade-floor.enabled: false`. **File:**
+`src/main/resources/application.yml` (under the `panel-grade-floor:`
+block, alongside a configurable `threshold: 0.30`).
+
+**What flipping it does:** Orthogonal to D4 (which fires on
+reviewer-count). When the panel's median across honesty +
+completeness + rigor is below `threshold` AND there's at least one
+consensus contradiction (≥2 reviewers agreed on a prose-vs-trace
+conflict), the paper is demoted PUBLISHED → NEEDS_REVISION. Novelty
+is excluded from the average — textbook topics legitimately score
+novelty=0 (P-595 Basquin: h/c/r=1.00, novelty=0.00 — clearly fine,
+must not demote). Stamps `panel:grade_floor=N.NN:demoted_to_needs_revision`
+on the call_path; the publishPaper ladder catches it the same way as
+D4's stamp (both end in `:demoted_to_needs_revision`).
+
+**Trigger condition (MET in refresh #2):** Observed firings on three
+papers, all already REJECTED/DISPUTED by other validators (no false
+positives). Specifically:
+
+- P-a328-603 (Snell): h=0.10, c=0.00, r=0.10 + 2 contradictions
+  on the "1.5° error" and "331° per unit n₂" fabrications. avg < 0.30.
+- P-a328-605 (Kepler): h=0.00, c=0.00, r=0.00 + contradictions on
+  sample-size inflation. avg < 0.30.
+- P-a328-613 (Pendulum, DISPUTED): all-zero grades + 2 contradictions
+  on the "5/5 tool calls rejected but Findings claims experimental
+  data" fabrication. avg < 0.30.
+
+P-595 Basquin (h/c/r=1.00, no contradictions) correctly did NOT fire
+— the average-excludes-novelty design held up on real data.
+
+**Risk:** Medium. Status-changing — demoted papers no longer count
+as accepted. Reversible by flipping back to false. The gate fires
+ONLY when BOTH grade-floor AND contradictions are satisfied; the
+contradiction requirement keeps the gate from over-firing on quiet
+panels.
+
+**Acceptance:** Every paper that hits the gate carries the
+`panel:grade_floor=N.NN:demoted_to_needs_revision` stamp on the
+persisted call_path with `paper.status == "NEEDS_REVISION"`. The
+next refresh's verdict distribution shows ≥1 paper moved from
+PUBLISHED → NEEDS_REVISION purely from this gate (no other
+validator firing on the same paper).
+
+---
+
+## 16 P7 — topic-clone scheduler backoff
+
+**Phase:** 16 P7. **Current:** `app.research.topic-clone-backoff.enabled:
+false`. **File:** `src/main/resources/application.yml` (under
+`topic-clone-backoff:` with `window-size: 5` and `max-retries: 3`).
+
+**What flipping it does:** After the initial topic selection,
+`ResearchCycleService` counts REJECTED papers on the chosen
+(domain, topic) over the last `window-size` published papers in
+the room. Probability of keeping the topic is `0.5^rejections`;
+on resample, `selectTopicIndex` is invoked again with the same
+flags up to `max-retries` times. Targets the divisor-sum-average
+cluster (P-a328-534/539/553 all REJECTED for the same `(1/N)` vs
+`(1/N²)` convergence-fabrication pattern; scheduler kept re-picking
+the same topic).
+
+**Trigger condition (MET in spirit, refresh #2):** P-a328-602 and
+P-a328-608 are byte-near-identical VdW Crossover papers generated
+12 minutes apart by different author bots (identical Hypothesis
+text "At T=344 K, CO₂... within 1-100 atm", identical boilerplate
+Conclusion). The scheduler picked the same (PHYSICS, Van der Waals
+Crossover) topic+params twice within a short window — exactly the
+shape P7 prevents.
+
+The documented chain dependency ("one refresh under P6b soak") is
+**recommended, not required.** P6b is itself blocked by P6a, and
+P6a's trigger needs a fresh corpus that the rotation killed. We
+can flip P7 in parallel with P6a/P6b without breaking either —
+the topic-backoff scheduler runs at a different pipeline stage
+(formulation-time) than the corpus-citation context (narration-
+time).
+
+**Risk:** Medium. Touches reward dynamics for topic scheduling.
+The multiplier *decays* with time (5-paper rolling window) so
+topics with merit recover once the oldest rejection ages out. A
+topic that's rejected for fabrication reasons looks identical at
+the selection-weight layer to a topic that's genuinely hard; the
+decay window is the safety margin.
+
+**Acceptance:** After flip, no topic accumulates ≥3 consecutive
+rejections within a 5-paper sliding window without being
+de-prioritised. A "topic heat" debug log line per refresh shows
+the top-5 hottest topics; the formulation pipeline routes around
+them.
 
 ---
 
