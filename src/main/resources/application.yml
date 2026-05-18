@@ -538,6 +538,22 @@ app:
       enabled: false
       window-size: 5
       max-retries: 3
+    # Phase 17 D3-ext — when on, papers whose call path contains
+    # `gate:resources:professor` AND whose first-pass conclusion contains a
+    # quantitative claim (any digit outside [call_N] / "Computation N" refs)
+    # are suppressed pre-publish, the same way Phase 12 D3 suppresses
+    # `prof:llama:zero_successes` papers. Surfaced in REVIEW_REPORT.md
+    # post-hang refresh #1: 7 of 12 papers (P-559/568/570/573/575/580 +
+    # P-565) carried gate-skipped-professor stamps and the narrator
+    # fabricated a Conclusion anyway ("maximum buoyant force of 1480 kN",
+    # "worst-case deviation 3.00% at T=4121 K"). D3's existing precondition
+    # requires the professor stage to have *run*, so this new gate covers
+    # the case where the resources gate killed the prof stage before any
+    # tool call. Flipped ON 2026-05-17 immediately after the host-thrash
+    # incident — the failure mode is named and the dominant fabrication
+    # driver in the post-hang batch.
+    gate-resources-quantitative-suppress:
+      enabled: true
     # Phase 7 F3 — when on, the planner / bot topic selector samples uniformly
     # over the FULL topic list per domain (current 5 + the F3.2–F3.5 additions:
     # PHYSICS 10, MATERIALS 10, MATHEMATICS 10, INTERDISCIPLINARY 8 = 38 topics)
