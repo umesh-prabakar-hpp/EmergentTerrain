@@ -163,10 +163,26 @@ public class SandboxEngine {
             double recordedMean,
             double recordedStd,
             double recordedMin,
-            double recordedMax) {
+            double recordedMax,
+            // Phase 19 Open Q1 resolution — named multi-value return surface.
+            // When the Layer-1c rewrite fires on a `return {a:x, b:y};` or
+            // `return [x, y, z];`, these carry the parallel (key, value)
+            // lists drawn from the trailing recordSample window so callers
+            // can show the LLM the actual key=value listing instead of the
+            // conflated aggregates. Empty when no multi-value rewrite fired.
+            java.util.List<String> namedKeys,
+            java.util.List<Double> namedValues) {
         /** Two-arg form for callers that don't use recordSample. */
         public SandboxResult(double value, String summary) {
-            this(value, summary, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
+            this(value, summary, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                 java.util.List.of(), java.util.List.of());
+        }
+        /** Seven-arg form for callers that use recordSample but not named values. */
+        public SandboxResult(double value, String summary,
+                             int recordedN, double recordedMean, double recordedStd,
+                             double recordedMin, double recordedMax) {
+            this(value, summary, recordedN, recordedMean, recordedStd, recordedMin, recordedMax,
+                 java.util.List.of(), java.util.List.of());
         }
     }
 
@@ -175,9 +191,14 @@ public class SandboxEngine {
     public static SandboxResult run(String code, int start, int end, int param1, double param2) {
         // Phase 19 Layer 1 — apply the same pre-parse normalisation the
         // static checker does (Math.<builtin> → flat, <ident>.length →
-        // len(<ident>)). No-ops when neither pattern is present.
-        String normalized = SandboxStaticChecker.normalizeForSandbox(code);
+        // len(<ident>), return-{}/[] → recordSample sequence). The
+        // metadata variant also carries the named-return key list so
+        // SandboxResult.namedKeys/namedValues can surface verbatim.
+        SandboxStaticChecker.Normalized norm =
+                SandboxStaticChecker.normalizeWithMetadata(code);
+        String normalized = norm.code();
         Interpreter interp = new Interpreter(start, end, param1, param2);
+        interp.setNamedKeys(norm.namedKeys());
         double result;
         try {
             List<Token> tokens  = lex(normalized);
@@ -712,6 +733,25 @@ public class SandboxEngine {
         int stmtCount = 0;
         int callDepth = 0;
 
+        /**
+         * Phase 19 Open Q1 — keys for the named-return shape supplied by
+         * the Layer-1c rewrite (object/array literal in return position).
+         * Empty when no multi-value rewrite fired; otherwise length = the
+         * size of the trailing recordSample window the runtime pairs with
+         * these labels at end-of-run.
+         */
+        java.util.List<String> namedKeys = java.util.List.of();
+        /**
+         * Phase 19 Open Q1 — fixed-size ring buffer of the last
+         * {@link #namedKeys}{@code .size()} values passed to recordSample.
+         * Sized at {@link #setNamedKeys(List)} time and only filled when
+         * non-empty; for the common case (no multi-value return) this
+         * stays null and recordSample stays a pure-aggregate write.
+         */
+        double[] namedRing  = null;
+        int      namedRingPos = 0;
+        int      namedRingFilled = 0;
+
         // Phase 10 — recordSample aggregates. Updated by recordSample(v) calls;
         // read by buildResult() to populate the structured SandboxResult.
         int    recN    = 0;
@@ -1026,6 +1066,15 @@ public class SandboxEngine {
                 recSqSum += v * v;
                 if (v < recMin) recMin = v;
                 if (v > recMax) recMax = v;
+                // Phase 19 Open Q1 — keep the last namedKeys.size() values
+                // in a ring buffer so buildResult can pair them with
+                // namedKeys at end-of-run. No-op when no multi-value rewrite
+                // fired (namedRing is null).
+                if (namedRing != null) {
+                    namedRing[namedRingPos] = v;
+                    namedRingPos = (namedRingPos + 1) % namedRing.length;
+                    if (namedRingFilled < namedRing.length) namedRingFilled++;
+                }
                 return v;
             }
 
@@ -1139,22 +1188,70 @@ public class SandboxEngine {
         }
 
         /**
+         * Phase 19 Open Q1 — wire the named-return key list before
+         * {@link #exec(List)} runs. Sizes the recordSample ring buffer at
+         * the same moment so the trailing-window math is bounded and
+         * cheap; for the common case (no multi-value rewrite fired) the
+         * keys list is empty, the ring stays null, and recordSample
+         * keeps its pure-aggregate-write hot path.
+         */
+        void setNamedKeys(java.util.List<String> keys) {
+            this.namedKeys = keys == null ? java.util.List.of() : keys;
+            if (!this.namedKeys.isEmpty()) {
+                this.namedRing       = new double[this.namedKeys.size()];
+                this.namedRingPos    = 0;
+                this.namedRingFilled = 0;
+            }
+        }
+
+        /**
          * Phase 10 — build a {@link SandboxResult} for this interpreter run.
          * Populates the recordSample aggregates if any samples were recorded;
          * otherwise returns the legacy two-field shape.
          */
         SandboxResult buildResult(double value) {
+            java.util.List<String> outKeys   = java.util.List.of();
+            java.util.List<Double> outValues = java.util.List.of();
+            if (namedRing != null && namedRingFilled == namedRing.length) {
+                int k = namedRing.length;
+                java.util.List<Double> vals = new java.util.ArrayList<>(k);
+                // Ring buffer drains oldest → newest starting at namedRingPos.
+                for (int i = 0; i < k; i++) {
+                    vals.add(namedRing[(namedRingPos + i) % k]);
+                }
+                outKeys   = namedKeys;
+                outValues = java.util.List.copyOf(vals);
+            }
             if (recN == 0) {
                 return new SandboxResult(value,
-                        "result=%.6g  iters_used=%d".formatted(value, iterCount));
+                        "result=%.6g  iters_used=%d".formatted(value, iterCount),
+                        0, Double.NaN, Double.NaN, Double.NaN, Double.NaN,
+                        outKeys, outValues);
             }
             double mean = recSum / recN;
             double variance = recN > 1 ? Math.max(0, recSqSum / recN - mean * mean) : 0;
             double std = Math.sqrt(variance);
+            // Phase 19 Open Q1 — when named values are present, append a
+            // {a=…, b=…, …} clause so the LLM-facing prose shows the
+            // original keys instead of forcing it to back them out of the
+            // recordSample aggregates.
+            String namedClause = "";
+            if (!outKeys.isEmpty()) {
+                StringBuilder b = new StringBuilder("  named={");
+                for (int i = 0; i < outKeys.size(); i++) {
+                    if (i > 0) b.append(", ");
+                    b.append(outKeys.get(i)).append('=')
+                     .append("%.6g".formatted(outValues.get(i)));
+                }
+                b.append('}');
+                namedClause = b.toString();
+            }
             String summary = ("result=%.6g  iters_used=%d  "
                     + "recorded n=%d mean=%.4g std=%.4g min=%.4g max=%.4g")
-                    .formatted(value, iterCount, recN, mean, std, recMin, recMax);
-            return new SandboxResult(value, summary, recN, mean, std, recMin, recMax);
+                    .formatted(value, iterCount, recN, mean, std, recMin, recMax)
+                    + namedClause;
+            return new SandboxResult(value, summary, recN, mean, std, recMin, recMax,
+                    outKeys, outValues);
         }
 
         private static double gcd(long a, long b) {

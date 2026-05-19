@@ -243,6 +243,87 @@ class SandboxEngineWhitelistTest {
         assertThat(r.recordedN()).isZero();
         assertThat(r.recordedMean()).isNaN();
         assertThat(r.recordedStd()).isNaN();
+        assertThat(r.namedKeys()).isEmpty();
+        assertThat(r.namedValues()).isEmpty();
+    }
+
+    // ── Phase 19 Open Q1 — named multi-value return surface ────────────────
+
+    @Test
+    void returnObjectLiteral_populatesNamedKeysAndValues() {
+        // The Layer-1c rewrite turns `return {Rcrit:r, omega0:o, Qcrit:q};`
+        // into `recordSample(r); recordSample(o); recordSample(q); return r;`
+        // and side-channels the keys list to the interpreter. End-to-end,
+        // SandboxResult.namedKeys/namedValues carry the original labels
+        // paired with the values in source order.
+        String code = """
+                var L = 0.0009;
+                var C = 1.52e-6;
+                var Rcrit = 2*sqrt(L/C);
+                var omega0 = 1/sqrt(L*C);
+                var Qcrit = omega0*L / Rcrit;
+                return {Rcrit: Rcrit, omega0: omega0, Qcrit: Qcrit};
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 1, 2, 0, 0.0);
+        assertThat(r.namedKeys()).containsExactly("Rcrit", "omega0", "Qcrit");
+        double expRcrit  = 2 * Math.sqrt(0.0009 / 1.52e-6);
+        double expOmega0 = 1 / Math.sqrt(0.0009 * 1.52e-6);
+        double expQcrit  = expOmega0 * 0.0009 / expRcrit;
+        assertThat(r.namedValues().get(0)).isCloseTo(expRcrit,
+                org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(r.namedValues().get(1)).isCloseTo(expOmega0,
+                org.assertj.core.data.Offset.offset(1e-9));
+        assertThat(r.namedValues().get(2)).isCloseTo(expQcrit,
+                org.assertj.core.data.Offset.offset(1e-9));
+        // The primary scalar return is the first key's value.
+        assertThat(r.value()).isCloseTo(expRcrit,
+                org.assertj.core.data.Offset.offset(1e-9));
+        // Summary string carries the named={…} clause for prose surfaces
+        // that read the formatted summary instead of the structured list.
+        assertThat(r.summary()).contains("named={Rcrit=", "omega0=", "Qcrit=");
+    }
+
+    @Test
+    void returnArrayLiteral_populatesPositionalKeysAndValues() {
+        // Array-literal variant uses positional keys "0","1","2" since the
+        // source has no labels.
+        String code = "return [10, 20, 30];";
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 1, 2, 0, 0.0);
+        assertThat(r.namedKeys()).containsExactly("0", "1", "2");
+        assertThat(r.namedValues()).containsExactly(10.0, 20.0, 30.0);
+        assertThat(r.value()).isEqualTo(10.0);
+    }
+
+    @Test
+    void namedReturn_combinedWithLoopRecordSample_ringBufferIsolatesTrailingWindow() {
+        // The conflation guard: when the user's code emits its own
+        // recordSample calls in a loop AND has a multi-value return, the
+        // ring buffer keeps only the LAST namedKeys.size() values, so
+        // namedValues pairs with the rewrite-synthesised trailing window,
+        // not the loop output.
+        String code = """
+                for (var i = 0; i < 5; i++) { recordSample(i); }
+                return {a: 100, b: 200};
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 1, 2, 0, 0.0);
+        assertThat(r.namedKeys()).containsExactly("a", "b");
+        assertThat(r.namedValues()).containsExactly(100.0, 200.0);
+        // The aggregates do conflate (n=7: 5 loop samples + 2 from the
+        // rewrite) — that's the expected trade-off, documented on
+        // SandboxResult.namedKeys.
+        assertThat(r.recordedN()).isEqualTo(7);
+    }
+
+    @Test
+    void scalarReturn_leavesNamedFieldsEmpty() {
+        // The common case: a plain scalar return leaves namedKeys/namedValues
+        // empty so existing call sites that don't know about Phase 19 keep
+        // their semantics.
+        String code = "recordSample(42); return 42;";
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 1, 2, 0, 0.0);
+        assertThat(r.namedKeys()).isEmpty();
+        assertThat(r.namedValues()).isEmpty();
+        assertThat(r.recordedN()).isEqualTo(1);
     }
 
     // ── Phase 10 — bounded arrays ───────────────────────────────────────────

@@ -609,8 +609,22 @@ public class MathToolSuite {
                             result.recordedStd(), result.recordedMin(),
                             result.recordedMax())
                     : "";
-            return "Sandboxed computation — \"%s\" over [%d,%d): %s%s"
-                    .formatted(description, rangeStart, rangeEnd, result.summary(), stats);
+            // Phase 19 Open Q1 — when the Layer-1c rewrite fired on a
+            // multi-value return, surface the original key=value pairs so
+            // the LLM's downstream prose can name each component instead
+            // of having to back the values out of the aggregates.
+            String named = "";
+            if (!result.namedKeys().isEmpty()) {
+                StringBuilder b = new StringBuilder("  named: ");
+                for (int i = 0; i < result.namedKeys().size(); i++) {
+                    if (i > 0) b.append(", ");
+                    b.append(result.namedKeys().get(i)).append('=')
+                     .append("%.6g".formatted(result.namedValues().get(i)));
+                }
+                named = b.toString();
+            }
+            return "Sandboxed computation — \"%s\" over [%d,%d): %s%s%s"
+                    .formatted(description, rangeStart, rangeEnd, result.summary(), stats, named);
         } catch (Exception e) {
             return "Sandbox execution failed: " + e.getMessage();
         }

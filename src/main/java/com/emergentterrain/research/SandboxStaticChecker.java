@@ -64,6 +64,24 @@ public final class SandboxStaticChecker {
         record Rejected(String reason) implements Result {}
     }
 
+    /**
+     * Normalised form of a sandbox snippet plus the named-return metadata
+     * the rewrite collected. {@code code} is what reaches the lexer / parser;
+     * {@code namedKeys} is the list of key names from a return-position
+     * object literal ({@code return {a:x, b:y};} → [{@code "a"},{@code "b"}])
+     * or synthetic numeric keys from a return-position array literal
+     * ({@code return [x, y, z];} → [{@code "0"},{@code "1"},{@code "2"}]).
+     * Empty when no multi-value return was present.
+     *
+     * <p>The runtime uses {@code namedKeys.size()} as the "trailing
+     * recordSample window" size — the last {@code k} recordSample values
+     * executed pair up with these keys to populate
+     * {@link SandboxEngine.SandboxResult#namedValues()} verbatim, without
+     * conflating with user-supplied sample-loop {@code recordSample} calls
+     * that came earlier in the run.
+     */
+    public record Normalized(String code, java.util.List<String> namedKeys) {}
+
     public static Result check(String code) {
         if (code == null || code.isBlank()) {
             return new Result.Rejected("empty code");
@@ -334,20 +352,41 @@ public final class SandboxStaticChecker {
      * <p>Package-private for runtime use and tests.
      */
     static String rewriteReturnObjectLiteral(String code) {
+        return rewriteReturnObjectLiteralWithKeys(code, null);
+    }
+
+    /**
+     * Same as {@link #rewriteReturnObjectLiteral(String)} but additionally
+     * appends the matched object literal's key names (in source order) into
+     * {@code keySink}. When the rewrite fires on multiple return statements,
+     * the first one wins — only one set of named keys can be surfaced per
+     * run because the runtime only tracks the trailing recordSample window.
+     */
+    private static String rewriteReturnObjectLiteralWithKeys(
+            String code, java.util.List<String> keySink) {
         if (code == null || code.indexOf("return") < 0 || code.indexOf("{") < 0) {
             return code;
         }
         java.util.regex.Matcher m = RETURN_OBJECT_LITERAL.matcher(code);
         StringBuilder sb = new StringBuilder(code.length());
+        boolean keysCaptured = false;
         while (m.find()) {
             String body = m.group(1).trim();
-            java.util.List<String> values = splitObjectLiteralValues(body);
-            if (values == null || values.isEmpty()) {
-                // Couldn't parse the body cleanly (e.g. unbalanced parens);
-                // leave the original text in place so the existing reject
-                // path fires with the standard hint.
+            java.util.List<String> kvs = splitObjectLiteralKeysAndValues(body);
+            if (kvs == null || kvs.isEmpty()) {
                 m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
                 continue;
+            }
+            int n = kvs.size() / 2;
+            java.util.List<String> values = new ArrayList<>(n);
+            java.util.List<String> keys = new ArrayList<>(n);
+            for (int i = 0; i < n; i++) {
+                keys.add(kvs.get(2 * i));
+                values.add(kvs.get(2 * i + 1));
+            }
+            if (keySink != null && !keysCaptured) {
+                keySink.addAll(keys);
+                keysCaptured = true;
             }
             StringBuilder replacement = new StringBuilder();
             for (String v : values) {
@@ -395,17 +434,37 @@ public final class SandboxStaticChecker {
      * <p>Package-private for runtime use and tests.
      */
     static String rewriteReturnArrayLiteral(String code) {
+        return rewriteReturnArrayLiteralWithKeys(code, null);
+    }
+
+    /**
+     * Same as {@link #rewriteReturnArrayLiteral(String)} but additionally
+     * appends synthetic positional key names ({@code "0"}, {@code "1"}, …)
+     * into {@code keySink} so the runtime can pair the trailing
+     * {@code recordSample} window with positional labels in the response
+     * prose. First-match-wins on multiple returns (same constraint as
+     * the object variant).
+     */
+    private static String rewriteReturnArrayLiteralWithKeys(
+            String code, java.util.List<String> keySink) {
         if (code == null || code.indexOf("return") < 0 || code.indexOf("[") < 0) {
             return code;
         }
         java.util.regex.Matcher m = RETURN_ARRAY_LITERAL.matcher(code);
         StringBuilder sb = new StringBuilder(code.length());
+        boolean keysCaptured = false;
         while (m.find()) {
             String body = m.group(1).trim();
             java.util.List<String> values = splitTopLevelCommas(body);
             if (values == null || values.isEmpty()) {
                 m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
                 continue;
+            }
+            if (keySink != null && !keysCaptured) {
+                for (int i = 0; i < values.size(); i++) {
+                    keySink.add(Integer.toString(i));
+                }
+                keysCaptured = true;
             }
             StringBuilder replacement = new StringBuilder();
             for (String v : values) {
@@ -459,17 +518,33 @@ public final class SandboxStaticChecker {
      * can fall back to the no-rewrite path.
      */
     private static java.util.List<String> splitObjectLiteralValues(String body) {
+        java.util.List<String> kvs = splitObjectLiteralKeysAndValues(body);
+        if (kvs == null) return null;
+        java.util.List<String> values = new ArrayList<>(kvs.size() / 2);
+        for (int i = 1; i < kvs.size(); i += 2) values.add(kvs.get(i));
+        return values;
+    }
+
+    /**
+     * Splits an object-literal body ({@code "k1: v1, k2: v2"}) into a
+     * flat interleaved [key0, value0, key1, value1, …] list, respecting
+     * parenthesis depth. Returns {@code null} on malformed input so the
+     * caller can fall back to the no-rewrite path.
+     */
+    private static java.util.List<String> splitObjectLiteralKeysAndValues(String body) {
         java.util.List<String> pairs = splitTopLevelCommas(body);
         if (pairs == null) return null;
-        java.util.List<String> values = new ArrayList<>(pairs.size());
+        java.util.List<String> kvs = new ArrayList<>(pairs.size() * 2);
         for (String pair : pairs) {
             int colon = pair.indexOf(':');
             if (colon < 0) return null;
+            String key = pair.substring(0, colon).trim();
             String value = pair.substring(colon + 1).trim();
-            if (value.isEmpty()) return null;
-            values.add(value);
+            if (key.isEmpty() || value.isEmpty()) return null;
+            kvs.add(key);
+            kvs.add(value);
         }
-        return values;
+        return kvs;
     }
 
     /**
@@ -484,10 +559,33 @@ public final class SandboxStaticChecker {
      * by the time we copy them into the recordSample calls).
      */
     static String normalizeForSandbox(String code) {
-        if (!relaxedGrammarEnabled) return code;
-        return rewriteReturnArrayLiteral(
-                rewriteReturnObjectLiteral(
-                        rewriteArrayLength(rewriteMathPrefix(code))));
+        return normalizeWithMetadata(code).code();
+    }
+
+    /**
+     * Same Layer-1 normalisation as {@link #normalizeForSandbox(String)},
+     * but also captures the named-return metadata so the runtime can pair
+     * the trailing recordSample window with key names in
+     * {@link SandboxEngine.SandboxResult#namedValues()}.
+     *
+     * <p>The two rewrites that produce named output ({@link #rewriteReturnObjectLiteral}
+     * and {@link #rewriteReturnArrayLiteral}) each have a sibling
+     * {@code …WithKeys} method that pushes the keys into a sink list. We
+     * call both, but only one will actually capture keys (the rewrite
+     * patterns are mutually exclusive on a given return statement). If
+     * both fire (multiple return statements with different shapes), the
+     * first-matched rewrite's keys win — see the {@code keySink} field
+     * doc on each helper.
+     */
+    public static Normalized normalizeWithMetadata(String code) {
+        if (!relaxedGrammarEnabled) {
+            return new Normalized(code, java.util.List.of());
+        }
+        String afterScalar = rewriteArrayLength(rewriteMathPrefix(code));
+        java.util.List<String> keys = new ArrayList<>();
+        String afterObj = rewriteReturnObjectLiteralWithKeys(afterScalar, keys);
+        String afterArr = rewriteReturnArrayLiteralWithKeys(afterObj, keys);
+        return new Normalized(afterArr, java.util.List.copyOf(keys));
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────
