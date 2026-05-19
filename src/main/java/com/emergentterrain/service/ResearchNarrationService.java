@@ -280,6 +280,17 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private ReviewPanelService reviewPanelService;
 
+    /**
+     * Phase 20.4 step 3 — narration-envelope metrics emission. Field-injected
+     * (required=false) so unit tests that don't wire the activity-metrics
+     * bean construct cleanly; the emission helper no-ops when null. Rolled
+     * up by {@link ActivityReporter}'s 30-second activity rows so a future
+     * Phase-18-style incident is diagnosable from the activity log alone
+     * (e.g. {@code narration.status.ALL_MODELS_BLOCKED} delta jumps).
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private ActivityMetrics activityMetrics;
+
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
@@ -438,6 +449,22 @@ public class ResearchNarrationService {
         }
     }
 
+    /**
+     * Phase 20.4 step 3 — emit the narration-envelope rollups to ActivityMetrics
+     * if a metrics bean is wired. One counter per status enum value plus the
+     * two token-total accumulators. The activity-row delta-snapshot logic
+     * surfaces both per-interval increments and running totals; consumers
+     * (ActivityReporter, future dashboards) read the per-status counters to
+     * see status distribution over time without parsing call_path strings.
+     */
+    private void emitNarrationEnvelopeMetrics(NarrationResult.OutcomeStatus status,
+                                                long inputTokens, long outputTokens) {
+        if (activityMetrics == null) return;
+        activityMetrics.increment("narration.status." + status.name());
+        activityMetrics.add("narration.input_tokens", inputTokens);
+        activityMetrics.add("narration.output_tokens", outputTokens);
+    }
+
     private void runNarration(PaperDraft draft) {
         // Phase 20.4 — orchestration wall-clock bracket. Captured at entry so
         // every publish path (suppression, gate-closed, normal completion) can
@@ -456,6 +483,7 @@ public class ResearchNarrationService {
                     "startedAt={} completedAt={} durationMs={}",
                     draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
                     java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+            emitNarrationEnvelopeMetrics(NarrationResult.OutcomeStatus.ALL_MODELS_BLOCKED, 0L, 0L);
             if (narrationPublisher != null) narrationPublisher.accept(draft, null);
             return;
         }
@@ -478,6 +506,7 @@ public class ResearchNarrationService {
                     "startedAt={} completedAt={} durationMs={}",
                     draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
                     java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+            emitNarrationEnvelopeMetrics(NarrationResult.OutcomeStatus.BUDGET_EXHAUSTED, 0L, 0L);
             if (narrationPublisher != null) narrationPublisher.accept(draft, null);
             return;
         }
@@ -559,6 +588,11 @@ public class ResearchNarrationService {
                 finalResult.numericClaims())
                 .withEnvelope(orchestrationStartedAt, java.time.Instant.now(),
                         paperInputTokens, paperOutputTokens, terminalStatus);
+        // Phase 20.4 step 3 — rollup metric. Fires for every reachable
+        // terminal status (OK / PARTIAL / ERROR / TEMPLATE_FALLBACK /
+        // TOOL_LOOP_LIMIT when step 2b-3+ lands), so the 30s activity row
+        // sees a moving distribution of narration outcomes.
+        emitNarrationEnvelopeMetrics(terminalStatus, paperInputTokens, paperOutputTokens);
         if (finalResult == null) {
             // Phase 20.4 — null-publish case (terminalStatus = ERROR). Mirror the
             // timing-only log line used by the suppression branches above. Now

@@ -1067,6 +1067,19 @@ public class UniversityService {
         paper.setReviewerAgreement(outcome != null && !outcome.isEmpty()
                 ? outcome.agreementScore() : null);
 
+        // Phase 20.4 — copy the narration-orchestration envelope (timing,
+        // cumulative token totals, terminal status) from the NarrationResult
+        // onto the persisted paper. Legacy emission sites that pre-date the
+        // envelope leave these as null/0/UNKNOWN — same semantics as the
+        // existing null-default policy for templateId / discussion / etc.
+        paper.setNarrationStartedAt(narration.startedAt());
+        paper.setNarrationCompletedAt(narration.completedAt());
+        paper.setNarrationInputTokens(narration.inputTokens());
+        paper.setNarrationOutputTokens(narration.outputTokens());
+        paper.setNarrationStatus(narration.status() != null
+                ? narration.status().name()
+                : NarrationResult.OutcomeStatus.UNKNOWN.name());
+
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before
         // it lands in the cache + DB. No-op when the institutions flag is off.
         InstitutionService.BootstrapResult institutions =

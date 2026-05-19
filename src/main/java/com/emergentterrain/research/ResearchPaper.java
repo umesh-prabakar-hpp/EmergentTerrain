@@ -163,6 +163,35 @@ public class ResearchPaper {
     @Column(name = "reviewer_agreement")
     private Double reviewerAgreement;
 
+    /**
+     * Phase 20.4 — narration-orchestration envelope, copied from
+     * {@link NarrationResult} at publish time. Five columns so the call's
+     * cost (tokens), duration (timing), and terminal outcome (status enum
+     * persisted as the enum name) are queryable from SQL without parsing
+     * the {@code call_path} string. All five default null/null/0/0/null on
+     * legacy rows persisted before this column block existed.
+     *
+     * <p>{@code narration_status} stores the {@link NarrationResult.OutcomeStatus}
+     * enum's {@code name()}; persisted as VARCHAR rather than an SMALLINT
+     * ordinal so adding a new enum value never reindexes existing rows.
+     * Width 32 accommodates the longest current value
+     * ({@code ALL_MODELS_BLOCKED}, 18 chars) with headroom.
+     */
+    @Column(name = "narration_started_at")
+    private java.time.Instant narrationStartedAt;
+
+    @Column(name = "narration_completed_at")
+    private java.time.Instant narrationCompletedAt;
+
+    @Column(name = "narration_input_tokens", nullable = false)
+    private long narrationInputTokens;
+
+    @Column(name = "narration_output_tokens", nullable = false)
+    private long narrationOutputTokens;
+
+    @Column(name = "narration_status", length = 32)
+    private String narrationStatus;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -242,6 +271,11 @@ public class ResearchPaper {
     public String       toolCallTrace()            { return toolCallTrace; }
     public String       panelOutcome()             { return panelOutcome; }
     public Double       reviewerAgreement()        { return reviewerAgreement; }
+    public java.time.Instant narrationStartedAt()   { return narrationStartedAt; }
+    public java.time.Instant narrationCompletedAt() { return narrationCompletedAt; }
+    public long         narrationInputTokens()      { return narrationInputTokens; }
+    public long         narrationOutputTokens()     { return narrationOutputTokens; }
+    public String       narrationStatus()           { return narrationStatus; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -257,4 +291,10 @@ public class ResearchPaper {
     public void setToolCallTrace(String toolCallTrace) { this.toolCallTrace = toolCallTrace; }
     public void setPanelOutcome(String panelOutcome)   { this.panelOutcome = panelOutcome; }
     public void setReviewerAgreement(Double v)         { this.reviewerAgreement = v; }
+    // Phase 20.4 — narration envelope setters; called from UniversityService.publishPaper.
+    public void setNarrationStartedAt(java.time.Instant v)   { this.narrationStartedAt = v; }
+    public void setNarrationCompletedAt(java.time.Instant v) { this.narrationCompletedAt = v; }
+    public void setNarrationInputTokens(long v)              { this.narrationInputTokens = v; }
+    public void setNarrationOutputTokens(long v)             { this.narrationOutputTokens = v; }
+    public void setNarrationStatus(String v)                 { this.narrationStatus = v; }
 }

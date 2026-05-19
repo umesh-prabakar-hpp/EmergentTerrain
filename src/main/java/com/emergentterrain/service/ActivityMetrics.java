@@ -16,6 +16,18 @@ public class ActivityMetrics {
         counters.computeIfAbsent(key, k -> new LongAdder()).increment();
     }
 
+    /**
+     * Phase 20.4 — additive variant for summable quantities (token totals,
+     * cumulative durations, etc.). Same per-key LongAdder backing; the
+     * delta-snapshot logic and total-snapshot logic both treat this as an
+     * accumulator, so a row's totals show the running sum while deltas
+     * show the per-interval increment. No-op when {@code n} is non-positive.
+     */
+    public void add(String key, long n) {
+        if (n <= 0) return;
+        counters.computeIfAbsent(key, k -> new LongAdder()).add(n);
+    }
+
     public Map<String, Long> snapshotDeltas() {
         Map<String, Long> deltas = new ConcurrentHashMap<>();
         counters.forEach((key, adder) -> {
