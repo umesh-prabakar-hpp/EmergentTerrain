@@ -237,6 +237,16 @@ app:
     #   professor-tools:
     #     preferred-providers: [groq, cerebras, nvidia]
     #     avoid-models: [groq/llama-3.3-70b-versatile]   # 2026-05-18 daily-quota incident
+    # Phase 20.3 — cache the tools JSON spec across tool-loop rounds so
+    # rounds 2..N don't re-pay ~2-4 KB of redundant schema tokens. OFF by
+    # default until per-provider tool-stickiness behavior is verified
+    # (Groq's OpenAI-compat documents sticky tools across a conversation;
+    # Cerebras / NVIDIA should be checked before flipping). If a model
+    # starts hallucinating tool names mid-conversation, raise the cadence
+    # (more frequent re-sends) or set enabled=false.
+    cached-tool-schema:
+      enabled: false
+      refresh-cadence: 3        # when enabled, force-resend every Nth round (0 = never re-send)
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

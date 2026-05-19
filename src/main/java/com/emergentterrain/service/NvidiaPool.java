@@ -102,6 +102,10 @@ public class NvidiaPool implements LlmPool {
     @Autowired(required = false)
     private com.emergentterrain.llm.LlmTraceWriter traceWriter;
 
+    /** Phase 20.3 — cached tool-schema policy; null-safe (off ⇒ today's behavior). */
+    @Autowired(required = false)
+    private ToolSchemaCachePolicy toolSchemaCachePolicy;
+
     public NvidiaPool(
             @Value("${app.ai.nvidia.apiKey:}") String apiKey,
             @Value("${app.ai.nvidia.baseUrl:https://integrate.api.nvidia.com/v1}") String baseUrl,
@@ -325,8 +329,12 @@ public class NvidiaPool implements LlmPool {
 
             for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
+                // Phase 20.3 — cached tool-schema policy; see GroqPool comment.
+                boolean sendTools = toolSchemaCachePolicy == null
+                        ? !lastRound
+                        : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
                 String payload = buildConversationPayload(
-                        modelId, messages, lastRound ? null : tools, toolMaxTokens);
+                        modelId, messages, sendTools ? tools : null, toolMaxTokens);
                 String roundOutcome = "ok";
                 HttpResponse<String> resp;
                 long t0 = System.currentTimeMillis();

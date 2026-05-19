@@ -170,6 +170,10 @@ public class GroqPool implements LlmPool {
     @Autowired(required = false)
     private TpmBudgetGate budgetGate;
 
+    /** Phase 20.3 — cached tool-schema policy; null-safe (off ⇒ today's behavior). */
+    @Autowired(required = false)
+    private ToolSchemaCachePolicy toolSchemaCachePolicy;
+
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
             @Value("${app.ai.groq.parallelism:3}") int parallelism,
@@ -490,8 +494,15 @@ public class GroqPool implements LlmPool {
 
             for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
+                // Phase 20.3 — cached tool-schema policy decides whether to
+                // embed the tools spec this round. Off by default (today's
+                // behavior); when on, omits the spec on rounds > 0 except
+                // the periodic re-send cadence.
+                boolean sendTools = toolSchemaCachePolicy == null
+                        ? !lastRound
+                        : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
                 String payload = buildConversationPayload(
-                        modelId, messages, lastRound ? null : tools, toolMaxTokens);
+                        modelId, messages, sendTools ? tools : null, toolMaxTokens);
                 // Phase 9 G9 — pre-debit per tool-loop round. The conversation
                 // grows each round as tool messages accumulate, so the estimate
                 // is recomputed from the current payload size (a reasonable
