@@ -247,6 +247,41 @@ app:
     cached-tool-schema:
       enabled: false
       refresh-cadence: 3        # when enabled, force-resend every Nth round (0 = never re-send)
+    # Phase 20.11 — generic OpenAI-compat pool: declarative provider
+    # registration. Each entry under providers: registers a GenericOpenAICompatPool
+    # bean visible to PrimaryModelRegistry / LlmRouter. Adding a new provider
+    # is config-only — no Java code, no rebuild. Empty section (default)
+    # leaves the registrar dormant.
+    #
+    # Per-provider keys:
+    #   base-url            HTTPS base ending at /v1 (no trailing slash).
+    #   api-key-env         env var holding the bearer token.
+    #   models              static model id list (use OR models-discovery-path).
+    #   models-discovery-path  GET path returning {data:[{id}]} list (TBD).
+    #   supports-tools      boolean; pool exposes tool-call API when true.
+    #                       NOTE step 1+2: pool's supportsTools() is hardcoded
+    #                       to false until the tool-call follow-up commit lands.
+    #   context-window      advisory; informs the per-pool token cap.
+    #   max-tokens-field    response cap field name; "max_tokens" default;
+    #                       Anthropic uses "max_completion_tokens".
+    #   retry-after-source  HEADER (standard) or BODY (Groq-style error JSON).
+    #   parallelism         concurrent slots; default 3.
+    #
+    # Example (commented; uncomment + edit + restart to activate):
+    # providers:
+    #   anthropic:
+    #     base-url: https://api.anthropic.com/v1
+    #     api-key-env: ANTHROPIC_API_KEY
+    #     models: [claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5]
+    #     supports-tools: true
+    #     context-window: 200000
+    #     max-tokens-field: max_completion_tokens
+    #     retry-after-source: HEADER
+    #   deepseek:
+    #     base-url: https://api.deepseek.com/v1
+    #     api-key-env: DEEPSEEK_API_KEY
+    #     models: [deepseek-chat]
+    #     supports-tools: true
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,
