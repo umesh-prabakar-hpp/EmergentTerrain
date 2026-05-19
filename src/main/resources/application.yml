@@ -247,6 +247,20 @@ app:
     cached-tool-schema:
       enabled: false
       refresh-cadence: 3        # when enabled, force-resend every Nth round (0 = never re-send)
+    # Phase 20.1 — condense older role=tool messages in the in-flight
+    # conversation history. The freshest tool result stays raw; older
+    # ones get truncated to first head-chars + marker + last tail-chars
+    # when their content exceeds threshold-chars. Persisted trace
+    # (LlmTraceWriter) is unaffected — only the next round's payload
+    # changes. OFF by default until the next REVIEW_REPORT refresh
+    # confirms Phase 18.1's trace-scan validator isn't reading the
+    # compressed in-flight messages (it shouldn't — it reads the
+    # persisted trace — but verify before flipping).
+    tool-result-compression:
+      enabled: false
+      threshold-chars: 1024
+      head-chars: 500
+      tail-chars: 200
     # Phase 20.11 — generic OpenAI-compat pool: declarative provider
     # registration. Each entry under providers: registers a GenericOpenAICompatPool
     # bean visible to PrimaryModelRegistry / LlmRouter. Adding a new provider

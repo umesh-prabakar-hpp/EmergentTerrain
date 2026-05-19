@@ -106,6 +106,10 @@ public class NvidiaPool implements LlmPool {
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
 
+    /** Phase 20.1 — condense older tool-result messages. Null-safe. */
+    @Autowired(required = false)
+    private ToolResultCompressor toolResultCompressor;
+
     public NvidiaPool(
             @Value("${app.ai.nvidia.apiKey:}") String apiKey,
             @Value("${app.ai.nvidia.baseUrl:https://integrate.api.nvidia.com/v1}") String baseUrl,
@@ -333,6 +337,10 @@ public class NvidiaPool implements LlmPool {
                 boolean sendTools = toolSchemaCachePolicy == null
                         ? !lastRound
                         : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
+                // Phase 20.1 — condense older tool-result messages.
+                if (toolResultCompressor != null) {
+                    toolResultCompressor.condenseOlderToolMessages(messages);
+                }
                 String payload = buildConversationPayload(
                         modelId, messages, sendTools ? tools : null, toolMaxTokens);
                 String roundOutcome = "ok";

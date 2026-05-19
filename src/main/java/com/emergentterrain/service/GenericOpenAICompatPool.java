@@ -106,6 +106,9 @@ public class GenericOpenAICompatPool implements LlmPool {
     /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
+    /** Phase 20.1 — condense older tool-result messages. Null-safe. */
+    @Autowired(required = false)
+    private ToolResultCompressor toolResultCompressor;
     @Autowired(required = false)
     private com.emergentterrain.llm.LlmTraceWriter traceWriter;
 
@@ -377,6 +380,12 @@ public class GenericOpenAICompatPool implements LlmPool {
                 boolean sendTools = toolSchemaCachePolicy == null
                         ? !lastRound
                         : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
+                // Phase 20.1 — condense older tool-result messages before each
+                // round's payload build. No-op when compressor isn't wired or
+                // flag is off. Persisted trace via traceWriter is unaffected.
+                if (toolResultCompressor != null) {
+                    toolResultCompressor.condenseOlderToolMessages(messages);
+                }
                 String payload = buildConversationPayload(
                         modelId, messages, sendTools ? tools : null, TOOL_MAX_TOKENS);
                 long estimate = estimateTokens(payload, TOOL_MAX_TOKENS);

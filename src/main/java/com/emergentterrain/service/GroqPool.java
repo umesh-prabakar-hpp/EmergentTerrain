@@ -174,6 +174,10 @@ public class GroqPool implements LlmPool {
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
 
+    /** Phase 20.1 — condense older tool-result messages. Null-safe. */
+    @Autowired(required = false)
+    private ToolResultCompressor toolResultCompressor;
+
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
             @Value("${app.ai.groq.parallelism:3}") int parallelism,
@@ -501,6 +505,12 @@ public class GroqPool implements LlmPool {
                 boolean sendTools = toolSchemaCachePolicy == null
                         ? !lastRound
                         : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
+                // Phase 20.1 — condense older tool-result messages before the
+                // next round's payload. No-op when compressor isn't wired or
+                // flag is off. Persisted trace via traceWriter is unaffected.
+                if (toolResultCompressor != null) {
+                    toolResultCompressor.condenseOlderToolMessages(messages);
+                }
                 String payload = buildConversationPayload(
                         modelId, messages, sendTools ? tools : null, toolMaxTokens);
                 // Phase 9 G9 — pre-debit per tool-loop round. The conversation

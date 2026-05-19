@@ -106,6 +106,10 @@ public class OpenRouterPool implements LlmPool {
     @Autowired(required = false)
     private com.emergentterrain.llm.LlmTraceWriter traceWriter;
 
+    /** Phase 20.1 — condense older tool-result messages. Null-safe. */
+    @Autowired(required = false)
+    private ToolResultCompressor toolResultCompressor;
+
     public OpenRouterPool(
             @Value("${app.ai.openrouter.apiKey:}") String apiKey,
             @Value("${app.ai.openrouter.baseUrl:https://openrouter.ai/api/v1}") String baseUrl,
@@ -328,6 +332,10 @@ public class OpenRouterPool implements LlmPool {
 
             for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
+                // Phase 20.1 — condense older tool-result messages.
+                if (toolResultCompressor != null) {
+                    toolResultCompressor.condenseOlderToolMessages(messages);
+                }
                 String payload = buildConversationPayload(
                         modelId, messages, lastRound ? null : tools, toolMaxTokens);
                 String roundOutcome = "ok";
