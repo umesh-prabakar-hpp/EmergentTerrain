@@ -177,6 +177,9 @@ public class GroqPool implements LlmPool {
     /** Phase 20.1 — condense older tool-result messages. Null-safe. */
     @Autowired(required = false)
     private ToolResultCompressor toolResultCompressor;
+    /** Phase 20.2 — tag-level history compaction. Null-safe. */
+    @Autowired(required = false)
+    private ConversationCompactor conversationCompactor;
 
     public GroqPool(
             @Value("${app.ai.groq.apiKey:}") String apiKey,
@@ -510,6 +513,10 @@ public class GroqPool implements LlmPool {
                 // flag is off. Persisted trace via traceWriter is unaffected.
                 if (toolResultCompressor != null) {
                     toolResultCompressor.condenseOlderToolMessages(messages);
+                }
+                // Phase 20.2 — tag-level history compaction (stacks after 20.1).
+                if (conversationCompactor != null) {
+                    conversationCompactor.compact(messages);
                 }
                 String payload = buildConversationPayload(
                         modelId, messages, sendTools ? tools : null, toolMaxTokens);

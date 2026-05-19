@@ -111,6 +111,9 @@ public class GenericOpenAICompatPool implements LlmPool {
     private ToolResultCompressor toolResultCompressor;
     @Autowired(required = false)
     private com.emergentterrain.llm.LlmTraceWriter traceWriter;
+    /** Phase 20.2 — tag-level history compaction. Null-safe. */
+    @Autowired(required = false)
+    private ConversationCompactor conversationCompactor;
 
     public GenericOpenAICompatPool(ProviderConfig cfg,
                                     ObjectMapper mapper,
@@ -385,6 +388,10 @@ public class GenericOpenAICompatPool implements LlmPool {
                 // flag is off. Persisted trace via traceWriter is unaffected.
                 if (toolResultCompressor != null) {
                     toolResultCompressor.condenseOlderToolMessages(messages);
+                }
+                // Phase 20.2 — tag-level history compaction (stacks after 20.1).
+                if (conversationCompactor != null) {
+                    conversationCompactor.compact(messages);
                 }
                 String payload = buildConversationPayload(
                         modelId, messages, sendTools ? tools : null, TOOL_MAX_TOKENS);

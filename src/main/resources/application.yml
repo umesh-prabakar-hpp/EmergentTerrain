@@ -261,6 +261,16 @@ app:
       threshold-chars: 1024
       head-chars: 500
       tail-chars: 200
+    # Phase 20.2 — tag-level history compaction. Two stages: (1) truncate
+    # old message content to first 200 + marker + last 50 when content
+    # > 256 chars, keeping the most recent keep-recent messages intact;
+    # (2) drop oldest non-system messages if still over budget. Pull when
+    # a real paper fails at MAX_TOOL_ROUNDS for context-window pressure.
+    # OFF by default — speculative until a real failure drives demand.
+    conversation-compaction:
+      enabled: false
+      target-chars: 24000       # ~70% of an 8K-context window in chars
+      keep-recent: 2
     # Phase 20.11 — generic OpenAI-compat pool: declarative provider
     # registration. Each entry under providers: registers a GenericOpenAICompatPool
     # bean visible to PrimaryModelRegistry / LlmRouter. Adding a new provider
