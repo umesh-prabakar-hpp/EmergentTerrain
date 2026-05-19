@@ -12,7 +12,10 @@ pub mod gpu {
     tonic::include_proto!("emergentterrain.gpu.v1");
 }
 
+mod config;
 mod eval_expr;
+
+use config::WorldConfig;
 
 use gpu::gpu_terrain_service_server::{GpuTerrainService, GpuTerrainServiceServer};
 use gpu::{
@@ -314,6 +317,10 @@ struct GpuComputeEngine {
     bot_layout: wgpu::BindGroupLayout,
     adapter_name: String,
     backend_name: String,
+    // Phase 20.10 — world-generation tunables loaded from gpu.toml at
+    // startup. Default-constructed when the file is absent or malformed,
+    // matching the pre-Phase-20.10 hardcoded values bit-for-bit.
+    world_config: WorldConfig,
 }
 
 struct GeneratedWorld {
@@ -420,6 +427,7 @@ impl GpuComputeEngine {
             queue,
             adapter_name: adapter_info.name,
             backend_name: format!("{:?}", adapter_info.backend),
+            world_config: WorldConfig::load(),
         })
     }
 
@@ -428,11 +436,18 @@ impl GpuComputeEngine {
     }
 
     fn generate_region(&self, seed: u64, width: u32, height: u32, params_json: &str) -> Result<GeneratedWorld, Status> {
-        let params = parse_hidden_params(params_json);
-        let highway_ratio = parse_highway_ratio(params_json);
-        let forest_density = 0.25 + 0.40 * params.humidity + 0.10 * params.density;
-        let water_density = 0.05 + 0.20 * params.humidity + 0.10 * params.energy;
-        let industry_density = 0.02 + 0.06 * params.pressure;
+        // Phase 20.10 — density derivation coefficients + hidden-param
+        // defaults + highway spacing constants are all sourced from
+        // self.world_config (loaded from gpu.toml at startup; defaults
+        // reproduce the pre-Phase-20.10 hardcoded values bit-for-bit).
+        let params = parse_hidden_params(params_json, &self.world_config.hidden_defaults);
+        let highway_ratio = parse_highway_ratio(params_json, self.world_config.highways.ratio_default);
+        let forest = &self.world_config.density.forest;
+        let water = &self.world_config.density.water;
+        let industry = &self.world_config.density.industry;
+        let forest_density = forest.base + forest.humidity_coef * params.humidity + forest.density_coef * params.density;
+        let water_density = water.base + water.humidity_coef * params.humidity + water.energy_coef * params.energy;
+        let industry_density = industry.base + industry.pressure_coef * params.pressure;
         let uniform = WorldUniform {
             width,
             height,
@@ -441,7 +456,7 @@ impl GpuComputeEngine {
             forest_threshold: threshold_u32(forest_density),
             water_threshold: threshold_u32(water_density),
             industry_threshold: threshold_u32(industry_density),
-            spacing: highway_spacing(highway_ratio),
+            spacing: highway_spacing(highway_ratio, &self.world_config.highways),
         };
 
         let size = grid_size(width, height)?;
@@ -1111,20 +1126,20 @@ fn clamp01(value: f32) -> f32 {
     if value < 0.0 { 0.0 } else if value > 1.0 { 1.0 } else { value }
 }
 
-fn parse_hidden_params(params_json: &str) -> HiddenParams {
+fn parse_hidden_params(params_json: &str, defaults: &config::HiddenParamDefaults) -> HiddenParams {
     let value = serde_json::from_str::<Value>(params_json).unwrap_or(Value::Null);
     let hidden = value.get("hidden").cloned().unwrap_or(Value::Null);
     HiddenParams {
-        pressure: read_f64(&hidden, "pressure", 0.5),
-        humidity: read_f64(&hidden, "humidity", 0.5),
-        density: read_f64(&hidden, "density", 0.5),
-        energy: read_f64(&hidden, "energy", 0.5),
+        pressure: read_f64(&hidden, "pressure", defaults.pressure),
+        humidity: read_f64(&hidden, "humidity", defaults.humidity),
+        density: read_f64(&hidden, "density", defaults.density),
+        energy: read_f64(&hidden, "energy", defaults.energy),
     }
 }
 
-fn parse_highway_ratio(params_json: &str) -> f64 {
+fn parse_highway_ratio(params_json: &str, default_ratio: f64) -> f64 {
     let value = serde_json::from_str::<Value>(params_json).unwrap_or(Value::Null);
-    read_f64(&value, "highwayRatio", 0.02)
+    read_f64(&value, "highwayRatio", default_ratio)
 }
 
 fn read_f64(value: &Value, key: &str, default: f64) -> f64 {
@@ -1135,8 +1150,11 @@ fn threshold_u32(probability: f64) -> u32 {
     (probability.clamp(0.0, 1.0) * (u32::MAX as f64)) as u32
 }
 
-fn highway_spacing(highway_ratio: f64) -> u32 {
-    (2.0 / highway_ratio.clamp(0.01, 1.0)).sqrt().round().max(4.0) as u32
+fn highway_spacing(highway_ratio: f64, cfg: &config::HighwayConfig) -> u32 {
+    (2.0 / highway_ratio.clamp(cfg.ratio_min_clamp, cfg.ratio_max_clamp))
+        .sqrt()
+        .round()
+        .max(cfg.min_spacing) as u32
 }
 
 #[tokio::main]

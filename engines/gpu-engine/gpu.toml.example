@@ -1,0 +1,42 @@
+# Phase 20.10 — example world-generation tunables.
+#
+# Copy to `gpu.toml` and edit to A/B different world flavors without a
+# Rust rebuild. The engine reads the path in env var `GPU_ENGINE_CONFIG`
+# (default `./gpu.toml`). All values below are the pre-Phase-20.10
+# hardcoded defaults — a missing or absent gpu.toml reproduces them
+# bit-for-bit. Sections / fields you don't override fall through to
+# defaults; you can ship a minimal gpu.toml that only tweaks one knob.
+#
+# Density derivation formulas:
+#   forest_density   = forest.base   + forest.humidity_coef  * humidity + forest.density_coef * density
+#   water_density    = water.base    + water.humidity_coef   * humidity + water.energy_coef   * energy
+#   industry_density = industry.base + industry.pressure_coef * pressure
+# Inputs are clamped to [0, 1]; output × u32::MAX → WGSL noise threshold.
+
+[density.forest]
+base          = 0.25   # baseline forest density when humidity = density = 0
+humidity_coef = 0.40   # forest grows with humidity
+density_coef  = 0.10   # …and (weakly) with the density hidden-param
+
+[density.water]
+base         = 0.05    # baseline water density when humidity = energy = 0
+humidity_coef = 0.20   # water also grows with humidity
+energy_coef  = 0.10    # …and with the energy hidden-param
+
+[density.industry]
+base          = 0.02   # baseline industry density when pressure = 0
+pressure_coef = 0.06   # industry grows with the pressure hidden-param
+
+[hidden_defaults]
+# Values used by parse_hidden_params when the request JSON omits a key.
+# All four are 0.5 by default (mid-scale on each axis).
+pressure = 0.5
+humidity = 0.5
+density  = 0.5
+energy   = 0.5
+
+[highways]
+ratio_default   = 0.02   # default highwayRatio when request JSON omits the key
+ratio_min_clamp = 0.01   # spacing formula clamps highway_ratio to [min, max]
+ratio_max_clamp = 1.0    # before computing sqrt(2/ratio)
+min_spacing     = 4.0    # spacing is also floored at this value (in tiles)
