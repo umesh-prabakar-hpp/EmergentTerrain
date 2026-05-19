@@ -20,8 +20,8 @@ use config::WorldConfig;
 use gpu::gpu_terrain_service_server::{GpuTerrainService, GpuTerrainServiceServer};
 use gpu::{
     BoolGrid, BotState, EvalExprRequest, EvalExprResponse, GenerateRegionRequest,
-    GenerateRegionResponse, PipelineStats, RebuildPatchRequest, RebuildPatchResponse,
-    SimulateBotsRequest, SimulateBotsResponse, TileEdit, TileEncoding, TileGrid,
+    GenerateRegionResponse, PipelineStats, Progress, RebuildPatchRequest, RebuildPatchResponse,
+    SimulateBotsRequest, SimulateBotsResponse, SimulateBotsUpdate, TileEdit, TileEncoding, TileGrid,
 };
 
 const WORLD_SHADER: &str = r#"
@@ -736,6 +736,102 @@ impl GpuTerrainService for GpuEngineService {
             debug_json: rebuilt.debug_json,
             stats: Some(stats),
         }))
+    }
+
+    /// Phase 20.8 — server-streaming variant of simulate_bots. Emits a
+    /// "dispatch" Progress at the start, then one Progress per simulated
+    /// step (when steps > 1), then the terminal Done frame carrying the
+    /// same SimulateBotsResponse shape as the unary variant. The unary
+    /// simulate_bots stays in place for existing clients; this is purely
+    /// additive.
+    ///
+    /// Today's per-step granularity is best-effort: the underlying
+    /// simulate_bots_cached runs the whole multi-step loop inside one
+    /// GPU dispatch sequence. Per-step progress arrives in a single
+    /// burst at submission time rather than as the GPU actually completes
+    /// each step. A real per-step hookup needs a callback into
+    /// simulate_bots_with_buffers' step loop — separate follow-up when
+    /// there's a real long-pole SimulateBots worth instrumenting.
+    type SimulateBotsV2Stream = std::pin::Pin<Box<
+        dyn tokio_stream::Stream<Item = Result<SimulateBotsUpdate, Status>> + Send>>;
+
+    async fn simulate_bots_v2(&self, request: Request<SimulateBotsRequest>)
+            -> Result<Response<Self::SimulateBotsV2Stream>, Status> {
+        let req = request.into_inner();
+        let steps = req.steps.max(1);
+        println!("simulate_bots_v2.enter request_id={} bots={} steps={} adapter={}",
+                 req.request_id, req.bots.len(), steps, self.gpu.adapter_summary());
+
+        // Resolve the world up front so any not-found error surfaces as a
+        // pre-stream Status (cleaner than emitting via the stream).
+        let world = self.resolve_world_for_bot_request(&req).await?;
+        let gpu = self.gpu.clone();
+        let request_id = req.request_id.clone();
+        let bots = req.bots.clone();
+
+        let (tx, rx) = tokio::sync::mpsc::channel::<Result<SimulateBotsUpdate, Status>>(8);
+        tokio::spawn(async move {
+            // "dispatch" — emitted before the GPU work starts.
+            let _ = tx.send(Ok(SimulateBotsUpdate {
+                payload: Some(gpu::simulate_bots_update::Payload::Progress(Progress {
+                    completed: 0,
+                    total: steps,
+                    current_op: "dispatch".to_string(),
+                })),
+            })).await;
+
+            // Per-step Progress placeholders. simulate_bots_cached runs the
+            // full multi-step loop in one shot today; we emit per-step
+            // markers in a single burst after the dispatch returns, which is
+            // honest about today's granularity (caller sees "dispatch"
+            // → all-steps → "done"). A future change to expose a per-step
+            // callback would turn these into real-time updates.
+            let t0 = std::time::Instant::now();
+            let simulated = match gpu.simulate_bots_cached(&world, &bots, steps) {
+                Ok(s) => s,
+                Err(status) => {
+                    let _ = tx.send(Err(status)).await;
+                    return;
+                }
+            };
+            let latency_us = t0.elapsed().as_micros() as u64;
+
+            for step in 0..steps {
+                let _ = tx.send(Ok(SimulateBotsUpdate {
+                    payload: Some(gpu::simulate_bots_update::Payload::Progress(Progress {
+                        completed: step + 1,
+                        total: steps,
+                        current_op: format!("step:{}", step),
+                    })),
+                })).await;
+            }
+
+            // Final stats — same model as the unary handler.
+            let bot_count = simulated.bots.len() as u64;
+            let world_pixels = (world.width as u64) * (world.height as u64);
+            let bot_struct_bytes = 80u64;
+            let bytes_read = world_pixels * 4 * 2 + bot_count * bot_struct_bytes + 32;
+            let bytes_written = bot_count * bot_struct_bytes;
+            let flops_estimate = bot_count * (steps as u64) * 80;
+            let stats = build_pipeline_stats("BOT", latency_us, bytes_read, bytes_written, flops_estimate);
+
+            println!("simulate_bots_v2.exit request_id={} bots={} steps={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4}",
+                     request_id, bots.len(), steps, latency_us, stats.mem_bw_gbps, stats.flops_tflops);
+
+            let done = SimulateBotsUpdate {
+                payload: Some(gpu::simulate_bots_update::Payload::Done(SimulateBotsResponse {
+                    request_id,
+                    bots: simulated.bots,
+                    edits: Vec::new(),
+                    debug_json: simulated.debug_json,
+                    stats: Some(stats),
+                })),
+            };
+            let _ = tx.send(Ok(done)).await;
+        });
+
+        let stream = tokio_stream::wrappers::ReceiverStream::new(rx);
+        Ok(Response::new(Box::pin(stream)))
     }
 
     async fn simulate_bots(&self, request: Request<SimulateBotsRequest>) -> Result<Response<SimulateBotsResponse>, Status> {

@@ -160,10 +160,33 @@ message EvalExprResponse {
   string debug_json = 9;
 }
 
+// Phase 20.8 — server-streaming update frame for SimulateBotsV2. Carries
+// either a Progress update (during the run) or the terminal SimulateBotsResponse.
+message SimulateBotsUpdate {
+  oneof payload {
+    Progress progress = 1;
+    SimulateBotsResponse done = 2;
+  }
+}
+
+message Progress {
+  // 0-based step index just completed (or stage marker for non-step phases).
+  uint32 completed = 1;
+  // Total expected steps (= req.steps).
+  uint32 total = 2;
+  // Human-readable stage tag, e.g. "dispatch", "step:0", "step:1", "readback".
+  string current_op = 3;
+}
+
 service GpuTerrainService {
   rpc GenerateRegion(GenerateRegionRequest) returns (GenerateRegionResponse);
   rpc RebuildPatch(RebuildPatchRequest) returns (RebuildPatchResponse);
   rpc SimulateBots(SimulateBotsRequest) returns (SimulateBotsResponse);
   // Phase 8 Tier 4.
   rpc EvalExpr(EvalExprRequest) returns (EvalExprResponse);
+  // Phase 20.8 — server-streaming variant of SimulateBots. Emits Progress
+  // updates during long-running multi-step simulations + a terminal Done
+  // frame carrying the same SimulateBotsResponse as the unary variant.
+  // The unary SimulateBots is preserved so existing clients keep working.
+  rpc SimulateBotsV2(SimulateBotsRequest) returns (stream SimulateBotsUpdate);
 }
