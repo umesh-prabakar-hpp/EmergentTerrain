@@ -439,22 +439,45 @@ public class ResearchNarrationService {
     }
 
     private void runNarration(PaperDraft draft) {
+        // Phase 20.4 — orchestration wall-clock bracket. Captured at entry so
+        // every publish path (suppression, gate-closed, normal completion) can
+        // stamp the same startedAt onto its NarrationResult envelope.
+        java.time.Instant orchestrationStartedAt = java.time.Instant.now();
+
         // End-game: all Groq models TPD-exhausted — suppress and log recovery time
         if (router.primaryFullyExhausted()) {
             java.time.Instant recovery = router.earliestPrimaryRecovery();
             log.error("LLM RESEARCH PAUSED — all Groq models TPD-exhausted. " +
                     "Earliest recovery: {}. paperId={} suppressed.", recovery, draft.paperId());
+            // Phase 20.4 — ALL_MODELS_BLOCKED stamped via timing-only log line.
+            // TODO step 2b: switch the publisher contract from null-publish to a
+            // sentinel NarrationResult so the envelope rides through.
+            log.info("narration envelope paperId={} status=ALL_MODELS_BLOCKED " +
+                    "startedAt={} completedAt={} durationMs={}",
+                    draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
+                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
             if (narrationPublisher != null) narrationPublisher.accept(draft, null);
             return;
         }
 
         List<String> callPath = new java.util.ArrayList<>();
+        // Phase 20.4 — first-pass success tracker drives the OK vs PARTIAL split
+        // at the normal-completion emission site. PARTIAL = first-pass threw but
+        // the critique/revise path salvaged a usable result; OK = clean success.
+        boolean firstPassFailed = false;
 
         // Pre-emptive: SimulationGate budget tripped. Suppress before spending any
         // primary tokens on first-pass narration. Same publisher contract as
         // primaryFullyExhausted (null result → queue counter decrements).
         if (gateClosed("first-pass", draft, callPath)) {
             log.info("LLM call path paperId={}: {}", draft.paperId(), String.join(" → ", callPath));
+            // Phase 20.4 — BUDGET_EXHAUSTED stamped via timing-only log line
+            // (same null-publish contract as ALL_MODELS_BLOCKED above; the
+            // step-2b sentinel work will carry the envelope here too).
+            log.info("narration envelope paperId={} status=BUDGET_EXHAUSTED " +
+                    "startedAt={} completedAt={} durationMs={}",
+                    draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
+                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
             if (narrationPublisher != null) narrationPublisher.accept(draft, null);
             return;
         }
@@ -469,6 +492,7 @@ public class ResearchNarrationService {
             log.info("LLM narration first-pass done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
+            firstPassFailed = true;
             callPath.add("fp:FAILED");
             log.warn("LLM narration failed paperId={} ms={}: {} — publishing with template text",
                     draft.paperId(), System.currentTimeMillis() - start, e.getMessage());
@@ -481,6 +505,22 @@ public class ResearchNarrationService {
         String pathStr = String.join(" → ", callPath);
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
 
+        // Phase 20.4 — classify the terminal status before stamping the envelope.
+        // OK     = first-pass succeeded and a finalResult emerged.
+        // PARTIAL = first-pass threw but maybeCritiqueAndRevise salvaged a result
+        //           (via fillFromTemplates or a downgrade path), OR the call_path
+        //           shows the panel-revision route fired (degraded but published).
+        // ERROR  = finalResult is null after a non-template-failure flow — TODO
+        //          step 2b will plumb this through the sentinel publish.
+        NarrationResult.OutcomeStatus terminalStatus;
+        if (finalResult == null) {
+            terminalStatus = NarrationResult.OutcomeStatus.ERROR;
+        } else if (firstPassFailed) {
+            terminalStatus = NarrationResult.OutcomeStatus.PARTIAL;
+        } else {
+            terminalStatus = NarrationResult.OutcomeStatus.OK;
+        }
+
         // null means professor blank or all-TPD — pass null so queue counter is decremented.
         // Phase 4c Piece 2 gate 3: every emitted result is stamped with the primary
         // narration template id so the persisted ResearchPaper carries provenance.
@@ -488,6 +528,9 @@ public class ResearchNarrationService {
         // Phase 7 F2 — stamp the ACTUAL variant version that ran (v1 / v2-with-discussion /
         // v3-structured-findings*) so per-variant rollback statistics see the variant
         // that produced the paper rather than the constant "v1".
+        // Phase 20.4 — chain .withEnvelope at the end so the new envelope fields
+        // ride on the published NarrationResult. inputTokens/outputTokens stay 0
+        // pending the per-paper token accumulator (step 2b).
         NarrationResult result = finalResult == null ? null : new NarrationResult(
                 finalResult.hypothesis(), finalResult.findingsMap(), finalResult.conclusion(),
                 finalResult.followUp(), router.primaryModel(),
@@ -499,7 +542,18 @@ public class ResearchNarrationService {
                 List.copyOf(auditGapDimensions),
                 finalResult.toolCallTrace(),
                 finalResult.panelOutcome(),
-                finalResult.numericClaims());
+                finalResult.numericClaims())
+                .withEnvelope(orchestrationStartedAt, java.time.Instant.now(),
+                        0L, 0L, terminalStatus);
+        if (finalResult == null) {
+            // Phase 20.4 — null-publish case (terminalStatus = ERROR). Mirror the
+            // timing-only log line used by the suppression branches above so the
+            // observability story is uniform until step 2b ships the sentinel.
+            log.info("narration envelope paperId={} status={} " +
+                    "startedAt={} completedAt={} durationMs={}",
+                    draft.paperId(), terminalStatus, orchestrationStartedAt, java.time.Instant.now(),
+                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+        }
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
