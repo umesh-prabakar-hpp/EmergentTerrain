@@ -765,6 +765,61 @@ class SandboxStaticCheckerTest {
                 .hasMessageContaining("continue used outside of a loop");
     }
 
+    // ── Phase 19 Layer 1f — comma-separated var declarations ───────────────
+
+    @Test
+    void commaSeparatedVarDecls_isApproved() {
+        // The JS-idiom emission that today's grammar rejects with
+        // "Expected EQ got ','" — appeared in the May-2026 corpus.
+        String code = """
+                var a = 1, b = 2, c = 3;
+                return a + b + c;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(6.0);
+    }
+
+    @Test
+    void commaSeparatedVarDecls_withSubcalls_isApproved() {
+        // Commas inside expressions like `pow(2, 3)` must not split the
+        // declaration list. Each value is parsed as a full expression
+        // before the comma-decls loop sees the next comma.
+        String code = """
+                var a = pow(2, 3), b = sqrt(16);
+                return a + b;
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(12.0);  // 8 + 4
+    }
+
+    @Test
+    void singleVarDecl_stillProducesPlainDecl() {
+        // Regression: the existing single-decl path must keep returning
+        // Stmt.Decl, not Stmt.Compound. Functional check via the runtime.
+        String code = "var x = 42; return x;";
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(42.0);
+    }
+
+    @Test
+    void commaSeparatedVarDecls_insideLoopBody_isApproved() {
+        // The declarations must work inside { ... } blocks, not just at
+        // the top level — verifies execStmt unfolds Compound everywhere.
+        String code = """
+                var total = 0;
+                for (var i = 0; i < end; i++) {
+                  var u = i, v = i + 1;
+                  total = total + u + v;
+                }
+                return total;
+                """;
+        // i=0: 0+1 → 1; i=1: 1+2 → 3; i=2: 2+3 → 5. Sum = 9.
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 3, 0, 0.0);
+        assertThat(r.value()).isEqualTo(9.0);
+    }
+
     @Test
     void nestedLoops_breakOnlyExitsInnerLoop() {
         // 3 outer iterations × (inner runs until break at j=2) = 3 × 2 = 6

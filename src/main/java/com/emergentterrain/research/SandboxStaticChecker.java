@@ -112,6 +112,7 @@ public final class SandboxStaticChecker {
 
                 Sandbox grammar (NOT JavaScript — a deliberately small safe subset):
                   Statements:  var X = expr;   X = expr;   return expr;
+                               (comma-separated `var a = 1, b = 2;` also OK)
                                if (c) { ... } else { ... }   ← braces optional
                                for (init; cond; upd) { ... }   ← braces optional
                                while (cond) { ... }            ← braces optional
@@ -555,6 +556,9 @@ public final class SandboxStaticChecker {
             case SandboxEngine.Stmt.Return r -> walkExpr(r.val(), userFunctions, bad);
             case SandboxEngine.Stmt.Break b  -> { /* leaf */ }
             case SandboxEngine.Stmt.Continue c -> { /* leaf */ }
+            case SandboxEngine.Stmt.Compound cp -> {
+                for (SandboxEngine.Stmt b : cp.body()) collectBadCalls(b, userFunctions, bad);
+            }
             case SandboxEngine.Stmt.If f -> {
                 walkExpr(f.cond(), userFunctions, bad);
                 for (SandboxEngine.Stmt b : f.then()) collectBadCalls(b, userFunctions, bad);

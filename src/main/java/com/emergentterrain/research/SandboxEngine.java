@@ -360,7 +360,7 @@ public class SandboxEngine {
 
     sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.While,
                                   Stmt.If, Stmt.Return, Stmt.Break, Stmt.Continue,
-                                  Stmt.FuncDef {
+                                  Stmt.Compound, Stmt.FuncDef {
         record Decl  (String name, Expr init)                            implements Stmt {}
         record ExprS (Expr expr)                                         implements Stmt {}
         record For   (String var, Expr init, Expr cond, Expr upd,
@@ -376,6 +376,10 @@ public class SandboxEngine {
         // catches the signal. Escaping signals at run() top → error.
         record Break ()                                                  implements Stmt {}
         record Continue()                                                implements Stmt {}
+        // Phase 19 Layer 1f — single AST node carrying multiple child
+        // statements parsed from one syntactic statement (e.g.
+        // `var a = 1, b = 2;`). Interpreter unfolds by iterating body.
+        record Compound(List<Stmt> body)                                 implements Stmt {}
         // Phase 8 Tier 2 — top-level user-defined function. The parser only
         // accepts these in parseProgram(); they are illegal inside if/for/
         // function bodies so all definitions are hoistable in one scan.
@@ -448,11 +452,15 @@ public class SandboxEngine {
 
         Stmt decl() {
             advance(); // var
-            String name = expect(TT.IDENT).v();
-            expect(TT.EQ);
-            Expr init = expr();
+            List<Stmt> decls = new ArrayList<>();
+            do {
+                String name = expect(TT.IDENT).v();
+                expect(TT.EQ);
+                Expr init = expr();
+                decls.add(new Stmt.Decl(name, init));
+            } while (at(TT.COMMA) && advance() != null);
             eatSemi();
-            return new Stmt.Decl(name, init);
+            return decls.size() == 1 ? decls.get(0) : new Stmt.Compound(decls);
         }
 
         Stmt forStmt() {
@@ -856,6 +864,7 @@ public class SandboxEngine {
                 case Stmt.Return r -> throw new ReturnSignal(eval(r.val()));
                 case Stmt.Break    b -> throw new BreakSignal();
                 case Stmt.Continue c -> throw new ContinueSignal();
+                case Stmt.Compound cp -> { for (Stmt b : cp.body()) execStmt(b); }
                 case Stmt.If     f -> {
                     if (truthy(eval(f.cond()))) for (Stmt b : f.then()) execStmt(b);
                     else                         for (Stmt b : f.els())  execStmt(b);
