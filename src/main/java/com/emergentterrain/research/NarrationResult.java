@@ -1,5 +1,6 @@
 package com.emergentterrain.research;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,7 +72,63 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
                                   Null or empty when the LLM didn't emit the array (pre-Phase-11
                                   papers, or papers that the prompt's new schema rule didn't yet
                                   reach). Stamped via {@link #withNumericClaims(List)}. */
-                               List<NumericClaim> numericClaims) {
+                               List<NumericClaim> numericClaims,
+                               /* Phase 20.4 — narration-call envelope. Timing and per-call token
+                                  totals as first-class fields so ActivityReporter rows and
+                                  UniversityService publish-time persistence stop relying on
+                                  call-path string parsing. All five default to null/0/UNKNOWN
+                                  on legacy constructors (additive, non-breaking).
+
+                                  - startedAt: wall-clock at orchestration entry. Null = not measured.
+                                  - completedAt: wall-clock at orchestration exit (success or thrown).
+                                    Null = not measured.
+                                  - inputTokens: cumulative prompt tokens across all LLM calls that
+                                    contributed to this narration (tool-loop rounds + revision passes).
+                                    0 = not measured.
+                                  - outputTokens: cumulative completion tokens, same scope. 0 = not
+                                    measured.
+                                  - status: terminal outcome enum. Maps directly from the existing
+                                    exception branches in ResearchNarrationService (BUDGET_EXHAUSTED,
+                                    ALL_MODELS_BLOCKED, TOOL_LOOP_LIMIT, TEMPLATE_FALLBACK, ERROR).
+                                    UNKNOWN = not stamped (legacy emission site). OK = full success. */
+                               Instant startedAt, Instant completedAt,
+                               long inputTokens, long outputTokens,
+                               OutcomeStatus status) {
+
+    /**
+     * Phase 20.4 — terminal outcome of one narration orchestration. Stamped on
+     * the result so the publish path and ActivityReporter can branch on the
+     * enum instead of parsing the call_path string ("sandbox_reject=N",
+     * "all_models_blocked", "BudgetExceededException", etc.).
+     *
+     * Mapping from existing exception branches in ResearchNarrationService:
+     *  - {@code OK}                — full success: LLM returned synthesis, no
+     *                                fallback was needed.
+     *  - {@code PARTIAL}           — synthesis returned but truncated (tool
+     *                                loop hit MAX_TOOL_ROUNDS while still
+     *                                producing usable output, or a revision
+     *                                pass salvaged a panel-rejected draft).
+     *  - {@code BUDGET_EXHAUSTED}  — {@code BudgetGate.tryAcquireOrThrow}
+     *                                threw mid-orchestration; the narration
+     *                                bailed before all rounds completed.
+     *  - {@code ALL_MODELS_BLOCKED} — every primary handle reported
+     *                                {@code isBlocked()=true} (per-pool
+     *                                tpd/tpm/rateLimit expiries); the LlmRouter
+     *                                fallback chain found nothing to call.
+     *  - {@code TOOL_LOOP_LIMIT}    — the tool loop hit MAX_TOOL_ROUNDS without
+     *                                the LLM emitting a final synthesis, and
+     *                                no salvage path produced one.
+     *  - {@code TEMPLATE_FALLBACK} — no LLM emission at all; the publish path
+     *                                used the PaperDraft's template text.
+     *  - {@code ERROR}             — uncaught error path; the orchestrator
+     *                                logged but couldn't classify.
+     *  - {@code UNKNOWN}           — emission site has not yet been migrated
+     *                                to stamp a status. Treat as "not measured."
+     */
+    public enum OutcomeStatus {
+        OK, PARTIAL, BUDGET_EXHAUSTED, ALL_MODELS_BLOCKED,
+        TOOL_LOOP_LIMIT, TEMPLATE_FALLBACK, ERROR, UNKNOWN
+    }
 
     /** Phase 2b — one typed citation entry from the LLM's structured output. */
     public record TypedCitation(String paperId, RelationshipType type, double confidence) {}
@@ -146,7 +203,31 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         this(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations,
                 formalFindings, templateId, templateVersion, discussion, relatedWork,
-                auditGapDimensions, toolCallTrace, panelOutcome, null);
+                auditGapDimensions, toolCallTrace, panelOutcome, null,
+                null, null, 0L, 0L, OutcomeStatus.UNKNOWN);
+    }
+
+    /**
+     * Phase 20.4 — 18-arg backward-compat for callers that already passed
+     * {@code numericClaims} but predate the envelope fields. Defaults timing
+     * to null, token totals to 0, status to UNKNOWN — treat as "not measured."
+     */
+    public NarrationResult(String hypothesis, Map<Integer, String> findingsMap, String conclusion,
+                           FollowUpParams followUp, String aiModel,
+                           double confidenceScore, List<String> citedPaperIds,
+                           String callPath, List<TypedCitation> typedCitations,
+                           List<ExtractedFinding> formalFindings,
+                           String templateId, String templateVersion,
+                           String discussion, String relatedWork,
+                           List<String> auditGapDimensions,
+                           List<com.emergentterrain.llm.ToolInvocation> toolCallTrace,
+                           PanelOutcome panelOutcome,
+                           List<NumericClaim> numericClaims) {
+        this(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations,
+                formalFindings, templateId, templateVersion, discussion, relatedWork,
+                auditGapDimensions, toolCallTrace, panelOutcome, numericClaims,
+                null, null, 0L, 0L, OutcomeStatus.UNKNOWN);
     }
 
     /**
@@ -234,7 +315,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome, numericClaims);
+                toolCallTrace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /** Phase 6 D2 — return a copy with the Discussion + Related-Work fields stamped on. */
@@ -242,7 +324,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome, numericClaims);
+                toolCallTrace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /** Phase 7 G8 — return a copy with audit-4b gap dimensions stamped on. */
@@ -250,7 +333,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome, numericClaims);
+                toolCallTrace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /** Phase 7 F5.3 — return a copy with the agentic tool-call trace stamped on. */
@@ -258,7 +342,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                trace, panelOutcome, numericClaims);
+                trace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /** Phase 7 F7.2 — return a copy with the panel outcome stamped on. */
@@ -266,7 +351,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, outcome, numericClaims);
+                toolCallTrace, outcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /** Phase 11 C2 — return a copy with the numeric-claims array stamped on. */
@@ -274,7 +360,8 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome, claims);
+                toolCallTrace, panelOutcome, claims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
     }
 
     /**
@@ -288,7 +375,35 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
         return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
                 confidenceScore, citedPaperIds, newCallPath, typedCitations, formalFindings,
                 templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
-                toolCallTrace, panelOutcome, numericClaims);
+                toolCallTrace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
+    }
+
+    /**
+     * Phase 20.4 — stamp the orchestration envelope (timing + cumulative
+     * token totals + terminal status) on this result. Use at the emission
+     * site that knows the wall-clock bracket and the per-call usage rollup.
+     * All five fields are nullable / zero-defaulted on legacy paths, so a
+     * caller that only knows status can pass null/null/0/0/status without
+     * losing the existing semantics ("not measured").
+     */
+    public NarrationResult withEnvelope(Instant startedAt, Instant completedAt,
+                                         long inputTokens, long outputTokens,
+                                         OutcomeStatus status) {
+        return new NarrationResult(hypothesis, findingsMap, conclusion, followUp, aiModel,
+                confidenceScore, citedPaperIds, callPath, typedCitations, formalFindings,
+                templateId, templateVersion, discussion, relatedWork, auditGapDimensions,
+                toolCallTrace, panelOutcome, numericClaims,
+                startedAt, completedAt, inputTokens, outputTokens, status);
+    }
+
+    /**
+     * Phase 20.4 — narrow helper: stamp only the terminal status, preserve
+     * existing timing / token totals. For emission sites that can classify
+     * the outcome but don't have token accounting wired yet.
+     */
+    public NarrationResult withStatus(OutcomeStatus newStatus) {
+        return withEnvelope(startedAt, completedAt, inputTokens, outputTokens, newStatus);
     }
 
     /**
