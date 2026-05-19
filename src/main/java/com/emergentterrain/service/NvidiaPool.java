@@ -654,12 +654,16 @@ public class NvidiaPool implements LlmPool {
     }
 
     private void recordUsage(String model, JsonNode usage) {
-        if (tokenAccountant == null || usage == null || usage.isMissingNode() || usage.isNull()) return;
+        if (usage == null || usage.isMissingNode() || usage.isNull()) return;
         long prompt = usage.path("prompt_tokens").asLong(0);
         long completion = usage.path("completion_tokens").asLong(0);
         if (prompt + completion <= 0) return;
-        tokenAccountant.record(new TokenUsage(
-                PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));
+        // Phase 20.4 step 2b-2 — per-paper accumulator (see GroqPool).
+        com.emergentterrain.llm.LlmCallContext.recordTokenUsage(prompt, completion);
+        if (tokenAccountant != null) {
+            tokenAccountant.record(new TokenUsage(
+                    PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));
+        }
     }
 
     // --- Payloads ---

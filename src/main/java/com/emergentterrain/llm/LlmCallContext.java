@@ -50,6 +50,19 @@ public final class LlmCallContext {
     private static final ThreadLocal<Double>  TEMPERATURE      = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> JSON_OUTPUT_MODE = new ThreadLocal<>();
     private static final ThreadLocal<String>  PAPER_ID         = new ThreadLocal<>();
+    /**
+     * Phase 20.4 step 2b-2 — per-paper-scope cumulative token totals.
+     * Reset to {@code {0, 0}} on every {@link #withPaperId(String, Runnable)}
+     * entry; accumulated as pools call {@link #recordTokenUsage(long, long)}
+     * from their {@code recordUsage} method. Read by the narration envelope
+     * stamp at the end of the paper's orchestration.
+     *
+     * Layout: {@code long[2]} where index 0 = input (prompt) tokens, index 1
+     * = output (completion) tokens. Array rather than two separate fields so
+     * a single allocation backs both counters; pool callers mutate in place.
+     * Null when no {@code withPaperId} scope is active — pools no-op.
+     */
+    private static final ThreadLocal<long[]>  TOKEN_TOTALS     = new ThreadLocal<>();
 
     /**
      * Returns the temperature override for the current thread, or
@@ -167,25 +180,71 @@ public final class LlmCallContext {
      */
     public static void withPaperId(String paperId, Runnable body) {
         String prior = PAPER_ID.get();
+        long[] priorTokens = TOKEN_TOTALS.get();
         PAPER_ID.set(paperId);
+        TOKEN_TOTALS.set(new long[2]);
         try {
             body.run();
         } finally {
             if (prior == null) PAPER_ID.remove();
             else PAPER_ID.set(prior);
+            if (priorTokens == null) TOKEN_TOTALS.remove();
+            else TOKEN_TOTALS.set(priorTokens);
         }
     }
 
     /** Supplier overload — see {@link #withPaperId(String, Runnable)}. */
     public static <T> T withPaperId(String paperId, Supplier<T> body) {
         String prior = PAPER_ID.get();
+        long[] priorTokens = TOKEN_TOTALS.get();
         PAPER_ID.set(paperId);
+        TOKEN_TOTALS.set(new long[2]);
         try {
             return body.get();
         } finally {
             if (prior == null) PAPER_ID.remove();
             else PAPER_ID.set(prior);
+            if (priorTokens == null) TOKEN_TOTALS.remove();
+            else TOKEN_TOTALS.set(priorTokens);
         }
+    }
+
+    /**
+     * Phase 20.4 step 2b-2 — pool-side hook. Accumulate prompt+completion
+     * tokens for the active paper-scope, if any. No-op outside a
+     * {@link #withPaperId} scope (the typical non-narration paths — model
+     * selection probes, panel reviews driven from elsewhere, retest
+     * scheduling). Same-thread safety only; virtual-thread-per-narration
+     * means there's no cross-narration contention.
+     *
+     * <p>Pools call this from their {@code recordUsage} method alongside
+     * the existing {@code TokenAccountant.record} (which writes
+     * provider/model-scoped totals). Together they let us answer both
+     * "how many tokens did THIS paper cost" (this counter) and "how many
+     * tokens did THIS model burn today" (the accountant) without one
+     * being derivable from the other.
+     */
+    public static void recordTokenUsage(long promptTokens, long completionTokens) {
+        long[] totals = TOKEN_TOTALS.get();
+        if (totals == null) return;
+        totals[0] += promptTokens;
+        totals[1] += completionTokens;
+    }
+
+    /**
+     * Phase 20.4 step 2b-2 — read the cumulative input (prompt) tokens
+     * spent under the current paper-scope. Returns 0 outside a
+     * {@link #withPaperId} scope or when no pool has yet recorded usage.
+     */
+    public static long currentInputTokens() {
+        long[] totals = TOKEN_TOTALS.get();
+        return totals == null ? 0L : totals[0];
+    }
+
+    /** Phase 20.4 step 2b-2 — output (completion) tokens, same scope. */
+    public static long currentOutputTokens() {
+        long[] totals = TOKEN_TOTALS.get();
+        return totals == null ? 0L : totals[1];
     }
 
     /**
@@ -198,5 +257,6 @@ public final class LlmCallContext {
         TEMPERATURE.remove();
         JSON_OUTPUT_MODE.remove();
         PAPER_ID.remove();
+        TOKEN_TOTALS.remove();
     }
 }

@@ -536,9 +536,15 @@ public class ResearchNarrationService {
         // Phase 7 F2 — stamp the ACTUAL variant version that ran (v1 / v2-with-discussion /
         // v3-structured-findings*) so per-variant rollback statistics see the variant
         // that produced the paper rather than the constant "v1".
+        // Phase 20.4 step 2b-2 — read the per-paper cumulative token totals
+        // accumulated by the pools during this paper's withPaperId scope.
+        // Zero when no pool recorded usage (e.g. all suppressed branches —
+        // those publish null and don't reach here anyway).
+        long paperInputTokens = com.emergentterrain.llm.LlmCallContext.currentInputTokens();
+        long paperOutputTokens = com.emergentterrain.llm.LlmCallContext.currentOutputTokens();
+
         // Phase 20.4 — chain .withEnvelope at the end so the new envelope fields
-        // ride on the published NarrationResult. inputTokens/outputTokens stay 0
-        // pending the per-paper token accumulator (step 2b).
+        // ride on the published NarrationResult.
         NarrationResult result = finalResult == null ? null : new NarrationResult(
                 finalResult.hypothesis(), finalResult.findingsMap(), finalResult.conclusion(),
                 finalResult.followUp(), router.primaryModel(),
@@ -552,15 +558,17 @@ public class ResearchNarrationService {
                 finalResult.panelOutcome(),
                 finalResult.numericClaims())
                 .withEnvelope(orchestrationStartedAt, java.time.Instant.now(),
-                        0L, 0L, terminalStatus);
+                        paperInputTokens, paperOutputTokens, terminalStatus);
         if (finalResult == null) {
             // Phase 20.4 — null-publish case (terminalStatus = ERROR). Mirror the
-            // timing-only log line used by the suppression branches above so the
-            // observability story is uniform until step 2b ships the sentinel.
+            // timing-only log line used by the suppression branches above. Now
+            // includes token totals for the rounds that did fire before the
+            // failure point.
             log.info("narration envelope paperId={} status={} " +
-                    "startedAt={} completedAt={} durationMs={}",
+                    "startedAt={} completedAt={} durationMs={} inputTokens={} outputTokens={}",
                     draft.paperId(), terminalStatus, orchestrationStartedAt, java.time.Instant.now(),
-                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis(),
+                    paperInputTokens, paperOutputTokens);
         }
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
