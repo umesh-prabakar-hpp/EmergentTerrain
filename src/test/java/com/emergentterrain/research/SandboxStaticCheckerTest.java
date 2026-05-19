@@ -587,6 +587,117 @@ class SandboxStaticCheckerTest {
                 .isEqualTo("recordSample(sqrt(len(xs))); recordSample(PI); return sqrt(len(xs));");
     }
 
+    // ── Phase 19 Layer 1c (array variant) — return-position array-literal rewrite ─────
+
+    @Test
+    void returnArrayLiteral_multiValue_isApproved() {
+        // Companion of the object-literal case for the same multi-value
+        // return pattern: `return [mean, std, n];` — the runtime rejects
+        // ArrayLit as a sub-expression, the rewrite turns it into a
+        // recordSample sequence plus a scalar return.
+        String code = """
+                var a = 1;
+                var b = 2;
+                var c = 3;
+                return [a, b, c];
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void returnArrayLiteral_multiLine_isApproved() {
+        String code = """
+                var a = 1;
+                var b = 2;
+                return [
+                  a,
+                  b
+                ];
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void returnArrayLiteral_valuesWithSubcalls_isApproved() {
+        // Commas inside sub-calls must NOT be treated as array element
+        // separators. The splitter respects paren depth.
+        String code = """
+                return [pow(2, 3), sqrt(5), atan2(1, 2)];
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void arrayLiteralInNonReturnPosition_stillRejected() {
+        // Only return-position array literals are rewritten. A bare
+        // `var x = ...;` with an array RHS is the existing Phase 10
+        // declaration form and must keep its prior behaviour — which is
+        // approved as a declaration here, NOT rewritten. Pin that the
+        // rewrite leaves declaration RHS arrays alone.
+        String input = "var xs = [1, 2, 3]; return xs[0];";
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(input))
+                .isEqualTo(input);
+    }
+
+    @Test
+    void returnArrayLiteral_nestedBrackets_rewriteMissesSafely() {
+        // Nested brackets in the body cause the simple regex to miss; the
+        // input is returned unchanged so the runtime's existing
+        // ArrayLit-as-subexpression reject fires at execution. The
+        // static checker is permissive about this AST shape (pre-existing
+        // gap unrelated to Phase 19); the contract here is only that the
+        // rewrite doesn't try to handle a shape it can't safely flatten.
+        String input = "return [[1, 2], [3, 4]];";
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(input))
+                .isEqualTo(input);
+    }
+
+    @Test
+    void returnArrayLiteral_rewriteIsSemanticsPreserving() {
+        // Single value: recordSample(v); return v;
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(
+                "return [5];"))
+                .isEqualTo("recordSample(5); return 5;");
+
+        // Multiple flat values: recordSample(v) for each, return first.
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(
+                "return [1, 2, 3];"))
+                .isEqualTo("recordSample(1); recordSample(2); recordSample(3); return 1;");
+
+        // Sub-call values with commas inside parens: split respects depth.
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(
+                "return [pow(2, 3), sqrt(5)];"))
+                .isEqualTo("recordSample(pow(2, 3)); recordSample(sqrt(5)); return pow(2, 3);");
+
+        // No array literal in return: untouched.
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral("return 42;"))
+                .isEqualTo("return 42;");
+
+        // Var-decl array RHS: untouched (no `return` precedes the `[`).
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(
+                "var xs = [1, 2, 3];"))
+                .isEqualTo("var xs = [1, 2, 3];");
+
+        // Fast path: no `return` and no `[` — same string back.
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral("var x = 5;"))
+                .isEqualTo("var x = 5;");
+
+        // Null safety.
+        assertThat(SandboxStaticChecker.rewriteReturnArrayLiteral(null)).isNull();
+    }
+
+    @Test
+    void normalizeForSandbox_appliesArrayReturnRewrite() {
+        // Pipeline test — Math.*, .length, AND array-literal return composed.
+        String input = "return [Math.sqrt(xs.length), Math.PI, 2*Math.E];";
+        assertThat(SandboxStaticChecker.normalizeForSandbox(input))
+                .isEqualTo("recordSample(sqrt(len(xs))); recordSample(PI); recordSample(2*E); "
+                        + "return sqrt(len(xs));");
+    }
+
     // ── Phase 19 Layer 1d — single-statement after if/while/for ────────────
 
     @Test

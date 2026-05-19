@@ -128,6 +128,12 @@ public final class SandboxStaticChecker {
                                           no push/pop/splice. `xs.length` is
                                           auto-rewritten to `len(xs)`, so the JS
                                           reflex is fine to emit.
+                  Multi-value: `return {a: x, b: y};` and `return [x, y, z];`
+                               are both auto-rewritten to a sequence of
+                               `recordSample(value)` calls plus a scalar return
+                               of the first value, so the harness's
+                               n/mean/std/min/max aggregates surface every
+                               returned value to the caller.
                   Stats:       recordSample(v)  accumulates n/mean/std/min/max
                                                 across the run; the harness sees
                                                 them alongside your return value.
@@ -324,14 +330,73 @@ public final class SandboxStaticChecker {
     }
 
     /**
-     * Splits an object-literal body ({@code "k1: v1, k2: v2"}) into a
-     * list of value expressions, respecting parenthesis depth so commas
-     * inside function calls don't split values. Returns {@code null} on
-     * malformed input (unbalanced parens, missing colon) so the caller
-     * can fall back to the no-rewrite path.
+     * Return-position array literal pattern. Multi-line aware (DOTALL).
+     * The capture group is the body between {@code [} and {@code ]}.
+     * Restricted to a single flat array — nested brackets in the body
+     * cause the {@code [^\[\]]+?} character class to miss, and we let
+     * the rewrite skip them (the runtime's existing array-as-subexpression
+     * reject fires instead).
      */
-    private static java.util.List<String> splitObjectLiteralValues(String body) {
-        java.util.List<String> pairs = new ArrayList<>();
+    private static final java.util.regex.Pattern RETURN_ARRAY_LITERAL =
+            java.util.regex.Pattern.compile(
+                    "\\breturn\\s*\\[\\s*([^\\[\\]]+?)\\s*\\]\\s*;",
+                    java.util.regex.Pattern.DOTALL);
+
+    /**
+     * Phase 19 Layer 1c (array variant) — rewrites {@code return [a, b, c];}
+     * to a sequence of {@code recordSample(v_i);} calls followed by
+     * {@code return v_1;}. Same motivation as the object-literal rewrite:
+     * the LLM emits {@code return [mean, std, n];}-style multi-value
+     * returns that the runtime rejects with
+     * "Array literal can only appear as the RHS of a `var` declaration".
+     *
+     * <p>Semantics preserved for the LLM's purposes: each returned value
+     * appears in the SandboxResult's recordSample aggregates (n/mean/std/
+     * min/max), and the primary scalar is the first value. Mirrors the
+     * object-literal rewrite's contract.
+     *
+     * <p>Conservative scoping: only single-flat-array returns rewrite.
+     * Nested brackets in the body fall through to the existing reject path.
+     *
+     * <p>Element splitting respects parenthesis depth so values with
+     * sub-calls like {@code [pow(2, 3), sqrt(5)]} parse correctly.
+     *
+     * <p>Package-private for runtime use and tests.
+     */
+    static String rewriteReturnArrayLiteral(String code) {
+        if (code == null || code.indexOf("return") < 0 || code.indexOf("[") < 0) {
+            return code;
+        }
+        java.util.regex.Matcher m = RETURN_ARRAY_LITERAL.matcher(code);
+        StringBuilder sb = new StringBuilder(code.length());
+        while (m.find()) {
+            String body = m.group(1).trim();
+            java.util.List<String> values = splitTopLevelCommas(body);
+            if (values == null || values.isEmpty()) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group(0)));
+                continue;
+            }
+            StringBuilder replacement = new StringBuilder();
+            for (String v : values) {
+                replacement.append("recordSample(").append(v).append("); ");
+            }
+            replacement.append("return ").append(values.get(0)).append(";");
+            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(replacement.toString()));
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /**
+     * Splits a comma-separated body into a list of expressions, respecting
+     * parenthesis/bracket depth so commas inside function calls or index
+     * expressions don't split values. Returns {@code null} on malformed
+     * input (unbalanced parens, empty element) so the caller can fall
+     * back to the no-rewrite path. Shared by the array-literal rewrite
+     * (no colons) and the object-literal rewrite (after the colon strip).
+     */
+    private static java.util.List<String> splitTopLevelCommas(String body) {
+        java.util.List<String> parts = new ArrayList<>();
         int depth = 0;
         int start = 0;
         for (int i = 0; i < body.length(); i++) {
@@ -341,13 +406,30 @@ public final class SandboxStaticChecker {
                 if (--depth < 0) return null;
             }
             else if (c == ',' && depth == 0) {
-                pairs.add(body.substring(start, i));
+                parts.add(body.substring(start, i));
                 start = i + 1;
             }
         }
         if (depth != 0) return null;
-        pairs.add(body.substring(start));
+        parts.add(body.substring(start));
+        for (String p : parts) {
+            if (p.trim().isEmpty()) return null;
+        }
+        java.util.List<String> trimmed = new ArrayList<>(parts.size());
+        for (String p : parts) trimmed.add(p.trim());
+        return trimmed;
+    }
 
+    /**
+     * Splits an object-literal body ({@code "k1: v1, k2: v2"}) into a
+     * list of value expressions, respecting parenthesis depth so commas
+     * inside function calls don't split values. Returns {@code null} on
+     * malformed input (unbalanced parens, missing colon) so the caller
+     * can fall back to the no-rewrite path.
+     */
+    private static java.util.List<String> splitObjectLiteralValues(String body) {
+        java.util.List<String> pairs = splitTopLevelCommas(body);
+        if (pairs == null) return null;
         java.util.List<String> values = new ArrayList<>(pairs.size());
         for (String pair : pairs) {
             int colon = pair.indexOf(':');
@@ -366,13 +448,14 @@ public final class SandboxStaticChecker {
      *
      * <p>Order matters: Math.* first (so `Math.sqrt(arr.length)` becomes
      * `sqrt(arr.length)`), then `.length` (becomes `sqrt(len(arr))`), then
-     * return-object-literal (so values like `Math.sqrt(x)` and `arr.length`
-     * inside object literals are already normalised by the time we copy
-     * them into the recordSample calls).
+     * the two return-literal rewrites (so values like `Math.sqrt(x)` and
+     * `arr.length` inside object / array literals are already normalised
+     * by the time we copy them into the recordSample calls).
      */
     static String normalizeForSandbox(String code) {
-        return rewriteReturnObjectLiteral(
-                rewriteArrayLength(rewriteMathPrefix(code)));
+        return rewriteReturnArrayLiteral(
+                rewriteReturnObjectLiteral(
+                        rewriteArrayLength(rewriteMathPrefix(code))));
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────
