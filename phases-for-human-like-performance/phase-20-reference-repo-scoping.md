@@ -24,11 +24,11 @@ table at the bottom.
 | GUI trajectory data synthesis | SKIP — GUI-bound, no transfer |
 | Vision-language foundation model | SKIP — model weights, not orchestration |
 
-**Scope of this doc:** Six items targeted at the Java app, four at the
-GPU engine, plus an audit table of claimed gaps that the source already
-covers. Nothing here ships in a single PR; treat each numbered item as
-a candidate that would graduate to its own phase doc (or fold into an
-existing tracker) before any code lands.
+**Scope of this doc:** Seven items targeted at the Java app, four at
+the GPU engine, plus an audit table of claimed gaps that the source
+already covers. Nothing here ships in a single PR; treat each numbered
+item as a candidate that would graduate to its own phase doc (or fold
+into an existing tracker) before any code lands.
 
 **What this phase deliberately does NOT track:**
 
@@ -262,6 +262,13 @@ provider order is global, not per-role). When a specific bottleneck
 appears (e.g., this conversation's Phase 18 work showed Groq llama
 tool-call 429s drove the bulk of failures), the only lever is
 ordering at the registry level for all roles at once.
+
+**Pairs with 20.11.** 20.5 routes among whatever provider pools the
+registry knows about. **20.11 lets the operator add new provider pools
+via YAML alone.** Together they deliver end-to-end plug-and-play: add
+a provider in YAML (20.11) and tune which roles prefer it in YAML
+(20.5), with zero code edits. 20.5 still works without 20.11 — it
+just routes over the five currently-hardcoded pools.
 
 **Files (proposed):**
 - New top-level `application.yml` section:
@@ -501,6 +508,110 @@ forest fraction?") that's prohibitive.
 
 ---
 
+## Plug-and-play extension
+
+### 20.11 — Generic OpenAI-compat pool + YAML provider registration
+
+**Source pattern:** treat the OpenAI `/v1/chat/completions` protocol
+as the universal substrate (most modern providers — Anthropic via
+their OpenAI-compat endpoint, OpenAI, DeepSeek, Together, Fireworks,
+Mistral, xAI, Perplexity, plus Groq / NVIDIA NIM / OpenRouter — all
+expose it). Drive per-provider config from a data file, not a code
+file. Surface per-provider quirks (header names, `max_tokens` vs
+`max_completion_tokens`, retry-after-source) as flags.
+
+**The gap:** Today `GroqPool`, `CerebrasPool`, `NvidiaPool`,
+`OpenRouterPool`, `OllamaPool` are five separate Java classes,
+~600–1000 lines each, with ~80% identical logic (same payload shape,
+same response shape, same tool-call protocol, same 429-handling
+skeleton — Phase 18 just confirmed this when it had to mirror the
+same fix into three of them). Adding a sixth provider (Anthropic /
+DeepSeek / Fireworks / etc.) is a full pool-class implementation
+plus registry wiring plus rebuild plus restart. The operator has
+expressed intent to add more providers over time; today's design
+makes each one a Java project.
+
+**Files (proposed):**
+- New: `src/main/java/com/emergentterrain/service/GenericOpenAICompatPool.java`
+  — implements `LlmPool` against the OpenAI-compat chat-completions
+  protocol, parameterized by a `ProviderConfig` it receives at
+  construction time. Owns all the cross-cutting logic that the five
+  existing pools duplicate: payload build, response parse, 429
+  handling (with the Phase 18 `recordRateLimitBlock` helper),
+  tool-call loop, token accounting, model discovery, slot
+  acquisition.
+- New top-level `application.yml` section:
+  ```yaml
+  app.ai.providers:
+    anthropic:
+      type: openai-compat
+      base-url: https://api.anthropic.com/v1
+      api-key-env: ANTHROPIC_API_KEY
+      models: [claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5]
+      tool-calling: true
+      context-window: 200000
+      quirks:
+        max-tokens-field: max_completion_tokens
+        retry-after-source: header
+
+    deepseek:
+      type: openai-compat
+      base-url: https://api.deepseek.com/v1
+      api-key-env: DEEPSEEK_API_KEY
+      models-discovery: GET /models
+      tool-calling: true
+
+    fireworks:
+      type: openai-compat
+      base-url: https://api.fireworks.ai/inference/v1
+      api-key-env: FIREWORKS_API_KEY
+      models-discovery: GET /models
+  ```
+- New: `src/main/java/com/emergentterrain/service/ProviderConfigLoader.java`
+  — reads the new section, instantiates one `GenericOpenAICompatPool`
+  per entry, registers each with `PrimaryModelRegistry` and (if the
+  config opts in) `FastModelRegistry`.
+- Existing pool classes (`GroqPool`, `CerebrasPool`, `NvidiaPool`,
+  `OpenRouterPool`) — incrementally migrate to `GenericOpenAICompatPool`
+  + a config row. Delete the class once the row covers it. Final
+  shape: most existing pools disappear; only ones with truly custom
+  protocols (e.g., `OllamaPool` if its API diverges) remain as
+  hand-written code.
+
+**Acceptance:**
+- Adding a new OpenAI-compat provider is 3–10 lines of YAML +
+  restart. No Java code. No rebuild.
+- Existing five-provider behavior is bit-identical after migration —
+  same models discovered, same selection probes pass, same 429
+  recovery times, same per-paper token totals on a replay run.
+- A new provider added via YAML appears in `PrimaryModelRegistry.allModels()`
+  and gets routed by `LlmRouter.orderedAvailable()` exactly like the
+  hardcoded pools.
+
+**Risk:** Medium. The refactor touches every pool class and the
+registry wiring; it's a 3–5 day project, not a 30-minute edit. The
+discipline is to migrate one pool at a time behind a feature flag
+(`generic-openai-compat-pool.enabled-providers: [cerebras]` first,
+then add the others as each is validated against the existing
+behavior on a replay corpus). Two-week burn-in per provider before
+deleting the legacy class.
+
+**Open questions:**
+- How to handle `Ollama`'s discovery / model-list endpoint (it's not
+  exactly OpenAI-compat — `/api/tags` instead of `/v1/models`).
+  Probably leave as a separate hand-written pool unless it gains a
+  fully-compliant endpoint.
+- How to handle the per-pool `ModelSelectionTester` probes — they're
+  pool-agnostic at the surface (chat probe + JSON probe + tool
+  probe), so the generic pool should inherit them automatically.
+  Verify before assuming.
+- Per-provider rate-limit metadata (TPD caps, TPM caps) — let YAML
+  declare them, or discover from 429 responses? Hybrid: YAML
+  declaration is the floor (so we don't waste a request to find the
+  cap), 429 response refines.
+
+---
+
 ## Items NOT pending (audit results)
 
 Patterns flagged by the survey that the audit found are already
@@ -534,20 +645,21 @@ This phase closes when each numbered item has either:
 2. Been explicitly retired with a "deferred indefinitely — reason X"
    line edited into the item above.
 
-When all ten close, this doc becomes historical. New patterns mined
+When all eleven close, this doc becomes historical. New patterns mined
 from future repo drops get a successor doc rather than appending here.
 
 ## Feasibility verdict
 
-Nine of the ten items are technically implementable today. 20.6 (MCP)
-is **deferred by design** — its trigger conditions (a second consumer
-of ET's tool surface, OR a third-party MCP server worth consuming)
-have not fired, and there is no mature Java MCP SDK to lean on. Do
-not pull 20.6 on speculation.
+Ten of the eleven items are technically implementable today. 20.6
+(MCP) is **deferred by design** — its trigger conditions (a second
+consumer of ET's tool surface, OR a third-party MCP server worth
+consuming) have not fired, and there is no mature Java MCP SDK to
+lean on. Do not pull 20.6 on speculation.
 
-The remaining nine carry no hard blockers; a few have soft
+The remaining ten carry no hard blockers; a few have soft
 dependencies (20.1 wants Phase 18.1 live first; 20.3 wants a
-provider-docs check; 20.5 wants 20.4's `currentRole()` plumbing).
+provider-docs check; 20.5 wants 20.4's `currentRole()` plumbing; the
+full plug-and-play story wants 20.11 + 20.5 together).
 
 | Item | What it is | Feasibility | Blocker / dependency |
 |------|------------|-------------|----------------------|
@@ -561,6 +673,7 @@ provider-docs check; 20.5 wants 20.4's `currentRole()` plumbing).
 | 20.8 | Convert long-pole `SimulateBots` from unary gRPC to server-streaming so callers see progress updates instead of just a blocked channel | ✅ implementable | Breaking proto change; mitigated by adding `SimulateBotsV2` streaming and leaving `SimulateBots` unary until callers migrate |
 | 20.9 | Split `main.rs` into a `pipelines/` directory with one file per compute pipeline behind a `ComputePipeline` trait; pipelines testable in isolation | ✅ implementable | None — pure refactor; golden tests prove behavior identity |
 | 20.10 | Move `forest_threshold` / `water_threshold` / `industry_threshold` / `highway_spacing` from the WGSL constant into a `gpu.toml` config | ✅ implementable | None — smallest change in the doc |
+| 20.11 | Generic OpenAI-compat pool driven by YAML provider registration; new providers (Anthropic, DeepSeek, Fireworks, etc.) added via config-only edits, no Java code | ✅ implementable | Bigger lift (~3–5 days refactor touching every pool class); migrate pools one at a time behind a feature flag. Pairs with 20.5 for full plug-and-play |
 
 ## Suggested order — three waves + a backlog
 
@@ -583,13 +696,22 @@ work.
   no Java-side coordination. Establishes the measurement baseline
   every future engine perf decision will reference.
 
-### Wave 2 — small operator-leverage wins
+### Wave 2 — operator-leverage wins + plug-and-play
 
-Wait for Wave 1 to land (20.5 wants 20.4's `currentRole()` plumbing).
+Wait for Wave 1 to land (20.5 wants 20.4's `currentRole()` plumbing;
+20.11 wants 20.4's status enum populated to ground the migration
+golden-tests). 20.11 is the biggest item in this wave (~3–5 days);
+the others are 1–2 days each.
 
+- **20.11 (generic OpenAI-compat pool + YAML provider registration)** —
+  the foundation for adding any new OpenAI-compat provider via
+  config-only edits. Pair with 20.5 for end-to-end plug-and-play.
+  Migrate pools one at a time behind a feature flag; two-week burn-in
+  per migrated pool before deleting the legacy class.
 - **20.5 (per-role config overrides)** — would have let us route
-  around this week's Groq llama issue via config alone. Operator
-  leverage compounds.
+  around this week's Groq llama issue via config alone. Multiplies in
+  value once 20.11 lands, because the set of providers routes-over
+  stops being capped at five hardcoded classes.
 - **20.3 (cached tool-schema send)** — cheapest token-budget win.
   Verify per-provider tool-stickiness behavior first (30-min docs
   read); ship behind `cached-tool-schema.enabled=false` per pool;
@@ -624,4 +746,4 @@ items with a concrete pain point behind them.
 
 If you ignore parallelism and pick one global order:
 
-`20.4 → 20.10 → 20.7 → 20.5 → 20.3 → (wait for trigger) → 20.1 / 20.2 / 20.8 / 20.9 → (deferred) → 20.6`
+`20.4 → 20.10 → 20.7 → 20.11 → 20.5 → 20.3 → (wait for trigger) → 20.1 / 20.2 / 20.8 / 20.9 → (deferred) → 20.6`
