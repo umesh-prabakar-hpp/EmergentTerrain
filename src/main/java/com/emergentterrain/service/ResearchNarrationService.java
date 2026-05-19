@@ -529,7 +529,11 @@ public class ResearchNarrationService {
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
-            router.streamPrimary(prompt, response::append);
+            // Phase 20.5 — tag the first-pass narration with role="narration" so
+            // RoleRouterPolicy can apply per-role overrides (e.g., avoid-models
+            // for a specific role without affecting fast-audit / professor-tools).
+            com.emergentterrain.llm.LlmCallContext.withRole("narration", () ->
+                    router.streamPrimary(prompt, response::append));
             callPath.add("fp:" + abbrev(router.primaryModel()));
             log.info("LLM narration first-pass done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
@@ -829,9 +833,14 @@ public class ResearchNarrationService {
             // claim was actually computed or hand-waved after the sandbox denied the
             // narrator's code attempts.
             MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
-            com.emergentterrain.llm.ToolCallResponse profResponse = router.callPrimaryWithTools(
-                    systemPrompt, userPrompt, toolsJson,
-                    toolSuite.buildExecutor(draft, metrics));
+            // Phase 20.5 — tag the professor tool-loop with role="professor-tools"
+            // so RoleRouterPolicy can route per-role (e.g., avoid Groq llama for
+            // this role specifically when daily-token cap is the active concern).
+            com.emergentterrain.llm.ToolCallResponse profResponse =
+                    com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
+                            router.callPrimaryWithTools(
+                                    systemPrompt, userPrompt, toolsJson,
+                                    toolSuite.buildExecutor(draft, metrics)));
             String professorSynthesis = profResponse.synthesis();
             // Phase 7 F5.3 — capture trace immediately so subsequent return paths
             // (gate closed, parse failed, exception) can still stamp the trace

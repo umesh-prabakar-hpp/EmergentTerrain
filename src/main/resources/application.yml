@@ -218,6 +218,25 @@ app:
     # Phase 9 U3b's registry-backed routing.
     tool-calling:
       providers: "groq,nvidia,openrouter,cerebras"
+    # Phase 20.5 — per-role override layer on top of the global primaryProviderOrder.
+    # Empty section (default) reproduces today's behavior exactly. Each role key
+    # is a free-form string that call sites pass to LlmCallContext.withRole(...);
+    # the current roles tagged in ResearchNarrationService are:
+    #   - "narration"        — first-pass narration stream (router.streamPrimary)
+    #   - "professor-tools"  — tool-calling critique-and-revise loop
+    #                          (router.callPrimaryWithTools)
+    # Sub-keys (both optional, both empty by default):
+    #   - preferred-providers — provider keys in priority order; handles whose
+    #                          providerKey appears here sort to the front.
+    #   - avoid-models        — full reviewerIds (provider/model) excluded for
+    #                          this role.
+    # Example (commented; uncomment + edit to activate):
+    # role-overrides:
+    #   fast-audit:
+    #     preferred-providers: [cerebras, groq, ollama]
+    #   professor-tools:
+    #     preferred-providers: [groq, cerebras, nvidia]
+    #     avoid-models: [groq/llama-3.3-70b-versatile]   # 2026-05-18 daily-quota incident
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

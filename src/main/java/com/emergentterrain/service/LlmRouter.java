@@ -89,6 +89,15 @@ public class LlmRouter {
      */
     final FastModelRegistry fastRegistry;
 
+    /**
+     * Phase 20.5 — per-role override policy consulted by
+     * {@link #orderedAvailable} when {@link com.emergentterrain.llm.LlmCallContext#currentRole()}
+     * is set. Field-injected (required=false) so unit tests without the
+     * policy bean construct cleanly; null-checked at each consult site.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    RoleRouterPolicy roleRouterPolicy;
+
     public LlmRouter(ApplicationContext ctx,
                      PrimaryModelRegistry primaryRegistry,
                      FastModelRegistry fastRegistry,
@@ -178,6 +187,13 @@ public class LlmRouter {
      * {@link #primaryProviderOrder}. Handles whose provider isn't in the order
      * list sort last. Preserves the pre-U3b "primary chain order wins" semantic
      * across the registry-backed call paths.
+     *
+     * <p>Phase 20.5 — after the global sort, apply
+     * {@link RoleRouterPolicy#applyForCurrentRole} so per-role overrides
+     * (preferred-providers reorder, avoid-models exclude) take effect when
+     * the caller has tagged the LLM call with a role via
+     * {@link com.emergentterrain.llm.LlmCallContext#withRole}. No-op when
+     * no role is set or the policy bean isn't wired.
      */
     private List<ModelHandle> orderedAvailable() {
         List<ModelHandle> out = new ArrayList<>(primaryRegistry.availableModels());
@@ -185,6 +201,9 @@ public class LlmRouter {
             int idx = primaryProviderOrder.indexOf(h.providerKey());
             return idx == -1 ? Integer.MAX_VALUE : idx;
         }));
+        if (roleRouterPolicy != null) {
+            return roleRouterPolicy.applyForCurrentRole(out);
+        }
         return out;
     }
 

@@ -63,6 +63,15 @@ public final class LlmCallContext {
      * Null when no {@code withPaperId} scope is active — pools no-op.
      */
     private static final ThreadLocal<long[]>  TOKEN_TOTALS     = new ThreadLocal<>();
+    /**
+     * Phase 20.5 — per-workload role tag consulted by
+     * {@code RoleRouterPolicy} to filter / reorder the primary registry's
+     * handle list for the current call. Empty / null = no role; the
+     * registry's global ordering wins. Set by call sites that want
+     * operator-tunable per-role routing (fast-audit, professor-tools,
+     * panel-review, etc.) via {@link #withRole}.
+     */
+    private static final ThreadLocal<String>  CURRENT_ROLE     = new ThreadLocal<>();
 
     /**
      * Returns the temperature override for the current thread, or
@@ -248,6 +257,50 @@ public final class LlmCallContext {
     }
 
     /**
+     * Phase 20.5 — current role tag for the active LLM call scope, or
+     * {@code null} when no caller set one. Read by {@code RoleRouterPolicy}
+     * to look up per-role overrides in {@code app.ai.role-overrides:}.
+     * Returning null means "no override; use the global ordering."
+     */
+    public static String currentRole() {
+        return CURRENT_ROLE.get();
+    }
+
+    /**
+     * Phase 20.5 — run {@code body} with {@code role} tagged on the current
+     * thread so any LLM call this thread makes within the scope can be
+     * filtered / reordered by {@code RoleRouterPolicy}. Role is cleared on
+     * normal completion AND on exception (same finally discipline as
+     * {@link #withPaperId}) so it never leaks to subsequent unrelated calls.
+     *
+     * <p>Typical role names: {@code "fast-audit"}, {@code "professor-tools"},
+     * {@code "panel-review"}, {@code "narration"}. The set is open — any
+     * string the operator writes in {@code app.ai.role-overrides:} matches.
+     */
+    public static void withRole(String role, Runnable body) {
+        String prior = CURRENT_ROLE.get();
+        CURRENT_ROLE.set(role);
+        try {
+            body.run();
+        } finally {
+            if (prior == null) CURRENT_ROLE.remove();
+            else CURRENT_ROLE.set(prior);
+        }
+    }
+
+    /** Supplier overload — see {@link #withRole(String, Runnable)}. */
+    public static <T> T withRole(String role, Supplier<T> body) {
+        String prior = CURRENT_ROLE.get();
+        CURRENT_ROLE.set(role);
+        try {
+            return body.get();
+        } finally {
+            if (prior == null) CURRENT_ROLE.remove();
+            else CURRENT_ROLE.set(prior);
+        }
+    }
+
+    /**
      * Clear the override unconditionally. Tests use this to guarantee a
      * clean slate; production code should prefer the
      * {@link #withTemperature} / {@link #withJsonOutputMode} helpers
@@ -258,5 +311,6 @@ public final class LlmCallContext {
         JSON_OUTPUT_MODE.remove();
         PAPER_ID.remove();
         TOKEN_TOTALS.remove();
+        CURRENT_ROLE.remove();
     }
 }
