@@ -78,6 +78,12 @@ public class GenericOpenAICompatPool implements LlmPool {
     private static final int  MAX_RETRIES        = 4;
     private static final long INITIAL_BACKOFF_MS = 10_000;
     private static final long DEFAULT_BLOCK_MS   = 60_000;
+    /** Same per-pool ceiling as the legacy pools (Phase 7 F4 raised 2 → 5). */
+    private static final int  MAX_TOOL_ROUNDS    = 5;
+    /** Per-round output cap for tool calls. The professor LLM emits at most this
+     *  many tokens per round (synthesis usually fits in 500-1000; cap of 1500
+     *  matches the existing pools and gives room for chain-of-thought reasoning). */
+    private static final int  TOOL_MAX_TOKENS    = 1500;
 
     private final ProviderConfig cfg;
     private final ObjectMapper mapper;
@@ -97,6 +103,11 @@ public class GenericOpenAICompatPool implements LlmPool {
     private LlmCallMetrics callMetrics;
     @Autowired(required = false)
     private TpmBudgetGate budgetGate;
+    /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
+    @Autowired(required = false)
+    private ToolSchemaCachePolicy toolSchemaCachePolicy;
+    @Autowired(required = false)
+    private com.emergentterrain.llm.LlmTraceWriter traceWriter;
 
     public GenericOpenAICompatPool(ProviderConfig cfg,
                                     ObjectMapper mapper,
@@ -141,11 +152,47 @@ public class GenericOpenAICompatPool implements LlmPool {
     @Override public int healthyCount() { return 1; }
 
     @Override public boolean supportsTools() {
-        // Phase 20.11 step 1 — tool-call path is a stub. supportsTools is
-        // gated to false until the tool-call follow-up commit lands so the
-        // PrimaryModelRegistry doesn't route tool-call traffic to a pool
-        // that would throw UnsupportedOperationException.
-        return false;
+        // Phase 20.11 step 3 — honors the yaml `supports-tools` flag now
+        // that the tool-call path is wired (runToolLoop below).
+        return cfg.supportsTools();
+    }
+
+    @Override public com.emergentterrain.llm.ToolCallResponse callWithToolsOnModel(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, java.util.function.Function<String, String> executor) {
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException(
+                    "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
+        }
+        acquireSlot();
+        try { return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor); }
+        finally { slots.release(); }
+    }
+
+    @Override public com.emergentterrain.llm.ToolCallResponse callWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson, java.util.function.Function<String, String> executor) {
+        acquireSlot();
+        try {
+            int size = activeModels.size();
+            int start = rrIndex.getAndIncrement() % size;
+            RuntimeException last = null;
+            for (int i = 0; i < size; i++) {
+                String modelId = activeModels.get((start + i) % size);
+                if (isModelBlocked(modelId)) {
+                    last = new RuntimeException("model=" + modelId + " rate-limited");
+                    continue;
+                }
+                try { return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor); }
+                catch (RuntimeException e) {
+                    last = e;
+                    if (i < size - 1) log.warn(
+                            "GenericOpenAICompatPool({}) tools: model={} failed, trying next: {}",
+                            cfg.providerKey(), modelId, e.getMessage());
+                }
+            }
+            throw last != null ? last : new RuntimeException("all models exhausted");
+        } finally { slots.release(); }
     }
 
     @Override public boolean isModelBlocked(String modelId) {
@@ -297,6 +344,178 @@ public class GenericOpenAICompatPool implements LlmPool {
             if (callMetrics != null) {
                 callMetrics.record(cfg.providerKey(), modelId, "sync", outcome);
             }
+        }
+    }
+
+    // ── Tool-call loop (Phase 20.11 step 3) ────────────────────────────────
+
+    /**
+     * Mirrors the runToolLoop pattern from GroqPool / CerebrasPool /
+     * NvidiaPool. Multi-turn conversation that accepts {@code tool_calls}
+     * finish_reason and replays them through {@code executor}; closes
+     * with the final synthesis (or empty content if the loop hit
+     * MAX_TOOL_ROUNDS without a synthesis).
+     *
+     * Honors Phase 20.3 toolSchemaCachePolicy (omit tools spec on
+     * rounds where the policy says so) and Phase 20.4 step 2b-2
+     * per-paper token accumulator (via recordUsage). 429 handling
+     * mirrors the sync path's rate-limit expiry write.
+     */
+    private com.emergentterrain.llm.ToolCallResponse runToolLoop(
+            String modelId, String systemPrompt, String userPrompt,
+            String toolsJson, java.util.function.Function<String, String> executor) {
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = new java.util.ArrayList<>();
+        try {
+            ArrayNode messages = mapper.createArrayNode();
+            if (systemPrompt != null && !systemPrompt.isBlank())
+                messages.addObject().put("role", "system").put("content", systemPrompt);
+            messages.addObject().put("role", "user").put("content", userPrompt);
+            JsonNode tools = mapper.readTree(toolsJson);
+
+            for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+                boolean lastRound = round == MAX_TOOL_ROUNDS;
+                boolean sendTools = toolSchemaCachePolicy == null
+                        ? !lastRound
+                        : toolSchemaCachePolicy.shouldSendTools(round, lastRound);
+                String payload = buildConversationPayload(
+                        modelId, messages, sendTools ? tools : null, TOOL_MAX_TOKENS);
+                long estimate = estimateTokens(payload, TOOL_MAX_TOKENS);
+                boolean reserved = false;
+                if (budgetGate != null) {
+                    budgetGate.tryAcquireOrThrow(cfg.providerKey(), modelId, estimate);
+                    reserved = true;
+                }
+                String roundOutcome = "ok";
+                HttpResponse<String> resp;
+                long t0 = System.currentTimeMillis();
+                int respStatus = 0;
+                String respBody = "";
+                try {
+                    HttpRequest req = HttpRequest.newBuilder()
+                            .uri(URI.create(cfg.baseUrl() + "/chat/completions"))
+                            .header("Authorization", "Bearer " + cfg.apiKey())
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .timeout(requestTimeout)
+                            .build();
+                    resp = http.send(req, HttpResponse.BodyHandlers.ofString());
+                    respStatus = resp.statusCode();
+                    respBody = resp.body();
+                    if (resp.statusCode() != 200) {
+                        roundOutcome = "http_error";
+                        if (resp.statusCode() == 429) {
+                            long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
+                            rateLimitExpiry.merge(modelId,
+                                    System.currentTimeMillis() + waitMs, Math::max);
+                        }
+                        throw new RuntimeException(cfg.providerKey() + " API error "
+                                + resp.statusCode() + ": " + resp.body());
+                    }
+                } catch (RuntimeException e) {
+                    if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
+                    if (callMetrics != null)
+                        callMetrics.record(cfg.providerKey(), modelId, "tools", roundOutcome);
+                    if (traceWriter != null) {
+                        traceWriter.record(LlmCallContext.currentPaperId(),
+                                cfg.providerKey(), modelId, "tools", respStatus,
+                                System.currentTimeMillis() - t0, payload, respBody);
+                    }
+                    throw e;
+                } catch (Exception e) {
+                    if (callMetrics != null)
+                        callMetrics.record(cfg.providerKey(), modelId, "tools", "io_error");
+                    if (traceWriter != null) {
+                        traceWriter.record(LlmCallContext.currentPaperId(),
+                                cfg.providerKey(), modelId, "tools", respStatus,
+                                System.currentTimeMillis() - t0, payload, respBody);
+                    }
+                    throw new RuntimeException("tool loop io error", e);
+                }
+                if (callMetrics != null)
+                    callMetrics.record(cfg.providerKey(), modelId, "tools", roundOutcome);
+                if (traceWriter != null) {
+                    traceWriter.record(LlmCallContext.currentPaperId(),
+                            cfg.providerKey(), modelId, "tools", respStatus,
+                            System.currentTimeMillis() - t0, payload, respBody);
+                }
+
+                JsonNode body    = mapper.readTree(resp.body());
+                JsonNode choice  = body.path("choices").get(0);
+                JsonNode message = choice.path("message");
+                String   reason  = choice.path("finish_reason").asText("stop");
+                JsonNode usage   = body.path("usage");
+                if (reserved) {
+                    budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
+                } else {
+                    recordUsage(modelId, usage);
+                }
+
+                if ("tool_calls".equals(reason) && !lastRound) {
+                    messages.add(message);
+                    for (JsonNode tc : message.path("tool_calls")) {
+                        String providerCallId = tc.path("id").asText();
+                        String fnName = tc.path("function").path("name").asText();
+                        String fnArgs = tc.path("function").path("arguments").asText("{}");
+                        String result;
+                        try {
+                            result = executor.apply(mapper.writeValueAsString(
+                                    mapper.createObjectNode()
+                                            .put("name", fnName)
+                                            .set("arguments", mapper.readTree(fnArgs))));
+                        } catch (Exception ex) {
+                            result = "Tool error: " + ex.getMessage();
+                        }
+                        String harnessCallId = "call_" + (trace.size() + 1);
+                        log.info("GenericOpenAICompatPool({}) tools: fn={} call_id={} result_len={}",
+                                cfg.providerKey(), fnName, harnessCallId, result.length());
+                        trace.add(new com.emergentterrain.llm.ToolInvocation(
+                                fnName, fnArgs, result, round, harnessCallId));
+                        messages.addObject()
+                                .put("role", "tool")
+                                .put("tool_call_id", providerCallId)
+                                .put("content", "[" + harnessCallId + "] " + result);
+                    }
+                } else {
+                    String content = message.path("content").asText("");
+                    if (content.isBlank()) content = message.path("reasoning").asText("");
+                    if (!trace.isEmpty()) {
+                        log.info("GenericOpenAICompatPool({}) tools: loop closed model={} calls={} rounds=[{}..{}]",
+                                cfg.providerKey(), modelId, trace.size(),
+                                trace.get(0).round(), trace.get(trace.size() - 1).round());
+                    }
+                    return new com.emergentterrain.llm.ToolCallResponse(
+                            content, java.util.List.copyOf(trace));
+                }
+            }
+            return new com.emergentterrain.llm.ToolCallResponse("", java.util.List.copyOf(trace));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("GenericOpenAICompatPool(" + cfg.providerKey()
+                    + ") tool loop failed", e);
+        }
+    }
+
+    private String buildConversationPayload(String modelId, JsonNode messages,
+                                             JsonNode tools, int tokenLimit) {
+        try {
+            ObjectNode node = mapper.createObjectNode();
+            node.put("model", modelId);
+            node.put("stream", false);
+            node.put(cfg.maxTokensField(), tokenLimit);
+            node.put("temperature",
+                    LlmCallContext.currentTemperature().orElse(0.7));
+            if (LlmCallContext.isJsonOutputMode()) {
+                node.putObject("response_format").put("type", "json_object");
+            }
+            node.set("messages", messages);
+            if (tools != null && tools.isArray() && !tools.isEmpty()) {
+                node.set("tools", tools);
+                node.put("tool_choice", "auto");
+            }
+            return mapper.writeValueAsString(node);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build conversation payload", e);
         }
     }
 
