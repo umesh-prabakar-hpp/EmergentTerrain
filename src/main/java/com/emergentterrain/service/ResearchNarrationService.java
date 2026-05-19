@@ -506,14 +506,22 @@ public class ResearchNarrationService {
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
 
         // Phase 20.4 — classify the terminal status before stamping the envelope.
-        // OK     = first-pass succeeded and a finalResult emerged.
-        // PARTIAL = first-pass threw but maybeCritiqueAndRevise salvaged a result
-        //           (via fillFromTemplates or a downgrade path), OR the call_path
-        //           shows the panel-revision route fired (degraded but published).
-        // ERROR  = finalResult is null after a non-template-failure flow — TODO
-        //          step 2b will plumb this through the sentinel publish.
+        // Precedence (most specific wins):
+        //   1. finalResult.status() carries a non-UNKNOWN signal from maybeCritique-
+        //      AndRevise (PARTIAL on template fill, ERROR on incomplete-firstpass +
+        //      template-fail, etc.). Honor it.
+        //   2. finalResult == null → ERROR (TODO step 2b-3: sentinel publish lets
+        //      the envelope ride on a non-null result so we don't lose the timing
+        //      here either).
+        //   3. firstPass threw a streamPrimary exception but a result was salvaged
+        //      → PARTIAL.
+        //   4. Default → OK.
         NarrationResult.OutcomeStatus terminalStatus;
-        if (finalResult == null) {
+        if (finalResult != null
+                && finalResult.status() != null
+                && finalResult.status() != NarrationResult.OutcomeStatus.UNKNOWN) {
+            terminalStatus = finalResult.status();
+        } else if (finalResult == null) {
             terminalStatus = NarrationResult.OutcomeStatus.ERROR;
         } else if (firstPassFailed) {
             terminalStatus = NarrationResult.OutcomeStatus.PARTIAL;
@@ -584,6 +592,12 @@ public class ResearchNarrationService {
      */
     private NarrationResult maybeCritiqueAndRevise(PaperDraft draft, NarrationResult firstPass,
                                                     List<String> callPath, List<String> auditGapDimensions) {
+        // Phase 20.4 step 2b-1 — accumulate the most-degraded status seen on
+        // the path to the returned result. Stamped on the final result before
+        // return so runNarration's envelope picks it up. UNKNOWN means "no
+        // degradation observed" — runNarration's default (OK) wins.
+        NarrationResult.OutcomeStatus pathStatus = NarrationResult.OutcomeStatus.UNKNOWN;
+
         if (firstPass.hypothesis() == null || firstPass.findings() == null || firstPass.conclusion() == null) {
             // G1 — fill null h/f/c fields from the draft's template fallbacks
             // (designed as the "LLM-failure" fallback per PaperDraft javadoc)
@@ -592,7 +606,12 @@ public class ResearchNarrationService {
             NarrationResult merged = fillFromTemplates(draft, firstPass);
             if (merged == null) {
                 callPath.add("critique:skip:incomplete_firstpass");
-                return firstPass;
+                // Phase 20.4 step 2b-1 — firstPass has null h/f/c AND draft
+                // templates couldn't close them. Downstream publish will
+                // either drop or fall back entirely to template text. ERROR
+                // distinguishes this from PARTIAL: nothing usable came out
+                // of either the LLM or the templates.
+                return firstPass.withStatus(NarrationResult.OutcomeStatus.ERROR);
             }
             int filled = (firstPass.hypothesis() == null ? 1 : 0)
                        + (firstPass.findings()   == null ? 1 : 0)
@@ -601,25 +620,48 @@ public class ResearchNarrationService {
             log.info("LLM partial-revision merge: filled {} null field(s) from PaperDraft templates paperId={}",
                     filled, draft.paperId());
             firstPass = merged;
+            // Phase 20.4 step 2b-1 — template fill happened; mark PARTIAL so
+            // even a clean downstream critique-and-revise won't erase the
+            // signal that this paper used PaperDraft fallback text.
+            pathStatus = NarrationResult.OutcomeStatus.PARTIAL;
         }
         // Phase 7 E3 — three-way routing. Tools first (any tool-capable primary
         // unblocked), then JSON path (primary chain has any unblocked pool — the
         // revision streams from a primary model), then Ollama (no tools; both
         // critique and revise on the fast pool). When all three fail, fall back
         // to firstPass with a skip log so telemetry sees a hard miss.
+        NarrationResult routed;
         if (router.supportsProfessorTools()) {
-            return maybeCritiqueAndReviseWithTools(draft, firstPass, callPath, auditGapDimensions);
+            routed = maybeCritiqueAndReviseWithTools(draft, firstPass, callPath, auditGapDimensions);
+        } else if (router.hasJsonPathPrimary()) {
+            routed = maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
+        } else if (ollamaFallbackEnabled && router.hasFastPool()) {
+            routed = maybeCritiqueAndReviseOllama(draft, firstPass, callPath);
+        } else {
+            callPath.add("critique:skip:no_path_available");
+            log.warn("LLM no critique path available paperId={} ollamaFallbackEnabled={}",
+                    draft.paperId(), ollamaFallbackEnabled);
+            // Phase 20.4 step 2b-1 — usable firstPass but no critique path
+            // available. The PARTIAL signal already on pathStatus (if a
+            // template-fill happened) is at-least-as-degraded as this skip,
+            // so prefer pathStatus when set; otherwise stamp PARTIAL fresh.
+            return firstPass.withStatus(
+                    pathStatus == NarrationResult.OutcomeStatus.UNKNOWN
+                            ? NarrationResult.OutcomeStatus.PARTIAL
+                            : pathStatus);
         }
-        if (router.hasJsonPathPrimary()) {
-            return maybeCritiqueAndReviseJsonPath(draft, firstPass, callPath);
+        // Phase 20.4 step 2b-1 — stamp the accumulated path status onto the
+        // routed result IF the routed result didn't classify itself with a
+        // more-specific status (UNKNOWN / null = no opinion). Preserves any
+        // future TOOL_LOOP_LIMIT / TEMPLATE_FALLBACK stamps the routed
+        // variants may set themselves.
+        if (routed != null
+                && pathStatus != NarrationResult.OutcomeStatus.UNKNOWN
+                && (routed.status() == null
+                    || routed.status() == NarrationResult.OutcomeStatus.UNKNOWN)) {
+            return routed.withStatus(pathStatus);
         }
-        if (ollamaFallbackEnabled && router.hasFastPool()) {
-            return maybeCritiqueAndReviseOllama(draft, firstPass, callPath);
-        }
-        callPath.add("critique:skip:no_path_available");
-        log.warn("LLM no critique path available paperId={} ollamaFallbackEnabled={}",
-                draft.paperId(), ollamaFallbackEnabled);
-        return firstPass;
+        return routed;
     }
 
     /**
