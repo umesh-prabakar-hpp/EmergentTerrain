@@ -20,8 +20,8 @@ use config::WorldConfig;
 use gpu::gpu_terrain_service_server::{GpuTerrainService, GpuTerrainServiceServer};
 use gpu::{
     BoolGrid, BotState, EvalExprRequest, EvalExprResponse, GenerateRegionRequest,
-    GenerateRegionResponse, RebuildPatchRequest, RebuildPatchResponse, SimulateBotsRequest,
-    SimulateBotsResponse, TileEdit, TileEncoding, TileGrid,
+    GenerateRegionResponse, PipelineStats, RebuildPatchRequest, RebuildPatchResponse,
+    SimulateBotsRequest, SimulateBotsResponse, TileEdit, TileEncoding, TileGrid,
 };
 
 const WORLD_SHADER: &str = r#"
@@ -674,14 +674,26 @@ impl GpuTerrainService for GpuEngineService {
                  req.request_id, region.width, region.height, req.seed, self.gpu.adapter_summary());
         let t0 = std::time::Instant::now();
         let generated = self.gpu.generate_region(req.seed, region.width, region.height, &req.params_json)?;
-        println!("generate_region.exit request_id={} size={}x{} ms={} debug={}",
+        let latency_us = t0.elapsed().as_micros() as u64;
+        // Phase 20.7 — WORLD pipeline cost model.
+        //   bytes_read: ~uniform (32B) is negligible vs the output writes.
+        //   bytes_written: 2 storage buffers (tiles, highways), each W*H*4 bytes.
+        //   flops_estimate: WORLD_SHADER's per-pixel body is ~3 mix_hash calls
+        //                   (each ~7 ops: 4 XORs + 2 muls + 1 shift) + a few
+        //                   compares + 1 select + 1 modulo pair → ~25 ops/pixel.
+        let pixels = (region.width as u64) * (region.height as u64);
+        let bytes_written = pixels * 4 * 2;
+        let flops_estimate = pixels * 25;
+        let stats = build_pipeline_stats("WORLD", latency_us, 32, bytes_written, flops_estimate);
+        println!("generate_region.exit request_id={} size={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, region.width, region.height,
-                 t0.elapsed().as_millis(), generated.debug_json);
+                 t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, generated.debug_json);
         Ok(Response::new(GenerateRegionResponse {
             request_id: req.request_id,
             tiles: Some(TileGrid { width: region.width, height: region.height, tiles: generated.tiles, encoding: TileEncoding::U8 as i32 }),
             highways: Some(BoolGrid { width: region.width, height: region.height, values: generated.highways }),
             debug_json: generated.debug_json,
+            stats: Some(stats),
         }))
     }
 
@@ -701,15 +713,28 @@ impl GpuTerrainService for GpuEngineService {
             apply_tile_edits(&mut world, &req.applied_edits);
         }
         let rebuilt = self.gpu.rebuild_patch(width, height, &world.tiles, &world.highways, &patch)?;
-        println!("rebuild_patch.exit request_id={} patch={}x{} ms={} debug={}",
+        let latency_us = t0.elapsed().as_micros() as u64;
+        // Phase 20.7 — PATCH pipeline cost model.
+        //   bytes_read: source tile + highway grids (2 * W*H*4) + uniform.
+        //   bytes_written: 2 patch buffers (patch_tiles, patch_highways), each P*4.
+        //   flops_estimate: per-patch-pixel ~3 ops (bounds check + index + copy).
+        //                   This kernel is memory-bound by design.
+        let patch_pixels = (patch.width as u64) * (patch.height as u64);
+        let source_pixels = (width as u64) * (height as u64);
+        let bytes_read = source_pixels * 4 * 2 + 32;
+        let bytes_written = patch_pixels * 4 * 2;
+        let flops_estimate = patch_pixels * 3;
+        let stats = build_pipeline_stats("PATCH", latency_us, bytes_read, bytes_written, flops_estimate);
+        println!("rebuild_patch.exit request_id={} patch={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, patch.width, patch.height,
-                 t0.elapsed().as_millis(), rebuilt.debug_json);
+                 t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, rebuilt.debug_json);
         Ok(Response::new(RebuildPatchResponse {
             request_id: req.request_id,
             patch: Some(patch.clone()),
             patch_tiles: Some(TileGrid { width: patch.width, height: patch.height, tiles: rebuilt.tiles, encoding: TileEncoding::U8 as i32 }),
             patch_highways: Some(BoolGrid { width: patch.width, height: patch.height, values: rebuilt.highways }),
             debug_json: rebuilt.debug_json,
+            stats: Some(stats),
         }))
     }
 
@@ -722,14 +747,29 @@ impl GpuTerrainService for GpuEngineService {
         let t0 = std::time::Instant::now();
         let world = self.resolve_world_for_bot_request(&req).await?;
         let simulated = self.gpu.simulate_bots_cached(&world, &req.bots, steps)?;
-        println!("simulate_bots.exit request_id={} bots={} steps={} ms={} debug={}",
+        let latency_us = t0.elapsed().as_micros() as u64;
+        // Phase 20.7 — BOT pipeline cost model.
+        //   bytes_read: tile + highway grids + bots_in (each bot ~80B of state).
+        //   bytes_written: bots_out (same shape as bots_in).
+        //   flops_estimate: per bot per step the kernel does ~80 ops (tile
+        //                   preference scoring, 4 neighbor checks, RNG hash,
+        //                   plan-position decoding, reverse-lock decay).
+        let bot_count = simulated.bots.len() as u64;
+        let world_pixels = (world.width as u64) * (world.height as u64);
+        let bot_struct_bytes = 80u64;
+        let bytes_read = world_pixels * 4 * 2 + bot_count * bot_struct_bytes + 32;
+        let bytes_written = bot_count * bot_struct_bytes;
+        let flops_estimate = bot_count * (steps as u64) * 80;
+        let stats = build_pipeline_stats("BOT", latency_us, bytes_read, bytes_written, flops_estimate);
+        println!("simulate_bots.exit request_id={} bots={} steps={} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, req.bots.len(), steps,
-                 t0.elapsed().as_millis(), simulated.debug_json);
+                 t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, simulated.debug_json);
         Ok(Response::new(SimulateBotsResponse {
             request_id: req.request_id,
             bots: simulated.bots,
             edits: Vec::new(),
             debug_json: simulated.debug_json,
+            stats: Some(stats),
         }))
     }
 
@@ -1148,6 +1188,40 @@ fn read_f64(value: &Value, key: &str, default: f64) -> f64 {
 
 fn threshold_u32(probability: f64) -> u32 {
     (probability.clamp(0.0, 1.0) * (u32::MAX as f64)) as u32
+}
+
+/// Phase 20.7 — assemble a PipelineStats proto from raw counters.
+///
+/// `mem_bw_gbps` and `flops_tflops` are derived: bandwidth in GB/s =
+/// (bytes_read + bytes_written) / (latency_us * 1e3), TFLOPS =
+/// flops_estimate / (latency_us * 1e6). Both yield 0 when latency_us is
+/// zero (vanishingly rare; protects against div-by-zero in tests).
+///
+/// The handler-side cost model is rough by design — workgroup-size
+/// changes show up as a percentage drop in the right metric, which is
+/// what we want from regression detection. Use GetEngineCapabilities
+/// (future RPC) plus the absolute peak rates to derive MFU / MBU %.
+fn build_pipeline_stats(name: &str, latency_us: u64, bytes_read: u64, bytes_written: u64, flops_estimate: u64) -> PipelineStats {
+    let total_bytes = bytes_read + bytes_written;
+    let (mem_bw_gbps, flops_tflops) = if latency_us == 0 {
+        (0.0, 0.0)
+    } else {
+        let lat = latency_us as f64;
+        // bytes / (us * 1e3) = bytes / ns = GB/s
+        let mem_bw = (total_bytes as f64) / (lat * 1_000.0);
+        // flops / (us * 1e6) = flops / s / 1e12 = TFLOPS
+        let flops = (flops_estimate as f64) / (lat * 1_000_000.0);
+        (mem_bw, flops)
+    };
+    PipelineStats {
+        pipeline_name: name.to_string(),
+        latency_us,
+        bytes_read,
+        bytes_written,
+        flops_estimate,
+        mem_bw_gbps,
+        flops_tflops,
+    }
 }
 
 fn highway_spacing(highway_ratio: f64, cfg: &config::HighwayConfig) -> u32 {

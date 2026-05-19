@@ -69,6 +69,9 @@ message GenerateRegionResponse {
   TileGrid tiles = 2;
   BoolGrid highways = 3;
   string debug_json = 4;
+  // Phase 20.7 — per-pipeline performance counters. Always populated; the
+  // caller can ignore the field when not interested in instrumentation.
+  PipelineStats stats = 5;
 }
 
 message RebuildPatchRequest {
@@ -87,6 +90,8 @@ message RebuildPatchResponse {
   TileGrid patch_tiles = 3;
   BoolGrid patch_highways = 4;
   string debug_json = 5;
+  // Phase 20.7 — per-pipeline performance counters.
+  PipelineStats stats = 6;
 }
 
 message SimulateBotsRequest {
@@ -105,6 +110,28 @@ message SimulateBotsResponse {
   repeated BotState bots = 2;
   repeated TileEdit edits = 3;
   string debug_json = 4;
+  // Phase 20.7 — per-pipeline performance counters.
+  PipelineStats stats = 5;
+}
+
+// Phase 20.7 — per-RPC performance counters. latency_us is the
+// CPU-observed wall-clock around dispatch+submit+readback (includes any
+// queue wait time). bytes_read / bytes_written are the sum of input /
+// output buffer sizes for this dispatch. flops_estimate is a per-shader
+// hand-coded constant times the dispatch's work-item count; intended for
+// detecting regressions (a workgroup-size change shows up as a percent
+// drop) more than as an absolute MFU number. Add adapter peak rates
+// from GetEngineCapabilities (future RPC) to derive MFU / MBU %.
+message PipelineStats {
+  string pipeline_name = 1;
+  uint64 latency_us = 2;
+  uint64 bytes_read = 3;
+  uint64 bytes_written = 4;
+  uint64 flops_estimate = 5;
+  // GB/s = bytes_read+written / latency_us * 1e-3 (filled by engine).
+  double mem_bw_gbps = 6;
+  // TFLOPS = flops_estimate / latency_us * 1e-6 (filled by engine).
+  double flops_tflops = 7;
 }
 
 // Phase 8 Tier 4 — evaluate a pure scalar expression f(n) for every integer
