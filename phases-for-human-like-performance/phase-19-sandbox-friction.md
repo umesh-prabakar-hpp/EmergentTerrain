@@ -1,8 +1,49 @@
 # Phase 19 — Sandbox Friction (wishlist P2 promotion)
 
-**Status:** Scoping doc — promoted from `phase-wishlist-human-level.md` P2.
-Architecture questions below are resolved; implementation is queued but not
-shipped. Pull this doc into a phase-19-impl branch when ready.
+**Status:** CLOSED PENDING REFRESH (2026-05-18). All Layer 1 + Layer 2
+code is shipped on `main`; the rollback flag is in `application.yml`;
+Open Question 1's named multi-value surface is implemented. The two
+remaining acceptance criteria (corpus refresh ≤6 rejections/run; 678 +
+683 replay with ≥1 successful sandbox call each) are operator-action
+items waiting on the next REVIEW_REPORT run under the new binary.
+
+**Shipped commits (latest first):**
+
+| Commit    | Scope                                                       |
+|-----------|-------------------------------------------------------------|
+| `8fafa4f` | Open Q1 — `namedKeys`/`namedValues` on `SandboxResult`      |
+| `e3a30f8` | `app.research.sandbox.relaxed-grammar.enabled` flag (default `true`) |
+| `1112f2a` | Layer 1c (array variant) — `return [a, b, c];` rewrite      |
+| `1b3df9b` | Layer 1f — comma-separated `var` declarations               |
+| `e3e524e` | Layer 1e — `break` / `continue` as real keywords            |
+| `3d87b32` | Layer 1d — single-statement body after `if`/`while`/`for`   |
+| `aae2e5c` | Layer 1c — return-position object-literal rewrite           |
+| `bf053b4` | Layer 1b — `<ident>.length` → `len(<ident>)` rewrite        |
+| `8ab45b0` | Layer 1a — `Math.<builtin>` → flat builtin rewrite          |
+| `e7e4800` | Layer 2 — per-rejection rewrite hints                       |
+| `cbb1155` | Tier 5 flag flip + scope wishlist P2 → this doc             |
+
+**Layers 1d–1f are pure grammar additions beyond the original Layer 1
+a/b/c scope** — added during implementation when the same corpus
+sample showed JS-reflex syntax (`if (cond) return x;`, `break` inside
+unbraced ifs, `var a = 1, b = 2;`) hitting rejects the rewrite-only
+plan didn't cover. No rollback contract (flag-off does not revert
+them) because they're strict supersets of the prior grammar.
+
+**Open Question 1 — implementation note.** The shipped path keeps the
+existing `recordSample` aggregates code (no semantic regression for
+single-scalar tools) and side-channels the rewrite's key list to the
+interpreter, which maintains a fixed-size ring buffer of the trailing
+`k` recordSample values (where `k = namedKeys.size()`). End-of-run
+pairing is exact even when the user's code emits its own
+`recordSample` calls. `SandboxResult.namedKeys` / `namedValues` carry
+the source-named labels for object returns and positional labels
+(`"0"`, `"1"`, …) for array returns; `MathToolSuite` formats them as
+a trailing `named: k=v, …` line in the LLM-facing prose.
+
+**Pre-shipping snapshot of the scoping doc is preserved below for
+reference.** Pull this doc into `archive/` once the two acceptance
+refreshes confirm the closing condition.
 
 **Why now:** REVIEW_REPORT refresh on 2026-05-18 logged 13 `sandbox code
 rejected by 4b review: REJECTED (static)` events across 4 of 6 papers in
@@ -262,14 +303,27 @@ per-rejection (already a path that costs tokens today).
 
 This phase closes when:
 
-1. Layer 1 ships and the regression tests in `SandboxStaticCheckerTest`
-   + `SandboxEngineRelaxedGrammarTest` pass.
-2. Layer 2 ships and `MathToolSuite`'s rejection message includes the
-   per-rule rewrite for at least the five rejection classes named in
-   the Layer 2 table.
-3. One REVIEW_REPORT refresh under the new code shows the rejection
-   count ≤6 per refresh (acceptance criterion 1 above).
+1. ✅ **Met (2026-05-18).** Layer 1 shipped (`8ab45b0` … `1112f2a`)
+   plus 1d–1f bonus grammar; `SandboxStaticCheckerTest` (77 tests) and
+   `SandboxEngineWhitelistTest`'s Phase-19 block (4 tests) pass. No
+   separate `SandboxEngineRelaxedGrammarTest` was needed — the
+   end-to-end coverage landed alongside the existing whitelist suite.
+2. ✅ **Met (2026-05-18).** Layer 2 shipped (`e7e4800`);
+   `SandboxStaticChecker.rewriteHintFor` and `MathToolSuite:582–585`
+   wire the per-rule rewrite into the rejection message for the
+   member-access (`.push`/`.pop`/…/`.map`/`.length`/`Math.*`),
+   object-literal, parse-failed (`break` / `let` / comma-decl /
+   string), and shadowed-builtin rejection classes — covers the five
+   classes named in the Layer 2 table and four extras.
+3. ⏳ **Operator action.** One REVIEW_REPORT refresh under the new
+   binary shows `sandbox code rejected by 4b review` count ≤ ~6 per
+   refresh (down from the 2026-05-18T07:21Z baseline of 13). The
+   commit graph since `cbb1155` covers all four rejection clusters
+   the baseline named; the refresh measures impact. Pair with the
+   per-paper crit (P-a328-678 and P-a328-683 each produce ≥1
+   successful sandbox call on replay) to fully discharge the
+   acceptance bar.
 
-When all three close, this doc moves to `archive/` and the wishlist's
-P2 row gets a "SHIPPED — phase-19-sandbox-friction.md" disposition in
-its migration table.
+Status: **CLOSED PENDING REFRESH.** Move this doc to `archive/` and
+mark the wishlist's P2 row "SHIPPED — phase-19-sandbox-friction.md"
+once condition 3 lands.
