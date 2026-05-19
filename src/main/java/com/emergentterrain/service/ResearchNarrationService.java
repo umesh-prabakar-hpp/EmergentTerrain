@@ -479,12 +479,19 @@ public class ResearchNarrationService {
             // Phase 20.4 — ALL_MODELS_BLOCKED stamped via timing-only log line.
             // TODO step 2b: switch the publisher contract from null-publish to a
             // sentinel NarrationResult so the envelope rides through.
+            java.time.Instant suppressedAt = java.time.Instant.now();
             log.info("narration envelope paperId={} status=ALL_MODELS_BLOCKED " +
                     "startedAt={} completedAt={} durationMs={}",
-                    draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
-                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+                    draft.paperId(), orchestrationStartedAt, suppressedAt,
+                    java.time.Duration.between(orchestrationStartedAt, suppressedAt).toMillis());
             emitNarrationEnvelopeMetrics(NarrationResult.OutcomeStatus.ALL_MODELS_BLOCKED, 0L, 0L);
-            if (narrationPublisher != null) narrationPublisher.accept(draft, null);
+            // Phase 20.4 step 2b-3 — emit a suppression sentinel instead of
+            // raw null so UniversityService.publishPaper can read the envelope.
+            if (narrationPublisher != null) {
+                narrationPublisher.accept(draft, NarrationResult.suppressed(
+                        NarrationResult.OutcomeStatus.ALL_MODELS_BLOCKED,
+                        orchestrationStartedAt, suppressedAt, 0L, 0L));
+            }
             return;
         }
 
@@ -502,12 +509,18 @@ public class ResearchNarrationService {
             // Phase 20.4 — BUDGET_EXHAUSTED stamped via timing-only log line
             // (same null-publish contract as ALL_MODELS_BLOCKED above; the
             // step-2b sentinel work will carry the envelope here too).
+            java.time.Instant suppressedAt = java.time.Instant.now();
             log.info("narration envelope paperId={} status=BUDGET_EXHAUSTED " +
                     "startedAt={} completedAt={} durationMs={}",
-                    draft.paperId(), orchestrationStartedAt, java.time.Instant.now(),
-                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis());
+                    draft.paperId(), orchestrationStartedAt, suppressedAt,
+                    java.time.Duration.between(orchestrationStartedAt, suppressedAt).toMillis());
             emitNarrationEnvelopeMetrics(NarrationResult.OutcomeStatus.BUDGET_EXHAUSTED, 0L, 0L);
-            if (narrationPublisher != null) narrationPublisher.accept(draft, null);
+            // Phase 20.4 step 2b-3 — suppression sentinel (see ALL_MODELS_BLOCKED above).
+            if (narrationPublisher != null) {
+                narrationPublisher.accept(draft, NarrationResult.suppressed(
+                        NarrationResult.OutcomeStatus.BUDGET_EXHAUSTED,
+                        orchestrationStartedAt, suppressedAt, 0L, 0L));
+            }
             return;
         }
 
@@ -572,46 +585,57 @@ public class ResearchNarrationService {
         long paperInputTokens = com.emergentterrain.llm.LlmCallContext.currentInputTokens();
         long paperOutputTokens = com.emergentterrain.llm.LlmCallContext.currentOutputTokens();
 
-        // Phase 20.4 — chain .withEnvelope at the end so the new envelope fields
-        // ride on the published NarrationResult.
-        NarrationResult result = finalResult == null ? null : new NarrationResult(
-                finalResult.hypothesis(), finalResult.findingsMap(), finalResult.conclusion(),
-                finalResult.followUp(), router.primaryModel(),
-                finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
-                finalResult.typedCitations(), finalResult.formalFindings(),
-                com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
-                activeNarrationPrimaryVersion(),
-                finalResult.discussion(), finalResult.relatedWork(),
-                List.copyOf(auditGapDimensions),
-                finalResult.toolCallTrace(),
-                finalResult.panelOutcome(),
-                finalResult.numericClaims())
-                .withEnvelope(orchestrationStartedAt, java.time.Instant.now(),
-                        paperInputTokens, paperOutputTokens, terminalStatus);
-        // Phase 20.4 step 3 — rollup metric. Fires for every reachable
-        // terminal status (OK / PARTIAL / ERROR / TEMPLATE_FALLBACK /
-        // TOOL_LOOP_LIMIT when step 2b-3+ lands), so the 30s activity row
-        // sees a moving distribution of narration outcomes.
-        emitNarrationEnvelopeMetrics(terminalStatus, paperInputTokens, paperOutputTokens);
+        // Phase 20.4 — build the published NarrationResult. Non-null
+        // finalResult: wrap with template provenance + chain withEnvelope.
+        // Null finalResult: emit a suppression sentinel (step 2b-3) so the
+        // publisher contract stays uniform — UniversityService always
+        // receives a NarrationResult, never null, and can detect the
+        // suppression via isSuppressed().
+        java.time.Instant completedAt = java.time.Instant.now();
+        NarrationResult result;
         if (finalResult == null) {
-            // Phase 20.4 — null-publish case (terminalStatus = ERROR). Mirror the
-            // timing-only log line used by the suppression branches above. Now
-            // includes token totals for the rounds that did fire before the
-            // failure point.
+            result = NarrationResult.suppressed(terminalStatus,
+                    orchestrationStartedAt, completedAt,
+                    paperInputTokens, paperOutputTokens);
+            // Mirror the suppression log line used by the ALL_MODELS_BLOCKED /
+            // BUDGET_EXHAUSTED branches above so observability is uniform.
             log.info("narration envelope paperId={} status={} " +
                     "startedAt={} completedAt={} durationMs={} inputTokens={} outputTokens={}",
-                    draft.paperId(), terminalStatus, orchestrationStartedAt, java.time.Instant.now(),
-                    java.time.Duration.between(orchestrationStartedAt, java.time.Instant.now()).toMillis(),
+                    draft.paperId(), terminalStatus, orchestrationStartedAt, completedAt,
+                    java.time.Duration.between(orchestrationStartedAt, completedAt).toMillis(),
                     paperInputTokens, paperOutputTokens);
+        } else {
+            result = new NarrationResult(
+                    finalResult.hypothesis(), finalResult.findingsMap(), finalResult.conclusion(),
+                    finalResult.followUp(), router.primaryModel(),
+                    finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
+                    finalResult.typedCitations(), finalResult.formalFindings(),
+                    com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
+                    activeNarrationPrimaryVersion(),
+                    finalResult.discussion(), finalResult.relatedWork(),
+                    List.copyOf(auditGapDimensions),
+                    finalResult.toolCallTrace(),
+                    finalResult.panelOutcome(),
+                    finalResult.numericClaims())
+                    .withEnvelope(orchestrationStartedAt, completedAt,
+                            paperInputTokens, paperOutputTokens, terminalStatus);
         }
+        // Phase 20.4 step 3 — rollup metric. Fires for every reachable
+        // terminal status, so the 30s activity row sees a moving
+        // distribution of narration outcomes.
+        emitNarrationEnvelopeMetrics(terminalStatus, paperInputTokens, paperOutputTokens);
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
         // Phase 17 — clear the retry queue entry on a successful retry publish.
         // No-op for non-retry papers (the common case) and for retries that
-        // re-hit the gate (result is null then; the queue entry stays for the
-        // next tick). markCompleted itself is null-safe on missing entries.
-        if (gateRetryQueue != null && result != null) {
+        // re-hit the gate (result is a suppression sentinel then; the queue
+        // entry stays for the next tick). markCompleted itself is null-safe
+        // on missing entries.
+        // Phase 20.4 step 2b-3 — `result` is now never null (suppression
+        // emits a sentinel), so the null check shifts to isSuppressed()
+        // to preserve the "re-hit gate keeps queue entry" semantics.
+        if (gateRetryQueue != null && !result.isSuppressed()) {
             gateRetryQueue.markCompleted(draft.paperId());
         }
     }

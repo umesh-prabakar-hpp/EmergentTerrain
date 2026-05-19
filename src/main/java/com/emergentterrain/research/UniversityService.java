@@ -530,11 +530,26 @@ public class UniversityService {
      * Also fires genome mentoring for high-quality papers.
      */
     public void publishPaper(PaperDraft draft, NarrationResult narration) {
-        if (narration == null) {
-            // Professor synthesis was blank — discard draft without publishing.
+        // Phase 20.4 step 2b-3 — accept both legacy null (pre-sentinel
+        // callers) and the suppression sentinel. Short-circuit identically;
+        // the sentinel adds visibility (status / timing / partial token
+        // cost) to the log line without changing the publish-or-suppress
+        // decision.
+        if (narration == null || narration.isSuppressed()) {
             researchCycleService.decrementDraftQueue();
-            log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
-                    draft.paperId(), draft.domain(), draft.topicName());
+            if (narration == null) {
+                log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
+                        draft.paperId(), draft.domain(), draft.topicName());
+            } else {
+                long durationMs = narration.startedAt() != null && narration.completedAt() != null
+                        ? java.time.Duration.between(narration.startedAt(), narration.completedAt()).toMillis()
+                        : -1L;
+                log.warn("university draft suppressed paperId={} domain={} topic={} " +
+                        "status={} durationMs={} inputTokens={} outputTokens={}",
+                        draft.paperId(), draft.domain(), draft.topicName(),
+                        narration.status(), durationMs,
+                        narration.inputTokens(), narration.outputTokens());
+            }
             return;
         }
         String hypothesis = (narration.hypothesis() != null && !narration.hypothesis().isBlank())

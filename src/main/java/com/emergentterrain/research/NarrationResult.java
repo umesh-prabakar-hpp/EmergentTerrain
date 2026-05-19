@@ -407,6 +407,62 @@ public record NarrationResult(String hypothesis, Map<Integer, String> findingsMa
     }
 
     /**
+     * Phase 20.4 step 2b-3 — sentinel factory for suppressed-narration
+     * publishes. Replaces the legacy {@code publish(null)} contract so the
+     * envelope (timing + partial token cost + terminal status) survives
+     * into the consumer side instead of dying in a log line.
+     *
+     * <p>Content fields (hypothesis / findingsMap / conclusion / followUp /
+     * aiModel / callPath / etc.) are null because the narration never
+     * produced them. Confidence is 0.0. The returned result returns true
+     * from {@link #isSuppressed()} so {@link UniversityService#publishPaper}
+     * can short-circuit identically to the legacy null path while still
+     * having the envelope info available for logging / persistence /
+     * future-consumer routing.
+     */
+    public static NarrationResult suppressed(OutcomeStatus status,
+                                              Instant startedAt, Instant completedAt,
+                                              long inputTokens, long outputTokens) {
+        return new NarrationResult(
+                null, null, null,           // hypothesis, findingsMap, conclusion
+                null, null,                 // followUp, aiModel
+                0.0, List.of(),             // confidenceScore, citedPaperIds
+                null,                       // callPath
+                List.of(),                  // typedCitations
+                List.of(),                  // formalFindings
+                null, null,                 // templateId, templateVersion
+                null, null,                 // discussion, relatedWork
+                null,                       // auditGapDimensions
+                null,                       // toolCallTrace
+                null,                       // panelOutcome
+                null,                       // numericClaims
+                startedAt, completedAt, inputTokens, outputTokens, status);
+    }
+
+    /**
+     * Phase 20.4 step 2b-3 — true when this result is a suppression sentinel
+     * (no content; status is one of the terminal-suppression values). The
+     * consumer side ({@code UniversityService.publishPaper}) checks this to
+     * short-circuit before running content-dependent pipeline stages, while
+     * still being able to read {@link #status()}, {@link #startedAt()},
+     * {@link #inputTokens()}, etc. off the result.
+     *
+     * <p>Heuristic: all three core content fields are null AND the status
+     * is one of the suppression-class outcomes. A normal result with a
+     * legitimately-null findingsMap (rare but possible on the
+     * fillFromTemplates path) won't satisfy the status check.
+     */
+    public boolean isSuppressed() {
+        if (status == null) return false;
+        if (hypothesis != null || findingsMap != null || conclusion != null) return false;
+        return switch (status) {
+            case ALL_MODELS_BLOCKED, BUDGET_EXHAUSTED, ERROR,
+                 TOOL_LOOP_LIMIT, TEMPLATE_FALLBACK -> true;
+            default -> false;
+        };
+    }
+
+    /**
      * Phase 7 F2 — wrap a single prose string into the canonical {1: prose} single-entry
      * map. Null prose returns null (downstream null-checks behave identically to the
      * pre-F2 String field).
