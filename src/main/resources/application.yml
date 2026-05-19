@@ -733,6 +733,24 @@ app:
     # + 36 unit tests; the rollout is now active.
     topics-v2:
       enabled: true
+    # ── Phase 19 — sandbox-friction Layer 1 rewrites ──
+    # When on (default), SandboxStaticChecker.normalizeForSandbox applies the
+    # pre-parse rewrites that let the LLM emit JS-flavoured idioms the sandbox
+    # subset would otherwise reject:
+    #   - `Math.<builtin>(…)` → flat builtin (Layer 1a)
+    #   - `<ident>.length` → `len(<ident>)` (Layer 1b)
+    #   - `return {k: v, …}` → `recordSample(v); … return v_first;` (Layer 1c)
+    #   - `return [v, …]`   → `recordSample(v); … return v_first;` (Layer 1c-array)
+    # Flag-off is the rollback path: rewrites are skipped, code reaches the
+    # existing reject paths (`preScanForJavascriptIdioms`) unchanged. The Layer
+    # 1d-1f parser changes (single-statement bodies, break/continue as
+    # keywords, comma-separated var decls) are NOT gated — they are pure
+    # grammar additions with no rollback contract.
+    # See phases-for-human-like-performance/phase-19-sandbox-friction.md
+    # (Rollback section + Open Q2).
+    sandbox:
+      relaxed-grammar:
+        enabled: true
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

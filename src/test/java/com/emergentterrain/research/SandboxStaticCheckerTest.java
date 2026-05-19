@@ -985,4 +985,77 @@ class SandboxStaticCheckerTest {
         // Null safety.
         assertThat(SandboxStaticChecker.rewriteMathPrefix(null)).isNull();
     }
+
+    // ── Phase 19 rollback flag — relaxed-grammar.enabled ──────────────────
+
+    @Test
+    void relaxedGrammarFlag_defaultsToTrue() {
+        // Default must remain on — flag-off is the operator rollback path,
+        // not the day-to-day behaviour.
+        assertThat(SandboxStaticChecker.isRelaxedGrammarEnabled()).isTrue();
+    }
+
+    @Test
+    void flagOff_skipsAllLayer1Rewrites() {
+        boolean prior = SandboxStaticChecker.isRelaxedGrammarEnabled();
+        try {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(false);
+            // normalizeForSandbox is a no-op under flag-off: every Layer-1
+            // input shape comes through unchanged.
+            assertThat(SandboxStaticChecker.normalizeForSandbox("Math.sqrt(4)"))
+                    .isEqualTo("Math.sqrt(4)");
+            assertThat(SandboxStaticChecker.normalizeForSandbox("var n = xs.length;"))
+                    .isEqualTo("var n = xs.length;");
+            assertThat(SandboxStaticChecker.normalizeForSandbox("return {a: 1, b: 2};"))
+                    .isEqualTo("return {a: 1, b: 2};");
+            assertThat(SandboxStaticChecker.normalizeForSandbox("return [1, 2, 3];"))
+                    .isEqualTo("return [1, 2, 3];");
+        } finally {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(prior);
+        }
+    }
+
+    @Test
+    void flagOff_restoresPreScanRejectsOnRewrittenIdioms() {
+        boolean prior = SandboxStaticChecker.isRelaxedGrammarEnabled();
+        try {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(false);
+
+            // Math.sqrt is approved under flag-on; under flag-off it reaches
+            // the unchanged preScanForJavascriptIdioms which rejects on the
+            // member-access pattern.
+            SandboxStaticChecker.Result mathResult =
+                    SandboxStaticChecker.check("return Math.sqrt(4);");
+            assertThat(mathResult).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+            assertThat(((SandboxStaticChecker.Result.Rejected) mathResult).reason())
+                    .contains("member access not supported");
+
+            // Return-object-literal: approved under flag-on, rejected under
+            // flag-off with the object-literal pre-scan message.
+            SandboxStaticChecker.Result objResult = SandboxStaticChecker.check(
+                    "return {a: 1, b: 2};");
+            assertThat(objResult).isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+            assertThat(((SandboxStaticChecker.Result.Rejected) objResult).reason())
+                    .contains("object literals");
+        } finally {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(prior);
+        }
+    }
+
+    @Test
+    void flagOn_preservesLayer1Behaviour() {
+        // Sanity check that re-enabling the flag (after the off-path tests)
+        // restores rewrite behaviour. Guards against accidental flag leak
+        // between test cases.
+        boolean prior = SandboxStaticChecker.isRelaxedGrammarEnabled();
+        try {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(true);
+            assertThat(SandboxStaticChecker.normalizeForSandbox("return Math.PI;"))
+                    .isEqualTo("return PI;");
+            assertThat(SandboxStaticChecker.check("return Math.sqrt(4);"))
+                    .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+        } finally {
+            SandboxStaticChecker.setRelaxedGrammarEnabled(prior);
+        }
+    }
 }

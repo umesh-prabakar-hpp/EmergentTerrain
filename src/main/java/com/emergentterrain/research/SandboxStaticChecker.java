@@ -28,6 +28,37 @@ public final class SandboxStaticChecker {
 
     private SandboxStaticChecker() {}
 
+    /**
+     * Phase 19 rollback flag — {@code app.research.sandbox.relaxed-grammar.enabled}.
+     * When {@code true} (default), {@link #normalizeForSandbox(String)} applies
+     * the Layer-1 pre-parse rewrites (Math.* → flat builtin, {@code .length} →
+     * {@code len(...)}, return-position object / array literals → recordSample
+     * sequences). When {@code false}, the rewrites are skipped and code reaches
+     * {@link #preScanForJavascriptIdioms(String)} unchanged — restoring the
+     * pre-Phase-19 stricter behaviour without removing the new code paths from
+     * the binary. Process-wide; see phase-19-sandbox-friction.md Open Q2.
+     *
+     * <p>Volatile so a Spring {@code @Component} updating it at startup is
+     * visible to subsequent {@link #check(String)} / {@link SandboxEngine#run}
+     * calls without explicit synchronisation.
+     */
+    private static volatile boolean relaxedGrammarEnabled = true;
+
+    /**
+     * Set the relaxed-grammar flag (default {@code true}). Wired from
+     * {@code app.research.sandbox.relaxed-grammar.enabled} in application.yml
+     * by {@code SandboxFlagConfig} at startup. Visible for tests so the
+     * flag-off path can be exercised without standing up Spring.
+     */
+    public static void setRelaxedGrammarEnabled(boolean enabled) {
+        relaxedGrammarEnabled = enabled;
+    }
+
+    /** Read-only accessor for the relaxed-grammar flag. Mainly for tests. */
+    public static boolean isRelaxedGrammarEnabled() {
+        return relaxedGrammarEnabled;
+    }
+
     public sealed interface Result {
         record Approved() implements Result {}
         record Rejected(String reason) implements Result {}
@@ -453,6 +484,7 @@ public final class SandboxStaticChecker {
      * by the time we copy them into the recordSample calls).
      */
     static String normalizeForSandbox(String code) {
+        if (!relaxedGrammarEnabled) return code;
         return rewriteReturnArrayLiteral(
                 rewriteReturnObjectLiteral(
                         rewriteArrayLength(rewriteMathPrefix(code))));
