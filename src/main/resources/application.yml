@@ -354,6 +354,30 @@ app:
           HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
           X-Title: EmergentTerrain
         excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
+    # Phase 20.11 §migration step 3 — NVIDIA scaffolding (NOT YET FLIPPED).
+    # Generic-pool entry below is commented out; the legacy NvidiaPool
+    # bean remains active until the parity follow-up lands. Hold the
+    # flip until GenericOpenAICompatPool supports:
+    #   - paid-tier 404 detection (NvidiaPool's paidTierModels permanent-
+    #     disable on "Not found for account")
+    #   - monthly-credits body classification (24h block vs 60s default
+    #     when the body contains "credit"/"monthly"/"quota exceeded")
+    # Without those, a flipped NVIDIA would burn free-tier retries on
+    # paid-only models and re-attack the API ~525k times/month on a
+    # credit-exhausted model.
+    #   nvidia:
+    #     base-url: https://integrate.api.nvidia.com/v1
+    #     api-key-env: NVIDIA_API_KEY
+    #     api-key: ${app.ai.nvidia.apiKey}
+    #     models:
+    #       - meta/llama-3.3-70b-instruct
+    #       - openai/gpt-oss-120b
+    #       - nvidia/nemotron-3-super-120b-a12b
+    #       - qwen/qwen3-next-80b-a3b-instruct
+    #       - qwen/qwen3-coder-480b-a35b-instruct
+    #     supports-tools: true
+    #     context-window: 32000
+    #     parallelism: 3      # matches app.ai.nvidia.parallelism default
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

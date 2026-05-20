@@ -650,6 +650,43 @@ duplicated in source control. A small `api-key` literal-fallback
 field was added to `RawProviderConfig` to support this pattern; env
 var still wins via `api-key-env` if set.
 
+**Status (step 3 NVIDIA scaffolding, 2026-05-20):** **LANDED**.
+`NvidiaPool` gated on
+`@ConditionalOnExpression("${app.ai.nvidia.enabled:false} and ${app.ai.nvidia.legacy-pool:true}")`;
+commented `app.ai.providers.nvidia:` block added.
+
+**NVIDIA parity gaps — hold the flip until these land:**
+
+1. **Paid-tier 404 detection** — `NvidiaPool.handleErrorResponse`
+   permanently disables a model when a 404 response body contains
+   `"Not found for account"` (free-tier account lacks entitlement to
+   that model). Without parity in `GenericOpenAICompatPool`, a paid-
+   only model would keep getting retried every round-robin pass.
+
+2. **Monthly-credits body classification** — `NvidiaPool.inferBlockMsFromBody`
+   parses the 429/error body for keywords (`credit`, `monthly`,
+   `quota exceeded`, `usage limit`) and uses a 24-hour block (vs the
+   default 60-second window) when matched. Free-tier credits don't
+   reset until the next billing cycle; a 60s block would re-attack the
+   API ~525k times that month.
+
+Both are response-side post-processing similar in shape to OpenRouter's
+`excludedBackends` parity. Recommended design for the follow-up:
+- `ProviderConfig.permanent404Markers: List<String>` — body substrings
+  that mark a 404 as a permanent disable. Default empty.
+- `ProviderConfig.longBlockBodyMarkers: List<String>` + `longBlockMs: Long`
+  — body substrings that bump the 429 block window to a longer value.
+  Default empty / 0.
+
+With those, NVIDIA's YAML adds:
+```yaml
+permanent-404-markers: ["Not found for account"]
+long-block-body-markers: [credit, monthly, "quota exceeded", "usage limit"]
+long-block-ms: 86400000   # 24h
+```
+…and the generic pool gets two new response-side helpers symmetric to
+`checkBackendExclusion` / `extendForExcludedBackend`.
+
 ### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
 
 Pre-recorded fire-when-ready checklist. After the operator has run the

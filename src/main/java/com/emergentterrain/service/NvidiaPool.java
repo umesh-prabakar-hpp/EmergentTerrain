@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -53,9 +53,27 @@ import java.util.stream.Collectors;
  *
  * <p>Active when {@code app.ai.nvidia.enabled=true}. Disabled by default so a key
  * misconfiguration cannot block startup.
+ *
+ * <p>Phase 20.11 §migration step 3 (NVIDIA) — gated on
+ * {@code app.ai.nvidia.legacy-pool} (default true) so an operator can
+ * flip NVIDIA over to a YAML-configured {@link GenericOpenAICompatPool}.
+ * Feature-parity status:
+ * <ul>
+ *   <li>Standard 429 block-window — generic pool handles.</li>
+ *   <li>Paid-tier 404 detection ({@code "Not found for account"} →
+ *       permanent disable) — NOT YET in generic pool. Without this an
+ *       operator who lists a paid-only model will burn free-tier
+ *       retries indefinitely.</li>
+ *   <li>Monthly-credits body classification (24h block vs the default
+ *       60s) — NOT YET in generic pool. Without this a credit-exhausted
+ *       model gets retried every minute for the rest of the billing
+ *       cycle (~525k wasted calls/month per the existing comment).</li>
+ * </ul>
+ * Hold the flip on NVIDIA for the parity follow-up.
  */
 @Component
-@ConditionalOnProperty(name = "app.ai.nvidia.enabled", havingValue = "true")
+@ConditionalOnExpression(
+        "${app.ai.nvidia.enabled:false} and ${app.ai.nvidia.legacy-pool:true}")
 public class NvidiaPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(NvidiaPool.class);
