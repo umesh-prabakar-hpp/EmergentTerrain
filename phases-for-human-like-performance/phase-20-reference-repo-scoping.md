@@ -596,6 +596,57 @@ ascending-quirk order. Cerebras is the smallest; Groq is the largest
 (BODY-source retry-after, TPD/TPM split). OllamaPool stays — its
 `/api/tags` discovery diverges from OpenAI-compat.
 
+**Status (step 3 OpenRouter scaffolding, 2026-05-20):** **LANDED**.
+- `ProviderConfig` gained `extraHeaders: Map<String,String>` to carry
+  the OpenRouter `HTTP-Referer` / `X-Title` analytics headers (and any
+  future per-provider header quirks). `GenericOpenAICompatPool`
+  applies them at both HTTP build sites via a shared
+  `applyExtraHeaders(builder)` helper.
+- `OpenRouterPool` now gated by
+  `@ConditionalOnExpression("${app.ai.openrouter.enabled:false} and ${app.ai.openrouter.legacy-pool:true}")`.
+- Commented `app.ai.providers.openrouter:` block added under the
+  generic-pool config section with `extra-headers:` filled in.
+- **Feature-parity gap explicitly documented**: the OpenRouter
+  request-body `excludedBackends` (translates to OpenRouter's
+  `provider.ignore` knob) is NOT yet supported by
+  `GenericOpenAICompatPool`. Hold the OpenRouter flip until that
+  lands in a follow-up. Cerebras has no such gap and can flip today.
+
+### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
+
+Pre-recorded fire-when-ready checklist. After the operator has run the
+flipped `app.ai.cerebras.legacy-pool=false` setting against the corpus
+for at least two weeks AND a REVIEW_REPORT refresh shows no Cerebras-
+specific regressions (no missed `prof:cerebras:ok` stamps, no
+fast-audit role lookup failures, no missing 30-RPM block warnings),
+the deletion PR is mechanical:
+
+| Action | File | Note |
+|---|---|---|
+| **Delete** | `src/main/java/com/emergentterrain/service/CerebrasPool.java` | Class is the entire migration surface |
+| **Delete** | `src/test/java/com/emergentterrain/service/CerebrasPoolParseTest.java` | Only test that constructs the concrete class |
+| **Edit** | `src/main/resources/application.yml` | Uncomment the `providers.cerebras:` block (now the active path); remove the `app.ai.cerebras.*` legacy block (`enabled`, `apiKey`, `baseUrl`, `preferredModels`, `role`, `legacy-pool` flag); remove the `legacy-pool` comment paragraph |
+| **Edit** | `src/main/java/com/emergentterrain/llm/LlmCallContext.java` | Drop `CerebrasPool` from the javadoc list (cosmetic) |
+| **Edit** | `phases-for-human-like-performance/phase-20-reference-repo-scoping.md` | Mark Cerebras line in this checklist as ✅ DELETED; trim Cerebras-specific notes from §20.11 status section |
+
+Production references to `CerebrasPool` (the class) are zero outside
+the class itself — verified with
+`grep -rn "CerebrasPool" src/main/java` after this commit. Production
+code refers to `cerebras` only as a string provider key (in
+`LlmRouter.DEFAULT_PRIMARY_ORDER`, `ReviewPanelService.DEFAULT_PROVIDERS`,
+`RoleRouterPolicy` examples) — those keep working as-is because the
+generic pool registers under the same provider key from YAML.
+
+Test references (`LlmRouterChainTest`, `ReviewPanelServiceTest`,
+`PanelReviewTest`) use a `FakePool` shape with provider key
+`"cerebras"` — not the concrete class. Untouched by the deletion.
+
+**Acceptance for step 2b:** `mvn test-compile` clean; full
+`mvn test -Dtest='LlmRouterChainTest,ReviewPanelServiceTest,PanelReviewTest'`
+green; restart the app and confirm `GenericPoolsRegistrar(cerebras):
+registered bean=openAiCompatPool_cerebras …` appears in the startup
+log.
+
 **Source pattern:** treat the OpenAI `/v1/chat/completions` protocol
 as the universal substrate (most modern providers — Anthropic via
 their OpenAI-compat endpoint, OpenAI, DeepSeek, Together, Fireworks,

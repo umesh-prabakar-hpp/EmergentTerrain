@@ -141,6 +141,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private Integer parallelism;
         /** Phase 20.11 §migration — declared pool role; empty = primary chain. */
         private String role;
+        /** Phase 20.11 §migration — extra HTTP headers (e.g. OpenRouter HTTP-Referer/X-Title). */
+        private Map<String, String> extraHeaders;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -162,6 +164,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setParallelism(Integer v) { this.parallelism = v; }
         public String getRole() { return role; }
         public void setRole(String v) { this.role = v; }
+        public Map<String, String> getExtraHeaders() { return extraHeaders; }
+        public void setExtraHeaders(Map<String, String> v) { this.extraHeaders = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -178,7 +182,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     contextWindow == null ? 32_000 : contextWindow,
                     maxTokensField == null ? "max_tokens" : maxTokensField,
                     retryAfterSource == null ? ProviderConfig.RetryAfterSource.HEADER : retryAfterSource,
-                    role == null ? "" : role.trim());
+                    role == null ? "" : role.trim(),
+                    extraHeaders == null ? Map.of() : Map.copyOf(extraHeaders));
         }
     }
 }

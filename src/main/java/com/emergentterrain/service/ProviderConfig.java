@@ -1,6 +1,7 @@
 package com.emergentterrain.service;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Phase 20.11 — declarative provider configuration for
@@ -54,6 +55,15 @@ import java.util.List;
  *                          {@code "fast-audit"} (Cerebras-style fast
  *                          single-shot calls), {@code "professor-tools"}
  *                          (the agentic tool-loop stage).
+ * @param extraHeaders      Phase 20.11 §migration — additional HTTP
+ *                          headers to attach to every chat-completions
+ *                          request from this pool. OpenRouter requires
+ *                          {@code HTTP-Referer} + {@code X-Title} for
+ *                          its free-tier routing analytics; this map
+ *                          carries them. Null or empty = no extra
+ *                          headers (the default). Authorization +
+ *                          Content-Type are always set by the pool and
+ *                          must not be duplicated here.
  */
 public record ProviderConfig(
         String providerKey,
@@ -65,14 +75,15 @@ public record ProviderConfig(
         int contextWindow,
         String maxTokensField,
         RetryAfterSource retryAfterSource,
-        String role) {
+        String role,
+        Map<String, String> extraHeaders) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
-                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "");
+                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of());
     }
 }

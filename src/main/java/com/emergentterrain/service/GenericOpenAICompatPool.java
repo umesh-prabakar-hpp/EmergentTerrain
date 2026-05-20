@@ -321,10 +321,10 @@ public class GenericOpenAICompatPool implements LlmPool {
         String outcome = "ok";
         String payload = buildPayload(modelId, prompt, tokenLimit);
         try {
-            HttpRequest req = HttpRequest.newBuilder()
+            HttpRequest req = applyExtraHeaders(HttpRequest.newBuilder()
                     .uri(URI.create(cfg.baseUrl() + "/chat/completions"))
                     .header("Authorization", "Bearer " + cfg.apiKey())
-                    .header("Content-Type", "application/json")
+                    .header("Content-Type", "application/json"))
                     .POST(HttpRequest.BodyPublishers.ofString(payload))
                     .timeout(requestTimeout)
                     .build();
@@ -427,10 +427,10 @@ public class GenericOpenAICompatPool implements LlmPool {
                 int respStatus = 0;
                 String respBody = "";
                 try {
-                    HttpRequest req = HttpRequest.newBuilder()
+                    HttpRequest req = applyExtraHeaders(HttpRequest.newBuilder()
                             .uri(URI.create(cfg.baseUrl() + "/chat/completions"))
                             .header("Authorization", "Bearer " + cfg.apiKey())
-                            .header("Content-Type", "application/json")
+                            .header("Content-Type", "application/json"))
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .timeout(requestTimeout)
                             .build();
@@ -573,6 +573,26 @@ public class GenericOpenAICompatPool implements LlmPool {
         } catch (Exception e) {
             throw new RuntimeException("Failed to build payload", e);
         }
+    }
+
+    /**
+     * Phase 20.11 §migration — attach any provider-declared
+     * {@code extraHeaders} (e.g. OpenRouter's HTTP-Referer / X-Title) to
+     * the request builder. Skips entries with null or blank keys/values
+     * defensively so a typo in the YAML doesn't crash the request build.
+     * Returns the same builder so the call chain stays fluent at both
+     * call sites.
+     */
+    private HttpRequest.Builder applyExtraHeaders(HttpRequest.Builder b) {
+        java.util.Map<String, String> headers = cfg.extraHeaders();
+        if (headers == null || headers.isEmpty()) return b;
+        for (var e : headers.entrySet()) {
+            String k = e.getKey();
+            String v = e.getValue();
+            if (k == null || k.isBlank() || v == null) continue;
+            b = b.header(k, v);
+        }
+        return b;
     }
 
     // ── Retry-after parsing ────────────────────────────────────────────────

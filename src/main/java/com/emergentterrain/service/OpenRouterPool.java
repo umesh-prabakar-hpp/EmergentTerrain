@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -57,9 +57,27 @@ import java.util.stream.Collectors;
  *
  * <p>Active when {@code app.ai.openrouter.enabled=true}. Disabled by default so a key
  * misconfiguration cannot block startup.
+ *
+ * <p>Phase 20.11 §migration step 3 — gated on
+ * {@code app.ai.openrouter.legacy-pool} (default true) so an operator
+ * can flip OpenRouter over to a YAML-configured {@link GenericOpenAICompatPool}
+ * entry under {@code app.ai.providers.openrouter:}. Feature-parity status
+ * before the flip:
+ * <ul>
+ *   <li>{@code HTTP-Referer} / {@code X-Title} — supported via
+ *       {@link ProviderConfig#extraHeaders()} (this PR).</li>
+ *   <li>{@code excludedBackends} (request-body {@code provider.ignore}
+ *       routing knob) — NOT YET supported by GenericOpenAICompatPool;
+ *       defer the flip until that lands in a follow-up.</li>
+ *   <li>Venice-shaped 429 backend block — handled in this class;
+ *       generic pool's 429 path uses the standard retry-after parsing
+ *       and may not preserve the per-backend block semantics. Confirm
+ *       against a replay corpus before flipping.</li>
+ * </ul>
  */
 @Component
-@ConditionalOnProperty(name = "app.ai.openrouter.enabled", havingValue = "true")
+@ConditionalOnExpression(
+        "${app.ai.openrouter.enabled:false} and ${app.ai.openrouter.legacy-pool:true}")
 public class OpenRouterPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(OpenRouterPool.class);
