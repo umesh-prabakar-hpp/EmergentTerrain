@@ -763,9 +763,23 @@ app:
     audit-cherry-picked-rejects:
       # 2026-05-18 false → true. Operator-flipped despite the ≥10 PUBLISHED+
       # SUPPORTED-with-cherry threshold not met (only 2 cumulative — P-617,
-      # P-660). Refresh #3's 0/5 FP observation is the empirical safety
-      # margin; revert if any of the next five firings spot-check as FP.
-      enabled: true
+      # P-660). Refresh #3's 0/5 FP observation was the empirical safety
+      # margin.
+      # 2026-05-20 true → false. The Tier 5 rollback path fired. The audit
+      # has been demonstrating FPs at scale across four refreshes against
+      # research/a3289005/: in 2026-05-20 refreshes the dimension stamped
+      # on 14/20 then 5/5 papers, including single-call papers (where
+      # cherry-picking is structurally impossible) and papers whose
+      # narration cites every call by [call_N]. Root cause is in
+      # `PanelOutcome.aggregateOmittedRelevant` (`PanelOutcome.java:154`)
+      # — the per-reviewer `omittedRelevant` field is unreliable when the
+      # reviewer LLMs miscount sandbox-rejected calls and inline-cited
+      # calls as omitted. Audit-gap dimension still stamps (advisory-only
+      # behaviour); only the publish-time REJECTED routing is suppressed.
+      # Re-enable once `aggregateOmittedRelevant` filters
+      # REJECTED/Invalid-range results AND cross-checks the prose for
+      # `[call_N]` references before the ≥2-reviewer consensus.
+      enabled: false
     # Phase 16 P6a — cross-citation verdict propagation. Default OFF runs
     # disclaimer mode: REJECTED priors appear in the priorPapers context
     # with a [REJECTED — do not propagate] tag prepended; DISPUTED priors

@@ -45,9 +45,13 @@ flipped" sections; the queue is empty.
 
 ## Snapshot
 
-All 10 previously-tracked flags are ON. One new flag joined the queue
-2026-05-18 with the P8d ship — `unsourced-claim.mode` (currently `warn`,
-pending warn→downgrade escalation after one refresh confirms FP < 5%).
+**9 of 10** previously-tracked flags are ON; F7.3
+`audit-cherry-picked-rejects` was rolled back to OFF on 2026-05-20 after
+the 0/5 FP rate that justified the 2026-05-18 flip degraded to 14/20 and
+5/5 firings in successive REVIEW_REPORT refreshes (see §F7.3). One new
+flag joined the queue 2026-05-18 with the P8d ship —
+`unsourced-claim.mode` (currently `warn`, pending warn→downgrade
+escalation after one refresh confirms FP < 5%).
 Per-flag rollout history lives in the "Recently flipped" sections below.
 
 | Tier | Flag                                                  | Current | Flipped (commit / date) |
@@ -60,7 +64,7 @@ Per-flag rollout history lives in the "Recently flipped" sections below.
 | 4    | `app.research.panel-grade-floor.enabled`              | on      | `5c06acd` 2026-05-18    |
 | 5    | `app.research.numerical-consistency.mode = downgrade` | downgrade | (this commit) 2026-05-18 |
 | 5    | `app.research.panel-degradation-demote.enabled`       | on      | (this commit) 2026-05-18 |
-| 5    | `app.research.audit-cherry-picked-rejects.enabled`    | on      | (this commit) 2026-05-18 |
+| 5    | `app.research.audit-cherry-picked-rejects.enabled`    | **off** | rolled back 2026-05-20 — FP-rate regression (see §F7.3) |
 | 5    | `app.research.gate-retry.enabled`                     | on      | (this commit) 2026-05-18 |
 | 6    | `app.research.unsourced-claim.enabled = true, mode = warn` | warn | P8d ship 2026-05-18 — pending warn→downgrade after FP-rate check |
 
@@ -218,12 +222,31 @@ unchanged).
 
 ## F7.3 — audit-cherry-picked-rejects
 
-**Status (2026-05-18):** **FLIPPED → on.** See Tier 5 section above. The
-detail below is retained as historical context.
+**Status (2026-05-20):** **ROLLED BACK → off** under the Tier 5 rollback
+contract ("Flip to false; revert paper status next publish"). The 0/5
+FP observation that justified the 2026-05-18 flip was an artefact of a
+small SUPPORTED-with-cherry sample; once corpus throughput rose,
+post-restart REVIEW_REPORT refreshes against `research/a3289005/` showed
+the dimension firing on **14 of 20 papers** (2026-05-20 mid-day) and
+**5 of 5 papers** (post-restart, 2026-05-20 12:10) — well beyond any
+plausible true-positive rate. Inspection identified three FP modes:
+single-call papers being flagged (cherry-picking structurally impossible
+with n=1); sandbox-rejected calls counted as "omitted"; inline `[call_N]`
+citations not recognised by the per-reviewer LLMs. Root cause is
+`PanelOutcome.aggregateOmittedRelevant`
+(`src/main/java/com/emergentterrain/research/PanelOutcome.java:154`) —
+the audit-gap dimension still stamps for telemetry, only the publish-time
+REJECTED routing is suppressed. Re-enable once that aggregator filters
+REJECTED/Invalid-range results AND cross-checks the prose for
+`[call_N]` references before applying the ≥2-reviewer consensus.
 
 **Phase:** 7 F7.3. **Current:**
-`app.research.audit-cherry-picked-rejects.enabled: true` (was `false`).
-**File:** `src/main/resources/application.yml:510`.
+`app.research.audit-cherry-picked-rejects.enabled: false` (rolled back
+2026-05-20 from `true` set 2026-05-18, originally `false`).
+**File:** `src/main/resources/application.yml:763`.
+
+**Historical context (2026-05-18 flip rationale) follows below for the
+record:**
 
 **What flipping it does:** SUPPORTED papers whose panel review surfaced
 the `cherry_picked_evidence` audit-gap dimension (≥2 reviewers flagged
