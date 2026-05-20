@@ -18,10 +18,17 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && cargo run --r
 ## 3. Spring Boot app
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && mvn clean spring-boot:run
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && JAVA_HOME=/usr/lib/jvm/java-25-openjdk mvn clean spring-boot:run
 ```
 
 App listens on http://localhost:8081.
+
+> Fedora 44 dropped the JDK 21 package; JDK 25 is the only `dnf`-installable JDK
+> on this dev shell. The pom targets `release 21` so cross-compile is fine, but
+> Maven still needs `JAVA_HOME` exported (env-only `java -version` works because
+> `/usr/bin/java` symlinks to JDK 25, but Maven reads `JAVA_HOME` directly).
+> `export JAVA_HOME=/usr/lib/jvm/java-25-openjdk` once per shell to skip the
+> inline prefix.
 
 ## 4. Paper-review loop (Claude Code)
 

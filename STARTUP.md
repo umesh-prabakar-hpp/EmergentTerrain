@@ -2,8 +2,8 @@
 
 ## Prerequisites
 
-- Java 21
-- Maven 3.9+
+- Java 21 *(on this Fedora 44 dev shell, the JDK 21 package was dropped — use JDK 25 as the build JDK; the pom still targets `release 21` so cross-compile is fine)*
+- Maven 3.9+ *(needs `JAVA_HOME` exported — `/usr/bin/java` resolving via PATH is not enough; see Section 5)*
 - PostgreSQL 14+
 - Rust + Cargo (for the GPU engine + Phase 8 `run_gpu_eval` tool)
 - Ollama (for local LLM fast-path — optional but recommended)
@@ -273,8 +273,16 @@ Phase 9's selection-test toggle). Just run:
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+export JAVA_HOME=/usr/lib/jvm/java-25-openjdk   # once per shell on Fedora 44 (no JDK 21 package)
 mvn clean spring-boot:run
 ```
+
+> If you skip the `JAVA_HOME` export, Maven aborts with `The JAVA_HOME
+> environment variable is not defined correctly`, even though `java -version`
+> works (the `mvn` script reads `JAVA_HOME` directly rather than walking the
+> PATH symlink). The pom targets `release 21` so JDK 25 cross-compiles cleanly;
+> the existing Mockito stack caps at Java 23, so test runs additionally need
+> `-Dnet.bytebuddy.experimental=true` until Byte Buddy is bumped in the pom.
 
 Or build and run the jar:
 
