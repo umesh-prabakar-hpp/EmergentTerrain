@@ -35,3 +35,15 @@ App listens on http://localhost:8081.
 ```
 /loop 30m /paper-review research/a3289005 --logs logs/et-app.log
 ```
+
+## 5. Phase-doc pending-items review (Claude Code)
+
+```
+/phase-review
+```
+
+Walks `phases-for-human-like-performance/` and prints a categorized list of
+genuinely-open items (code lanes, flag flips queued, live-run acceptance
+pending, operational follow-ups, deferred-by-design, doc hygiene). Add
+`--out PENDING_REVIEW.md` to also write a markdown artifact. Pair with
+`/loop 1d /phase-review` for a daily walk.

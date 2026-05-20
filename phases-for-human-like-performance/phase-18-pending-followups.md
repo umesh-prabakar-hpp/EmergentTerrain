@@ -52,6 +52,14 @@ commit refs).
 
 ### 18.1 — P8c: magnitude-range validator scans tool-call trace
 
+**Status (2026-05-18):** **SHIPPED** (commit `ff2a0eb`).
+`MagnitudeRangeValidator` now scans the final `result` field of each
+completed tool call alongside the existing Findings-prose pass; the
+per-(domain, topic) ceiling table is shared between both code paths.
+Wired at the publish-time validator layer in `UniversityService`. The
+detail below is retained as historical context for the design
+decisions (final-result-only scoping, ceiling-table reuse).
+
 **Source:** former `phase-wishlist.md` (now `phase-wishlist-human-level.md` Migration table) P8c (refresh #1 evidence on P-a328-593).
 
 **The bug:** `MagnitudeRangeValidator` today scans Findings prose only.

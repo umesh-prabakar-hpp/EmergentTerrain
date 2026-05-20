@@ -561,6 +561,67 @@ For a durable cloud-based loop, use `/schedule` instead.
 
 ---
 
+## Reviewing phase-doc pending items (Claude Code skill)
+
+A `phase-review` skill is installed at `~/.claude/skills/phase-review/SKILL.md`. It
+walks `phases-for-human-like-performance/` (or any phase-doc folder) and prints a
+categorized list of genuinely-open items — cross-checking every unchecked box
+against current code state so "DONE despite unchecked" items are not reported as
+pending.
+
+**One-shot review** — open Claude Code in this repo and run:
+
+```
+/phase-review
+```
+
+Defaults: folder `phases-for-human-like-performance/`, terminal output only.
+
+**Override the folder** (e.g. for a different project layout):
+
+```
+/phase-review docs/phases
+```
+
+**Write a markdown artifact** alongside the terminal output:
+
+```
+/phase-review --out PENDING_REVIEW.md
+```
+
+**Periodic refresh** — pair with the `loop` skill:
+
+```
+/loop 1d /phase-review
+```
+
+**Output buckets** (in order):
+
+1. **Code lanes still open** — work that requires a code change.
+2. **Flag flips queued** — `enabled` / `mode` flips waiting on a named trigger
+   (e.g. the Tier 6 `unsourced-claim.mode: warn → downgrade` flip in
+   `phase-flags.md`).
+3. **Live-run acceptance pending** — code shipped, acceptance criterion is
+   observable only after the next REVIEW_REPORT or log refresh.
+4. **Operational follow-ups** — mechanical PRs gated on burn-in (e.g. the Phase
+   20.11 step-2b deletion checklists).
+5. **Deferred by design** — items with an explicit named trigger ("if a second
+   example appears within N refreshes, promote").
+6. **Doc hygiene** — status-vs-body inconsistencies caught during the walk,
+   docs marked `CLOSED PENDING REFRESH` that should move to `archive/`.
+
+**Skill arguments:**
+
+| Arg | Default | Notes |
+|---|---|---|
+| `<phase_dir>` | `phases-for-human-like-performance/` | Override if the project uses a different folder. |
+| `--out <path>` | none | If given, write the bucket tables to this markdown file in addition to terminal output. |
+
+> The skill is read-only — doc-hygiene findings are reported, never auto-applied.
+> Fix them yourself after reviewing the summary.
+
+---
+
 ## Switching models
 
 **Groq models** — pin a comma-separated CSV (Phase 7 — note `preferredModels`,
