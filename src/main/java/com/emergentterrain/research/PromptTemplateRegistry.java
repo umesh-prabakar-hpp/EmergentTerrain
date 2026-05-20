@@ -1,8 +1,13 @@
 package com.emergentterrain.research;
 
+import com.emergentterrain.repo.PromptTemplateVariantRepository;
 import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -45,9 +50,23 @@ import java.util.regex.Pattern;
 @Service
 public class PromptTemplateRegistry {
 
+    private static final Logger log = LoggerFactory.getLogger(PromptTemplateRegistry.class);
+
     private static final Pattern SLOT = Pattern.compile("\\{\\{\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\}\\}");
 
     private final Map<String, List<PromptTemplate>> variantsById = new HashMap<>();
+
+    /**
+     * Phase 4c Piece 3 PR1 — optional persistence sidecar. When wired
+     * (Spring context with a JPA datasource), the registry idempotently
+     * upserts every seeded template into the DB on startup so the
+     * subsequent piece-3 PRs (counter writes, rollback judge) have a
+     * row to attach to. Null in unit-test contexts that build the
+     * registry via {@code new PromptTemplateRegistry()}; the upsert
+     * code path is then skipped entirely.
+     */
+    @Autowired(required = false)
+    private PromptTemplateVariantRepository variantRepo;
 
     @PostConstruct
     public void seedDefaults() {
@@ -832,6 +851,53 @@ public class PromptTemplateRegistry {
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.
                 """));
+    }
+
+    /**
+     * Phase 4c Piece 3 PR1 — idempotent upsert of every in-memory
+     * variant into {@code prompt_template_variants}. Keyed on
+     * {@code (templateId, versionTag)}: existing rows have their
+     * {@code body} updated (Java-source edits to a template body
+     * shouldn't reset its counters), and missing rows are inserted at
+     * {@code Status.ACTIVE} with all counters zero.
+     *
+     * <p>Runs as a separate {@code @PostConstruct} so the Spring
+     * lifecycle calls it after {@link #seedDefaults} completes (the
+     * registry's two PostConstruct methods both bind to the same bean;
+     * their relative ordering is fine because both have no inter-
+     * dependency — {@link #syncVariantsToDatabase} reads
+     * {@link #variantsById} which {@link #seedDefaults} populated).
+     *
+     * <p>Skipped silently in unit-test contexts that build the
+     * registry via {@code new PromptTemplateRegistry()} — the
+     * {@link #variantRepo} field is null then.
+     */
+    @PostConstruct
+    public void syncVariantsToDatabase() {
+        if (variantRepo == null) return;
+        Instant now = Instant.now();
+        int inserted = 0;
+        int updated = 0;
+        for (List<PromptTemplate> variants : variantsById.values()) {
+            for (PromptTemplate t : variants) {
+                Optional<PromptTemplateVariant> existing =
+                        variantRepo.findByTemplateIdAndVersionTag(t.id(), t.version());
+                if (existing.isPresent()) {
+                    PromptTemplateVariant row = existing.get();
+                    if (!t.body().equals(row.getBody())) {
+                        row.setBody(t.body());
+                        variantRepo.save(row);
+                        updated++;
+                    }
+                } else {
+                    variantRepo.save(new PromptTemplateVariant(
+                            t.id(), t.version(), t.body(), now));
+                    inserted++;
+                }
+            }
+        }
+        log.info("PromptTemplateRegistry: variant sync done inserted={} body-updated={} total-in-memory={}",
+                inserted, updated, variantsById.values().stream().mapToInt(List::size).sum());
     }
 
     /**

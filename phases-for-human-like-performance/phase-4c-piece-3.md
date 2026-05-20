@@ -174,22 +174,45 @@ Sized so each is reviewable in one session.
 
 ### PR1 — Entity + repo + idempotent seed
 
-**Files:**
-- New: `src/main/java/com/emergentterrain/research/PromptTemplateVariant.java`
-  (`@Entity` matching the memo §5 shape, plus
-  `narratedAggregated/confirmedAggregated/failedAggregated` counters).
-  Drop the per-domain sibling table (Decision 10 revision).
-- New: `src/main/java/com/emergentterrain/repo/PromptTemplateVariantRepository.java`.
-- Modify: `PromptTemplateRegistry` — on `@PostConstruct`, idempotent-
-  upsert each registered template to DB keyed on `(templateId, versionTag)`.
-  Reads still come from the in-memory map; DB exists to hold counters.
+**Status (2026-05-20):** ✅ **LANDED**.
 
-**Acceptance:** existing tests pass; mvn test runs Hibernate
-ddl-auto:update against the test H2 in-mem DB and the table exists;
-two startups of the same registry don't duplicate rows.
+**Files shipped:**
+- `src/main/java/com/emergentterrain/research/PromptTemplateVariant.java`
+  — `@Entity` with `(template_id, version_tag)` unique constraint,
+  aggregated counters (`papers_narrated`, `replications_confirmed`,
+  `replications_failed`), Status enum ({ACTIVE, ROLLED_BACK, RETIRED}),
+  setters that auto-stamp `rolled_back_at` on non-ACTIVE transitions.
+- `src/main/java/com/emergentterrain/repo/PromptTemplateVariantRepository.java`
+  — JpaRepository with `findByTemplateIdAndVersionTag` (idempotency
+  lookup), `findByTemplateId`, `findByTemplateIdAndStatus`.
+- `src/main/java/com/emergentterrain/research/PromptTemplateRegistry.java`
+  — new `@Autowired(required=false) variantRepo` field + new
+  `@PostConstruct public void syncVariantsToDatabase()` that
+  idempotently upserts every in-memory variant. Null-safe for the
+  unit-test path that constructs the registry directly.
 
-**Flag:** no flag — schema change is forward-compatible (empty table
-on first deploy).
+**Acceptance criteria met:**
+- All 33 existing registry tests pass.
+- New `PromptTemplateVariantTest` (10 cases) pins:
+  - Entity shape (constructor, accessors, default ACTIVE status).
+  - `setStatus` semantics (ROLLED_BACK / RETIRED both stamp
+    `rolledBackAt`; flipping back to ACTIVE preserves the original
+    timestamp for forensics).
+  - Counter increments.
+  - `syncVariantsToDatabase` no-ops when `variantRepo` is null.
+  - Empty repo → insert-all path.
+  - Existing row with unchanged body → no save (counters preserved).
+  - Existing row with changed body → save called once, counters
+    preserved on the in-place mutation.
+  - **The acceptance criterion verbatim**: "two startups of the
+    same registry don't duplicate rows" — explicit test via a
+    mock-backed simulated store; `save` count stays at the
+    initial-insert number across two calls.
+- `mvn test-compile` clean across all sources.
+
+**Flag:** none. Hibernate `ddl-auto: update` creates the table on
+next start; legacy installs without the rows still work because
+runtime reads come from the in-memory map.
 
 ### PR2 — Epsilon-greedy selector
 
