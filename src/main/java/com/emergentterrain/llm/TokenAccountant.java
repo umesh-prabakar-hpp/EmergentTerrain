@@ -36,7 +36,7 @@ public class TokenAccountant {
         long total = usage.total();
         if (total <= 0) return;
         byProvider.computeIfAbsent(usage.provider(), k -> new ConcurrentLinkedDeque<>())
-                .add(new Entry(usage.instant().toEpochMilli(), total));
+                .add(new Entry(usage.instant().toEpochMilli(), total, usage.model()));
         if (log.isTraceEnabled()) {
             log.trace("token-spend provider={} model={} prompt={} completion={}",
                     usage.provider(), usage.model(),
@@ -55,8 +55,11 @@ public class TokenAccountant {
      */
     public void recordDelta(String provider, long delta) {
         if (delta == 0 || provider == null) return;
+        // Adjustment entries carry no model — they are pre-debit reservations
+        // or post-call corrections, not standalone calls. Tier classifiers
+        // see {@code null} for these and either skip or bucket as "unknown".
         byProvider.computeIfAbsent(provider, k -> new ConcurrentLinkedDeque<>())
-                .add(new Entry(System.currentTimeMillis(), delta));
+                .add(new Entry(System.currentTimeMillis(), delta, null));
     }
 
     public long dailyTotal(String provider)  { return sumWindow(provider, DAY_MS); }
@@ -80,6 +83,47 @@ public class TokenAccountant {
         return out;
     }
 
+    /**
+     * Sum tokens across all providers within {@code windowMs}, restricted to
+     * entries whose model name matches {@code modelMatch}. Entries with a
+     * {@code null} model (pre-debit reservations / corrections from
+     * {@link #recordDelta}) are passed through to the predicate so callers
+     * can choose to include or exclude them. Returns 0 when no entries match.
+     *
+     * <p>Used by {@link TokenTierReporter} to bucket tokens into
+     * primary-tier / fast-tier / unknown without per-tier deques.
+     */
+    public long tokensByModel(long windowMs, java.util.function.Predicate<String> modelMatch) {
+        long now    = System.currentTimeMillis();
+        long cutoff = now - windowMs;
+        long sum = 0;
+        for (ConcurrentLinkedDeque<Entry> d : byProvider.values()) {
+            for (Entry e : d) {
+                if (e.t >= cutoff && modelMatch.test(e.model)) sum += e.tokens;
+            }
+        }
+        return sum;
+    }
+
+    /**
+     * Count entries (i.e. completed LLM calls) across all providers within
+     * {@code windowMs} whose model matches {@code modelMatch}. Adjustment
+     * entries (null model from {@link #recordDelta}) are passed to the
+     * predicate. Useful for "tokens per call" averages alongside
+     * {@link #tokensByModel}.
+     */
+    public long callsByModel(long windowMs, java.util.function.Predicate<String> modelMatch) {
+        long now    = System.currentTimeMillis();
+        long cutoff = now - windowMs;
+        long n = 0;
+        for (ConcurrentLinkedDeque<Entry> d : byProvider.values()) {
+            for (Entry e : d) {
+                if (e.t >= cutoff && modelMatch.test(e.model)) n++;
+            }
+        }
+        return n;
+    }
+
     private long sumWindow(String provider, long windowMs) {
         ConcurrentLinkedDeque<Entry> d = byProvider.get(provider);
         if (d == null) return 0;
@@ -100,6 +144,13 @@ public class TokenAccountant {
     private static final class Entry {
         final long t;
         final long tokens;
-        Entry(long t, long tokens) { this.t = t; this.tokens = tokens; }
+        /** Model identifier for a {@link #record(TokenUsage)} entry; {@code null}
+         *  for adjustment entries produced by {@link #recordDelta}. */
+        final String model;
+        Entry(long t, long tokens, String model) {
+            this.t = t;
+            this.tokens = tokens;
+            this.model = model;
+        }
     }
 }
