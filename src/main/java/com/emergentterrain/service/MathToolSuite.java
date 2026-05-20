@@ -417,6 +417,12 @@ public class MathToolSuite {
             return "Missing expression.";
         if (rangeStart < 0 || rangeEnd <= rangeStart || rangeEnd - rangeStart > MAX_SYMBOLIC_RANGE)
             return "Invalid range: must be positive and span ≤ " + MAX_SYMBOLIC_RANGE;
+        // Phase 21 §21.5 — rewrite the textbook power operator `^` to the
+        // sandbox parser's `**`. The SandboxEngine token table has STARSTAR
+        // but no caret (caret would throw "Unexpected char '^'"), so the
+        // LLM's reflex of writing `n^2` cost 1–3 wasted rounds per paper
+        // (P-a328-685 signature) before this rewrite.
+        expression = rewriteCaretToStarStar(expression, "evaluate_symbolic");
         try {
             long t = System.currentTimeMillis();
             SandboxEngine.SandboxResult result =
@@ -428,6 +434,34 @@ public class MathToolSuite {
         } catch (Exception e) {
             return "Symbolic evaluation failed: " + e.getMessage();
         }
+    }
+
+    /**
+     * Phase 21 §21.5 — rewrite the textbook power operator {@code ^} to the
+     * sandbox parser's {@code **}. Targets {@code evaluate_symbolic} and
+     * {@code run_gpu_eval}, both of which take a scalar arithmetic
+     * expression in {@code n} only (no string literals are valid syntax),
+     * so the rewrite can be unconditional. Emits an INFO log per hit so
+     * adoption is measurable from the operational-logs section of
+     * REVIEW_REPORT.
+     *
+     * <p>Run BEFORE the parser / static-checker. {@code Symja}'s
+     * {@code run_symbolic} path is unaffected — {@code ^} is its native
+     * power operator and lexes to {@code Power[…]} directly.
+     */
+    static String rewriteCaretToStarStar(String expression, String toolName) {
+        if (expression == null || expression.indexOf('^') < 0) return expression;
+        String rewritten = expression.replace("^", "**");
+        log.info("MathToolSuite: {} rewrote `^` → `**` (count={}) expr=\"{}\"",
+                toolName, countChar(expression, '^'),
+                expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+        return rewritten;
+    }
+
+    private static int countChar(String s, char c) {
+        int n = 0;
+        for (int i = 0; i < s.length(); i++) if (s.charAt(i) == c) n++;
+        return n;
     }
 
     /**
@@ -596,6 +630,9 @@ public class MathToolSuite {
             return "Range too large: " + span + " samples (max "
                     + GpuEvalStaticChecker.MAX_RANGE + ").";
         }
+
+        // Phase 21 §21.5 — `^` → `**` pre-rewrite, same as evaluateSymbolic.
+        formula = rewriteCaretToStarStar(formula, "run_gpu_eval");
 
         // Deterministic Java-side check that mirrors the Rust validate(). Fast
         // feedback to the LLM without paying a gRPC round-trip on a doomed call.

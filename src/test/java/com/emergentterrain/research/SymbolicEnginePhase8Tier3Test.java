@@ -250,4 +250,51 @@ class SymbolicEnginePhase8Tier3Test {
         assertThat(((SymbolicStaticChecker.Result.Rejected) r).reason())
                 .contains("Import");
     }
+
+    // ────────────── Phase 21 §21.5: local-scope wrappers ──────────────
+
+    @Test
+    void staticCheckerAllowsModuleWithLocalBindings() {
+        // P-a328-690 round-0 signature: Module[{var=val}, expr]. Pre-21.5
+        // rejected as "non-whitelisted heads: Module, CompoundExpression";
+        // forced 1–3 wasted rounds before the LLM gave up and emitted the
+        // canonical form.
+        SymbolicStaticChecker.Result r =
+                SymbolicStaticChecker.check("Module[{a = 2, b = 3}, a^2 + b]");
+        assertThat(r).isInstanceOf(SymbolicStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void staticCheckerAllowsWithAndBlock() {
+        for (String expr : new String[] {
+                "With[{a = 2}, a + 1]",
+                "Block[{a = 5}, a * a]"
+        }) {
+            SymbolicStaticChecker.Result r = SymbolicStaticChecker.check(expr);
+            assertThat(r)
+                    .as("expected approval for: %s", expr)
+                    .isInstanceOf(SymbolicStaticChecker.Result.Approved.class);
+        }
+    }
+
+    @Test
+    void staticCheckerAllowsCompoundExpression() {
+        // `a; b; c` parses as CompoundExpression[a, b, c]. Module bodies
+        // use it heavily, so admitting it is required for §21.5 to land.
+        SymbolicStaticChecker.Result r =
+                SymbolicStaticChecker.check("Module[{a = 2}, a + 1; a^2; a + a]");
+        assertThat(r).isInstanceOf(SymbolicStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void staticCheckerStillRejectsSetEvenInsideModuleBody() {
+        // Module bodies are admitted, but Set / SetDelayed inside them are
+        // still individually blocked — the local-scope wrapper isn't a
+        // bypass for state-mutation primitives.
+        SymbolicStaticChecker.Result r =
+                SymbolicStaticChecker.check("Module[{a = 1}, Set[x, 5]; a + x]");
+        assertThat(r).isInstanceOf(SymbolicStaticChecker.Result.Rejected.class);
+        assertThat(((SymbolicStaticChecker.Result.Rejected) r).reason())
+                .contains("Set");
+    }
 }

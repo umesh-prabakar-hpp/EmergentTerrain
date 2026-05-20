@@ -112,7 +112,19 @@ public final class SymbolicStaticChecker {
             // Solve / Replace / Limit / Series return AssRule[...] lists. These
             // are data, not state-mutating — Set/SetDelayed are the dangerous
             // pair and remain blacklisted.
-            "Rule", "RuleDelayed", "Replace", "ReplaceAll", "ReplaceRepeated"
+            "Rule", "RuleDelayed", "Replace", "ReplaceAll", "ReplaceRepeated",
+            // ── Local scope (Phase 21 §21.5) ────────────────────────────────
+            // Module / With / Block create LOCAL bindings that don't escape
+            // the call. Symja allocates a fresh `$module$NNN` symbol per
+            // Module entry, evaluates the body, then discards the scope.
+            // Combined with FILESYSTEM_ENABLED=false and the Set/SetDelayed
+            // blacklist (the actual state-mutation primitives), local-scope
+            // wrappers are pure and safe. Pre-21.5 P-a328-690's round-0
+            // wrote `Module[{...}, ...]` which the LLM reflexively emits for
+            // any "let me define intermediates" thought; rejecting it forced
+            // 1–3 wasted rounds. CompoundExpression (`a; b; c`) is admitted
+            // for the same reason — Module bodies use it heavily.
+            "Module", "With", "Block", "CompoundExpression"
     );
 
     public static Result check(String expression) {

@@ -380,6 +380,11 @@ non-matching numeric indices and slips through.
 
 ### 21.5 — Symbolic-tool grammar relaxation (`^` and `Module[...]`)
 
+**Status (2026-05-19):** **landed**. `^` → `**` pre-rewrite on the two
+sandbox-grammar paths plus Module/With/Block/CompoundExpression added to
+the Symja whitelist; see "Implementation notes" at end of section.
+
+
 **The signal:** P-a328-685 wasted two rounds on `^` rejected by
 `evaluate_symbolic` (line 1) and `run_gpu_eval` (parse failed:
 `Unexpected char '^' line 1 — run_gpu_eval accepts a scalar arithmetic
@@ -410,6 +415,52 @@ emits the canonical form.
 **Acceptance:** 0 rejections on `^` or `Module[…]` across a 1-hour
 corpus run after the rewrite lands; existing sandbox-friction unit
 tests still pass.
+
+**Implementation notes (2026-05-19):**
+
+- *`^` rewrite.* New package-static helper
+  `MathToolSuite.rewriteCaretToStarStar(expression, toolName)` —
+  unconditional `^` → `**` substitution. Called from
+  `evaluateSymbolic` (SandboxEngine.evalExpr path) and `runGpuEval`
+  (GpuEvalStaticChecker.check path) before the parser/checker runs.
+  Emits one INFO line per hit (`MathToolSuite: <tool> rewrote ^ → **
+  (count=N) expr="…"`) so adoption is measurable from REVIEW_REPORT's
+  operational-logs section. The Symja path (`run_symbolic`) is
+  unaffected — Symja's parser handles `^` natively as the `Power`
+  operator. Unconditional rewrite is safe because both target tools
+  accept only scalar arithmetic expressions in `n` (no string
+  literals are valid syntax there).
+- *Module / With / Block / CompoundExpression.* Added all four heads
+  to `SymbolicStaticChecker.ALLOWED_HEADS`. Symja's Module allocates
+  a fresh `$module$NNN` symbol per entry, evaluates the body, and
+  discards the scope — there is no state escape. Combined with
+  `Config.FILESYSTEM_ENABLED = false` and the still-blacklisted
+  Set/SetDelayed (which remain individually rejected even inside a
+  Module body, verified by a new regression test), local-scope
+  wrappers are pure and safe.
+- *Deviation from doc.* The doc proposed a syntactic
+  inline-substitution rewrite of `Module[{var=val}, body]` into
+  `body /. {var -> val}` form. Adding the four heads to the whitelist
+  is simpler (one-line list change vs. a parser-aware rewriter) and
+  equivalent in effect — Symja evaluates the Module to the same
+  result as the substituted form. Doc updated to reflect the
+  chosen approach.
+- *Tests.* New `MathToolSuiteCaretRewriteTest` (6 cases) covers the
+  static helper's no-change / single-hit / multi-hit / null paths
+  plus two round-trip tests through `evaluate_symbolic` (one with
+  `n^2`, one with `n**2` to pin back-compat). Four new tests in
+  `SymbolicEnginePhase8Tier3Test`: Module with bindings approved,
+  With/Block approved, CompoundExpression approved, Set/SetDelayed
+  still rejected inside a Module body (proves the local-scope
+  admission is not a bypass for state-mutation primitives).
+
+**What this section does NOT solve:** the GPU eval Rust-side validator
+(`eval_expr::validate` in EmergentTerrainGPUEngine/src/eval_expr.rs)
+does not get the `^` rewrite — that's the Java-side mirror of the
+same check. Any client that bypasses MathToolSuite and hits the Rust
+endpoint directly with `^` will still fail. Today there are no such
+clients (the Java MathToolSuite is the only path), so this is a
+latent constraint, not a live one.
 
 
 ### 21.6 — Citation validator: whitelist sweep parameters from substring match
