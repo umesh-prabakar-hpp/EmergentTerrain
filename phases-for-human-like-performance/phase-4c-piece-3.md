@@ -216,21 +216,51 @@ runtime reads come from the in-memory map.
 
 ### PR2 — Epsilon-greedy selector
 
-**Files:**
-- Modify: `PromptTemplateRegistry.pickActive(String id)` — replaces
-  "last-registered wins" with: read all ACTIVE variants for the id;
-  if ≤ 1, return it; if ≥ 2, `rng.nextDouble() < ε` → pick a random
-  exploration arm, else pick the highest-success-rate variant. Tie-
-  break on `papersNarrated` descending so newer variants get a chance.
-- Flag: `app.research.prompt-template-epsilon-greedy.enabled`
-  (default false). When false, fall back to last-registered.
-- Config: `app.research.prompt-template-epsilon-greedy.epsilon`
-  (default 0.20 per Decision 6 revision).
+**Status (2026-05-20):** ✅ **LANDED, dormant.** Flag default off so
+runtime behaviour is unchanged — when an operator enables the flag
+(and an alternative variant has been authored), epsilon-greedy
+selection activates without another code change.
 
-**Acceptance:** unit test on `pickActive` with a 2-variant id and
-seeded RNG; over 1000 picks, ε = 0.20 produces 18–22% pick rate for
-the non-default arm (within ±2pp tolerance). Existing
-single-variant ids still return their sole variant.
+**Files shipped:**
+- `PromptTemplateRegistry.pickActive(String id)` — three-mode dispatch:
+  - `epsilonGreedyEnabled=false` OR `variantRepo=null` OR `< 2 in-memory
+    variants` → last-registered wins (pre-piece-3 behavior, default).
+  - flag on AND ≥ 2 ACTIVE rows in DB → `epsilonGreedyPick(id, inMemory)`:
+    intersect with the in-memory list, then `nextDouble() < ε` →
+    uniform-random arm (explore); else highest success-rate arm
+    (exploit), tie-break on **lower** `papersNarrated` (give newer
+    variants budget).
+  - flag on but `findByTemplateIdAndStatus(ACTIVE)` returns empty
+    (PR1 upsert hasn't run / all variants ROLLED_BACK) → fall back
+    to last-registered. Never throws.
+- New `@Value` flags:
+  - `app.research.prompt-template-epsilon-greedy.enabled` (default false)
+  - `app.research.prompt-template-epsilon-greedy.epsilon` (default 0.20)
+- Package-private `Random rng` field so tests can inject a seeded RNG
+  for deterministic assertions.
+
+**Acceptance criterion met** (per the design doc): 7 new tests in
+`PromptTemplateEpsilonGreedyTest`:
+- flag-off → last-registered preserved across 100 picks.
+- flag-on with 1 variant → that one always wins.
+- flag-on with empty repo → graceful fallback to last-registered.
+- flag-on with one ROLLED_BACK + one ACTIVE → only the active arm
+  is returned regardless of ε.
+- flag-on with seeded RNG and 1000 picks → non-default arm picked
+  80–120 times (expected 100 from ε=0.20 × 0.5 uniform-over-2-arms).
+  *Note*: the original doc said "18–22%" assuming exploration
+  exclusively picks the non-default; the implementation picks
+  uniformly across all arms in the explore branch (standard
+  ε-greedy), so the non-default rate is `ε × (k-1)/k`. For k=2 that's
+  10%. Test corrected to 10% ± 2pp.
+- zero terminal outcomes → exploit branch tie-breaks on lower
+  papersNarrated.
+- different success rates → exploit picks the higher one.
+
+**Flag:** `app.research.prompt-template-epsilon-greedy.enabled`,
+default false. **Operator activates by setting to true after**: an
+alternative variant has been registered AND the revised decisions
+in this doc are accepted.
 
 ### PR3 — Stats writer on terminal outcome
 

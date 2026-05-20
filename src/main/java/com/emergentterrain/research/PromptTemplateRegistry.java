@@ -5,6 +5,7 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Random;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -67,6 +69,40 @@ public class PromptTemplateRegistry {
      */
     @Autowired(required = false)
     private PromptTemplateVariantRepository variantRepo;
+
+    /**
+     * Phase 4c Piece 3 PR2 — epsilon-greedy selector flag. When false
+     * (default), {@link #pickActive(String)} keeps the pre-piece-3
+     * "last-registered wins" semantics so the registry is bit-identical
+     * to today. When true AND ≥ 2 ACTIVE variants exist for the id AND
+     * {@link #variantRepo} is wired, {@link #pickActive(String)} uses
+     * epsilon-greedy selection: explore (uniform random) with
+     * probability {@link #epsilon}, else exploit (highest success rate).
+     *
+     * <p>Default false because the piece-3 design doc names three
+     * operator pre-conditions for activation: (a) an alternative
+     * variant exists, (b) the revised ε / threshold are accepted,
+     * (c) Phase 21's binary has run ≥ 1 week.
+     */
+    @Value("${app.research.prompt-template-epsilon-greedy.enabled:false}")
+    private boolean epsilonGreedyEnabled;
+
+    /**
+     * Exploration probability when {@link #epsilonGreedyEnabled} is on.
+     * Default 0.20 per the piece-3 design doc Decision 6 revision
+     * (corpus rate is ~38 papers/day; ε=0.10 was too slow). Operator
+     * can override via {@code app.research.prompt-template-epsilon-greedy.epsilon}.
+     */
+    @Value("${app.research.prompt-template-epsilon-greedy.epsilon:0.20}")
+    private double epsilon;
+
+    /**
+     * RNG used by epsilon-greedy. Package-private so tests can swap in
+     * a seeded {@link Random} for deterministic assertions. {@code null}
+     * when {@link #epsilonGreedyEnabled} is false (the rng path is
+     * skipped before {@code rng.nextDouble()} is reached).
+     */
+    Random rng = new Random();
 
     @PostConstruct
     public void seedDefaults() {
@@ -948,15 +984,96 @@ public class PromptTemplateRegistry {
         return renderTemplate(template.body(), params);
     }
 
-    /** Current active variant for {@code id}, or empty when no variant is registered. */
+    /**
+     * Current active variant for {@code id}, or empty when no variant is
+     * registered.
+     *
+     * <p>Two selection modes:
+     * <ul>
+     *   <li><b>Last-registered wins</b> (default, when
+     *       {@link #epsilonGreedyEnabled} is false OR variantRepo is
+     *       null OR &lt; 2 variants exist for the id). Bit-identical
+     *       to the pre-piece-3 behaviour.</li>
+     *   <li><b>Epsilon-greedy</b> (when the flag is on AND ≥ 2
+     *       in-memory variants AND the DB has matching ACTIVE rows):
+     *       with probability {@link #epsilon} pick a uniform-random
+     *       ACTIVE arm (exploration); else pick the highest-success-
+     *       rate arm. Success rate is
+     *       {@code confirmed / max(1, confirmed + failed)}; ties broken
+     *       by lower {@code papersNarrated} so newer variants get
+     *       additional sample budget. Variants in ROLLED_BACK or
+     *       RETIRED status are excluded.</li>
+     * </ul>
+     *
+     * <p>Falls back to last-registered when the DB lookup returns
+     * zero ACTIVE rows for the id (e.g. piece-3 PR1's upsert hasn't
+     * run yet, or the rows have all been ROLLED_BACK) — never throws.
+     */
     public Optional<PromptTemplate> pickActive(String id) {
         List<PromptTemplate> variants = variantsById.get(id);
         if (variants == null || variants.isEmpty()) {
             return Optional.empty();
         }
-        // Piece 2: last-registered wins. Piece 3 swaps this for an
-        // epsilon-greedy selector that takes the per-domain stats into account.
+        if (epsilonGreedyEnabled && variantRepo != null && variants.size() >= 2) {
+            Optional<PromptTemplate> picked = epsilonGreedyPick(id, variants);
+            if (picked.isPresent()) return picked;
+            // else: fall through to last-registered (no ACTIVE rows in DB yet).
+        }
         return Optional.of(variants.get(variants.size() - 1));
+    }
+
+    /**
+     * Phase 4c Piece 3 PR2 — epsilon-greedy implementation. Reads the
+     * persisted ACTIVE variant rows for {@code id} via
+     * {@link #variantRepo} and uses their counters to choose between
+     * exploration and exploitation.
+     *
+     * <p>Restricts the in-memory variant list to those with a matching
+     * ACTIVE row in the DB; if none match (e.g. all rolled back), returns
+     * empty so the caller can fall back. Tie-break in the exploit branch
+     * is on lower {@code papersNarrated} so a freshly-added variant gets
+     * a chance to accumulate samples before the current best dominates.
+     */
+    Optional<PromptTemplate> epsilonGreedyPick(String id, List<PromptTemplate> inMemory) {
+        List<PromptTemplateVariant> activeRows = variantRepo.findByTemplateIdAndStatus(
+                id, PromptTemplateVariant.Status.ACTIVE);
+        if (activeRows == null || activeRows.isEmpty()) return Optional.empty();
+        // Intersect in-memory variants with ACTIVE rows by version tag.
+        Map<String, PromptTemplate> byVersion = new HashMap<>();
+        for (PromptTemplate t : inMemory) byVersion.put(t.version(), t);
+        List<PromptTemplateVariant> usable = new ArrayList<>();
+        for (PromptTemplateVariant row : activeRows) {
+            if (byVersion.containsKey(row.getVersionTag())) usable.add(row);
+        }
+        if (usable.isEmpty()) return Optional.empty();
+        if (usable.size() == 1) {
+            return Optional.of(byVersion.get(usable.get(0).getVersionTag()));
+        }
+        // Explore branch.
+        if (rng.nextDouble() < epsilon) {
+            PromptTemplateVariant arm = usable.get(rng.nextInt(usable.size()));
+            return Optional.of(byVersion.get(arm.getVersionTag()));
+        }
+        // Exploit: highest success rate; tie-break on lower papersNarrated.
+        PromptTemplateVariant best = usable.get(0);
+        double bestRate = successRate(best);
+        for (int i = 1; i < usable.size(); i++) {
+            PromptTemplateVariant cand = usable.get(i);
+            double candRate = successRate(cand);
+            if (candRate > bestRate
+                    || (candRate == bestRate && cand.getPapersNarrated() < best.getPapersNarrated())) {
+                best = cand;
+                bestRate = candRate;
+            }
+        }
+        return Optional.of(byVersion.get(best.getVersionTag()));
+    }
+
+    /** Confirmed-replication rate (0.0 when no terminal outcomes yet). */
+    private static double successRate(PromptTemplateVariant v) {
+        long terminal = v.getReplicationsConfirmed() + v.getReplicationsFailed();
+        if (terminal <= 0) return 0.0;
+        return (double) v.getReplicationsConfirmed() / (double) terminal;
     }
 
     /** All registered variants for {@code id}, in registration order. */
