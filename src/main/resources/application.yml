@@ -362,6 +362,37 @@ app:
           HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
           X-Title: EmergentTerrain
         excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
+    # Phase 20.11 §migration step 3 — Groq scaffolding (NOT YET FLIPPED).
+    # Generic-pool entry below is commented out; the legacy GroqPool bean
+    # remains active. Parity status (see GroqPool's class-javadoc for the
+    # full inventory):
+    #   - BODY-source retry-after — supported (RetryAfterSource.BODY +
+    #     parseRetryAfterMs handles hms/bare-seconds/"try again in" forms).
+    #   - TPD vs TPM distinction — supported via long-block-body-markers
+    #     ["tokens per day", "TPD"] + long-block-ms 3600000 below.
+    #   - Reasoning-model content→reasoning fallback — supported.
+    #   - Borda startup ranking — LOST; operator must pre-rank models in
+    #     YAML order. Acceptable since preferredModels was already curated.
+    #   - Fast-tier split — NOT YET. GroqPool exposes fastTierModelIds()
+    #     queried by FastModelRegistry; the generic pool defaults that to
+    #     empty. HOLD THE FLIP until the parity follow-up adds either a
+    #     fast-tier YAML flag or a second groq-fast: YAML entry.
+    #   groq:
+    #     base-url: https://api.groq.com/openai/v1
+    #     api-key-env: GROQ_API_KEY
+    #     api-key: ${app.ai.groq.apiKey}
+    #     models:
+    #       # Pre-ranked: highest-quality first (operator's responsibility
+    #       # post-flip; the legacy Borda+Ollama tournament that produced
+    #       # this order at startup goes away).
+    #       - llama-3.3-70b-versatile
+    #       - openai/gpt-oss-120b
+    #     supports-tools: true
+    #     context-window: 32000
+    #     parallelism: 3
+    #     retry-after-source: BODY            # Groq's distinctive quirk
+    #     long-block-body-markers: ["tokens per day", "TPD"]
+    #     long-block-ms: 3600000              # 1h, matches recordGroqRateLimitBlock TPD default
     # Phase 20.11 §migration step 3 NVIDIA — FLIPPED 2026-05-20.
     # Parity markers below mirror NvidiaPool.handleErrorResponse +
     # inferBlockMsFromBody one-for-one (commit c7ec03a). The legacy

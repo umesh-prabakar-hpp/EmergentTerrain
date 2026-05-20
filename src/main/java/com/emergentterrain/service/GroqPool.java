@@ -13,7 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -48,9 +48,50 @@ import java.util.stream.Collectors;
  * If Groq is unreachable at startup the application exits immediately with a clear message.
  * Active when app.ai.groq.enabled=true.
  * Set app.ai.groq.preferredModels (comma-separated) to skip discovery and pin models.
+ *
+ * <p>Phase 20.11 §migration step 3 (Groq) — gated on
+ * {@code app.ai.groq.legacy-pool} (default true) so an operator can
+ * flip Groq over to a YAML-configured {@link GenericOpenAICompatPool}.
+ * Feature-parity status:
+ * <ul>
+ *   <li>BODY-source retry-after parsing — supported via
+ *       {@link ProviderConfig.RetryAfterSource#BODY} and
+ *       {@code parseRetryAfterMs} (handles {@code "4.82s"} /
+ *       {@code "43m51.312s"} / {@code "1h23m45s"} formats already).</li>
+ *   <li>Reasoning-model {@code content}→{@code reasoning} fallback —
+ *       generic pool already does this for ALL providers (Groq's
+ *       gpt-oss-120b was the original motivating case).</li>
+ *   <li>TPD vs TPM block distinction — supported via the NVIDIA-parity
+ *       {@code long-block-body-markers} (commit c7ec03a). Set the
+ *       markers to {@code ["tokens per day", "TPD"]} and {@code long-
+ *       block-ms} to {@code 3600000} (1h) to mirror
+ *       {@code recordGroqRateLimitBlock}'s TPD branch.</li>
+ *   <li>Standard 429 retry-with-backoff — generic pool's
+ *       {@code syncCallWithBackoff} matches.</li>
+ *   <li>Startup Borda+Ollama tournament ranking — <b>LOST</b>. The
+ *       generic pool uses the static {@code models} list. The
+ *       operator must pre-rank models in YAML order. Acceptable
+ *       because {@code app.ai.groq.preferredModels} is already a
+ *       hand-curated list; the Borda step was decoration on top of
+ *       operator choice.</li>
+ *   <li>Fast-tier model split (Groq's dual primary/fast-tier role) —
+ *       <b>NOT YET</b>. The generic pool's
+ *       {@link LlmPool#fastTierModelIds()} default returns empty, so
+ *       {@code FastModelRegistry} would see no Groq fast-tier
+ *       fallback. Two paths: (a) define a SECOND YAML entry
+ *       {@code groq-fast:} with role="fast-audit" and the small
+ *       models, plus a follow-up parity field
+ *       {@code fast-tier: true} that makes
+ *       {@code GenericOpenAICompatPool.fastTierModelIds()} return
+ *       its activeModels; or (b) preserve the legacy GroqPool for
+ *       the fast-tier surface and only flip primary. Decision held
+ *       for the parity follow-up.</li>
+ * </ul>
+ * Hold the flip on Groq for the fast-tier parity follow-up.
  */
 @Component
-@ConditionalOnProperty(name = "app.ai.groq.enabled", havingValue = "true")
+@ConditionalOnExpression(
+        "${app.ai.groq.enabled:false} and ${app.ai.groq.legacy-pool:true}")
 public class GroqPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(GroqPool.class);

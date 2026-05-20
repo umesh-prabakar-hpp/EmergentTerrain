@@ -679,6 +679,42 @@ The NVIDIA flip is now safe to execute via the standard two-step
 sequence (uncomment YAML + set `app.ai.nvidia.legacy-pool=false`),
 followed by two-week burn-in.
 
+**Status (Groq scaffolding, 2026-05-20):** **LANDED**.
+`GroqPool` gated on
+`@ConditionalOnExpression("${app.ai.groq.enabled:false} and ${app.ai.groq.legacy-pool:true}")`;
+commented `app.ai.providers.groq:` block added with all five
+already-shipped parity hooks pre-configured
+(`retry-after-source: BODY`, `long-block-body-markers: ["tokens per day", "TPD"]`,
+`long-block-ms: 3600000`). The two NVIDIA-parity features from
+commit `c7ec03a` carry over directly — Groq's TPD vs TPM split maps
+1:1 onto the `long-block-body-markers` infrastructure.
+
+**Groq parity gaps — hold the flip:**
+
+1. **Fast-tier model split** — Groq exposes two model lists in one
+   pool: primary (70B+, queried via `modelIds()`) and fast-tier
+   (smaller, queried via `fastTierModelIds()` by `FastModelRegistry`).
+   The generic pool defaults `fastTierModelIds()` to empty, so a
+   YAML-flipped Groq would leave `FastModelRegistry` with no Groq
+   fast-tier fallback. Two paths for the parity follow-up:
+   - **(A)** Add a `fast-tier: boolean` YAML field. When true,
+     `GenericOpenAICompatPool.fastTierModelIds()` returns
+     `activeModels`. Operator creates a second YAML entry
+     `groq-fast:` with `fast-tier: true` and the small models.
+     Two beans, one for each tier. Clean architecturally.
+   - **(B)** Add a `fastTierModels: List<String>` field that returns
+     a separate list from `fastTierModelIds()`. Single bean, two
+     model lists — matches the legacy structure but adds a config
+     dimension. Bigger surface change.
+2. **Borda + Ollama startup tournament** — `LOST` on migration. The
+   generic pool uses the static `models:` list; no auto-ranking.
+   Documented as acceptable because the legacy
+   `app.ai.groq.preferredModels` is already operator-curated; the
+   Borda step ranked but didn't filter. Operator pre-orders models
+   in YAML.
+
+Hold the Groq flip until path A or B is shipped.
+
 **Status (NVIDIA FLIPPED, 2026-05-20):** `app.ai.nvidia.legacy-pool`
 is now `false`. The `app.ai.providers.nvidia:` entry is live with
 all three NVIDIA-specific parity markers
