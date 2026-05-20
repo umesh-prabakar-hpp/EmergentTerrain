@@ -187,6 +187,13 @@ app:
       # Only OpenInference / NVIDIA backends are reliable on free tier; Venice is rate-capped.
       excludedBackends: "Venice"
       preferredModels: "openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free"
+      # Phase 20.11 §migration step 2 (2026-05-20) — FLIPPED. The legacy
+      # hand-written OpenRouterPool bean is now disabled; the generic-
+      # pool entry under app.ai.providers.openrouter: takes over.
+      # excludedBackends + extra-headers parity verified in commit
+      # fc5ffe8. The app.ai.openrouter.* block above stays as legacy
+      # contract documentation until step 2b deletes OpenRouterPool.java.
+      legacy-pool: false
     nvidia:
       enabled: true
       apiKey: ${NVIDIA_API_KEY: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}
@@ -202,6 +209,12 @@ app:
       # for the runQualityAudit stage. Free tier is ~30 RPM per model.
       preferredModels: "qwen-3-235b-a22b-instruct-2507"
       role: "fast-audit"  # Phase 7 E1.4 — direct runQualityAudit at this pool first
+      # Phase 20.11 §migration step 2 (2026-05-20) — FLIPPED. The legacy
+      # hand-written CerebrasPool bean is now disabled; the generic-pool
+      # entry under app.ai.providers.cerebras: takes over. The
+      # app.ai.cerebras.* block above stays as documentation of the
+      # legacy contract until step 2b deletes CerebrasPool.java.
+      legacy-pool: false
     # Phase 7 E2 — opt-in list of providers allowed to receive tool-calling professor-stage
     # calls. Default "groq" matches the spec: non-Groq pool tool calls must be explicitly
     # whitelisted by the operator after the ≥3-day E1 soak demonstrates they're stable
@@ -291,7 +304,7 @@ app:
     #   retry-after-source  HEADER (standard) or BODY (Groq-style error JSON).
     #   parallelism         concurrent slots; default 3.
     #
-    # Example (commented; uncomment + edit + restart to activate):
+    # Example future providers (commented; uncomment + edit + restart to activate):
     # providers:
     #   anthropic:
     #     base-url: https://api.anthropic.com/v1
@@ -307,48 +320,40 @@ app:
     #     models: [deepseek-chat]
     #     supports-tools: true
     #
-    # Phase 20.11 §migration — Cerebras replicated as a generic-pool entry.
-    # Two-step flip path for the operator (default off):
-    #   1. Uncomment the providers.cerebras: block below.
-    #   2. Set app.ai.cerebras.legacy-pool: false (this disables the
-    #      hand-written CerebrasPool's bean registration via
-    #      ConditionalOnExpression).
-    # After two weeks of burn-in against a replay corpus, CerebrasPool.java
-    # itself can be deleted in a follow-up PR (then the legacy-pool flag
-    # goes away too). Mirrors the existing app.ai.cerebras.* settings;
-    # change either side, keep them in sync until the migration closes.
-    # providers:
-    #   cerebras:
-    #     base-url: https://api.cerebras.ai/v1
-    #     api-key-env: CEREBRAS_API_KEY
-    #     models: [qwen-3-235b-a22b-instruct-2507]
-    #     supports-tools: true
-    #     context-window: 32000
-    #     role: fast-audit       # matches CerebrasPool's role hint
-    #     parallelism: 2          # matches app.ai.cerebras.parallelism default
-    #
-    # Phase 20.11 §migration step 3 — OpenRouter replicated as a generic-
-    # pool entry. Same two-step flip as Cerebras (uncomment + set
-    # app.ai.openrouter.legacy-pool=false). Feature-parity:
-    #   - HTTP-Referer / X-Title via extra-headers (OpenRouter free-tier
-    #     routing analytics).
-    #   - excluded-backends: post-response backend blacklist. When a 200
-    #     response's body.provider matches, the model is blocked for 5 min
-    #     to force re-routing; when a 429's error.metadata.provider_name
-    #     matches, the block window extends to ≥ 5 min. Mirrors
-    #     OpenRouterPool's checkBackendExclusion + Venice-cap handling.
-    # providers:
-    #   openrouter:
-    #     base-url: https://openrouter.ai/api/v1
-    #     api-key-env: OPENROUTER_API_KEY
-    #     models: [openai/gpt-oss-120b:free, nvidia/nemotron-3-super-120b-a12b:free]
-    #     supports-tools: true
-    #     context-window: 32000
-    #     parallelism: 2
-    #     extra-headers:
-    #       HTTP-Referer: https://emergent-terrain.example.com
-    #       X-Title: EmergentTerrain Research
-    #     excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
+    # Phase 20.11 §migration — Cerebras + OpenRouter are now backed by
+    # the generic pool (flipped 2026-05-20). The legacy app.ai.cerebras.*
+    # and app.ai.openrouter.* blocks above remain as legacy-contract
+    # documentation; their `legacy-pool: false` flag disables the hand-
+    # written pool classes via @ConditionalOnExpression. After a two-week
+    # burn-in window confirms no Cerebras / OpenRouter regressions in
+    # REVIEW_REPORT refreshes, the per-pool class-deletion PRs (step 2b)
+    # finalise the migration. Until then, keep these provider entries in
+    # sync with their legacy app.ai.<pool>.* counterparts.
+    providers:
+      cerebras:
+        base-url: https://api.cerebras.ai/v1
+        api-key-env: CEREBRAS_API_KEY
+        # Re-uses the legacy block's apiKey resolution (env var with literal
+        # fallback). Single source of truth in app.ai.cerebras.apiKey above;
+        # this entry just points at it so the key isn't duplicated.
+        api-key: ${app.ai.cerebras.apiKey}
+        models: [qwen-3-235b-a22b-instruct-2507]
+        supports-tools: true
+        context-window: 32000
+        role: fast-audit       # matches CerebrasPool's role hint
+        parallelism: 2          # matches app.ai.cerebras.parallelism default
+      openrouter:
+        base-url: https://openrouter.ai/api/v1
+        api-key-env: OPENROUTER_API_KEY
+        api-key: ${app.ai.openrouter.apiKey}
+        models: [openai/gpt-oss-120b:free, nvidia/nemotron-3-super-120b-a12b:free]
+        supports-tools: true
+        context-window: 32000
+        parallelism: 2
+        extra-headers:
+          HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
+          X-Title: EmergentTerrain
+        excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

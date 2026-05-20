@@ -630,6 +630,26 @@ The OpenRouter flip is now safe to execute via the standard two-step
 sequence (uncomment YAML, set `app.ai.openrouter.legacy-pool=false`),
 followed by the same two-week burn-in window as Cerebras.
 
+**Status (FLIPPED, 2026-05-20):** both `app.ai.cerebras.legacy-pool`
+and `app.ai.openrouter.legacy-pool` are now `false`. The
+`app.ai.providers:` block is no longer commented — `cerebras:` +
+`openrouter:` entries are live. On the operator's next restart, the
+startup log should show `GenericPoolsRegistrar(cerebras): registered
+bean=openAiCompatPool_cerebras …` and the matching openrouter line;
+the legacy `CerebrasPool: models=…` / `OpenRouterPool: models=…` lines
+should NOT appear. Two-week burn-in window opens at first restart;
+class-deletion PRs (step 2b for each pool) fire after burn-in
+confirms no regressions in the next REVIEW_REPORT refresh.
+
+API keys remain defined once each (in the legacy
+`app.ai.cerebras.apiKey` / `app.ai.openrouter.apiKey` lines, which
+already use `${ENV:hardcoded-fallback}` Spring placeholders); the
+generic-pool entries reference them via
+`api-key: ${app.ai.cerebras.apiKey}` placeholder so no key string is
+duplicated in source control. A small `api-key` literal-fallback
+field was added to `RawProviderConfig` to support this pattern; env
+var still wins via `api-key-env` if set.
+
 ### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
 
 Pre-recorded fire-when-ready checklist. After the operator has run the

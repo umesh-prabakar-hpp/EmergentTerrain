@@ -90,11 +90,19 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         for (Map.Entry<String, RawProviderConfig> e : providers.entrySet()) {
             String providerKey = e.getKey();
             RawProviderConfig raw = e.getValue();
+            // Phase 20.11 §migration — env-var lookup wins; otherwise fall
+            // back to the literal `api-key` value (which itself may be a
+            // Spring placeholder like ${ENV:default} that Binder already
+            // resolved). Mirrors the legacy `apiKey: ${ENV:hardcoded}`
+            // pattern so a flip preserves existing key-resolution behavior.
             String apiKey = raw.apiKeyEnv() == null ? "" : environment.getProperty(raw.apiKeyEnv(), "");
+            if (apiKey.isBlank() && raw.getApiKey() != null && !raw.getApiKey().isBlank()) {
+                apiKey = raw.getApiKey();
+            }
             if (apiKey.isBlank()) {
-                log.warn("GenericPoolsRegistrar({}): api-key-env={} resolves to empty string — pool will register but every call will 401. "
-                        + "Set the env var or remove the provider from app.ai.providers.",
-                        providerKey, raw.apiKeyEnv());
+                log.warn("GenericPoolsRegistrar({}): api-key-env={} and api-key both empty — pool will register but every call will 401. "
+                        + "Set the env var or fill api-key in app.ai.providers.{}.",
+                        providerKey, raw.apiKeyEnv(), providerKey);
             }
             ProviderConfig cfg = raw.toProviderConfig(providerKey, apiKey);
             int parallelism = raw.parallelism() == null ? 3 : raw.parallelism();
@@ -132,6 +140,15 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
     public static class RawProviderConfig {
         private String baseUrl;
         private String apiKeyEnv;
+        /**
+         * Phase 20.11 §migration — literal API-key fallback. Supports
+         * Spring placeholder syntax ({@code ${ENV:default}}) so an
+         * operator can mirror the legacy {@code app.ai.&lt;pool&gt;.apiKey:
+         * ${ENV:hardcoded}} pattern verbatim. {@code apiKeyEnv} is
+         * consulted first; if its env var is unset, this value is
+         * used as the bearer token.
+         */
+        private String apiKey;
         private List<String> models;
         private String modelsDiscoveryPath;
         private Boolean supportsTools;
@@ -150,6 +167,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setBaseUrl(String v) { this.baseUrl = v; }
         public String getApiKeyEnv() { return apiKeyEnv; }
         public void setApiKeyEnv(String v) { this.apiKeyEnv = v; }
+        public String getApiKey() { return apiKey; }
+        public void setApiKey(String v) { this.apiKey = v; }
         public List<String> getModels() { return models; }
         public void setModels(List<String> v) { this.models = v; }
         public String getModelsDiscoveryPath() { return modelsDiscoveryPath; }
