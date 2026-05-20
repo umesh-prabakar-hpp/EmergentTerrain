@@ -210,9 +210,11 @@ public class ResearchPaper {
      * {@code DISPUTE_ABANDONED} and re-firing stops — the 17-unique-ID
      * orphan loop documented in REVIEW_REPORT a3289005 closes naturally.
      * NOT NULL so SQL aggregations don't have to coalesce; legacy rows
-     * default to 0 via Hibernate ddl-auto.
+     * default to 0 via the column-level DEFAULT so the ddl-auto:update
+     * `ADD COLUMN ... NOT NULL` succeeds on already-populated tables.
      */
-    @Column(name = "dispute_attempts", nullable = false)
+    @Column(name = "dispute_attempts", nullable = false,
+            columnDefinition = "integer not null default 0")
     private int disputeAttempts;
 
     /** JPA needs a no-arg constructor. */
