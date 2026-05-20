@@ -6,6 +6,7 @@ import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -95,6 +96,17 @@ public class ReplicationService {
         this.objectMapper     = objectMapper;
         this.paperLookup      = papersRepository::findByPaperId;
     }
+
+    /**
+     * Phase 4c Piece 3 PR3 — optional stats writer. When wired (default
+     * in production via Spring), each {@code processOne} terminal
+     * outcome increments the per-variant CONFIRMED / FAILED counters
+     * on the corresponding {@link PromptTemplateVariant} row. Null in
+     * unit-test contexts that construct {@code ReplicationService}
+     * directly; the write path is skipped via the null check.
+     */
+    @Autowired(required = false)
+    private PromptTemplateVariantStatsService templateStatsService;
 
     /**
      * Phase 4b — fraction of recent replications in this room that failed
@@ -190,6 +202,22 @@ public class ReplicationService {
             markPaperDisputed(req.paperId(), replicator.getBotId(), replicaScore);
         }
         recordOutcome(req.roomId(), failed);
+
+        // Phase 4c Piece 3 PR3 — write per-variant stats from the
+        // terminal replication outcome. Lookup is identical to the
+        // markPaperDisputed path's so a failed paper gets its narration
+        // template's failed counter bumped; a passing paper gets its
+        // confirmed counter bumped. No-op when the stats service isn't
+        // wired (unit tests) or when the flag is off (default).
+        if (templateStatsService != null) {
+            paperLookup.apply(req.paperId()).ifPresent(paper ->
+                    templateStatsService.record(
+                            paper.narrationTemplateId(),
+                            paper.narrationTemplateVersion(),
+                            failed
+                                    ? PromptTemplateVariantStatsService.Terminal.FAILED
+                                    : PromptTemplateVariantStatsService.Terminal.CONFIRMED));
+        }
         return true;
     }
 

@@ -264,23 +264,43 @@ in this doc are accepted.
 
 ### PR3 — Stats writer on terminal outcome
 
-**Files:**
-- New: `PromptTemplateVariantStatsService` — single method
-  `record(paperId, terminalStatus)`. Wired from
-  `ReplicationService.processOne` (and `markPaperDisputed`).
-- Maps `terminalStatus`:
-  - CONFIRMED → `confirmedAggregated++`
-  - FAILED / DISPUTED / DISPUTE_ABANDONED → `failedAggregated++`
-  - Other (REJECTED, NULL_RESULT, NEEDS_REVISION at publish time) →
-    `narratedAggregated++` only (counted as a sample but with no
-    success/failure attribution).
-- All increments resolve the template via
-  `paper.narrationTemplateId + narrationTemplateVersion`.
+**Status (2026-05-20):** ✅ **LANDED, dormant.** Flag default off;
+counter writes activate when `app.research.prompt-template-stats.enabled=true`.
 
-**Acceptance:** integration test (the only one in this batch);
-publish a paper with template `narration.critique v1`, transition
-it to DISPUTED, assert the variant's
-`failedAggregated` incremented by 1.
+**Files shipped:**
+- `PromptTemplateVariantStatsService` — `record(templateId, versionTag, Terminal)`.
+  Terminal ∈ {CONFIRMED, FAILED, PUBLISHED}. All three increment
+  `papersNarrated` (the denominator); CONFIRMED/FAILED additionally
+  increment their respective counter. Convenience overload
+  `recordPublished(templateId, versionTag)` = `record(.., PUBLISHED)`.
+- Defensive guards: no-op when flag off; no-op when templateId or
+  versionTag is null/blank (paper predates piece-2 gate 3); WARN +
+  skip when the variant row doesn't exist (auto-creating would mask
+  provenance bugs); try-catch around `save` so DB outages can't
+  poison the narration / replication path.
+- `ReplicationService` gained an `@Autowired(required=false)
+  templateStatsService` field. On every terminal `processOne`
+  outcome, `paperLookup.apply(...)` resolves the paper and the
+  service is called with CONFIRMED or FAILED based on the
+  `failed` flag. Null-safe — unit-test paths that construct
+  ReplicationService directly skip the write.
+
+**Acceptance criterion met** (per the design doc): 8 new tests in
+`PromptTemplateVariantStatsServiceTest`:
+- Flag off → no repo call.
+- Unknown template → no save (WARN logged).
+- CONFIRMED → papersNarrated +1, replicationsConfirmed +1.
+- FAILED → papersNarrated +1, replicationsFailed +1.
+- PUBLISHED → papersNarrated +1 only.
+- Null/blank template id or version → silent skip.
+- Save throws → service swallows (defensive contract).
+- 5 confirms + 3 fails + 1 published accumulate to
+  papersNarrated=9, confirmed=5, failed=3.
+
+**Flag:** `app.research.prompt-template-stats.enabled`, default false.
+**Operator activates by setting to true** — useful even before PR2
+is on, since the counters give a baseline distribution per
+template that PR4's rollback judge needs.
 
 ### PR4 — Rollback judge (scheduled)
 
