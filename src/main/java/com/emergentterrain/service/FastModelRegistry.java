@@ -53,16 +53,25 @@ public class FastModelRegistry implements ModelRegistry {
         List<ModelHandle> collected = new ArrayList<>();
         for (LlmPool pool : ctx.getBeansOfType(LlmPool.class).values()) {
             if (!pool.supportsTools()) {
-                // Non-tool pools (Ollama) — every model is fast tier.
+                // Non-tool pools (Ollama, or the path-A "fast-tier: true +
+                // supports-tools: false" generic pool) — every model is fast
+                // tier and contributes via modelIds(). Skip fastTierModelIds()
+                // here: GenericOpenAICompatPool publishes the same activeModels
+                // through both methods when fast-tier=true, so reading both
+                // doubled every groq-fast handle in the registry.
                 for (String modelId : pool.modelIds()) {
                     collected.add(new ModelHandle(pool, modelId));
                 }
-            }
-            // Phase 9 U7 — tool-capable pools may expose sub-70B chat models
-            // via fastTierModelIds(). Each provider's classification rule
-            // decides what's fast vs primary; the registry just aggregates.
-            for (String modelId : pool.fastTierModelIds()) {
-                collected.add(new ModelHandle(pool, modelId));
+            } else {
+                // Phase 9 U7 — tool-capable pools may expose a sub-70B chat
+                // subset via fastTierModelIds() (e.g. legacy GroqPool, which
+                // keeps separate activeModels + fastTierActiveModels). The
+                // primary set is exposed via modelIds() and consumed by
+                // PrimaryModelRegistry; the fast subset is disjoint by
+                // construction.
+                for (String modelId : pool.fastTierModelIds()) {
+                    collected.add(new ModelHandle(pool, modelId));
+                }
             }
         }
         this.handles = Collections.unmodifiableList(collected);
