@@ -107,8 +107,16 @@ reservation, means the gate is permanently throttling on phantom load.
   groq from 95 → 90 as an interim mitigation while the soft/hard split
   lands. Keep the existing rollback path (set back to 95).
 
-**Acceptance:** budget-gate WARN/429 ratio drops below 5:1 (today 55:1)
-over a 45-minute corpus run.
+**Acceptance:** budget-gate WARN/429 ratio drops below 5:1 over a 45-minute
+corpus run. Historical baselines: 55:1 (2026-05-18 scoping), 122:1
+(2026-05-19 worst-case under cascading-fallback load), 12:1 (2026-05-20
+09:30 sample), **3.31:1 (2026-05-20 10:05 sample — target met)**.
+Live-run pass confirmed in the 2026-05-20 paper-review refresh against
+the corpus rebuilt under commits `a444214` (soft/hard split) +
+`924b0e7` (retry-after parser fix — sub-second `ms` form + retry-loop
+honors recorded block window). Both commits cut the numerator (gate
+fires) without dropping the denominator (real 429s), so the ratio
+improvement is real, not an artefact of a quieter Groq.
 
 **Implementation notes (2026-05-19):**
 
@@ -400,6 +408,27 @@ table. Out of scope for the named acceptance, which only requires
 the n₁>n₂ check. Add later if a paper emits "diamond-water" with
 non-matching numeric indices and slips through.
 
+**Implementation gap surfaced 2026-05-20 (P-a328-736):** the shipped
+regexes `N1_PAT` / `N2_PAT` require the subscript-tagged form
+(`n₁=…`, `n_1=…`, `n1=…`, etc.). P-a328-736's hypothesis used
+*prose-form* index references instead: *"the incident medium has
+refractive index 1.50 and the adjoining medium has a refractive index
+near 1.565"* — no `n₁`/`n₂` token anywhere. The gate fell through to
+`Ok`, the paper proceeded with zero tool calls (because the TIR claim
+with n₂>n₁ is unsolvable), and shipped as NULL_RESULT via
+`publish:no_methods→needs_revision`. Add a prose-form extractor:
+match `incident medium .* refractive index (\d+\.?\d*)` and
+`(adjoining|second|other) medium .* refractive index (?:near |of |≈ )?
+(\d+\.?\d*)` as additional capture sites before the n₂≥n₁ comparison.
+Same `tir_indices_inverted` reasonCode applies. Test case:
+P-a328-736's exact hypothesis text must reject; the existing
+P-a328-693 subscript-form test must continue to pass.
+
+The case for promoting this to its own ticket vs. folding into a
+§21.4 follow-up commit: it's a single regex pair + one new test
+case (~30 LOC). Recommend folding inline next time §21.4 is touched
+rather than opening a new phase entry.
+
 
 ### 21.5 — Symbolic-tool grammar relaxation (`^` and `Module[...]`)
 
@@ -647,12 +676,18 @@ section's stated acceptance criterion is observable only after a fresh
 binary builds + runs against the next REVIEW_REPORT refresh.
 Specifically:
 
-- 21.1: budget-gate WARN:429 ratio < 5:1 over 45 min (today 122:1).
+- 21.1: budget-gate WARN:429 ratio < 5:1 over 45 min. **MET 2026-05-20
+  10:05 at 3.31:1** under commits `a444214` + `924b0e7`; one more
+  REVIEW_REPORT refresh against a stable Groq tier would confirm the
+  ratio isn't a sampling artefact.
 - 21.2: dispute-orphan WARN drops to 0 after one full sweep on the
   17-known-orphan corpus.
 - 21.3: P-a328-693 replay never produces a fabricated number.
 - 21.4: P-a328-693 hypothesis never reaches a tool call; no second
-  TIR-with-inverted-indices paper appears.
+  TIR-with-inverted-indices paper appears. **2026-05-20: refuted by
+  P-a328-736** (prose-form `n₂>n₁` premise slipped through the
+  subscript-only regex; see §21.4 Implementation gap). Acceptance
+  reopens once the prose-form extractor lands.
 - 21.5: 0 rejections on `^` or `Module[…]` across a 1-hour corpus run.
 - 21.6: P-a328-686 graduates from REJECTED → NULL_RESULT/PUBLISHED;
   numerical-consistency WARN drops ≥ 50%.
