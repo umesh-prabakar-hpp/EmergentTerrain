@@ -161,6 +161,19 @@ sweep.
 
 ### 18.3 — Phase 4c Piece 3 decision (A/B testing + epsilon-greedy)
 
+**Status (2026-05-20):** **DESIGN DOC LANDED** as
+`phase-4c-piece-3.md`. Re-evaluation of the eight locked decisions
+against current code + corpus state found two need adjustment
+(ε = 0.10 → 0.20; threshold = 1000 → 200 with cross-domain
+aggregation; MDE = 5pp → 10pp falls out of the threshold change).
+**Mechanism is theatre until an alternative variant is authored** —
+the registry has 12 template ids but zero with operator-authored
+alternative phrasings. Three pre-conditions stated for any PR1
+commit. The §18.3 ticket itself is now in the "design recorded,
+implementation gated on operator preconditions" state; see the
+piece-3 doc for the 4-PR sequence and acceptance criteria.
+
+
 **Source:** `archive/phase-4c-piece-1-memo.md` + `archive/phase-4c-prompt-template-evolution.md`.
 
 **Context:** The Phase 4c memo (dated 2026-05-11) locked the eight
