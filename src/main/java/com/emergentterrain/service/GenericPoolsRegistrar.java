@@ -168,6 +168,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private List<String> longBlockBodyMarkers;
         /** Phase 20.11 §migration — minimum block window in ms when a longBlockBodyMarkers match fires (24h = 86_400_000 for NVIDIA credits). */
         private Long longBlockMs;
+        /** Phase 20.11 §migration — Groq fast-tier flag (publishes models via fastTierModelIds()). */
+        private Boolean fastTier;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -201,6 +203,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setLongBlockBodyMarkers(List<String> v) { this.longBlockBodyMarkers = v; }
         public Long getLongBlockMs() { return longBlockMs; }
         public void setLongBlockMs(Long v) { this.longBlockMs = v; }
+        public Boolean getFastTier() { return fastTier; }
+        public void setFastTier(Boolean v) { this.fastTier = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -228,7 +232,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     longBlockBodyMarkers == null || longBlockBodyMarkers.isEmpty()
                             ? java.util.Set.of()
                             : java.util.Set.copyOf(longBlockBodyMarkers),
-                    longBlockMs == null ? 0L : longBlockMs);
+                    longBlockMs == null ? 0L : longBlockMs,
+                    fastTier != null && fastTier);
         }
     }
 }

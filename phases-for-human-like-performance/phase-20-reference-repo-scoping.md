@@ -715,6 +715,17 @@ commit `c7ec03a` carry over directly — Groq's TPD vs TPM split maps
 
 Hold the Groq flip until path A or B is shipped.
 
+**Status (Groq fast-tier parity, 2026-05-20):** **LANDED via path A**.
+`ProviderConfig.fastTier: boolean` (default false);
+`GenericOpenAICompatPool.fastTierModelIds()` now returns
+`activeModels` when the flag is set, empty list otherwise. The
+operator's flip path is a TWO-entry YAML: `groq:` (primary,
+`supports-tools: true`) + `groq-fast:` (`fast-tier: true` +
+`supports-tools: false`). The existing
+`PrimaryModelRegistry.supportsTools` filter handles the split — fast-
+tier models never appear in the primary chain. The Groq flip is now
+safe to execute.
+
 **Status (NVIDIA FLIPPED, 2026-05-20):** `app.ai.nvidia.legacy-pool`
 is now `false`. The `app.ai.providers.nvidia:` entry is live with
 all three NVIDIA-specific parity markers

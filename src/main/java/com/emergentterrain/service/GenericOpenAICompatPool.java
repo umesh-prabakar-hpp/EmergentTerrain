@@ -167,6 +167,23 @@ public class GenericOpenAICompatPool implements LlmPool {
      */
     @Override public String role() { return cfg.role() == null ? "" : cfg.role(); }
 
+    /**
+     * Phase 20.11 §migration (Groq fast-tier parity) — when
+     * {@link ProviderConfig#fastTier()} is set, publish the active
+     * model list via {@code fastTierModelIds()} so
+     * {@code FastModelRegistry} picks them up for the fast-audit role.
+     * Typical operator pairing for a fast-tier pool: {@code fast-tier:
+     * true} + {@code supports-tools: false} so
+     * {@code PrimaryModelRegistry}'s existing {@code supportsTools}
+     * filter excludes the same models from the primary chain — the
+     * two registries see disjoint lists, mirroring the legacy
+     * {@code GroqPool} which keeps separate {@code activeModels} +
+     * {@code fastTierActiveModels} fields internally.
+     */
+    @Override public List<String> fastTierModelIds() {
+        return cfg.fastTier() ? Collections.unmodifiableList(activeModels) : List.of();
+    }
+
     @Override public boolean supportsTools() {
         // Phase 20.11 step 3 — honors the yaml `supports-tools` flag now
         // that the tool-call path is wired (runToolLoop below).

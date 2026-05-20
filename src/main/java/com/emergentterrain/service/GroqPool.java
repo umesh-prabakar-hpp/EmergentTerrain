@@ -74,20 +74,21 @@ import java.util.stream.Collectors;
  *       because {@code app.ai.groq.preferredModels} is already a
  *       hand-curated list; the Borda step was decoration on top of
  *       operator choice.</li>
- *   <li>Fast-tier model split (Groq's dual primary/fast-tier role) —
- *       <b>NOT YET</b>. The generic pool's
- *       {@link LlmPool#fastTierModelIds()} default returns empty, so
- *       {@code FastModelRegistry} would see no Groq fast-tier
- *       fallback. Two paths: (a) define a SECOND YAML entry
- *       {@code groq-fast:} with role="fast-audit" and the small
- *       models, plus a follow-up parity field
- *       {@code fast-tier: true} that makes
- *       {@code GenericOpenAICompatPool.fastTierModelIds()} return
- *       its activeModels; or (b) preserve the legacy GroqPool for
- *       the fast-tier surface and only flip primary. Decision held
- *       for the parity follow-up.</li>
+ *   <li>Fast-tier model split — supported via
+ *       {@link ProviderConfig#fastTier()}. Operator defines a second
+ *       YAML entry {@code app.ai.providers.groq-fast:} with
+ *       {@code fast-tier: true} + {@code supports-tools: false}.
+ *       {@code FastModelRegistry} picks up the models via
+ *       {@code fastTierModelIds()} (now overridden in the generic
+ *       pool); {@code PrimaryModelRegistry}'s existing
+ *       {@code supportsTools} filter keeps them out of the primary
+ *       chain. Two beans, disjoint lists — mirrors the legacy
+ *       {@code activeModels} + {@code fastTierActiveModels}
+ *       structure.</li>
  * </ul>
- * Hold the flip on Groq for the fast-tier parity follow-up.
+ * Parity is COMPLETE; the flip is safe to execute via the standard
+ * two-step sequence (uncomment both {@code groq:} + {@code groq-fast:}
+ * YAML entries + set {@code app.ai.groq.legacy-pool=false}).
  */
 @Component
 @ConditionalOnExpression(

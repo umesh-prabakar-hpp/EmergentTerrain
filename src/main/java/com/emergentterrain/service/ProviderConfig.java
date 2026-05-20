@@ -97,6 +97,17 @@ import java.util.Set;
  *                          window in milliseconds when a body marker
  *                          matches. {@code 0} (default) = feature off.
  *                          Typical NVIDIA value: 86_400_000 (24h).
+ * @param fastTier          Phase 20.11 §migration — Groq parity.
+ *                          When {@code true}, the pool publishes its
+ *                          {@link #models} list via
+ *                          {@link com.emergentterrain.service.LlmPool#fastTierModelIds()}
+ *                          so {@code FastModelRegistry} picks them up
+ *                          for the fast-audit role. Typical pairing:
+ *                          {@code fast-tier: true} + {@code supports-tools:
+ *                          false} so {@code PrimaryModelRegistry}'s
+ *                          {@code supportsTools} filter excludes the
+ *                          same models from the primary chain. Default
+ *                          {@code false} = primary-only pool.
  */
 public record ProviderConfig(
         String providerKey,
@@ -113,15 +124,16 @@ public record ProviderConfig(
         Set<String> excludedBackends,
         Set<String> permanent404Markers,
         Set<String> longBlockBodyMarkers,
-        long longBlockMs) {
+        long longBlockMs,
+        boolean fastTier) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers, primary-tier). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
                 true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(),
-                Set.of(), Set.of(), Set.of(), 0L);
+                Set.of(), Set.of(), Set.of(), 0L, false);
     }
 }
