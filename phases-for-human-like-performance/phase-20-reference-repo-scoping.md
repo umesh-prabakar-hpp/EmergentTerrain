@@ -51,6 +51,11 @@ into an existing tracker) before any code lands.
 
 ### 20.1 — Compression of repeated `tool_result` payloads in `ResearchNarrationService`
 
+**Status (2026-05-19):** ✅ **LANDED** in commit `5415761` ("condense
+older tool-result messages on next-round payload"). Behaviour-flagged
+via `ToolResultCompressor` bean; persisted trace via `traceWriter`
+unaffected.
+
 **Source pattern:** content-filter pipeline that runs each
 `tool_result` block through an autodetect compression chain before
 re-sending to the model — gzip+base64 for binary, table folding for
@@ -109,6 +114,10 @@ matching the established staged-rollout pattern.
 
 ### 20.2 — Tag-level history compression on long tool loops
 
+**Status (2026-05-19):** ✅ **LANDED** in commit `949a80b` ("tag-level
+history compaction (two-stage)"). Wired into both pool tool-loops via
+`ConversationCompactor` bean; null-safe (off by default in tests).
+
 **Source pattern:** staged history compression treating the conversation
 as a tagged stream (`<thinking>`, `<tool_use>`, `<tool_result>`,
 plain). Stage 1: keep the most recent 10 of each tag intact, truncate
@@ -163,6 +172,11 @@ caught by existing review pipeline.
 
 ### 20.3 — Lazy / cached tool-schema send to the LLM
 
+**Status (2026-05-19):** ✅ **LANDED** in commit `f905619` ("cached
+tool-schema policy (flag-gated, off by default)"). Per-pool
+`ToolSchemaCachePolicy` consulted before each round's tool spec is
+sent; flag-gated so the default behaviour is unchanged.
+
 **Source pattern:** cache the tool-spec JSON per conversation; omit it
 on every LLM call after the first; force-resend every N turns or when
 the tool set actually changes.
@@ -201,6 +215,14 @@ N=3).
 ---
 
 ### 20.4 — Structured `ToolCallResult` envelope for `ResearchNarrationService`
+
+**Status (2026-05-19):** ✅ **LANDED** across six commits — steps 1
+(`bd6e0a8` envelope + OutcomeStatus enum), 2a (`60955fa` primary
+runNarration emission site), 2b-1 (`874c26b` OutcomeStatus
+propagation from maybeCritiqueAndRevise), 2b-2 (`efbb440` per-paper
+token accumulator via LlmCallContext), 2b-3 (`8757421` sentinel
+publisher contract for suppression branches), and 3 (`1d3692e`
+persist envelope on ResearchPaper + ActivityReporter rollup).
 
 **Source pattern:** every sub-agent call returns a typed result
 envelope with fields `(task_id, status enum, result, error,
@@ -248,6 +270,11 @@ keep that pattern (null/zero when not measured).
 ---
 
 ### 20.5 — Per-agent / per-pool config overrides via `application.yml`
+
+**Status (2026-05-19):** ✅ **LANDED** in commit `32cda10` ("per-role
+config overrides via app.ai.role-overrides"). New `RoleRouterPolicy`
++ one-field `LlmCallContext` extension; operators can prefer-providers
+or avoid-models per role without code edits.
 
 **Source pattern:** YAML-driven per-agent overrides with a fixed merge
 order (built-in defaults → custom config → agent-specific). Knobs
@@ -511,6 +538,16 @@ forest fraction?") that's prohibitive.
 ## Plug-and-play extension
 
 ### 20.11 — Generic OpenAI-compat pool + YAML provider registration
+
+**Status (2026-05-19):** ✅ **steps 1–3 LANDED** across three commits:
+step 1 (`bc61362` — `GenericOpenAICompatPool` skeleton, sync path only),
+step 2 (`1999401` — YAML-driven pool auto-registration via
+`ProviderConfigLoader`), step 3 (`b24de70` — tool-call loop on
+`GenericOpenAICompatPool`). The existing five pool classes still
+exist; the two-week-burn-in-then-delete migration plan from the
+"Risk" section below has not started — adding a sixth provider via
+YAML works today, but the legacy classes haven't been retired yet.
+That last step is the **only remaining 20.11 work**.
 
 **Source pattern:** treat the OpenAI `/v1/chat/completions` protocol
 as the universal substrate (most modern providers — Anthropic via

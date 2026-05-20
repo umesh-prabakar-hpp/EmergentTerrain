@@ -1,14 +1,37 @@
-# Phase 21 — Run-Quality Triage from research/a3289005 (scoping doc)
+# Phase 21 — Run-Quality Triage from research/a3289005
 
-**Status:** Scoping doc, not a single-PR phase. Created 2026-05-19 by
-walking the operational log of the live JVM (PID 6446, started
-06:53:37 EDT) against the REVIEW_REPORT.md refreshes for
-`research/a3289005/`. Seven items, each with a named root-cause
-WARN/finding in `logs/et-app.log` (4,095 lines through 07:38 EDT) or a
-specific failing paper (P-a328-684, 685, 686, 690, 693). Nothing here
-ships in a single PR; treat each numbered item as a candidate that
-would graduate to its own phase doc (or fold into an existing tracker)
-before any code lands.
+**Status (2026-05-19 23:30 EDT):** **6 of 7 items LANDED + PUSHED** in a
+single seven-commit sequence (`a444214..232ae9e`); 21.7 deferred by
+design pending a named trigger. The original scoping doc shape is
+preserved below — each numbered item carries a `Status (…):` line and
+an "Implementation notes" subsection recording the commit, the
+deviation (if any) from the originally proposed approach, and the
+acceptance criteria still pending live-run verification.
+
+Originally created 2026-05-19 by walking the operational log of the
+live JVM (PID 6446, started 06:53:37 EDT) against the REVIEW_REPORT.md
+refreshes for `research/a3289005/`. Seven items, each with a named
+root-cause WARN/finding in `logs/et-app.log` (4,095 lines through
+07:38 EDT) or a specific failing paper (P-a328-684, 685, 686, 690,
+693).
+
+**Landed commits:**
+
+| § | Title                                    | Commit    |
+|---|------------------------------------------|-----------|
+| 21.1 | Soft/hard gate split + telemetry      | `a444214` |
+| 21.2 | Dispute-orphan retire + persistence   | `2898e4a` |
+| 21.6 | Citation validator sweep whitelist    | `3c6ce04` |
+| 21.3 | Symbolic-solver echo detection        | `7b1a030` |
+| 21.4 | Premise preflight gate                | `dded0b0` |
+| 21.5 | `^` rewrite + Module/With/Block       | `80006f1` |
+| 21.5/6 | Verification-pass fixups            | `232ae9e` |
+
+**Verification:** all 233 Phase-21-touched tests pass on JDK 25 with
+`-Dnet.bytebuddy.experimental=true` (Byte Buddy currently caps at Java
+23; the existing project's Mockito stack hit the same constraint).
+Live-run acceptance (per-item below) requires the next REVIEW_REPORT
+refresh against the rebuilt binary.
 
 **Source evidence:**
 
@@ -589,25 +612,61 @@ AND a 0.00-median axis row AND no successful `run_symbolic` or
 
 ---
 
-## Suggested ordering
+## Delivery sequence (actual)
 
-1. **21.1** (Groq pause threshold) — config-only first cut; one-line
-   change; immediate measurable effect on the 110 budget-gate WARN
-   storm. Low risk.
-2. **21.2** (dispute orphan retire) — code + Hibernate migration; high
-   noise reduction (28% of WARN volume).
-3. **21.6** (citation validator whitelist) — would lift 3/5 papers in
-   this batch from NULL_RESULT toward PUBLISHED without changing any
-   science.
-4. **21.3** (symbolic-solver echo) — narrow fix in `MathToolSuite`;
-   single failing paper today but the failure mode is severe (silent
-   fabrication).
-5. **21.4** (premise preflight) — biggest user-visible quality win;
-   needs `PremiseValidator` from scratch.
-6. **21.5** (`^` / `Module[]` grammar) — symmetric to Phase 19; modest
-   savings but well-understood pattern.
-7. **21.7** — held until trigger fires.
+Landed in the order originally suggested. Each commit pushed
+individually to `origin/main` 2026-05-19 23:25 EDT.
 
-**Closing:** items 21.1 + 21.2 alone would cut WARN volume by ~70%
-and remove the dominant runtime noise source, making future refreshes
-of REVIEW_REPORT.md cleaner to read.
+1. `a444214` — **21.1** soft/hard gate split + REJECT/429 telemetry.
+   Skipped the YAML one-line drop (was directionally backwards — see
+   the §21.1 Implementation notes).
+2. `2898e4a` — **21.2** dispute-orphan retire + replicator-bot
+   persistence + DISPUTE_ABANDONED demote/banner. Adds two columns to
+   `research_papers` (Hibernate `ddl-auto:update` handles the
+   migration on next start).
+3. `3c6ce04` — **21.6** sweep-param whitelist on `CitationValidator`.
+   Whitelist source narrowed from doc's four-key proposal to just
+   `PaperDraft.param1` / `param2` — the other names were tool-call
+   inputs that already trace through the existing path.
+4. `7b1a030` — **21.3** symbolic-solver echo detection + N[…] retry +
+   actionable error.
+5. `dded0b0` — **21.4** premise preflight gate.
+   `<material1>-<material2>` name-pinning sub-check skipped (needs
+   refractive-index table; out of scope for the named acceptance).
+6. `80006f1` — **21.5** `^` → `**` rewrite + Module/With/Block/
+   CompoundExpression admitted. Whitelist approach chosen over the
+   doc's syntactic-substitution proposal (one-line list change vs.
+   parser-aware rewriter; equivalent in effect).
+7. `232ae9e` — **21.5/6 fixups** — Set inside Module binding lists
+   needed context-aware recursion (caught during JDK-25 test
+   verification); two CitationValidatorTest cases had buggy prose
+   that hid the new exempt-sweep counter.
+
+**Live-run acceptance still pending** for every numbered item — each
+section's stated acceptance criterion is observable only after a fresh
+binary builds + runs against the next REVIEW_REPORT refresh.
+Specifically:
+
+- 21.1: budget-gate WARN:429 ratio < 5:1 over 45 min (today 122:1).
+- 21.2: dispute-orphan WARN drops to 0 after one full sweep on the
+  17-known-orphan corpus.
+- 21.3: P-a328-693 replay never produces a fabricated number.
+- 21.4: P-a328-693 hypothesis never reaches a tool call; no second
+  TIR-with-inverted-indices paper appears.
+- 21.5: 0 rejections on `^` or `Module[…]` across a 1-hour corpus run.
+- 21.6: P-a328-686 graduates from REJECTED → NULL_RESULT/PUBLISHED;
+  numerical-consistency WARN drops ≥ 50%.
+
+If the next refresh shows any of these missed, the §21.x
+"Implementation notes" section names the candidate next lever.
+
+**Cross-doc dependencies cleared:**
+
+- `phase-18-pending-followups.md` items 18.1 (P8c) and 18.2 (P8d
+  warn) remain as previously tracked there; Phase 21 did not touch
+  those validators.
+- `phase-flags.md` Tier 6 (`unsourced-claim.mode = warn → downgrade`)
+  is still the only pending flag flip; no new flags introduced by
+  Phase 21 (the new knobs — `dispute-max-attempts`,
+  `softPauseThresholdPct` — are always-on config values, not
+  rollout-gated feature flags).

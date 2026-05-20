@@ -1,16 +1,25 @@
 # Phase 18 — Pending Follow-Ups (consolidated)
 
-**Status:** Tracking doc, not a single-PR phase. Created 2026-05-18 by
-walking every prior phase doc's unchecked items, cross-checking against
-the current code state, and collecting only items that are **genuinely
-open** (file/symbol absent OR explicit deferral with a named trigger).
+**Status (refreshed 2026-05-19 23:30 EDT):** Tracking doc, not a
+single-PR phase. **18.1 shipped; 18.2 shipped in `warn` mode (flag
+flip to `downgrade` still pending the next REVIEW_REPORT FP-rate
+check); 18.3 still deferred.** Phase 21 added a new tracker
+(`phase-21-run-quality-triage.md`) with 6 of 7 items landed; that doc
+is the right place for run-quality items uncovered after this one.
+
+Originally created 2026-05-18 by walking every prior phase doc's
+unchecked items, cross-checking against the current code state, and
+collecting only items that are **genuinely open** (file/symbol absent
+OR explicit deferral with a named trigger).
 
 **Scope:** Three code-pending items, one deferred-decision item, and
 pointers to two existing trackers that cover everything else. Most prior
 unchecked items audited as DONE-DESPITE-UNCHECKED (Phase 0–4 entities +
 services all exist; Phase 7 F3 topics-v2 flipped on; F4 max-computations
 bumped 2→5; Phase 12 D1–D7, Phase 13 E1–E6, Phase 14 F1–F6, Phase 16
-P5/P6/P7, Phase 17 P8a/P8b/P8e all shipped).
+P5/P6/P7, Phase 17 P8a/P8b/P8e all shipped; Phase 20 §§20.1–20.5 +
+20.11 shipped; Phase 21 §§21.1–21.6 shipped — see those docs for
+commit refs).
 
 **What this phase deliberately does NOT track:**
 
