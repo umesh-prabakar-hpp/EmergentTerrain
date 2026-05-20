@@ -335,12 +335,17 @@ public class GenericOpenAICompatPool implements LlmPool {
                 // this provider uses (header vs body).
                 if (resp.statusCode() == 429) {
                     long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
+                    // Phase 20.11 §migration — extend the block window when
+                    // the upstream identifies an excluded backend.
+                    waitMs = extendForExcludedBackend(modelId, resp.body(), waitMs);
                     rateLimitExpiry.merge(modelId, System.currentTimeMillis() + waitMs, Math::max);
                     if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
             JsonNode root = mapper.readTree(resp.body());
+            // Phase 20.11 §migration — post-200 backend-blacklist check.
+            checkBackendExclusion(modelId, root);
             JsonNode message = root.path("choices").get(0).path("message");
             String content = message.path("content").asText("");
             if (content.isBlank()) content = message.path("reasoning").asText("");
@@ -441,6 +446,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                         roundOutcome = "http_error";
                         if (resp.statusCode() == 429) {
                             long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
+                            waitMs = extendForExcludedBackend(modelId, resp.body(), waitMs);
                             rateLimitExpiry.merge(modelId,
                                     System.currentTimeMillis() + waitMs, Math::max);
                             if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
@@ -477,6 +483,8 @@ public class GenericOpenAICompatPool implements LlmPool {
                 }
 
                 JsonNode body    = mapper.readTree(resp.body());
+                // Phase 20.11 §migration — post-200 backend-blacklist check.
+                checkBackendExclusion(modelId, body);
                 JsonNode choice  = body.path("choices").get(0);
                 JsonNode message = choice.path("message");
                 String   reason  = choice.path("finish_reason").asText("stop");
@@ -593,6 +601,57 @@ public class GenericOpenAICompatPool implements LlmPool {
             b = b.header(k, v);
         }
         return b;
+    }
+
+    /**
+     * Phase 20.11 §migration — post-200 backend-blacklist check.
+     * When a successful response carries {@code body.provider} in
+     * {@link ProviderConfig#excludedBackends()}, block the model for
+     * 5 minutes to force re-routing on the next attempt. No-op when
+     * the excluded set is empty or the response carries no
+     * {@code provider} field (most providers don't surface it). Mirrors
+     * OpenRouterPool's {@code checkBackendExclusion} semantics so a
+     * YAML-flipped OpenRouter is bit-identical to the legacy pool.
+     */
+    private void checkBackendExclusion(String modelId, JsonNode body) {
+        java.util.Set<String> excluded = cfg.excludedBackends();
+        if (excluded == null || excluded.isEmpty()) return;
+        if (body == null || body.isMissingNode()) return;
+        String backend = body.path("provider").asText("");
+        if (!backend.isBlank() && excluded.contains(backend)) {
+            log.warn("GenericOpenAICompatPool({}): model={} routed via excluded backend={} — "
+                            + "blocking model for 5 min to force re-route",
+                    cfg.providerKey(), modelId, backend);
+            rateLimitExpiry.put(modelId, System.currentTimeMillis() + 5 * 60 * 1000L);
+        }
+    }
+
+    /**
+     * Phase 20.11 §migration — 429 block-window extension when the
+     * upstream identifies a backend in {@link ProviderConfig#excludedBackends()}.
+     * Parses {@code error.metadata.provider_name} from the body and, if
+     * matched, bumps the block window to at least 5 minutes (covers
+     * backends with global free-tier caps like OpenRouter's Venice).
+     * Returns the (possibly extended) wait window in milliseconds.
+     */
+    private long extendForExcludedBackend(String modelId, String body, long baseWaitMs) {
+        java.util.Set<String> excluded = cfg.excludedBackends();
+        if (excluded == null || excluded.isEmpty()) return baseWaitMs;
+        if (body == null || body.isBlank()) return baseWaitMs;
+        try {
+            JsonNode root = mapper.readTree(body);
+            String backend = root.path("error").path("metadata").path("provider_name").asText("");
+            if (!backend.isBlank() && excluded.contains(backend)) {
+                long extended = Math.max(baseWaitMs, 5 * 60 * 1000L);
+                log.warn("GenericOpenAICompatPool({}): model={} 429 backend={} (excluded) — "
+                                + "block extended to {}ms",
+                        cfg.providerKey(), modelId, backend, extended);
+                return extended;
+            }
+        } catch (Exception ignored) {
+            // Body wasn't JSON; fall through to the base window.
+        }
+        return baseWaitMs;
     }
 
     // ── Retry-after parsing ────────────────────────────────────────────────

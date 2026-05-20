@@ -61,19 +61,19 @@ import java.util.stream.Collectors;
  * <p>Phase 20.11 §migration step 3 — gated on
  * {@code app.ai.openrouter.legacy-pool} (default true) so an operator
  * can flip OpenRouter over to a YAML-configured {@link GenericOpenAICompatPool}
- * entry under {@code app.ai.providers.openrouter:}. Feature-parity status
- * before the flip:
+ * entry under {@code app.ai.providers.openrouter:}. Feature-parity now
+ * complete:
  * <ul>
  *   <li>{@code HTTP-Referer} / {@code X-Title} — supported via
- *       {@link ProviderConfig#extraHeaders()} (this PR).</li>
- *   <li>{@code excludedBackends} (request-body {@code provider.ignore}
- *       routing knob) — NOT YET supported by GenericOpenAICompatPool;
- *       defer the flip until that lands in a follow-up.</li>
- *   <li>Venice-shaped 429 backend block — handled in this class;
- *       generic pool's 429 path uses the standard retry-after parsing
- *       and may not preserve the per-backend block semantics. Confirm
- *       against a replay corpus before flipping.</li>
+ *       {@link ProviderConfig#extraHeaders()}.</li>
+ *   <li>{@code excludedBackends} — supported via
+ *       {@link ProviderConfig#excludedBackends()}; both the post-200
+ *       backend check and the 429 block-window extension are mirrored
+ *       in {@code GenericOpenAICompatPool.checkBackendExclusion} +
+ *       {@code extendForExcludedBackend} (Venice 5-min cap preserved).</li>
  * </ul>
+ * The flip is now safe; burn-in two weeks against a replay corpus
+ * before the OpenRouter-step-2b deletion PR.
  */
 @Component
 @ConditionalOnExpression(

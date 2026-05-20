@@ -329,13 +329,14 @@ app:
     #
     # Phase 20.11 §migration step 3 — OpenRouter replicated as a generic-
     # pool entry. Same two-step flip as Cerebras (uncomment + set
-    # app.ai.openrouter.legacy-pool=false). FEATURE-PARITY GAP: the
-    # request-body excludedBackends knob (provider.ignore in OpenRouter's
-    # API) is NOT YET supported by GenericOpenAICompatPool — until that
-    # lands the operator cannot exclude Venice / DeepInfra / etc. via the
-    # YAML side. Hold the flip on OpenRouter for that follow-up.
-    # The HTTP-Referer and X-Title headers OpenRouter requires for free-
-    # tier routing analytics are carried through extra-headers below.
+    # app.ai.openrouter.legacy-pool=false). Feature-parity:
+    #   - HTTP-Referer / X-Title via extra-headers (OpenRouter free-tier
+    #     routing analytics).
+    #   - excluded-backends: post-response backend blacklist. When a 200
+    #     response's body.provider matches, the model is blocked for 5 min
+    #     to force re-routing; when a 429's error.metadata.provider_name
+    #     matches, the block window extends to ≥ 5 min. Mirrors
+    #     OpenRouterPool's checkBackendExclusion + Venice-cap handling.
     # providers:
     #   openrouter:
     #     base-url: https://openrouter.ai/api/v1
@@ -347,6 +348,7 @@ app:
     #     extra-headers:
     #       HTTP-Referer: https://emergent-terrain.example.com
     #       X-Title: EmergentTerrain Research
+    #     excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

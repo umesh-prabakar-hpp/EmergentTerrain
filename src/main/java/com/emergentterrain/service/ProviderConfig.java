@@ -2,6 +2,7 @@ package com.emergentterrain.service;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Phase 20.11 — declarative provider configuration for
@@ -64,6 +65,18 @@ import java.util.Map;
  *                          headers (the default). Authorization +
  *                          Content-Type are always set by the pool and
  *                          must not be duplicated here.
+ * @param excludedBackends  Phase 20.11 §migration — response-side
+ *                          backend blacklist. Mirrors OpenRouter's
+ *                          existing semantics: when a successful
+ *                          response carries
+ *                          {@code body.provider} in this set, the
+ *                          model is blocked for 5 minutes to force re-
+ *                          routing; when a 429 carries
+ *                          {@code error.metadata.provider_name} in
+ *                          this set, the block window is extended to 5
+ *                          minutes (covers backends with global free-
+ *                          tier caps like Venice). Empty set (default)
+ *                          = no exclusions.
  */
 public record ProviderConfig(
         String providerKey,
@@ -76,14 +89,15 @@ public record ProviderConfig(
         String maxTokensField,
         RetryAfterSource retryAfterSource,
         String role,
-        Map<String, String> extraHeaders) {
+        Map<String, String> extraHeaders,
+        Set<String> excludedBackends) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
-                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of());
+                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(), Set.of());
     }
 }

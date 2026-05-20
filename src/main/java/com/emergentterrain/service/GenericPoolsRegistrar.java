@@ -143,6 +143,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private String role;
         /** Phase 20.11 §migration — extra HTTP headers (e.g. OpenRouter HTTP-Referer/X-Title). */
         private Map<String, String> extraHeaders;
+        /** Phase 20.11 §migration — response-side backend blacklist (e.g. OpenRouter Venice). */
+        private List<String> excludedBackends;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -166,6 +168,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setRole(String v) { this.role = v; }
         public Map<String, String> getExtraHeaders() { return extraHeaders; }
         public void setExtraHeaders(Map<String, String> v) { this.extraHeaders = v; }
+        public List<String> getExcludedBackends() { return excludedBackends; }
+        public void setExcludedBackends(List<String> v) { this.excludedBackends = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -183,7 +187,10 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     maxTokensField == null ? "max_tokens" : maxTokensField,
                     retryAfterSource == null ? ProviderConfig.RetryAfterSource.HEADER : retryAfterSource,
                     role == null ? "" : role.trim(),
-                    extraHeaders == null ? Map.of() : Map.copyOf(extraHeaders));
+                    extraHeaders == null ? Map.of() : Map.copyOf(extraHeaders),
+                    excludedBackends == null || excludedBackends.isEmpty()
+                            ? java.util.Set.of()
+                            : java.util.Set.copyOf(excludedBackends));
         }
     }
 }

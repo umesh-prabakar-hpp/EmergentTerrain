@@ -606,11 +606,29 @@ ascending-quirk order. Cerebras is the smallest; Groq is the largest
   `@ConditionalOnExpression("${app.ai.openrouter.enabled:false} and ${app.ai.openrouter.legacy-pool:true}")`.
 - Commented `app.ai.providers.openrouter:` block added under the
   generic-pool config section with `extra-headers:` filled in.
-- **Feature-parity gap explicitly documented**: the OpenRouter
-  request-body `excludedBackends` (translates to OpenRouter's
-  `provider.ignore` knob) is NOT yet supported by
-  `GenericOpenAICompatPool`. Hold the OpenRouter flip until that
-  lands in a follow-up. Cerebras has no such gap and can flip today.
+
+**Status (step 3 follow-up — excludedBackends parity, 2026-05-20):**
+**LANDED**. The feature-parity gap that previously blocked the
+OpenRouter flip is now closed.
+- `ProviderConfig` gained `excludedBackends: Set<String>` (NOT a
+  request-body knob — clarification on prior misreading; it's a
+  response-side blacklist).
+- `GenericOpenAICompatPool.checkBackendExclusion(modelId, body)` runs
+  on every 200 response; matches the legacy `OpenRouterPool` semantics
+  (block the model for 5 minutes when `body.provider` is in the
+  excluded set).
+- `extendForExcludedBackend(modelId, body, baseWaitMs)` runs on every
+  429; bumps the block window to ≥ 5 min when
+  `error.metadata.provider_name` matches (preserves the Venice global-
+  cap semantics).
+- Both call sites (sync + tool-loop) wired.
+- The OpenRouter YAML comment now includes
+  `excluded-backends: [Venice]` matching the existing
+  `app.ai.openrouter.excludedBackends` setting.
+
+The OpenRouter flip is now safe to execute via the standard two-step
+sequence (uncomment YAML, set `app.ai.openrouter.legacy-pool=false`),
+followed by the same two-week burn-in window as Cerebras.
 
 ### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
 
