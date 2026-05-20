@@ -113,10 +113,13 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
             def.setScope(BeanDefinition.SCOPE_SINGLETON);
             def.getConstructorArgumentValues().addIndexedArgumentValue(0, cfg);
             // ObjectMapper resolved by-type at instantiation; matches the
-            // existing pool constructors' style.
+            // existing pool constructors' style. Must use the Class-typed
+            // RuntimeBeanReference overload — the String-typed one looks
+            // up by bean *name*, and Spring Boot registers the auto-
+            // configured ObjectMapper as "jacksonObjectMapper", not its FQCN.
             def.getConstructorArgumentValues().addIndexedArgumentValue(
                     1, new org.springframework.beans.factory.config.RuntimeBeanReference(
-                            ObjectMapper.class.getName()));
+                            ObjectMapper.class));
             def.getConstructorArgumentValues().addIndexedArgumentValue(2, parallelism);
             def.getConstructorArgumentValues().addIndexedArgumentValue(
                     3, Duration.ofSeconds(420)); // matches app.ai.http.requestTimeoutSeconds default
