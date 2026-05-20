@@ -315,8 +315,10 @@ class CitationValidatorTest {
     @Test
     void sweepParamWhitelist_doesNotExemptUnrelatedUncitedNumber() {
         // 9471 K is NOT in the whitelist — must still flag as uncited.
+        // No [call_N] in the hypothesis so the sweep params are truly uncited
+        // (rather than picked up by proximity-to-marker).
         NarrationResult n = narration(
-                "Hypothesis: starting position of 17, scale of 7.4 [call_1].",
+                "Hypothesis: starting position of 17, scale of 7.4.",
                 Map.of(1, "Result extended to 9471 K, beyond the swept range."),
                 "c",
                 List.of());
@@ -333,18 +335,22 @@ class CitationValidatorTest {
     @Test
     void sweepParamWhitelist_emptySetBehaviorMatchesPre21_6() {
         // Same paper with no whitelist → both sweep params flagged uncited
-        // (regression check that the new code-path is opt-in).
+        // (regression check that the new code-path is opt-in). No [call_N]
+        // near 17 / 7.4 so they're uncited; 9471 is also uncited; 792 is
+        // unrelated.
         NarrationResult n = narration(
-                "Hypothesis: starting position of 17, scale of 7.4 [call_1].",
-                Map.of(1, "Result T=792 K [call_1]."),
+                "Hypothesis: starting position of 17, scale of 7.4.",
+                Map.of(1, "Result extended to 9471 K, beyond the swept range."),
                 "c",
-                List.of(claim(792, "call_1", "findings:1")));
-        var resultEmpty = validator.validate(n, List.of(call("call_1", "T=792")), java.util.Set.of());
-        // With no whitelist: 17 and 7.4 in the hypothesis are uncited.
-        assertThat(resultEmpty.uncitedCount()).isEqualTo(2);
+                List.of());
+        var resultEmpty = validator.validate(n, List.of(call("call_1", "T=2300..6100")),
+                java.util.Set.of());
+        // With no whitelist: 17, 7.4, and 9471 are all uncited.
+        assertThat(resultEmpty.uncitedCount()).isEqualTo(3);
         assertThat(resultEmpty.exemptSweepCount()).isZero();
         // Two-arg overload behaves identically to empty-set three-arg.
-        var resultBackCompat = validator.validate(n, List.of(call("call_1", "T=792")));
+        var resultBackCompat = validator.validate(n,
+                List.of(call("call_1", "T=2300..6100")));
         assertThat(resultBackCompat.uncitedCount()).isEqualTo(resultEmpty.uncitedCount());
         assertThat(resultBackCompat.exemptSweepCount()).isZero();
     }

@@ -146,12 +146,30 @@ public final class SymbolicStaticChecker {
         return new Result.Approved();
     }
 
+    /** Phase 21 §21.5 — heads whose first argument is a List of Set/SetDelayed bindings. */
+    private static final Set<String> LOCAL_SCOPE_HEADS = Set.of("Module", "With", "Block");
+
     private static void collectBadHeads(IExpr expr, List<String> bad) {
         if (expr == null) return;
         if (expr.isAST()) {
             IAST ast = (IAST) expr;
             String headName = ast.head().toString();
             if (!ALLOWED_HEADS.contains(headName)) bad.add(headName);
+            // Phase 21 §21.5 — Module/With/Block bindings: Symja parses
+            // `{a = 2, b = 3}` (the first arg) as `List[Set[a, 2],
+            // Set[b, 3]]`. Top-level Set inside that binding list is
+            // local-scoped, not state-mutating, so we skip the Set head
+            // itself and recurse into the binding's value expression only.
+            // Set anywhere else (the body, or a nested call) still routes
+            // through the normal recursion and gets rejected — the
+            // regression test in SymbolicEnginePhase8Tier3Test pins this.
+            if (LOCAL_SCOPE_HEADS.contains(headName) && ast.size() >= 3) {
+                collectBadHeadsInBindingList(ast.get(1), bad);
+                for (int i = 2; i < ast.size(); i++) {
+                    collectBadHeads(ast.get(i), bad);
+                }
+                return;
+            }
             // Recurse into the head (rare — e.g. f[x][y]) and into the args.
             collectBadHeads(ast.head(), bad);
             for (int i = 1; i < ast.size(); i++) {
@@ -161,5 +179,44 @@ public final class SymbolicStaticChecker {
         // Leaf atoms (Integer, Rational, Real, String, Symbol) are always
         // safe — bare symbols are free variables; numeric atoms can't trigger
         // anything. No checking needed.
+    }
+
+    /**
+     * Phase 21 §21.5 — walk the binding list of a Module/With/Block, allowing
+     * top-level {@code Set} / {@code SetDelayed} (which Symja parses
+     * {@code a = 2} as) but checking the value expression normally. A bare
+     * symbol binding like {@code Module[{a, b}, …]} or a non-List shape
+     * falls through to the regular {@link #collectBadHeads} path.
+     */
+    private static void collectBadHeadsInBindingList(IExpr bindingArg, List<String> bad) {
+        if (bindingArg == null || !bindingArg.isAST()) {
+            // Single bare symbol or atom — no Set head to special-case.
+            collectBadHeads(bindingArg, bad);
+            return;
+        }
+        IAST list = (IAST) bindingArg;
+        if (!"List".equals(list.head().toString())) {
+            // Atypical shape (e.g. Module[a = 2, body]) — let normal recursion
+            // handle it; this isn't the common LLM emission pattern.
+            collectBadHeads(bindingArg, bad);
+            return;
+        }
+        for (int i = 1; i < list.size(); i++) {
+            IExpr entry = list.get(i);
+            if (entry.isAST()) {
+                IAST entryAst = (IAST) entry;
+                String entryHead = entryAst.head().toString();
+                if (("Set".equals(entryHead) || "SetDelayed".equals(entryHead))
+                        && entryAst.size() >= 3) {
+                    // Skip the Set head; recurse into the bound value only.
+                    // The bound symbol itself (arg 1) is always a bare Symbol,
+                    // which is a leaf atom.
+                    collectBadHeads(entryAst.get(2), bad);
+                    continue;
+                }
+            }
+            // Bare symbol or a non-Set AST — regular check.
+            collectBadHeads(entry, bad);
+        }
     }
 }
