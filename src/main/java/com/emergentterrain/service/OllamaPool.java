@@ -201,14 +201,57 @@ public class OllamaPool implements LlmPool {
     }
 
     /**
-     * Phase 9 U5b — single-shot sync call for selection probes. Mirrors the
-     * acquire-and-call pattern of the production path but takes the (backends,
-     * cursor) tuple explicitly so it can run against candidate maps before the
-     * final {@link #backendsByModel} field is assigned.
+     * Phase 9 U5b + Phase 20.11 fixup — single-shot sync call for selection
+     * probes. Races every configured backend in parallel and returns the
+     * first non-throwing result; the slower backends' calls keep running
+     * but their results are discarded. Cuts gemma3:4b-on-CPU probe time
+     * roughly in half on this codebase's typical two-backend setup
+     * (localhost + 192.168.1.145): the 2026-05-20 08:01 startup saw a
+     * single-backend chat probe at 47s + json probe at 114s = 161s total
+     * for one model; with the GPU-class backend at 192.168.1.145 winning
+     * the race, expected total drops to ~30-50s.
+     *
+     * <p>Trade-off: temporarily occupies one slot on every backend
+     * simultaneously (rather than just one). Acceptable for startup-time
+     * probes — production calls still go through the round-robin path
+     * via {@link #acquireFrom} for proper load distribution.
      */
     private String probeOllamaModel(List<Backend> backends, AtomicInteger cursor,
                                       String prompt) {
-        Backend b = acquireFrom(backends, cursor);
+        if (backends.size() == 1) return probeOnBackend(backends.get(0), prompt);
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            // invokeAny returns the first non-throwing result; the rest are
+            // cancelled (interrupting their underlying ChatClient calls) once
+            // a winner emerges, which is what we want — no need to wait for
+            // a slow localhost probe once the LAN backend has answered.
+            return executor.invokeAny(backends.stream()
+                    .<java.util.concurrent.Callable<String>>map(
+                            b -> () -> probeOnBackend(b, prompt))
+                    .toList());
+        } catch (java.util.concurrent.ExecutionException e) {
+            // Every backend threw — re-surface the last cause for the tester
+            // to interpret (chat-probe / json-probe / tool-probe failure).
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new RuntimeException("OllamaPool probe failed on all backends", cause);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("OllamaPool probe interrupted", e);
+        }
+    }
+
+    /**
+     * Single-backend probe. Shared between {@link #probeOllamaModel} (race
+     * winner path) and the degenerate single-backend case. Acquires a slot,
+     * runs the chat client call, records success/failure, releases the slot.
+     */
+    private String probeOnBackend(Backend b, String prompt) {
+        try {
+            b.slots().acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted waiting for OllamaPool probe slot", e);
+        }
         try {
             String result = b.client().prompt().user(prompt).call().content();
             b.consecutiveFailures().set(0);
