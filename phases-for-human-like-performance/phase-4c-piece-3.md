@@ -304,19 +304,49 @@ template that PR4's rollback judge needs.
 
 ### PR4 — Rollback judge (scheduled)
 
-**Files:**
-- New: `PromptTemplateRollbackJudge` — `@Scheduled` every 5 minutes
-  (matches dispute-orphan scan cadence). Iterates ACTIVE variants
-  with `narratedAggregated ≥ 200`; computes failure rate; runs a
-  two-proportion z-test with domain stratification against the
-  default variant; on rejection at α = 0.01 with absolute
-  difference ≥ 0.10, flips status to `ROLLED_BACK`.
-- Flag: `app.research.prompt-template-rollback.enabled` (default
-  false). Both PR4 + PR2 flags must be ON for the loop to close.
+**Status (2026-05-20):** ✅ **LANDED, dormant.** Flag default off.
+Activates when `app.research.prompt-template-rollback.enabled=true`.
 
-**Acceptance:** unit test on the judge against a synthetic stats
-distribution; explicit assertion that a 0.30 failure rate vs 0.10
-baseline at n=300 each triggers rollback; n=100 does not.
+**Files shipped:**
+- `PromptTemplateRollbackJudge` — `@Scheduled` job
+  (`fixedDelayString = ${app.research.prompt-template-rollback-scan-ms:300000}`).
+  Sweep groups ACTIVE variants by `templateId`; per group, picks the
+  highest-`papersNarrated` arm as the **incumbent**; for each other
+  ACTIVE arm calls `shouldRollBack(challenger, incumbent)`.
+- `shouldRollBack` checks three conditions in series:
+  - Both arms have ≥ `MIN_TERMINAL_OUTCOMES_PER_ARM` (200) terminal
+    outcomes. Below that → skip.
+  - `(p_challenger - p_incumbent) ≥ MIN_DETECTABLE_EFFECT` (0.10).
+    Below that → skip (absolute margin check before the z-test).
+  - One-sided two-proportion z ≥ 2.3263 (α = 0.01). One-sided
+    because a challenger BETTER than incumbent is never rolled back
+    by the scheduler — promotion is operator action.
+
+  All three gates have to fire. Pooled SE follows the standard
+  two-proportion formula.
+
+- Aggregated counters (no per-domain isolation — Decision 10 revision
+  in this design doc; corpus rate too low for per-(template, domain,
+  variant) buckets to fill within a year).
+
+**Acceptance criterion met** (per the design doc): 11 new tests in
+`PromptTemplateRollbackJudgeTest`:
+- 5 static `shouldRollBack` cases:
+  - **The verbatim acceptance assertion**: 0.30 vs 0.10 at n=300
+    each → rolls back.
+  - Same rates at n=100 each → does NOT roll back.
+  - 14% vs 10% at n=1000 → does NOT roll back (margin under MDE).
+  - Challenger BETTER than incumbent → never rolls back.
+  - Zero-sample arm → skip.
+- 6 sweep contract cases (flag-off no-op, single-variant skip,
+  incumbent-vs-challenger flip, ignores already rolled-back,
+  two-challengers-one-loses, groups-by-template-id).
+
+**Flag:** `app.research.prompt-template-rollback.enabled`, default
+false. **Operator activates by setting to true after**: PR3's stats
+writer has been on long enough to accumulate ≥ 200 terminal outcomes
+on at least one challenger (with current ~38 papers/day corpus rate,
+~6 days from when both PR2 + PR3 are enabled).
 
 ---
 
