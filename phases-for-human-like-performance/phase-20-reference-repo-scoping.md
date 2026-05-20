@@ -371,6 +371,12 @@ doc.
 
 ### 20.7 — Operator-level instrumentation (MFU / MBU)
 
+**Status (2026-05-19):** ✅ **LANDED** in engine repo
+`EmergentTerrainGPUEngine` commit `def01b9` ("per-pipeline performance
+counters on every RPC response"). Per-pipeline timings + bytes
+in/out + FLOPs estimate now shipped on each gRPC response, so MFU /
+MBU can be computed by callers.
+
 **Source pattern:** every operator declares `read_bytes`,
 `write_bytes`, `calc_flops`. Post-execution the harness computes
 **MFU** = `calc_flops / (peak_tflops × latency)` (math utilization
@@ -420,6 +426,11 @@ CPU-side wall-clock timing when the feature is unavailable.
 
 ### 20.8 — Streaming progress on long-running RPCs
 
+**Status (2026-05-19):** ✅ **LANDED** in engine repo commit
+`0571322` ("streaming SimulateBotsV2 RPC"). Callers can opt into the
+streaming variant for progress events; the legacy unary RPC remains
+for back-compat until consumers migrate.
+
 **Source pattern:** long-running operations emit NDJSON over HTTP —
 `{"event":"progress","completed":N,"total":T,"percent":X,...}` lines
 during execution, then a terminal `{"event":"done","data":{...}}`. The
@@ -458,6 +469,15 @@ streaming and leaving `SimulateBots` unary.
 ---
 
 ### 20.9 — Stage / pipeline trait split
+
+**Status (2026-05-19):** ✅ **step 1 LANDED** in engine repo commit
+`5d2f685` ("phase-20.9 step 1: extract shader constants to
+pipelines/{world,patch,bots}.rs"). Shader constants moved into one
+file per pipeline under `pipelines/`. The next step (a typed
+`ComputePipeline` trait + per-pipeline unit tests) is **the only
+remaining 20.9 work**, naturally pulled when pipeline #4 (the
+distance-transform candidate from `changes-for-gpu-based-app.md`)
+gets added.
 
 **Source pattern:** workflow assembled from named stages — each stage
 is a separate file implementing a typed contract (take config + state,
@@ -501,6 +521,16 @@ edits to existing pipeline files.
 ---
 
 ### 20.10 — Externalize tunables (forest/water/industry thresholds, spacing)
+
+**Status (2026-05-19):** ✅ **LANDED** in engine repo
+`EmergentTerrainGPUEngine` commit `2b19dc9` ("phase-20.10:
+externalize world tunables to gpu.toml"). New `src/config.rs` with
+`WorldConfig` struct loaded from the path in `GPU_ENGINE_CONFIG`
+(default `./gpu.toml`); missing file → silent defaults; malformed →
+warn-and-use-defaults (engine is a perf service, not a config
+validator). Reference TOML shipped as `gpu.toml.example` at the engine
+repo root. Operator can now A/B world flavors by editing TOML +
+restarting `cargo run` — no rebuild.
 
 **Source pattern:** a `ConfigManager` that reads TOML, merges with a
 default preset, validates that no unknown keys are present, finalizes,
