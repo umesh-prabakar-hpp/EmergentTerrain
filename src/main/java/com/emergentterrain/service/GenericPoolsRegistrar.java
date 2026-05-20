@@ -123,6 +123,13 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
             def.getConstructorArgumentValues().addIndexedArgumentValue(2, parallelism);
             def.getConstructorArgumentValues().addIndexedArgumentValue(
                     3, Duration.ofSeconds(420)); // matches app.ai.http.requestTimeoutSeconds default
+            // Phase 9 U5 parity — Selection tests on by default; same key the
+            // legacy pools + OllamaPool read so a single global toggle still
+            // works across every pool implementation.
+            boolean selectionTestsEnabled = environment.getProperty(
+                    "app.ai.selection-tests.enabled", Boolean.class, true);
+            def.getConstructorArgumentValues().addIndexedArgumentValue(
+                    4, selectionTestsEnabled);
             registry.registerBeanDefinition(beanName, def);
 
             log.info("GenericPoolsRegistrar({}): registered bean={} baseUrl={} models={} contextWindow={} supportsTools={}",

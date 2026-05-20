@@ -120,7 +120,8 @@ public class GenericOpenAICompatPool implements LlmPool {
     public GenericOpenAICompatPool(ProviderConfig cfg,
                                     ObjectMapper mapper,
                                     int parallelism,
-                                    Duration requestTimeout) {
+                                    Duration requestTimeout,
+                                    boolean selectionTestsEnabled) {
         this.cfg = cfg;
         this.mapper = mapper;
         this.requestTimeout = requestTimeout;
@@ -136,10 +137,50 @@ public class GenericOpenAICompatPool implements LlmPool {
             log.warn("GenericOpenAICompatPool({}): activeModels is empty — pool will fail every call. "
                     + "Set app.ai.providers.{}.models or .models-discovery-path.",
                     cfg.providerKey(), cfg.providerKey());
-        } else {
-            log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} supportsTools={}",
-                    cfg.providerKey(), parallelism, activeModels, cfg.contextWindow(), cfg.supportsTools());
+            return;
         }
+
+        // Phase 9 U5 / Phase 20.11 fixup — universal selection tests (chat +
+        // JSON, plus tool-call for supportsTools=true pools). Restores parity
+        // with the legacy CerebrasPool/OpenRouterPool/NvidiaPool/GroqPool that
+        // each ran ModelSelectionTester.filterPassing at construction. The
+        // syncDispatch deliberately bypasses callSyncOnModel's activeModels
+        // gate (which we seed with candidates above) and calls the low-level
+        // syncCallWithBackoff so the probe runs even before the final
+        // activeModels list is fixed. supportsTools=false ⇒ chat + JSON only;
+        // the tool-call probe is meaningful only for tool-capable pools.
+        if (selectionTestsEnabled) {
+            List<String> candidates = List.copyOf(activeModels);
+            List<String> passed = ModelSelectionTester.filterPassing(
+                    cfg.providerKey(),
+                    candidates,
+                    (mid, prompt) -> syncCallWithBackoff(mid, prompt, cfg.contextWindow()),
+                    cfg.supportsTools()
+                            ? mid -> (sys, user, toolsJson, exec) ->
+                                    runToolLoop(mid, sys, user, toolsJson, exec)
+                            : null);
+            if (passed.isEmpty()) {
+                // Mirror OllamaPool: every model failed — likely the provider
+                // is unreachable or the API key is bad. Keep candidates in
+                // activeModels so the pool isn't permanently dead; the
+                // runtime block-state + token-budget plumbing pick up
+                // recovery when the provider comes back. Operator sees the
+                // WARN per-model from filterPassing and can investigate.
+                log.warn("GenericOpenAICompatPool({}): selection tests failed for "
+                                + "all candidates {} — keeping unverified models "
+                                + "in activeModels. Investigate: is the API key set? "
+                                + "is the provider's baseUrl reachable? are the model "
+                                + "ids spelled correctly?",
+                        cfg.providerKey(), candidates);
+            } else {
+                activeModels.clear();
+                activeModels.addAll(passed);
+            }
+        }
+
+        log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} supportsTools={} selection-tests={}",
+                cfg.providerKey(), parallelism, activeModels, cfg.contextWindow(),
+                cfg.supportsTools(), selectionTestsEnabled ? "on" : "off");
     }
 
     // ── LlmPool surface ────────────────────────────────────────────────────
