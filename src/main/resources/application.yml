@@ -357,6 +357,7 @@ app:
         models: [qwen-3-235b-a22b-instruct-2507]
         supports-tools: true
         context-window: 32000
+        max-output-tokens: 2000   # legacy maxTokens parity; output cap, not context
         role: fast-audit       # matches CerebrasPool's role hint
         parallelism: 2          # matches app.ai.cerebras.parallelism default
       openrouter:
@@ -366,6 +367,7 @@ app:
         models: [openai/gpt-oss-120b:free, nvidia/nemotron-3-super-120b-a12b:free]
         supports-tools: true
         context-window: 32000
+        max-output-tokens: 2000   # reasoning models — 2000 gives chain-of-thought headroom
         parallelism: 2
         extra-headers:
           HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
@@ -390,6 +392,7 @@ app:
           - openai/gpt-oss-120b
         supports-tools: true
         context-window: 32000
+        max-output-tokens: 2000             # matches legacy app.ai.groq.maxTokens
         parallelism: 3
         retry-after-source: BODY            # Groq's distinctive quirk
         long-block-body-markers: ["tokens per day", "TPD"]
@@ -409,6 +412,9 @@ app:
         fast-tier: true                     # included in FastModelRegistry
         role: fast-audit
         context-window: 32000
+        # allam-2-7b caps max_tokens at 4096; llama-4-scout at 8192. 2000
+        # stays well under both and matches the legacy fast-tier maxTokens.
+        max-output-tokens: 2000
         parallelism: 3
         retry-after-source: BODY
         long-block-body-markers: ["tokens per day", "TPD"]
@@ -431,6 +437,7 @@ app:
           - qwen/qwen3-coder-480b-a35b-instruct
         supports-tools: true
         context-window: 32000
+        max-output-tokens: 2000   # matches legacy app.ai.nvidia.maxTokens
         parallelism: 3      # matches app.ai.nvidia.parallelism default
         permanent-404-markers: ["Not found for account"]
         long-block-body-markers: [credit, monthly, "quota exceeded", "usage limit"]

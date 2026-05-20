@@ -108,6 +108,20 @@ import java.util.Set;
  *                          {@code supportsTools} filter excludes the
  *                          same models from the primary chain. Default
  *                          {@code false} = primary-only pool.
+ * @param maxOutputTokens   Phase 20.11 fixup — value sent as the
+ *                          {@link #maxTokensField} on every chat-
+ *                          completions request. This is the OUTPUT cap
+ *                          (completion tokens), not the context window.
+ *                          The previous incarnation passed
+ *                          {@link #contextWindow} (32000 typical) as
+ *                          {@code max_tokens}, which exceeded per-model
+ *                          caps on several groq-fast models (allam-2-7b
+ *                          caps at 4096, llama-4-scout at 8192) and
+ *                          tripped 400 invalid_request on every call.
+ *                          Default {@code 4096} — safe for every modern
+ *                          OpenAI-compat model. Bump per-provider when
+ *                          longer outputs are needed (legacy GroqPool
+ *                          used 2000 for primary narration).
  */
 public record ProviderConfig(
         String providerKey,
@@ -125,15 +139,16 @@ public record ProviderConfig(
         Set<String> permanent404Markers,
         Set<String> longBlockBodyMarkers,
         long longBlockMs,
-        boolean fastTier) {
+        boolean fastTier,
+        int maxOutputTokens) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers, primary-tier). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers, primary-tier, conservative 4096 output cap). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
                 true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(),
-                Set.of(), Set.of(), Set.of(), 0L, false);
+                Set.of(), Set.of(), Set.of(), 0L, false, 4096);
     }
 }

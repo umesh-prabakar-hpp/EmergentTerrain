@@ -161,7 +161,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             List<String> passed = ModelSelectionTester.filterPassing(
                     cfg.providerKey(),
                     candidates,
-                    (mid, prompt) -> syncCallWithBackoff(mid, prompt, cfg.contextWindow()),
+                    (mid, prompt) -> syncCallWithBackoff(mid, prompt, cfg.maxOutputTokens()),
                     cfg.supportsTools()
                             ? mid -> (sys, user, toolsJson, exec) ->
                                     runToolLoop(mid, sys, user, toolsJson, exec)
@@ -193,9 +193,10 @@ public class GenericOpenAICompatPool implements LlmPool {
             }
         }
 
-        log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} supportsTools={} selection-tests={} dropped-awaiting-retest={}",
+        log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} maxOutputTokens={} supportsTools={} selection-tests={} dropped-awaiting-retest={}",
                 cfg.providerKey(), parallelism, activeModels, cfg.contextWindow(),
-                cfg.supportsTools(), selectionTestsEnabled ? "on" : "off",
+                cfg.maxOutputTokens(), cfg.supportsTools(),
+                selectionTestsEnabled ? "on" : "off",
                 droppedSelectionTestModels);
     }
 
@@ -346,7 +347,7 @@ public class GenericOpenAICompatPool implements LlmPool {
         for (String mid : droppedSelectionTestModels) {
             out.add(new RetestableModel(
                     mid,
-                    (m, prompt) -> syncCallWithBackoff(m, prompt, cfg.contextWindow()),
+                    (m, prompt) -> syncCallWithBackoff(m, prompt, cfg.maxOutputTokens()),
                     cfg.supportsTools()
                             ? (sys, user, toolsJson, exec) ->
                                     runToolLoop(mid, sys, user, toolsJson, exec)
@@ -386,7 +387,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                     "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
         }
         acquireSlot();
-        try { return syncCallWithBackoff(modelId, prompt, cfg.contextWindow()); }
+        try { return syncCallWithBackoff(modelId, prompt, cfg.maxOutputTokens()); }
         finally { slots.release(); }
     }
 
@@ -396,7 +397,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                     "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
         }
         acquireSlot();
-        try { streamCallWithBackoff(modelId, prompt, cfg.contextWindow(), tokenConsumer); }
+        try { streamCallWithBackoff(modelId, prompt, cfg.maxOutputTokens(), tokenConsumer); }
         finally { slots.release(); }
     }
 
@@ -414,7 +415,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 last = new RuntimeException("model=" + modelId + " currently rate-limited");
                 continue;
             }
-            try { return syncCallWithBackoff(modelId, prompt, cfg.contextWindow()); }
+            try { return syncCallWithBackoff(modelId, prompt, cfg.maxOutputTokens()); }
             catch (RuntimeException e) {
                 last = e;
                 if (i < size - 1) {
@@ -539,7 +540,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 continue;
             }
             try {
-                streamCallWithBackoff(modelId, prompt, cfg.contextWindow(), tokenConsumer);
+                streamCallWithBackoff(modelId, prompt, cfg.maxOutputTokens(), tokenConsumer);
                 return;
             } catch (RuntimeException e) {
                 last = e;

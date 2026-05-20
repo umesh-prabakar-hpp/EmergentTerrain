@@ -180,6 +180,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private Long longBlockMs;
         /** Phase 20.11 §migration — Groq fast-tier flag (publishes models via fastTierModelIds()). */
         private Boolean fastTier;
+        /** Phase 20.11 fixup — output-token cap sent as max_tokens. See ProviderConfig.maxOutputTokens. */
+        private Integer maxOutputTokens;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -215,6 +217,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setLongBlockMs(Long v) { this.longBlockMs = v; }
         public Boolean getFastTier() { return fastTier; }
         public void setFastTier(Boolean v) { this.fastTier = v; }
+        public Integer getMaxOutputTokens() { return maxOutputTokens; }
+        public void setMaxOutputTokens(Integer v) { this.maxOutputTokens = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -243,7 +247,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                             ? java.util.Set.of()
                             : java.util.Set.copyOf(longBlockBodyMarkers),
                     longBlockMs == null ? 0L : longBlockMs,
-                    fastTier != null && fastTier);
+                    fastTier != null && fastTier,
+                    maxOutputTokens == null ? 4096 : maxOutputTokens);
         }
     }
 }
