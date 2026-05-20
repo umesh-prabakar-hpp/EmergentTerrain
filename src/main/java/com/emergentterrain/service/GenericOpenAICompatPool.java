@@ -300,10 +300,9 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     @Override public void callStream(String prompt, Consumer<String> tokenConsumer) {
-        // Phase 20.11 step 1 stub — stream path is a follow-up. Surface a
-        // clear error so callers know not to route here.
-        throw new UnsupportedOperationException(
-                "GenericOpenAICompatPool(" + cfg.providerKey() + "): stream path not yet wired (Phase 20.11 follow-up)");
+        acquireSlot();
+        try { streamCallWithFallback(prompt, tokenConsumer); }
+        finally { slots.release(); }
     }
 
     @Override public String callSyncOnModel(String modelId, String prompt) {
@@ -317,8 +316,13 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     @Override public void callStreamOnModel(String modelId, String prompt, Consumer<String> tokenConsumer) {
-        throw new UnsupportedOperationException(
-                "GenericOpenAICompatPool(" + cfg.providerKey() + "): stream path not yet wired");
+        if (!activeModels.contains(modelId)) {
+            throw new IllegalArgumentException(
+                    "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
+        }
+        acquireSlot();
+        try { streamCallWithBackoff(modelId, prompt, cfg.contextWindow(), tokenConsumer); }
+        finally { slots.release(); }
     }
 
     // ── Dispatch ───────────────────────────────────────────────────────────
@@ -431,6 +435,169 @@ public class GenericOpenAICompatPool implements LlmPool {
         } finally {
             if (callMetrics != null) {
                 callMetrics.record(cfg.providerKey(), modelId, "sync", outcome);
+            }
+        }
+    }
+
+    // ── Streaming (Phase 20.11 fixup) ──────────────────────────────────────
+
+    /**
+     * Round-robin streaming dispatch with first-success-wins fallback. Mirrors
+     * {@link #callWithFallback} but for the streaming path. Note: tokens
+     * already forwarded to {@code tokenConsumer} by a failing model are not
+     * "rolled back" — the legacy {@code GroqPool.callStreamWithFallback} has
+     * the same property. Mid-stream failure is a 5xx after some {@code data:}
+     * chunks landed; in practice the only realistic failure mode is the very
+     * first byte being a 4xx/5xx (rate-limit, auth, etc.), which the
+     * {@code http.send} call surfaces before any chunks are emitted.
+     */
+    private void streamCallWithFallback(String prompt, Consumer<String> tokenConsumer) {
+        int size = activeModels.size();
+        if (size == 0) throw new IllegalStateException(
+                "GenericOpenAICompatPool(" + cfg.providerKey() + "): no active models");
+        int start = rrIndex.getAndIncrement() % size;
+        RuntimeException last = null;
+        for (int i = 0; i < size; i++) {
+            String modelId = activeModels.get((start + i) % size);
+            if (isModelBlocked(modelId)) {
+                last = new RuntimeException("model=" + modelId + " currently rate-limited");
+                continue;
+            }
+            try {
+                streamCallWithBackoff(modelId, prompt, cfg.contextWindow(), tokenConsumer);
+                return;
+            } catch (RuntimeException e) {
+                last = e;
+                if (i < size - 1) {
+                    log.warn("GenericOpenAICompatPool({}): stream model={} failed, trying next: {}",
+                            cfg.providerKey(), modelId, e.getMessage());
+                }
+            }
+        }
+        throw last != null ? last : new RuntimeException("all models exhausted");
+    }
+
+    /**
+     * Stream variant of {@link #syncCallWithBackoff} — same 429 → retry
+     * pattern. A 429 fires before any tokens leave the model, so retrying is
+     * safe (the consumer sees no partial output from the failed attempt).
+     */
+    private void streamCallWithBackoff(String modelId, String prompt, int tokenLimit,
+                                       Consumer<String> tokenConsumer) {
+        long backoffMs = INITIAL_BACKOFF_MS;
+        RuntimeException last = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try { streamCall(modelId, prompt, tokenLimit, tokenConsumer); return; }
+            catch (RuntimeException e) {
+                last = e;
+                String msg = e.getMessage();
+                if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
+                    long waitMs = parseRetryAfterMs(msg).orElse(backoffMs);
+                    long expiry = System.currentTimeMillis() + waitMs;
+                    rateLimitExpiry.merge(modelId, expiry, Math::max);
+                    log.warn("GenericOpenAICompatPool({}): stream 429 model={} attempt={} retrying in {}ms",
+                            cfg.providerKey(), modelId, attempt + 1, waitMs);
+                    sleep(waitMs);
+                    backoffMs = Math.min(backoffMs * 2, 30_000);
+                } else { throw e; }
+            }
+        }
+        throw last;
+    }
+
+    /**
+     * Single streaming attempt against {@code modelId}. Sends {@code stream:
+     * true} + {@code stream_options.include_usage: true} so the final SSE
+     * chunk carries usage tokens for budget correction. Non-200 status is
+     * caught and routed through the same 429 / permanent-404 / excluded-
+     * backend handling as the sync path.
+     */
+    private void streamCall(String modelId, String prompt, int tokenLimit,
+                            Consumer<String> tokenConsumer) {
+        final long estimate = estimateTokens(prompt, tokenLimit);
+        final boolean reserved;
+        if (budgetGate != null) {
+            budgetGate.tryAcquireOrThrow(cfg.providerKey(), modelId, estimate);
+            reserved = true;
+        } else {
+            reserved = false;
+        }
+        String outcome = "ok";
+        String payload = buildPayload(modelId, prompt, tokenLimit, true);
+        long t0 = System.currentTimeMillis();
+        StringBuilder accum = new StringBuilder();
+        int respStatus = 0;
+        try {
+            HttpRequest req = applyExtraHeaders(HttpRequest.newBuilder()
+                    .uri(URI.create(cfg.baseUrl() + "/chat/completions"))
+                    .header("Authorization", "Bearer " + cfg.apiKey())
+                    .header("Content-Type", "application/json"))
+                    .POST(HttpRequest.BodyPublishers.ofString(payload))
+                    .timeout(requestTimeout)
+                    .build();
+            HttpResponse<java.util.stream.Stream<String>> sresp =
+                    http.send(req, HttpResponse.BodyHandlers.ofLines());
+            respStatus = sresp.statusCode();
+            if (respStatus != 200) {
+                outcome = "http_error";
+                // Drain remaining lines so we can throw a useful message.
+                // Some providers return JSON, some plain text — concat with
+                // newlines, the upstream just needs SOMETHING informative.
+                String body = sresp.body().reduce("", (a, b) -> a.isEmpty() ? b : a + "\n" + b);
+                if (respStatus == 429) {
+                    long waitMs = parseRetryAfterMs(body).orElse(DEFAULT_BLOCK_MS);
+                    waitMs = extendForExcludedBackend(modelId, body, waitMs);
+                    waitMs = inferLongBlockMs(body, waitMs);
+                    rateLimitExpiry.merge(modelId, System.currentTimeMillis() + waitMs, Math::max);
+                    if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
+                } else if (respStatus == 404) {
+                    checkPermanent404(modelId, body);
+                }
+                throw new RuntimeException(cfg.providerKey() + " stream API error " + respStatus + ": " + body);
+            }
+            sresp.body()
+                    .filter(line -> line.startsWith("data: ") && !line.equals("data: [DONE]"))
+                    .forEach(line -> {
+                        try {
+                            JsonNode chunk = mapper.readTree(line.substring(6));
+                            // stream_options.include_usage ⇒ final chunk has
+                            // empty choices[] and a populated usage field.
+                            JsonNode usage = chunk.path("usage");
+                            if (!usage.isMissingNode() && !usage.isNull()) {
+                                if (reserved) {
+                                    budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
+                                } else {
+                                    recordUsage(modelId, usage);
+                                }
+                            }
+                            JsonNode choices = chunk.path("choices");
+                            if (!choices.isArray() || choices.isEmpty()) return;
+                            JsonNode content = choices.get(0).path("delta").path("content");
+                            if (!content.isMissingNode() && !content.isNull()) {
+                                String token = content.asText();
+                                if (!token.isEmpty()) {
+                                    accum.append(token);
+                                    tokenConsumer.accept(token);
+                                }
+                            }
+                        } catch (Exception ignored) {
+                            // Malformed SSE chunk — skip and continue.
+                        }
+                    });
+        } catch (RuntimeException e) {
+            if ("ok".equals(outcome)) outcome = "io_error";
+            throw e;
+        } catch (Exception e) {
+            outcome = "io_error";
+            throw new RuntimeException(cfg.providerKey() + " stream call failed", e);
+        } finally {
+            if (callMetrics != null) {
+                callMetrics.record(cfg.providerKey(), modelId, "stream", outcome);
+            }
+            if (traceWriter != null) {
+                traceWriter.record(LlmCallContext.currentPaperId(),
+                        cfg.providerKey(), modelId, "stream", respStatus,
+                        System.currentTimeMillis() - t0, payload, accum.toString());
             }
         }
     }
@@ -634,15 +801,26 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     private String buildPayload(String modelId, String prompt, int tokenLimit) {
+        return buildPayload(modelId, prompt, tokenLimit, false);
+    }
+
+    private String buildPayload(String modelId, String prompt, int tokenLimit, boolean stream) {
         try {
             ObjectNode node = mapper.createObjectNode();
             node.put("model", modelId);
-            node.put("stream", false);
+            node.put("stream", stream);
             node.put(cfg.maxTokensField(), tokenLimit);
             node.put("temperature",
                     LlmCallContext.currentTemperature().orElse(0.7));
             if (LlmCallContext.isJsonOutputMode()) {
                 node.putObject("response_format").put("type", "json_object");
+            }
+            if (stream) {
+                // OpenAI-compat: stream_options.include_usage emits a final
+                // SSE chunk with usage.{prompt,completion}_tokens after [DONE].
+                // Required for budget reservation correction; without it the
+                // budgetGate stays debited at the estimate forever.
+                node.putObject("stream_options").put("include_usage", true);
             }
             ArrayNode messages = node.putArray("messages");
             messages.addObject().put("role", "user").put("content", prompt);
