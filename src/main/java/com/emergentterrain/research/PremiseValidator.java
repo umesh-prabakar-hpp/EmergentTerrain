@@ -105,22 +105,57 @@ public final class PremiseValidator {
             "n(?:[_]?\\{?2\\}?|₂)\\s*[=≈~]\\s*(\\d+(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
 
+    // Prose-form fallback for hypotheses that name indices via natural language
+    // rather than n₁/n₂ tokens. P-a328-736 signature:
+    //   "the incident medium has refractive index 1.50 and the adjoining
+    //    medium has a refractive index near 1.565"
+    // `[^.]{0,80}` constrains the match to a single sentence and ~80 chars
+    // between the medium phrase and the "refractive index" token — tight
+    // enough to skip spurious matches across paragraphs, loose enough to
+    // accept articles like "a" / "the" / "an" between them.
+    private static final Pattern N1_PROSE_PAT = Pattern.compile(
+            "(?:first|incident|denser)\\s+medium[^.]{0,80}refractive\\s+index"
+                    + "(?:\\s+(?:of|near|approximately|about|≈|~))?\\s+(\\d+(?:\\.\\d+)?)",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern N2_PROSE_PAT = Pattern.compile(
+            "(?:second|adjoining|other|rarer)\\s+medium[^.]{0,80}refractive\\s+index"
+                    + "(?:\\s+(?:of|near|approximately|about|≈|~))?\\s+(\\d+(?:\\.\\d+)?)",
+            Pattern.CASE_INSENSITIVE);
+
     static Result validateSnell(String hypothesis) {
         Matcher m1 = N1_PAT.matcher(hypothesis);
         Matcher m2 = N2_PAT.matcher(hypothesis);
-        if (!m1.find() || !m2.find()) return OK;  // no n1/n2 pair to check
+        boolean hasSubscriptPair = m1.find() && m2.find();
         double n1;
         double n2;
-        try {
-            n1 = Double.parseDouble(m1.group(1));
-            n2 = Double.parseDouble(m2.group(1));
-        } catch (NumberFormatException nf) {
-            return OK;  // can't parse, can't reject
+        if (hasSubscriptPair) {
+            try {
+                n1 = Double.parseDouble(m1.group(1));
+                n2 = Double.parseDouble(m2.group(1));
+            } catch (NumberFormatException nf) {
+                return OK;  // can't parse, can't reject
+            }
+        } else {
+            // Fall through to prose form. Added 2026-05-20 after P-a328-736
+            // shipped with "incident medium has refractive index 1.50 ...
+            // adjoining medium has a refractive index near 1.565" — no
+            // subscript tokens to match, so the original regex pair missed
+            // it and the paper proceeded with zero tool calls.
+            Matcher p1 = N1_PROSE_PAT.matcher(hypothesis);
+            Matcher p2 = N2_PROSE_PAT.matcher(hypothesis);
+            if (!p1.find() || !p2.find()) return OK;  // no extractable pair
+            try {
+                n1 = Double.parseDouble(p1.group(1));
+                n2 = Double.parseDouble(p2.group(1));
+            } catch (NumberFormatException nf) {
+                return OK;
+            }
         }
         // Total Internal Reflection only occurs when light goes from the
         // denser to the rarer medium (n₁ > n₂). With n₂ ≥ n₁, n₂/n₁ ≥ 1,
         // arcsin(n₂/n₁) is undefined (no real critical angle). This is
-        // the P-a328-693 signature.
+        // the P-a328-693 (subscript-form) and P-a328-736 (prose-form)
+        // signature.
         if (n2 >= n1) {
             return new Result.Reject(
                     "tir_indices_inverted",

@@ -77,6 +77,44 @@ class PremiseValidatorTest {
         assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
     }
 
+    @Test
+    void tirRule_proseForm_P736_rejected() {
+        // Exact prose from research/a3289005/2026-05-20_…_P-a328-736.md.
+        // The original subscript-only regexes missed this case because the
+        // LLM described the indices in natural language. The prose-form
+        // fallback added 2026-05-20 catches it.
+        String hypothesis = "For an interface where the incident medium has refractive "
+                + "index 1.50 and the adjoining medium has a refractive index near 1.565, "
+                + "the critical angle obtained from Snell's law should lie within two "
+                + "degrees of the experimentally observed onset of total internal reflection.";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Snell Critical Angle Dispersion", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
+        var reject = (PremiseValidator.Result.Reject) r;
+        assertThat(reject.reasonCode()).isEqualTo("tir_indices_inverted");
+        assertThat(reject.explanation()).contains("1.5").contains("1.565");
+    }
+
+    @Test
+    void tirRule_proseForm_correctDirection_accepted() {
+        // Light from a denser to a rarer medium — TIR is possible.
+        String hypothesis = "The incident medium has refractive index 1.50, and the "
+                + "adjoining medium has a refractive index of 1.00 (vacuum).";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "snell-critical-angle", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Ok.class);
+    }
+
+    @Test
+    void tirRule_proseForm_alternateVocab_rejected() {
+        // "first / second" pair instead of "incident / adjoining".
+        String hypothesis = "The first medium has refractive index 1.33 and the second "
+                + "medium has refractive index 1.50.";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "snell-critical-angle", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
+    }
+
     // ────────────── Twin-prime / Hardy-Littlewood ──────────────
 
     @Test

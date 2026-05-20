@@ -408,26 +408,32 @@ table. Out of scope for the named acceptance, which only requires
 the n₁>n₂ check. Add later if a paper emits "diamond-water" with
 non-matching numeric indices and slips through.
 
-**Implementation gap surfaced 2026-05-20 (P-a328-736):** the shipped
-regexes `N1_PAT` / `N2_PAT` require the subscript-tagged form
+**Implementation gap surfaced + CLOSED 2026-05-20:** the originally
+shipped regexes `N1_PAT` / `N2_PAT` required the subscript-tagged form
 (`n₁=…`, `n_1=…`, `n1=…`, etc.). P-a328-736's hypothesis used
 *prose-form* index references instead: *"the incident medium has
 refractive index 1.50 and the adjoining medium has a refractive index
 near 1.565"* — no `n₁`/`n₂` token anywhere. The gate fell through to
 `Ok`, the paper proceeded with zero tool calls (because the TIR claim
 with n₂>n₁ is unsolvable), and shipped as NULL_RESULT via
-`publish:no_methods→needs_revision`. Add a prose-form extractor:
-match `incident medium .* refractive index (\d+\.?\d*)` and
-`(adjoining|second|other) medium .* refractive index (?:near |of |≈ )?
-(\d+\.?\d*)` as additional capture sites before the n₂≥n₁ comparison.
-Same `tir_indices_inverted` reasonCode applies. Test case:
-P-a328-736's exact hypothesis text must reject; the existing
-P-a328-693 subscript-form test must continue to pass.
+`publish:no_methods→needs_revision`.
 
-The case for promoting this to its own ticket vs. folding into a
-§21.4 follow-up commit: it's a single regex pair + one new test
-case (~30 LOC). Recommend folding inline next time §21.4 is touched
-rather than opening a new phase entry.
+Fix landed 2026-05-20 in the same commit as this note: added
+`N1_PROSE_PAT` and `N2_PROSE_PAT` to `PremiseValidator.validateSnell`,
+matching `(first|incident|denser) medium … refractive index <value>`
+and `(second|adjoining|other|rarer) medium … refractive index
+[of|near|approximately|about|≈|~]? <value>`. The two patterns run as
+a fallback only when the subscript-form pair misses, so the existing
+P-a328-693 test (subscript form) is unchanged. Three new test cases
+pin the behaviour: P-a328-736 exact text rejects with
+`tir_indices_inverted`; an "incident/adjoining" correct-direction case
+(n₁=1.50, n₂=1.00) accepts; a "first/second" alternate-vocabulary
+inverted pair rejects.
+
+Constraints in the new regex: `[^.]{0,80}` between the medium phrase
+and `refractive index` caps the gap at one sentence and ~80 chars, so
+unrelated mentions of "refractive index" later in the prose can't
+satisfy the slot.
 
 
 ### 21.5 — Symbolic-tool grammar relaxation (`^` and `Module[...]`)
@@ -685,9 +691,10 @@ Specifically:
 - 21.3: P-a328-693 replay never produces a fabricated number.
 - 21.4: P-a328-693 hypothesis never reaches a tool call; no second
   TIR-with-inverted-indices paper appears. **2026-05-20: refuted by
-  P-a328-736** (prose-form `n₂>n₁` premise slipped through the
-  subscript-only regex; see §21.4 Implementation gap). Acceptance
-  reopens once the prose-form extractor lands.
+  P-a328-736 (prose form), then re-armed same day** with the
+  `N1_PROSE_PAT` / `N2_PROSE_PAT` fallback (see §21.4 Implementation
+  gap). Awaits one corpus refresh against the rebuilt binary to confirm
+  no third inverted-indices paper appears (prose or subscript).
 - 21.5: 0 rejections on `^` or `Module[…]` across a 1-hour corpus run.
 - 21.6: P-a328-686 graduates from REJECTED → NULL_RESULT/PUBLISHED;
   numerical-consistency WARN drops ≥ 50%.
