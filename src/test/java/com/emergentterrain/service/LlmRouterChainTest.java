@@ -159,6 +159,61 @@ class LlmRouterChainTest {
     }
 
     @Test
+    void callFast_reroutesToPrimary_whenPromptExceedsFastTierCap() {
+        FakePool groq   = new FakePool("groq",   true,  false, "primary-response");
+        FakePool ollama = new FakePool("ollama", false, false, "fast-response");
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        // >16k chars (≈4000 estimated tokens) trips FAST_TIER_PROMPT_CAP_TOKENS
+        // and the call should silently land on the primary chain instead.
+        String bigPrompt = "x".repeat(20_000);
+        assertThat(router.callFast(bigPrompt)).isEqualTo("primary-response");
+        assertThat(groq.syncCallCount).isEqualTo(1);
+        assertThat(ollama.syncCallCount).isEqualTo(0);
+    }
+
+    @Test
+    void callFast_keepsFastTier_whenPromptIsSmall() {
+        FakePool groq   = new FakePool("groq",   true,  false, "primary-response");
+        FakePool ollama = new FakePool("ollama", false, false, "fast-response");
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        // Default small prompt stays on the fast tier; this verifies the
+        // reroute is a size-gated branch, not a wholesale redirect.
+        assertThat(router.callFast("ping")).isEqualTo("fast-response");
+        assertThat(ollama.syncCallCount).isEqualTo(1);
+        assertThat(groq.syncCallCount).isEqualTo(0);
+    }
+
+    @Test
+    void callFast_degradesToFastTier_whenBigPromptAndNoPrimary() {
+        // No supportsTools pool registered → primaryRegistry is empty.
+        // Big prompt has nowhere to reroute, so the call still hits fast tier
+        // (which will likely 413 in production, but the router shouldn't
+        // synthesize a swallow). Verifies the reroute guard checks both
+        // size AND primary availability.
+        FakePool ollama = new FakePool("ollama", false, false, "fast-response");
+        LlmRouter router = buildRouter("ollama", "ollama", ollama);
+
+        String bigPrompt = "x".repeat(20_000);
+        assertThat(router.callFast(bigPrompt)).isEqualTo("fast-response");
+        assertThat(ollama.syncCallCount).isEqualTo(1);
+    }
+
+    @Test
+    void streamFast_reroutesToPrimary_whenPromptExceedsFastTierCap() {
+        FakePool groq   = new FakePool("groq",   true,  false, "primary-stream");
+        FakePool ollama = new FakePool("ollama", false, false, "fast-stream");
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        StringBuilder accumulated = new StringBuilder();
+        router.streamFast("x".repeat(20_000), accumulated::append);
+        assertThat(accumulated.toString()).isEqualTo("primary-stream");
+        assertThat(groq.syncCallCount).isEqualTo(1);
+        assertThat(ollama.syncCallCount).isEqualTo(0);
+    }
+
+    @Test
     void chain_skipsUnknownProvidersInConfig() {
         FakePool groq   = new FakePool("groq", true, false, "x");
         FakePool ollama = new FakePool("ollama", false, false, "x");

@@ -52,6 +52,21 @@ public class LlmRouter {
      */
     private static final String DEFAULT_TOOL_PROVIDERS = "groq";
 
+    /**
+     * Phase 20.11 fixup — prompt-size threshold (estimated tokens) above
+     * which {@link #callFast} and {@link #streamFast} silently reroute to
+     * the primary chain. Picked to stay under the fast tier's tightest
+     * per-minute TPM budget: groq-fast's llama-3.1-8b-instant caps at
+     * 6000 TPM, and the pool's max_tokens output cap is 2000, so prompts
+     * up to ~4000 estimated tokens have headroom; anything larger trips
+     * a TPM 413 on every fast handle in turn and the registry can do
+     * nothing useful. Critique prompts in particular grow to 30k+ tokens
+     * on tool-heavy papers (multi-block findings + full first-pass
+     * narration). Routing those to primary preserves the call instead
+     * of letting the fast tier's fallback chain emit a wall of 413s.
+     */
+    private static final int FAST_TIER_PROMPT_CAP_TOKENS = 4000;
+
     final List<LlmPool> primaryChain;
     final LlmPool       fastPool;
     /** Preserved for backward-compat: first pool in primaryChain. */
@@ -306,6 +321,12 @@ public class LlmRouter {
      * registered (e.g. tests built without an Ollama-style pool).
      */
     public String callFast(String prompt) {
+        if (shouldRerouteToPrimary(prompt) && primaryRegistry.totalModelCount() > 0) {
+            log.info("LlmRouter.callFast: prompt ~{} tokens > {} cap — rerouting to primary "
+                            + "(fast-tier TPM would 413 every handle)",
+                    estimateTokens(prompt), FAST_TIER_PROMPT_CAP_TOKENS);
+            return callPrimary(prompt);
+        }
         if (fastRegistry.totalModelCount() > 0) {
             return fastRegistry.callSync(prompt);
         }
@@ -342,11 +363,39 @@ public class LlmRouter {
      * Falls back to {@link #fastPool} when no fast model is registered.
      */
     public void streamFast(String prompt, Consumer<String> tokenConsumer) {
+        if (shouldRerouteToPrimary(prompt) && primaryRegistry.totalModelCount() > 0) {
+            log.info("LlmRouter.streamFast: prompt ~{} tokens > {} cap — rerouting to primary "
+                            + "(fast-tier TPM would 413 every handle)",
+                    estimateTokens(prompt), FAST_TIER_PROMPT_CAP_TOKENS);
+            streamPrimary(prompt, tokenConsumer);
+            return;
+        }
         if (fastRegistry.totalModelCount() > 0) {
             fastRegistry.callStream(prompt, tokenConsumer);
             return;
         }
         fastPool.callStream(prompt, tokenConsumer);
+    }
+
+    /**
+     * Phase 20.11 fixup — prompt-size guard for fast-tier dispatch. Returns
+     * true when the chars/4 estimate exceeds {@link #FAST_TIER_PROMPT_CAP_TOKENS}.
+     * Used by {@link #callFast} / {@link #streamFast} to reroute to the
+     * primary chain instead of cascading 413s through every fast handle.
+     */
+    private boolean shouldRerouteToPrimary(String prompt) {
+        return prompt != null && estimateTokens(prompt) > FAST_TIER_PROMPT_CAP_TOKENS;
+    }
+
+    /**
+     * Conservative chars/4 estimator. Matches the pool-level
+     * {@code estimateTokens} so the budgetGate and the router agree on
+     * sizes. Output tokens aren't included — this is a prompt-size guard,
+     * not a total-request budget.
+     */
+    private static int estimateTokens(String prompt) {
+        if (prompt == null || prompt.isEmpty()) return 0;
+        return Math.max(1, prompt.length() / 4);
     }
 
     /**
