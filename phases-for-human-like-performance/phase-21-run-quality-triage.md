@@ -286,6 +286,13 @@ NULL_RESULT).
 
 ### 21.4 — Physics-premise preflight gate at hypothesis time
 
+**Status (2026-05-19):** **landed**. `PremiseValidator` shipped with
+two rule families (TIR n₁/n₂; twin-prime density qualification),
+wired into `FormulationService` with single-retry-on-reject and
+abandon-on-second-reject; see "Implementation notes" at end of
+section.
+
+
 **The signal:** P-a328-693 declared "glass–air" with n₁=1.50, n₂=1.577
 and asked for TIR critical angle. Three independent contradictions:
 (a) TIR requires n₂<n₁, (b) "glass–air" by name pins n₂=1.00, (c)
@@ -314,6 +321,61 @@ cherry-pick audits all fire *after* the tool call.
 **Acceptance:** P-a328-693's hypothesis would never have reached a
 tool call; a second TIR paper with n₂>n₁ never appears in
 `research/a3289005/` after the gate is flipped on.
+
+**Implementation notes (2026-05-19):**
+
+- *New file.* `src/main/java/com/emergentterrain/research/PremiseValidator.java`
+  — final / package-static. Public surface is one method
+  `validate(String topic, String hypothesisText)` and a sealed
+  `Result` interface with `Ok` / `Reject(reasonCode, explanation)`.
+  Stateless; safe to call from any thread.
+- *TIR rule.* Two regexes (`N1_PAT`, `N2_PAT`) extract n₁ and n₂ from
+  either Unicode-subscript (`n₁=1.50`, `n₂≈1.577`) or ASCII forms
+  (`n1=1.5`, `n_{2}=1.6`). Accepts `=`, `≈`, `~` between symbol and
+  value. When both n₁ and n₂ are present and `n₂ ≥ n₁`, rejects with
+  reasonCode `tir_indices_inverted` and an explanation naming both
+  values and `arcsin(n₂/n₁)`. Hypotheses with no `n₁`/`n₂` pair pass
+  (the regex is opt-in).
+- *Twin-prime rule.* Three regexes (`TWIN_DENSITY_PAT`,
+  `OVERALL_DENSITY_PAT`, `BARE_DENSITY_PAT`). When the prose says
+  "density" but only one of {twin, overall} is qualified, rejects with
+  one of three reason codes (`twin_density_unqualified`,
+  `overall_density_only`, `density_ambiguous`).
+  `OVERALL_DENSITY_PAT` uses a negative lookbehind `(?<![\w-])` so
+  "prime density" inside "twin-prime density" doesn't spuriously
+  satisfy the overall slot. Hypotheses that don't mention "density"
+  pass.
+- *Topic classification.* `normaliseTopic(s)` lowercases + replaces
+  underscores/whitespace with hyphens, so "Snell Critical Angle
+  Dispersion", "snell-critical-angle", and "snell_critical_angle" all
+  hit the same rule. `isSnellOrTirTopic` matches any of
+  `snell|tir|critical-angle|total-internal-reflection`;
+  `isTwinPrimeTopic` matches any of
+  `twin-prime|hardy-littlewood|prime-constellation`. Topics outside
+  both classes always return `Ok` — conservative on purpose; the
+  doc's acceptance is only the P-a328-693 case.
+- *FormulationService wiring.* `formulateResearch` now calls a private
+  `retryOnPremiseRejection(domain, topicName, originalPrompt, firstAttempt)`
+  after `parseFormulationResult`. On first REJECT, the original prompt
+  is appended with `[PRE-REGISTRATION REJECTED — premise-preflight
+  <reasonCode>]` + the explanation + an instruction to rewrite the
+  hypothesis and re-emit the same JSON shape. The retry response is
+  re-parsed and re-validated; on second REJECT, returns null
+  (paper abandoned). Both outcomes log at WARN with
+  `premise:rejected:<reasonCode>` or `premise:retry_recovered:<code>`
+  so the operational-logs section of REVIEW_REPORT can track them.
+- *Tests.* New `PremiseValidatorTest` with 11 cases: P-a328-693's
+  exact hypothesis text rejected with `tir_indices_inverted`, glass→air
+  TIR accepted, ASCII subscripts handled, no-indices skip, non-Snell
+  topic skip, equal-indices reject, twin-prime accept/reject
+  trio, topic normalisation, null/blank guard.
+
+**What this section does NOT solve:** the "<material1>-<material2>
+name pins indices" sub-check the doc mentioned (e.g. "glass-air" pins
+n₂=1.00) is not implemented — would need a refractive-index lookup
+table. Out of scope for the named acceptance, which only requires
+the n₁>n₂ check. Add later if a paper emits "diamond-water" with
+non-matching numeric indices and slips through.
 
 
 ### 21.5 — Symbolic-tool grammar relaxation (`^` and `Module[...]`)

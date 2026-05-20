@@ -167,9 +167,19 @@ public class FormulationService {
             String prompt = buildFormulationPrompt(domain, topicName, genome, priorPapers,
                     researchHypothesis, novelty, identity);
             String response = router.callFast(prompt);
+            FormulationResult result = parseFormulationResult(response);
             log.info("LLM formulation done domain={} topic={} novelty={} ms={}", domain, topicName,
                     String.format("%.2f", novelty.score()), System.currentTimeMillis() - start);
-            return parseFormulationResult(response);
+            // Phase 21 §21.4 — premise preflight. Validates the pre-
+            // registered hypothesis against topic-keyed rules (TIR n₁>n₂,
+            // twin-prime density qualification) before the agentic
+            // professor stage runs. On REJECT, retry the formulation
+            // ONCE with the validation error fed back into the prompt;
+            // on a second REJECT, abandon the paper. Targets the
+            // P-a328-693 failure mode (TIR with n₂>n₁ → wasted call →
+            // fabricated numbers).
+            result = retryOnPremiseRejection(domain, topicName, prompt, result);
+            return result;
         } catch (Exception e) {
             log.warn("LLM formulation failed domain={} topic={} ms={}: {}", domain, topicName,
                     System.currentTimeMillis() - start, e.getMessage());
@@ -177,6 +187,69 @@ public class FormulationService {
         } finally {
             formulationSlot.release();
         }
+    }
+
+    /**
+     * Phase 21 §21.4 — premise-preflight retry loop. Returns the input
+     * unchanged when it has no pre-registration to validate or when the
+     * validator says OK. On REJECT, issues a single retry against
+     * {@link LlmRouter#callFast} with the validator's explanation
+     * appended to the prompt; if the retry also rejects, returns null
+     * (paper abandoned) and stamps a WARN with the reason code so the
+     * operational-logs section of REVIEW_REPORT can track adoption.
+     */
+    private FormulationResult retryOnPremiseRejection(String domain, String topicName,
+                                                       String originalPrompt,
+                                                       FormulationResult firstAttempt) {
+        if (firstAttempt == null) return null;
+        PreRegistration preReg = firstAttempt.preRegistration();
+        if (preReg == null) return firstAttempt;
+        com.emergentterrain.research.PremiseValidator.Result first =
+                com.emergentterrain.research.PremiseValidator.validate(topicName, preReg.hypothesis());
+        if (first instanceof com.emergentterrain.research.PremiseValidator.Result.Ok) {
+            return firstAttempt;
+        }
+        var firstReject = (com.emergentterrain.research.PremiseValidator.Result.Reject) first;
+        log.warn("premise:rejected:{} domain={} topic={} — first attempt; retrying once. hypothesis=\"{}\"",
+                firstReject.reasonCode(), domain, topicName,
+                truncate(preReg.hypothesis(), 200));
+        String retryPrompt = originalPrompt
+                + "\n\n[PRE-REGISTRATION REJECTED — premise-preflight " + firstReject.reasonCode() + "]\n"
+                + firstReject.explanation()
+                + "\n\nRewrite the pre_registration.hypothesis above so the premise is "
+                + "physically/mathematically coherent, then re-emit the SAME JSON shape "
+                + "(param1, param2, question, pre_registration{...}).";
+        String retryResponse;
+        try {
+            retryResponse = router.callFast(retryPrompt);
+        } catch (Exception e) {
+            log.warn("premise:retry_failed domain={} topic={} reason={}: {}",
+                    domain, topicName, firstReject.reasonCode(), e.getMessage());
+            return null;
+        }
+        FormulationResult retried = parseFormulationResult(retryResponse);
+        if (retried == null || retried.preRegistration() == null) {
+            log.warn("premise:retry_unparseable:{} domain={} topic={} — abandoning paper",
+                    firstReject.reasonCode(), domain, topicName);
+            return null;
+        }
+        com.emergentterrain.research.PremiseValidator.Result second =
+                com.emergentterrain.research.PremiseValidator.validate(
+                        topicName, retried.preRegistration().hypothesis());
+        if (second instanceof com.emergentterrain.research.PremiseValidator.Result.Ok) {
+            log.info("premise:retry_recovered:{} domain={} topic={} — second attempt OK",
+                    firstReject.reasonCode(), domain, topicName);
+            return retried;
+        }
+        var secondReject = (com.emergentterrain.research.PremiseValidator.Result.Reject) second;
+        log.warn("premise:rejected:{} domain={} topic={} — second attempt also rejected; abandoning paper",
+                secondReject.reasonCode(), domain, topicName);
+        return null;
+    }
+
+    private static String truncate(String s, int max) {
+        if (s == null) return "";
+        return s.length() <= max ? s : s.substring(0, max) + "…";
     }
 
     private String buildFormulationPrompt(String domain, String topicName,
