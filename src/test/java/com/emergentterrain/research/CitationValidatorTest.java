@@ -333,11 +333,11 @@ class CitationValidatorTest {
     }
 
     @Test
-    void sweepParamWhitelist_emptySetBehaviorMatchesPre21_6() {
-        // Same paper with no whitelist → both sweep params flagged uncited
-        // (regression check that the new code-path is opt-in). No [call_N]
-        // near 17 / 7.4 so they're uncited; 9471 is also uncited; 792 is
-        // unrelated.
+    void sweepParamWhitelist_emptySetWithHypothesisExemption() {
+        // Same paper with no sweep-param whitelist. Pre-2026-05-20 behavior:
+        // 17, 7.4, and 9471 would all be uncited. Post-2026-05-20: 17 and
+        // 7.4 are hypothesis-source (always exempt by location), only 9471
+        // (in findings) remains uncited.
         NarrationResult n = narration(
                 "Hypothesis: starting position of 17, scale of 7.4.",
                 Map.of(1, "Result extended to 9471 K, beyond the swept range."),
@@ -345,14 +345,77 @@ class CitationValidatorTest {
                 List.of());
         var resultEmpty = validator.validate(n, List.of(call("call_1", "T=2300..6100")),
                 java.util.Set.of());
-        // With no whitelist: 17, 7.4, and 9471 are all uncited.
-        assertThat(resultEmpty.uncitedCount()).isEqualTo(3);
+        assertThat(resultEmpty.uncitedCount()).isEqualTo(1);
+        assertThat(resultEmpty.hypothesisParamExemptCount()).isEqualTo(2);
         assertThat(resultEmpty.exemptSweepCount()).isZero();
         // Two-arg overload behaves identically to empty-set three-arg.
         var resultBackCompat = validator.validate(n,
                 List.of(call("call_1", "T=2300..6100")));
         assertThat(resultBackCompat.uncitedCount()).isEqualTo(resultEmpty.uncitedCount());
-        assertThat(resultBackCompat.exemptSweepCount()).isZero();
+        assertThat(resultBackCompat.hypothesisParamExemptCount())
+                .isEqualTo(resultEmpty.hypothesisParamExemptCount());
+    }
+
+    // ───────── hypothesis-source exemption (2026-05-20) ─────────
+
+    @Test
+    void hypothesisExemption_P751Shape_paperCleansUp() {
+        // P-a328-751 archetype: T and L appear uncited in the hypothesis;
+        // tool consumes both as args; Findings cites the derived results
+        // with [call_N]. Pre-fix the hypothesis-side T/L counted as
+        // uncited → downgrade. Post-fix the hypothesis-source rule
+        // exempts them and the paper publishes clean.
+        // Findings prose places [call_1] within ~25 chars of every prose
+        // number so the proximity marker rule (MARKER_LOOKAHEAD=25)
+        // attributes each one to the right tool call.
+        NarrationResult n = narration(
+                "For an electron in a one-dimensional infinite well at T = 450 K, "
+                        + "the ground-state energy increases as well width L = 4.58 nm decreases.",
+                Map.of(1, "E1 = 2.872e-21 J [call_1] and ratio = 0.462 [call_1]."),
+                "Tested; ratio [call_1] indicates suppressed-but-not-absent quantum regime.",
+                List.of(
+                        claim(2.872e-21, "call_1", "findings:1"),
+                        claim(0.462, "call_1", "findings:1")));
+        var result = validator.validate(n,
+                List.of(call("call_1", "E1=2.872e-21, ratio=0.462281")));
+        assertThat(result.uncitedCount()).isZero();
+        assertThat(result.unmatchedClaimCount()).isZero();
+        assertThat(result.outOfToleranceCount()).isZero();
+        assertThat(result.hypothesisParamExemptCount()).isGreaterThanOrEqualTo(2);
+        assertThat(result.hasFailures()).isFalse();
+    }
+
+    @Test
+    void hypothesisExemption_doesNotMaskUncitedInFindings() {
+        // Hypothesis-side numbers are exempt by location. Findings-side
+        // numbers without a [call_N] marker are still uncited — the
+        // exemption must be location-scoped, not global.
+        NarrationResult n = narration(
+                "Hypothesis: at T = 800 K, the constant is 42.",
+                Map.of(1, "Result extended to 9471 K beyond the swept range."),
+                "c",
+                List.of());
+        var result = validator.validate(n, List.of(call("call_1", "T=2300..6100")));
+        assertThat(result.uncitedCount()).isEqualTo(1);
+        assertThat(result.issues()).anyMatch(s -> s.contains("9471"));
+        assertThat(result.hypothesisParamExemptCount()).isEqualTo(2);  // 800 + 42
+    }
+
+    @Test
+    void hypothesisExemption_doesNotShortCircuitTraceConformance() {
+        // Sanity: the exemption only silences Check 1 at the hypothesis
+        // location. If the narration *claims* a value belongs to call_1
+        // and that value isn't in call_1's result, out_of_tolerance still
+        // fires. Fabrication-via-claims path stays guarded.
+        NarrationResult n = narration(
+                "Hypothesis: T = 450 K.",
+                Map.of(1, "We measured ratio = 0.999 [call_1]."),
+                "c",
+                List.of(claim(0.999, "call_1", "findings:1")));
+        var result = validator.validate(n,
+                List.of(call("call_1", "E1=2.872e-21, ratio=0.462281")));
+        assertThat(result.outOfToleranceCount()).isEqualTo(1);
+        assertThat(result.issues()).anyMatch(s -> s.contains("0.999"));
     }
 
     @Test

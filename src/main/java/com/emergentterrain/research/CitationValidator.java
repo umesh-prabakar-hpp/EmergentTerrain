@@ -98,6 +98,7 @@ public class CitationValidator {
             int unmatchedClaimCount,
             int outOfToleranceCount,
             int exemptSweepCount,
+            int hypothesisParamExemptCount,
             List<String> issues) {
 
         public boolean hasFailures() {
@@ -109,7 +110,19 @@ public class CitationValidator {
         }
 
         public static CitationValidationResult clean() {
-            return new CitationValidationResult(0, 0, 0, 0, List.of());
+            return new CitationValidationResult(0, 0, 0, 0, 0, List.of());
+        }
+
+        /** Back-compat ctor (pre-2026-05-20 callers + tests that don't care
+         *  about hypothesis exemption). Routes through the canonical
+         *  constructor with {@code hypothesisParamExemptCount = 0}. */
+        public CitationValidationResult(int uncitedCount,
+                                         int unmatchedClaimCount,
+                                         int outOfToleranceCount,
+                                         int exemptSweepCount,
+                                         List<String> issues) {
+            this(uncitedCount, unmatchedClaimCount, outOfToleranceCount,
+                    exemptSweepCount, 0, issues);
         }
     }
 
@@ -161,6 +174,7 @@ public class CitationValidator {
         int unmatched = 0;
         int outOfTolerance = 0;
         int exemptSweep = 0;
+        int hypothesisParamExempt = 0;
         Set<Double> whitelist = sweepParamWhitelist == null ? Set.of() : sweepParamWhitelist;
 
         // Collect (number, sourceLocation, citedCallId) tuples from every prose block.
@@ -173,14 +187,32 @@ public class CitationValidator {
         }
         proseNumbers.addAll(extractNumbers(narration.conclusion(), "conclusion"));
 
-        // Check 1 — citation completeness. Phase 21 §21.6 — sweep params
-        // exempted: PaperDraft.param1 / param2 routed through the hypothesis
-        // template don't have a [call_N] marker because they predate the
-        // tool-call chain; counted into exemptSweepCount instead.
+        // Check 1 — citation completeness.
+        //
+        // Phase 21 §21.6 — sweep params exempted (Check 1a): PaperDraft.param1
+        // / param2 routed through the hypothesis template don't have a
+        // [call_N] marker because they predate the tool-call chain; counted
+        // into exemptSweepCount.
+        //
+        // 2026-05-20 — hypothesis-source exemption (Check 1b): any prose
+        // number that appears in the hypothesis itself is a pre-registration
+        // value (parameter, physical constant, formula coefficient, prior
+        // empirical value) and by definition predates the tool-call chain.
+        // The previous validator routinely demoted papers like P-a328-751
+        // (T=450K and L=4.58nm in the hypothesis, both consumed by the tool
+        // call's args) because the hypothesis-side values had no [call_N]
+        // marker. The trace-conformance check (Check 3) still catches any
+        // value the LLM later *claims* is a derived result, so suppressing
+        // hypothesis uncited-flags here doesn't open a fabrication hole.
         for (ProseNumber pn : proseNumbers) {
             if (pn.citedCallId == null) {
                 if (isWhitelisted(pn.value, whitelist)) {
                     exemptSweep++;
+                    continue;
+                }
+                if (pn.sourceLocation != null
+                        && pn.sourceLocation.startsWith("hypothesis")) {
+                    hypothesisParamExempt++;
                     continue;
                 }
                 uncited++;
@@ -230,13 +262,14 @@ public class CitationValidator {
             }
         }
 
-        if (!issues.isEmpty() || exemptSweep > 0) {
+        if (!issues.isEmpty() || exemptSweep > 0 || hypothesisParamExempt > 0) {
             log.debug("CitationValidator: uncited={} unmatched={} out_of_tolerance={} "
-                            + "exempt_sweep={} issues={}",
-                    uncited, unmatched, outOfTolerance, exemptSweep, issues);
+                            + "exempt_sweep={} exempt_hyp={} issues={}",
+                    uncited, unmatched, outOfTolerance,
+                    exemptSweep, hypothesisParamExempt, issues);
         }
         return new CitationValidationResult(uncited, unmatched, outOfTolerance,
-                exemptSweep, List.copyOf(issues));
+                exemptSweep, hypothesisParamExempt, List.copyOf(issues));
     }
 
     /**

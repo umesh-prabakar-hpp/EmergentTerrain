@@ -1145,25 +1145,34 @@ public class ResearchNarrationService {
         }
 
         if (!cv.hasFailures()) {
-            // Phase 21 §21.6 — when the clean path was reached only because
-            // sweep params were exempted, surface the exemption count so
-            // refresh audits can distinguish "really clean" from "clean
-            // thanks to the whitelist".
-            callPath.add(cv.exemptSweepCount() > 0
-                    ? "citations:ok:exempt_sweep=" + cv.exemptSweepCount()
-                    : "citations:ok");
-            log.debug("CitationValidator: paperId={} clean exempt_sweep={}",
-                    paperId, cv.exemptSweepCount());
+            // Phase 21 §21.6 / 2026-05-20 hypothesis exemption — when the
+            // clean path was reached only because sweep params or hypothesis
+            // values were exempted, surface the exemption counts so refresh
+            // audits can distinguish "really clean" from "clean thanks to
+            // the whitelist".
+            StringBuilder ok = new StringBuilder("citations:ok");
+            if (cv.exemptSweepCount() > 0) {
+                ok.append(":exempt_sweep=").append(cv.exemptSweepCount());
+            }
+            if (cv.hypothesisParamExemptCount() > 0) {
+                ok.append(":exempt_hyp=").append(cv.hypothesisParamExemptCount());
+            }
+            callPath.add(ok.toString());
+            log.debug("CitationValidator: paperId={} clean exempt_sweep={} exempt_hyp={}",
+                    paperId, cv.exemptSweepCount(), cv.hypothesisParamExemptCount());
             return narration;
         }
 
         String summary = "citations:uncited=" + cv.uncitedCount()
                 + ":unmatched=" + cv.unmatchedClaimCount()
                 + ":out_of_tolerance=" + cv.outOfToleranceCount()
-                // Phase 21 §21.6 — published alongside the failure counts so
-                // operators can see how many would-be-uncited values were
-                // exempted by the sweep-param whitelist on the same paper.
-                + ":exempt_sweep=" + cv.exemptSweepCount();
+                // Phase 21 §21.6 / 2026-05-20 — published alongside the
+                // failure counts so operators can see how many would-be-uncited
+                // values were exempted by the sweep-param whitelist
+                // (exempt_sweep) or by the hypothesis-source rule (exempt_hyp)
+                // on the same paper.
+                + ":exempt_sweep=" + cv.exemptSweepCount()
+                + ":exempt_hyp=" + cv.hypothesisParamExemptCount();
         boolean traceMismatch = cv.unmatchedClaimCount() > 0 || cv.outOfToleranceCount() > 0;
         boolean uncitedHeavy  = cv.uncitedCount() >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD;
         String mode = citationsAsSchemaMode == null ? "warn" : citationsAsSchemaMode.toLowerCase();
