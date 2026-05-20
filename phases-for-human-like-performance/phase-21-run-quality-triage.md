@@ -209,6 +209,11 @@ no regression.
 
 ### 21.3 — Detect symbolic-solver echo in `run_symbolic`
 
+**Status (2026-05-19):** **landed**. Echo detector, N[…] retry, and
+actionable error string all ship together; see "Implementation notes"
+at the end of this section.
+
+
 **The signal:** P-a328-693's only tool call was
 `Solve[n2/n1 == Sin[theta_c] && n1 == 1.50 && n2 == 1.577, theta_c]`.
 Symja returned `output=Solve(n2/n1==Sin(theta_c)&&n1==1.5&&n2==1.577,theta_c)`
@@ -236,6 +241,47 @@ expression, and no requirement that a `numeric=` field accompany
 
 **Acceptance:** P-a328-693 replay produces either a numeric critical
 angle or a failed-tool-call marker, never an LLM-fabricated number.
+
+**Implementation notes (2026-05-19):**
+
+- *Detector.* `MathToolSuite.isSolverEcho(input, result)` — package-
+  private static. Fires when all three signals line up: (a)
+  `result.numericApprox() == null`, (b) input's leading head is in
+  `ECHO_PRONE_HEADS = {Solve, Reduce, Roots, FindRoot, DSolve, NSolve,
+  Integrate, Sum, Product}`, (c) Symja's full-form output starts with
+  the same head applied (either `Head(…)` or `Head[…]` — Symja's bracket
+  form varies). Three signals × one whitelist keeps false positives
+  near zero: `Sin[Pi/2]` won't fire (numeric is present), `Plus[x,y]`
+  won't fire (Plus isn't in the head list), `Solve[x^2-4==0,x]` won't
+  fire (output is `{{x->-2},{x->2}}`, not a `Solve` echo).
+- *Retry.* Re-evaluates `N[<original>]` once. If that produces a non-
+  null numeric OR a non-echo output, return the retry result with a
+  `(retried as N[…])` annotation in the prose so the LLM can see what
+  happened. This is rarely a save for the P-a328-693 case
+  (`N[Solve[1.577/1.5==Sin[θ], θ]]` still echoes — TIR with n₂>n₁ has
+  no real solution) but covers cases where Symja's symbolic path
+  refuses but its numeric path succeeds.
+- *Actionable error.* On retry-also-echoes, return the explicit
+  string `"Symbolic solver did not evaluate the expression — Symja
+  echoed the input back without a numeric value. … Try: NSolve[…] for
+  numeric root-finding, N[ArcSin[ratio]] for direct evaluation, or
+  rewrite the problem to expose a closed form."`. This is the
+  signal the LLM needs to abandon the fabrication path — naming
+  NSolve/ArcSin in the error tells the model what the next prompt's
+  tool call should look like.
+- *Tests.* New `MathToolSuiteSolverEchoTest` with 8 tests: 5 cover
+  the static detector in isolation (Solve in either bracket form,
+  bare value, numeric-present non-echo, non-echo-prone heads), 3
+  cover the full round-trip including the exact P-a328-693 expression
+  and a regression check for `Sin[Pi/2]` so back-compat for the 12+
+  existing Symja tests stays intact.
+
+**What this section does NOT solve:** the LLM still has to read the
+error string and switch tactics. If a future paper fabricates a number
+DESPITE seeing the actionable error, the next lever is the citation
+validator path (§21.6 already exempts only verified sweep params; the
+fabricated number would land as `unmatched > 0` and route to
+NULL_RESULT).
 
 
 ### 21.4 — Physics-premise preflight gate at hypothesis time

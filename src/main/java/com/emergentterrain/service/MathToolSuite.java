@@ -486,6 +486,37 @@ public class MathToolSuite {
             SymbolicEngine.SymbolicResult result = SymbolicEngine.evaluate(expression);
             log.info("MathToolSuite: run_symbolic expr=\"{}\" ms={} numeric={}",
                     expression, System.currentTimeMillis() - t, result.numericApprox());
+
+            // Phase 21 §21.3 — solver-echo detection. When Symja can't
+            // evaluate a Solve / Reduce / Integrate / DSolve and just echoes
+            // the input back with no numericApprox, the LLM downstream tends
+            // to fabricate a number to fill the gap (P-a328-693 → "61.04°"
+            // and "1.49"). Retry once with N[...] for a numeric coercion;
+            // if that still echoes, return an actionable error so the LLM
+            // gets a tool-failure signal instead of an opaque pass-through.
+            if (isSolverEcho(expression, result)) {
+                log.warn("MathToolSuite: run_symbolic echo detected expr=\"{}\" output=\"{}\" — retrying with N[…]",
+                        expression, result.output());
+                String retryExpr = "N[" + expression + "]";
+                try {
+                    SymbolicEngine.SymbolicResult retry = SymbolicEngine.evaluate(retryExpr);
+                    if (retry.numericApprox() != null || !isSolverEcho(expression, retry)) {
+                        String numericNoteR = retry.numericApprox() == null
+                                ? ""
+                                : "  numeric=%.6g".formatted(retry.numericApprox());
+                        return "Symbolic result for %s (retried as N[…]): output=%s%s [Rationale: %s]"
+                                .formatted(expression, retry.output(), numericNoteR, rationale);
+                    }
+                } catch (Exception retryEx) {
+                    log.warn("MathToolSuite: run_symbolic N[…] retry failed: {}", retryEx.getMessage());
+                }
+                return "Symbolic solver did not evaluate the expression — Symja echoed the input "
+                        + "back without a numeric value. The equation may have no closed-form "
+                        + "solution or may require a numeric method. Try: NSolve[…] for numeric "
+                        + "root-finding, N[ArcSin[ratio]] for direct evaluation, or rewrite the "
+                        + "problem to expose a closed form. (Echoed expression: " + expression + ")";
+            }
+
             String numericNote = result.numericApprox() == null
                     ? ""
                     : "  numeric=%.6g".formatted(result.numericApprox());
@@ -494,6 +525,57 @@ public class MathToolSuite {
         } catch (Exception e) {
             return "Symbolic evaluation failed: " + e.getMessage();
         }
+    }
+
+    /**
+     * Phase 21 §21.3 — detect the case where Symja returns the input
+     * expression unchanged (the solver could not evaluate it). Returns true
+     * when (a) {@code numericApprox} is null AND (b) the input head is one of
+     * the known unevaluating-when-stuck heads (Solve, Reduce, Roots, FindRoot,
+     * DSolve, NSolve, Integrate, Sum, Product) AND (c) Symja's full-form
+     * output is structurally an application of the same head.
+     *
+     * <p>Detection is conservative — three independent signals must all
+     * line up. The known-head list comes from Symja's documented behaviour:
+     * these are the heads that, when given a sub-problem they can't crack,
+     * return {@code Head(args)} verbatim instead of throwing or returning a
+     * residual. Calls like {@code Sin[1.0]} do NOT echo (Sin produces a
+     * numeric); only "solver-style" heads do.
+     */
+    static boolean isSolverEcho(String input, SymbolicEngine.SymbolicResult result) {
+        if (input == null || result == null || result.output() == null) return false;
+        if (result.numericApprox() != null) return false;
+        String head = leadingHead(input);
+        if (head == null) return false;
+        if (!ECHO_PRONE_HEADS.contains(head)) return false;
+        // Symja's full-form for an unevaluated Head[args] is "Head(args)" or
+        // sometimes "Head[args]" (depends on Symja version). Accept either.
+        String trimmed = result.output().stripLeading();
+        return trimmed.startsWith(head + "(") || trimmed.startsWith(head + "[");
+    }
+
+    /** Heads that return their input unevaluated (echo) when Symja can't crack them. */
+    private static final Set<String> ECHO_PRONE_HEADS = Set.of(
+            "Solve", "Reduce", "Roots", "FindRoot",
+            "DSolve", "NSolve", "Integrate", "Sum", "Product");
+
+    /**
+     * Pull the leading head from a Mathematica-style expression. Returns
+     * "Solve" from "Solve[…]" or "Solve(…)". Returns null when the input
+     * doesn't start with an identifier followed by an opening bracket.
+     */
+    static String leadingHead(String expr) {
+        if (expr == null) return null;
+        String s = expr.stripLeading();
+        int i = 0;
+        while (i < s.length()
+                && (Character.isLetterOrDigit(s.charAt(i)) || s.charAt(i) == '_')) {
+            i++;
+        }
+        if (i == 0 || i == s.length()) return null;
+        char next = s.charAt(i);
+        if (next != '[' && next != '(') return null;
+        return s.substring(0, i);
     }
 
     private String runGpuEval(JsonNode args) {
