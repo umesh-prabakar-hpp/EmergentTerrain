@@ -71,6 +71,16 @@ public class UniversityService {
     private final boolean disputeReconciliationEnabled;
     /** Phase 7 G10 — age (hours) at which a DISPUTED paper counts as orphaned. */
     private final long    orphanAgeHours;
+    /**
+     * Phase 21 §21.2 — once {@code scanOrphanedDisputes} has re-fired
+     * reconciliation this many times on the same paper without the dispute
+     * resolving, demote the paper's status to {@code DISPUTE_ABANDONED}
+     * and stop re-firing. Default 6 (≈ 6 sweep cycles at the default
+     * 5-minute interval = 30 minutes; or ≈ 6 h at a 1-hour interval).
+     * Caps the 17-unique-ID re-warn loop documented in REVIEW_REPORT
+     * a3289005 §21.2.
+     */
+    private final int     disputeMaxAttempts;
     private final boolean citationAwareScoringEnabled;
     /** Phase 7 G8 — when on, SUPPORTED papers carrying the audit-4b physical_mechanism gap publish as REJECTED. */
     private final boolean auditPhysicalMechanismRejectsEnabled;
@@ -265,6 +275,7 @@ public class UniversityService {
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
             @Value("${app.research.dispute-reconciliation.enabled:false}") boolean disputeReconciliationEnabled,
             @Value("${app.research.disputeOrphanAgeHours:6}") long orphanAgeHours,
+            @Value("${app.research.dispute-max-attempts:6}") int disputeMaxAttempts,
             @Value("${app.research.citation-aware-scoring.enabled:false}") boolean citationAwareScoringEnabled,
             @Value("${app.research.audit-physical-mechanism-rejects.enabled:true}") boolean auditPhysicalMechanismRejectsEnabled,
             @Value("${app.research.audit-cherry-picked-rejects.enabled:false}") boolean auditCherryPickedRejectsEnabled,
@@ -312,6 +323,7 @@ public class UniversityService {
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
         this.disputeReconciliationEnabled = disputeReconciliationEnabled;
         this.orphanAgeHours = orphanAgeHours;
+        this.disputeMaxAttempts = Math.max(1, disputeMaxAttempts);
         this.citationAwareScoringEnabled = citationAwareScoringEnabled;
         this.auditPhysicalMechanismRejectsEnabled = auditPhysicalMechanismRejectsEnabled;
         this.auditCherryPickedRejectsEnabled       = auditCherryPickedRejectsEnabled;
@@ -1794,6 +1806,7 @@ public class UniversityService {
         long now = System.currentTimeMillis();
         int orphaned = 0;
         int refreshed = 0;
+        int abandoned = 0;
         for (Map.Entry<UUID, List<ResearchPaper>> entry : published.entrySet()) {
             UUID roomId = entry.getKey();
             List<ResearchPaper> bucket = entry.getValue();
@@ -1808,18 +1821,49 @@ public class UniversityService {
                 long ageMs = now - publishedAt.toEpochMilli();
                 if (ageMs < ageThresholdMs) continue;
                 orphaned++;
-                log.warn("dispute orphan paperId={} roomId={} domain={} topic={} age_h={}",
+                // Phase 21 §21.2 — bump the per-paper attempt counter
+                // BEFORE deciding whether to re-fire or abandon. Hibernate
+                // ddl-auto:update default-zeros legacy rows, so a fresh
+                // sweep on a pre-21.2 paper starts at attempts=1 here.
+                int attempts = p.incrementDisputeAttempts();
+                if (attempts >= disputeMaxAttempts) {
+                    // Cap reached — demote to DISPUTE_ABANDONED so the next
+                    // sweep skips this paper entirely (the "DISPUTED" guard
+                    // above filters it out). The dispute is recorded as
+                    // unresolved rather than silently dropped; the markdown
+                    // file gets the new banner via overwritePaperFile.
+                    p.setStatus("DISPUTE_ABANDONED");
+                    try { papersRepository.save(p); } catch (Exception e) {
+                        log.warn("dispute-abandoned save failed paperId={}: {}",
+                                p.paperId(), e.getMessage());
+                    }
+                    overwritePaperFile(roomId, p);
+                    abandoned++;
+                    log.warn("dispute ABANDONED paperId={} roomId={} domain={} topic={} "
+                                    + "age_h={} attempts={} (≥ max={})",
+                            p.paperId(), roomId, p.domain(), p.topic(),
+                            ageMs / 3600_000L, attempts, disputeMaxAttempts);
+                    continue;
+                }
+                log.warn("dispute orphan paperId={} roomId={} domain={} topic={} age_h={} attempts={}/{}",
                         p.paperId(), roomId, p.domain(), p.topic(),
-                        ageMs / 3600_000L);
-                // Re-fire the reconciliation so the open question stays visible.
-                // We don't know the replicator bot's id from the cached paper (it
-                // wasn't persisted), so refresh just the original author's program.
-                enqueueReconciliation(p, null);
+                        ageMs / 3600_000L, attempts, disputeMaxAttempts);
+                // Persist the bumped counter so a restart doesn't reset it.
+                try { papersRepository.save(p); } catch (Exception e) {
+                    log.warn("dispute-attempts save failed paperId={}: {}",
+                            p.paperId(), e.getMessage());
+                }
+                // Re-fire the reconciliation against BOTH sides now that the
+                // replicator bot id is persisted (Phase 21 §21.2 — pre-21.2
+                // rows have a null replicator and still fall back to the
+                // single-author refresh path).
+                enqueueReconciliation(p, p.disputeReplicatorBotId());
                 refreshed++;
             }
         }
         if (orphaned > 0) {
-            log.info("dispute-orphan scan: orphaned={} refreshed={}", orphaned, refreshed);
+            log.info("dispute-orphan scan: orphaned={} refreshed={} abandoned={}",
+                    orphaned, refreshed, abandoned);
         }
     }
 
@@ -1864,14 +1908,19 @@ public class UniversityService {
     }
 
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
-        boolean disputed       = "DISPUTED".equals(paper.status());
-        boolean nullResult     = "NULL_RESULT".equals(paper.status());
-        boolean rejected       = "REJECTED".equals(paper.status());
-        boolean needsRevision  = "NEEDS_REVISION".equals(paper.status());
-        boolean noProfessor    = "PUBLISHED_NO_PROFESSOR".equals(paper.status());
+        boolean disputed         = "DISPUTED".equals(paper.status());
+        boolean disputeAbandoned = "DISPUTE_ABANDONED".equals(paper.status());
+        boolean nullResult       = "NULL_RESULT".equals(paper.status());
+        boolean rejected         = "REJECTED".equals(paper.status());
+        boolean needsRevision    = "NEEDS_REVISION".equals(paper.status());
+        boolean noProfessor      = "PUBLISHED_NO_PROFESSOR".equals(paper.status());
         String disputedBanner = disputed
                 ? "\n> ⚠ **UNDER DISPUTE** — Independent replication produced a divergent result. "
                   + "This paper's findings are under review.\n"
+                : disputeAbandoned
+                ? "\n> ⊘ **DISPUTE ABANDONED** — Independent replication produced a divergent result "
+                  + "and the reconciliation pipeline failed to resolve the dispute within "
+                  + "the configured retry window. Findings remain unverified.\n"
                 : nullResult
                 ? "\n> ∅ **NULL RESULT** — Computation ran but the pre-registered hypothesis was not supported. "
                   + "Reported for transparency; no positive claim is made.\n"

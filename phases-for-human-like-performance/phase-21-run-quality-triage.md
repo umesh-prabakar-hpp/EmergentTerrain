@@ -128,6 +128,12 @@ to `TpmBudgetGate` / `GroqPool.estimateTokens` than the soft split was.
 
 ### 21.2 — Dispute-orphan retire / suppress
 
+**Status (2026-05-19):** **landed**. Persistence (replicator bot id +
+attempts counter), the demote-after-N path, and the DISPUTE_ABANDONED
+markdown banner all ship in the same commit; see "Implementation notes"
+at end of this section.
+
+
 **The signal:** 68 WARN lines across 17 unique paper IDs
 (`UniversityService.java:1811`). Same 17 IDs cycle every reconciliation
 pass — each pass re-emits one WARN per orphan, never resolves. Net
@@ -152,6 +158,53 @@ next sweep.
 
 **Acceptance:** dispute-orphan WARN drops to 0 after one full sweep
 cycle on a corpus that has 17 known orphans.
+
+**Implementation notes (2026-05-19):**
+
+- *Persistence (21.2a).* Two new columns on `research_papers`:
+  `dispute_replicator_bot_id` (nullable string) and `dispute_attempts`
+  (NOT NULL int, default 0). Hibernate `ddl-auto: update` will add both
+  on next start; legacy rows backfill to NULL/0 implicitly. Setters
+  + record-style accessors added to `ResearchPaper` (incl.
+  `incrementDisputeAttempts()` helper). `ReplicationService` now writes
+  `setDisputeReplicatorBotId(replicatorBotId)` before the `save(paper)`
+  in the DISPUTED transition path, so the replicator is recoverable
+  from a cold restart.
+- *Scan logic (21.2b).* `UniversityService.scanOrphanedDisputes` now
+  bumps `dispute_attempts` first; if the count reaches
+  `app.research.dispute-max-attempts` (default 6), the paper is demoted
+  to `DISPUTE_ABANDONED`, its markdown is rewritten with the new banner,
+  and the next sweep skips it (the existing `DISPUTED`-status guard
+  filters it out). Below the cap, the bumped counter is persisted and
+  `enqueueReconciliation(p, p.disputeReplicatorBotId())` re-pings BOTH
+  sides — pre-21.2 rows with a null replicator fall back to the
+  single-author path identically to before.
+- *Markdown banner.* `formatPaperAsMarkdown` gains a `DISPUTE_ABANDONED`
+  branch ("⊘ DISPUTE ABANDONED — … the reconciliation pipeline failed
+  to resolve the dispute within the configured retry window") next to
+  the existing DISPUTED / NULL_RESULT / REJECTED / NEEDS_REVISION /
+  PUBLISHED_NO_PROFESSOR banners.
+- *Config.* New optional knob `app.research.dispute-max-attempts`
+  (default 6). The existing `app.research.disputeOrphanAgeHours` (6)
+  and `app.research.disputeOrphanScanIntervalMs` (300000) are unchanged
+  — at the 5-minute scan interval, 6 attempts ≈ 30 minutes; raise
+  `dispute-max-attempts` if you want closer to "≈ 6 h" of the doc's
+  original wording.
+- *Tests.* `MathPhysicsEngineTest` and `PublishPaperTest` updated to
+  pass the new `disputeMaxAttempts` constructor arg. The two existing
+  smoke tests (`phase7_G10_scanOrphanedDisputes_isNoOpWhenFlagDisabled`,
+  `phase7_G10_scanOrphanedDisputes_handlesEmptyCache`) still pass —
+  both preserved code paths. A full orchestration test for the demote
+  path needs reflection plumbing to back-date a DISPUTED paper into
+  the private `published` cache; deferred to a follow-up (low risk —
+  the new logic is localised and the markdown banner is the same shape
+  as the existing five status banners).
+
+**What this section does NOT solve:** if a third party (another
+service or external trigger) writes `DISPUTED` to a paper without
+populating `dispute_replicator_bot_id`, the scan will still fall back
+to the author-only re-fire path. That's the same behaviour as today;
+no regression.
 
 
 ### 21.3 — Detect symbolic-solver echo in `run_symbolic`

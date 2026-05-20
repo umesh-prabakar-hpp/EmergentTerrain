@@ -143,6 +143,7 @@ class PublishPaperTest {
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,
                 /* disputeReconciliationEnabled */ disputeReconciliationEnabled,
                 /* orphanAgeHours               */ 6L,
+                /* disputeMaxAttempts           */ 6,
                 /* citationAwareScoringEnabled  */ citationAwareScoringEnabled,
                 /* auditPhysicalMechanismRejectsEnabled */ auditPhysicalMechanismRejectsEnabled,
                 /* auditCherryPickedRejectsEnabled       */ auditCherryPickedRejectsEnabled,

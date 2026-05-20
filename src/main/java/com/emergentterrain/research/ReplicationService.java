@@ -204,6 +204,12 @@ public class ReplicationService {
                 + " — result is under dispute.]";
         paper.setStatus("DISPUTED");
         paper.setConclusion(paper.conclusion() + note);
+        // Phase 21 §21.2 — persist the replicator bot id so the orphan-scan
+        // sweep can re-ping the replicator side too instead of refreshing
+        // only the original author (the comment at UniversityService.java
+        // line 1815 cited this gap as the reason 17 IDs stayed orphaned for
+        // ~10 sweep cycles in the a3289005 corpus).
+        paper.setDisputeReplicatorBotId(replicatorBotId);
         try {
             papersRepository.save(paper);
         } catch (Exception e) {

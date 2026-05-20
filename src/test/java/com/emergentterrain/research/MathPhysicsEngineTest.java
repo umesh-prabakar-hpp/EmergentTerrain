@@ -241,6 +241,7 @@ class MathPhysicsEngineTest {
                 /* crossDomainGateEnabled =     */ false,
                 /* disputeReconciliationEnabled */ false,
                 /* orphanAgeHours               */ 6L,
+                /* disputeMaxAttempts           */ 6,
                 /* citationAwareScoringEnabled  */ false,
                 /* auditPhysicalMechanismRejectsEnabled */ false,
                 /* auditCherryPickedRejectsEnabled       */ false,

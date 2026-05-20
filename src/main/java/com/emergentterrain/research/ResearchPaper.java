@@ -192,6 +192,29 @@ public class ResearchPaper {
     @Column(name = "narration_status", length = 32)
     private String narrationStatus;
 
+    /**
+     * Phase 21 §21.2 — replicator bot id captured at the DISPUTED transition,
+     * so the {@code scanOrphanedDisputes} sweep can re-ping the replicator
+     * side too instead of refreshing only the original author. Null on
+     * legacy rows persisted before this column existed and on non-DISPUTED
+     * papers (most rows).
+     */
+    @Column(name = "dispute_replicator_bot_id")
+    private String disputeReplicatorBotId;
+
+    /**
+     * Phase 21 §21.2 — per-paper sweep-attempt counter. Bumped each time
+     * {@code scanOrphanedDisputes} re-fires reconciliation for this paper.
+     * Once it reaches {@code dispute-max-attempts} (default 6 ≈ 6 h at the
+     * current 1 h cadence), the paper's status is demoted to
+     * {@code DISPUTE_ABANDONED} and re-firing stops — the 17-unique-ID
+     * orphan loop documented in REVIEW_REPORT a3289005 closes naturally.
+     * NOT NULL so SQL aggregations don't have to coalesce; legacy rows
+     * default to 0 via Hibernate ddl-auto.
+     */
+    @Column(name = "dispute_attempts", nullable = false)
+    private int disputeAttempts;
+
     /** JPA needs a no-arg constructor. */
     protected ResearchPaper() {}
 
@@ -276,6 +299,8 @@ public class ResearchPaper {
     public long         narrationInputTokens()      { return narrationInputTokens; }
     public long         narrationOutputTokens()     { return narrationOutputTokens; }
     public String       narrationStatus()           { return narrationStatus; }
+    public String       disputeReplicatorBotId()    { return disputeReplicatorBotId; }
+    public int          disputeAttempts()           { return disputeAttempts; }
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
@@ -297,4 +322,7 @@ public class ResearchPaper {
     public void setNarrationInputTokens(long v)              { this.narrationInputTokens = v; }
     public void setNarrationOutputTokens(long v)             { this.narrationOutputTokens = v; }
     public void setNarrationStatus(String v)                 { this.narrationStatus = v; }
+    public void setDisputeReplicatorBotId(String v)          { this.disputeReplicatorBotId = v; }
+    public void setDisputeAttempts(int v)                    { this.disputeAttempts = v; }
+    public int  incrementDisputeAttempts()                   { return ++this.disputeAttempts; }
 }
