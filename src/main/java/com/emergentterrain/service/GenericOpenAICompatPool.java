@@ -436,7 +436,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
-                    long waitMs = parseRetryAfterMs(msg).orElse(backoffMs);
+                    long waitMs = retryWaitMsFor(modelId, msg, backoffMs);
                     long expiry = System.currentTimeMillis() + waitMs;
                     rateLimitExpiry.merge(modelId, expiry, Math::max);
                     log.warn("GenericOpenAICompatPool({}): 429 model={} attempt={} retrying in {}ms",
@@ -447,6 +447,26 @@ public class GenericOpenAICompatPool implements LlmPool {
             }
         }
         throw last;
+    }
+
+    /** Retry-after lookup with three-tier fallback. Mirrors the
+     *  {@link NvidiaPool#retryWaitMsFor} / {@link CerebrasPool#retryWaitMsFor}
+     *  pattern so the retry loop honors any block window the surrounding
+     *  {@code syncCall} just recorded — terse-body providers (NVIDIA's
+     *  {@code {"status":429,"title":"Too Many Requests"}}) carry no inline
+     *  retry-after but {@code syncCall}'s 429 handler has already merged
+     *  {@code DEFAULT_BLOCK_MS} / long-block into {@link #rateLimitExpiry}.
+     *  Pre-Phase-21-fix the loop ignored that and exponentially backed off
+     *  from {@code INITIAL_BACKOFF_MS} instead. */
+    private long retryWaitMsFor(String modelId, String msg, long fallbackMs) {
+        OptionalLong fromBody = parseRetryAfterMs(msg);
+        if (fromBody.isPresent()) return fromBody.getAsLong();
+        Long expiry = rateLimitExpiry.get(modelId);
+        if (expiry != null) {
+            long remaining = expiry - System.currentTimeMillis();
+            if (remaining > 0) return Math.min(remaining + 500, 90_000L);
+        }
+        return fallbackMs;
     }
 
     private String syncCall(String modelId, String prompt, int tokenLimit) {
@@ -568,7 +588,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
-                    long waitMs = parseRetryAfterMs(msg).orElse(backoffMs);
+                    long waitMs = retryWaitMsFor(modelId, msg, backoffMs);
                     long expiry = System.currentTimeMillis() + waitMs;
                     rateLimitExpiry.merge(modelId, expiry, Math::max);
                     log.warn("GenericOpenAICompatPool({}): stream 429 model={} attempt={} retrying in {}ms",
@@ -1048,9 +1068,31 @@ public class GenericOpenAICompatPool implements LlmPool {
         catch (NumberFormatException ignored) { return DEFAULT_BLOCK_MS; }
     }
 
-    /** Parses Groq-style "(Xh)?(Ym)?Z.Ws" and bare "X.Ys" from an error body. */
-    OptionalLong parseRetryAfterMs(String message) {
+    /** Floor for any parsed retry-after wait. Sub-100ms hammering risks a
+     *  request storm; 200ms gives the upstream rate-limit window a real chance
+     *  to roll forward. Only applies to body-parsed values — header-derived
+     *  waits are honored as-is (they're already authoritative). */
+    private static final long MIN_PARSED_WAIT_MS = 200;
+
+    /** Parses retry-after from an error body. Handles Groq-style
+     *  {@code "(Xh)?(Ym)?Z.Ws"}, {@code "try again in X.Ys"}, bare {@code "X.Ys"},
+     *  and {@code "X.Yms"} (sub-second TPM windows). {@code static} so unit tests
+     *  can exercise it without constructing a pool. */
+    static OptionalLong parseRetryAfterMs(String message) {
         if (message == null) return OptionalLong.empty();
+        // Sub-second "X.Yms" first — "269.999999ms" is Groq's TPM-window shape
+        // when the bucket has almost recovered. Must run before the seconds
+        // matchers, otherwise nothing catches it and we wait the full
+        // INITIAL_BACKOFF_MS (10s) on a 270ms upstream window.
+        Matcher msOnly = Pattern.compile("(\\d+\\.?\\d*)\\s*ms\\b").matcher(message);
+        if (msOnly.find()) {
+            try {
+                double msVal = Double.parseDouble(msOnly.group(1));
+                if (msVal > 0 && msVal < 600_000) {
+                    return OptionalLong.of(Math.max(MIN_PARSED_WAIT_MS, (long) msVal + 100));
+                }
+            } catch (NumberFormatException ignored) {}
+        }
         Matcher mm = Pattern.compile("(?:(\\d+)h)?(\\d+)m(\\d+\\.?\\d*)s").matcher(message);
         if (mm.find()) {
             try {
@@ -1058,19 +1100,23 @@ public class GenericOpenAICompatPool implements LlmPool {
                 long ms = h * 3_600_000
                         + Long.parseLong(mm.group(2)) * 60_000
                         + (long)(Double.parseDouble(mm.group(3)) * 1000) + 500;
-                return OptionalLong.of(ms);
+                return OptionalLong.of(Math.max(MIN_PARSED_WAIT_MS, ms));
             } catch (NumberFormatException ignored) {}
         }
         Matcher ms = Pattern.compile("try again in (\\d+\\.?\\d*)s").matcher(message);
         if (ms.find()) {
-            try { return OptionalLong.of((long)(Double.parseDouble(ms.group(1)) * 1000) + 500); }
-            catch (NumberFormatException ignored) {}
+            try {
+                long waitMs = (long)(Double.parseDouble(ms.group(1)) * 1000) + 500;
+                return OptionalLong.of(Math.max(MIN_PARSED_WAIT_MS, waitMs));
+            } catch (NumberFormatException ignored) {}
         }
         Matcher bare = Pattern.compile("\\b(\\d+\\.?\\d*)\\s*s\\b").matcher(message);
         if (bare.find()) {
             try {
                 double secs = Double.parseDouble(bare.group(1));
-                if (secs > 0 && secs < 3600) return OptionalLong.of((long)(secs * 1000) + 500);
+                if (secs > 0 && secs < 3600) {
+                    return OptionalLong.of(Math.max(MIN_PARSED_WAIT_MS, (long)(secs * 1000) + 500));
+                }
             } catch (NumberFormatException ignored) {}
         }
         return OptionalLong.empty();
