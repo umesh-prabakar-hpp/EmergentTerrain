@@ -11,7 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -51,9 +51,17 @@ import java.util.function.Function;
  *
  * <p>Active when {@code app.ai.cerebras.enabled=true}. Disabled by default so a key
  * misconfiguration cannot block startup.
+ *
+ * <p>Phase 20.11 §migration — the {@code app.ai.cerebras.legacy-pool}
+ * flag (default {@code true}) gates this hand-written class so an
+ * operator can flip Cerebras over to a YAML-configured
+ * {@link GenericOpenAICompatPool} entry under {@code app.ai.providers.cerebras:}
+ * by setting {@code app.ai.cerebras.legacy-pool=false}. Burn-in two
+ * weeks against a replay corpus before deleting this class outright.
  */
 @Component
-@ConditionalOnProperty(name = "app.ai.cerebras.enabled", havingValue = "true")
+@ConditionalOnExpression(
+        "${app.ai.cerebras.enabled:false} and ${app.ai.cerebras.legacy-pool:true}")
 public class CerebrasPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(CerebrasPool.class);

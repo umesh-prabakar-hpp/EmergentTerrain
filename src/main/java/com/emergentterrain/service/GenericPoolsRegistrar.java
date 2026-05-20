@@ -139,6 +139,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private String maxTokensField;
         private ProviderConfig.RetryAfterSource retryAfterSource;
         private Integer parallelism;
+        /** Phase 20.11 §migration — declared pool role; empty = primary chain. */
+        private String role;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -158,6 +160,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setRetryAfterSource(ProviderConfig.RetryAfterSource v) { this.retryAfterSource = v; }
         public Integer getParallelism() { return parallelism; }
         public void setParallelism(Integer v) { this.parallelism = v; }
+        public String getRole() { return role; }
+        public void setRole(String v) { this.role = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -173,7 +177,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     supportsTools != null && supportsTools,
                     contextWindow == null ? 32_000 : contextWindow,
                     maxTokensField == null ? "max_tokens" : maxTokensField,
-                    retryAfterSource == null ? ProviderConfig.RetryAfterSource.HEADER : retryAfterSource);
+                    retryAfterSource == null ? ProviderConfig.RetryAfterSource.HEADER : retryAfterSource,
+                    role == null ? "" : role.trim());
         }
     }
 }

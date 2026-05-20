@@ -46,6 +46,14 @@ import java.util.List;
  *                          {@code "max_tokens"}.
  * @param retryAfterSource  {@link RetryAfterSource#HEADER} or
  *                          {@link RetryAfterSource#BODY}.
+ * @param role              Phase 7 E1.6 / Phase 20.11 — declared pool
+ *                          role consumed by
+ *                          {@link LlmRouter#poolsByRole}. Empty string
+ *                          (default) means "no special role" — pool joins
+ *                          the regular primary chain. Common values:
+ *                          {@code "fast-audit"} (Cerebras-style fast
+ *                          single-shot calls), {@code "professor-tools"}
+ *                          (the agentic tool-loop stage).
  */
 public record ProviderConfig(
         String providerKey,
@@ -56,14 +64,15 @@ public record ProviderConfig(
         boolean supportsTools,
         int contextWindow,
         String maxTokensField,
-        RetryAfterSource retryAfterSource) {
+        RetryAfterSource retryAfterSource,
+        String role) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
-                true, 32_000, "max_tokens", RetryAfterSource.HEADER);
+                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "");
     }
 }

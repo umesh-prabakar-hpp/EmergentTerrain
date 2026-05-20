@@ -306,6 +306,26 @@ app:
     #     api-key-env: DEEPSEEK_API_KEY
     #     models: [deepseek-chat]
     #     supports-tools: true
+    #
+    # Phase 20.11 §migration — Cerebras replicated as a generic-pool entry.
+    # Two-step flip path for the operator (default off):
+    #   1. Uncomment the providers.cerebras: block below.
+    #   2. Set app.ai.cerebras.legacy-pool: false (this disables the
+    #      hand-written CerebrasPool's bean registration via
+    #      ConditionalOnExpression).
+    # After two weeks of burn-in against a replay corpus, CerebrasPool.java
+    # itself can be deleted in a follow-up PR (then the legacy-pool flag
+    # goes away too). Mirrors the existing app.ai.cerebras.* settings;
+    # change either side, keep them in sync until the migration closes.
+    # providers:
+    #   cerebras:
+    #     base-url: https://api.cerebras.ai/v1
+    #     api-key-env: CEREBRAS_API_KEY
+    #     models: [qwen-3-235b-a22b-instruct-2507]
+    #     supports-tools: true
+    #     context-window: 32000
+    #     role: fast-audit       # matches CerebrasPool's role hint
+    #     parallelism: 2          # matches app.ai.cerebras.parallelism default
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,

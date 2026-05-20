@@ -159,6 +159,14 @@ public class GenericOpenAICompatPool implements LlmPool {
     @Override public int backendCount() { return 1; }
     @Override public int healthyCount() { return 1; }
 
+    /**
+     * Phase 20.11 §migration — honor the YAML-declared role so a
+     * generic-pool-backed provider participates in LlmRouter's
+     * role-indexed routing (e.g. {@code "fast-audit"}) the same way the
+     * hand-written pools do. Default empty string = "primary chain only".
+     */
+    @Override public String role() { return cfg.role() == null ? "" : cfg.role(); }
+
     @Override public boolean supportsTools() {
         // Phase 20.11 step 3 — honors the yaml `supports-tools` flag now
         // that the tool-call path is wired (runToolLoop below).

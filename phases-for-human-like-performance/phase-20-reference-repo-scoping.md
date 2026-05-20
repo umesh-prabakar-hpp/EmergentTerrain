@@ -573,11 +573,28 @@ forest fraction?") that's prohibitive.
 step 1 (`bc61362` — `GenericOpenAICompatPool` skeleton, sync path only),
 step 2 (`1999401` — YAML-driven pool auto-registration via
 `ProviderConfigLoader`), step 3 (`b24de70` — tool-call loop on
-`GenericOpenAICompatPool`). The existing five pool classes still
-exist; the two-week-burn-in-then-delete migration plan from the
-"Risk" section below has not started — adding a sixth provider via
-YAML works today, but the legacy classes haven't been retired yet.
-That last step is the **only remaining 20.11 work**.
+`GenericOpenAICompatPool`).
+
+**Status (migration step 1, 2026-05-19):** scaffolding for the first
+legacy-pool retirement **LANDED** in this session:
+- `ProviderConfig` gained a `role` field (matching
+  `LlmPool.role()`) so a YAML-configured pool can join LlmRouter's
+  role-indexed routing the same way the hand-written pools do.
+  `GenericOpenAICompatPool.role()` returns it.
+- `CerebrasPool` now gated by `@ConditionalOnExpression` on BOTH
+  `app.ai.cerebras.enabled` AND `app.ai.cerebras.legacy-pool`
+  (latter defaults to true → no behaviour change). Operator flips
+  `legacy-pool: false` to retire the hand-written class.
+- `app.ai.providers.cerebras:` block added (commented) under the
+  generic-pool config section as the operator's flip path. The
+  comment block names the two-step flip + the two-week burn-in
+  + the follow-up delete PR explicitly.
+
+**Remaining 20.11 work:** the per-pool delete PRs themselves. One
+per legacy class (Cerebras, OpenRouter, NVIDIA, Groq), in
+ascending-quirk order. Cerebras is the smallest; Groq is the largest
+(BODY-source retry-after, TPD/TPM split). OllamaPool stays — its
+`/api/tags` discovery diverges from OpenAI-compat.
 
 **Source pattern:** treat the OpenAI `/v1/chat/completions` protocol
 as the universal substrate (most modern providers — Anthropic via
