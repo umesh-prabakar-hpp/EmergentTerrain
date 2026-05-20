@@ -103,6 +103,8 @@ public class GenericOpenAICompatPool implements LlmPool {
     private LlmCallMetrics callMetrics;
     @Autowired(required = false)
     private TpmBudgetGate budgetGate;
+    @Autowired(required = false)
+    private com.emergentterrain.llm.BudgetGateMetrics budgetGateMetrics;
     /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
@@ -326,6 +328,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 if (resp.statusCode() == 429) {
                     long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
                     rateLimitExpiry.merge(modelId, System.currentTimeMillis() + waitMs, Math::max);
+                    if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
@@ -398,7 +401,16 @@ public class GenericOpenAICompatPool implements LlmPool {
                 long estimate = estimateTokens(payload, TOOL_MAX_TOKENS);
                 boolean reserved = false;
                 if (budgetGate != null) {
-                    budgetGate.tryAcquireOrThrow(cfg.providerKey(), modelId, estimate);
+                    // Phase 21 §21.1 — first round goes through the HARD gate
+                    // (same as a single-shot call); continuation rounds use SOFT
+                    // so an in-flight tool conversation finishes gracefully
+                    // instead of starting another round when the budget is
+                    // already most-of-the-way full.
+                    com.emergentterrain.llm.TpmBudgetGate.GateLevel level =
+                            round == 0
+                                    ? com.emergentterrain.llm.TpmBudgetGate.GateLevel.HARD
+                                    : com.emergentterrain.llm.TpmBudgetGate.GateLevel.SOFT;
+                    budgetGate.tryAcquireOrThrow(cfg.providerKey(), modelId, estimate, level);
                     reserved = true;
                 }
                 String roundOutcome = "ok";
@@ -423,6 +435,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                             long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
                             rateLimitExpiry.merge(modelId,
                                     System.currentTimeMillis() + waitMs, Math::max);
+                            if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
                         }
                         throw new RuntimeException(cfg.providerKey() + " API error "
                                 + resp.statusCode() + ": " + resp.body());

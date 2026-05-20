@@ -854,6 +854,13 @@ app:
     budget:
       enabled: true
       pauseThresholdPct: 95
+      # Phase 21 §21.1 — soft threshold consulted only by tool-loop
+      # continuation rounds (round ≥ 1) via TpmBudgetGate.GateLevel.SOFT.
+      # When the per-minute budget sits in [soft, hard), single-shot calls
+      # and first tool-loop rounds still go through; mid-loop continuations
+      # exit so the last 10% of budget stays available for higher-priority
+      # work. Per-provider override available under providers.<key>.softPauseThresholdPct.
+      softPauseThresholdPct: 85
       resumeThresholdPct: 80
       providers:
         groq:

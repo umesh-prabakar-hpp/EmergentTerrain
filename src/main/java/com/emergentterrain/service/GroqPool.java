@@ -170,6 +170,10 @@ public class GroqPool implements LlmPool {
     @Autowired(required = false)
     private TpmBudgetGate budgetGate;
 
+    /** Phase 21 §21.1 — REJECT vs upstream-429 counters. Null-safe. */
+    @Autowired(required = false)
+    private com.emergentterrain.llm.BudgetGateMetrics budgetGateMetrics;
+
     /** Phase 20.3 — cached tool-schema policy; null-safe (off ⇒ today's behavior). */
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
@@ -527,7 +531,15 @@ public class GroqPool implements LlmPool {
                 long estimate = estimateTokens(payload, toolMaxTokens);
                 boolean reserved = false;
                 if (budgetGate != null) {
-                    budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate);
+                    // Phase 21 §21.1 — first round uses HARD; continuation
+                    // rounds use SOFT so an in-flight loop is not forced
+                    // through 2–3-deep fallbacks when the budget is just
+                    // above the soft threshold but well below the hard one.
+                    com.emergentterrain.llm.TpmBudgetGate.GateLevel level =
+                            round == 0
+                                    ? com.emergentterrain.llm.TpmBudgetGate.GateLevel.HARD
+                                    : com.emergentterrain.llm.TpmBudgetGate.GateLevel.SOFT;
+                    budgetGate.tryAcquireOrThrow(PROVIDER_ID, modelId, estimate, level);
                     reserved = true;
                 }
                 String roundOutcome = "ok";
@@ -1057,6 +1069,11 @@ public class GroqPool implements LlmPool {
                 last = e;
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
+                    // Phase 21 §21.1 — count the upstream 429 alongside the
+                    // existing block-window write. Inline paths here don't go
+                    // through recordGroqRateLimitBlock so add the counter at
+                    // the source.
+                    if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(PROVIDER_ID);
                     // TPD (daily quota) exhaustion — retry-after is hours/minutes, skip immediately
                     if (msg.contains("tokens per day") || msg.contains("TPD")) {
                         long waitMs = parseRetryAfterMs(msg).orElse(60 * 60 * 1000L);
@@ -1118,6 +1135,11 @@ public class GroqPool implements LlmPool {
             log.warn("GroqPool: TPM 429 model={} — blocked for {}ms until ~{}",
                     modelId, waitMs, java.time.Instant.ofEpochMilli(tpmExpiry.get(modelId)));
         }
+        // Phase 21 §21.1 — bump the upstream-429 counter so the phantom-
+        // throttle ratio (tpm.budget.reject / tpm.budget.upstream_429) is
+        // visible at /actuator/metrics. Both TPD and TPM count — both are
+        // server-side rate-limit responses.
+        if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(PROVIDER_ID);
     }
 
     // Groq embeds retry-after as "4.82s" or "43m51.312s" or "1h23m45s"
