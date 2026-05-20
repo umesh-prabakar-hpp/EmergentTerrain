@@ -95,6 +95,13 @@ public class GenericOpenAICompatPool implements LlmPool {
      *  in the existing pools — {@link #isModelBlocked} consults this so the
      *  registry's availability filter skips blocked models. */
     private final ConcurrentHashMap<String, Long> rateLimitExpiry = new ConcurrentHashMap<>();
+    /** Phase 9 follow-on — models that failed initial selection tests and are
+     *  awaiting periodic re-probing by {@code ModelRetestService}. Kept in the
+     *  pool's published {@link #modelIds()} (so {@link PrimaryModelRegistry} /
+     *  {@link FastModelRegistry} register them as handles at startup) but
+     *  reported as blocked via {@link #isModelBlocked} until recovery. */
+    private final java.util.Set<String> droppedSelectionTestModels =
+            java.util.concurrent.ConcurrentHashMap.newKeySet();
     private final Duration requestTimeout;
 
     @Autowired(required = false)
@@ -173,14 +180,23 @@ public class GenericOpenAICompatPool implements LlmPool {
                                 + "ids spelled correctly?",
                         cfg.providerKey(), candidates);
             } else {
+                // Phase 9 follow-on parity — stash the failers so ModelRetestService
+                // can re-probe them on its cadence (default 15m). They're still
+                // published via modelIds() / fastTierModelIds() so the registries
+                // hold a ModelHandle for them at startup; isModelBlocked keeps them
+                // out of dispatch until onModelRecovered fires.
+                for (String c : candidates) {
+                    if (!passed.contains(c)) droppedSelectionTestModels.add(c);
+                }
                 activeModels.clear();
                 activeModels.addAll(passed);
             }
         }
 
-        log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} supportsTools={} selection-tests={}",
+        log.info("GenericOpenAICompatPool({}): parallelism={} models={} contextWindow={} supportsTools={} selection-tests={} dropped-awaiting-retest={}",
                 cfg.providerKey(), parallelism, activeModels, cfg.contextWindow(),
-                cfg.supportsTools(), selectionTestsEnabled ? "on" : "off");
+                cfg.supportsTools(), selectionTestsEnabled ? "on" : "off",
+                droppedSelectionTestModels);
     }
 
     // ── LlmPool surface ────────────────────────────────────────────────────
@@ -188,7 +204,18 @@ public class GenericOpenAICompatPool implements LlmPool {
     @Override public String providerKey() { return cfg.providerKey(); }
 
     @Override public List<String> modelIds() {
-        return Collections.unmodifiableList(activeModels);
+        // Include dropped-awaiting-retest models so the registries register a
+        // ModelHandle for them at startup; isModelBlocked keeps them out of
+        // dispatch until onModelRecovered fires. Matches the legacy GroqPool
+        // pattern (line 367-372) so a model that fails its initial selection
+        // probe can come back without an app restart.
+        if (droppedSelectionTestModels.isEmpty()) {
+            return Collections.unmodifiableList(activeModels);
+        }
+        List<String> out = new ArrayList<>(activeModels.size() + droppedSelectionTestModels.size());
+        out.addAll(activeModels);
+        out.addAll(droppedSelectionTestModels);
+        return List.copyOf(out);
     }
 
     @Override public String selectedModel() {
@@ -222,7 +249,16 @@ public class GenericOpenAICompatPool implements LlmPool {
      * {@code fastTierActiveModels} fields internally.
      */
     @Override public List<String> fastTierModelIds() {
-        return cfg.fastTier() ? Collections.unmodifiableList(activeModels) : List.of();
+        if (!cfg.fastTier()) return List.of();
+        // Mirror modelIds() — include dropped models so FastModelRegistry holds
+        // handles for them; isModelBlocked filters them until recovery.
+        if (droppedSelectionTestModels.isEmpty()) {
+            return Collections.unmodifiableList(activeModels);
+        }
+        List<String> out = new ArrayList<>(activeModels.size() + droppedSelectionTestModels.size());
+        out.addAll(activeModels);
+        out.addAll(droppedSelectionTestModels);
+        return List.copyOf(out);
     }
 
     @Override public boolean supportsTools() {
@@ -270,6 +306,8 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     @Override public boolean isModelBlocked(String modelId) {
+        // Dropped-awaiting-retest models stay blocked until onModelRecovered.
+        if (droppedSelectionTestModels.contains(modelId)) return true;
         Long exp = rateLimitExpiry.get(modelId);
         return exp != null && System.currentTimeMillis() < exp;
     }
@@ -291,6 +329,43 @@ public class GenericOpenAICompatPool implements LlmPool {
                 .min(Long::compareTo)
                 .map(Instant::ofEpochMilli)
                 .orElse(Instant.now());
+    }
+
+    /**
+     * Phase 9 follow-on parity — every model that failed initial selection
+     * is offered to {@code ModelRetestService} for periodic re-probing.
+     * Mirrors GroqPool.pendingRetests: each entry carries the per-model
+     * sync dispatch (chat + JSON probes), plus the tool dispatch when this
+     * pool supports tools. Returns a snapshot — the dropped set may shrink
+     * concurrently as {@link #onModelRecovered} fires.
+     */
+    @Override
+    public List<RetestableModel> pendingRetests() {
+        if (droppedSelectionTestModels.isEmpty()) return List.of();
+        List<RetestableModel> out = new ArrayList<>(droppedSelectionTestModels.size());
+        for (String mid : droppedSelectionTestModels) {
+            out.add(new RetestableModel(
+                    mid,
+                    (m, prompt) -> syncCallWithBackoff(m, prompt, cfg.contextWindow()),
+                    cfg.supportsTools()
+                            ? (sys, user, toolsJson, exec) ->
+                                    runToolLoop(mid, sys, user, toolsJson, exec)
+                            : null));
+        }
+        return out;
+    }
+
+    /**
+     * Phase 9 follow-on parity — ModelRetestService calls this when a
+     * previously-dropped model's re-probe passes. Add to activeModels
+     * before removing from the dropped set so concurrent readers see the
+     * model in at least one set at all times.
+     */
+    @Override
+    public void onModelRecovered(String modelId) {
+        if (!droppedSelectionTestModels.contains(modelId)) return;
+        if (!activeModels.contains(modelId)) activeModels.add(modelId);
+        droppedSelectionTestModels.remove(modelId);
     }
 
     @Override public String callSync(String prompt) {
