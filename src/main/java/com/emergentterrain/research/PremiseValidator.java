@@ -58,8 +58,12 @@ public final class PremiseValidator {
      */
     public static Result validate(String topic, String hypothesisText) {
         if (hypothesisText == null || hypothesisText.isBlank()) return OK;
-        String t = normaliseTopic(topic);
+        // Topic-agnostic checks first — a truncated hypothesis fails the
+        // pre-registration contract regardless of which physics it claims.
+        Result completeness = validateCompleteness(hypothesisText);
+        if (completeness instanceof Result.Reject) return completeness;
 
+        String t = normaliseTopic(topic);
         if (isSnellOrTirTopic(t)) {
             Result snell = validateSnell(hypothesisText);
             if (snell instanceof Result.Reject) return snell;
@@ -91,6 +95,49 @@ public final class PremiseValidator {
         return normalisedTopic.contains("twin-prime")
                 || normalisedTopic.contains("hardy-littlewood")
                 || normalisedTopic.contains("prime-constellation");
+    }
+
+    // ─────────────────────── hypothesis completeness ─────────────────────
+
+    /**
+     * Reject when the hypothesis ends with a clause-continuation marker —
+     * the LLM started a subordinate clause and the prose was truncated
+     * before it finished. Added 2026-05-20 after P-a328-755 shipped with a
+     * hypothesis ending at {@code "...the conjectured asymptotic 14.3%
+     * [call_1] given"} and P-a328-727 shipped with {@code "...less than
+     * 20°, based on"}. Both passed the upstream {@code audit:4b:0gaps}
+     * check (which inspects semantic gaps, not syntactic completeness)
+     * and produced wasted tool calls because the professor stage had no
+     * complete hypothesis to test.
+     *
+     * <p>High-precision tail match: a curated set of subordinator phrases
+     * (given / based on / due to / etc.) at the END of the hypothesis,
+     * optionally followed by punctuation that doesn't close the sentence.
+     * Hypotheses that end with a complete clause — even without a final
+     * period — are accepted; the rule does not police missing terminal
+     * punctuation alone, which would false-positive on stylistic
+     * variants like "...n=40 samples" or "...within 2°".
+     */
+    private static final Pattern TRUNCATION_TAIL = Pattern.compile(
+            "\\b(?:given|based\\s+on|due\\s+to|because|assuming|such\\s+that|"
+                    + "whereas|including|consistent\\s+with|in\\s+the\\s+limit(?:\\s+of)?|"
+                    + "under\\s+the\\s+assumption(?:\\s+that)?|as\\s+a\\s+function\\s+of|"
+                    + "where|which(?:\\s+is)?|that(?:\\s+is)?)"
+                    + "[\\s,;:]*$",
+            Pattern.CASE_INSENSITIVE);
+
+    static Result validateCompleteness(String hypothesis) {
+        Matcher m = TRUNCATION_TAIL.matcher(hypothesis);
+        if (m.find()) {
+            String tail = m.group(0).trim();
+            return new Result.Reject(
+                    "hypothesis_truncated",
+                    "Hypothesis appears to be truncated mid-clause — the final phrase '"
+                            + tail + "' introduces a subordinate clause that is missing. "
+                            + "Complete the sentence (state what follows '" + tail
+                            + "') and re-emit the hypothesis.");
+        }
+        return OK;
     }
 
     // ──────────────────────────── snell / TIR ────────────────────────────

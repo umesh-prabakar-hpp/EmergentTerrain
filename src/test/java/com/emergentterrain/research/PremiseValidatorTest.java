@@ -115,6 +115,105 @@ class PremiseValidatorTest {
         assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
     }
 
+    // ────────────── hypothesis completeness (2026-05-20) ──────────────
+
+    @Test
+    void completeness_P755_givenSuffix_rejected() {
+        // P-a328-755 exact tail: "...the conjectured asymptotic 14.3% [call_1] given"
+        String hypothesis = "The happy number density in the range [4884, 5034) will "
+                + "remain close to the conjectured asymptotic 14.3% [call_1] given";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Happy Number Distribution", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
+        var reject = (PremiseValidator.Result.Reject) r;
+        assertThat(reject.reasonCode()).isEqualTo("hypothesis_truncated");
+        assertThat(reject.explanation()).contains("given");
+    }
+
+    @Test
+    void completeness_P727_basedOnSuffix_rejected() {
+        // P-a328-727 exact tail: "...is expected to be less than 20°, based on"
+        String hypothesis = "For a pendulum of length L=1.56 m, the small-angle period "
+                + "will diverge above a critical angle θ_c, which is expected to be less "
+                + "than 20°, based on";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Pendulum Breakdown Angle", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
+        var reject = (PremiseValidator.Result.Reject) r;
+        assertThat(reject.reasonCode()).isEqualTo("hypothesis_truncated");
+        assertThat(reject.explanation()).contains("based on");
+    }
+
+    @Test
+    void completeness_completedSentence_accepted() {
+        // A standard well-formed hypothesis ending with a period — must not
+        // false-positive even though "based on" appears in the middle.
+        String hypothesis = "For an RLC circuit with L=1.8 mH and C=1.46 µF, the damping "
+                + "transition occurs at R_c=70 Ω based on the series-circuit closed form.";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "RLC Damping Transition", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Ok.class);
+    }
+
+    @Test
+    void completeness_missingPeriodButCompleteClause_accepted() {
+        // Stylistic — author forgot the final period but the clause is
+        // self-contained. The rule must not police missing periods alone,
+        // only ends-with-subordinator. Last word "samples" is a noun, not
+        // a continuation marker.
+        String hypothesis = "We expect twin-prime density 0.143 across n=40 samples";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Twin Prime Density", hypothesis);
+        // Twin-prime rule will reject this for unqualified density, but the
+        // completeness check must NOT fire — the reason code disambiguates.
+        if (r instanceof PremiseValidator.Result.Reject reject) {
+            assertThat(reject.reasonCode()).isNotEqualTo("hypothesis_truncated");
+        }
+    }
+
+    @Test
+    void completeness_endsWithCallMarker_accepted() {
+        // Common shape: numeric value immediately followed by [call_N] and
+        // nothing else. Not a truncation.
+        String hypothesis = "The density in this interval will match the prior result of "
+                + "0.143 [call_1]";
+        // Twin-prime topic will catch unqualified "density" — but completeness
+        // must pass through.
+        PremiseValidator.Result r = PremiseValidator.validateCompleteness(hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Ok.class);
+    }
+
+    @Test
+    void completeness_runsBeforeTopicRules() {
+        // A truncated TIR hypothesis must reject on completeness, NOT TIR —
+        // we want the most upstream reason code so retries fix the right
+        // problem first.
+        String hypothesis = "At n₁=1.50 and n₂=1.577, the critical angle is computed based on";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Snell Critical Angle Dispersion", hypothesis);
+        var reject = (PremiseValidator.Result.Reject) r;
+        assertThat(reject.reasonCode()).isEqualTo("hypothesis_truncated");
+    }
+
+    @Test
+    void completeness_acceptsCommonClauseEnders() {
+        // Sanity: hypotheses with common technical phrasings that COULD
+        // look like truncations to a naive heuristic still pass.
+        String[] complete = {
+            "Computed values lie within the swept range.",
+            "The result is bounded by the theoretical asymptote.",
+            "Sample size n=200 across the interval [50, 250).",
+            "We measure θ_c < 30°.",
+            "Range optimum near 25° with quadratic drag.",
+        };
+        for (String h : complete) {
+            PremiseValidator.Result r = PremiseValidator.validateCompleteness(h);
+            assertThat(r)
+                    .as("'%s' should be Ok", h)
+                    .isInstanceOf(PremiseValidator.Result.Ok.class);
+        }
+    }
+
     // ────────────── Twin-prime / Hardy-Littlewood ──────────────
 
     @Test
