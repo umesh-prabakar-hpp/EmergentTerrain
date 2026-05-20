@@ -726,6 +726,31 @@ operator's flip path is a TWO-entry YAML: `groq:` (primary,
 tier models never appear in the primary chain. The Groq flip is now
 safe to execute.
 
+**Status (Groq FLIPPED, 2026-05-20):** `app.ai.groq.legacy-pool` is
+now `false`. Both `app.ai.providers.groq:` (primary) and
+`app.ai.providers.groq-fast:` (fast-tier) entries are live. Models
+match the active set the legacy GroqPool selected from production
+run logs (primary: `llama-3.3-70b-versatile`, `openai/gpt-oss-120b`;
+fast: `llama-3.1-8b-instant`, `allam-2-7b`,
+`meta-llama/llama-4-scout-17b-16e-instruct`).
+
+**All four migratable pools (Cerebras / OpenRouter / NVIDIA / Groq)
+are now on the generic pool.** OllamaPool stays — its `/api/tags`
+discovery diverges from OpenAI-compat and the migration cost-benefit
+doesn't pencil out. On the operator's next restart the startup log
+should show:
+```
+GenericPoolsRegistrar(cerebras):   registered bean=openAiCompatPool_cerebras …
+GenericPoolsRegistrar(openrouter): registered bean=openAiCompatPool_openrouter …
+GenericPoolsRegistrar(nvidia):     registered bean=openAiCompatPool_nvidia …
+GenericPoolsRegistrar(groq):       registered bean=openAiCompatPool_groq …
+GenericPoolsRegistrar(groq-fast):  registered bean=openAiCompatPool_groq-fast …
+```
+and none of `CerebrasPool: …` / `OpenRouterPool: …` / `NvidiaPool: …`
+/ `GroqPool: …`. Two-week burn-in window opens at first restart for
+all four; step 2b deletion PRs fire individually after each burn-in
+confirms no regressions in the next REVIEW_REPORT refresh.
+
 **Status (NVIDIA FLIPPED, 2026-05-20):** `app.ai.nvidia.legacy-pool`
 is now `false`. The `app.ai.providers.nvidia:` entry is live with
 all three NVIDIA-specific parity markers

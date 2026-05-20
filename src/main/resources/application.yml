@@ -174,6 +174,15 @@ app:
       # Leave blank to auto-discover and rank all Groq models at startup.
       # Comma-separated list to pin specific models (e.g. "llama-3.3-70b-versatile,llama-3.1-70b-versatile")
       preferredModels: ""
+      # Phase 20.11 §migration step 3 flipped (2026-05-20) — the legacy
+      # hand-written GroqPool bean is now disabled; the generic-pool
+      # entries under app.ai.providers.groq: (primary) +
+      # app.ai.providers.groq-fast: (fast-tier) take over. Fast-tier
+      # parity verified in commit 5dc18da. The Borda+Ollama startup
+      # tournament does NOT carry over; primary models are now declared
+      # in YAML order. This block stays as legacy contract documentation
+      # until step 2b deletes GroqPool.java.
+      legacy-pool: false
     # Phase 7 E1 — additional free-tier provider scaffolding. Flags stay `false` until each
     # pool implementation ships; the keys are present so that flipping a flag is a one-line
     # config change. See phases-for-human-like-performance/phase-7-multi-provider-and-math-expansion.md
@@ -362,56 +371,48 @@ app:
           HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
           X-Title: EmergentTerrain
         excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
-    # Phase 20.11 §migration step 3 — Groq scaffolding (NOT YET FLIPPED).
-    # Generic-pool entries below are commented out; the legacy GroqPool
-    # bean remains active. Parity status (see GroqPool's class-javadoc):
-    #   - BODY-source retry-after — supported (RetryAfterSource.BODY +
-    #     parseRetryAfterMs handles hms/bare-seconds/"try again in" forms).
-    #   - TPD vs TPM distinction — supported via long-block-body-markers
-    #     ["tokens per day", "TPD"] + long-block-ms 3600000 below.
-    #   - Reasoning-model content→reasoning fallback — supported.
-    #   - Borda startup ranking — LOST; operator must pre-rank models in
-    #     YAML order. Acceptable since preferredModels was already curated.
-    #   - Fast-tier split — supported via fast-tier: true + the second
-    #     groq-fast: entry below. FastModelRegistry queries
-    #     fastTierModelIds() which the generic pool now exposes when
-    #     the flag is set; setting supports-tools: false on the same
-    #     entry keeps PrimaryModelRegistry from picking the models up.
-    #   groq:
-    #     base-url: https://api.groq.com/openai/v1
-    #     api-key-env: GROQ_API_KEY
-    #     api-key: ${app.ai.groq.apiKey}
-    #     models:
-    #       # Pre-ranked: highest-quality first (operator's responsibility
-    #       # post-flip; the legacy Borda+Ollama tournament that produced
-    #       # this order at startup goes away).
-    #       - llama-3.3-70b-versatile
-    #       - openai/gpt-oss-120b
-    #     supports-tools: true
-    #     context-window: 32000
-    #     parallelism: 3
-    #     retry-after-source: BODY            # Groq's distinctive quirk
-    #     long-block-body-markers: ["tokens per day", "TPD"]
-    #     long-block-ms: 3600000              # 1h, matches recordGroqRateLimitBlock TPD default
-    #   groq-fast:
-    #     # Fast-tier counterpart to the groq: entry above. Picked up by
-    #     # FastModelRegistry via fastTierModelIds() (Groq parity); skipped
-    #     # by PrimaryModelRegistry because supports-tools: false.
-    #     base-url: https://api.groq.com/openai/v1
-    #     api-key-env: GROQ_API_KEY
-    #     api-key: ${app.ai.groq.apiKey}
-    #     models:
-    #       - llama-3.1-8b-instant
-    #       - allam-2-7b
-    #       - meta-llama/llama-4-scout-17b-16e-instruct
-    #     supports-tools: false               # excluded from PrimaryModelRegistry
-    #     fast-tier: true                     # included in FastModelRegistry
-    #     role: fast-audit
-    #     context-window: 32000
-    #     parallelism: 3
-    #     retry-after-source: BODY
-    #     long-block-body-markers: ["tokens per day", "TPD"]
-    #     long-block-ms: 3600000
+    # Phase 20.11 §migration step 3 Groq — FLIPPED 2026-05-20. Both
+    # provider entries below (primary + fast-tier) are now live. Parity
+    # verified in commit 5dc18da. Models match the active set the
+    # legacy GroqPool selected from the 2026-05-19 production run logs.
+    # The legacy GroqPool bean is disabled via app.ai.groq.legacy-pool=false
+    # above. Two-week burn-in window opens at first restart; step 2b
+    # deletes GroqPool.java when burn-in confirms no regressions.
+      groq:
+        base-url: https://api.groq.com/openai/v1
+        api-key-env: GROQ_API_KEY
+        api-key: ${app.ai.groq.apiKey}
+        models:
+          # Pre-ranked: highest-quality first. Legacy Borda+Ollama
+          # tournament that produced this order at startup is now
+          # operator-curated.
+          - llama-3.3-70b-versatile
+          - openai/gpt-oss-120b
+        supports-tools: true
+        context-window: 32000
+        parallelism: 3
+        retry-after-source: BODY            # Groq's distinctive quirk
+        long-block-body-markers: ["tokens per day", "TPD"]
+        long-block-ms: 3600000              # 1h, matches recordGroqRateLimitBlock TPD default
+      groq-fast:
+        # Fast-tier counterpart to the groq: entry above. Picked up by
+        # FastModelRegistry via fastTierModelIds() (Groq parity); skipped
+        # by PrimaryModelRegistry because supports-tools: false.
+        base-url: https://api.groq.com/openai/v1
+        api-key-env: GROQ_API_KEY
+        api-key: ${app.ai.groq.apiKey}
+        models:
+          - llama-3.1-8b-instant
+          - allam-2-7b
+          - meta-llama/llama-4-scout-17b-16e-instruct
+        supports-tools: false               # excluded from PrimaryModelRegistry
+        fast-tier: true                     # included in FastModelRegistry
+        role: fast-audit
+        context-window: 32000
+        parallelism: 3
+        retry-after-source: BODY
+        long-block-body-markers: ["tokens per day", "TPD"]
+        long-block-ms: 3600000
     # Phase 20.11 §migration step 3 NVIDIA — FLIPPED 2026-05-20.
     # Parity markers below mirror NvidiaPool.handleErrorResponse +
     # inferBlockMsFromBody one-for-one (commit c7ec03a). The legacy
