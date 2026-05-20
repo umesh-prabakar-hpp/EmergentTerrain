@@ -8,6 +8,13 @@ spring:
     database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update
+    # JpaBaseConfiguration warns when this is left at its implicit default.
+    # `false` is production-correct: closes the persistence context at the
+    # controller boundary so DB connections aren't held across view
+    # rendering. Safe here because no entity carries @OneToMany / @ManyToMany
+    # / FetchType.LAZY associations — every reference is eagerly fetched, so
+    # there's nothing for the closed context to lazy-load against.
+    open-in-view: false
     properties:
       hibernate:
         format_sql: true
