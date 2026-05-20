@@ -655,37 +655,29 @@ var still wins via `api-key-env` if set.
 `@ConditionalOnExpression("${app.ai.nvidia.enabled:false} and ${app.ai.nvidia.legacy-pool:true}")`;
 commented `app.ai.providers.nvidia:` block added.
 
-**NVIDIA parity gaps — hold the flip until these land:**
+**Status (NVIDIA parity, 2026-05-20):** **LANDED**. Three new
+`ProviderConfig` fields plus two new `GenericOpenAICompatPool`
+response-side helpers close the two NVIDIA-specific quirks:
 
-1. **Paid-tier 404 detection** — `NvidiaPool.handleErrorResponse`
-   permanently disables a model when a 404 response body contains
-   `"Not found for account"` (free-tier account lacks entitlement to
-   that model). Without parity in `GenericOpenAICompatPool`, a paid-
-   only model would keep getting retried every round-robin pass.
+- `permanent404Markers: Set<String>` (YAML key
+  `permanent-404-markers`). On a 404 with a body substring match,
+  `checkPermanent404(modelId, body)` sets the model's expiry to
+  `Long.MAX_VALUE` so it never participates in round-robin again.
+  Mirrors `NvidiaPool.paidTierModels` semantics.
+- `longBlockBodyMarkers: Set<String>` + `longBlockMs: long` (YAML keys
+  `long-block-body-markers` + `long-block-ms`). On a 429 with a body
+  substring match, `inferLongBlockMs(body, baseWaitMs)` returns at
+  least `longBlockMs` (default 0 = feature off). For NVIDIA this is
+  set to `86_400_000` (24h) so credit-exhausted models wait for the
+  next billing cycle instead of re-attacking ~525k times/month.
+- Both wired into the sync + tool-loop http_error branches alongside
+  the existing `excludedBackends` extension.
+- All four new YAML keys live next to each other in the NVIDIA
+  provider block, still commented out for the operator-initiated flip.
 
-2. **Monthly-credits body classification** — `NvidiaPool.inferBlockMsFromBody`
-   parses the 429/error body for keywords (`credit`, `monthly`,
-   `quota exceeded`, `usage limit`) and uses a 24-hour block (vs the
-   default 60-second window) when matched. Free-tier credits don't
-   reset until the next billing cycle; a 60s block would re-attack the
-   API ~525k times that month.
-
-Both are response-side post-processing similar in shape to OpenRouter's
-`excludedBackends` parity. Recommended design for the follow-up:
-- `ProviderConfig.permanent404Markers: List<String>` — body substrings
-  that mark a 404 as a permanent disable. Default empty.
-- `ProviderConfig.longBlockBodyMarkers: List<String>` + `longBlockMs: Long`
-  — body substrings that bump the 429 block window to a longer value.
-  Default empty / 0.
-
-With those, NVIDIA's YAML adds:
-```yaml
-permanent-404-markers: ["Not found for account"]
-long-block-body-markers: [credit, monthly, "quota exceeded", "usage limit"]
-long-block-ms: 86400000   # 24h
-```
-…and the generic pool gets two new response-side helpers symmetric to
-`checkBackendExclusion` / `extendForExcludedBackend`.
+The NVIDIA flip is now safe to execute via the standard two-step
+sequence (uncomment YAML + set `app.ai.nvidia.legacy-pool=false`),
+followed by two-week burn-in.
 
 ### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
 

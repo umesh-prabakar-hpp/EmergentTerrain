@@ -162,6 +162,12 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private Map<String, String> extraHeaders;
         /** Phase 20.11 §migration — response-side backend blacklist (e.g. OpenRouter Venice). */
         private List<String> excludedBackends;
+        /** Phase 20.11 §migration — body substrings on a 404 that mark the model as permanently disabled (NVIDIA paid-tier). */
+        private List<String> permanent404Markers;
+        /** Phase 20.11 §migration — body substrings on a 429 that bump the block window to longBlockMs (NVIDIA monthly-credits). */
+        private List<String> longBlockBodyMarkers;
+        /** Phase 20.11 §migration — minimum block window in ms when a longBlockBodyMarkers match fires (24h = 86_400_000 for NVIDIA credits). */
+        private Long longBlockMs;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -189,6 +195,12 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setExtraHeaders(Map<String, String> v) { this.extraHeaders = v; }
         public List<String> getExcludedBackends() { return excludedBackends; }
         public void setExcludedBackends(List<String> v) { this.excludedBackends = v; }
+        public List<String> getPermanent404Markers() { return permanent404Markers; }
+        public void setPermanent404Markers(List<String> v) { this.permanent404Markers = v; }
+        public List<String> getLongBlockBodyMarkers() { return longBlockBodyMarkers; }
+        public void setLongBlockBodyMarkers(List<String> v) { this.longBlockBodyMarkers = v; }
+        public Long getLongBlockMs() { return longBlockMs; }
+        public void setLongBlockMs(Long v) { this.longBlockMs = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -209,7 +221,14 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     extraHeaders == null ? Map.of() : Map.copyOf(extraHeaders),
                     excludedBackends == null || excludedBackends.isEmpty()
                             ? java.util.Set.of()
-                            : java.util.Set.copyOf(excludedBackends));
+                            : java.util.Set.copyOf(excludedBackends),
+                    permanent404Markers == null || permanent404Markers.isEmpty()
+                            ? java.util.Set.of()
+                            : java.util.Set.copyOf(permanent404Markers),
+                    longBlockBodyMarkers == null || longBlockBodyMarkers.isEmpty()
+                            ? java.util.Set.of()
+                            : java.util.Set.copyOf(longBlockBodyMarkers),
+                    longBlockMs == null ? 0L : longBlockMs);
         }
     }
 }

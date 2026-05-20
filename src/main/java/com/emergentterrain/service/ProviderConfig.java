@@ -77,6 +77,26 @@ import java.util.Set;
  *                          minutes (covers backends with global free-
  *                          tier caps like Venice). Empty set (default)
  *                          = no exclusions.
+ * @param permanent404Markers Phase 20.11 §migration — NVIDIA parity.
+ *                          When a 404 response body contains any
+ *                          substring in this set, the model is
+ *                          permanently disabled (block expiry set to
+ *                          {@link Long#MAX_VALUE}). Mirrors NvidiaPool's
+ *                          paid-tier {@code "Not found for account"}
+ *                          detection. Empty set (default) = no
+ *                          permanent disables.
+ * @param longBlockBodyMarkers Phase 20.11 §migration — NVIDIA parity.
+ *                          When a 429 response body contains any
+ *                          substring in this set, the block window is
+ *                          bumped to at least {@link #longBlockMs}.
+ *                          Mirrors NvidiaPool's monthly-credits
+ *                          classification (credits don't reset until
+ *                          the next billing cycle; a 60s default would
+ *                          re-attack the API ~525k times that month).
+ * @param longBlockMs       Phase 20.11 §migration — minimum block
+ *                          window in milliseconds when a body marker
+ *                          matches. {@code 0} (default) = feature off.
+ *                          Typical NVIDIA value: 86_400_000 (24h).
  */
 public record ProviderConfig(
         String providerKey,
@@ -90,14 +110,18 @@ public record ProviderConfig(
         RetryAfterSource retryAfterSource,
         String role,
         Map<String, String> extraHeaders,
-        Set<String> excludedBackends) {
+        Set<String> excludedBackends,
+        Set<String> permanent404Markers,
+        Set<String> longBlockBodyMarkers,
+        long longBlockMs) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
-                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(), Set.of());
+                true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(),
+                Set.of(), Set.of(), Set.of(), 0L);
     }
 }

@@ -338,8 +338,16 @@ public class GenericOpenAICompatPool implements LlmPool {
                     // Phase 20.11 §migration — extend the block window when
                     // the upstream identifies an excluded backend.
                     waitMs = extendForExcludedBackend(modelId, resp.body(), waitMs);
+                    // Phase 20.11 §migration (NVIDIA parity) — long-block
+                    // classification on body substrings (e.g. "credit",
+                    // "monthly", "quota exceeded").
+                    waitMs = inferLongBlockMs(resp.body(), waitMs);
                     rateLimitExpiry.merge(modelId, System.currentTimeMillis() + waitMs, Math::max);
                     if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
+                } else if (resp.statusCode() == 404) {
+                    // Phase 20.11 §migration (NVIDIA parity) — paid-tier 404
+                    // permanent disable when a body marker matches.
+                    checkPermanent404(modelId, resp.body());
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
@@ -447,9 +455,12 @@ public class GenericOpenAICompatPool implements LlmPool {
                         if (resp.statusCode() == 429) {
                             long waitMs = extractRetryAfterMs(resp).orElse(DEFAULT_BLOCK_MS);
                             waitMs = extendForExcludedBackend(modelId, resp.body(), waitMs);
+                            waitMs = inferLongBlockMs(resp.body(), waitMs);
                             rateLimitExpiry.merge(modelId,
                                     System.currentTimeMillis() + waitMs, Math::max);
                             if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
+                        } else if (resp.statusCode() == 404) {
+                            checkPermanent404(modelId, resp.body());
                         }
                         throw new RuntimeException(cfg.providerKey() + " API error "
                                 + resp.statusCode() + ": " + resp.body());
@@ -624,6 +635,62 @@ public class GenericOpenAICompatPool implements LlmPool {
                     cfg.providerKey(), modelId, backend);
             rateLimitExpiry.put(modelId, System.currentTimeMillis() + 5 * 60 * 1000L);
         }
+    }
+
+    /**
+     * Phase 20.11 §migration (NVIDIA parity) — permanent-disable check on
+     * a 404 response. When the body contains any substring from
+     * {@link ProviderConfig#permanent404Markers()}, set the model's
+     * block expiry to {@link Long#MAX_VALUE} so it never participates in
+     * round-robin again. Mirrors {@code NvidiaPool.paidTierModels}
+     * semantics ({@code "Not found for account"} = free-tier account
+     * lacks entitlement; permanent disable). No-op when the marker set
+     * is empty.
+     */
+    private void checkPermanent404(String modelId, String body) {
+        java.util.Set<String> markers = cfg.permanent404Markers();
+        if (markers == null || markers.isEmpty()) return;
+        if (body == null || body.isBlank()) return;
+        for (String marker : markers) {
+            if (marker == null || marker.isBlank()) continue;
+            if (body.contains(marker)) {
+                log.warn("GenericOpenAICompatPool({}): model={} 404 matched permanent-disable marker=\"{}\" — "
+                                + "model permanently disabled",
+                        cfg.providerKey(), modelId, marker);
+                rateLimitExpiry.put(modelId, Long.MAX_VALUE);
+                return;
+            }
+        }
+    }
+
+    /**
+     * Phase 20.11 §migration (NVIDIA parity) — long-block classification
+     * on a 429 body. When the body matches any substring in
+     * {@link ProviderConfig#longBlockBodyMarkers()} AND
+     * {@link ProviderConfig#longBlockMs()} {@code > 0}, return at least
+     * {@code longBlockMs} regardless of the upstream retry-after.
+     * Mirrors {@code NvidiaPool.inferBlockMsFromBody}: monthly-credits
+     * exhaustion needs a 24-hour block, not the 60-second default, so
+     * the next billing cycle gets a chance to renew before the next
+     * attempt. Returns the (possibly extended) wait window in ms.
+     */
+    private long inferLongBlockMs(String body, long baseWaitMs) {
+        java.util.Set<String> markers = cfg.longBlockBodyMarkers();
+        long longMs = cfg.longBlockMs();
+        if (markers == null || markers.isEmpty() || longMs <= 0) return baseWaitMs;
+        if (body == null || body.isBlank()) return baseWaitMs;
+        String lower = body.toLowerCase();
+        for (String marker : markers) {
+            if (marker == null || marker.isBlank()) continue;
+            if (lower.contains(marker.toLowerCase())) {
+                long extended = Math.max(baseWaitMs, longMs);
+                log.warn("GenericOpenAICompatPool({}): 429 body matched long-block marker=\"{}\" — "
+                                + "block extended to {}ms",
+                        cfg.providerKey(), marker, extended);
+                return extended;
+            }
+        }
+        return baseWaitMs;
     }
 
     /**

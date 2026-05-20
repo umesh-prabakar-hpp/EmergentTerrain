@@ -57,19 +57,22 @@ import java.util.stream.Collectors;
  * <p>Phase 20.11 §migration step 3 (NVIDIA) — gated on
  * {@code app.ai.nvidia.legacy-pool} (default true) so an operator can
  * flip NVIDIA over to a YAML-configured {@link GenericOpenAICompatPool}.
- * Feature-parity status:
+ * Feature-parity now complete:
  * <ul>
  *   <li>Standard 429 block-window — generic pool handles.</li>
- *   <li>Paid-tier 404 detection ({@code "Not found for account"} →
- *       permanent disable) — NOT YET in generic pool. Without this an
- *       operator who lists a paid-only model will burn free-tier
- *       retries indefinitely.</li>
- *   <li>Monthly-credits body classification (24h block vs the default
- *       60s) — NOT YET in generic pool. Without this a credit-exhausted
- *       model gets retried every minute for the rest of the billing
- *       cycle (~525k wasted calls/month per the existing comment).</li>
+ *   <li>Paid-tier 404 detection — supported via
+ *       {@link ProviderConfig#permanent404Markers()}; mirrors
+ *       {@code paidTierModels} permanent-disable on
+ *       {@code "Not found for account"}.</li>
+ *   <li>Monthly-credits body classification — supported via
+ *       {@link ProviderConfig#longBlockBodyMarkers()} +
+ *       {@link ProviderConfig#longBlockMs()}; mirrors
+ *       {@code inferBlockMsFromBody} 24h block on credit / monthly /
+ *       quota-exceeded / usage-limit keywords.</li>
  * </ul>
- * Hold the flip on NVIDIA for the parity follow-up.
+ * The flip is now safe to execute via the standard two-step sequence
+ * (uncomment the {@code app.ai.providers.nvidia:} YAML entry + set
+ * {@code app.ai.nvidia.legacy-pool=false}).
  */
 @Component
 @ConditionalOnExpression(
