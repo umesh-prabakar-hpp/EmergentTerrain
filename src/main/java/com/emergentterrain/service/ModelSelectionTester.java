@@ -93,28 +93,71 @@ public final class ModelSelectionTester {
             java.util.function.BiFunction<String, String, String> syncDispatch,
             java.util.function.Function<String, ToolDispatch> toolDispatch) {
         if (candidates == null || candidates.isEmpty()) return List.of();
-        List<String> passed = new ArrayList<>();
-        for (String modelId : candidates) {
-            SelectionResult r = test(providerKey, modelId,
-                    p -> syncDispatch.apply(modelId, p),
-                    toolDispatch == null ? null : toolDispatch.apply(modelId));
-            if (r.passed()) {
-                passed.add(modelId);
-                if (r.toolMs() != null) {
-                    log.info("{}: selection-test model={} PASSED chat={}ms json={}ms tools={}ms",
-                            providerKey, modelId, r.chatMs(), r.jsonMs(), r.toolMs());
-                } else {
-                    log.info("{}: selection-test model={} PASSED chat={}ms json={}ms",
-                            providerKey, modelId, r.chatMs(), r.jsonMs());
-                }
-            } else {
-                log.warn("{}: selection-test model={} FAILED reason={} — dropping from activeModels",
-                        providerKey, modelId, r.reason());
+
+        // Phase 20.11 fixup — parallelize the per-model probes within this
+        // pool. Each model's three probes still run sequentially (a tool
+        // probe depends on the chat+JSON probes passing), but two models on
+        // the same provider don't have to queue behind each other. Cuts
+        // startup time on multi-model pools from N × slowest to max(model
+        // latencies). The legacy implementation walked candidates serially
+        // — fine for Groq's 2 primary models, painful for NVIDIA's 5 (the
+        // 2026-05-20 08:01 startup spent 107s here serially; the slowest
+        // single model was qwen3-next-80b at 28s, so parallel saves ~75%).
+        //
+        // Virtual threads: one per model, ephemeral, no pool to size. The
+        // pool's own slot semaphore still throttles concurrent HTTP work
+        // (the dispatch lambdas acquire/release inside syncDispatch /
+        // toolDispatch), so the parallelism is bounded by the pool's
+        // declared parallelism rather than going to N-wide on every call.
+        try (var executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()) {
+            List<java.util.concurrent.Future<java.util.Map.Entry<String, SelectionResult>>> futures =
+                    new ArrayList<>(candidates.size());
+            for (String modelId : candidates) {
+                futures.add(executor.submit(() -> java.util.Map.entry(
+                        modelId,
+                        test(providerKey, modelId,
+                                p -> syncDispatch.apply(modelId, p),
+                                toolDispatch == null ? null : toolDispatch.apply(modelId)))));
             }
+            // Preserve input order in the passed list so downstream registry
+            // routing stays deterministic (the registry walks handles in
+            // resolution order on tie-break, and tests assert specific
+            // orderings against the YAML model list).
+            java.util.Map<String, SelectionResult> resultsByModel =
+                    new java.util.LinkedHashMap<>();
+            for (var f : futures) {
+                try {
+                    var entry = f.get();
+                    resultsByModel.put(entry.getKey(), entry.getValue());
+                } catch (Exception e) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(
+                            providerKey + ": selection-test thread failed", e);
+                }
+            }
+
+            List<String> passed = new ArrayList<>();
+            for (String modelId : candidates) {
+                SelectionResult r = resultsByModel.get(modelId);
+                if (r == null) continue;  // defensive; shouldn't happen
+                if (r.passed()) {
+                    passed.add(modelId);
+                    if (r.toolMs() != null) {
+                        log.info("{}: selection-test model={} PASSED chat={}ms json={}ms tools={}ms",
+                                providerKey, modelId, r.chatMs(), r.jsonMs(), r.toolMs());
+                    } else {
+                        log.info("{}: selection-test model={} PASSED chat={}ms json={}ms",
+                                providerKey, modelId, r.chatMs(), r.jsonMs());
+                    }
+                } else {
+                    log.warn("{}: selection-test model={} FAILED reason={} — dropping from activeModels",
+                            providerKey, modelId, r.reason());
+                }
+            }
+            log.info("{}: selection-tests complete passed={}/{} models={}",
+                    providerKey, passed.size(), candidates.size(), passed);
+            return List.copyOf(passed);
         }
-        log.info("{}: selection-tests complete passed={}/{} models={}",
-                providerKey, passed.size(), candidates.size(), passed);
-        return List.copyOf(passed);
     }
 
     /**
