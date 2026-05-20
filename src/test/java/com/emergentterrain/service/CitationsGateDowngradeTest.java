@@ -42,7 +42,7 @@ class CitationsGateDowngradeTest {
     void downgrade_writesHonestPreamble() {
         CitationValidator.CitationValidationResult cv =
                 new CitationValidator.CitationValidationResult(
-                        0, 0, 1,
+                        0, 0, 1, 0,
                         List.of("call_2 result does not contain value 9471 (claimed in findings:1)"));
         NarrationResult downgraded =
                 ResearchNarrationService.downgradeNarrationToNull(buildNarration(), cv);
@@ -58,7 +58,7 @@ class CitationsGateDowngradeTest {
     @Test
     void downgrade_rewritesConclusion() {
         CitationValidator.CitationValidationResult cv =
-                new CitationValidator.CitationValidationResult(0, 0, 1, List.of("issue"));
+                new CitationValidator.CitationValidationResult(0, 0, 1, 0, List.of("issue"));
         NarrationResult downgraded =
                 ResearchNarrationService.downgradeNarrationToNull(buildNarration(), cv);
 
@@ -69,7 +69,7 @@ class CitationsGateDowngradeTest {
     @Test
     void downgrade_preservesHypothesisAndProvenance() {
         CitationValidator.CitationValidationResult cv =
-                new CitationValidator.CitationValidationResult(0, 1, 0, List.of("issue"));
+                new CitationValidator.CitationValidationResult(0, 1, 0, 0, List.of("issue"));
         NarrationResult original = buildNarration();
         NarrationResult downgraded =
                 ResearchNarrationService.downgradeNarrationToNull(original, cv);
@@ -88,7 +88,7 @@ class CitationsGateDowngradeTest {
         // When there are many issues, only the first 3 appear in the preamble
         // (rest are in logs). Keeps the published prose concise.
         CitationValidator.CitationValidationResult cv =
-                new CitationValidator.CitationValidationResult(0, 0, 5, List.of(
+                new CitationValidator.CitationValidationResult(0, 0, 5, 0, List.of(
                         "issue one fabricated 100",
                         "issue two fabricated 200",
                         "issue three fabricated 300",
@@ -107,9 +107,9 @@ class CitationsGateDowngradeTest {
     @Test
     void downgrade_pluralisesCorrectly() {
         CitationValidator.CitationValidationResult single =
-                new CitationValidator.CitationValidationResult(1, 0, 0, List.of("x"));
+                new CitationValidator.CitationValidationResult(1, 0, 0, 0, List.of("x"));
         CitationValidator.CitationValidationResult multi =
-                new CitationValidator.CitationValidationResult(0, 2, 1, List.of("x", "y", "z"));
+                new CitationValidator.CitationValidationResult(0, 2, 1, 0, List.of("x", "y", "z"));
 
         NarrationResult dSingle = ResearchNarrationService.downgradeNarrationToNull(
                 buildNarration(), single);

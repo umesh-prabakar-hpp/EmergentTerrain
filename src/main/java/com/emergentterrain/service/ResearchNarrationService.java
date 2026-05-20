@@ -977,7 +977,7 @@ public class ResearchNarrationService {
                 // drops the paper via the same return-null pattern as the
                 // Phase 10 all_tools_failed→suppressed gate.
                 NarrationResult gated = applyCitationsGate(
-                        revisedResult, profTrace, callPath, draft.paperId());
+                        revisedResult, profTrace, callPath, draft);
                 if (gated == null) {
                     log.warn("LLM citation gate: paperId={} suppressed by citations-as-schema",
                             draft.paperId());
@@ -1118,12 +1118,23 @@ public class ResearchNarrationService {
     private NarrationResult applyCitationsGate(NarrationResult narration,
                                                 java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
                                                 List<String> callPath,
-                                                String paperId) {
+                                                com.emergentterrain.research.PaperDraft draft) {
         if (citationValidator == null) return narration;
         if (trace == null || trace.isEmpty()) return narration;
+        String paperId = draft == null ? null : draft.paperId();
+        // Phase 21 §21.6 — sweep-param whitelist: PaperDraft.param1 and
+        // param2 are the formulation-step's pre-registered sweep
+        // coordinates. They land in the hypothesis prose verbatim ("starting
+        // position of 17, scale of 7.4") via the prompt templates, so the
+        // validator's substring-match-on-tool-output check was demoting
+        // numerically-correct papers (3 of 5 in research/a3289005 refresh
+        // #3) on a property the system never guaranteed. Exempting both
+        // from the uncited check while leaving the trace-conformance checks
+        // unchanged is the targeted fix.
+        java.util.Set<Double> sweepWhitelist = sweepWhitelistFor(draft);
         com.emergentterrain.research.CitationValidator.CitationValidationResult cv;
         try {
-            cv = citationValidator.validate(narration, trace);
+            cv = citationValidator.validate(narration, trace, sweepWhitelist);
         } catch (RuntimeException ex) {
             // Defensive — the validator must never break the pipeline. If a
             // regex or numeric parse blows up, stamp it and continue.
@@ -1134,14 +1145,25 @@ public class ResearchNarrationService {
         }
 
         if (!cv.hasFailures()) {
-            callPath.add("citations:ok");
-            log.debug("CitationValidator: paperId={} clean", paperId);
+            // Phase 21 §21.6 — when the clean path was reached only because
+            // sweep params were exempted, surface the exemption count so
+            // refresh audits can distinguish "really clean" from "clean
+            // thanks to the whitelist".
+            callPath.add(cv.exemptSweepCount() > 0
+                    ? "citations:ok:exempt_sweep=" + cv.exemptSweepCount()
+                    : "citations:ok");
+            log.debug("CitationValidator: paperId={} clean exempt_sweep={}",
+                    paperId, cv.exemptSweepCount());
             return narration;
         }
 
         String summary = "citations:uncited=" + cv.uncitedCount()
                 + ":unmatched=" + cv.unmatchedClaimCount()
-                + ":out_of_tolerance=" + cv.outOfToleranceCount();
+                + ":out_of_tolerance=" + cv.outOfToleranceCount()
+                // Phase 21 §21.6 — published alongside the failure counts so
+                // operators can see how many would-be-uncited values were
+                // exempted by the sweep-param whitelist on the same paper.
+                + ":exempt_sweep=" + cv.exemptSweepCount();
         boolean traceMismatch = cv.unmatchedClaimCount() > 0 || cv.outOfToleranceCount() > 0;
         boolean uncitedHeavy  = cv.uncitedCount() >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD;
         String mode = citationsAsSchemaMode == null ? "warn" : citationsAsSchemaMode.toLowerCase();
@@ -1180,6 +1202,25 @@ public class ResearchNarrationService {
                 return narration;
             }
         }
+    }
+
+    /**
+     * Phase 21 §21.6 — build the sweep-parameter whitelist fed to
+     * {@link com.emergentterrain.research.CitationValidator#validate(NarrationResult,
+     * java.util.List, java.util.Set)}. Returns an empty set when the draft
+     * is null or its params are unset (legacy / first-pass-only paths) so
+     * the validator behaviour stays bit-identical to pre-21.6.
+     *
+     * <p>Both values are wrapped to {@code double} so the validator's
+     * tolerance comparison works regardless of whether {@code param1} was
+     * an int and {@code param2} a double on the draft.
+     */
+    static java.util.Set<Double> sweepWhitelistFor(com.emergentterrain.research.PaperDraft draft) {
+        if (draft == null) return java.util.Set.of();
+        java.util.Set<Double> out = new java.util.HashSet<>();
+        if (draft.param1() != null) out.add(draft.param1().doubleValue());
+        if (draft.param2() != null) out.add(draft.param2());
+        return out;
     }
 
     /**

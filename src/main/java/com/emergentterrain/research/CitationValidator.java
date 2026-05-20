@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -96,6 +97,7 @@ public class CitationValidator {
             int uncitedCount,
             int unmatchedClaimCount,
             int outOfToleranceCount,
+            int exemptSweepCount,
             List<String> issues) {
 
         public boolean hasFailures() {
@@ -107,17 +109,36 @@ public class CitationValidator {
         }
 
         public static CitationValidationResult clean() {
-            return new CitationValidationResult(0, 0, 0, List.of());
+            return new CitationValidationResult(0, 0, 0, 0, List.of());
         }
     }
 
     /**
      * Validate a narration against its tool-call trace. Pre-Phase-11 traces
      * (callId == null on every entry) short-circuit to a clean result.
+     *
+     * <p>Back-compat overload: passes an empty sweep-parameter whitelist so
+     * legacy callers behave identically to pre-Phase-21 §21.6.
      */
     public CitationValidationResult validate(
             NarrationResult narration,
             List<ToolInvocation> trace) {
+        return validate(narration, trace, Set.of());
+    }
+
+    /**
+     * Validate with an upstream-supplied sweep-parameter whitelist (Phase 21
+     * §21.6). Numeric values in the hypothesis / findings / conclusion that
+     * appear in {@code sweepParamWhitelist} are exempt from the "must have a
+     * {@code [call_N]} marker" check — those values come from the
+     * formulation step's pre-registered sweep params (e.g. PaperDraft's
+     * {@code param1} / {@code param2}) and do not need to trace back to a
+     * tool-call output. Counted into {@code exemptSweepCount} on the result.
+     */
+    public CitationValidationResult validate(
+            NarrationResult narration,
+            List<ToolInvocation> trace,
+            Set<Double> sweepParamWhitelist) {
         if (narration == null) return CitationValidationResult.clean();
         if (trace == null || trace.isEmpty()) {
             // No tool calls happened (first-pass-only paper). The validator
@@ -139,6 +160,8 @@ public class CitationValidator {
         int uncited = 0;
         int unmatched = 0;
         int outOfTolerance = 0;
+        int exemptSweep = 0;
+        Set<Double> whitelist = sweepParamWhitelist == null ? Set.of() : sweepParamWhitelist;
 
         // Collect (number, sourceLocation, citedCallId) tuples from every prose block.
         List<ProseNumber> proseNumbers = new ArrayList<>();
@@ -150,19 +173,29 @@ public class CitationValidator {
         }
         proseNumbers.addAll(extractNumbers(narration.conclusion(), "conclusion"));
 
-        // Check 1 — citation completeness.
+        // Check 1 — citation completeness. Phase 21 §21.6 — sweep params
+        // exempted: PaperDraft.param1 / param2 routed through the hypothesis
+        // template don't have a [call_N] marker because they predate the
+        // tool-call chain; counted into exemptSweepCount instead.
         for (ProseNumber pn : proseNumbers) {
             if (pn.citedCallId == null) {
+                if (isWhitelisted(pn.value, whitelist)) {
+                    exemptSweep++;
+                    continue;
+                }
                 uncited++;
                 issues.add(String.format("uncited number %s in %s", pn.text, pn.sourceLocation));
             }
         }
 
-        // Check 2 — claim coverage.
+        // Check 2 — claim coverage. Whitelisted sweep params are skipped
+        // here too (an exempted value isn't expected to have a matching
+        // NumericClaim entry — that's the whole point of the exemption).
         List<NarrationResult.NumericClaim> claims = narration.numericClaims() == null
                 ? Collections.emptyList() : narration.numericClaims();
         for (ProseNumber pn : proseNumbers) {
-            if (pn.citedCallId == null) continue;  // already counted as uncited
+            if (pn.citedCallId == null) continue;  // already counted as uncited / exempt
+            if (isWhitelisted(pn.value, whitelist)) continue;
             boolean covered = claims.stream()
                     .anyMatch(c -> withinTolerance(pn.value, c.value()));
             if (!covered) {
@@ -197,12 +230,28 @@ public class CitationValidator {
             }
         }
 
-        if (!issues.isEmpty()) {
-            log.debug("CitationValidator: uncited={} unmatched={} out_of_tolerance={} issues={}",
-                    uncited, unmatched, outOfTolerance, issues);
+        if (!issues.isEmpty() || exemptSweep > 0) {
+            log.debug("CitationValidator: uncited={} unmatched={} out_of_tolerance={} "
+                            + "exempt_sweep={} issues={}",
+                    uncited, unmatched, outOfTolerance, exemptSweep, issues);
         }
         return new CitationValidationResult(uncited, unmatched, outOfTolerance,
-                List.copyOf(issues));
+                exemptSweep, List.copyOf(issues));
+    }
+
+    /**
+     * Is a prose-extracted number within tolerance of any whitelisted sweep
+     * parameter? Uses the same {@link #withinTolerance} relation as the
+     * trace-conformance check so e.g. param1=17 in prose matches a whitelist
+     * entry of 17.0 even when one side is an int and the other a double.
+     */
+    private static boolean isWhitelisted(double value, Set<Double> whitelist) {
+        if (whitelist == null || whitelist.isEmpty()) return false;
+        for (Double w : whitelist) {
+            if (w == null) continue;
+            if (withinTolerance(value, w)) return true;
+        }
+        return false;
     }
 
     // ────────────────── helpers ──────────────────

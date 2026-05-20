@@ -306,6 +306,11 @@ tests still pass.
 
 ### 21.6 — Citation validator: whitelist sweep parameters from substring match
 
+**Status (2026-05-19):** **landed**. Whitelist parameter, telemetry, and
+the back-compat overload all ship together; see "Implementation notes"
+at the end of this section.
+
+
 **The signal:** 5/5 papers in `research/a3289005/` triggered
 `CitationValidator: ... mode=downgrade citations:uncited=N` — and 3 of
 those 5 had numerically *correct* underlying computations (P-a328-686
@@ -338,6 +343,54 @@ the system never guaranteed.
 **Acceptance:** P-a328-686 (math-correct, REJECTED on citation gap)
 graduates to NULL_RESULT or PUBLISHED on replay; corpus-level
 `numerical-consistency` WARN drops by at least 50%.
+
+**Implementation notes (2026-05-19):**
+
+- *Validator change.* `CitationValidator.validate` grows a three-arg
+  overload that accepts `Set<Double> sweepParamWhitelist`. Old two-arg
+  signature kept as a back-compat shim that delegates with `Set.of()`,
+  so the existing 12+ unit tests and any non-narration callers stay
+  bit-identical. New `isWhitelisted(value, set)` helper compares with
+  the same `withinTolerance` relation as the trace-conformance check —
+  PaperDraft `param1=17` (int) matches a whitelist `17.0` (double)
+  without an int/double mismatch.
+- *Result record.* Added `int exemptSweepCount` as the fourth
+  component of `CitationValidationResult`. `clean()` returns 0;
+  `hasFailures()` ignores it (exemptions are not failures, just
+  bookkeeping). All test-side constructor calls in
+  `CitationsGateDowngradeTest` updated to the 5-arg form.
+- *Whitelist source.* `ResearchNarrationService.sweepWhitelistFor(draft)`
+  returns `{ draft.param1().doubleValue(), draft.param2() }` minus
+  any nulls. Null draft / null params → empty set (legacy path
+  preserved). The exempt set is exactly the two sweep coordinates the
+  formulation step pre-registered; not range_start / range_end /
+  starting_position / scale as the doc originally listed — those
+  names are tool-call inputs (MathToolSuite) and DO appear in tool
+  outputs, so the validator already finds them via the existing
+  substring path.
+- *Telemetry.* `applyCitationsGate` now stamps
+  `citations:ok:exempt_sweep=K` (when the gate passes only because of
+  exemptions) or appends `:exempt_sweep=K` to the existing
+  `citations:uncited=…:unmatched=…:out_of_tolerance=…` summary. The
+  exempt count is visible alongside the failure counts so a refresh
+  audit can compute the before/after lift.
+- *Signature change.* The private `applyCitationsGate` now takes the
+  whole `PaperDraft` instead of just the `paperId` string — the
+  one call site already had `draft` in scope, so the rewrite was a
+  single-line edit at the call.
+- *Tests added.* Four new tests in `CitationValidatorTest` cover:
+  whitelisted hypothesis number → exempt (not uncited); unrelated
+  numbers in same paper → still uncited; empty whitelist behaves
+  identically to the two-arg overload; int/double float-widening
+  tolerance.
+
+**What this section does NOT solve:** the four sweep-param names the
+doc lists (`range_start`, `range_end`, `starting_position`, `scale`)
+are not all in the PaperDraft surface; only `param1` (≈
+starting_position) and `param2` (≈ scale) are. If a future tool surface
+adds an independent sweep coordinate that lands in hypothesis prose
+without going through PaperDraft, the whitelist will miss it; revisit
+`sweepWhitelistFor` to expand the source set then.
 
 
 ### 21.7 — Peer-score premise-validity axis (DEFERRED)

@@ -291,4 +291,76 @@ class CitationValidatorTest {
         assertThat(result.outOfToleranceCount()).isEqualTo(1);
         assertThat(result.issues()).anyMatch(s -> s.contains("9471"));
     }
+
+    // ────────────────── Phase 21 §21.6: sweep-param whitelist ──────────────────
+
+    @Test
+    void sweepParamWhitelist_exemptsUncitedHypothesisNumber() {
+        // Hypothesis cites "starting position of 17" and "scale of 7.4" — both
+        // are PaperDraft sweep params, neither has a [call_N] marker, yet the
+        // tool call DID run on those params. Pre-21.6 these counted as uncited;
+        // with the whitelist they are exempt.
+        NarrationResult n = narration(
+                "Hypothesis: starting position of 17, scale of 7.4, expected T=792 K [call_1].",
+                Map.of(1, "Found T=792 K [call_1]."),
+                "Confirmed [call_1].",
+                List.of(claim(792, "call_1", "findings:1")));
+        List<ToolInvocation> trace = List.of(call("call_1", "T=792"));
+        var result = validator.validate(n, trace, java.util.Set.of(17.0, 7.4));
+        assertThat(result.uncitedCount()).isZero();
+        assertThat(result.exemptSweepCount()).isEqualTo(2);
+        assertThat(result.hasFailures()).isFalse();
+    }
+
+    @Test
+    void sweepParamWhitelist_doesNotExemptUnrelatedUncitedNumber() {
+        // 9471 K is NOT in the whitelist — must still flag as uncited.
+        NarrationResult n = narration(
+                "Hypothesis: starting position of 17, scale of 7.4 [call_1].",
+                Map.of(1, "Result extended to 9471 K, beyond the swept range."),
+                "c",
+                List.of());
+        var result = validator.validate(n, List.of(call("call_1", "T=2300..6100")),
+                java.util.Set.of(17.0, 7.4));
+        assertThat(result.uncitedCount()).isEqualTo(1);
+        assertThat(result.exemptSweepCount()).isEqualTo(2);
+        assertThat(result.issues()).anyMatch(s -> s.contains("9471"));
+        // The exempted values do NOT show up in issues — they're silent.
+        assertThat(result.issues()).noneMatch(s -> s.contains(" 17 "));
+        assertThat(result.issues()).noneMatch(s -> s.contains("7.4"));
+    }
+
+    @Test
+    void sweepParamWhitelist_emptySetBehaviorMatchesPre21_6() {
+        // Same paper with no whitelist → both sweep params flagged uncited
+        // (regression check that the new code-path is opt-in).
+        NarrationResult n = narration(
+                "Hypothesis: starting position of 17, scale of 7.4 [call_1].",
+                Map.of(1, "Result T=792 K [call_1]."),
+                "c",
+                List.of(claim(792, "call_1", "findings:1")));
+        var resultEmpty = validator.validate(n, List.of(call("call_1", "T=792")), java.util.Set.of());
+        // With no whitelist: 17 and 7.4 in the hypothesis are uncited.
+        assertThat(resultEmpty.uncitedCount()).isEqualTo(2);
+        assertThat(resultEmpty.exemptSweepCount()).isZero();
+        // Two-arg overload behaves identically to empty-set three-arg.
+        var resultBackCompat = validator.validate(n, List.of(call("call_1", "T=792")));
+        assertThat(resultBackCompat.uncitedCount()).isEqualTo(resultEmpty.uncitedCount());
+        assertThat(resultBackCompat.exemptSweepCount()).isZero();
+    }
+
+    @Test
+    void sweepParamWhitelist_tolerantToFloatingPointWidening() {
+        // PaperDraft.param1 = int 17 → whitelist holds 17.0; prose has "17"
+        // (parsed by validator as 17.0). withinTolerance(17.0, 17.0) must pass.
+        NarrationResult n = narration(
+                "starting position of 17, scale of 7.4",
+                Map.of(1, "ok [call_1]"),
+                "c",
+                List.of());
+        var result = validator.validate(n, List.of(call("call_1", "ok")),
+                java.util.Set.of(17.0, 7.4));
+        assertThat(result.exemptSweepCount()).isEqualTo(2);
+        assertThat(result.uncitedCount()).isZero();
+    }
 }
