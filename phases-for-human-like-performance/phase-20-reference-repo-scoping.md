@@ -679,6 +679,20 @@ The NVIDIA flip is now safe to execute via the standard two-step
 sequence (uncomment YAML + set `app.ai.nvidia.legacy-pool=false`),
 followed by two-week burn-in.
 
+**Status (NVIDIA FLIPPED, 2026-05-20):** `app.ai.nvidia.legacy-pool`
+is now `false`. The `app.ai.providers.nvidia:` entry is live with
+all three NVIDIA-specific parity markers
+(`permanent-404-markers`, `long-block-body-markers`, `long-block-ms`).
+Three of the four migratable pools (Cerebras / OpenRouter / NVIDIA)
+are now on the generic pool; Groq is the only legacy class left to
+scaffold. On the operator's next restart the startup log should show:
+```
+GenericPoolsRegistrar(cerebras): registered bean=openAiCompatPool_cerebras …
+GenericPoolsRegistrar(openrouter): registered bean=openAiCompatPool_openrouter …
+GenericPoolsRegistrar(nvidia): registered bean=openAiCompatPool_nvidia …
+```
+and none of `CerebrasPool: …` / `OpenRouterPool: …` / `NvidiaPool: …`.
+
 ### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
 
 Pre-recorded fire-when-ready checklist. After the operator has run the

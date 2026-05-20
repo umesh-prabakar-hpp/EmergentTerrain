@@ -201,6 +201,14 @@ app:
       # 5 confirmed working free 70B+ models with tools per 2026-05-13 tests.
       # Excluded paid-tier-only models: nvidia/nemotron-4-340b-instruct, nvidia/llama-3.1-nemotron-70b-instruct
       preferredModels: "meta/llama-3.3-70b-instruct,openai/gpt-oss-120b,nvidia/nemotron-3-super-120b-a12b,qwen/qwen3-next-80b-a3b-instruct,qwen/qwen3-coder-480b-a35b-instruct"
+      # Phase 20.11 §migration step 3 flipped (2026-05-20) — the legacy
+      # hand-written NvidiaPool bean is now disabled; the generic-pool
+      # entry under app.ai.providers.nvidia: takes over. Parity for both
+      # NVIDIA-specific quirks (paid-tier 404 → permanent-disable;
+      # monthly-credits 429 → 24h block) verified in commit c7ec03a.
+      # This block stays as legacy contract documentation until step 2b
+      # deletes NvidiaPool.java.
+      legacy-pool: false
     cerebras:
       enabled: true
       apiKey: ${CEREBRAS_API_KEY:csk-denhmj335dh2ete5vdcv5n96w9p92hdpvt42f9ynw6yynkpk}
@@ -354,32 +362,28 @@ app:
           HTTP-Referer: https://github.com/umesh-prabakar-hpp/EmergentTerrain
           X-Title: EmergentTerrain
         excluded-backends: [Venice]    # match app.ai.openrouter.excludedBackends
-    # Phase 20.11 §migration step 3 — NVIDIA scaffolding (NOT YET FLIPPED).
-    # Generic-pool entry below is commented out; the legacy NvidiaPool
-    # bean remains active. Parity for the two NVIDIA-specific quirks
-    # landed 2026-05-20:
-    #   - paid-tier 404 → permanent-disable via permanent-404-markers
-    #     (mirrors NvidiaPool.paidTierModels).
-    #   - monthly-credits 429 → 24h block via long-block-body-markers +
-    #     long-block-ms (mirrors NvidiaPool.inferBlockMsFromBody).
-    # Two-step flip when ready: uncomment the block below and set
-    # app.ai.nvidia.legacy-pool: false (on the legacy block above).
-    #   nvidia:
-    #     base-url: https://integrate.api.nvidia.com/v1
-    #     api-key-env: NVIDIA_API_KEY
-    #     api-key: ${app.ai.nvidia.apiKey}
-    #     models:
-    #       - meta/llama-3.3-70b-instruct
-    #       - openai/gpt-oss-120b
-    #       - nvidia/nemotron-3-super-120b-a12b
-    #       - qwen/qwen3-next-80b-a3b-instruct
-    #       - qwen/qwen3-coder-480b-a35b-instruct
-    #     supports-tools: true
-    #     context-window: 32000
-    #     parallelism: 3      # matches app.ai.nvidia.parallelism default
-    #     permanent-404-markers: ["Not found for account"]
-    #     long-block-body-markers: [credit, monthly, "quota exceeded", "usage limit"]
-    #     long-block-ms: 86400000   # 24h — wait for next billing cycle
+    # Phase 20.11 §migration step 3 NVIDIA — FLIPPED 2026-05-20.
+    # Parity markers below mirror NvidiaPool.handleErrorResponse +
+    # inferBlockMsFromBody one-for-one (commit c7ec03a). The legacy
+    # NvidiaPool bean is disabled via app.ai.nvidia.legacy-pool=false
+    # above. Two-week burn-in window opens at first restart; step 2b
+    # deletes NvidiaPool.java when burn-in confirms no regressions.
+      nvidia:
+        base-url: https://integrate.api.nvidia.com/v1
+        api-key-env: NVIDIA_API_KEY
+        api-key: ${app.ai.nvidia.apiKey}
+        models:
+          - meta/llama-3.3-70b-instruct
+          - openai/gpt-oss-120b
+          - nvidia/nemotron-3-super-120b-a12b
+          - qwen/qwen3-next-80b-a3b-instruct
+          - qwen/qwen3-coder-480b-a35b-instruct
+        supports-tools: true
+        context-window: 32000
+        parallelism: 3      # matches app.ai.nvidia.parallelism default
+        permanent-404-markers: ["Not found for account"]
+        long-block-body-markers: [credit, monthly, "quota exceeded", "usage limit"]
+        long-block-ms: 86400000   # 24h — wait for next billing cycle
     # Phase 9 U5 — startup selection tests for every configured model on every
     # pool (primary + fast). Three probes per tool-capable model: chat ("reply
     # with OK"), JSON-mode ("return JSON with name=Euler, value=2.71828,
