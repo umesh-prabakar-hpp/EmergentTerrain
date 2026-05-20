@@ -3,7 +3,9 @@ package com.emergentterrain.service;
 import com.emergentterrain.government.GovernmentState;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -119,7 +121,8 @@ public class PolicyConsultationService {
                     return;
                 }
                 try {
-                    PolicyResponse response = objectMapper.readValue(json, PolicyResponse.class);
+                    String normalized = normalizeStringFields(json);
+                    PolicyResponse response = objectMapper.readValue(normalized, PolicyResponse.class);
                     pendingResults.put(roomId, new PendingResult(response, snapshotTick));
                     lastConsultation.put(roomId, new ConsultationRecord(
                             Instant.now(), response.summary(), response.outlook(),
@@ -278,5 +281,40 @@ public class PolicyConsultationService {
             return s.substring(start, end + 1);
         }
         return null;
+    }
+
+    /**
+     * Coerce object-valued {@code summary} / {@code outlook} fields to strings
+     * before binding. The fast-tier LLM occasionally returns
+     * {@code "summary": {"nested": "object"}} instead of a plain string —
+     * Jackson's default deserializer then throws "Cannot deserialize value of
+     * type `java.lang.String` from Object value" and the consultation result
+     * is dropped. Stringifying the object form (compact JSON) preserves the
+     * information while satisfying the {@link PolicyResponse} contract; the
+     * downstream consumers all use {@code summary} as opaque display text so
+     * a JSON-shaped string is just longer prose, not a semantic break.
+     * Returns the JSON unchanged when both fields are already strings.
+     */
+    String normalizeStringFields(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (!root.isObject()) return json;
+            ObjectNode obj = (ObjectNode) root;
+            boolean changed = coerceToStringField(obj, "summary")
+                    | coerceToStringField(obj, "outlook");
+            return changed ? objectMapper.writeValueAsString(obj) : json;
+        } catch (JsonProcessingException e) {
+            // Couldn't parse — let the caller's readValue surface the real error.
+            return json;
+        }
+    }
+
+    private boolean coerceToStringField(ObjectNode obj, String field) {
+        JsonNode node = obj.get(field);
+        if (node == null || node.isNull() || node.isTextual()) return false;
+        // Compact JSON form for objects/arrays; .asText() handles numbers/booleans.
+        String coerced = node.isContainerNode() ? node.toString() : node.asText();
+        obj.put(field, coerced);
+        return true;
     }
 }
