@@ -1,0 +1,28 @@
+name = "JuliaMathSidecar"
+uuid = "9e8a4c00-3f2d-4f1f-9a3a-7c1d8e6f2b00"
+authors = ["EmergentTerrain operator"]
+version = "0.1.0"
+
+# Julia 1.10+ — picked because it's the current LTS line and PackageCompiler
+# sysimage support is stable. Bump when 1.12 LTS lands.
+[compat]
+julia = "1.10"
+
+# Runtime dependencies. Kept minimal for 22.1 bootstrap — SymPy.jl is
+# deliberately deferred per phase-22 §22.1 "ship without SymPy.jl initially;
+# add only if corpus shows ≥5 papers failing on integrals Symbolics.jl can't
+# crack."
+[deps]
+HTTP   = "cd3eb016-35fb-5094-929b-558a96fad6f3"  # HTTP server + client
+JSON3  = "0f8b85d8-7281-11e9-16c2-39a750bddbf1"  # JSON serialization (faster than JSON.jl)
+Symbolics  = "0c5d862f-8b57-4792-8d23-62f2024744c7"  # symbolic algebra
+SymbolicUtils = "d1185830-fcd6-423d-90d6-eec64667417b"  # used transitively
+Roots  = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"  # numeric root finding
+QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"  # adaptive numerical integration
+Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"  # stdlib
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

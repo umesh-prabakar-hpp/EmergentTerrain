@@ -1,0 +1,87 @@
+# =====================================================================
+# julia-math-sidecar.service — systemd unit for production deployment
+# =====================================================================
+#
+# Install:
+#   sudo cp julia-math-sidecar.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now julia-math-sidecar
+#
+# Logs:
+#   journalctl -u julia-math-sidecar -f
+#
+# This unit assumes:
+#   - Sidecar repo is at /usr/local/julia-math-sidecar (override
+#     WorkingDirectory + ExecStart below if you install elsewhere)
+#   - A service user `julia-math` exists (create with
+#     `sudo useradd -r -s /usr/sbin/nologin julia-math`)
+#
+# The hardening directives below treat the sidecar as untrusted code —
+# even though we ship the safety filter, defense in depth assumes the
+# filter has gaps and constrains what a hypothetical bypass could do.
+# =====================================================================
+
+[Unit]
+Description=Julia math evaluation sidecar (HTTP JSON API)
+Documentation=file:///usr/local/julia-math-sidecar/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=julia-math
+Group=julia-math
+WorkingDirectory=/usr/local/julia-math-sidecar
+ExecStart=/usr/local/julia-math-sidecar/scripts/start.sh
+Restart=on-failure
+RestartSec=5
+
+# Logging — stdout/stderr go to the systemd journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=julia-math-sidecar
+
+# Resource limits. Tune to your fleet — 512M is generous for the
+# default 0.1 surface; bump if you precompile a sysimage or add SymPy.jl.
+MemoryMax=512M
+MemoryHigh=384M
+CPUQuota=200%
+TasksMax=64
+
+# Filesystem hardening.
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=/usr/local/julia-math-sidecar
+# Julia caches precompiled packages under JULIA_DEPOT_PATH. We pin it
+# to a writable cache directory so the rest of the FS stays read-only.
+Environment="JULIA_DEPOT_PATH=/var/cache/julia-math-sidecar/depot"
+ReadWritePaths=/var/cache/julia-math-sidecar
+PrivateTmp=true
+
+# Process / privilege hardening.
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+
+# Network — sidecar binds 127.0.0.1 only. Block IPv6 + raw sockets.
+# If you want to allow IPv6, add AF_INET6.
+RestrictAddressFamilies=AF_UNIX AF_INET
+# Don't sandbox the network — we need to listen on localhost. If you
+# move egress filtering to nftables, set PrivateNetwork=true and
+# expose only the listening socket via socket activation.
+IPAddressDeny=any
+IPAddressAllow=localhost
+
+[Install]
+WantedBy=multi-user.target

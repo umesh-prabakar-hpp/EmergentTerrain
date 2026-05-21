@@ -1,0 +1,79 @@
+# =====================================================================
+# server.jl — HTTP server + route table
+# =====================================================================
+#
+# Thin wrapper over HTTP.jl's router. The router dispatches incoming
+# requests to one of the `handle_*` functions in `handlers.jl`.
+#
+# Why HTTP.jl
+# -----------
+# HTTP.jl is Julia's de facto HTTP library — mature, JSON-friendly,
+# supports HTTP/1.1, and the same package can serve and consume. No
+# external runtime dependencies (no nginx, no envoy) — just `julia`.
+#
+# Threading model
+# ---------------
+# HTTP.jl serves each connection on a separate task. The `Threads.@spawn`
+# inside `timed_evaluate` is a *different* task from the connection
+# task — long-running math doesn't block other incoming requests. For
+# CPU-bound parallelism, start Julia with `JULIA_NUM_THREADS=N`.
+# =====================================================================
+
+using HTTP
+using Logging
+
+# Build the route table. Each route binds a method+path pair to one
+# of the handlers defined in handlers.jl.
+function build_router()
+    router = HTTP.Router()
+    # Liveness / readiness.
+    HTTP.register!(router, "GET",  "/healthz",  handle_healthz)
+    # Metrics surface — call counts + latency per endpoint.
+    HTTP.register!(router, "GET",  "/metrics",  handle_metrics)
+    # Core evaluation endpoints.
+    HTTP.register!(router, "POST", "/eval",      handle_eval)
+    HTTP.register!(router, "POST", "/solve",     handle_solve)
+    HTTP.register!(router, "POST", "/nsolve",    handle_nsolve)
+    HTTP.register!(router, "POST", "/integrate", handle_integrate)
+    HTTP.register!(router, "POST", "/sweep",     handle_sweep)
+    return router
+end
+
+"""
+    start_server!(; host="127.0.0.1", port=8088)
+
+Block the calling task and serve HTTP requests until SIGINT/SIGTERM.
+
+Defaults to 127.0.0.1 — the sidecar should never expose itself on a
+public interface. Production deployment binds to a Unix socket or
+keeps it localhost-only behind a reverse proxy.
+
+JIT warmup: the first request to each shape (e.g. the first `/eval`,
+the first `/solve`) takes 200ms-2s while Julia compiles the call path.
+Subsequent calls are sub-millisecond. Run `scripts/warmup.jl` against
+a freshly-started server if you want to pre-warm common paths before
+real traffic hits.
+"""
+function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
+    init_metrics!()
+    router = build_router()
+    @info "julia-math-sidecar starting" host port julia_version=string(VERSION)
+    # `server=` is the listener — assigning to a local lets us close
+    # cleanly on signal. `HTTP.serve!` (note the bang) is the
+    # non-blocking form that returns the server immediately; we then
+    # `wait(server)` so the script blocks until the server exits.
+    server = HTTP.serve!(router, host, port)
+    try
+        # Block until the listener task exits (SIGINT or explicit close).
+        wait(server)
+    catch e
+        if e isa InterruptException
+            @info "received SIGINT, shutting down"
+        else
+            rethrow()
+        end
+    finally
+        close(server)
+    end
+    return nothing
+end
