@@ -97,13 +97,19 @@ public class ResearchPaper {
     /**
      * Phase 23.6 — epistemic claim level. Defaults to {@link EvidenceLabel#CONJECTURE}
      * so a paper has to earn anything stronger (mechanism + adversarial check for
-     * EMPIRICAL_RESULT; formal proof for THEOREM). Existing rows persisted before
-     * this column was added will get CONJECTURE via Hibernate's
-     * field-initializer-on-add behavior; legacy NULLs (if any survive the
-     * migration) are coerced to CONJECTURE by {@link #setEvidenceLabel}.
+     * EMPIRICAL_RESULT; formal proof for THEOREM). The {@code columnDefinition}
+     * carries a Postgres-level {@code DEFAULT 'CONJECTURE'} so Hibernate's
+     * {@code ddl-auto: update} emits {@code ALTER TABLE ... ADD COLUMN
+     * evidence_label varchar(32) NOT NULL DEFAULT 'CONJECTURE'} on first
+     * start against an existing table — existing rows backfill atomically
+     * (matches the {@code dispute_attempts} migration pattern from Phase 21.2,
+     * and avoids the manual-ALTER hack that the {@code narration_input_tokens}
+     * columns needed). Legacy NULLs (if any survive the migration) are
+     * coerced to CONJECTURE by {@link #setEvidenceLabel}.
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "evidence_label", nullable = false, length = 32)
+    @Column(name = "evidence_label", nullable = false, length = 32,
+            columnDefinition = "varchar(32) not null default 'CONJECTURE'")
     private EvidenceLabel evidenceLabel = EvidenceLabel.CONJECTURE;
 
     /**
