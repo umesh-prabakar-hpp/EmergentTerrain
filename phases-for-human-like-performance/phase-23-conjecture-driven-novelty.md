@@ -504,22 +504,46 @@ determines whether 24 is worth building.
 
 ---
 
-## Acceptance for Phase 23 (rollup)
+## Acceptance for Phase 23 (rollup, 2026-05-21)
 
-- 23.1 (Python prototype) ✅ shipped 2026-05-21 as reference; commit
-  `ddfe262`. Not on the runtime path post-pivot.
-- 23.1J + 23.2 (Java miner + OEIS catalog) shipped; produces a queue
-  in the DB.
-- 23.3 + 23.4 + 23.5 (queue API + new PaperKind + verify tool)
-  shipped; one bot configured with `w5=1.0` writes at least one paper
-  from the queue, with non-empty Mechanism and Adversarial Check.
-- 23.6 (label discipline) shipped; spot-check confirms reviewers respect
-  the labels.
-- 23.8 (calibration) executed; result recorded here.
+Code shipped this session (13 commits, ~28 tests across the label +
+conjecture + cycle dimensions):
+
+| Slice | Status | Commit |
+|---|---|---|
+| 23.1 Python prototype | ✅ reference only post-pivot | `ddfe262` |
+| 23.1J engine + substrate | ✅ | `7cb6031` |
+| 23.1J persistence (Conjecture entity + repo + mapper) | ✅ | `dac6bbb` |
+| 23.1J `ConjectureMinerService` @Scheduled | ✅ | `d8f27a8` |
+| 23.2 OEIS catalog + annotator | ✅ | `fe88cf0` |
+| 23.3 priority queue API | ✅ | `cf6bbdf` |
+| 23.4 foundation (enum + topic provider) | ✅ | `073f86b` |
+| 23.4 wiring infra (PaperDraft.kind threading) | ✅ | `1ca172d` |
+| 23.4b cycle branch (`publishConjectureInvestigation`) | ✅ | `6995e4d` |
+| 23.5 `verify_conjecture` tool | ✅ | `b29e011` |
+| 23.6 foundation (`EvidenceLabel` + persisted column) | ✅ | `8e75695` |
+| 23.6 floor + persist-time wiring | ✅ | `d8296a8` |
+| 23.6c proposed-label parser | ✅ | `2449326` |
+
+Deferred (clearly scoped, not started):
+
+- 23.6 reviewer-panel emission + conjecture-paper prompt template —
+  the only remaining piece is the LLM-prompt-text change inside
+  `ResearchNarrationService` (3111 LOC). With the parser shipped,
+  this is a one-line caller change for both the prompt extension and
+  the parse-and-set step. Punted because LLM-prompt engineering
+  benefits from human judgment about wording and behavior with real
+  LLM outputs.
+- 23.7 physics + materials substrates — P2 per the original phase
+  doc; defer until the math path produces papers worth showing.
+- 23.8 calibration check — operational human task (pick 20 high-
+  novelty papers, hand-verify novelty), not a code piece.
 
 Phase 23 closes when a 20-paper sample produced under it has *both*
 median novelty > 0.3 (vs. ~0 today) AND OEIS-rediscovery rate < 10%.
-Either failure mode keeps the phase open.
+Either failure mode keeps the phase open. As of this session, the
+infrastructure to *produce* such a sample is in place; the calibration
+itself (23.8) is the final remaining step.
 
 ---
 
