@@ -169,17 +169,22 @@ sweep.
 
 ### 18.3 — Phase 4c Piece 3 decision (A/B testing + epsilon-greedy)
 
-**Status (2026-05-20):** **DESIGN DOC LANDED** as
-`phase-4c-piece-3.md`. Re-evaluation of the eight locked decisions
-against current code + corpus state found two need adjustment
-(ε = 0.10 → 0.20; threshold = 1000 → 200 with cross-domain
-aggregation; MDE = 5pp → 10pp falls out of the threshold change).
-**Mechanism is theatre until an alternative variant is authored** —
-the registry has 12 template ids but zero with operator-authored
-alternative phrasings. Three pre-conditions stated for any PR1
-commit. The §18.3 ticket itself is now in the "design recorded,
-implementation gated on operator preconditions" state; see the
-piece-3 doc for the 4-PR sequence and acceptance criteria.
+**Status (2026-05-21):** **PIECE 3 MECHANISM SHIPPED — DORMANT**
+across four PRs landed against `phase-4c-piece-3.md`. PR1
+(`PromptTemplateVariant` entity + repo + idempotent seed), PR2
+(epsilon-greedy selector), PR3 (`PromptTemplateVariantStatsService`),
+PR4 (`PromptTemplateRollbackJudge` scheduled) all in `main`. Eight
+locked decisions revised pre-ship (ε = 0.10 → 0.20; threshold =
+1000 → 200 with cross-domain aggregation; MDE = 5pp → 10pp). All
+three runtime flags (`prompt-template-epsilon-greedy.enabled`,
+`prompt-template-stats.enabled`, `prompt-template-rollback.enabled`)
+default false. **Mechanism is theatre until an alternative variant
+is authored** — the registry has 12 template ids but zero with
+operator-authored alternative phrasings. The §18.3 ticket is now in
+the "code landed, activation gated on operator preconditions" state;
+see the piece-3 doc §"Recommended next step" for the three
+preconditions (variant authored, decisions accepted, Phase 21 binary
+≥1 week in prod).
 
 
 **Source:** `archive/phase-4c-piece-1-memo.md` + `archive/phase-4c-prompt-template-evolution.md`.

@@ -1,10 +1,15 @@
 # Phase 22 — Julia Math Sidecar
 
-**Status (2026-05-20):** Scoping doc. No code yet. Motivated by the
-2026-05-20e paper-review refresh, which showed ~40% of failures are
-math-engine-shaped (sandbox grammar/limit rejects, symbolic-vs-numeric
-routing confusion, wrong-domain tool execution). The hypothesis: a more
-capable, less restricted math engine reduces that fraction substantially.
+**Status (2026-05-21):** INFRASTRUCTURE COMPLETE. 22.1–22.6 landed
+(`JuliaMathClient`, `MathToolSuite` delegation, dual-syntax descriptions,
+sidecar metrics); §22.7 infrastructure in place; `julia.enabled: true`
+in `application.yml:55`. Awaiting §22.7 closing conditions 3 + 4 —
+one REVIEW_REPORT refresh showing acceptance rate ≥ 50% on a corpus run
+under the live sidecar, plus the five end-to-end `MathToolSuiteJuliaDelegationTest`
+cases passing against the production sidecar (currently passes locally).
+Originally motivated by the 2026-05-20e paper-review refresh, which showed
+~40% of failures were math-engine-shaped (sandbox grammar/limit rejects,
+symbolic-vs-numeric routing confusion, wrong-domain tool execution).
 
 **App naming.** The Julia component is generic — its protocol (JSON over
 HTTP, `eval` endpoint, `nsolve`/`quadgk`/`solve` endpoints) is not

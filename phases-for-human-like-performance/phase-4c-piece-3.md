@@ -1,18 +1,23 @@
 # Phase 4c Piece 3 — Persistence + Epsilon-Greedy Selector (design doc)
 
-**Status (2026-05-20):** Design doc, no code yet. Re-evaluation of the
-eight cross-cutting decisions locked in `archive/phase-4c-piece-1-memo.md`
-(2026-05-11) against current code state, followed by a 4-PR
-implementation plan. Created in response to phase-18 §18.3.
+**Status (2026-05-21):** All four PRs LANDED, all flags default OFF —
+mechanism is in the binary but dormant pending operator variant
+authoring. PR1 (`PromptTemplateVariant` entity + repo + idempotent
+seed), PR2 (epsilon-greedy selector), PR3 (`PromptTemplateVariantStatsService`
+on terminal outcome), PR4 (`PromptTemplateRollbackJudge` scheduled) all
+shipped per the §"Implementation plan" sections below. Re-evaluation of
+the eight cross-cutting decisions locked in `archive/phase-4c-piece-1-memo.md`
+(2026-05-11) against current code state revised two locked numbers
+(ε=0.10 → 0.20; 1000-paper threshold → 200 with cross-domain aggregation;
+MDE 5pp → 10pp falls out). Created in response to phase-18 §18.3.
 
-The phase-18 doc said: "When Piece 3 implementation starts, re-read
-the memo's eight locked decisions and judge whether they still fit."
-That's what this doc does. Specifically two of the locked numbers
-(ε=0.10 and the 1000-paper threshold) need adjustment.
-
-**Bigger issue surfaced before any code:** there are no genuine A/B
-candidate variants registered today. The mechanism will be theatre
-without operator-authored alternative prompts.
+**Bigger issue still gating activation:** there are no genuine A/B
+candidate variants registered today. The mechanism remains theatre
+until an operator authors at least one alternative variant for one
+template id (suggested: `narration.critique`) and flips
+`app.research.prompt-template-epsilon-greedy.enabled` (and PR3 + PR4
+flags) on. Three pre-conditions for the activation are stated in the
+§"Recommended next step" section.
 
 ---
 
