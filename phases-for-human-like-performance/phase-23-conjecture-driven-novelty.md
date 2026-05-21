@@ -290,7 +290,26 @@ moves to `ConjectureMinerService.next(domain)`. Priorities unchanged:
 - **Acceptance:** end-to-end test with a seeded DB returns conjectures
   in the expected priority order via `ConjectureMinerService.next("math")`.
 
-### 23.4 — `PaperKind.CONJECTURE_INVESTIGATION` [P1]
+### 23.4 — `PaperKind.CONJECTURE_INVESTIGATION` [P1, foundation shipped 2026-05-21]
+
+**Status:** Foundation shipped (`PaperKind.CONJECTURE_INVESTIGATION`
+enum, `ConjectureQueue` interface, `ConjectureTopicProvider` bean +
+`app.research.conjectureMiner.paperShare` flag). Upstream wiring into
+`ResearchCycleService.runStandardCycle()` is deferred to 23.5 — the
+full acceptance (hypothesis = conjecture verbatim, Mechanism section,
+Adversarial Check citing `verify_conjecture`) needs the tool that 23.5
+ships. The bean wiring lets 23.5 land as a one-line caller.
+
+Design departure from the original phase doc: instead of adding a 6th
+genome weight `w5`, the conjecture-driven share is config-driven
+(`paperShare` in [0,1]). Reasons: `BotGenome.topicWeights[5]` is
+evolution-critical (crossover, mutation, serialization) and adding a
+6th slot risks breaking the saved-genome migration. Config flag has
+the same semantic effect (probability per cycle) without touching the
+evolution path. If per-bot variance turns out to matter, the genome
+weight can be added later as a multiplicative modifier on the flag.
+
+
 
 - New enum value in `PaperKind.java`.
 - New prompt template that frames the LLM's job as: "Given conjecture C

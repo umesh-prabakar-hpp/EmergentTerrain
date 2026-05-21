@@ -40,7 +40,7 @@ import java.util.Optional;
  */
 @Service
 @ConditionalOnProperty(name = "app.research.conjectureMiner.enabled", havingValue = "true")
-public class ConjectureMinerService {
+public class ConjectureMinerService implements ConjectureQueue {
 
     private static final Logger log = LoggerFactory.getLogger(ConjectureMinerService.class);
 
@@ -179,6 +179,7 @@ public class ConjectureMinerService {
      * <p>Returns empty when the DB has no conjectures for this domain
      * (e.g., the miner hasn't run yet, or the flag is off).
      */
+    @Override
     public Optional<Conjecture> next(String domain) {
         List<Conjecture> picks = nextN(domain, 1);
         return picks.isEmpty() ? Optional.empty() : Optional.of(picks.get(0));
@@ -190,6 +191,7 @@ public class ConjectureMinerService {
      * are emitted; ordering within a tier follows the rules in
      * {@link #next}'s javadoc.
      */
+    @Override
     public List<Conjecture> nextN(String domain, int n) {
         if (n <= 0) {
             return List.of();

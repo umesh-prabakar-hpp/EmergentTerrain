@@ -1026,6 +1026,12 @@ app:
     conjectureMiner:
       enabled: false
       intervalMs: 300000   # 5 min between mining passes; idempotent against the DB
+      # Phase 23.4 — fraction of paper-writing cycles that should source
+      # their hypothesis from the mined conjecture queue instead of the
+      # catalog. 0.0 = never (default; existing behavior). 1.0 = every
+      # paper. Upstream wiring lands with 23.5 (verify_conjecture tool);
+      # ConjectureTopicProvider already reads this flag.
+      paperShare: 0.0
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

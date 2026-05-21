@@ -18,5 +18,16 @@ public enum PaperKind {
     DOMAIN,
 
     /** A paper *about* the simulation: per-prompt / per-bot / per-method analyses. */
-    META
+    META,
+
+    /**
+     * Phase 23.4 — a paper investigating a specific mined conjecture from
+     * {@link com.emergentterrain.research.conjecture.ConjectureMinerService}.
+     * Hypothesis is the conjecture's inequality verbatim; the LLM's job is
+     * mechanism + adversarial verification, not topic selection. The full
+     * prompt-template + verify_conjecture tool integration lands with 23.5;
+     * this value is the persistence-side handle so the kind can be recorded
+     * once the upstream wiring is ready.
+     */
+    CONJECTURE_INVESTIGATION
 }
