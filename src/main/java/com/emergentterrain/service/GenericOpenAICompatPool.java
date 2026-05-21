@@ -437,6 +437,17 @@ public class GenericOpenAICompatPool implements LlmPool {
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
                     long waitMs = retryWaitMsFor(modelId, msg, backoffMs);
+                    if (waitMs == RETRY_GIVE_UP) {
+                        // Long block (Groq TPD, NVIDIA monthly-credits). Block
+                        // window is already recorded in rateLimitExpiry by
+                        // syncCall's 429 handler; isModelBlocked() will skip
+                        // this model on the NEXT call. No point sleeping on
+                        // the calling thread for 25+ minutes.
+                        log.warn("GenericOpenAICompatPool({}): 429 model={} long-block exceeds "
+                                + "retry cap (parsed >{}ms) — propagating to let router skip",
+                                cfg.providerKey(), modelId, MAX_RETRY_WAIT_MS);
+                        throw e;
+                    }
                     long expiry = System.currentTimeMillis() + waitMs;
                     rateLimitExpiry.merge(modelId, expiry, Math::max);
                     log.warn("GenericOpenAICompatPool({}): 429 model={} attempt={} retrying in {}ms",
@@ -449,6 +460,25 @@ public class GenericOpenAICompatPool implements LlmPool {
         throw last;
     }
 
+    /** Maximum time the retry loop will block on a single attempt. If
+     *  the upstream's retry-after exceeds this, we give up retrying
+     *  and let the call propagate — the long block stays recorded in
+     *  {@link #rateLimitExpiry} and the next call skips this model
+     *  via {@link #isModelBlocked}. Same shape as the original
+     *  {@link GroqPool#syncCallWithBackoff}'s TPD bail path.
+     *
+     *  <p>2026-05-20 — added to recover from a startup-time hang:
+     *  ModelSelectionTester hit Groq's TPD limit during a probe;
+     *  parsed retry-after was 25 minutes; the retry loop synchronously
+     *  slept and froze the Spring boot for 25 min. */
+    static final long MAX_RETRY_WAIT_MS = 90_000L;
+
+    /** Sentinel returned by {@link #retryWaitMsFor} when the upstream
+     *  asked us to wait longer than {@link #MAX_RETRY_WAIT_MS}. The
+     *  retry loop reads this as "don't sleep — throw immediately so
+     *  the router falls to the next model." */
+    static final long RETRY_GIVE_UP = -1L;
+
     /** Retry-after lookup with three-tier fallback. Mirrors the
      *  {@link NvidiaPool#retryWaitMsFor} / {@link CerebrasPool#retryWaitMsFor}
      *  pattern so the retry loop honors any block window the surrounding
@@ -457,14 +487,24 @@ public class GenericOpenAICompatPool implements LlmPool {
      *  retry-after but {@code syncCall}'s 429 handler has already merged
      *  {@code DEFAULT_BLOCK_MS} / long-block into {@link #rateLimitExpiry}.
      *  Pre-Phase-21-fix the loop ignored that and exponentially backed off
-     *  from {@code INITIAL_BACKOFF_MS} instead. */
+     *  from {@code INITIAL_BACKOFF_MS} instead.
+     *
+     *  <p>Returns {@link #RETRY_GIVE_UP} when the body parse yields a
+     *  wait longer than {@link #MAX_RETRY_WAIT_MS}. Long blocks (Groq
+     *  TPD = 25 min, NVIDIA monthly-credits = 24 h) are the operator's
+     *  problem to wait out — synchronous sleep on the calling thread
+     *  is not. */
     private long retryWaitMsFor(String modelId, String msg, long fallbackMs) {
         OptionalLong fromBody = parseRetryAfterMs(msg);
-        if (fromBody.isPresent()) return fromBody.getAsLong();
+        if (fromBody.isPresent()) {
+            long ms = fromBody.getAsLong();
+            if (ms > MAX_RETRY_WAIT_MS) return RETRY_GIVE_UP;
+            return ms;
+        }
         Long expiry = rateLimitExpiry.get(modelId);
         if (expiry != null) {
             long remaining = expiry - System.currentTimeMillis();
-            if (remaining > 0) return Math.min(remaining + 500, 90_000L);
+            if (remaining > 0) return Math.min(remaining + 500, MAX_RETRY_WAIT_MS);
         }
         return fallbackMs;
     }
@@ -589,6 +629,13 @@ public class GenericOpenAICompatPool implements LlmPool {
                 String msg = e.getMessage();
                 if (msg != null && msg.contains("429") && attempt < MAX_RETRIES) {
                     long waitMs = retryWaitMsFor(modelId, msg, backoffMs);
+                    if (waitMs == RETRY_GIVE_UP) {
+                        // Same long-block bail as in syncCallWithBackoff.
+                        log.warn("GenericOpenAICompatPool({}): stream 429 model={} long-block exceeds "
+                                + "retry cap (parsed >{}ms) — propagating to let router skip",
+                                cfg.providerKey(), modelId, MAX_RETRY_WAIT_MS);
+                        throw e;
+                    }
                     long expiry = System.currentTimeMillis() + waitMs;
                     rateLimitExpiry.merge(modelId, expiry, Math::max);
                     log.warn("GenericOpenAICompatPool({}): stream 429 model={} attempt={} retrying in {}ms",

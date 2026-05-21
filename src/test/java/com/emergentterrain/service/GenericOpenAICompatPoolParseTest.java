@@ -98,4 +98,42 @@ class GenericOpenAICompatPoolParseTest {
         // Falls through to seconds matcher → no match → empty.
         assertThat(ms).isEmpty();
     }
+
+    // ── 2026-05-20 fix: retry-wait cap (MAX_RETRY_WAIT_MS) ──────────
+
+    @Test
+    void max_retry_wait_constant_is_ninety_seconds() {
+        // Pin the constant — if a future change loosens it, this test
+        // catches the regression. 90s is the line we drew: long
+        // enough to absorb TPM-window resets, short enough that a
+        // ModelSelectionTester probe doesn't hang the JVM boot.
+        assertThat(GenericOpenAICompatPool.MAX_RETRY_WAIT_MS).isEqualTo(90_000L);
+    }
+
+    @Test
+    void retry_give_up_sentinel_is_negative() {
+        // The retry-loop check is `if (waitMs == RETRY_GIVE_UP)`. A
+        // negative sentinel ensures no real wait value collides.
+        assertThat(GenericOpenAICompatPool.RETRY_GIVE_UP).isNegative();
+    }
+
+    @Test
+    void groq_TPD_25_minute_wait_parses_to_known_long_value() {
+        // The Groq TPD wire format that triggered the 2026-05-20
+        // 25-minute hang. parseRetryAfterMs SHOULD parse this — the
+        // retry-loop's job (separately) is to convert "more than
+        // MAX_RETRY_WAIT_MS" into RETRY_GIVE_UP. This test pins the
+        // input-shape recognition; the cap behaviour is exercised
+        // by integration tests on the live retry path.
+        String body = "{\"error\":{\"message\":\"Rate limit reached ... "
+                + "Please try again in 25m4.39s. ...\"}}";
+        OptionalLong ms = GenericOpenAICompatPool.parseRetryAfterMs(body);
+        assertThat(ms).isPresent();
+        long val = ms.getAsLong();
+        // 25*60_000 + 4390 + 500 = 1_504_890 ms ≈ 25 minutes.
+        assertThat(val).isBetween(1_500_000L, 1_510_000L);
+        // And critically: GREATER than the 90s cap, so the retry
+        // loop will hit RETRY_GIVE_UP.
+        assertThat(val).isGreaterThan(GenericOpenAICompatPool.MAX_RETRY_WAIT_MS);
+    }
 }
