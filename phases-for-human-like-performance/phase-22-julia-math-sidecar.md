@@ -1,0 +1,309 @@
+# Phase 22 — Julia Math Sidecar
+
+**Status (2026-05-20):** Scoping doc. No code yet. Motivated by the
+2026-05-20e paper-review refresh, which showed ~40% of failures are
+math-engine-shaped (sandbox grammar/limit rejects, symbolic-vs-numeric
+routing confusion, wrong-domain tool execution). The hypothesis: a more
+capable, less restricted math engine reduces that fraction substantially.
+
+**App naming.** The Julia component is generic — its protocol (JSON over
+HTTP, `eval` endpoint, `nsolve`/`quadgk`/`solve` endpoints) is not
+EmergentTerrain-specific and could serve any caller. **Proposed name:
+`julia-math-sidecar`.** A separate top-level repository / directory peer
+to `EmergentTerrain` and `EmergentTerrainGPUEngine`. If the operator
+prefers a project-prefixed name, `emergent-julia-math` is the fallback.
+
+EmergentTerrain's bindings to it (the Spring beans, the
+`MathToolSuite.runJuliaSymbolic` / `runJuliaNumeric` methods, the
+TokenAccountant integration, the safety filter on outbound code) stay
+inside this repo and reference the sidecar by URL.
+
+**This doc tracks the integration work from EmergentTerrain's side; the
+sidecar's own README will describe its protocol and capabilities.**
+
+---
+
+## Scope
+
+What the sidecar replaces in EmergentTerrain:
+
+| Today (in-process Symja) | Tomorrow (Julia sidecar) |
+|---|---|
+| `MathToolSuite.runSymbolic(...)` → Symja `EvalEngine.evaluate(...)` | HTTP POST to `julia-math-sidecar/eval` with Mathematica-style expression |
+| `MathToolSuite.evaluateSymbolic(...)` over a range | HTTP POST to `/sweep` with `expression`, `var`, `start`, `end`, `samples` |
+| `ECHO_PRONE_HEADS` retry-with-`N[…]` plumbing | Removed — Julia's `nsolve` is the natural fallback when `solve` is symbolic-only |
+| `^` → `**` rewrite in `run_gpu_eval` | Removed for the Julia path — `^` is native Julia syntax |
+| Sandbox grammar rewrites (`.push`, `.length`, etc.) | Removed for the Julia path; sandbox stays for the JS-style code tool |
+| `Module/With/Block/CompoundExpression` admission | Removed — Julia has native scoping (`function`/`let`/`begin...end`) |
+
+What the sidecar **does not** replace:
+
+- The JS-style sandboxed code tool (`run_sandboxed_code`). That stays in
+  EmergentTerrain because (a) operator code in the sandbox is what the
+  LLM emits when it wants procedural logic the symbolic engine can't
+  express, (b) the existing static-checker provides defense-in-depth
+  against the JS surface. Julia eval is a peer to symbolic eval, not to
+  arbitrary procedural code.
+- The GPU eval tool (`run_gpu_eval`). The Rust-backed
+  `EmergentTerrainGPUEngine` runs large-batch numerical sweeps; Julia
+  is for ad-hoc symbolic/numeric evaluation up to a few hundred ms per
+  call.
+
+---
+
+## Architecture
+
+```
+EmergentTerrain (Spring Boot, JVM)
+├── MathToolSuite
+│   ├── run_sandboxed_code   → JS-style sandbox (existing, unchanged)
+│   ├── evaluate_symbolic    → JuliaMathClient over HTTP
+│   ├── run_symbolic         → JuliaMathClient over HTTP
+│   └── run_gpu_eval         → GPU engine (existing, unchanged)
+└── JuliaMathClient
+    ├── http.send(POST julia-math-sidecar/eval, {expr, timeoutMs})
+    ├── safety filter (reject Pkg./run(/include(/eval(/Base.run/Sys./read(/write(/open(/`...`)
+    ├── retry with N[…]-equivalent on echo (Julia: simplify→nsolve)
+    └── per-call tokens accounting via TokenAccountant
+
+julia-math-sidecar (Julia 1.10+, separate process)
+├── HTTP.jl server on configurable port (default 8088)
+├── POST /eval            → arbitrary expression, returns JSON {result, type, ok}
+├── POST /sweep           → expression + range, returns stats {mean, std, min, max, samples}
+├── POST /solve           → equation + variable, returns roots (symbolic if available, else numeric)
+├── POST /nsolve          → numeric root from initial guess
+├── POST /integrate       → symbolic integrate via Symbolics.jl + SymPy.jl fallback
+├── GET /healthz          → readiness probe
+├── GET /metrics          → call counts, avg latency, current JIT-warm modules
+└── packages: Symbolics.jl, SymPy.jl (fallback), Roots.jl, QuadGK.jl,
+              DifferentialEquations.jl, JSON3.jl, HTTP.jl
+```
+
+**Process lifecycle.** The sidecar is a long-lived child process,
+started by a systemd unit (production) or by a `RUN.md` step
+(development). EmergentTerrain detects it via `GET /healthz` at startup;
+if absent, `JuliaMathClient` is wired with `enabled=false` and the
+existing Symja path stays the default for the affected tools. **The
+sidecar is opt-in, not a hard dependency.**
+
+**Communication.** HTTP/1.1 JSON over localhost. Per-call timeout
+configurable (`app.julia.timeoutMs`, default 5000). The HTTP overhead
+(~5-20 ms localhost) is invisible against the multi-second LLM calls.
+
+---
+
+## Phasing
+
+### 22.1 — sidecar bootstrap (this repo: zero changes)
+
+Bring up `julia-math-sidecar` as a separate repo / directory with the
+HTTP server, packages, basic endpoints (`/healthz`, `/eval`, `/solve`,
+`/nsolve`, `/integrate`, `/sweep`). Verify it runs standalone with
+`curl` smoke tests against a fixture script. **Effort: ~2 days.**
+
+**Acceptance:** `curl -X POST localhost:8088/eval -d
+'{"expr":"Floor[2.04e-6 / 400e-9]","timeoutMs":1000}'` returns
+`{"result":5,"type":"Int64","ok":true}` in under 100 ms after JIT warmup.
+
+### 22.2 — `JuliaMathClient` Spring bean (this repo)
+
+Add `src/main/java/com/emergentterrain/llm/JuliaMathClient.java` —
+`@Component`, autowired `HttpClient`, configured via
+`app.julia.baseUrl` (default `http://localhost:8088`) and
+`app.julia.enabled` (default `false`). Optional dependency from
+`MathToolSuite` — when present and enabled, `runSymbolic` and
+`evaluateSymbolic` delegate; when absent, the existing Symja path
+runs unchanged. **Effort: ~1 day.**
+
+**Acceptance:** integration test that constructs a real `JuliaMathClient`
+pointing at the sidecar, sends an expression, asserts the round-tripped
+value. Skips when sidecar is unreachable (no flaky CI dependency).
+
+### 22.3 — Safety filter on outbound code
+
+Static analysis of the expression before it leaves
+`JuliaMathClient.send()`. Rejects any of:
+- `using Pkg`, `Pkg.add`, `Pkg.update`
+- `run(`, backtick command `\`...\``
+- `include(`, `Base.include`, `eval(`, `@eval`
+- `Sys.`, `read(`, `write(`, `open(`, `download(`
+- `unsafe_`, `ccall(`, `@ccall`
+- Module-loading: `import Base.run`, `import Base.Sys`
+- Process control: `exit(`, `Base.exit`, `kill(`
+
+This is necessary because Julia is Turing-complete. The list is
+non-exhaustive; the actual defense is process isolation:
+
+**Process isolation** (deployment requirement): the sidecar runs in a
+Docker container or systemd-confined service with:
+- Read-only root filesystem
+- No network egress (only localhost ingress on the HTTP port)
+- Memory limit ~512 MB
+- CPU quota
+- No `/dev` access beyond `/dev/null`, `/dev/urandom`
+
+**Effort: ~1 day for the Java filter; ~½ day for the systemd unit.**
+
+### 22.4 — Echo detection migration
+
+The Symja `ECHO_PRONE_HEADS` (`Solve`, `Reduce`, `Roots`, `FindRoot`,
+`DSolve`, `NSolve`, `Integrate`, `Sum`, `Product`) was needed because
+Symja returns its input unevaluated when it can't crack a problem.
+Julia's recovery story is cleaner: `solve()` returns symbolic-only when
+no closed form exists, but a follow-up `nsolve(expr, var, guess)` finds
+numeric roots without needing client-side `N[…]` rewriting.
+
+Remove `ECHO_PRONE_HEADS` from `MathToolSuite` when the Julia path is
+active. **Effort: ½ day.**
+
+### 22.5 — Sandbox-limit relaxation for Julia path
+
+The current sandbox `statement_limit` / `loop_limit` thresholds were
+sized for the JS-style sandbox. For the Julia path, the integration
+loop runs server-side in JIT-compiled Julia — no statement counting
+needed. Wire a separate ceiling (`app.julia.maxEvalMs`, default 5000)
+that the sidecar itself enforces via `Threads.@spawn` + `wait` with
+timeout.
+
+P-764's projectile-RK4 archetype (4 of 5 sandbox calls killed by
+limits) should succeed end-to-end under the Julia path. **Effort:
+1 day.**
+
+### 22.6 — TokenAccountant integration
+
+The sidecar doesn't consume LLM tokens, but it does consume **compute
+budget** — the Spring side should be able to see "Julia: 42 calls,
+avg 35ms, max 4900ms" in the 5-minute tier-reporter heartbeat.
+
+Add a third "tier" to `TokenTierReporter`: `julia` (alongside `primary`
+and `fast`). Or — cleaner — record the sidecar in a separate
+`SidecarCallReporter` that mirrors the existing reporter's pattern but
+counts compute time instead of tokens.
+
+**Effort: 1 day; defer if the basic integration is working.**
+
+### 22.7 — Acceptance + rollout
+
+End-to-end acceptance against `research/a3289005/` after the sidecar is
+wired:
+
+1. Re-run P-a328-764 (projectile drag v=233). Expect the Julia path to
+   succeed with a non-zero `bestAngle` in single-digit ms.
+2. Re-run P-a328-778 (prime density [80, 130)). Expect Julia to compute
+   the actual prime density via `count(isprime, 80:129) / 50` instead
+   of an unrelated Wilson CI.
+3. Re-run P-a328-767 (Kepler T²/a³). Expect Julia to either solve
+   symbolically AND numerically sample the ratio for orbits near 2.35 AU.
+4. Verify the JS-style `run_sandboxed_code` tool still works for papers
+   the LLM chose to route there (no regression on the existing path).
+
+**Acceptance bar:** post-sidecar batch shows acceptance rate ≥ 50%
+(roughly double the current 22.2%) **or** at least 3 papers reach Q1
+(publishable: math right + complete prose + coherent topic). Either
+condition triggers full rollout.
+
+---
+
+## Open architecture questions
+
+1. **Hot-reload vs cold-start.** Julia's JIT warmup is ~200 ms cold but
+   sub-ms warm. The sidecar needs to either (a) precompile a `PackageCompiler.jl`
+   sysimage at build time (fast cold-start, larger binary) or
+   (b) accept warm-up latency on the first call of each shape. Lean toward
+   (a) for production, (b) for dev.
+
+2. **Mathematica syntax vs native Julia syntax.** The corpus's LLM
+   already emits Mathematica syntax (`Solve[..., var]`, `Integrate[...]`)
+   because that's what `run_symbolic` advertises. Two options:
+   - **Translate at the sidecar** — wrap incoming expressions with
+     `SymPy.parse_mathematica` (via SymPy.jl) before evaluation.
+   - **Re-prompt the LLM to emit Julia syntax** — change the tool's
+     description to say "Julia expression: `solve(...)` not `Solve[...]`".
+
+   Lean toward the latter: cleaner long-term, the LLM is well-trained on
+   Julia syntax, and removing the Mathematica translation layer cuts a
+   class of parsing bugs.
+
+3. **What if SymPy.jl is needed for hard integrals?** Symbolics.jl
+   doesn't implement Risch; SymPy does. SymPy.jl uses PyCall under the
+   hood — adds a Python runtime to the sidecar (~100 MB). Pros: best
+   symbolic integration available. Cons: heavier container, two languages
+   to maintain. Resolution: ship without SymPy.jl initially; add it only
+   if the corpus shows ≥5 papers failing on hard integrals that
+   Symbolics.jl couldn't crack.
+
+4. **Restart-without-corpus-loss.** Today's design has no state to lose —
+   the sidecar holds JIT-compiled functions, not data. A restart costs
+   ~200 ms × N first-call shapes. Acceptable for now; revisit if JIT
+   warmup tail latency starts gating throughput.
+
+5. **Should this also replace `run_gpu_eval`?** No — the GPU engine
+   serves a different scale (millions of samples per call). The Julia
+   sidecar serves the few-hundred-sample-per-call regime. Keep them
+   separate.
+
+---
+
+## Acceptance for closing this phase
+
+This doc moves to `archive/` when:
+
+1. ✅ 22.1–22.5 land in commits and tests pass.
+2. ✅ A REVIEW_REPORT.md refresh shows acceptance rate ≥ 50% on at least
+   one corpus run after the Julia path goes live.
+3. ✅ A reproducibility test pins P-764-shape projectile, P-778-shape
+   prime density, and P-767-shape Kepler running cleanly through Julia.
+
+If 22.6 / 22.7 are deferred indefinitely (e.g. operator decides the
+Java/Symja path is good enough after the upstream prompt-routing fixes
+land), this doc gets a closing note with that decision and moves to
+`archive/` anyway.
+
+---
+
+## What this phase deliberately does NOT include
+
+- **Replacing Symja with SymPy in-process.** The math-engine analysis
+  (Q in this session) ruled this out — SymPy is Python, in-process via
+  JEP is operationally painful, and the math improvement over Symja for
+  EmergentTerrain's actual call shapes is marginal vs. the ~5 days of
+  work. Julia is the better lateral move.
+- **A unified math abstraction layer in the JVM.** Tempting to wrap
+  Symja AND Julia AND GPU behind a common `MathEngine` interface. Don't
+  — they have genuinely different semantics (symbolic, numeric/symbolic
+  hybrid, raw GPU). The current `MathToolSuite` tool dispatch is the
+  right granularity.
+- **A Mathematica → Julia transpiler.** See Open Question 2. The
+  prompt-re-train path is cheaper.
+
+---
+
+## Cost / benefit summary
+
+**Total effort:** ~7 days focused work for 22.1–22.5; +2 days for 22.6;
++1 day for full acceptance verification = **~10 days end-to-end** to
+production.
+
+**Operational tax:** another runtime (Julia ~200 MB RSS, ~50 MB on disk
+with PackageCompiler sysimage). One more thing to monitor (`/healthz`
+probe). One more service to upgrade when security advisories land.
+
+**Expected impact (per the 2026-05-20e batch breakdown):**
+- ~30% of papers fail on sandbox grammar/limit issues today → Julia
+  removes the syntax-translation surface entirely. Estimated drop to
+  ~5% (sandbox stays for JS-style code, but it's a much narrower call
+  surface).
+- ~10% of papers fail on echo / Symja-can't-crack-it → Julia's
+  symbolic+numeric fallback is cleaner. Estimated drop to ~3%.
+- ~60% of papers fail on narration / prompt / panel issues → unchanged.
+  Julia doesn't touch this surface.
+
+**Expected acceptance rate after sidecar lands:** 35-50% (from current
+22.2%). Not a 2× improvement on its own but compounding with the four
+other 2026-05-20 patches it could clear 50%.
+
+**Recommendation:** schedule 22.1 (sidecar bootstrap) for next available
+focused 2-day block. Defer 22.2–22.7 until 22.1 demonstrates the basic
+shape works. If the upstream prompt-routing fixes from the open
+recommendations (P-778 wrong-domain, P-767 symbolic-vs-numeric) close
+the gap on their own, 22.2+ may not be needed.
