@@ -801,6 +801,32 @@ public class MathToolSuite {
                         juliaMathClient.eval(expression);
                 log.info("MathToolSuite: run_symbolic (julia) expr=\"{}\" ms={} type={}",
                         expression, System.currentTimeMillis() - t, er.type());
+                // Phase 21 §21.3 follow-on — Julia-path echo detection. Same
+                // failure shape Symja showed on P-a328-693 (Solve[…] echoed
+                // verbatim) is firing on the Julia path:
+                //   * P-a328-839: `zeta(s) = sum(n^(-s) for n in 1:1000)` —
+                //     Julia parsed the `=` as a function definition; result
+                //     was the bare identifier "zeta", no evaluation.
+                //   * P-a328-823: `(let theta = …; series = …; series)` —
+                //     Symbolics didn't simplify; result was the type name
+                //     "Series".
+                // The LLM downstream treats `output=zeta` / `output=Series`
+                // as a successful numeric result and fabricates a value to
+                // fill the gap. Surface a tool-failure signal instead.
+                if (isJuliaEcho(expression, er)) {
+                    log.warn("MathToolSuite: run_symbolic (julia) echo detected expr=\"{}\" output=\"{}\" type={}",
+                            expression, er.result(), er.type());
+                    return "Symbolic solver did not evaluate the expression — Julia returned "
+                            + "the unevaluated symbol \"" + er.result() + "\""
+                            + (er.type() != null && !er.type().isBlank() ? " (type=" + er.type() + ")" : "")
+                            + ". The expression may have been parsed as a function definition "
+                            + "(top-level `=`) instead of an evaluation, or the symbolic result "
+                            + "has no numeric form. Try: rewriting to call existing functions "
+                            + "(e.g. `sum(1/n^2.5 for n in 1:100)` instead of `zeta(s) = …`), "
+                            + "wrap in `float(…)` to force numeric coercion, or use numeric "
+                            + "methods if no closed form is available. (Echoed expression: "
+                            + expression + ")";
+                }
                 return "Symbolic result for %s: output=%s [Rationale: %s] [via=julia]"
                         .formatted(expression, er.result(), rationale);
             } catch (com.emergentterrain.llm.JuliaMathException e) {
@@ -826,6 +852,20 @@ public class MathToolSuite {
             log.warn("MathToolSuite: run_symbolic static-rejected: {} expr=\"{}\"",
                     r.reason(),
                     expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+            // 2026-05-21 follow-on — when the rejected head is a known
+            // sandbox primitive (isPrime, sigmaSum, collatzSteps, …), the
+            // LLM got the right primitive but the wrong tool. Surface a
+            // routing hint so the next attempt goes to run_sandboxed_code
+            // instead of bouncing through 4–7 budget_fallback retries.
+            String sandboxHint = sandboxPrimitiveHintFor(r.reason());
+            if (sandboxHint != null) {
+                return "REJECTED by safety review: " + r.reason()
+                        + " — " + sandboxHint
+                        + " run_sandboxed_code with a short JS loop "
+                        + "(e.g. `var c=0; for(var n=lo;n<hi;n++){ if(isPrime(n)) c++; } return c;`). "
+                        + "For the symbolic-math equivalent in run_symbolic, use the Mathematica-"
+                        + "style capitalized name instead (PrimeQ, DivisorSigma, GCD).";
+            }
             return "REJECTED by safety review: " + r.reason()
                     + " — only calculus/algebra/trig/special-function heads are allowed; "
                     + "I/O, process, network, state mutation, and JVM-escape heads are blocked.";
@@ -908,6 +948,79 @@ public class MathToolSuite {
     private static final Set<String> ECHO_PRONE_HEADS = Set.of(
             "Solve", "Reduce", "Roots", "FindRoot",
             "DSolve", "NSolve", "Integrate", "Sum", "Product");
+
+    /**
+     * 2026-05-21 follow-on — when SymbolicStaticChecker rejects a head that
+     * matches a known {@code SandboxEngine} primitive (case-insensitive),
+     * return a hint string telling the LLM to route to {@code run_sandboxed_code}
+     * instead. Without this hint, the LLM typically bounces through 4–7
+     * budget_fallback retries trying to find a model that will accept the
+     * symbolic call (paper P-a328-843 burned 5 rounds this way).
+     *
+     * <p>Match list is the {@code SandboxEngine} built-ins that have no
+     * symbolic-equivalent name with the same casing: {@code isPrime},
+     * {@code isHappy}, {@code sigmaSum}, {@code collatzSteps},
+     * {@code collatzTerminates}, {@code isAbundant}, {@code isPerfect}.
+     * Excluded: {@code gcd}, {@code log2} — those have Mathematica
+     * equivalents (GCD, Log2) already in the symbolic whitelist, so a hint
+     * pointing at the sandbox would be wrong.
+     *
+     * <p>Returns {@code null} when no sandbox primitive is detected in the
+     * rejection reason; caller then falls back to the generic safety message.
+     */
+    static String sandboxPrimitiveHintFor(String rejectReason) {
+        if (rejectReason == null) return null;
+        String low = rejectReason.toLowerCase();
+        Set<String> primitives = Set.of(
+                "isprime", "ishappy", "sigmasum", "collatzsteps",
+                "collatzterminates", "isabundant", "isperfect");
+        java.util.List<String> matched = new java.util.ArrayList<>();
+        for (String prim : primitives) {
+            if (low.contains(prim) && !matched.contains(prim)) matched.add(prim);
+        }
+        if (matched.isEmpty()) return null;
+        return String.join(", ", matched)
+                + " look like SandboxEngine number-theoretic primitives, "
+                + "not symbolic-math heads. Retry the same predicate via";
+    }
+
+    /**
+     * Phase 21 §21.3 follow-on — detect Julia-path echo. Same failure shape
+     * Symja showed (input echoed back without a number), but Julia surfaces
+     * it differently: a function-definition mistake (top-level {@code =})
+     * yields the bare identifier name (e.g. {@code "zeta"}); a Symbolics
+     * expression that didn't simplify yields a type name (e.g.
+     * {@code "Series"}). Both look successful to the narrator and downstream
+     * the LLM fabricates a number to fill the gap.
+     *
+     * <p>Returns true when the Julia result is a bare identifier — no digits,
+     * operators, parens, whitespace, or punctuation. Excludes the small set
+     * of legitimate atom returns ({@code true}, {@code false}, {@code Inf},
+     * {@code -Inf}, {@code NaN}) so they pass through unchanged.
+     *
+     * <p>{@code nothing} is intentionally treated as an echo — a Julia
+     * computation that returns {@code nothing} typically means the LLM
+     * routed the expression to a function that has no return value (e.g.,
+     * an assignment or a side-effect-only call), not a real evaluation.
+     */
+    static boolean isJuliaEcho(String input,
+                                com.emergentterrain.llm.JuliaMathClient.EvalResult er) {
+        if (input == null || er == null || er.result() == null) return false;
+        String result = er.result().strip();
+        if (result.isEmpty()) return false;
+        // Bare identifier only — no operators, no digits, no parens.
+        if (!result.matches("[A-Za-z_][A-Za-z0-9_]*")) return false;
+        // Legitimate single-token atoms.
+        switch (result) {
+            case "true":
+            case "false":
+            case "Inf":
+            case "NaN":
+                return false;
+            default:
+                return true;
+        }
+    }
 
     /**
      * Pull the leading head from a Mathematica-style expression. Returns

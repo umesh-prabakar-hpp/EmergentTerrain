@@ -101,6 +101,134 @@ class MathToolSuiteSolverEchoTest {
         assertThat(MathToolSuite.isSolverEcho(fake.input(), fake)).isFalse();
     }
 
+    // ── 2026-05-21 follow-on — sandbox-primitive routing hint ───────────
+
+    @Test
+    void sandboxHint_detectsLowercaseSandboxPrimitiveInRejectReason() {
+        // P-a328-831 round 0 rejected with: "non-whitelisted head(s): isprime, Optional"
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): isprime, Optional"))
+                .isNotNull()
+                .contains("isprime");
+
+        // P-a328-843 round 2 rejected with: "non-whitelisted head(s): Optional, sigmasum"
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): Optional, sigmasum"))
+                .isNotNull()
+                .contains("sigmasum");
+    }
+
+    @Test
+    void sandboxHint_detectsMultipleSandboxPrimitives() {
+        // Hypothetical: LLM stuffs several lowercase predicates into one call.
+        String hint = MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): isprime, ishappy, collatzsteps");
+        assertThat(hint).contains("isprime").contains("ishappy").contains("collatzsteps");
+    }
+
+    @Test
+    void sandboxHint_nullForUnrelatedRejection() {
+        // Heads that ARE dangerous (I/O, process) — generic safety message
+        // should fire, not the sandbox hint.
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): URLFetch")).isNull();
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): Set, SetDelayed")).isNull();
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "parse failed: unexpected token")).isNull();
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(null)).isNull();
+    }
+
+    @Test
+    void sandboxHint_nullForGcdLog2WhichHaveMathematicaEquivalents() {
+        // GCD and Log2 ARE in the symbolic whitelist with capitalized names,
+        // so a sandbox hint would mis-direct the LLM. The check excludes
+        // these primitive names from the sandbox-routing set.
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): gcd")).isNull();
+        assertThat(MathToolSuite.sandboxPrimitiveHintFor(
+                "non-whitelisted head(s): log2")).isNull();
+    }
+
+    // ── Phase 21 §21.3 follow-on — Julia-path echo detector ─────────────
+
+    @Test
+    void isJuliaEcho_trueWhenResultIsBareIdentifier() {
+        // P-a328-839: `zeta(s) = sum(n^(-s) for n in 1:1000)` — Julia parsed
+        // the `=` as a function definition; result is the bare identifier.
+        var er = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "zeta", "typeof(zeta)", 12L);
+        assertThat(MathToolSuite.isJuliaEcho(
+                "zeta(s) = sum(n^(-s) for n in 1:1000)", er)).isTrue();
+
+        // P-a328-823: `(let theta = ...; series = ...; series)` — Symbolics
+        // didn't simplify; result is the type name.
+        var er2 = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "Series", "Symbolics.Num", 8L);
+        assertThat(MathToolSuite.isJuliaEcho(
+                "(let theta = 22.85 * pi/180; series = 1 + sin(theta/2)^2/4; series)", er2)).isTrue();
+    }
+
+    @Test
+    void isJuliaEcho_falseWhenResultIsNumeric() {
+        // P-a328-831 happy path — twin density estimate.
+        var er = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "16.388551535980042", "Float64", 5L);
+        assertThat(MathToolSuite.isJuliaEcho(
+                "2*0.66016*( (1002-462) ) / (log((462+1002)/2)^2 )", er)).isFalse();
+
+        // P-a328-842 — floor result.
+        var er2 = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "5.0", "Float64", 2L);
+        assertThat(MathToolSuite.isJuliaEcho("floor(2.03e-6 / 400e-9)", er2)).isFalse();
+    }
+
+    @Test
+    void isJuliaEcho_passesThroughLegitimateAtoms() {
+        // Boolean evaluation — legitimate single-token result.
+        var trueResult = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "true", "Bool", 1L);
+        assertThat(MathToolSuite.isJuliaEcho("isprime(7)", trueResult)).isFalse();
+
+        var falseResult = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "false", "Bool", 1L);
+        assertThat(MathToolSuite.isJuliaEcho("isprime(8)", falseResult)).isFalse();
+
+        // Inf / NaN are legitimate numeric atoms in Julia.
+        var infResult = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "Inf", "Float64", 1L);
+        assertThat(MathToolSuite.isJuliaEcho("1/0.0", infResult)).isFalse();
+
+        var nanResult = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "NaN", "Float64", 1L);
+        assertThat(MathToolSuite.isJuliaEcho("0.0/0.0", nanResult)).isFalse();
+    }
+
+    @Test
+    void isJuliaEcho_falseForSymbolicResultsWithStructure() {
+        // A Symbolics expression that returned a structured result (operators,
+        // digits, or whitespace) is NOT an echo even if symbolic.
+        var er = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "x^2 + 2*x + 1", "Symbolics.Num", 4L);
+        assertThat(MathToolSuite.isJuliaEcho("(x + 1)^2", er)).isFalse();
+
+        // Vector / tuple return.
+        var er2 = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "[1, 2, 3]", "Vector{Int64}", 2L);
+        assertThat(MathToolSuite.isJuliaEcho("[1, 2, 3]", er2)).isFalse();
+    }
+
+    @Test
+    void isJuliaEcho_falseOnNullInputs() {
+        var er = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "zeta", "typeof(zeta)", 1L);
+        assertThat(MathToolSuite.isJuliaEcho(null, er)).isFalse();
+        assertThat(MathToolSuite.isJuliaEcho("foo", null)).isFalse();
+        var emptyEr = new com.emergentterrain.llm.JuliaMathClient.EvalResult(
+                "", "Nothing", 1L);
+        assertThat(MathToolSuite.isJuliaEcho("foo", emptyEr)).isFalse();
+    }
+
     // ── End-to-end: actual Symja round-trip via runSymbolic ──────────────
 
     @Test
@@ -126,6 +254,30 @@ class MathToolSuiteSolverEchoTest {
         // It MUST be the actionable error so the LLM treats this as a tool failure.
         assertThat(result).contains("Symbolic solver did not evaluate");
         assertThat(result).contains("NSolve").contains("ArcSin");
+    }
+
+    @Test
+    void runSymbolic_lowercaseSandboxPrimitive_routesToSandboxHint() throws Exception {
+        // P-a328-831 round 0 shape: LLM called `count(p -> isprime(p), 462:1001)`
+        // through run_symbolic. The static-checker rejects `isprime`; the new
+        // hint routes the LLM to run_sandboxed_code instead of bouncing
+        // through budget_fallback retries.
+        MathToolSuite suite = new MathToolSuite(mock(LlmRouter.class), new ObjectMapper());
+        var executor = suite.buildExecutor(stubDraft(), new MathToolSuite.ToolMetrics());
+
+        String toolCall = new ObjectMapper().writeValueAsString(java.util.Map.of(
+                "name", "run_symbolic",
+                "arguments", java.util.Map.of(
+                        "expression", "isprime(7) + isprime(11)",
+                        "rationale", "twin density"
+                )));
+        String result = executor.apply(toolCall);
+
+        assertThat(result).startsWith("REJECTED by safety review:");
+        assertThat(result).contains("isprime");
+        assertThat(result).contains("SandboxEngine number-theoretic primitives");
+        assertThat(result).contains("run_sandboxed_code");
+        assertThat(result).contains("PrimeQ");
     }
 
     @Test
