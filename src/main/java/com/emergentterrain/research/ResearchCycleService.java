@@ -110,6 +110,7 @@ public class ResearchCycleService {
      */
     private volatile com.emergentterrain.research.conjecture.ConjectureTopicProvider conjectureTopicProvider;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setConjectureTopicProvider(
             com.emergentterrain.research.conjecture.ConjectureTopicProvider provider) {
         this.conjectureTopicProvider = provider;
@@ -176,6 +177,23 @@ public class ResearchCycleService {
         }
 
         String domain  = author.getDomain();
+
+        // Phase 23.4b — conjecture-driven branch. When the topic provider
+        // fires (paperShare > 0, queue non-empty), publish a paper
+        // investigating the mined conjecture instead of running the
+        // catalog cycle. The catalog flow continues below if the provider
+        // returns empty. The bot's selectTopic / genome state and
+        // anomalyTracker are intentionally untouched on this branch —
+        // conjecture papers don't roll the catalog at all.
+        if (conjectureTopicProvider != null) {
+            java.util.Optional<com.emergentterrain.research.conjecture.Conjecture> conjecture =
+                    conjectureTopicProvider.selectConjecture(domain, rng);
+            if (conjecture.isPresent()) {
+                publishConjectureInvestigation(roomId, author, conjecture.get(), gameTick, ctx);
+                return;
+            }
+        }
+
         // Phase 7 F3 — when the flag is on, sample uniformly over every registered
         // topic for the bot's domain (current 5 + F3.2–F3.5 additions). When off,
         // keep the weighted-genome selection over the original 5 — bit-identical to
@@ -365,6 +383,124 @@ public class ResearchCycleService {
             pool.stream().filter(r -> r.getBotId().equals(rid)).findFirst()
                 .ifPresent(r -> r.recordPublished(0.1));
         }
+    }
+
+    // ---- Conjecture investigation cycle (Phase 23.4b) ----
+
+    /**
+     * Build and dispatch a {@link PaperDraft} that investigates a mined
+     * conjecture. Bypasses {@code MathPhysicsEngine.compute} and peer
+     * review — the conjecture has already been validated by surviving
+     * the miner's seed/refute/tighten loop across multiple windows. The
+     * paper's hypothesis is the inequality verbatim, findings are a
+     * mining-history template, and the kind is tagged
+     * {@link PaperKind#CONJECTURE_INVESTIGATION} so downstream consumers
+     * can route it differently (different prompt template, different
+     * reviewer panel, different scorecard).
+     *
+     * <p>Skips peer review because the conjecture's peer-review-equivalent
+     * is its existing track record (confirmed runs across configs,
+     * p99Slack, no counterexamples). A future slice can have reviewers
+     * run {@code verify_conjecture} on their own held-out windows; for
+     * v1 the empty reviewer list signals "miner-validated, no human
+     * panel."
+     */
+    void publishConjectureInvestigation(
+            UUID roomId,
+            Researcher author,
+            com.emergentterrain.research.conjecture.Conjecture conjecture,
+            long gameTick,
+            Context ctx) {
+        String paperId = ctx.nextPaperId(roomId);
+        String topicName = "conjecture/" + conjecture.lhs();
+        String title = String.format(
+                "Investigation of bound on %s (%s ≤ %+.4f · %s + %+.4f)",
+                conjecture.lhs(), conjecture.lhs(),
+                conjecture.k(), conjecture.rhs(), conjecture.c());
+        String hypothesis = synthesizeConjectureHypothesis(conjecture);
+        String findings = synthesizeConjectureFindings(conjecture);
+        String conclusion = synthesizeConjectureConclusion(conjecture);
+
+        // Map p99Slack into a peer-equivalent score: tighter (more
+        // negative or near-zero slack with no violations) → higher score.
+        // Saturate at [0.3, 1.0] so even loose-but-confirmed conjectures
+        // get a defensible publication threshold.
+        double slackBudget = 4.0 * com.emergentterrain.research.conjecture.ConjectureEngine.TOL;
+        double normalized = 1.0
+                - (conjecture.p99Slack() + com.emergentterrain.research.conjecture.ConjectureEngine.TOL) / slackBudget;
+        double peerScore = Math.max(0.3, Math.min(1.0, normalized));
+
+        PaperDraft draft = new PaperDraft(
+                roomId, author.getBotId(),
+                author.getDomain(),
+                topicName,
+                title,
+                findings, hypothesis, conclusion,
+                "EMPIRICAL",
+                List.of(),
+                peerScore, peerScore,
+                0.0,
+                gameTick, Instant.now(),
+                author.getGeneration(), paperId,
+                null, null,
+                false,
+                null, null,
+                ctx.getPublishedPapers(roomId, 5),
+                author.getState().getResearchHypothesis(),
+                null,
+                ResultClassification.SUPPORTED,
+                null,
+                PaperKind.CONJECTURE_INVESTIGATION);
+
+        Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
+        if (narratingCallback != null) {
+            draftQueueSize.incrementAndGet();
+            narratingCallback.accept(draft);
+        } else {
+            ctx.publishPaper(draft, new NarrationResult(
+                    hypothesis, findings, conclusion, null, null, 0.5, List.of()));
+        }
+
+        papersSinceTerm.merge(roomId, 1, Integer::sum);
+        author.recordPublished(peerScore);
+        log.info("conjecture investigation queued: room={} bot={} paperId={} conjecture=\"{}\" runs={}",
+                roomId, author.getBotId(), paperId,
+                String.format("%s <= %+.4f * %s + %+.4f",
+                        conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c()),
+                conjecture.confirmedRuns());
+    }
+
+    private static String synthesizeConjectureHypothesis(
+            com.emergentterrain.research.conjecture.Conjecture c) {
+        return String.format(
+                "The math-domain conjecture miner surfaced the inequality `%s ≤ %+.4f · %s + %+.4f` " +
+                        "with %d confirmed runs. This paper investigates whether the bound holds on " +
+                        "held-out windows the miner did not sample.",
+                c.lhs(), c.k(), c.rhs(), c.c(), c.confirmedRuns());
+    }
+
+    private static String synthesizeConjectureFindings(
+            com.emergentterrain.research.conjecture.Conjecture c) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "Mining trace for %s ≤ %+.4f · %s + %+.4f (domain=%s):%n",
+                c.lhs(), c.k(), c.rhs(), c.c(), c.domain()));
+        sb.append(String.format("- Confirmed across %d runs.%n", c.confirmedRuns()));
+        sb.append(String.format("- Worst observed margin (p99 slack): %+.5f.%n", c.p99Slack()));
+        if (c.oeisMatchJson() != null && !c.oeisMatchJson().isEmpty()) {
+            sb.append(String.format("- OEIS annotation present: %s%n", c.oeisMatchJson()));
+        }
+        sb.append("The verify_conjecture tool may be invoked on held-out windows for further evidence.");
+        return sb.toString();
+    }
+
+    private static String synthesizeConjectureConclusion(
+            com.emergentterrain.research.conjecture.Conjecture c) {
+        return String.format(
+                "The inequality has not been refuted in the miner's observed regimes (p99 slack %+.5f " +
+                        "across %d runs). Held-out verification via verify_conjecture is recommended " +
+                        "before promoting this from CONJECTURE to EMPIRICAL_RESULT.",
+                c.p99Slack(), c.confirmedRuns());
     }
 
     // ---- Dynamic cycle ----

@@ -302,14 +302,19 @@ moves to `ConjectureMinerService.next(domain)`. Priorities unchanged:
   copies `draft.kind()` onto `paper.setKind()`; `ResearchCycleService`
   gains a setter for `ConjectureTopicProvider`. **No behavioral change
   yet** — the topic provider isn't called from the cycle.
-- **23.4b actual branch** (next slice, NOT YET SHIPPED) — call
-  `selectConjecture()` at the top of `runStandardCycle`; when it fires,
-  synthesize hypothesis from the conjecture's inequality, synthesize
-  findings from the conjecture's mining history (confirmedRuns,
-  p99Slack, OEIS annotation), tag the PaperDraft with
-  `PaperKind.CONJECTURE_INVESTIGATION`. Skips `MathPhysicsEngine.compute`
-  for the conjecture path. This is where the actual behavioral change
-  lands; split out from infra so both can be reviewed cleanly.
+- **23.4b actual branch** (shipped 2026-05-21) — call
+  `selectConjecture()` at the top of `runCycle`; when it fires,
+  `publishConjectureInvestigation` synthesizes hypothesis from the
+  conjecture's inequality, findings from the conjecture's mining
+  history (confirmedRuns, p99Slack, OEIS annotation), and tags the
+  PaperDraft with `PaperKind.CONJECTURE_INVESTIGATION`. Bypasses
+  `MathPhysicsEngine.compute` and peer review entirely on the
+  conjecture path — the conjecture's peer-review-equivalent is its
+  existing miner track record. `peerScore` is derived from p99Slack
+  (tighter = higher, saturated at [0.3, 1.0]). The empty reviewer list
+  signals "miner-validated, no human panel" for v1. ConjectureTopicProvider
+  setter is `@Autowired(required = false)` so Spring auto-wires it when
+  the foundation bean exists; UniversityService is untouched.
 
 Design departure from the original phase doc: instead of adding a 6th
 genome weight `w5`, the conjecture-driven share is config-driven
