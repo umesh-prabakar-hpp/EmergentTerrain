@@ -30,28 +30,30 @@ met?* / *Decision* columns when REVIEW_REPORT refreshes land. The
 queue closes when every entry has either flipped on or been removed
 as a deliberate keep-off.
 
-**Queue depth**: 0 entries pending (as of 2026-05-18 Tier 5 flip). Tier 1
+**Queue depth**: 0 entries pending (as of 2026-05-21 Tier 6 flip). Tier 1
 (six flags) flipped 2026-05-17 in commit `041671a`. Tier 2 (one flag — F1b
 `block-count-guard`) flipped 2026-05-17 in commit `918ac90`. Tier 3 (three
 flags) flipped 2026-05-18 in commit `5c06acd`. Tier 4 (three flags) flipped
-2026-05-18 in commit `6f50957`. **Tier 5 (four flags: D2 mode, D4
-panel-degradation-demote, F7.3 cherry-picked-rejects, gate-retry) flipped
-2026-05-18 — operator-directed despite three of the four explicit trigger
-conditions being NOT MET (see Tier 5 section below for the per-flag risk
-notes and rollback paths).** This doc now retains only historical "Recently
-flipped" sections; the queue is empty.
+2026-05-18 in commit `6f50957`. Tier 5 (four flags) flipped 2026-05-18 —
+operator-directed despite three trigger conditions NOT MET. **Tier 6 (one
+flag — `unsourced-claim.mode` warn → downgrade) flipped 2026-05-21 after
+the research/a3289005/ batch 821–860 paper-review found 0/8 FP rate on the
+spot-check (acceptance criterion <5% met; see Tier 6 section below).**
+This doc now retains only historical "Recently flipped" sections; the
+queue is empty.
 
 ---
 
 ## Snapshot
 
-**9 of 10** previously-tracked flags are ON; F7.3
+**10 of 11** previously-tracked flags are ON; F7.3
 `audit-cherry-picked-rejects` was rolled back to OFF on 2026-05-20 after
 the 0/5 FP rate that justified the 2026-05-18 flip degraded to 14/20 and
-5/5 firings in successive REVIEW_REPORT refreshes (see §F7.3). One new
-flag joined the queue 2026-05-18 with the P8d ship —
-`unsourced-claim.mode` (currently `warn`, pending warn→downgrade
-escalation after one refresh confirms FP < 5%).
+5/5 firings in successive REVIEW_REPORT refreshes (see §F7.3).
+`unsourced-claim.mode` flipped warn → downgrade 2026-05-21 after the
+research/a3289005/ 821–860 spot-check returned 0/8 FP (every flagged
+value was a real number absent from the tool-call trace — see Tier 6
+section).
 Per-flag rollout history lives in the "Recently flipped" sections below.
 
 | Tier | Flag                                                  | Current | Flipped (commit / date) |
@@ -66,7 +68,7 @@ Per-flag rollout history lives in the "Recently flipped" sections below.
 | 5    | `app.research.panel-degradation-demote.enabled`       | on      | (this commit) 2026-05-18 |
 | 5    | `app.research.audit-cherry-picked-rejects.enabled`    | **off** | rolled back 2026-05-20 — FP-rate regression (see §F7.3) |
 | 5    | `app.research.gate-retry.enabled`                     | on      | (this commit) 2026-05-18 |
-| 6    | `app.research.unsourced-claim.enabled = true, mode = warn` | warn | P8d ship 2026-05-18 — pending warn→downgrade after FP-rate check |
+| 6    | `app.research.unsourced-claim.mode = downgrade`       | downgrade | (this commit) 2026-05-21 — 0/8 FP on a3289005 821–860 spot-check |
 
 **Deployment status (2026-05-18 07:30 EDT):** Running JVM PID 3881 started
 06:50 EDT — picks up Tier 3 and Tier 4 commits but **not** the Tier 5 flips
@@ -74,33 +76,48 @@ in this same commit. App restart required to deploy Tier 5. The previous
 PID-87679 deployment-gap note (it was the prior session's running JVM)
 is obsolete and was cleared from STATUS.md in the same commit as Tier 5.
 
-## Pending — Tier 6 (P8d warn → downgrade)
+## Recently flipped — Tier 6 (2026-05-21, FP-rate gated)
 
 **Flag:** `app.research.unsourced-claim.mode`.
-**Current:** `warn` (shipped 2026-05-18 with `enabled: true`).
+**Current:** `downgrade` (this commit). Was `warn` (shipped 2026-05-18
+with `enabled: true`).
 **File:** `src/main/resources/application.yml` under `unsourced-claim:`.
 
-**What flipping it does:** Mode escalation `warn → downgrade` routes
+**What flipping it did:** Mode escalation `warn → downgrade` now routes
 papers with an `unsourced_claim:<type>` failure to NEEDS_REVISION with
-`publish:unsourced_claim:<type>→needs_revision` on the call_path.
-warn mode logs+stamps (`...→unsourced_claim:<type>:warn`) without
+`publish:unsourced_claim:<type>→needs_revision` on the call_path. Prior
+warn mode logged+stamped (`...→unsourced_claim:<type>:warn`) without
 changing status.
 
-**Trigger condition:** One REVIEW_REPORT refresh under warn mode with
-operator review of the stamped papers' FP rate. If FP rate < 5% on the
-{derivative, uncertainty, error, plus_minus} trigger classes
-(spot-check 5-10 stamped papers), flip mode to `downgrade`. Mirrors
-the D2 numerical-consistency escalation discipline.
+**Trigger condition (met):** One REVIEW_REPORT refresh under warn mode
+with operator review of the stamped papers' FP rate; threshold <5%.
+The 2026-05-21 refresh of `research/a3289005/` batch P-a328-821 …
+P-a328-860 (14 papers; see `research/a3289005/REVIEW_REPORT.md`)
+showed 8 papers carrying unsourced-claim flags with **0/8 false
+positives** on spot-check — every flagged value was a real number
+absent from the tool-call trace. Examples:
+- P-a328-821: paper cites baseline=0.143 in prose; trace shows 0.05.
+- P-a328-838: paper cites mean=120 in prose; trace shows mean=37 ± 7.
+- P-a328-845: paper cites "0.95" in prose; trace shows max-err=1.50°.
+- P-a328-860: paper cites "21°" and "24°" in prose; trace shows
+  optimal=26°.
 
-**Risk:** Medium. Sentence-scoped regex for "derivative / uncertainty /
-error" is fuzzy; legitimate prose that puts the `[call_N]` in a
-neighboring sentence will FP. Mitigation: warn mode first, FP-rate
-review before escalation. Reversible by setting mode back to warn.
+**Risk (unchanged):** Medium. Sentence-scoped regex for "derivative /
+uncertainty / error" is fuzzy; legitimate prose that puts the
+`[call_N]` in a neighboring sentence may FP. The 0/8 FP rate on this
+batch is encouraging but isn't a guarantee at larger sample sizes —
+re-check on the next refresh under downgrade mode.
 
-**Acceptance:** ≥1 paper carrying
-`publish:unsourced_claim:<type>:warn` on the call_path in the next
-refresh (proves the validator fires on real prose); ≤5% spot-check FP
-rate before mode flip.
+**Rollback:** Set `mode: warn` in `application.yml:678` and restart.
+Per-paper, no state cleanup needed — papers already downgraded retain
+their NEEDS_REVISION status; the rollback only affects future publishes.
+
+**Acceptance for the Tier 6 batch:** Next REVIEW_REPORT refresh against
+research/a3289005/ should show ≥1 paper with
+`publish:unsourced_claim:<type>→needs_revision` on the call_path (proves
+the new mode routes correctly). FP rate continues to be observable —
+if any subsequent refresh shows >5% FP across the unsourced-claim
+flags, revert to `warn`.
 
 ---
 

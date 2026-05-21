@@ -673,9 +673,16 @@ app:
     # Default: enabled+warn for rollout. Flip mode to downgrade after one
     # refresh confirms FP rate < 5%. Sample-size claims are deliberately
     # NOT flagged here — they're SinglePointSweepValidator's territory.
+    # 2026-05-21 warn → downgrade. Tier 6 promotion: refresh of
+    # research/a3289005/ batch 821–860 (14 papers) found 8 unsourced-claim
+    # firings, FP rate effectively 0/8 in spot-check (every flagged value
+    # was a real number absent from the tool-call trace — e.g. 821 prose
+    # vs 0.05 result, 838 mean=37 vs claimed 120, 845 "0.95" vs
+    # max-err=1.50, 860 "21°/24°" vs optimal=26°). Acceptance criterion in
+    # phase-flags.md Tier 6 met. Rollback: set mode back to `warn`.
     unsourced-claim:
       enabled: true
-      mode: warn
+      mode: downgrade
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does
