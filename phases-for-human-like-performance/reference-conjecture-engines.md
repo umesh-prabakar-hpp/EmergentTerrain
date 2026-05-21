@@ -243,3 +243,45 @@ degree, expand the relation, collect powers of `k`, and solve the
 resulting linear system. Once `F` satisfies such a recurrence,
 **summing over `k`** yields a recurrence for `S(n)`. Predates and
 inspired Gosper/Zeilberger; less efficient but conceptually clean.
+
+---
+
+## Open-source status
+
+About half of the engines below are open source. The rest are either
+closed, historical and never publicly released, or "the algorithm is
+public domain but the original implementation was never distributed."
+
+Legend: ✅ open source · ⚠️ partial/unclear/web-only · ❌ closed or unreleased.
+
+| Engine | Status | Where |
+|---|---|---|
+| Ramanujan Machine | ✅ Open source | `github.com/RamanujanMachine` (Python, MIT) |
+| PSLQ | ✅ Algorithm public; OSS impls | `mpmath`, SymPy, Bailey's MPFUN/ARPREC |
+| LLL | ✅ Algorithm public; OSS impls | FPLLL, NTL, SageMath, PARI/GP |
+| Inverse Symbolic Calculator | ⚠️ Web service, source not released | Hosted at CECM/Wolfram; query-only |
+| OEIS + Superseeker | ✅ Open data + scripts | `oeis.org`; content CC BY-NC, code on GitHub |
+| Graffiti (Fajtlowicz) | ❌ Never released | Conjectures published, source not distributed |
+| Graffiti.pc (DeLaViña) | ❌ Binary-only on request | Not open source |
+| AutoGraphiX (AGX) | ❌ Academic binary | GERAD distributes binaries; source closed |
+| Conjecturing (Larson/Van Cleemput) | ✅ Open source | `github.com/nvcleemp/conjecturing` (GPL, Sage) |
+| GrInvIn | ✅ Free download | Java app from Ghent group; educational license |
+| AM (Lenat) | ❌ Historical, not released | LISP code never officially open-sourced |
+| EURISKO | ❌ Famously unreleased | Lenat kept source private; partial leaks only |
+| HR / HR3 (Colton) | ⚠️ Research code, status unclear | Some versions circulated; no public OSS repo |
+| Eureqa | ❌ Proprietary | Nutonian → DataRobot; free-for-academia build gone |
+| AI Feynman | ✅ Open source | `github.com/SJ001/AI-Feynman` (MIT) |
+| PySR | ✅ Open source | `github.com/MilesCranmer/PySR` (Apache 2.0) |
+| AlphaGeometry | ✅ Open source (v1) | `github.com/google-deepmind/alphageometry` (Apache 2.0); AG2 only partial |
+| AlphaProof | ❌ Not released | DeepMind paper only; no public code |
+| Zeilberger / WZ | ✅ Algorithm public; OSS impls | SymPy, SageMath, Maple `SumTools`; EKHAD (Zeilberger) free |
+| Gosper's algorithm | ✅ OSS impls | SymPy, SageMath, Maple, Mathematica |
+| Sister Celine's method | ✅ OSS impls | EKHAD (free), SymPy |
+
+**Practical takeaway for the `scripts/graffiti/` and
+`scripts/conjecture-miner/` lanes:** the closest cousin that can
+actually be linked against and studied is **Conjecturing** (Larson &
+Van Cleemput) — Sage-based, GPL, and explicitly generalizes the
+Dalmatian heuristic to arbitrary `(object, invariant)` tuples. The
+original Graffiti, Graffiti.pc, and AGX are all behind closed doors,
+so they're useful as design references but not as drop-in dependencies.
