@@ -47,3 +47,7 @@ scratch.txt
 
 # Maven Shade
 dependency-reduced-pom.xml
+
+# Python bytecode caches (scripts/graffiti and any other ad-hoc Python tools)
+__pycache__/
+*.pyc
