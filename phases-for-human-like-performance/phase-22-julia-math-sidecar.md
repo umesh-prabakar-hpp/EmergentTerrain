@@ -268,17 +268,57 @@ live integration). Live integration runs against the actual sidecar
 on `localhost:8088` and confirms the client-side filter catches
 forbidden tokens before the HTTP request leaves the JVM.
 
-### 22.4 — Echo detection migration
+### 22.4 — Dual-syntax tool descriptions + echo migration — **LANDED 2026-05-20**
 
-The Symja `ECHO_PRONE_HEADS` (`Solve`, `Reduce`, `Roots`, `FindRoot`,
-`DSolve`, `NSolve`, `Integrate`, `Sum`, `Product`) was needed because
-Symja returns its input unevaluated when it can't crack a problem.
-Julia's recovery story is cleaner: `solve()` returns symbolic-only when
-no closed form exists, but a follow-up `nsolve(expr, var, guess)` finds
-numeric roots without needing client-side `N[…]` rewriting.
+Original 22.4 scope was narrower (remove `ECHO_PRONE_HEADS` when
+Julia is active). On reflection during 22.2/22.3 implementation, the
+larger blocker for `app.julia.enabled=true` becoming useful was that
+the tool descriptions still ask the LLM for Mathematica syntax —
+which Julia's parser doesn't accept. Expanded 22.4 to cover both:
 
-Remove `ECHO_PRONE_HEADS` from `MathToolSuite` when the Julia path is
-active. **Effort: ½ day.**
+1. **Dual-syntax tool descriptions** in `MathToolSuite.toolsJson()`.
+   `run_symbolic` and `evaluate_symbolic` now have two description
+   variants each — one Mathematica/Symja-flavoured (the existing
+   default), one native-Julia. The variant served is selected at
+   call time based on `juliaMathClient != null && isAvailable()`.
+   When Julia is unreachable or disabled, the Symja description is
+   served so the LLM emits inputs the fallback path handles.
+2. **Echo detection** stays in the Symja fallback. The Julia path
+   doesn't need it — `Symbolics.symbolic_solve` returns `nothing`
+   (caught by the `/solve` handler as `symbolic_failed`) rather than
+   echoing the input. `/nsolve` is the natural follow-up call shape.
+   Since the existing code structure tries Julia first and falls
+   through on `JuliaMathException`, the Symja echo-detection logic
+   only runs when Symja is actually the back-end. No change needed —
+   the existing fall-through pattern handles this correctly.
+
+The Symja `ECHO_PRONE_HEADS` (`Solve`, `Reduce`, `Roots`,
+`FindRoot`, `DSolve`, `NSolve`, `Integrate`, `Sum`, `Product`)
+retry-with-`N[…]` plumbing stays in place; it only fires on the
+Symja path. **Effort: ½ day (descriptions); 0 days (echo detection
+— architecture handled it for free).**
+
+**Status (2026-05-20):** SHIPPED. Files added/modified:
+
+- `src/main/java/com/emergentterrain/service/MathToolSuite.java` —
+  new constants `RUN_SYMBOLIC_DESC_SYMJA`, `RUN_SYMBOLIC_DESC_JULIA`,
+  `EVALUATE_SYMBOLIC_DESC_SYMJA`, `EVALUATE_SYMBOLIC_DESC_JULIA`.
+  New `useJuliaDescriptions()` predicate and `jsonEncode()` helper
+  for safely interpolating the long descriptions into the JSON
+  text block.
+- `src/test/java/com/emergentterrain/service/MathToolSuiteToolDescriptionTest.java`
+  — new, 7 cases: null Julia client serves Symja descriptions,
+  disabled client serves Symja, available client serves Julia,
+  `evaluate_symbolic` description swaps too (with native `^` not
+  `**`), every combination produces valid parse-clean JSON,
+  `jsonEncode` escapes correctly.
+
+**Acceptance:** all 44 Julia-related tests pass (12 filter + 18
+client + 7 live integration + 7 description). The Julia descriptions
+include corpus-relevant examples (Bragg floor, pendulum series,
+abundant density) so when `app.julia.enabled=true` the LLM has
+working templates for the exact shapes that gave Symja trouble in
+the recent corpus.
 
 ### 22.5 — Sandbox-limit relaxation for Julia path
 

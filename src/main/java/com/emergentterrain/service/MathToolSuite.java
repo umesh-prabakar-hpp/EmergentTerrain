@@ -167,7 +167,122 @@ public class MathToolSuite {
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
+    /**
+     * Phase 22 §22.4 — Mathematica-syntax description for the
+     * {@code run_symbolic} tool. Used when the Julia sidecar is NOT
+     * available (or {@code app.julia.enabled=false}). Symja is the
+     * back-end; the LLM emits {@code Solve[…]} / {@code Integrate[…]}
+     * / {@code arcsin(…)} etc.
+     */
+    private static final String RUN_SYMBOLIC_DESC_SYMJA =
+            "Evaluate a SYMBOLIC math expression using Symja (Mathematica-like syntax). Use to "
+                    + "(a) verify a claimed derivative or integral has the closed form the paper "
+                    + "states, (b) check that two expressions are equivalent after simplification, "
+                    + "(c) compute a Series expansion at a point, (d) Solve an equation for its "
+                    + "symbolic roots, (e) Simplify a long algebraic form. Returns the simplified "
+                    + "output AND a numeric approximation if the result is a finite number. "
+                    + "Examples: 'Integrate[Sin[x]^2, {x, 0, Pi}]' (→ Pi/2, numeric 1.5708), "
+                    + "'D[x^3 + 2*x, x]' (→ 2 + 3*x^2), 'Solve[x^2 - 5*x + 6 == 0, x]' "
+                    + "(→ {{x->2}, {x->3}}), 'Simplify[Sin[x]^2 + Cos[x]^2]' (→ 1), "
+                    + "'Series[Exp[x], {x, 0, 4}]'. Allowed heads include arithmetic, calculus "
+                    + "(Integrate, D, Limit, Series, Sum, Product), algebra (Solve, Simplify, "
+                    + "Expand, Factor), trig, exp/log, special functions (Gamma, Erf, BesselJ, "
+                    + "Zeta), number theory (PrimeQ, MoebiusMu, EulerPhi). REJECTED: I/O (Import, "
+                    + "Export, Get, Put), network (URLFetch), process (Run), state mutation (Set, "
+                    + "Clear), JVM escape (Java, JavaClass), ToExpression, Compile. Wall-clock "
+                    + "cap 3s; iteration cap 100k.";
+
+    /**
+     * Phase 22 §22.4 — native-Julia-syntax description for
+     * {@code run_symbolic}. Used when the Julia sidecar is available
+     * AND opt-in (`app.julia.enabled=true`). The LLM should emit
+     * native Julia: {@code solve(...)} not {@code Solve[...]},
+     * {@code asin(x)} not {@code ArcSin[x]}, {@code floor(x)} not
+     * {@code Floor[x]}, {@code x^2} (same in both).
+     *
+     * <p>Why switch instead of translate: the LLM is at least as
+     * fluent in Julia as in Mathematica (academic + ML representation
+     * in training data); having one syntactic surface eliminates the
+     * `^→**` / `=→==` / `Solve→symbolic_solve` rewriters that
+     * Phase 21 §21.5 needed when the back-end was Symja.
+     */
+    private static final String RUN_SYMBOLIC_DESC_JULIA =
+            "Evaluate a SYMBOLIC math expression using Julia's Symbolics.jl back-end (NATIVE "
+                    + "JULIA SYNTAX, not Mathematica). Use to (a) verify a claimed derivative or "
+                    + "integral has the closed form the paper states, (b) check that two "
+                    + "expressions are equivalent after simplification, (c) Solve an equation for "
+                    + "its symbolic roots, (d) compute a Float64 approximation of any expression. "
+                    + "Returns the stringified value and Julia type. Examples: "
+                    + "'floor(2.04e-6 / 400e-9)' (→ \"5.0\", Float64), "
+                    + "'asin(0.154/(2*0.112)) * 180/π' (→ ~43.43, Float64), "
+                    + "'(let θ = 25π/180, s = sin(θ/2)^2; (1 + s/4) * 100 end)' "
+                    + "(→ ~1.20, period-error % at 25°), "
+                    + "'sum(1/k^2 for k in 1:1000)' (→ ~1.6439, partial Basel sum), "
+                    + "'(let σ(n) = sum(d for d in 1:n if n%d==0); count(n -> σ(n)>2n, 200:399)/200 end)' "
+                    + "(→ density of abundant numbers in [200,400)). Allowed: arithmetic, "
+                    + "elementary functions (sin, cos, tan, asin, acos, atan, exp, log, sqrt, "
+                    + "cbrt, abs, floor, ceil, round, sign), special constants π, ℯ (e), Inf, "
+                    + "NaN, BigInt / BigFloat for arbitrary precision, list comprehensions "
+                    + "(`[expr for x in 1:N]`), let/begin/end scoping, anonymous functions "
+                    + "(`x -> expr`), reductions (sum, prod, count, minimum, maximum), filtering "
+                    + "(`count(pred, iter)`, `filter(pred, iter)`). For symbolic root finding "
+                    + "use a separate call shape (the sidecar exposes /solve and /nsolve "
+                    + "endpoints internally); for direct equation solving from this tool, frame "
+                    + "as a numeric expression. REJECTED: I/O (open, read, write, download, "
+                    + "include), shell exec (run, backticks), package management (Pkg.add, "
+                    + "using Pkg), FFI (ccall, unsafe_), process control (exit, Sys., ENV[), "
+                    + "direct evaluator access (eval, @eval, Meta.parse). Wall-clock cap 5s.";
+
+    /**
+     * Phase 22 §22.4 — Symja-back-end description for
+     * {@code evaluate_symbolic}. Uses SandboxEngine's restricted
+     * grammar with {@code **} for power (not {@code ^}, which the
+     * sandbox parser doesn't accept — see Phase 21 §21.5).
+     */
+    private static final String EVALUATE_SYMBOLIC_DESC_SYMJA =
+            "Evaluate a mathematical expression f(n) for each integer n in [range_start, "
+                    + "range_end) and return mean/std/min/max. Use to verify whether a claimed "
+                    + "formula is empirically consistent.";
+
+    /**
+     * Phase 22 §22.4 — Julia-back-end description for
+     * {@code evaluate_symbolic}. Native Julia syntax — {@code ^} for
+     * power (no rewrite needed), full library access.
+     */
+    private static final String EVALUATE_SYMBOLIC_DESC_JULIA =
+            "Evaluate a mathematical expression f(n) over a numeric range and return "
+                    + "mean/std/min/max via Julia's QuadGK/Statistics back-end. NATIVE JULIA "
+                    + "SYNTAX. The variable is `n`. Examples: 'n^2' (squares over the range), "
+                    + "'sin(n*π/180)' (sine of degrees), '1/n' (harmonic terms). Range size "
+                    + "is capped at 1000.";
+
+    /**
+     * Pick the right description pair based on whether the Julia
+     * sidecar will actually serve the call. When the bean is null,
+     * disabled, or unreachable, the existing Symja / SandboxEngine
+     * path takes the call and the description must match its syntax.
+     */
+    private boolean useJuliaDescriptions() {
+        return juliaMathClient != null && juliaMathClient.isAvailable();
+    }
+
     public String toolsJson(boolean includeDynamic) {
+        // Phase 22 §22.4 — pick syntax-flavour descriptions based on
+        // whether the Julia sidecar will actually serve the call.
+        // Computed once at the top of the method so the text block
+        // can interpolate them all in a single `.formatted(...)`.
+        boolean julia = useJuliaDescriptions();
+        String evalSymDesc = jsonEncode(julia
+                ? EVALUATE_SYMBOLIC_DESC_JULIA : EVALUATE_SYMBOLIC_DESC_SYMJA);
+        String evalSymExprDesc = jsonEncode(julia
+                ? "A native-Julia arithmetic expression in n. Allowed: +,-,*,/,^,sqrt,log,abs,floor,ceil,sin,cos,tan,exp,min,max"
+                : "A pure arithmetic expression in n. Allowed: +,-,*,/,**,sqrt,log,abs,floor,ceil,pow,min,max");
+        String runSymDesc = jsonEncode(julia
+                ? RUN_SYMBOLIC_DESC_JULIA : RUN_SYMBOLIC_DESC_SYMJA);
+        String runSymExprDesc = jsonEncode(julia
+                ? "A native-Julia expression. Parens () for function application; brackets [] for arrays. Use ^ for power. Examples in the description above."
+                : "A Symja expression in full-form or operator-form syntax. Brackets [] for function application; {} for lists.");
+
         String dynamicTool = includeDynamic ? """
                 ,{
                   "type":"function",
@@ -192,11 +307,11 @@ public class MathToolSuite {
                   "type":"function",
                   "function":{
                     "name":"evaluate_symbolic",
-                    "description":"Evaluate a mathematical expression f(n) for each integer n in [range_start, range_end) and return mean/std/min/max. Use to verify whether a claimed formula is empirically consistent.",
+                    "description":%s,
                     "parameters":{
                       "type":"object",
                       "properties":{
-                        "expression":{"type":"string","description":"A pure arithmetic expression in n. Allowed: +,-,*,/,**,sqrt,log,abs,floor,ceil,pow,min,max"},
+                        "expression":{"type":"string","description":%s},
                         "range_start":{"type":"integer","description":"Range start"},
                         "range_end":{"type":"integer","description":"Range end (range_end − range_start ≤ 1000)"},
                         "rationale":{"type":"string","description":"Why this formula test addresses a weakness"}
@@ -204,7 +319,7 @@ public class MathToolSuite {
                       "required":["expression","range_start","range_end","rationale"]
                     }
                   }
-                }""" : "";
+                }""".formatted(evalSymDesc, evalSymExprDesc) : "";
 
         return """
                 [{
@@ -244,11 +359,11 @@ public class MathToolSuite {
                   "type":"function",
                   "function":{
                     "name":"run_symbolic",
-                    "description":"Evaluate a SYMBOLIC math expression using Symja (Mathematica-like syntax). Use to (a) verify a claimed derivative or integral has the closed form the paper states, (b) check that two expressions are equivalent after simplification, (c) compute a Series expansion at a point, (d) Solve an equation for its symbolic roots, (e) Simplify a long algebraic form. Returns the simplified output AND a numeric approximation if the result is a finite number. Examples: 'Integrate[Sin[x]^2, {x, 0, Pi}]' (→ Pi/2, numeric 1.5708), 'D[x^3 + 2*x, x]' (→ 2 + 3*x^2), 'Solve[x^2 - 5*x + 6 == 0, x]' (→ {{x->2}, {x->3}}), 'Simplify[Sin[x]^2 + Cos[x]^2]' (→ 1), 'Series[Exp[x], {x, 0, 4}]'. Allowed heads include arithmetic, calculus (Integrate, D, Limit, Series, Sum, Product), algebra (Solve, Simplify, Expand, Factor), trig, exp/log, special functions (Gamma, Erf, BesselJ, Zeta), number theory (PrimeQ, MoebiusMu, EulerPhi). REJECTED: I/O (Import, Export, Get, Put), network (URLFetch), process (Run), state mutation (Set, Clear), JVM escape (Java, JavaClass), ToExpression, Compile. Wall-clock cap 3s; iteration cap 100k.",
+                    "description":%s,
                     "parameters":{
                       "type":"object",
                       "properties":{
-                        "expression":{"type":"string","description":"A Symja expression in full-form or operator-form syntax. Brackets [] for function application; {} for lists."},
+                        "expression":{"type":"string","description":%s},
                         "rationale":{"type":"string","description":"Why this symbolic check addresses a specific weakness in the paper"}
                       },
                       "required":["expression","rationale"]
@@ -271,7 +386,7 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }]""".formatted(dynamicTool);
+                }]""".formatted(dynamicTool, runSymDesc, runSymExprDesc);
     }
 
     // ── Executor factory ──────────────────────────────────────────────────────
@@ -496,6 +611,38 @@ public class MathToolSuite {
      * {@code run_symbolic} path is unaffected — {@code ^} is its native
      * power operator and lexes to {@code Power[…]} directly.
      */
+    /**
+     * Phase 22 §22.4 — JSON-encode a Java string as a JSON string
+     * literal (including surrounding double quotes). Used by
+     * {@link #toolsJson} so the long Mathematica / Julia tool
+     * descriptions can be swapped in without hand-escaping every
+     * backslash and quote. Conservative subset — escapes only the
+     * characters that JSON requires.
+     */
+    static String jsonEncode(String s) {
+        if (s == null) return "null";
+        StringBuilder out = new StringBuilder(s.length() + 16);
+        out.append('"');
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '"'  -> out.append("\\\"");
+                case '\\' -> out.append("\\\\");
+                case '\n' -> out.append("\\n");
+                case '\r' -> out.append("\\r");
+                case '\t' -> out.append("\\t");
+                case '\b' -> out.append("\\b");
+                case '\f' -> out.append("\\f");
+                default -> {
+                    if (c < 0x20) out.append(String.format("\\u%04x", (int) c));
+                    else out.append(c);
+                }
+            }
+        }
+        out.append('"');
+        return out.toString();
+    }
+
     static String rewriteCaretToStarStar(String expression, String toolName) {
         if (expression == null || expression.indexOf('^') < 0) return expression;
         String rewritten = expression.replace("^", "**");
