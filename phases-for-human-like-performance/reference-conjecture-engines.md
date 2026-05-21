@@ -254,34 +254,41 @@ public domain but the original implementation was never distributed."
 
 Legend: ✅ open source · ⚠️ partial/unclear/web-only · ❌ closed or unreleased.
 
-| Engine | Status | Where |
+Links verified 2026-05-21 via `gh api` / web search. Star counts shown
+for GitHub repos as a rough liveness signal.
+
+| Engine | Status | Repo / link |
 |---|---|---|
-| Ramanujan Machine | ✅ Open source | `github.com/RamanujanMachine` (Python, MIT) |
-| PSLQ | ✅ Algorithm public; OSS impls | `mpmath`, SymPy, Bailey's MPFUN/ARPREC |
-| LLL | ✅ Algorithm public; OSS impls | FPLLL, NTL, SageMath, PARI/GP |
-| Inverse Symbolic Calculator | ⚠️ Web service, source not released | Hosted at CECM/Wolfram; query-only |
-| OEIS + Superseeker | ✅ Open data + scripts | `oeis.org`; content CC BY-NC, code on GitHub |
-| Graffiti (Fajtlowicz) | ❌ Never released | Conjectures published, source not distributed |
-| Graffiti.pc (DeLaViña) | ❌ Binary-only on request | Not open source |
-| AutoGraphiX (AGX) | ❌ Academic binary | GERAD distributes binaries; source closed |
-| Conjecturing (Larson/Van Cleemput) | ✅ Open source | `github.com/nvcleemp/conjecturing` (GPL, Sage) |
-| GrInvIn | ✅ Free download | Java app from Ghent group; educational license |
-| AM (Lenat) | ❌ Historical, not released | LISP code never officially open-sourced |
-| EURISKO | ❌ Famously unreleased | Lenat kept source private; partial leaks only |
-| HR / HR3 (Colton) | ⚠️ Research code, status unclear | Some versions circulated; no public OSS repo |
-| Eureqa | ❌ Proprietary | Nutonian → DataRobot; free-for-academia build gone |
-| AI Feynman | ✅ Open source | `github.com/SJ001/AI-Feynman` (MIT) |
-| PySR | ✅ Open source | `github.com/MilesCranmer/PySR` (Apache 2.0) |
-| AlphaGeometry | ✅ Open source (v1) | `github.com/google-deepmind/alphageometry` (Apache 2.0); AG2 only partial |
-| AlphaProof | ❌ Not released | DeepMind paper only; no public code |
-| Zeilberger / WZ | ✅ Algorithm public; OSS impls | SymPy, SageMath, Maple `SumTools`; EKHAD (Zeilberger) free |
-| Gosper's algorithm | ✅ OSS impls | SymPy, SageMath, Maple, Mathematica |
-| Sister Celine's method | ✅ OSS impls | EKHAD (free), SymPy |
+| Ramanujan Machine | ✅ Open source | https://github.com/RamanujanMachine/RamanujanMachine (Python, ~352★); newer toolkit at https://github.com/RamanujanMachine/ramanujantools (MIT) |
+| PSLQ | ✅ OSS impls | mpmath: https://github.com/mpmath/mpmath (BSD-3, ~1.1k★); SymPy: https://github.com/sympy/sympy; Bailey's MPFUN at https://www.davidhbailey.com/dhbsoftware/ |
+| LLL | ✅ OSS impls | FPLLL: https://github.com/fplll/fplll (LGPL-2.1, ~405★); NTL (Shoup): https://libntl.org/ (LGPL); SageMath: https://github.com/sagemath/sage; PARI/GP: https://pari.math.u-bordeaux.fr/ |
+| Inverse Symbolic Calculator | ⚠️ Web service, source not released | Query at https://isc.carma.newcastle.edu.au/ (Bailey/Borwein-era ISC+) — query-only, no source |
+| OEIS + Superseeker | ✅ Open data + scripts | Data: https://github.com/oeis/oeisdata (content CC BY-NC, ~125★); Superseeker invoked via https://oeis.org/ovgf.html |
+| Graffiti (Fajtlowicz) | ❌ Never released | Conjectures catalogued at https://cms.dt.uh.edu/faculty/delavinae/research/wowref.htm; source not distributed |
+| Graffiti.pc (DeLaViña) | ❌ Binary-only | Same UH page; binary requests via DeLaViña |
+| AutoGraphiX (AGX) | ❌ Academic binary | GERAD page: https://www.gerad.ca/en/software/agx — binary distribution to academics |
+| Conjecturing (Larson/Van Cleemput) | ✅ Open source | https://github.com/nvcleemp/conjecturing (Sage); project page https://nvcleemp.github.io/conjecturing/; companion data: https://github.com/math1um/objects-invariants-properties (GPL-3.0) |
+| GrInvIn | ✅ Free download | http://www.grinvin.org/ (Java); graph DB sister project: https://hog.grinvin.org/ |
+| AM (Lenat) | ❌ Historical, not released | LISP source never officially distributed |
+| EURISKO | ❌ Famously unreleased | Lenat kept source private; partial decompilations only |
+| HR / HR3 (Colton) | ⚠️ No official repo | Colton's HR3 not released; spiritual successor `HRLPlus` (multi-agent, Lakatos-style) at https://github.com/dshea89/HRLPlus |
+| Eureqa | ❌ Proprietary | Nutonian → DataRobot; free-for-academia build no longer hosted |
+| AI Feynman | ✅ Open source | https://github.com/SJ001/AI-Feynman (MIT, ~758★) |
+| PySR | ✅ Open source | https://github.com/MilesCranmer/PySR (Apache-2.0, ~3.5k★) |
+| AlphaGeometry | ✅ Open source (v1) | https://github.com/google-deepmind/alphageometry (Apache-2.0, ~4.8k★) |
+| AlphaGeometry 2 | ⚠️ Partial release | https://github.com/google-deepmind/alphageometry2 (Apache-2.0) — symbolic DDAR engine + examples only; LM weights/training pipeline not released |
+| AlphaProof | ❌ Not released | DeepMind paper only; no public code or weights |
+| Zeilberger / WZ | ✅ OSS impls | Zeilberger's Maple packages (incl. EKHAD): https://sites.math.rutgers.edu/~zeilberg/programs.html and https://sites.math.rutgers.edu/~zeilberg/programsAB.html; SymPy: https://docs.sympy.org/latest/modules/concrete.html |
+| Gosper's algorithm | ✅ OSS impls | SymPy `gosper_sum`; SageMath; Maple `SumTools[Hypergeometric][Gosper]` |
+| Sister Celine's method | ✅ OSS impls | Bundled in EKHAD; SymPy `Sum.rewrite`/`hyperexpand` machinery |
 
 **Practical takeaway for the `scripts/graffiti/` and
-`scripts/conjecture-miner/` lanes:** the closest cousin that can
-actually be linked against and studied is **Conjecturing** (Larson &
-Van Cleemput) — Sage-based, GPL, and explicitly generalizes the
-Dalmatian heuristic to arbitrary `(object, invariant)` tuples. The
+`scripts/conjecture-miner/` lanes:** the closest cousin that can be
+linked against and studied is **Conjecturing** at
+`github.com/nvcleemp/conjecturing` — Sage-based, explicitly generalizes
+the Dalmatian heuristic to arbitrary `(object, invariant)` tuples, and
+paired with Larson's open `objects-invariants-properties` data repo. The
 original Graffiti, Graffiti.pc, and AGX are all behind closed doors,
-so they're useful as design references but not as drop-in dependencies.
+useful as design references but not as drop-in dependencies. For the
+math-substrate lane, **mpmath** (PSLQ) + **FPLLL** (LLL) cover
+integer-relation finding without leaving Python/C++.
