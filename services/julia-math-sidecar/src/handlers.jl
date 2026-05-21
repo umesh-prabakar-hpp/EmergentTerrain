@@ -380,7 +380,13 @@ function handle_nsolve(req::HTTP.Request)
         fn = Main.eval(:($(Symbol(var_str)) -> $parsed))
         # Convert x0 to the right type for Roots.find_zero.
         x0_typed = x0 isa AbstractArray ? Float64.(x0) : Float64(x0)
-        Roots.find_zero(fn, x0_typed)
+        # `Base.invokelatest` sidesteps Julia's world-age trap: the
+        # `fn` we just `Main.eval`-ed is "newer" than the surrounding
+        # task's world, so a direct `Roots.find_zero(fn, x0)` would
+        # raise `MethodError: ... method too new to be called from
+        # this world context`. invokelatest dispatches in the current
+        # world. Repeated below in /integrate and /sweep handlers.
+        Base.invokelatest(Roots.find_zero, fn, x0_typed)
     end
 
     elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
@@ -454,8 +460,9 @@ function handle_integrate(req::HTTP.Request)
         fn = Main.eval(:($(Symbol(var_str)) -> $parsed))
         # QuadGK returns (value, error_estimate). We return both — the
         # error estimate is useful for the caller to decide whether to
-        # tighten tolerances or accept the result.
-        QuadGK.quadgk(fn, a, b)
+        # tighten tolerances or accept the result. `invokelatest`
+        # dispatches in the current world — see /nsolve handler for why.
+        Base.invokelatest(QuadGK.quadgk, fn, a, b)
     end
 
     elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
@@ -541,7 +548,8 @@ function handle_sweep(req::HTTP.Request)
         a = Float64(start_v); b = Float64(end_v)
         # Uniform grid of `samples` points across [a, b].
         xs = collect(range(a, b, length=samples))
-        ys = [Float64(fn(x)) for x in xs]
+        # `invokelatest` because `fn` was just eval'd — see /nsolve.
+        ys = [Float64(Base.invokelatest(fn, x)) for x in xs]
         n = length(ys)
         mu = sum(ys) / n
         # Population std (denom=n). Sufficient for diagnostic stats.

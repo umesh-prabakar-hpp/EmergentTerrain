@@ -122,9 +122,11 @@ function metrics_snapshot()
             "latency_ms_avg"       => round(latency_avg, digits=2),
         )
     end
-    uptime_s = PROCESS_START_NANOS[] == 0
-        ? 0.0
-        : round((time_ns() - PROCESS_START_NANOS[]) / 1e9, digits=2)
+    uptime_s = if PROCESS_START_NANOS[] == 0
+        0.0
+    else
+        round((time_ns() - PROCESS_START_NANOS[]) / 1e9, digits=2)
+    end
     return Dict(
         "endpoints" => endpoints,
         "uptime_s"  => uptime_s,

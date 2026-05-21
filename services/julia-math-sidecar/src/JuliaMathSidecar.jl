@@ -46,7 +46,6 @@ module JuliaMathSidecar
 using HTTP
 using JSON3
 using Logging
-using Dates
 
 # Public surface — entry point from the module-loader script.
 export start_server!

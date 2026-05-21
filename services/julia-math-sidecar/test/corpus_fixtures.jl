@@ -128,17 +128,20 @@ function run_corpus_fixtures(base::String)
     # =====================================================================
     # P-a328-693 — Total Internal Reflection with inverted indices.
     # Original Mathematica: arcsin(1.577/1.50)
-    # Physics: TIR requires n₁ > n₂; with n₂ > n₁, arcsin(n₂/n₁) > 1
-    # has no real solution. Julia's asin returns NaN for |x|>1.
-    # The test pins that the sidecar surfaces NaN rather than throwing.
+    # Physics: TIR requires n₁ > n₂; with n₂ > n₁, asin(n₂/n₁) is
+    # undefined.  Julia's `asin` throws `DomainError` (NOT NaN like
+    # JavaScript / Math.asin); the sidecar surfaces this as an
+    # `eval_error` with a clear explanation. This is more informative
+    # than NaN — the LLM downstream gets an actionable signal that
+    # the premise is invalid.
     # =====================================================================
     @testset "P-693 — TIR with inverted indices (asin > 1)" begin
         r = _post_json(base, "/eval", Dict(:expr => "asin(1.577 / 1.50)"))
-        @test r.status == 200
+        @test r.status == 500
         b = _parse(r)
-        @test b[:ok] == true
-        # `string(NaN)` is "NaN" in Julia; parse(Float64, "NaN") is NaN.
-        @test isnan(parse(Float64, b[:result]))
+        @test b[:ok] == false
+        @test b[:error] == "eval_error"
+        @test occursin("not defined for |x| > 1", b[:explanation])
     end
 
     # =====================================================================
