@@ -290,15 +290,26 @@ moves to `ConjectureMinerService.next(domain)`. Priorities unchanged:
 - **Acceptance:** end-to-end test with a seeded DB returns conjectures
   in the expected priority order via `ConjectureMinerService.next("math")`.
 
-### 23.4 — `PaperKind.CONJECTURE_INVESTIGATION` [P1, foundation shipped 2026-05-21]
+### 23.4 — `PaperKind.CONJECTURE_INVESTIGATION` [P1, foundation + infrastructure shipped 2026-05-21]
 
-**Status:** Foundation shipped (`PaperKind.CONJECTURE_INVESTIGATION`
-enum, `ConjectureQueue` interface, `ConjectureTopicProvider` bean +
-`app.research.conjectureMiner.paperShare` flag). Upstream wiring into
-`ResearchCycleService.runStandardCycle()` is deferred to 23.5 — the
-full acceptance (hypothesis = conjecture verbatim, Mechanism section,
-Adversarial Check citing `verify_conjecture`) needs the tool that 23.5
-ships. The bean wiring lets 23.5 land as a one-line caller.
+**Status (post-pivot, three slices):**
+
+- **23.4 foundation** (commit `073f86b`, shipped) — enum value, queue
+  interface, topic-provider bean, paperShare config flag.
+- **23.4 infrastructure wiring** (this commit, shipped) — `PaperDraft.kind`
+  threaded through with a 27-arg backwards-compat constructor so the
+  18 existing call sites are untouched; `UniversityService.addPaper`
+  copies `draft.kind()` onto `paper.setKind()`; `ResearchCycleService`
+  gains a setter for `ConjectureTopicProvider`. **No behavioral change
+  yet** — the topic provider isn't called from the cycle.
+- **23.4b actual branch** (next slice, NOT YET SHIPPED) — call
+  `selectConjecture()` at the top of `runStandardCycle`; when it fires,
+  synthesize hypothesis from the conjecture's inequality, synthesize
+  findings from the conjecture's mining history (confirmedRuns,
+  p99Slack, OEIS annotation), tag the PaperDraft with
+  `PaperKind.CONJECTURE_INVESTIGATION`. Skips `MathPhysicsEngine.compute`
+  for the conjecture path. This is where the actual behavioral change
+  lands; split out from infra so both can be reviewed cleanly.
 
 Design departure from the original phase doc: instead of adding a 6th
 genome weight `w5`, the conjecture-driven share is config-driven

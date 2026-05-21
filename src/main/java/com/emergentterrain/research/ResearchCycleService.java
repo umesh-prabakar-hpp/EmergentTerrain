@@ -100,6 +100,22 @@ public class ResearchCycleService {
     }
 
     /**
+     * Phase 23.4 — optional conjecture-topic provider. Setter-injected to
+     * match the existing setter-based optional-dependency pattern on this
+     * service. When non-null and {@code app.research.conjectureMiner.paperShare}
+     * is > 0, {@code runStandardCycle} can branch into the conjecture-driven
+     * paper-writing path. The actual cycle-level call sits with 23.4b; this
+     * setter ships now so the wiring point is clear and the bean is
+     * available the moment the branch lands.
+     */
+    private volatile com.emergentterrain.research.conjecture.ConjectureTopicProvider conjectureTopicProvider;
+
+    public void setConjectureTopicProvider(
+            com.emergentterrain.research.conjecture.ConjectureTopicProvider provider) {
+        this.conjectureTopicProvider = provider;
+    }
+
+    /**
      * Phase 7 F3 — when true, the topic-selection step uses uniform random over
      * every registered topic for the bot's domain (current 5 per main domain
      * plus the F3 additions) rather than the bot's weighted genome over the

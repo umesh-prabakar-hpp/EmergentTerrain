@@ -1072,6 +1072,11 @@ public class UniversityService {
                 draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel(), persistedCallPath);
 
+        // Phase 23.4 — carry the kind tag from the draft onto the persisted paper.
+        // Defaulted to DOMAIN by the 27-arg backwards-compat constructor on PaperDraft
+        // so this is a no-op for every existing call site.
+        paper.setKind(draft.kind());
+
         // Phase 4c Piece 2 gate 3: copy narration template provenance onto the persisted
         // paper. Null when the narration came from an uninstrumented path; treated by
         // Piece 3 as "unattributed" and excluded from per-variant rollback statistics.
