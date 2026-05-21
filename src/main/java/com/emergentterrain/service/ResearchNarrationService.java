@@ -626,8 +626,8 @@ public class ResearchNarrationService {
                     finalResult.followUp(), router.primaryModel(),
                     finalResult.confidenceScore(), finalResult.citedPaperIds(), pathStr,
                     finalResult.typedCitations(), finalResult.formalFindings(),
-                    com.emergentterrain.research.PromptTemplateIds.NARRATION_PRIMARY_ID,
-                    activeNarrationPrimaryVersion(),
+                    activeNarrationTemplateId(draft),
+                    activeNarrationTemplateVersion(draft),
                     finalResult.discussion(), finalResult.relatedWork(),
                     List.copyOf(auditGapDimensions),
                     finalResult.toolCallTrace(),
@@ -2605,6 +2605,14 @@ public class ResearchNarrationService {
     }
 
     private String buildNarrationPrompt(PaperDraft draft) {
+        // Phase 23.6 — conjecture-investigation papers use a structurally
+        // different prompt (Mechanism + Adversarial Check sections) that
+        // produces prose the LabelFloor's text heuristics can admit for an
+        // EMPIRICAL_RESULT proposal. Branch early — none of the
+        // parameter-sweep slot prep below applies to the conjecture path.
+        if (draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            return buildConjectureInvestigationPrompt(draft);
+        }
         StringBuilder priorWork = new StringBuilder();
         draft.recentPapers().stream()
                 .filter(p -> p.domain().equalsIgnoreCase(draft.domain())
@@ -2749,12 +2757,17 @@ public class ResearchNarrationService {
     }
 
     /**
-     * Phase 7 F2 — returns the active NARRATION_PRIMARY template version that
-     * buildNarrationPrompt selects, given the current flag state. Stamped onto
-     * the persisted ResearchPaper so the per-variant rollback statistics see
-     * the actual variant used rather than the constant "v1".
+     * Phase 7 F2 / Phase 23.6 — returns the active narration template version
+     * that buildNarrationPrompt selects, given the current flag state and the
+     * paper's {@link com.emergentterrain.research.PaperKind}. Stamped onto the
+     * persisted ResearchPaper so per-variant rollback statistics see the actual
+     * variant used rather than the constant "v1".
      */
-    String activeNarrationPrimaryVersion() {
+    String activeNarrationTemplateVersion(PaperDraft draft) {
+        if (draft != null
+                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            return PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_VERSION;
+        }
         if (structuredFindingsEnabled && maxComputations > 1) {
             return discussionSectionEnabled
                     ? "v3-structured-findings-with-discussion"
@@ -2762,6 +2775,37 @@ public class ResearchNarrationService {
         }
         if (discussionSectionEnabled) return "v2-with-discussion";
         return PromptTemplateIds.NARRATION_PRIMARY_VERSION;
+    }
+
+    /**
+     * Phase 23.6 — returns the active narration template id, kind-aware. The
+     * conjecture-investigation path reports its own template id so the
+     * persisted ResearchPaper's narrationTemplateId is unambiguous.
+     */
+    String activeNarrationTemplateId(PaperDraft draft) {
+        if (draft != null
+                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            return PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID;
+        }
+        return PromptTemplateIds.NARRATION_PRIMARY_ID;
+    }
+
+    /**
+     * Phase 23.6 — render the {@link PromptTemplateIds#NARRATION_CONJECTURE_INVESTIGATION_ID}
+     * template against the conjecture draft. The miner pre-fills hypothesis /
+     * findings / conclusion; the narrator's job is to add Mechanism +
+     * Adversarial Check sections so the LabelFloor will admit the panel's
+     * EMPIRICAL_RESULT proposal when the panel earns it.
+     */
+    private String buildConjectureInvestigationPrompt(PaperDraft draft) {
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("domain",     draft.domain() != null ? draft.domain() : "");
+        params.put("topicName",  draft.topicName() != null ? draft.topicName() : "");
+        params.put("hypothesis", draft.templateHypothesis() != null ? draft.templateHypothesis() : "");
+        params.put("findings",   draft.rawFindings() != null ? draft.rawFindings() : "");
+        params.put("conclusion", draft.templateConclusion() != null ? draft.templateConclusion() : "");
+        return promptRegistry.render(
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID, params);
     }
 
     /**

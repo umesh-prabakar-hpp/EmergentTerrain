@@ -831,6 +831,67 @@ class PromptTemplateRegistryTest {
         assertThat(active.version()).isEqualTo(PromptTemplateIds.NARRATION_PANEL_REVIEW_VERSION);
     }
 
+    // ---- Phase 23.6 conjecture-investigation prompt ----
+
+    @Test
+    void phase23_6_conjectureTemplateRegisteredAndRendersAllSlots() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",     "MATHEMATICS");
+        params.put("topicName",  "conjecture/abundant_density");
+        params.put("hypothesis", "abundant_density(n) <= 0.2515 for all n >= 100.");
+        params.put("findings",   "Mined across 8 windows; p99Slack -0.012; no refutation.");
+        params.put("conclusion", "Bound holds in observed regimes; held-out verification recommended.");
+
+        String body = r.render(
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID, params);
+
+        // Slots interpolated.
+        assertThat(body)
+                .contains("MATHEMATICS")
+                .contains("conjecture/abundant_density")
+                .contains("abundant_density(n) <= 0.2515")
+                .contains("Mined across 8 windows")
+                .contains("held-out verification recommended")
+                .doesNotContain("{{ domain }}")
+                .doesNotContain("{{ hypothesis }}")
+                .doesNotContain("{{ findings }}")
+                .doesNotContain("{{ conclusion }}");
+    }
+
+    @Test
+    void phase23_6_conjectureTemplateInstructsMechanismAndAdversarialCheck() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+        java.util.Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("domain",     "MATHEMATICS");
+        params.put("topicName",  "conjecture/x");
+        params.put("hypothesis", "h");
+        params.put("findings",   "f");
+        params.put("conclusion", "c");
+        String body = r.render(
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID, params);
+
+        // The LabelFloor admits EMPIRICAL_RESULT only when prose contains
+        // "mechanism" AND ("adversarial check" OR "verify_conjecture"). The
+        // template must instruct the narrator to use those exact tokens; pin
+        // each one verbatim so a future prompt rewrite that softens the
+        // wording is caught by this test.
+        assertThat(body)
+                .contains("## Mechanism")
+                .contains("## Adversarial Check")
+                .contains("verify_conjecture")
+                .contains("no mechanism identified");  // honest-fallback phrasing
+    }
+
+    @Test
+    void phase23_6_conjectureTemplateActiveAtV1() {
+        PromptTemplateRegistry r = freshSeededRegistry();
+        PromptTemplate active = r.pickActive(
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID).orElseThrow();
+        assertThat(active.version())
+                .isEqualTo(PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_VERSION);
+    }
+
     private static PromptTemplateRegistry freshSeededRegistry() {
         PromptTemplateRegistry r = new PromptTemplateRegistry();
         r.seedDefaults();   // package-private, invoked here exactly like @PostConstruct would.

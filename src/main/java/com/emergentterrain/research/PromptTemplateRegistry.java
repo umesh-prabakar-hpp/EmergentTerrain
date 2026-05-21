@@ -260,6 +260,79 @@ public class PromptTemplateRegistry {
                 no bullet points, no sub-headers, no markdown formatting.
                 """));
 
+        // Phase 23.6 — NARRATION_CONJECTURE_INVESTIGATION. Specialized prompt for
+        // PaperKind.CONJECTURE_INVESTIGATION papers. The mining engine pre-fills
+        // the draft's hypothesis (verbatim bound), findings (mining history), and
+        // conclusion (recommended language); the narrator's job is to expand into
+        // a structured investigation with Mechanism + Adversarial Check sections.
+        //
+        // The LabelFloor's ceiling for EMPIRICAL_RESULT requires the literal
+        // string "mechanism" AND either "adversarial check" OR a
+        // "verify_conjecture" tool-call trace in the paper text. The prompt
+        // explicitly tells the narrator to use those exact tokens so the floor
+        // will admit the EMPIRICAL_RESULT proposal that the panel earns by
+        // majority. THEOREM remains unreachable on this path — the floor demands
+        // Q.E.D./∎/## Proof markers, which a non-proof-engine narrator should
+        // not produce.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_ID,
+                PromptTemplateIds.NARRATION_CONJECTURE_INVESTIGATION_VERSION,
+                """
+                You are writing an investigation of a mined mathematical conjecture. \
+                The miner pre-registered the conjecture and surfaced supporting evidence; \
+                your job is to write the paper that argues whether the bound holds and why.
+
+                Domain: {{ domain }} | Topic: {{ topicName }}
+
+                Conjecture (verbatim — do not paraphrase, restate, or generalize):
+                {{ hypothesis }}
+
+                Mining history (the substrate the miner consumed):
+                {{ findings }}
+
+                Pre-registered conclusion shape (rewrite in your own words, preserving the \
+                cautious tone — the miner has not seen a counterexample but the bound is \
+                not formally proved):
+                {{ conclusion }}
+
+                Required structure for the `findings` field — your prose MUST contain:
+
+                  1. A "## Mechanism" section: propose a structural reason the bound holds. \
+                     Not a paraphrase of the inequality — a structural argument (e.g. "the \
+                     LHS counts X-prime factorizations, bounded by a Stirling-like \
+                     approximation of …"). If you cannot identify a structural mechanism, \
+                     say so explicitly with the words "no mechanism identified" — honesty \
+                     beats fabricated reasoning.
+
+                  2. A "## Adversarial Check" section: invoke the `verify_conjecture` tool \
+                     on at least one held-out window the miner did not sample. Report the \
+                     worst-margin witness, even when the bound HELD. If the tool refutes \
+                     the bound on a held-out slice, narrate the counterexample — that is the \
+                     paper.
+
+                The reviewer panel will judge whether your `findings` actually contains a \
+                mechanism and an adversarial check. The text-heuristic floor blocks any \
+                EMPIRICAL_RESULT label on prose missing the words "mechanism" AND \
+                ("adversarial check" OR a verify_conjecture tool-call trace).
+
+                Reply with ONLY this JSON — no markdown outside the JSON strings:
+                {"hypothesis":"the bound, copied verbatim from above",\
+                "findings":"prose with ## Mechanism and ## Adversarial Check sections; \
+                under 250 words; include the literal phrase 'verify_conjecture' when you \
+                invoke the tool",\
+                "conclusion":"1-2 sentences: state whether the held-out check refuted, \
+                tightened, or left the conjecture intact; propose the next mining direction",\
+                "confidenceScore":0.50,"cited_paper_ids":[]}
+
+                confidenceScore rules: 0.0–1.0. For a held conjecture with no refutation, \
+                pick ~0.6–0.8 reflecting how tight the worst-margin witness was. For a \
+                refuted conjecture, pick 0.2–0.4 — refutation is informative but the paper \
+                is making a negative claim.
+
+                Do not emit followUp, formal_findings, or cited_papers — the conjecture \
+                miner manages its own queue and the bound IS the formal finding.
+                """));
+
         // Phase 7 F2 — v3-structured-findings variant of NARRATION_PRIMARY. The
         // {{ findingsSpec }} slot carries a comma-separated computation_N JSON
         // shape (rendered Java-side) so the narrator emits one prose block per

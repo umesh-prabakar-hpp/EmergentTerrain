@@ -28,6 +28,18 @@ public final class PromptTemplateIds {
     public static final String NARRATION_PRIMARY_ID      = "narration.primary";
     public static final String NARRATION_PRIMARY_VERSION = "v1";
 
+    /**
+     * Phase 23.6 — narration prompt for {@link PaperKind#CONJECTURE_INVESTIGATION}
+     * papers. Replaces NARRATION_PRIMARY for the conjecture path because the
+     * conjecture-investigation shape (Mechanism + Adversarial Check) is
+     * structurally different from the parameter-sweep narration path, and the
+     * LabelFloor's ceiling for EMPIRICAL_RESULT only unlocks when the prose
+     * contains the matching markers (the word "mechanism" AND either an
+     * "adversarial check" header OR a verify_conjecture tool-call trace).
+     */
+    public static final String NARRATION_CONJECTURE_INVESTIGATION_ID      = "narration.conjecture_investigation";
+    public static final String NARRATION_CONJECTURE_INVESTIGATION_VERSION = "v1";
+
     /** Refinement pass when the primary needed an additional iteration. */
     public static final String NARRATION_REFINEMENT_ID      = "narration.refinement";
     public static final String NARRATION_REFINEMENT_VERSION = "v1";
