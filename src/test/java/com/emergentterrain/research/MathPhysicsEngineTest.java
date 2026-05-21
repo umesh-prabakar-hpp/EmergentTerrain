@@ -164,11 +164,6 @@ class MathPhysicsEngineTest {
     void paperIdsContinueAfterExistingResearchFiles() throws Exception {
         UUID roomId = UUID.fromString("59f4db7c-224c-415f-87a6-b539bbb6bf4a");
         Path roomDir = tempDir.resolve("59f4db7c");
-        Files.createDirectories(roomDir);
-        Files.writeString(roomDir.resolve("2026-04-29_20-39-19_physics_projectile-drag-optimisation_P-59f4-20.md"),
-                "# Existing\n\n**Paper ID**: P-59f4-20\n");
-        Files.writeString(roomDir.resolve("2026-04-29_20-41-40_mathematics_collatz-stopping-time_P-59f4-29.md"),
-                "# Existing\n\n**Paper ID**: P-59f4-29\n");
 
         com.emergentterrain.repo.ResearchPaperRepository papersRepo =
                 mock(com.emergentterrain.repo.ResearchPaperRepository.class);
@@ -260,6 +255,22 @@ class MathPhysicsEngineTest {
                 /* unsourcedClaimEnabled         */ false,
                 /* unsourcedClaimMode            */ "warn",
                 mapper);
+
+        // Files must be staged AFTER the UniversityService constructor: as of
+        // commit f401e84 (per-run archival), the constructor sweeps every
+        // 8-hex-prefix room directory under researchOutputDir into archive/
+        // on startup. Staging files first would route them straight into
+        // archive/59f4db7c-<today>/ before the paper-id scan can read them,
+        // and the scan would return 0 (matches the production contract:
+        // on a fresh process start the room dir is clean). The path under
+        // test is the file-scan fallback inside loadMaxPaperNumber when the
+        // mocked DB returns 0 — that path only runs against in-run files,
+        // i.e. files that appear after construction.
+        Files.createDirectories(roomDir);
+        Files.writeString(roomDir.resolve("2026-04-29_20-39-19_physics_projectile-drag-optimisation_P-59f4-20.md"),
+                "# Existing\n\n**Paper ID**: P-59f4-20\n");
+        Files.writeString(roomDir.resolve("2026-04-29_20-41-40_mathematics_collatz-stopping-time_P-59f4-29.md"),
+                "# Existing\n\n**Paper ID**: P-59f4-29\n");
 
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-30");
         assertThat(service.nextPaperId(roomId)).isEqualTo("P-59f4-31");
