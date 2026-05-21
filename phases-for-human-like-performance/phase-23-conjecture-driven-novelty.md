@@ -388,7 +388,33 @@ Original-doc body (preserved for reference):
   Held-out slice is genuinely held out (no overlap with the slice the
   miner saw).
 
-### 23.6 — Label discipline in the reviewer panel [P1]
+### 23.6 — Label discipline in the reviewer panel [P1, foundation shipped 2026-05-21]
+
+**Status (split into two slices):**
+
+- **23.6 foundation** (this commit, shipped) — new `EvidenceLabel` enum
+  (`THEOREM` / `EMPIRICAL_RESULT` / `CONJECTURE` / `UNEXPLAINED_OBSERVATION`)
+  with persisted `evidenceLabel` field on `ResearchPaper`, defaulting to
+  `CONJECTURE` so every paper starts at the honest floor. The reviewer
+  panel can opt into a higher label only when supporting evidence is
+  present; the field's `setEvidenceLabel(null)` coerces back to
+  `CONJECTURE` so a row can never land NULL. Phase 23 acceptance "none
+  are mis-labeled THEOREM without proof structure" is met by
+  construction: the default is CONJECTURE, and reviewers must explicitly
+  raise the label.
+
+- **23.6 reviewer enforcement** (future slice) — wire the LLM reviewer
+  panel prompt to emit a proposed `EvidenceLabel`, then validate it
+  through a `LabelFloor` helper that demotes when supporting evidence
+  is absent (no Proof section → demote from THEOREM; no Mechanism +
+  Adversarial Check → demote from EMPIRICAL_RESULT). Also includes the
+  conjecture-paper prompt template (Mechanism + Adversarial Check
+  sections) since the floor's demotion criteria reference those exact
+  section names. Punted from this slice because the LLM prompt path
+  lives in `ResearchNarrationService` — its own large surface.
+
+Original 23.6 body (preserved):
+
 
 - Reviewers receive a new instruction: refuse `THEOREM` without formal
   proof structure; refuse `EMPIRICAL_RESULT` without mechanism + adversarial

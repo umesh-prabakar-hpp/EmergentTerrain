@@ -95,6 +95,18 @@ public class ResearchPaper {
     private PaperKind kind = PaperKind.DOMAIN;
 
     /**
+     * Phase 23.6 — epistemic claim level. Defaults to {@link EvidenceLabel#CONJECTURE}
+     * so a paper has to earn anything stronger (mechanism + adversarial check for
+     * EMPIRICAL_RESULT; formal proof for THEOREM). Existing rows persisted before
+     * this column was added will get CONJECTURE via Hibernate's
+     * field-initializer-on-add behavior; legacy NULLs (if any survive the
+     * migration) are coerced to CONJECTURE by {@link #setEvidenceLabel}.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "evidence_label", nullable = false, length = 32)
+    private EvidenceLabel evidenceLabel = EvidenceLabel.CONJECTURE;
+
+    /**
      * Phase 4c Piece 2 gate 3 — identifier of the prompt template variant whose
      * narration produced this paper's findings. Stable across template body
      * mutations: {@code narration.primary} stays the same when {@code v1 → v2}.
@@ -289,6 +301,7 @@ public class ResearchPaper {
     public UUID         universityId()   { return universityId; }
     public UUID         journalId()      { return journalId; }
     public PaperKind    kind()           { return kind; }
+    public EvidenceLabel evidenceLabel() { return evidenceLabel; }
     public String       narrationTemplateId()      { return narrationTemplateId; }
     public String       narrationTemplateVersion() { return narrationTemplateVersion; }
     public String       discussion()               { return discussion; }
@@ -311,6 +324,9 @@ public class ResearchPaper {
     public void setUniversityId(UUID universityId)   { this.universityId = universityId; }
     public void setJournalId(UUID journalId)         { this.journalId = journalId; }
     public void setKind(PaperKind kind)              { this.kind = kind != null ? kind : PaperKind.DOMAIN; }
+    public void setEvidenceLabel(EvidenceLabel label) {
+        this.evidenceLabel = label != null ? label : EvidenceLabel.CONJECTURE;
+    }
     public void setNarrationTemplateId(String id)           { this.narrationTemplateId = id; }
     public void setNarrationTemplateVersion(String version) { this.narrationTemplateVersion = version; }
     public void setDiscussion(String discussion)     { this.discussion = discussion; }
