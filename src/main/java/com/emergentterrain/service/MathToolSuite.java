@@ -68,7 +68,8 @@ public class MathToolSuite {
             "Symbolic result for",
             "Symbolic evaluation of",
             "GPU eval of",
-            "Sandboxed computation —");
+            "Sandboxed computation —",
+            "verify_conjecture:");
 
     /**
      * Phase 17 P8b — is this tool-call result a real computational
@@ -167,22 +168,39 @@ public class MathToolSuite {
      * production wiring lives in {@link com.emergentterrain.service.ResearchNarrationService}.
      */
     private final com.emergentterrain.llm.JuliaMathClient juliaMathClient;
+    /**
+     * Phase 23.5 — optional conjecture verifier. When non-null,
+     * {@code toolsJson} advertises {@code verify_conjecture} and the
+     * dispatcher routes calls into {@link com.emergentterrain.research.conjecture.ConjectureVerifier};
+     * when null, calls return a clear "not configured" error and the LLM
+     * sees the tool was unavailable. Existing tests construct
+     * MathToolSuite without a verifier and stay on the prior tool set.
+     */
+    private final com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier;
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper) {
-        this(router, mapper, null, null);
+        this(router, mapper, null, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper, GpuEngineAdapter gpuEngineAdapter) {
-        this(router, mapper, gpuEngineAdapter, null);
+        this(router, mapper, gpuEngineAdapter, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper,
                           GpuEngineAdapter gpuEngineAdapter,
                           com.emergentterrain.llm.JuliaMathClient juliaMathClient) {
+        this(router, mapper, gpuEngineAdapter, juliaMathClient, null);
+    }
+
+    public MathToolSuite(LlmRouter router, ObjectMapper mapper,
+                          GpuEngineAdapter gpuEngineAdapter,
+                          com.emergentterrain.llm.JuliaMathClient juliaMathClient,
+                          com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier) {
         this.router = router;
         this.mapper = mapper;
         this.gpuEngineAdapter = gpuEngineAdapter;
         this.juliaMathClient = juliaMathClient;
+        this.conjectureVerifier = conjectureVerifier;
     }
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
@@ -414,8 +432,31 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }]""".formatted(dynamicTool, runSymDesc, runSymExprDesc);
+                }%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON);
     }
+
+    private static final String VERIFY_CONJECTURE_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"verify_conjecture",
+                "description":"Phase 23.5 — verify a math-domain conjecture of the form `lhs <= k*rhs + c` on a held-out window slice. Pick a window_start the conjecture miner did NOT see (anything outside the prototype's offsets {100, 1000, 5000, 10000, 50000, 100000, 500000, 1000000}). Evaluates num_windows disjoint windows of window_size starting at window_start, computes per-window margin (lhs - (k*rhs + c)), reports held overall (all margins within 2*TOL) or REFUTED with the worst sample as witness. Valid scalar names for lhs/rhs: abundant_density, deficient_density, prime_density, happy_density, mean_omega, mean_Omega, mean_divisor_count, max_divisor_count, mertens_delta, abundant_minus_deficient, omega_Omega_gap, log_window_size, sqrt_window_size, log_window_start, mertens_per_sqrt_W.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "lhs":{"type":"string","description":"Left-hand-side scalar name (from the vocabulary above)."},
+                    "rhs":{"type":"string","description":"Right-hand-side scalar name."},
+                    "k":{"type":"number","description":"Multiplicative coefficient on rhs."},
+                    "c":{"type":"number","description":"Additive constant."},
+                    "window_start":{"type":"integer","description":"First integer in the first evaluated window. Pick a held-out offset."},
+                    "window_size":{"type":"integer","description":"Integers per window (window_size * num_windows ≤ 100000)."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                  },
+                  "required":["lhs","rhs","k","c","window_start","window_size"]
+                }
+              }
+            }""";
 
     // ── Executor factory ──────────────────────────────────────────────────────
 
@@ -448,6 +489,7 @@ public class MathToolSuite {
                     case "run_sandboxed_code" -> runSandboxedCode(draft, args);
                     case "run_symbolic"       -> runSymbolic(args);
                     case "run_gpu_eval"       -> runGpuEval(args);
+                    case "verify_conjecture"  -> verifyConjecture(args);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -498,6 +540,10 @@ public class MathToolSuite {
                 if ("run_predicate_scan".equals(name) && success) {
                     metrics.incrementPredicateScanSuccesses();
                 }
+                // Phase 23.5 — verify_conjecture is success-counted via the
+                // same isSuccessResult path; rejected (LLM-side malformed
+                // args) and held/refuted (legitimate outputs) both surface
+                // their own descriptors so the D3 gate sees them.
                 // run_param_sweep is intentionally not counted here — same
                 // as pre-Phase-17. Param-sweep papers are rare enough on
                 // INTERDISCIPLINARY topics that the D3 gate wasn't relying
@@ -880,6 +926,65 @@ public class MathToolSuite {
         char next = s.charAt(i);
         if (next != '[' && next != '(') return null;
         return s.substring(0, i);
+    }
+
+    /**
+     * Phase 23.5 — verify a mined conjecture on a held-out window slice.
+     * Delegates the heavy lifting to
+     * {@link com.emergentterrain.research.conjecture.ConjectureVerifier};
+     * this method just parses args, calls verify(), and formats the
+     * result as a single LLM-readable line plus per-window detail.
+     *
+     * <p>Held-out semantics are at the prompt level — the LLM should
+     * pick a {@code window_start} the miner didn't see (anything outside
+     * the prototype's {100, 1_000, 5_000, 10_000, 50_000, 100_000,
+     * 500_000, 1_000_000} offsets). The verifier itself doesn't
+     * remember mining history.
+     */
+    private String verifyConjecture(JsonNode args) {
+        if (conjectureVerifier == null) {
+            return "verify_conjecture not configured: the conjecture miner package isn't wired into this MathToolSuite instance.";
+        }
+        String lhs = args.path("lhs").asText("");
+        String rhs = args.path("rhs").asText("");
+        if (lhs.isBlank() || rhs.isBlank()) {
+            return "Missing 'lhs' or 'rhs' scalar name.";
+        }
+        double k = args.path("k").asDouble(Double.NaN);
+        double c = args.path("c").asDouble(Double.NaN);
+        if (Double.isNaN(k) || Double.isNaN(c)) {
+            return "Missing 'k' or 'c' inequality coefficient.";
+        }
+        long windowStart = args.path("window_start").asLong(-1);
+        int windowSize = args.path("window_size").asInt(-1);
+        int numWindows = args.path("num_windows").asInt(
+                com.emergentterrain.research.conjecture.ConjectureVerifier.DEFAULT_NUM_WINDOWS);
+        if (windowStart < 0 || windowSize <= 0) {
+            return "Invalid window: window_start >= 0 and window_size > 0 required.";
+        }
+
+        com.emergentterrain.research.conjecture.ConjectureVerifier.VerifyResult result;
+        try {
+            result = conjectureVerifier.verify(lhs, rhs, k, c, windowStart, windowSize, numWindows);
+        } catch (IllegalArgumentException e) {
+            return "Invalid verify_conjecture call: " + e.getMessage();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "verify_conjecture: %s <= %+.4f * %s + %+.4f %s across %d window(s) of size %d starting at %d. ",
+                lhs, k, rhs, c,
+                result.held() ? "HELD" : "REFUTED",
+                result.windowsEvaluated(), windowSize, windowStart));
+        sb.append(String.format("worst margin: %+.5f at window starting %d.",
+                result.worstMargin(), result.worstWindowStart()));
+        sb.append("\nPer-window:");
+        for (var w : result.windows()) {
+            sb.append(String.format("\n  start=%d  lhs=%+.5f  rhs=%+.5f  margin=%+.5f  %s",
+                    w.windowStart(), w.lhsValue(), w.rhsValue(), w.margin(),
+                    w.holds() ? "holds" : "REFUTED"));
+        }
+        return sb.toString();
     }
 
     private String runGpuEval(JsonNode args) {

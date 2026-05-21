@@ -330,7 +330,37 @@ weight can be added later as a multiplicative modifier on the flag.
   section is non-empty. Adversarial Check section cites at least one
   `verify_conjecture` call.
 
-### 23.5 — `verify_conjecture` tool [P1]
+### 23.5 — `verify_conjecture` tool [P1, shipped 2026-05-21]
+
+**Status:** shipped. Tool lives in
+`com.emergentterrain.research.conjecture.ConjectureVerifier` (Spring
+@Component, lazy-builds the SPF sieve on first call so deployments with
+the miner disabled don't pay the startup cost). Wired into
+`MathToolSuite` through a fifth optional constructor parameter; absent
+by default so existing tests stay on the prior tool set and the JSON
+schema is only advertised when a verifier is wired.
+
+The dispatcher path:
+`MathToolSuite.buildExecutor → "verify_conjecture" case → verifyConjecture(args) → ConjectureVerifier.verify`.
+
+Acceptance (per the phase doc):
+  - "Tool returns deterministic results on a fixed seed" — pinned by
+    `ConjectureVerifierTest.deterministicForFixedWindow` (same input →
+    bit-identical output, every per-window report equal).
+  - "Held-out slice is genuinely held out (no overlap with the slice
+    the miner saw)" — tests evaluate at offsets 200_000, 300_000,
+    1_200_000, which are outside the Python prototype's set
+    {100, 1k, 5k, 10k, 50k, 100k, 500k, 1M}.
+
+Tests: 12 across `ConjectureVerifierTest` (6 unit) and
+`MathToolSuiteVerifyConjectureTest` (6 dispatcher integration).
+Verifier covers held bound, refuted bound, determinism, worst-margin
+correctness, bad inputs, default num_windows. Dispatcher covers
+absent-vs-wired advertising, held/refuted formatting, not-configured
+error path, invalid-args clean error.
+
+Original-doc body (preserved for reference):
+
 
 - New tool in `MathToolSuite` (and physics/materials equivalents in their
   respective tool suites once those exist) that takes a conjecture
