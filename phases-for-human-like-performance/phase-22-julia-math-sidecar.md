@@ -446,7 +446,7 @@ Setting `reportIntervalMs: 0` would fire every cycle (pathological);
 the safe range is 60_000 – 3_600_000 ms. The scheduler is robust to
 sub-second values but the log would drown signal in noise.
 
-### 22.7 — Acceptance + rollout
+### 22.7 — Acceptance + rollout — **INFRASTRUCTURE COMPLETE 2026-05-20**
 
 End-to-end acceptance against `research/a3289005/` after the sidecar is
 wired:
@@ -465,6 +465,116 @@ wired:
 (roughly double the current 22.2%) **or** at least 3 papers reach Q1
 (publishable: math right + complete prose + coherent topic). Either
 condition triggers full rollout.
+
+**Status (2026-05-20):** INFRASTRUCTURE COMPLETE. The plumbing for
+all four checks is in place — `JuliaMathClient`, `MathToolSuite`
+delegation, dual-syntax descriptions, sidecar metrics. Final corpus
+verification is the operator's flag-flip + observe-the-next-refresh
+step; see runbook below.
+
+#### Operator runbook for §22.7 acceptance
+
+**Step 1 — bring up the sidecar.**
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+./scripts/start.sh
+# Wait for "julia-math-sidecar starting" log line. Verify:
+curl -fsS localhost:8088/healthz | jq
+```
+
+**Step 2 — enable the Julia path.** Edit
+`src/main/resources/application.yml`:
+
+```yaml
+app:
+  julia:
+    enabled: true   # was false
+```
+
+(Alternatively, pass `-Dapp.julia.enabled=true` to the Spring Boot
+command line at startup — same effect without modifying the YAML.)
+
+**Step 3 — restart the Spring Boot app** so the
+`JuliaMathClient` `@PostConstruct` probes the sidecar and so the
+`MathToolSuite` is reconstructed with the now-available client.
+Verify the startup log shows:
+
+```
+JuliaMathClient: enabled, baseUrl=http://localhost:8088, timeoutMs=5000, reachable=true
+JuliaSidecarReporter: initialized intervalMs=300000 client=present
+```
+
+**Step 4 — let the corpus generate.** Wait for ~10-20 new papers to
+ship to `research/a3289005/`. Watch for one of these signals:
+
+- `MathToolSuite: run_symbolic (julia) expr="..." ms=N type=Float64`
+  — log lines confirming the Julia delegation fired.
+- The 5-minute `julia-sidecar window=5m calls={ok=42, ...}` heartbeat
+  showing non-zero okCalls.
+
+**Step 5 — run the paper-review skill.**
+
+```bash
+# Via Claude Code:
+/paper-review research/a3289005 --logs logs/et-app.log
+```
+
+The review report's per-paper rating column will show `via=julia` in
+the "Key issue" field for papers that went through the sidecar (when
+notable). Cross-check against:
+
+- **P-764 archetype** — physics paper with quadratic drag. Look for
+  a `run_symbolic` call with a `let v0=..., k=..., g=9.81; ...`
+  Julia-syntax expression and a clean numeric result.
+- **P-778 archetype** — prime density paper. Look for a
+  `count(isprime, …)` or equivalent expression instead of an
+  unrelated Wilson-CI call.
+- **P-767 archetype** — Kepler third-law. Look for either a
+  numeric T²/a³ sweep or a symbolic_solve via `/solve`.
+
+**Step 6 — check the acceptance bar.** Compute from the per-paper
+verdict table in the regenerated `REVIEW_REPORT.md`:
+
+- Acceptance rate (Acceptable + Minor revision) / total ≥ 50%?
+- OR ≥ 3 papers at Q1 (math right + complete prose + coherent topic)?
+
+Either condition triggers full rollout. Update `STATUS.md` to
+reflect Phase 22 as fully closed and move this doc to `archive/`.
+
+**If acceptance bar misses:** the dominant failure mode in the
+refreshed corpus tells you the next phase. If it's still
+narration-shaped (citation FPs, F7.3 false-positives, hypothesis
+truncation), Julia helped but didn't close the gap — the next phase
+sits in the narration layer. If it's math-shaped (timeout, parse
+errors), tighten the prompt or expand `JuliaMathClient`'s endpoint
+surface.
+
+#### Files added in this session for §22.7
+
+- `src/test/java/com/emergentterrain/service/MathToolSuiteJuliaDelegationTest.java`
+  — 5 end-to-end cases: `run_symbolic` produces `[via=julia]` on
+  Julia-syntax input, falls through to Symja on Mathematica-syntax
+  input (the via marker is absent), `evaluate_symbolic` works with
+  the relaxed 5000+ range cap, `toolsJson` flips to Julia
+  descriptions when reachable, `JuliaMathClient` counters observe
+  the delegation calls. Skips when the sidecar isn't up.
+
+#### Acceptance for closing this phase
+
+This doc moves to `archive/` when:
+
+1. ✅ 22.1–22.5 land — DONE.
+2. ✅ 22.6 sidecar accounting lands — DONE.
+3. ⏳ A REVIEW_REPORT.md refresh shows acceptance rate ≥ 50% on at
+   least one corpus run after the Julia path goes live — operator
+   to perform after Step 5 above.
+4. ⏳ The five end-to-end Julia delegation tests in
+   `MathToolSuiteJuliaDelegationTest` pass against the live sidecar
+   on the production host (CI vs local). Currently passes locally
+   on the dev host.
+
+Conditions 3 and 4 are the only remaining gates.
 
 ---
 
