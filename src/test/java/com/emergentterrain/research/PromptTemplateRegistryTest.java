@@ -763,7 +763,12 @@ class PromptTemplateRegistryTest {
         assertThat(body)
                 .contains("\"findings\":{ \"computation_1\":\"<paragraph 1>\",\"computation_2\":\"<paragraph 2>\" }")
                 .contains("Findings rules: emit exactly 2 non-empty paragraphs.")
-                .contains("represents 2 independent computation(s)")
+                // Updated 2026-05-21: prompt now says "up to N" + "one block per call you
+                // actually completed" instead of pre-promising N blocks. Catches the
+                // P-a328-824/836/860 pattern where the LLM emits 5 blocks for 1 tool call.
+                .contains("represents up to 2 independent computation(s)")
+                .contains("one short prose paragraph in `findings` for each tool call you actually completed")
+                .contains("Do NOT pad with placeholder blocks")
                 .doesNotContain("{{ findingsSpec }}");
 
         String bodyDisc = r.render("narration.primary",

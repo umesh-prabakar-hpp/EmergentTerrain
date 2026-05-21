@@ -354,9 +354,13 @@ public class PromptTemplateRegistry {
                 tables or copy individual values:
                 {{ rawFindings }}
 
-                The raw output above represents {{ maxComputations }} independent computation(s) the \
-                researcher ran. Your job is to write one short prose paragraph per computation in \
-                the findings object below, keyed by 1-based computation index.
+                The raw output above represents up to {{ maxComputations }} independent computation(s) \
+                you may invoke via tools. Emit exactly one short prose paragraph in `findings` for \
+                each tool call you actually completed during this session, keyed by 1-based call \
+                index. Do NOT pad with placeholder blocks for tool calls that didn't run — fewer \
+                blocks is the honest representation when a call was rejected, timed out, or never \
+                attempted. The block-count guard demotes papers whose block count exceeds the \
+                trace size.
 
                 Preliminary hypothesis (rewrite in your own words, grounding it in the \
                 computation parameters above):
@@ -409,9 +413,13 @@ public class PromptTemplateRegistry {
                 tables or copy individual values:
                 {{ rawFindings }}
 
-                The raw output above represents {{ maxComputations }} independent computation(s) the \
-                researcher ran. Your job is to write one short prose paragraph per computation in \
-                the findings object below, keyed by 1-based computation index.
+                The raw output above represents up to {{ maxComputations }} independent computation(s) \
+                you may invoke via tools. Emit exactly one short prose paragraph in `findings` for \
+                each tool call you actually completed during this session, keyed by 1-based call \
+                index. Do NOT pad with placeholder blocks for tool calls that didn't run — fewer \
+                blocks is the honest representation when a call was rejected, timed out, or never \
+                attempted. The block-count guard demotes papers whose block count exceeds the \
+                trace size.
 
                 Preliminary hypothesis (rewrite in your own words, grounding it in the \
                 computation parameters above):
