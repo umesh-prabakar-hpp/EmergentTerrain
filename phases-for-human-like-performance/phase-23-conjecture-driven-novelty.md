@@ -416,13 +416,27 @@ Original-doc body (preserved for reference):
   inputs + ordinal ordering. The wiring is structural — the floor
   starts demoting the moment any future caller proposes a higher label.
 
+- **23.6 parser** (shipped 2026-05-21) —
+  `ProposedLabelParser.parse(llmResponse)` extracts an
+  `Optional<EvidenceLabel>` from arbitrary LLM-output text. Recognized
+  patterns: `EvidenceLabel: X`, `Label: X`, `evidence_label = X`,
+  JSON-style `"label": "X"`, section-header `## Evidence Label\n\nX`.
+  Hyphens normalized to underscores. Ambiguous (two distinct labels)
+  returns empty so downstream falls back to the floor's CONJECTURE
+  default. 9 tests pin every branch. Pure logic — no LLM dependency,
+  no `ResearchNarrationService` change. The future prompt-emission
+  slice uses this as: `parse(llmResponse).ifPresent(paper::setEvidenceLabel)`
+  before {@code LabelFloor.demote} runs.
+
 - **23.6 reviewer-panel emission + conjecture-paper prompt template**
   (still deferred) — wire the LLM reviewer-panel prompt to emit a
   proposed `EvidenceLabel`, and write the conjecture-paper prompt
   template that produces Mechanism + Adversarial Check sections (which
   the LabelFloor's EMPIRICAL_RESULT branch already recognizes). Both
-  live in `ResearchNarrationService` and require touching the LLM
-  prompt path; punting keeps the slice atomic.
+  live in `ResearchNarrationService` (3111 LOC) and require touching
+  the LLM prompt path; punting keeps the slice atomic. With the parser
+  shipped, this final piece is purely about prompt-text changes — the
+  parsing, validation, and persistence are all already in place.
 
 Original 23.6 body (preserved):
 
