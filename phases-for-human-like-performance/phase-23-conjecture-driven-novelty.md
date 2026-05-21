@@ -1,8 +1,16 @@
 # Phase 23 — Conjecture-Driven Novelty for Paper Writing
 
-**Status (2026-05-21):** Scoping doc. No code yet inside ET. Motivated by
-the persistent `novelty=0` ratings in `research/a3289005/` paper outputs:
-the panel is correctly identifying that hypotheses pulled from the fixed
+**Status (2026-05-21):** Scoping + Python prototype shipped (23.1 in
+`scripts/conjecture-miner/math/`, commit `ddfe262`). Architecture pivot
+2026-05-21 mid-implementation: the runtime moves into the Spring app
+(in-process Java miner, DB-backed conjecture store), not the
+Python+JSON-roundtrip path originally sketched. The Python prototype
+stays in the tree as a working reference for the seed/refute/tighten
+mechanics but is not on the runtime path. See "Architecture (post-pivot)"
+section below.
+
+Motivated by the persistent `novelty=0` ratings in `research/a3289005/`
+paper outputs: the panel is correctly identifying that hypotheses pulled from the fixed
 `(domain, topic)` catalog in `BotGenome.topicWeights` are not novel. The
 catalog is the bottleneck — not the LLM, not the reviewers, not the
 prompts. Fix the catalog and novelty has a chance to move off zero.
@@ -66,6 +74,49 @@ The arc, as we landed it:
    expansion (bots proposing their own derived scalars), anomaly
    mining, and the "ET as instrument" self-referential papers. Each is
    a real open problem; none is bundled into Phase 23.
+
+---
+
+## Architecture (post-pivot, 2026-05-21)
+
+The runtime is in-process Java/Spring, not Python+JSON. The Python
+prototype at `scripts/conjecture-miner/math/` (commit `ddfe262`) stays
+in the tree as a working reference for the seed/refute/tighten engine
+but is not part of the runtime. No periodic Python jobs, no JSON files
+on disk in `research/conjectures-{domain}.json`, no `ConjectureSource`
+bean that reads JSON.
+
+The Java implementation:
+
+| Concern | Java placement |
+|---|---|
+| Engine — `Inequality`, `seed`, `update`, novelty/Spearman filters | New `com.emergentterrain.research.conjecture` package |
+| Math substrate — number-theoretic predicates + per-window evaluator | New `MathConjectureSubstrate` bean; can reuse `MathToolSuite` predicates where they exist |
+| Math vocabulary — named scalars + DERIVED combinations | New `MathInvariants` constant class |
+| Periodic miner | New `ConjectureMinerService` (`@Scheduled` on `app.research.conjectureMiner.intervalMs`) |
+| Persistence | New `conjectures` Postgres table + JPA `ConjectureRepository` (durable across restarts, unlike the Python store.json) |
+| Conjecture queue exposed to paper writing | `ConjectureMinerService.next(domain)` — same API surface as the originally-planned `ConjectureSource`, just not reading JSON |
+| OEIS annotation (was 23.2 Python `oeis_filter.py`) | Constant map `OeisCatalog` consulted at queue-build time; live verification deferred to an admin endpoint, not part of the hot path |
+| Paper-writing integration (was 23.4/23.5) | New `PaperKind.CONJECTURE_INVESTIGATION`, new `verify_conjecture` tool in `MathToolSuite` |
+
+**Why the pivot pays off**: no JSON round-trip means the miner can hand
+out conjectures the same tick they're refuted/promoted; the audit trail
+(witness records, knob-filter drops) lives in Postgres alongside papers
+and government history, queryable by the existing infrastructure;
+operator-side, there's no separate cron job to schedule outside Spring.
+
+**Status of the Python prototype**:
+- `scripts/conjecture-miner/math/substrate.py` — informs the Java
+  predicate implementations but isn't called by the app
+- `scripts/conjecture-miner/math/invariants.py` — informs the Java
+  vocabulary; the BASE/DERIVED layout transfers directly
+- `scripts/conjecture-miner/math/run.py` — exercise / smoke tool only
+- `scripts/graffiti/conjectures.py` — same; the seed/update/refute
+  logic is the spec the Java port mirrors
+
+Phase 23.7's "Path 2 (in-process Java bean)" option from the earlier
+deferrals table is now the chosen path. Path 1 (offline Python +
+nightly cron + JSON dropoff) is retired.
 
 ---
 
@@ -149,40 +200,64 @@ work; the bulk of Phase 23 is the *integration* slice (Java side).
 
 ## Pieces
 
-### 23.1 — Math-domain miner (substrate only) [P0]
+### 23.1 — Math-domain miner — Python prototype ✅ shipped 2026-05-21
 
-Smallest first slice. Reuses `scripts/graffiti/conjectures.py` verbatim.
+**Status: prototype reference only after the 2026-05-21 architecture
+pivot.** Originally the runtime; now serves as a working spec the Java
+port mirrors. Lives at `scripts/conjecture-miner/math/` (commit
+`ddfe262`). Acceptance was met before the pivot: 106 surviving
+conjectures, 5 of the top 6 pure-bound survivors correspond to known
+results (abundant density ≈ 0.2474, happy density ≈ 0.150, etc.).
 
-- `scripts/conjecture-miner/math/substrate.py` — produces (window, scalars)
-  samples using existing number-theoretic predicates already available to
-  the bots (`isAbundant`, `isDeficient`, `isPrime`, `isHappy`, divisor sums,
-  Mertens partial sums). Sample axis = window position. Run axis = window
-  size. Knob axis = predicate pair selected.
-- `scripts/conjecture-miner/math/invariants.py` — density / mean / ratio
-  vocabulary in the windowed-interval frame.
-- `scripts/conjecture-miner/math/run.py` — batch CLI; writes
-  `research/conjectures-math.json` with the same `Inequality` shape as the
-  existing graffiti store, plus a few math-specific fields (substrate
-  parameters, sample size, window list).
-- **Acceptance:** running it produces a non-empty JSON file. Manual review
-  of the top 10 survivors confirms at least 3 are non-trivial (not
-  tautologies, not direct consequences of the vocabulary).
+### 23.1J — Math-domain miner — Java port [P0, post-pivot]
 
-### 23.2 — OEIS gate [P0, cheap & high-impact]
+The runtime version. Goes into `com.emergentterrain.research.conjecture`:
 
-OEIS is the canonical reference for integer sequences. Any math conjecture
-that survives the miner gets auto-checked against OEIS before entering
-the queue. Trivial integration, catches the most embarrassing
-rediscoveries (most "novel" math conjectures the system will produce are
-sequences with known closed forms in OEIS).
+- `Inequality.java` — record (lhs, rhs, k, c, confirmedRuns,
+  confirmedConfigs, refutedBy, p99Slack, slackByConfig, droppedByKnob).
+  Mirror the Python dataclass.
+- `ConjectureEngine.java` — port of `conjectures.py`: `seed()`,
+  `update()`, novelty filter (|corr| > 0.98), Spearman knob filter.
+- `MathConjectureSubstrate.java` — port of `substrate.py`: SPF table +
+  per-window evaluator. Where `MathToolSuite` already exposes a
+  predicate (e.g., `isPrime`), reuse it; otherwise add to substrate.
+- `MathInvariants.java` — BASE list + DERIVED lambdas (via
+  `Function<Map<String,Double>,Double>` or similar).
+- `Conjecture` JPA entity + `ConjectureRepository` — durable Postgres
+  store (the prototype's `store.json` becomes the `conjectures` table).
+- `ConjectureMinerService.java` — `@Scheduled` orchestrator;
+  configurable interval via `app.research.conjectureMiner.intervalMs`,
+  default off (enabled flag) so the JVM startup is unaffected until the
+  operator opts in.
+- **Acceptance:** with the flag on, a fresh app produces ≥ 50 surviving
+  conjectures in the DB after one mine pass. Spot-check that the
+  pure-bound survivors match the Python prototype's output to within
+  rounding (validates the port).
 
-- A new `scripts/conjecture-miner/math/oeis_filter.py` that takes a
-  conjecture and queries OEIS for the implied sequence; if a strong match
-  exists, the conjecture is annotated `oeis_match: <A-number>` and demoted
-  in priority (not deleted — refuting a known OEIS relation is still
-  publishable, just labeled differently).
-- **Acceptance:** miner output for 100 surviving conjectures has at least
-  20 OEIS annotations. Spot-check 5; confirm the matches are real.
+### 23.2 — OEIS gate [P0, Java; post-pivot]
+
+OEIS is the canonical reference for integer sequences. Each math
+conjecture's lhs/rhs gets mapped to canonical OEIS A-numbers via a
+hand-curated `OeisCatalog` constant inside the conjecture package. The
+mapping is annotated onto the `Conjecture` entity (column
+`oeis_match_json`) at queue-build time, not at mine time, so the
+mapping table can be edited without re-mining.
+
+The annotation makes A-numbers available to paper-writing prompts so
+papers can cite OEIS references and the system can detect when a
+conjecture's hypothesis plausibly restates a known OEIS formula.
+
+- `OeisCatalog.java` — constant `Map<String, List<OeisEntry>>` from our
+  scalar name (e.g., `abundant_density`) to A-numbers (e.g., `A005101`).
+  Initial entries seeded from the Python prototype's `PREDICATE_OEIS`
+  (verified offline 2026-05-21).
+- Optional admin endpoint `/admin/oeis/verify` that hits oeis.org to
+  confirm each cited A-number exists with the expected name — for
+  catalog maintenance, not the hot path.
+- **Acceptance:** with the math miner enabled and producing ≥ 50
+  conjectures, at least 20 carry a non-empty `oeis_match_json`. Spot-
+  check 5 — confirm the cited A-numbers correspond to the right
+  sequences via the admin endpoint.
 
 **APIs in scope for Phase 23 literature search:** OEIS only. The broader
 candidate list was discussed and explicitly deferred — see table below.
@@ -202,18 +277,18 @@ the rich-end APIs stay deferred indefinitely. If it's > 30%, those APIs
 become Phase 24. The honest position is that Phase 23 ships OEIS as the
 literature gate and decides empirically whether anything more is needed.
 
-### 23.3 — `ConjectureSource` Spring bean [P1]
+### 23.3 — Conjecture queue [P1, post-pivot: merged into miner]
 
-- New `com.emergentterrain.research.ConjectureSource` reads
-  `research/conjectures-{domain}.json` on a schedule.
-- Exposes a small queue API: `next(domain) → Optional<Conjecture>`, with
-  preference for (a) recently refuted (counterexample paper material), (b)
-  tightened-across-many-configs survivors (strong-claim paper material),
-  (c) high-confirmation but tight-slack (boundary paper material).
-- File watch via existing `@Scheduled` infrastructure;
-  `researchIntervalMs` is fine.
-- **Acceptance:** end-to-end test loads a fixture JSON, the bean serves
-  three conjectures in expected priority order.
+The originally-planned `ConjectureSource` that reads JSON dropoffs is
+no longer needed since the miner is in-process. The queue API surface
+moves to `ConjectureMinerService.next(domain)`. Priorities unchanged:
+
+- recently refuted (counterexample paper material)
+- tightened-across-many-configs survivors (strong-claim paper material)
+- high-confirmation but tight-slack (boundary paper material)
+
+- **Acceptance:** end-to-end test with a seeded DB returns conjectures
+  in the expected priority order via `ConjectureMinerService.next("math")`.
 
 ### 23.4 — `PaperKind.CONJECTURE_INVESTIGATION` [P1]
 
@@ -315,8 +390,11 @@ determines whether 24 is worth building.
 
 ## Acceptance for Phase 23 (rollup)
 
-- 23.1 + 23.2 (math miner + OEIS gate) shipped; produces a queue.
-- 23.3 + 23.4 + 23.5 (Spring integration + new PaperKind + verify tool)
+- 23.1 (Python prototype) ✅ shipped 2026-05-21 as reference; commit
+  `ddfe262`. Not on the runtime path post-pivot.
+- 23.1J + 23.2 (Java miner + OEIS catalog) shipped; produces a queue
+  in the DB.
+- 23.3 + 23.4 + 23.5 (queue API + new PaperKind + verify tool)
   shipped; one bot configured with `w5=1.0` writes at least one paper
   from the queue, with non-empty Mechanism and Adversarial Check.
 - 23.6 (label discipline) shipped; spot-check confirms reviewers respect
