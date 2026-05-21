@@ -197,16 +197,43 @@ PrivateUsers=true
 
 ### Docker
 
+A multi-stage Dockerfile lives at the repo root (Phase 22.3). Build:
+
 ```bash
-docker build -t julia-math-sidecar .
-docker run --rm -p 127.0.0.1:8088:8088 \
-  --read-only --memory=512m --cpus=2 \
-  --network=bridge \
-  --cap-drop=ALL \
-  julia-math-sidecar
+docker build -t julia-math-sidecar:0.1 .
 ```
 
-(The Dockerfile is not in 0.1 — add when production rolls out.)
+Run hardened:
+
+```bash
+docker run --rm --name julia-math-sidecar \
+    -p 127.0.0.1:8088:8088 \
+    --read-only --tmpfs /tmp \
+    --memory=512m --cpus=2 \
+    --network=bridge \
+    --cap-drop=ALL \
+    --security-opt=no-new-privileges \
+    julia-math-sidecar:0.1
+```
+
+The build uses two stages:
+
+- **builder** — pulls Symbolics.jl + transitive deps via
+  `Pkg.instantiate()`, runs `Pkg.precompile()` at build time so
+  first-request latency in the runtime image is sub-second.
+- **runtime** — copies only the precompiled depot + source. Drops
+  to a non-root `julia-math` user. Health check is wired via
+  Docker's built-in `HEALTHCHECK` so `docker ps` shows reachability
+  at a glance.
+
+The container's safety stance:
+
+- Read-only root FS + tmpfs only on `/tmp`: no writes possible
+  outside `/tmp`.
+- All Linux capabilities dropped (`--cap-drop=ALL`).
+- `no-new-privileges`: no setuid escalation possible from inside.
+- Memory + CPU caps match the systemd unit (`512m` / 2 cores).
+- Localhost-only port binding via `127.0.0.1:` prefix on `-p`.
 
 ## Calling from EmergentTerrain
 
