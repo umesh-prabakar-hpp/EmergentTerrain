@@ -184,6 +184,24 @@ sequences with known closed forms in OEIS).
 - **Acceptance:** miner output for 100 surviving conjectures has at least
   20 OEIS annotations. Spot-check 5; confirm the matches are real.
 
+**APIs in scope for Phase 23 literature search:** OEIS only. The broader
+candidate list was discussed and explicitly deferred — see table below.
+
+| API | What it covers | Phase 23 status |
+|---|---|---|
+| **OEIS** (oeis.org) | Every published integer sequence with formulas, references, related sequences | ✅ In scope (this piece) |
+| **arxiv API** | Abstract + metadata search across all of arxiv | 🚫 Deferred — full literature retrieval |
+| **Semantic Scholar API** | Cross-publisher abstracts, citation graphs, OA fulltext | 🚫 Deferred |
+| **OpenAlex** | Open metadata snapshot of all academic publishing | 🚫 Deferred |
+| **Embedding-based local vector search** | Pre-embed arxiv abstracts once, then nearest-neighbor at paper-write time | 🚫 Deferred |
+
+The gating decision for the deferred APIs is the **calibration check
+(23.8)**: if a 20-paper sample under Phase 23 shows a novelty
+false-positive rate < 30% using just OEIS + the implicit LLM judgment,
+the rich-end APIs stay deferred indefinitely. If it's > 30%, those APIs
+become Phase 24. The honest position is that Phase 23 ships OEIS as the
+literature gate and decides empirically whether anything more is needed.
+
 ### 23.3 — `ConjectureSource` Spring bean [P1]
 
 - New `com.emergentterrain.research.ConjectureSource` reads
