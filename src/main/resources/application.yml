@@ -36,8 +36,22 @@ server:
 app:
   e2e:
     enabled: true
+  # Phase 22 §22.2 — Julia math sidecar bindings. The sidecar is an
+  # opt-in HTTP service (julia-math-sidecar/ in the sibling workspace
+  # directory) that wraps Symbolics.jl + Roots.jl + QuadGK.jl. With
+  # `enabled: false` (default) the JuliaMathClient bean still
+  # instantiates but every call short-circuits, so MathToolSuite uses
+  # the in-process Symja path as today. Flip `enabled: true` AFTER
+  # starting the sidecar (see julia-math-sidecar/README.md). The
+  # bean's @PostConstruct probes /healthz; on failure it marks itself
+  # unreachable and the Symja fallback kicks in for every call.
+  julia:
+    enabled: false
+    baseUrl: http://localhost:8088
+    timeoutMs: 5000
+    healthProbeTimeoutMs: 2000
   gpu:
-    enabled: true 
+    enabled: true
     world:
       enabled: true 
       minCells: 20000

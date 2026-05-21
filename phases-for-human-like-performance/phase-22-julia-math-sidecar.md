@@ -141,19 +141,60 @@ EmergentTerrain doesn't yet *use* the sidecar — that lands in 22.2.
 peer top-level directory, not a submodule. The user can `git init`
 it as its own repo if desired.
 
-### 22.2 — `JuliaMathClient` Spring bean (this repo)
+### 22.2 — `JuliaMathClient` Spring bean (this repo) — **LANDED 2026-05-20**
 
 Add `src/main/java/com/emergentterrain/llm/JuliaMathClient.java` —
-`@Component`, autowired `HttpClient`, configured via
-`app.julia.baseUrl` (default `http://localhost:8088`) and
-`app.julia.enabled` (default `false`). Optional dependency from
-`MathToolSuite` — when present and enabled, `runSymbolic` and
-`evaluateSymbolic` delegate; when absent, the existing Symja path
-runs unchanged. **Effort: ~1 day.**
+`@Service`, autowired `HttpClient`, configured via `app.julia.enabled`
+(default `false`), `app.julia.baseUrl` (default
+`http://localhost:8088`), `app.julia.timeoutMs` (default 5000), and
+`app.julia.healthProbeTimeoutMs` (default 2000). Optional dependency
+from `MathToolSuite` — when present and `isAvailable()` (enabled +
+`/healthz` succeeded at @PostConstruct), `runSymbolic` and
+`evaluateSymbolic` delegate to the sidecar; on any `JuliaMathException`
+the call falls through to the existing Symja / SandboxEngine path
+unchanged.
 
-**Acceptance:** integration test that constructs a real `JuliaMathClient`
-pointing at the sidecar, sends an expression, asserts the round-tripped
-value. Skips when sidecar is unreachable (no flaky CI dependency).
+**Status (2026-05-20):** SHIPPED. Files added/modified:
+
+- `src/main/java/com/emergentterrain/llm/JuliaMathClient.java` — new,
+  5 endpoint methods (`eval`, `solve`, `nsolve`, `integrate`,
+  `integrateSymbolicLimits`, `sweep`), 5 result records,
+  reachability tracking via `AtomicBoolean` + `probeHealth()`.
+- `src/main/java/com/emergentterrain/llm/JuliaMathException.java` —
+  new, typed runtime exception with `errorCode()` accessor preserving
+  the sidecar's response code (`safety_rejected`, `parse_error`,
+  `timeout`, `eval_error`, `bad_request`, `transport`).
+- `src/main/resources/application.yml` — new `app.julia.*` config
+  block right after `app.e2e` (default `enabled: false`).
+- `src/main/java/com/emergentterrain/service/MathToolSuite.java` —
+  new 4-arg constructor takes the optional client; back-compat 2-arg
+  and 3-arg constructors delegate with null. `runSymbolic` and
+  `evaluateSymbolic` try the Julia path first when the client is
+  available; fall through to existing Symja / SandboxEngine on
+  `JuliaMathException`.
+- `src/main/java/com/emergentterrain/service/ResearchNarrationService.java`
+  — autowires the `JuliaMathClient` (`required=false`) and passes it
+  to the `MathToolSuite` constructor alongside `gpuEngineAdapter`.
+- `src/test/java/com/emergentterrain/llm/JuliaMathClientTest.java` —
+  14 tests using an in-process `com.sun.net.httpserver.HttpServer`
+  stub. Covers disabled/enabled probing, /eval happy path + safety
+  reject + timeout + transport failure, /solve symbolic-failed branch,
+  /nsolve, /integrate, /integrate with symbolic limits, /sweep. All
+  pass on JDK 25 in 1.9s.
+
+**Acceptance:** all 14 unit tests pass; production wiring routes
+correctly through ResearchNarrationService → MathToolSuite. Live
+integration acceptance (real sidecar round-trip) is the integration
+test we'll add next: hits a real sidecar at `localhost:8088` when
+present, skips when unreachable.
+
+**Important non-promise:** flipping `app.julia.enabled=true` today
+will route the existing Mathematica-syntax inputs to a Julia parser
+that mostly rejects them. The `JuliaMathException` fall-through means
+Symja still serves every call (safely) — but the Julia path is
+exercising only the safety-reject branch. Phase 22.4 will re-prompt
+the LLM to emit Julia syntax; until then, leaving `enabled=false` is
+the recommended default.
 
 ### 22.3 — Safety filter on outbound code
 

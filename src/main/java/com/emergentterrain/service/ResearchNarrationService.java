@@ -302,6 +302,14 @@ public class ResearchNarrationService {
             LiteratureSearchService literatureSearch,
             @org.springframework.beans.factory.annotation.Autowired(required = false)
             com.emergentterrain.gpu.GpuEngineAdapter gpuEngineAdapter,
+            // Phase 22 §22.2 — optional Julia math sidecar client.
+            // When the bean is wired (always is, since @Service) AND
+            // its `app.julia.enabled` is true AND /healthz responded
+            // at startup, MathToolSuite delegates run_symbolic and
+            // evaluate_symbolic calls to the sidecar before falling
+            // back to Symja / SandboxEngine.
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.emergentterrain.llm.JuliaMathClient juliaMathClient,
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
             boolean literatureSearchEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
@@ -318,7 +326,11 @@ public class ResearchNarrationService {
         // Phase 8 Tier 4 — GpuEngineAdapter is @Autowired(required=false) so
         // tests and configurations without the GPU engine wired still construct
         // cleanly; run_gpu_eval surfaces a "not configured" error in that case.
-        this.toolSuite                 = new MathToolSuite(router, objectMapper, gpuEngineAdapter);
+        // Phase 22 §22.2 — JuliaMathClient is similarly optional. When
+        // null (or disabled, or unreachable), the sidecar delegation in
+        // MathToolSuite short-circuits and Symja stays the default.
+        this.toolSuite                 = new MathToolSuite(router, objectMapper,
+                gpuEngineAdapter, juliaMathClient);
         this.objectMapper              = objectMapper;
         this.promptRegistry            = promptRegistry;
         this.literatureSearch          = literatureSearch;

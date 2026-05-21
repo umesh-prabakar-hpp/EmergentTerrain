@@ -138,15 +138,31 @@ public class MathToolSuite {
      * dropped. Existing tests construct MathToolSuite without an adapter.
      */
     private final GpuEngineAdapter gpuEngineAdapter;
+    /**
+     * Phase 22 §22.2 — optional Julia math sidecar client. When
+     * non-null AND {@link com.emergentterrain.llm.JuliaMathClient#isAvailable()}
+     * is true, {@link #runSymbolic} and {@link #evaluateSymbolic}
+     * delegate to the sidecar before falling back to the in-process
+     * Symja path. Default null (every existing test stays on Symja);
+     * production wiring lives in {@link com.emergentterrain.service.ResearchNarrationService}.
+     */
+    private final com.emergentterrain.llm.JuliaMathClient juliaMathClient;
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper) {
-        this(router, mapper, null);
+        this(router, mapper, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper, GpuEngineAdapter gpuEngineAdapter) {
+        this(router, mapper, gpuEngineAdapter, null);
+    }
+
+    public MathToolSuite(LlmRouter router, ObjectMapper mapper,
+                          GpuEngineAdapter gpuEngineAdapter,
+                          com.emergentterrain.llm.JuliaMathClient juliaMathClient) {
         this.router = router;
         this.mapper = mapper;
         this.gpuEngineAdapter = gpuEngineAdapter;
+        this.juliaMathClient = juliaMathClient;
     }
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
@@ -417,6 +433,37 @@ public class MathToolSuite {
             return "Missing expression.";
         if (rangeStart < 0 || rangeEnd <= rangeStart || rangeEnd - rangeStart > MAX_SYMBOLIC_RANGE)
             return "Invalid range: must be positive and span ≤ " + MAX_SYMBOLIC_RANGE;
+
+        // Phase 22 §22.2 — Julia sidecar delegation via /sweep. When
+        // wired AND available, request a 100-sample sweep across the
+        // requested range and surface mean/std/min/max in the same
+        // text format the LLM downstream expects. On any failure,
+        // fall through to the in-process SandboxEngine path.
+        //
+        // Sample count is fixed at 100 here — matches the granularity
+        // of SandboxEngine's existing sweep and keeps the response
+        // compact. Future tweak (22.5+): expose `samples` as a tool
+        // argument so the LLM can ask for finer resolution.
+        if (juliaMathClient != null && juliaMathClient.isAvailable()) {
+            try {
+                long t = System.currentTimeMillis();
+                com.emergentterrain.llm.JuliaMathClient.SweepResult sr =
+                        juliaMathClient.sweep(expression, "n",
+                                rangeStart, rangeEnd - 1, 100);
+                log.info("MathToolSuite: evaluate_symbolic (julia) expr=\"{}\" range=[{},{}) ms={}",
+                        expression, rangeStart, rangeEnd, System.currentTimeMillis() - t);
+                return ("Symbolic evaluation of f(n)=%s over [%d,%d): " +
+                        "n=%d mean=%.6g std=%.6g min=%.6g max=%.6g " +
+                        "[Rationale: %s] [via=julia]")
+                        .formatted(expression, rangeStart, rangeEnd,
+                                sr.n(), sr.mean(), sr.std(), sr.min(), sr.max(), rationale);
+            } catch (com.emergentterrain.llm.JuliaMathException e) {
+                log.info("MathToolSuite: evaluate_symbolic julia-fallback ({}): {} — using SandboxEngine",
+                        e.errorCode(), e.getMessage());
+                // Fall through to SandboxEngine path below.
+            }
+        }
+
         // Phase 21 §21.5 — rewrite the textbook power operator `^` to the
         // sandbox parser's `**`. The SandboxEngine token table has STARSTAR
         // but no caret (caret would throw "Unexpected char '^'"), so the
@@ -493,6 +540,35 @@ public class MathToolSuite {
         String expression = args.path("expression").asText(null);
         String rationale  = args.path("rationale").asText("(no rationale)");
         if (expression == null || expression.isBlank()) return "Missing expression.";
+
+        // Phase 22 §22.2 — Julia sidecar delegation. When the
+        // JuliaMathClient bean is wired AND reports itself available
+        // (config opt-in + /healthz responded at startup), try the
+        // sidecar first. On any failure (transport, parse, eval),
+        // log at INFO and fall through to the existing Symja path so
+        // a sidecar outage never blocks a paper.
+        //
+        // The expression is passed through as-is. Until the LLM prompt
+        // is re-trained to emit Julia syntax (Phase 22.4), most
+        // Mathematica-shaped inputs (Solve[...], Floor[...], arcsin)
+        // will fail on the sidecar and fall back to Symja, which is
+        // the safe behaviour. Pure-arithmetic and Julia-compatible
+        // inputs succeed via the sidecar.
+        if (juliaMathClient != null && juliaMathClient.isAvailable()) {
+            try {
+                long t = System.currentTimeMillis();
+                com.emergentterrain.llm.JuliaMathClient.EvalResult er =
+                        juliaMathClient.eval(expression);
+                log.info("MathToolSuite: run_symbolic (julia) expr=\"{}\" ms={} type={}",
+                        expression, System.currentTimeMillis() - t, er.type());
+                return "Symbolic result for %s: output=%s [Rationale: %s] [via=julia]"
+                        .formatted(expression, er.result(), rationale);
+            } catch (com.emergentterrain.llm.JuliaMathException e) {
+                log.info("MathToolSuite: run_symbolic julia-fallback ({}): {} — using Symja",
+                        e.errorCode(), e.getMessage());
+                // Fall through to the Symja path below.
+            }
+        }
 
         // Phase 10 — rewrite `=` → `==` before the whitelist check so the
         // common LLM mistake of writing the Set head where Equal is meant
