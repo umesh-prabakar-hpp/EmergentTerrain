@@ -1017,6 +1017,15 @@ app:
     sandbox:
       relaxed-grammar:
         enabled: true
+    # ── Phase 23.1J — conjecture mining (math domain) ──
+    # Off by default; flipping to true creates the ConjectureMinerService
+    # bean, builds the smallest-prime-factor sieve up to n=1.05M at startup
+    # (~200ms), and runs the seed/refute/tighten engine on a schedule.
+    # The 'math' domain is the only one wired today; physics/materials
+    # are Phase 23.7. See phases-for-human-like-performance/phase-23-conjecture-driven-novelty.md.
+    conjectureMiner:
+      enabled: false
+      intervalMs: 300000   # 5 min between mining passes; idempotent against the DB
 
   # SimulationGate — pauses scheduledRoomMaintenance when any provider's rolling
   # token spend crosses pauseThresholdPct of its limit, and reopens after a drop

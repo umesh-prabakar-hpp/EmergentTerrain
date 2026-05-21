@@ -80,20 +80,23 @@ public final class ConjectureEngine {
         return out;
     }
 
+    /** Outcome of one {@link #update} pass. */
+    public record UpdateResult(int confirmed, int retired, List<Inequality> retiredItems) {}
+
     /**
      * Refute or tighten every conjecture against one run's samples.
      * Mutates {@code store} in place (drops refuted entries, tightens
-     * confirmed ones, appends witnesses).
-     *
-     * @return [confirmed, retired] counts for this run
+     * confirmed ones, appends witnesses). Returns the dropped items so
+     * callers can persist their final state (including the appended
+     * witness) before they leave scope.
      */
-    public static int[] update(
+    public static UpdateResult update(
             List<Inequality> store,
             String runKey,
             String configHash,
             List<Map<String, Double>> samples) {
         int confirmed = 0;
-        int retired = 0;
+        List<Inequality> retired = new ArrayList<>();
         Iterator<Inequality> it = store.iterator();
         while (it.hasNext()) {
             Inequality ineq = it.next();
@@ -112,8 +115,8 @@ public final class ConjectureEngine {
             if (worst > 2 * TOL) {
                 long tickAtWorst = samples.get(worstIdx).getOrDefault("_tick", (double) worstIdx).longValue();
                 ineq.refutedBy.add(new Witness(runKey, tickAtWorst, worst));
+                retired.add(ineq);
                 it.remove();
-                retired++;
                 continue;
             }
             // Confirmed: tighten c toward observed slack (half the headroom).
@@ -128,29 +131,32 @@ public final class ConjectureEngine {
             ineq.slackByConfig.merge(configHash, worst, Math::max);
             confirmed++;
         }
-        return new int[]{confirmed, retired};
+        return new UpdateResult(confirmed, retired.size(), retired);
     }
+
+    /** Outcome of one {@link #filterKnobRestatements} pass. */
+    public record FilterResult(int dropped, List<Inequality> droppedItems) {}
 
     /**
      * Drop conjectures whose per-config slack moves monotonically with a
      * swept knob. Such conjectures are restating the knob, not describing
-     * the simulation's invariants.
+     * the simulation's invariants. Returns the dropped items (with
+     * {@code droppedByKnob} populated) so callers can persist them.
      *
      * @param store mutated in place
      * @param axes knob axes (axis name + map of configHash → knob value)
      * @param threshold |Spearman| above which a conjecture is treated as a knob-restatement
      * @param minConfigs minimum number of distinct configs needed to evaluate
-     * @return number dropped
      */
-    public static int filterKnobRestatements(
+    public static FilterResult filterKnobRestatements(
             List<Inequality> store,
             List<KnobAxis> axes,
             double threshold,
             int minConfigs) {
         if (axes.isEmpty()) {
-            return 0;
+            return new FilterResult(0, List.of());
         }
-        int dropped = 0;
+        List<Inequality> dropped = new ArrayList<>();
         Iterator<Inequality> it = store.iterator();
         while (it.hasNext()) {
             Inequality ineq = it.next();
@@ -172,11 +178,11 @@ public final class ConjectureEngine {
             }
             if (culprit != null) {
                 ineq.droppedByKnob = culprit;
+                dropped.add(ineq);
                 it.remove();
-                dropped++;
             }
         }
-        return dropped;
+        return new FilterResult(dropped.size(), dropped);
     }
 
     /**

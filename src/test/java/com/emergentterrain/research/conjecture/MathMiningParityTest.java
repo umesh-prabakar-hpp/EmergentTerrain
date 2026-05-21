@@ -67,11 +67,11 @@ class MathMiningParityTest {
         List<ConjectureEngine.KnobAxis> axes = List.of(
                 new ConjectureEngine.KnobAxis("window_size", knobValues)
         );
-        int dropped = ConjectureEngine.filterKnobRestatements(store, axes, 0.95, 3);
+        ConjectureEngine.FilterResult fr = ConjectureEngine.filterKnobRestatements(store, axes, 0.95, 3);
 
         // Pinned counts from Python prototype output.
         assertEquals(106, store.size(), "surviving conjecture count must match Python prototype");
-        assertEquals(0, dropped, "knob filter dropped count must match Python prototype");
+        assertEquals(0, fr.dropped(), "knob filter dropped count must match Python prototype");
 
         // Pinned c values for the well-known pure bounds (k=0).
         assertBound(store, "abundant_density",         0.2515);
