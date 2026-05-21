@@ -22,14 +22,17 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && cargo run --r
 cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ./scripts/start.sh
 ```
 
-Binds 127.0.0.1:8088. First-time setup: see
-`julia-math-sidecar/README.md` for Julia install + `Pkg.instantiate()`
-(takes ~1-3 minutes on a fresh machine). Skip this step if you don't
-have Julia installed or `app.julia.enabled` is `false` (the default) —
-EmergentTerrain falls back to in-process Symja unchanged.
+Binds 127.0.0.1:8088. Tees stdout+stderr to
+`julia-math-sidecar/logs/sidecar.log` (mirror of EmergentTerrain's
+`logs/et-app.log`). First-time setup: see `julia-math-sidecar/README.md`
+for Julia install + `Pkg.instantiate()` (takes ~1-3 minutes on a
+fresh machine). Skip this step if you don't have Julia installed or
+`app.julia.enabled` is `false` — EmergentTerrain falls back to
+in-process Symja unchanged.
 
 Verify the sidecar is up: `curl localhost:8088/healthz` should return
-`{"ok":true,"status":"ready",...}`.
+`{"ok":true,"status":"ready",...}`. Tail the log with
+`tail -f julia-math-sidecar/logs/sidecar.log`.
 
 ## 4. Spring Boot app
 
