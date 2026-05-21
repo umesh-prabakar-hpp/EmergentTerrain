@@ -122,6 +122,15 @@ EmergentTerrain). Source files:
 - `systemd/julia-math-sidecar.service` — production unit with hardening
   directives
 - `test/runtests.jl` — unit + HTTP integration tests
+- `test/corpus_fixtures.jl` — **regression cases derived from real
+  EmergentTerrain papers**: each fixture names the paper ID it came
+  from and tests the Julia equivalent of the Mathematica/Symja
+  expression the LLM emitted. Covers P-756 (Bragg floor), P-785
+  (Bragg arcsin), P-751 (Schrödinger ground state), P-693 (TIR
+  inverted indices → NaN), P-767 (Kepler symbolic solve), P-727
+  (pendulum series), P-721/P-723 (abundant density / divisor-sum
+  asymptotic), P-732 (degenerate parens handling), plus safety-filter
+  cases and a timeout test.
 - `README.md` — install, run, protocol documentation
 
 **Wired into EmergentTerrain operator docs:** `STARTUP.md` §4.5 (full
