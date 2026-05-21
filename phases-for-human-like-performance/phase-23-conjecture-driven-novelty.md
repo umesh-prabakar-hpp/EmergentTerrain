@@ -403,15 +403,26 @@ Original-doc body (preserved for reference):
   construction: the default is CONJECTURE, and reviewers must explicitly
   raise the label.
 
-- **23.6 reviewer enforcement** (future slice) — wire the LLM reviewer
-  panel prompt to emit a proposed `EvidenceLabel`, then validate it
-  through a `LabelFloor` helper that demotes when supporting evidence
-  is absent (no Proof section → demote from THEOREM; no Mechanism +
-  Adversarial Check → demote from EMPIRICAL_RESULT). Also includes the
-  conjecture-paper prompt template (Mechanism + Adversarial Check
-  sections) since the floor's demotion criteria reference those exact
-  section names. Punted from this slice because the LLM prompt path
-  lives in `ResearchNarrationService` — its own large surface.
+- **23.6 floor + persist-time wiring** (shipped 2026-05-21) — new
+  `LabelFloor` utility examines the paper's full corpus
+  (hypothesis + findings + conclusion + discussion) for proof markers
+  ("Q.E.D.", "∎", "## Proof"), mechanism articulation, and adversarial
+  check (the literal "verify_conjecture" tool-trace string counts).
+  `LabelFloor.demote(proposed, paper)` returns the weaker of (proposed,
+  ceiling) so a reviewer can't over-claim. Wired into
+  `UniversityService.publishPaper` after all narration text is set; v1
+  acts as a no-op pass-through because no upstream proposes labels above
+  CONJECTURE yet. Test coverage: 10 cases pinning each branch + null
+  inputs + ordinal ordering. The wiring is structural — the floor
+  starts demoting the moment any future caller proposes a higher label.
+
+- **23.6 reviewer-panel emission + conjecture-paper prompt template**
+  (still deferred) — wire the LLM reviewer-panel prompt to emit a
+  proposed `EvidenceLabel`, and write the conjecture-paper prompt
+  template that produces Mechanism + Adversarial Check sections (which
+  the LabelFloor's EMPIRICAL_RESULT branch already recognizes). Both
+  live in `ResearchNarrationService` and require touching the LLM
+  prompt path; punting keeps the slice atomic.
 
 Original 23.6 body (preserved):
 
