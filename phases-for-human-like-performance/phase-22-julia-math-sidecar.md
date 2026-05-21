@@ -94,16 +94,43 @@ configurable (`app.julia.timeoutMs`, default 5000). The HTTP overhead
 
 ## Phasing
 
-### 22.1 — sidecar bootstrap (this repo: zero changes)
+### 22.1 — sidecar bootstrap (this repo: zero changes) — **LANDED 2026-05-20**
 
 Bring up `julia-math-sidecar` as a separate repo / directory with the
 HTTP server, packages, basic endpoints (`/healthz`, `/eval`, `/solve`,
-`/nsolve`, `/integrate`, `/sweep`). Verify it runs standalone with
-`curl` smoke tests against a fixture script. **Effort: ~2 days.**
+`/nsolve`, `/integrate`, `/sweep`, `/metrics`). Verify it runs standalone
+with `curl` smoke tests against a fixture script. **Effort: ~2 days.**
 
 **Acceptance:** `curl -X POST localhost:8088/eval -d
-'{"expr":"Floor[2.04e-6 / 400e-9]","timeoutMs":1000}'` returns
-`{"result":5,"type":"Int64","ok":true}` in under 100 ms after JIT warmup.
+'{"expr":"floor(2.04e-6 / 400e-9)"}'` returns
+`{"ok":true,"result":"5.0","type":"Float64",...}` in under 100 ms after JIT
+warmup. (Note: native Julia syntax `floor(...)` rather than Mathematica
+syntax `Floor[...]` — see Open Question 2.)
+
+**Status (2026-05-20):** SHIPPED. Located at
+`/opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/` (sibling to
+EmergentTerrain). Source files:
+
+- `Project.toml` — Julia package manifest (Symbolics.jl, Roots.jl,
+  QuadGK.jl, HTTP.jl, JSON3.jl)
+- `src/JuliaMathSidecar.jl` — main module
+- `src/server.jl` — HTTP route table + server loop
+- `src/handlers.jl` — endpoint implementations
+- `src/safety.jl` — substring-based code safety filter
+- `src/metrics.jl` — per-endpoint call counts + latency
+- `scripts/start.sh` — convenience launcher
+- `systemd/julia-math-sidecar.service` — production unit with hardening
+  directives
+- `test/runtests.jl` — unit + HTTP integration tests
+- `README.md` — install, run, protocol documentation
+
+**Wired into EmergentTerrain operator docs:** `STARTUP.md` §4.5 (full
+install + run + verify), `RUN.md` §3 (terse copy-paste). Both note that
+EmergentTerrain doesn't yet *use* the sidecar — that lands in 22.2.
+
+**Not committed to EmergentTerrain's git tree** — the sidecar is a
+peer top-level directory, not a submodule. The user can `git init`
+it as its own repo if desired.
 
 ### 22.2 — `JuliaMathClient` Spring bean (this repo)
 

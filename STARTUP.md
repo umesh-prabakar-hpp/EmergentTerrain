@@ -265,6 +265,68 @@ The engine listens on its gRPC port (default 50051). The Spring Boot app connect
 
 ---
 
+## 4.5. Start the Julia math sidecar (optional)
+
+Phase 22.1 introduced a standalone Julia HTTP service that wraps
+Symbolics.jl + Roots.jl + QuadGK.jl for symbolic/numeric math
+evaluation. **Opt-in:** EmergentTerrain falls back to its in-process
+Symja library when the sidecar is unreachable or
+`app.julia.enabled=false` (default until the `JuliaMathClient` Spring
+bean lands in Phase 22.2).
+
+**First-time setup.** Install Julia 1.10+ (`curl -fsSL
+https://install.julialang.org | sh`, or `dnf install julia` on Fedora),
+then instantiate the package environment:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+julia --project=. -e 'using Pkg; Pkg.instantiate()'
+```
+
+First instantiation pulls down Symbolics.jl + deps (~150 MB compiled,
+~1-3 minutes on a fresh machine). Subsequent runs reuse the compiled
+cache.
+
+**Run.**
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+./scripts/start.sh
+```
+
+Binds 127.0.0.1:8088. Override via env vars:
+
+- `PORT=9000 ./scripts/start.sh` — different port
+- `JULIA_NUM_THREADS=4 ./scripts/start.sh` — parallel request handling
+
+**Verify.**
+
+```bash
+curl localhost:8088/healthz                                # readiness
+curl -X POST localhost:8088/eval \
+    -H 'Content-Type: application/json' \
+    -d '{"expr":"floor(2.04e-6 / 400e-9)"}'                # quick math
+```
+
+**Endpoints exposed:** `/healthz`, `/metrics`, `/eval`, `/solve`,
+`/nsolve`, `/integrate`, `/sweep`. Each enforces a safety filter
+(rejects I/O, package management, FFI, module loading, reflection)
+and a per-call timeout (default 5 s, max 30 s). See
+`julia-math-sidecar/README.md` for the full protocol.
+
+**Production deployment:** see
+`julia-math-sidecar/systemd/julia-math-sidecar.service` for a starter
+systemd unit with hardened directives (read-only filesystem,
+`NoNewPrivileges`, memory cap, syscall filter, localhost-only).
+
+**When EmergentTerrain will actually use it:** not yet. Phase 22.2
+will add `JuliaMathClient` and the
+`app.julia.enabled` / `app.julia.baseUrl` config knobs. Today the
+sidecar is shipped and runnable standalone but EmergentTerrain ignores
+it.
+
+---
+
 ## 5. Start the Spring Boot app
 
 All config has sensible defaults in `application.yml` (including the Ollama

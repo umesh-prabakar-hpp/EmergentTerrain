@@ -1,7 +1,8 @@
 # Run — copy-paste commands
 
 Terse companion to [STARTUP.md](STARTUP.md). Each step in its own
-terminal. Order: Ollama → GPU engine → Spring Boot → paper-review.
+terminal. Order: Ollama → GPU engine → Julia math sidecar (optional) →
+Spring Boot → paper-review.
 
 ## 1. Ollama (fast LLM pool)
 
@@ -15,7 +16,22 @@ OLLAMA_NUM_PARALLEL=3 ollama serve
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && cargo run --release
 ```
 
-## 3. Spring Boot app
+## 3. Julia math sidecar (optional — phase-22.1, opt-in)
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ./scripts/start.sh
+```
+
+Binds 127.0.0.1:8088. First-time setup: see
+`julia-math-sidecar/README.md` for Julia install + `Pkg.instantiate()`
+(takes ~1-3 minutes on a fresh machine). Skip this step if you don't
+have Julia installed or `app.julia.enabled` is `false` (the default) —
+EmergentTerrain falls back to in-process Symja unchanged.
+
+Verify the sidecar is up: `curl localhost:8088/healthz` should return
+`{"ok":true,"status":"ready",...}`.
+
+## 4. Spring Boot app
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && JAVA_HOME=/usr/lib/jvm/java-25-openjdk mvn clean spring-boot:run
@@ -30,13 +46,13 @@ App listens on http://localhost:8081.
 > `export JAVA_HOME=/usr/lib/jvm/java-25-openjdk` once per shell to skip the
 > inline prefix.
 
-## 4. Paper-review loop (Claude Code)
+## 5. Paper-review loop (Claude Code)
 
 ```
 /loop 30m /paper-review research/a3289005 --logs logs/et-app.log
 ```
 
-## 5. Phase-doc pending-items review + archive (Claude Code)
+## 6. Phase-doc pending-items review + archive (Claude Code)
 
 ```
 /phase-review
