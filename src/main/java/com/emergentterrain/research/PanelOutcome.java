@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -54,13 +55,37 @@ public record PanelOutcome(
         List<Integer> consensusOmittedRelevant,
         List<PanelReview.Contradiction> consensusContradictions,
         List<String> recommendations,
-        List<PanelReview> reviews) {
+        List<PanelReview> reviews,
+        /*
+         * Phase 23.6 panel-emission slice — median-ordinal aggregation of the
+         * per-reviewer {@link PanelReview#proposedLabel} votes, with the weaker
+         * label winning even-N ties (earn the stronger claim by having
+         * &ge;&lceil;N/2&rceil; reviewers vote that strong). Empty when no
+         * reviewer proposed a label or when the panel itself is empty.
+         */
+        Optional<EvidenceLabel> proposedEvidenceLabel) {
+
+    /**
+     * Convenience ctor for callers/tests pre-dating the Phase 23.6
+     * panel-emission slice. Defaults {@link #proposedEvidenceLabel} to
+     * {@link Optional#empty()} — equivalent to no reviewer voting on the label.
+     */
+    public PanelOutcome(PanelReview.Grades aggregateGrades, double agreementScore,
+                        List<Integer> consensusCitedCalls,
+                        List<Integer> consensusOmittedRelevant,
+                        List<PanelReview.Contradiction> consensusContradictions,
+                        List<String> recommendations, List<PanelReview> reviews) {
+        this(aggregateGrades, agreementScore, consensusCitedCalls,
+                consensusOmittedRelevant, consensusContradictions, recommendations,
+                reviews, Optional.empty());
+    }
 
     public static PanelOutcome empty() {
         return new PanelOutcome(
                 PanelReview.Grades.zero(),
                 1.0,           // no disagreement when no reviewers
-                List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(), List.of(), List.of(), List.of(), List.of(),
+                Optional.empty());
     }
 
     public boolean isEmpty() {
@@ -83,8 +108,38 @@ public record PanelOutcome(
         List<Integer> consensusOmitted = aggregateOmittedRelevant(reviews);
         List<PanelReview.Contradiction> consensusContradictions = aggregateContradictions(reviews);
         List<String> recs = dedupeRecommendations(reviews);
+        Optional<EvidenceLabel> proposed = aggregateProposedLabel(reviews);
         return new PanelOutcome(agg, agreement, consensusCited, consensusOmitted,
-                consensusContradictions, recs, List.copyOf(reviews));
+                consensusContradictions, recs, List.copyOf(reviews), proposed);
+    }
+
+    /**
+     * Phase 23.6 — aggregate the reviewer {@link PanelReview#proposedLabel}
+     * votes into a single proposal for the publish path. Reviewers who didn't
+     * vote (empty optional) are skipped. The aggregate is the median ordinal
+     * with the <em>weaker</em> label winning even-N ties: the stronger claim
+     * must be earned by &ge;&lceil;N/2&rceil; reviewers, mirroring the
+     * LabelFloor's spirit that a higher label demands more evidence.
+     *
+     * <p>Returns {@link Optional#empty()} when no reviewer voted, so the
+     * publish path falls back to {@code paper.evidenceLabel()}'s prior value
+     * (defaults to {@link EvidenceLabel#CONJECTURE}).
+     */
+    private static Optional<EvidenceLabel> aggregateProposedLabel(List<PanelReview> reviews) {
+        int[] ordinals = reviews.stream()
+                .map(PanelReview::proposedLabel)
+                .filter(o -> o != null && o.isPresent())
+                .mapToInt(o -> o.get().ordinal())
+                .sorted()
+                .toArray();
+        if (ordinals.length == 0) return Optional.empty();
+        // Ordinals: THEOREM=0 (strongest) → UNEXPLAINED_OBSERVATION=3 (weakest).
+        // Higher ordinal = weaker. For even N, take the higher of the two
+        // middle ordinals — i.e., the weaker label wins ties.
+        int idx = ordinals.length % 2 == 1
+                ? ordinals.length / 2
+                : ordinals.length / 2;
+        return Optional.of(EvidenceLabel.values()[ordinals[idx]]);
     }
 
     private static PanelReview.Grades medianGrades(List<PanelReview> reviews) {

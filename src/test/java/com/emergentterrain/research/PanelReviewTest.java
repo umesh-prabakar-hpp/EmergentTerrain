@@ -129,4 +129,61 @@ class PanelReviewTest {
         PanelReview r = PanelReview.parse(json, "groq/x").orElseThrow();
         assertThat(r.recommendations()).containsExactly("real recommendation");
     }
+
+    // ---- Phase 23.6 panel-emission slice — evidence_label field ----
+
+    @Test
+    void parsesEvidenceLabelWhenPresent() {
+        String json = """
+                {"grades":{"honesty":0.8,"completeness":0.7,"rigor":0.9,"novelty":0.6},
+                 "evidence_label":"EMPIRICAL_RESULT"}
+                """;
+        PanelReview r = PanelReview.parse(json, "groq/x").orElseThrow();
+        assertThat(r.proposedLabel()).contains(EvidenceLabel.EMPIRICAL_RESULT);
+    }
+
+    @Test
+    void evidenceLabelMissingYieldsEmptyOptional() {
+        // Legacy (pre-23.6) JSON parses cleanly with no proposal.
+        String json = "{\"grades\":{\"honesty\":0.5,\"completeness\":0.5,\"rigor\":0.5,\"novelty\":0.5}}";
+        PanelReview r = PanelReview.parse(json, "groq/x").orElseThrow();
+        assertThat(r.proposedLabel()).isEmpty();
+    }
+
+    @Test
+    void evidenceLabelIsCaseInsensitiveAndAcceptsHyphenForm() {
+        String json = """
+                {"grades":{"honesty":0.5,"completeness":0.5,"rigor":0.5,"novelty":0.5},
+                 "evidence_label":"unexplained-observation"}
+                """;
+        PanelReview r = PanelReview.parse(json, "groq/x").orElseThrow();
+        assertThat(r.proposedLabel()).contains(EvidenceLabel.UNEXPLAINED_OBSERVATION);
+    }
+
+    @Test
+    void evidenceLabelUnrecognizedYieldsEmptyOptional() {
+        String json = """
+                {"grades":{"honesty":0.5,"completeness":0.5,"rigor":0.5,"novelty":0.5},
+                 "evidence_label":"NOT_A_LABEL"}
+                """;
+        PanelReview r = PanelReview.parse(json, "groq/x").orElseThrow();
+        assertThat(r.proposedLabel()).isEmpty();
+    }
+
+    @Test
+    void evidenceLabelBlankOrNonTextualYieldsEmptyOptional() {
+        // Blank string.
+        String blank = """
+                {"grades":{"honesty":0.5,"completeness":0.5,"rigor":0.5,"novelty":0.5},
+                 "evidence_label":""}
+                """;
+        assertThat(PanelReview.parse(blank, "groq/x").orElseThrow().proposedLabel()).isEmpty();
+        // Non-textual (object). The JSON is well-formed and `grades` parses, so
+        // the reviewer is kept; only the label proposal is dropped.
+        String objShaped = """
+                {"grades":{"honesty":0.5,"completeness":0.5,"rigor":0.5,"novelty":0.5},
+                 "evidence_label":{"x":"y"}}
+                """;
+        assertThat(PanelReview.parse(objShaped, "groq/x").orElseThrow().proposedLabel()).isEmpty();
+    }
 }

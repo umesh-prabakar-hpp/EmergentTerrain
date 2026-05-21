@@ -3,6 +3,7 @@ package com.emergentterrain.research;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -135,6 +136,79 @@ class PanelOutcomeTest {
                 "add boundary check", "test L=5mH", "add sensitivity sweep");
     }
 
+    // ---- Phase 23.6 panel-emission slice — aggregated proposed label ----
+
+    @Test
+    void proposedLabelEmptyWhenNoReviewerVoted() {
+        // All three reviewers omit the field (legacy ctor → Optional.empty()).
+        PanelReview a = review("a", 0.5, 0.5, 0.5, 0.5);
+        PanelReview b = review("b", 0.5, 0.5, 0.5, 0.5);
+        PanelReview c = review("c", 0.5, 0.5, 0.5, 0.5);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c));
+        assertThat(out.proposedEvidenceLabel()).isEmpty();
+    }
+
+    @Test
+    void proposedLabelIsSingleVoterWhenOnlyOneVoted() {
+        PanelReview a = reviewWithLabel("a", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview b = review("b", 0.5, 0.5, 0.5, 0.5);
+        PanelReview c = review("c", 0.5, 0.5, 0.5, 0.5);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c));
+        assertThat(out.proposedEvidenceLabel()).contains(EvidenceLabel.EMPIRICAL_RESULT);
+    }
+
+    @Test
+    void proposedLabelMedianWinsAcrossOddVoters() {
+        // 3 votes — sorted ordinals [0=THEOREM, 1=EMPIRICAL_RESULT, 2=CONJECTURE].
+        // Median is the middle = EMPIRICAL_RESULT.
+        PanelReview a = reviewWithLabel("a", EvidenceLabel.THEOREM);
+        PanelReview b = reviewWithLabel("b", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview c = reviewWithLabel("c", EvidenceLabel.CONJECTURE);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c));
+        assertThat(out.proposedEvidenceLabel()).contains(EvidenceLabel.EMPIRICAL_RESULT);
+    }
+
+    @Test
+    void proposedLabelWeakerWinsEvenSplit() {
+        // 4 votes — 2 EMPIRICAL_RESULT, 2 CONJECTURE.
+        // Sorted ordinals [1, 1, 2, 2]; middle pair {1, 2}; weaker side wins → CONJECTURE.
+        PanelReview a = reviewWithLabel("a", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview b = reviewWithLabel("b", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview c = reviewWithLabel("c", EvidenceLabel.CONJECTURE);
+        PanelReview d = reviewWithLabel("d", EvidenceLabel.CONJECTURE);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c, d));
+        assertThat(out.proposedEvidenceLabel()).contains(EvidenceLabel.CONJECTURE);
+    }
+
+    @Test
+    void proposedLabelEarnedByMajority() {
+        // 3 EMPIRICAL_RESULT + 1 CONJECTURE on a 4-reviewer panel.
+        // Sorted ordinals [1, 1, 1, 2]; index 2 = 1 → EMPIRICAL_RESULT.
+        PanelReview a = reviewWithLabel("a", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview b = reviewWithLabel("b", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview c = reviewWithLabel("c", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview d = reviewWithLabel("d", EvidenceLabel.CONJECTURE);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c, d));
+        assertThat(out.proposedEvidenceLabel()).contains(EvidenceLabel.EMPIRICAL_RESULT);
+    }
+
+    @Test
+    void proposedLabelSkipsAbstainersInMedian() {
+        // 4 reviewers, 2 vote. The aggregator only counts voters, so the
+        // effective panel is n=2 voters → weaker-of-the-two wins ties.
+        PanelReview a = reviewWithLabel("a", EvidenceLabel.EMPIRICAL_RESULT);
+        PanelReview b = reviewWithLabel("b", EvidenceLabel.CONJECTURE);
+        PanelReview c = review("c", 0.5, 0.5, 0.5, 0.5);
+        PanelReview d = review("d", 0.5, 0.5, 0.5, 0.5);
+        PanelOutcome out = PanelOutcome.aggregate(List.of(a, b, c, d));
+        assertThat(out.proposedEvidenceLabel()).contains(EvidenceLabel.CONJECTURE);
+    }
+
+    @Test
+    void emptyOutcomeProposesNoLabel() {
+        assertThat(PanelOutcome.empty().proposedEvidenceLabel()).isEmpty();
+    }
+
     @Test
     void summaryReturnsDiagnosticMap() {
         PanelReview a = review("a", 0.8, 0.7, 0.9, 0.6);
@@ -174,5 +248,10 @@ class PanelOutcomeTest {
     private static PanelReview reviewWithRecs(String id, List<String> recs) {
         return new PanelReview(id, new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
                 List.of(), List.of(), List.of(), recs);
+    }
+
+    private static PanelReview reviewWithLabel(String id, EvidenceLabel label) {
+        return new PanelReview(id, new PanelReview.Grades(0.5, 0.5, 0.5, 0.5),
+                List.of(), List.of(), List.of(), List.of(), Optional.of(label));
     }
 }

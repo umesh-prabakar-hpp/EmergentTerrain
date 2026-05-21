@@ -21,6 +21,12 @@ import java.util.Optional;
  * load-bearing vs. omitted, contradictions between the prose and the trace,
  * and free-form recommendations for the revision turn.
  *
+ * <p>Phase 23.6 panel-emission slice: reviewers additionally propose an
+ * {@link EvidenceLabel} via the JSON's optional {@code evidence_label} field.
+ * Legacy reviewers (no field, blank value, or unrecognized label) yield
+ * {@link Optional#empty()}; the {@link PanelOutcome} aggregator then either
+ * skips the reviewer's vote or aggregates across whoever did vote.
+ *
  * <p>All collection fields are guaranteed non-null after {@link #parse(String, String)}
  * (empty list defaults). Numeric grade fields clamp to [0.0, 1.0] so a misbehaving
  * reviewer cannot poison the aggregation step downstream.
@@ -31,7 +37,21 @@ public record PanelReview(
         List<Integer> citedCalls,
         List<Integer> omittedRelevant,
         List<Contradiction> contradictions,
-        List<String> recommendations) {
+        List<String> recommendations,
+        Optional<EvidenceLabel> proposedLabel) {
+
+    /**
+     * Convenience ctor for callers/tests pre-dating the Phase 23.6
+     * panel-emission slice. Defaults {@link #proposedLabel} to
+     * {@link Optional#empty()} — equivalent to a reviewer who didn't vote on
+     * the evidence label.
+     */
+    public PanelReview(String reviewerId, Grades grades, List<Integer> citedCalls,
+                       List<Integer> omittedRelevant, List<Contradiction> contradictions,
+                       List<String> recommendations) {
+        this(reviewerId, grades, citedCalls, omittedRelevant, contradictions,
+                recommendations, Optional.empty());
+    }
 
     private static final Logger log = LoggerFactory.getLogger(PanelReview.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -85,12 +105,39 @@ public record PanelReview(
             List<Integer> omitted   = parseIntArray(root.path("omitted_relevant"));
             List<Contradiction> con = parseContradictions(root.path("contradictions"));
             List<String> recs       = parseStringArray(root.path("recommendations"));
-            return Optional.of(new PanelReview(reviewerId, grades, cited, omitted, con, recs));
+            Optional<EvidenceLabel> label = parseLabel(root.path("evidence_label"));
+            return Optional.of(new PanelReview(
+                    reviewerId, grades, cited, omitted, con, recs, label));
         } catch (Exception e) {
             log.warn("PanelReview.parse: reviewer={} raw_len={} failed: {}",
                     reviewerId, rawJson.length(), e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * Phase 23.6 — extract the reviewer's proposed {@link EvidenceLabel} from
+     * the JSON's optional {@code evidence_label} field. Missing, blank,
+     * non-textual, or unrecognized values yield {@link Optional#empty()}.
+     *
+     * <p>Unlike {@link ProposedLabelParser#parse} — which scans free-form LLM
+     * text for label hints behind a preamble like {@code "Label: X"} — Jackson
+     * has already extracted the bare value here, so we just normalize and
+     * resolve against the enum directly (case-insensitive, hyphen→underscore).
+     */
+    private static Optional<EvidenceLabel> parseLabel(JsonNode node) {
+        if (node == null || node.isMissingNode() || !node.isTextual()) {
+            return Optional.empty();
+        }
+        String raw = node.asText();
+        if (raw == null || raw.isBlank()) return Optional.empty();
+        String normalized = raw.trim().toUpperCase().replace('-', '_');
+        for (EvidenceLabel label : EvidenceLabel.values()) {
+            if (label.name().equals(normalized)) {
+                return Optional.of(label);
+            }
+        }
+        return Optional.empty();
     }
 
     private static Grades parseGrades(JsonNode node) {
