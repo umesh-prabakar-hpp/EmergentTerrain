@@ -163,4 +163,60 @@ class MathToolSuiteToolDescriptionTest {
         // because that's the conventional JSON-encode-of-null.
         assertThat(MathToolSuite.jsonEncode(null)).isEqualTo("null");
     }
+
+    // ── Phase 22 §22.5 — range cap relaxation on Julia path ─────────
+
+    @Test
+    void symjaPath_advertisesThousandSampleCap() {
+        // Default / disabled / unreachable Julia → Symja path; the
+        // tool schema should advertise the 1000-sample ceiling.
+        String json = suiteWithoutJulia().toolsJson(true);
+        try {
+            JsonNode root = M.readTree(json);
+            for (JsonNode tool : root) {
+                JsonNode fn = tool.path("function");
+                if ("evaluate_symbolic".equals(fn.path("name").asText())) {
+                    String endDesc = fn.path("parameters").path("properties")
+                            .path("range_end").path("description").asText();
+                    assertThat(endDesc).contains("1000");
+                    assertThat(endDesc).doesNotContain("100000");
+                    return;
+                }
+            }
+            throw new AssertionError("evaluate_symbolic tool not found in JSON");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void juliaPath_advertisesHundredThousandSampleCap() {
+        String json = suiteWithJulia(true).toolsJson(true);
+        try {
+            JsonNode root = M.readTree(json);
+            for (JsonNode tool : root) {
+                JsonNode fn = tool.path("function");
+                if ("evaluate_symbolic".equals(fn.path("name").asText())) {
+                    String endDesc = fn.path("parameters").path("properties")
+                            .path("range_end").path("description").asText();
+                    assertThat(endDesc).contains("100000");
+                    return;
+                }
+            }
+            throw new AssertionError("evaluate_symbolic tool not found in JSON");
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
+    }
+
+    @Test
+    void juliaDescription_mentionsRelaxedCeiling() {
+        String json = suiteWithJulia(true).toolsJson(true);
+        String evalSym = findToolDescription(json, "evaluate_symbolic");
+        // Description should explain WHY the ceiling is higher so the
+        // LLM doesn't second-guess itself when asking for the larger
+        // range.
+        assertThat(evalSym).contains("100,000");
+        assertThat(evalSym).contains("JIT-compiled");
+    }
 }

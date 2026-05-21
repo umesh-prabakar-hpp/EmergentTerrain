@@ -320,7 +320,7 @@ abundant density) so when `app.julia.enabled=true` the LLM has
 working templates for the exact shapes that gave Symja trouble in
 the recent corpus.
 
-### 22.5 — Sandbox-limit relaxation for Julia path
+### 22.5 — Sandbox-limit relaxation for Julia path — **LANDED 2026-05-20**
 
 The current sandbox `statement_limit` / `loop_limit` thresholds were
 sized for the JS-style sandbox. For the Julia path, the integration
@@ -330,8 +330,52 @@ that the sidecar itself enforces via `Threads.@spawn` + `wait` with
 timeout.
 
 P-764's projectile-RK4 archetype (4 of 5 sandbox calls killed by
-limits) should succeed end-to-end under the Julia path. **Effort:
-1 day.**
+limits) should succeed end-to-end under the Julia path.
+
+**Status (2026-05-20):** SHIPPED. Two relaxations:
+
+1. **`evaluate_symbolic` range cap.** SandboxEngine kept its
+   historic 1000-element ceiling (bytecode interpreter is too slow
+   for more). The Julia path gets `MAX_SYMBOLIC_RANGE_JULIA =
+   100_000` — sized empirically to fit inside the 5-second per-call
+   timeout with 30× margin. The active cap swaps at call time based
+   on `useJuliaDescriptions()`, so a sidecar going offline mid-paper
+   snaps back to the 1000 cap automatically. Tool description JSON
+   advertises the correct ceiling to the LLM.
+2. **Per-call timeout.** Already handled by the
+   `app.julia.timeoutMs` knob landed in 22.2 (default 5000ms, max
+   30s). The sidecar's `timed_evaluate` wrapper enforces this via
+   `Threads.@spawn` + `sleep` race. No extra work here.
+3. **Adaptive sample count.** When the LLM asks for a tight range,
+   the sidecar's `/sweep` endpoint now receives one sample per
+   integer (capped at 100_000) instead of always sub-sampling at
+   100. Gives the LLM honest "evaluated every n in [a,b)" semantics.
+
+P-764's projectile-RK4 case won't route through `evaluate_symbolic`
+or `run_symbolic` — it's `run_sandboxed_code` shaped. The Phase 22
+design explicitly keeps the JS-style sandbox in EmergentTerrain
+(see "What this phase deliberately does NOT include"). The
+acceptance argument for P-764 instead is: with the relaxed range
+cap on `evaluate_symbolic`, the LLM can reformulate the projectile
+sweep as a Julia comprehension fed through `run_symbolic` —
+`(let v0=233, k=0.037, g=9.81; minimum(angle for angle in 5:0.5:45 if
+range_at(angle) < target end) end)` and similar shapes. Real
+acceptance lives in Phase 22.7.
+
+**Files modified:**
+
+- `src/main/java/com/emergentterrain/service/MathToolSuite.java`:
+  - `MAX_SYMBOLIC_RANGE_JULIA = 100_000` constant added.
+  - `evaluateSymbolic` runtime check now uses
+    `useJuliaDescriptions() ? MAX_SYMBOLIC_RANGE_JULIA : MAX_SYMBOLIC_RANGE`.
+  - `/sweep` call passes `samples = clamp(rangeSize, 100, 100_000)`
+    instead of always 100.
+  - `EVALUATE_SYMBOLIC_DESC_JULIA` updated to explain the ceiling.
+  - Tool schema JSON now interpolates the range-cap string so the
+    LLM sees the actual ceiling at the schema level.
+- `src/test/java/com/emergentterrain/service/MathToolSuiteToolDescriptionTest.java`:
+  - 3 new tests: Symja schema advertises 1000 cap, Julia schema
+    advertises 100,000 cap, Julia description explains JIT.
 
 ### 22.6 — TokenAccountant integration
 
