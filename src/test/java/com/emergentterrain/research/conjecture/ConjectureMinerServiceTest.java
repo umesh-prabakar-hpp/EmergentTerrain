@@ -41,8 +41,9 @@ class ConjectureMinerServiceTest {
         // save() echoes its argument back (real JPA assigns an ID; we don't need one for assertions)
         when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
 
-        ConjectureMapper mapper = new ConjectureMapper(new ObjectMapper());
-        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper);
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMapper mapper = new ConjectureMapper(om);
+        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper, new OeisAnnotator(om));
 
         svc.mine();
 
@@ -66,6 +67,19 @@ class ConjectureMinerServiceTest {
         assertBound(pureBoundByLhs, "deficient_density", 0.7531);
         assertBound(pureBoundByLhs, "prime_density",     0.1146);
         assertBound(pureBoundByLhs, "happy_density",     0.1560);
+
+        // Phase 23.2 acceptance: ≥20 conjectures carry OEIS annotations.
+        long annotated = saved.getAllValues().stream()
+                .filter(c -> c.oeisMatchJson() != null && !c.oeisMatchJson().isEmpty())
+                .count();
+        assertTrue(annotated >= 20,
+                "expected ≥20 OEIS-annotated conjectures (phase 23.2 acceptance); got " + annotated);
+
+        // Spot-check: pure-bound on abundant_density should carry A005101.
+        Conjecture ab = pureBoundByLhs.get("abundant_density");
+        assertNotNull(ab.oeisMatchJson(), "abundant_density bound should be OEIS-annotated");
+        assertTrue(ab.oeisMatchJson().contains("A005101"),
+                "abundant_density bound annotation should reference A005101: " + ab.oeisMatchJson());
     }
 
     @Test
@@ -76,8 +90,9 @@ class ConjectureMinerServiceTest {
         when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
         when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
 
+        ObjectMapper om = new ObjectMapper();
         ConjectureMinerService svc = new ConjectureMinerService(
-                repo, new ConjectureMapper(new ObjectMapper()));
+                repo, new ConjectureMapper(om), new OeisAnnotator(om));
         svc.mine();
 
         ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
@@ -95,12 +110,13 @@ class ConjectureMinerServiceTest {
         // that the first mine() saved. The second call should update those
         // in place (not insert duplicates).
         ConjectureRepository repo = mock(ConjectureRepository.class);
-        ConjectureMapper mapper = new ConjectureMapper(new ObjectMapper());
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMapper mapper = new ConjectureMapper(om);
 
         // First pass — capture what got saved
         when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
         when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
-        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper);
+        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper, new OeisAnnotator(om));
         svc.mine();
         ArgumentCaptor<Conjecture> firstPassSaves = ArgumentCaptor.forClass(Conjecture.class);
         verify(repo, atLeast(50)).save(firstPassSaves.capture());

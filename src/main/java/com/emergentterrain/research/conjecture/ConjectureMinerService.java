@@ -62,17 +62,21 @@ public class ConjectureMinerService {
 
     private final ConjectureRepository repo;
     private final ConjectureMapper mapper;
+    private final OeisAnnotator oeisAnnotator;
     private final MathConjectureSubstrate substrate;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
-            ConjectureMapper mapper) {
+            ConjectureMapper mapper,
+            OeisAnnotator oeisAnnotator) {
         this.repo = repo;
         this.mapper = mapper;
+        this.oeisAnnotator = oeisAnnotator;
         log.info("conjecture miner enabled — building SPF table up to n={}", MAX_N);
         long t0 = System.currentTimeMillis();
         this.substrate = new MathConjectureSubstrate(MAX_N);
-        log.info("conjecture miner ready — sieve built in {} ms", System.currentTimeMillis() - t0);
+        log.info("conjecture miner ready — sieve built in {} ms ({} OEIS catalog entries)",
+                System.currentTimeMillis() - t0, OeisCatalog.size());
     }
 
     /**
@@ -131,6 +135,7 @@ public class ConjectureMinerService {
         }
 
         // Persist survivors: update existing entities in place, insert new ones.
+        int oeisAnnotated = 0;
         for (Inequality ineq : store) {
             String key = keyOf(ineq.lhs, ineq.rhs);
             Conjecture entity = byKey.get(key);
@@ -139,11 +144,16 @@ public class ConjectureMinerService {
             } else {
                 mapper.apply(ineq, entity);
             }
+            String annotation = oeisAnnotator.annotate(ineq.lhs, ineq.rhs);
+            if (annotation != null) {
+                entity.setOeisMatchJson(annotation);
+                oeisAnnotated++;
+            }
             repo.save(entity);
         }
 
-        log.info("conjecture mine pass — {} survivors, {} retired (counterexample), {} dropped (knob filter), {} ms",
-                store.size(), totalRetiredByCounterexample, fr.dropped(),
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} ms",
+                store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(),
                 System.currentTimeMillis() - t0);
     }
 
