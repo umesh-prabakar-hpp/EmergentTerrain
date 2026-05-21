@@ -101,15 +101,17 @@ class JuliaMathClientIntegrationTest {
 
     @Test
     void safetyFilter_rejectsForbiddenToken() {
-        // Pkg manipulation must round-trip as a safety_rejected error.
-        // The client throws JuliaMathException with the sidecar's
-        // error code preserved.
+        // Pkg manipulation must reject — as of Phase 22.3 the JVM-side
+        // filter catches this BEFORE the HTTP request, so we expect
+        // `client_safety_rejected`. A separate sidecar-side test in
+        // julia-math-sidecar/test/runtests.jl covers the server's
+        // filter for inputs that somehow bypass the client filter.
         try {
             client.eval("(using Pkg; Pkg.add(\"Foo\"))");
             org.junit.jupiter.api.Assertions.fail(
                     "Expected JuliaMathException for forbidden token");
         } catch (JuliaMathException e) {
-            assertThat(e.errorCode()).isEqualTo("safety_rejected");
+            assertThat(e.errorCode()).isEqualTo("client_safety_rejected");
         }
     }
 

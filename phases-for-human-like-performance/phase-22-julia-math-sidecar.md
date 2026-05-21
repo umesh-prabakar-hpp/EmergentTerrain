@@ -196,7 +196,7 @@ exercising only the safety-reject branch. Phase 22.4 will re-prompt
 the LLM to emit Julia syntax; until then, leaving `enabled=false` is
 the recommended default.
 
-### 22.3 — Safety filter on outbound code
+### 22.3 — Safety filter on outbound code — **LANDED 2026-05-20**
 
 Static analysis of the expression before it leaves
 `JuliaMathClient.send()`. Rejects any of:
@@ -220,6 +220,53 @@ Docker container or systemd-confined service with:
 - No `/dev` access beyond `/dev/null`, `/dev/urandom`
 
 **Effort: ~1 day for the Java filter; ~½ day for the systemd unit.**
+
+**Status (2026-05-20):** SHIPPED. Files added/modified:
+
+- `src/main/java/com/emergentterrain/llm/JuliaSafetyFilter.java` —
+  new package-private class with a list of forbidden substring
+  patterns mirroring `julia-math-sidecar/src/safety.jl` line-by-line.
+  Comment block above each pattern documents *why* the token is
+  unsafe so auditors don't need Julia docs to read the list.
+- `src/main/java/com/emergentterrain/llm/JuliaMathClient.java` —
+  `post()` now runs every string-valued body field through
+  `JuliaSafetyFilter.firstForbiddenPattern()` before HTTP. On match,
+  throws `JuliaMathException` with error code
+  `client_safety_rejected` (distinct from the server-side
+  `safety_rejected`) so logs and tests can tell the two paths apart.
+  Adds a `var`-identifier regex check (must match
+  `[A-Za-z_][A-Za-z0-9_]*`) so non-identifier `var` values don't
+  produce opaque server-side parse errors.
+- `src/test/java/com/emergentterrain/llm/JuliaSafetyFilterTest.java` —
+  12 cases: rejects Pkg / shell / FS / module-loading / FFI / process
+  control / env access / direct eval, accepts ordinary math
+  including common library names that could superficially trip a
+  prefix matcher (`minimum`, `maximum`, `sum`, `prod`, etc.).
+- `src/test/java/com/emergentterrain/llm/JuliaMathClientTest.java` —
+  +4 cases on the client-side filter wiring: confirms the filter
+  rejects BEFORE HTTP (stub server never sees the request),
+  validates `var` identifier shape, accepts valid identifiers,
+  rejects forbidden tokens in symbolic limits.
+- `julia-math-sidecar/Dockerfile` — new, two-stage build. `builder`
+  runs `Pkg.instantiate` + `Pkg.precompile`; `runtime` ships only
+  the depot + source, drops to non-root `julia-math` user, exposes
+  port 8088 with a Docker HEALTHCHECK probe. `.dockerignore` keeps
+  the build context lean.
+- `julia-math-sidecar/README.md` — Docker section rewritten with
+  the actual hardened `docker run` invocation
+  (`--read-only --tmpfs /tmp --memory=512m --cpus=2 --cap-drop=ALL
+  --security-opt=no-new-privileges`).
+
+The pre-existing systemd unit (shipped in 22.1) already covers the
+"process isolation" half of this phase — file system / network /
+capability / syscall confinement directives are in place. The
+Dockerfile is the alternative deployment path for sites that prefer
+container runtimes over systemd.
+
+**Acceptance:** all 37 Java tests pass (12 filter + 18 client + 7
+live integration). Live integration runs against the actual sidecar
+on `localhost:8088` and confirms the client-side filter catches
+forbidden tokens before the HTTP request leaves the JVM.
 
 ### 22.4 — Echo detection migration
 

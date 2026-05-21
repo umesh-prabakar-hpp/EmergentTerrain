@@ -153,15 +153,19 @@ class JuliaMathClientTest {
     }
 
     @Test
-    void eval_safetyRejected_throwsWithErrorCode() {
-        nextResponse.set(new CannedResponse(400,
-                "{\"ok\":false,\"error\":\"safety_rejected\",\"explanation\":\"forbidden token 'run('\"}"));
+    void eval_safetyRejected_caughtByClientFilter() {
+        // As of Phase 22.3, the JVM-side filter rejects forbidden
+        // tokens before the HTTP call. The sidecar's filter is
+        // covered by the sidecar's own test suite — what we pin here
+        // is that the JVM-side reject fires and surfaces a
+        // distinguishable error code (client_safety_rejected vs the
+        // server's safety_rejected).
         JuliaMathClient client = buildClient();
 
         assertThatThrownBy(() -> client.eval("run(`ls`)"))
                 .isInstanceOf(JuliaMathException.class)
                 .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
-                        .isEqualTo("safety_rejected"));
+                        .isEqualTo("client_safety_rejected"));
     }
 
     @Test
@@ -275,6 +279,77 @@ class JuliaMathClientTest {
         assertThat(r.min()).isEqualTo(1.0);
         assertThat(r.max()).isEqualTo(100.0);
         assertThat(r.n()).isEqualTo(10);
+    }
+
+    // ── Client-side safety filter (Phase 22.3) ─────────────────────
+
+    @Test
+    void clientSideFilter_rejectsBeforeHttp() {
+        // No nextResponse set — if the filter lets this through to
+        // the stub server, the request would succeed with the
+        // default {ok:true} response. We expect the filter to throw
+        // BEFORE the HTTP call happens.
+        JuliaMathClient client = buildClient();
+        // Reset request capture so we can assert it was never set.
+        lastRequestPath.set(null);
+        lastRequestBody.set(null);
+
+        assertThatThrownBy(() -> client.eval("(using Pkg; Pkg.add(\"Foo\"))"))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> {
+                    JuliaMathException jme = (JuliaMathException) e;
+                    assertThat(jme.errorCode()).isEqualTo("client_safety_rejected");
+                    assertThat(jme.getMessage()).contains("using Pkg");
+                });
+        // Confirm the stub server never saw the request.
+        assertThat(lastRequestPath.get()).isNull();
+        assertThat(lastRequestBody.get()).isNull();
+    }
+
+    @Test
+    void clientSideFilter_rejectsBadVarIdentifier() {
+        // The `var` field gets used as a Julia identifier server-side
+        // — it's not eval'd as code, but a non-identifier string
+        // (e.g. with spaces, special chars, or "eval(") would cause
+        // an opaque parse error. Validate locally.
+        JuliaMathClient client = buildClient();
+
+        assertThatThrownBy(() -> client.nsolve("x^2 - 4", "x or eval(", 1.0))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
+                        .isEqualTo("client_safety_rejected"));
+    }
+
+    @Test
+    void clientSideFilter_acceptsValidIdentifier() {
+        // Sanity — Greek letters / underscores / digits work fine as
+        // Julia identifiers. But the @Value regex only matches ASCII
+        // [A-Za-z_][A-Za-z0-9_]* so we test the ASCII case here.
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"result\":2.0,\"elapsed_ms\":5}"));
+        JuliaMathClient client = buildClient();
+
+        client.nsolve("theta_max^2 - 4", "theta_max", 1.0);  // must not throw
+
+        // Confirm the request did fire.
+        assertThat(lastRequestPath.get()).isEqualTo("/nsolve");
+    }
+
+    @Test
+    void clientSideFilter_rejectsForbiddenInSymbolicLimit() {
+        // /integrate accepts string limits like "π" or "exp(1)".
+        // A malicious limit like "run(`ls`)" would be a code-injection
+        // vector — the filter catches it.
+        JuliaMathClient client = buildClient();
+        lastRequestPath.set(null);
+
+        assertThatThrownBy(() ->
+                client.integrateSymbolicLimits("sin(x)", "x", "0", "run(`ls`)"))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
+                        .isEqualTo("client_safety_rejected"));
+        // Confirm the stub server never saw the request.
+        assertThat(lastRequestPath.get()).isNull();
     }
 
     // ── Transport failure ──────────────────────────────────────────

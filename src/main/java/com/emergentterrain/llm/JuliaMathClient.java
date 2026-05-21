@@ -342,6 +342,38 @@ public class JuliaMathClient {
             throw new JuliaMathException("not_enabled",
                     "JuliaMathClient is disabled (app.julia.enabled=false); cannot call " + path);
         }
+        // Phase 22 §22.3 — JVM-side safety filter (defense in depth).
+        // Scan every string-valued field in the body that the sidecar
+        // will eval (`expr`, symbolic limits `a` / `b` when string-form,
+        // anything else with structural code). Numeric fields, the
+        // `var` name, and `timeoutMs` aren't run through it because
+        // they can't carry executable code in the contract.
+        for (Map.Entry<String, Object> e : body.entrySet()) {
+            String key = e.getKey();
+            Object val = e.getValue();
+            if (!(val instanceof String s)) continue;
+            // `var` is a Julia identifier (alphanumeric + underscore)
+            // and gets used as a parameter name, not eval'd as code.
+            // Skip the filter; validate identifier shape instead.
+            if ("var".equals(key)) {
+                if (!s.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                    throw new JuliaMathException("client_safety_rejected",
+                            "Field 'var' must be a Julia identifier "
+                                    + "([A-Za-z_][A-Za-z0-9_]*); got: " + truncate(s, 40));
+                }
+                continue;
+            }
+            // For everything else (expr, a, b string-form), scan for
+            // forbidden tokens before we serialise the request.
+            String bad = JuliaSafetyFilter.firstForbiddenPattern(s);
+            if (bad != null) {
+                throw new JuliaMathException("client_safety_rejected",
+                        "Client-side safety filter rejected " + key + " containing '"
+                                + bad + "' (forbidden token). Sidecar would have rejected "
+                                + "too — short-circuiting before HTTP. Truncated input: "
+                                + truncate(s, 80));
+            }
+        }
         String jsonBody;
         try {
             jsonBody = mapper.writeValueAsString(body);
