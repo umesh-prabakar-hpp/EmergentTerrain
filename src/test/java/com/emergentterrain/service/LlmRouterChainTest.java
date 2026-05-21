@@ -287,6 +287,46 @@ class LlmRouterChainTest {
     }
 
     @Test
+    void phase23_6d_callForRoleTagsContextOnPrimaryAndFallback() {
+        // Phase 23.6d follow-on — LlmRouter.callForRole wraps the entire
+        // dispatch (role-tagged pool AND the fast fallback) in
+        // LlmCallContext.withRole(role, ...). Verify both code paths see the
+        // role.
+        //
+        // Case 1: role-tagged primary succeeds — primary pool observes role.
+        FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
+        FakePool cerebras = new FakePool("cerebras", true, false, "cerebras-response")
+                .withRole("fast-audit");
+
+        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+
+        assertThat(com.emergentterrain.llm.LlmCallContext.currentRole()).isNull();
+        router.callForRole("fast-audit", "audit this");
+        assertThat(cerebras.observedRole)
+                .as("primary pool sees the role during the call")
+                .isEqualTo("fast-audit");
+        // Scope is cleared after return — no leak.
+        assertThat(com.emergentterrain.llm.LlmCallContext.currentRole()).isNull();
+
+        // Case 2: role-tagged primary throws → fallback to fast pool, which
+        // must ALSO see the role (so its metrics increment under fast-audit,
+        // not unknown).
+        FakePool ollama2   = new FakePool("ollama", false, false, "ollama-fallback");
+        FakePool cerebras2 = new FakePool("cerebras", true, false, "cerebras-response")
+                .withRole("fast-audit");
+        cerebras2.throwOnSync = new RuntimeException("transient cerebras failure");
+        LlmRouter router2 = buildRouter("groq", "ollama", ollama2, cerebras2);
+
+        router2.callForRole("fast-audit", "audit this");
+        assertThat(cerebras2.observedRole)
+                .as("primary pool sees the role even on exception path")
+                .isEqualTo("fast-audit");
+        assertThat(ollama2.observedRole)
+                .as("fast fallback pool also sees the role inside the same withRole scope")
+                .isEqualTo("fast-audit");
+    }
+
+    @Test
     void roleAvailable_reportsCorrectly() {
         FakePool ollama   = new FakePool("ollama", false, false, "x");
         FakePool cerebras = new FakePool("cerebras", true, false, "x").withRole("fast-audit");
@@ -457,6 +497,15 @@ class LlmRouterChainTest {
         RuntimeException throwOnSync;
         int syncCallCount = 0;
         int toolCallCount = 0;
+        /**
+         * Phase 23.6d follow-on — captures
+         * {@link com.emergentterrain.llm.LlmCallContext#currentRole()} at the
+         * moment the pool was invoked. Used by the role-wiring tests to assert
+         * that {@code LlmRouter.callForRole} wraps the entire dispatch (both
+         * the role-tagged primary call AND its fast fallback) in a
+         * {@code withRole(role, ...)} scope. Null on legacy router tests.
+         */
+        String observedRole;
 
         FakePool(String key, boolean tools, boolean blocked, String syncResponse) {
             this.key = key;
@@ -468,6 +517,7 @@ class LlmRouterChainTest {
         FakePool withRole(String role) { this.roleTag = role; return this; }
 
         @Override public String callSync(String prompt) {
+            observedRole = com.emergentterrain.llm.LlmCallContext.currentRole();
             syncCallCount++;
             if (throwOnSync != null) throw throwOnSync;
             return syncResponse;

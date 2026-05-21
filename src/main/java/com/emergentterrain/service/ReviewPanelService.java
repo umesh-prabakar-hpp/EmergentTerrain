@@ -192,22 +192,28 @@ public class ReviewPanelService {
      * resolve on a fresh sample.
      */
     private Optional<PanelReview> callReviewer(ModelHandle handle, String prompt) {
-        String reviewerId = handle.reviewerId();
-        for (int attempt = 0; attempt < 2; attempt++) {
-            String raw;
-            try {
-                raw = handle.pool().callSyncOnModel(handle.modelId(), prompt);
-            } catch (RuntimeException e) {
-                log.warn("ReviewPanelService: reviewer={} attempt={} call failed: {}",
-                        reviewerId, attempt, e.getMessage());
-                return Optional.empty();
+        // Phase 23.6d follow-on — tag the LlmCallContext so every panel-review
+        // LLM call (including the parse-failure retry) shows up under the
+        // panel-review role bucket in LlmCallMetricsReporter's 5-min heartbeat.
+        // Without this scope, panel calls landed under role=unknown.
+        return com.emergentterrain.llm.LlmCallContext.withRole("panel-review", () -> {
+            String reviewerId = handle.reviewerId();
+            for (int attempt = 0; attempt < 2; attempt++) {
+                String raw;
+                try {
+                    raw = handle.pool().callSyncOnModel(handle.modelId(), prompt);
+                } catch (RuntimeException e) {
+                    log.warn("ReviewPanelService: reviewer={} attempt={} call failed: {}",
+                            reviewerId, attempt, e.getMessage());
+                    return Optional.<PanelReview>empty();
+                }
+                Optional<PanelReview> parsed = PanelReview.parse(raw, reviewerId);
+                if (parsed.isPresent()) return parsed;
+                log.info("ReviewPanelService: reviewer={} attempt={} parse failed, retrying",
+                        reviewerId, attempt);
             }
-            Optional<PanelReview> parsed = PanelReview.parse(raw, reviewerId);
-            if (parsed.isPresent()) return parsed;
-            log.info("ReviewPanelService: reviewer={} attempt={} parse failed, retrying",
-                    reviewerId, attempt);
-        }
-        return Optional.empty();
+            return Optional.<PanelReview>empty();
+        });
     }
 
     private String renderPrompt(PaperDraft draft, NarrationResult narration,

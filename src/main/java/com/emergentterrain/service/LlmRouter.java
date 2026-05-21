@@ -341,15 +341,22 @@ public class LlmRouter {
      * inference) but must remain available when that provider is rate-limited.
      */
     public String callForRole(String role, String prompt) {
-        LlmPool p = poolsByRole.get(role);
-        if (p != null && !p.allBlocked()) {
-            try { return p.callSync(prompt); }
-            catch (RuntimeException e) {
-                log.warn("LlmRouter: role={} provider={} failed, falling back to fast: {}",
-                        role, p.providerKey(), e.getMessage());
+        // Phase 23.6d follow-on — tag the LlmCallContext with the role so
+        // LlmCallMetrics.record / recordTokens attribute every call AND its
+        // fallback under the same role bucket in the 5-min heartbeat. Covers
+        // `fast-audit` today (the only declared role caller) and any future
+        // role registered via app.ai.role-overrides.
+        return com.emergentterrain.llm.LlmCallContext.withRole(role, () -> {
+            LlmPool p = poolsByRole.get(role);
+            if (p != null && !p.allBlocked()) {
+                try { return p.callSync(prompt); }
+                catch (RuntimeException e) {
+                    log.warn("LlmRouter: role={} provider={} failed, falling back to fast: {}",
+                            role, p.providerKey(), e.getMessage());
+                }
             }
-        }
-        return callFast(prompt);
+            return callFast(prompt);
+        });
     }
 
     /** True when a pool is registered against the given role and is currently usable. */

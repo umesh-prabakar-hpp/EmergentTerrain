@@ -180,6 +180,29 @@ class ReviewPanelServiceTest {
     }
 
     @Test
+    void phase23_6d_callsAreTaggedWithPanelReviewRole() {
+        // Phase 23.6d follow-on — ReviewPanelService.callReviewer wraps the
+        // reviewer LLM call in LlmCallContext.withRole("panel-review", ...).
+        // Without the wrap, panel calls would land under role=unknown in
+        // LlmCallMetricsReporter's by-role section.
+        FakePool groq = panelistReturning("groq", cleanReviewJson(0.8));
+        ReviewPanelService svc = build("groq", groq);
+
+        // Sanity: outside any panel call, the role is null.
+        assertThat(com.emergentterrain.llm.LlmCallContext.currentRole()).isNull();
+
+        svc.runPanel(draftFixture(), narrationWithTrace(1));
+
+        assertThat(groq.observedRole)
+                .as("LlmCallContext.currentRole() at the moment the pool was invoked")
+                .isEqualTo("panel-review");
+
+        // The scope is properly cleared after the call returns — the
+        // ThreadLocal must not leak to subsequent unrelated work.
+        assertThat(com.emergentterrain.llm.LlmCallContext.currentRole()).isNull();
+    }
+
+    @Test
     void unknownProvidersInConfigAreSilentlySkipped() {
         // Configured providers: groq, missing — only groq has a registered pool.
         // Phase 9 U3a: panelSize is now the CONFIGURED target (cap), not the
@@ -282,7 +305,17 @@ class ReviewPanelServiceTest {
             this.scriptedResponses = scriptedResponses;
         }
 
+        /**
+         * Phase 23.6d follow-on — captures {@link com.emergentterrain.llm.LlmCallContext#currentRole()}
+         * at the moment the pool was invoked. Used by the role-wiring test to
+         * assert that {@code ReviewPanelService.callReviewer} wraps the call
+         * in a {@code withRole("panel-review", ...)} scope. Left null on the
+         * legacy panel tests so they're unaffected.
+         */
+        volatile String observedRole;
+
         @Override public String callSync(String prompt) {
+            observedRole = com.emergentterrain.llm.LlmCallContext.currentRole();
             int idx = syncCallCount.getAndIncrement();
             if (idx == 0 && sharedOrder != null) {
                 invocationOrder.set(sharedOrder.getAndIncrement());
