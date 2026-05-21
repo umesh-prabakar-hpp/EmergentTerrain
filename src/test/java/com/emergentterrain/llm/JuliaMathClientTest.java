@@ -442,6 +442,47 @@ class JuliaMathClientTest {
         assertThat(after.transportFailCalls()).isEqualTo(before.transportFailCalls() + 1);
     }
 
+    // ── Scheduled re-probe (sticky-unreachable recovery) ────────────
+
+    @Test
+    void scheduledReprobe_noopWhenDisabled() {
+        JuliaMathClient client = buildClient(false);
+        // Stub returns ok by default — if scheduledReprobe ran the
+        // request anyway, reachable would flip to true.
+        lastRequestPath.set(null);
+        client.scheduledReprobe();
+        assertThat(client.isReachable()).isFalse();
+        // No HTTP made.
+        assertThat(lastRequestPath.get()).isNull();
+    }
+
+    @Test
+    void scheduledReprobe_noopWhenAlreadyReachable() {
+        nextResponse.set(new CannedResponse(200, "{\"ok\":true,\"elapsed_ms\":0}"));
+        JuliaMathClient client = buildClient(true);
+        assertThat(client.isReachable()).isTrue();
+        // After successful init, mark the stub path as null so we can
+        // detect any additional probe attempt.
+        lastRequestPath.set(null);
+        client.scheduledReprobe();
+        // Should NOT re-probe since reachable is already true.
+        assertThat(lastRequestPath.get()).isNull();
+    }
+
+    @Test
+    void scheduledReprobe_recoversFromTransientFailure() {
+        // Simulate the timeout-at-init scenario: first probe fails,
+        // reachable is stuck false, scheduled re-probe runs and the
+        // sidecar is now responsive.
+        nextResponse.set(new CannedResponse(500, "{\"ok\":false}"));
+        JuliaMathClient client = buildClient(true);
+        assertThat(client.isReachable()).isFalse();
+        // Now simulate the sidecar recovering — next response is 200.
+        nextResponse.set(new CannedResponse(200, "{\"ok\":true,\"elapsed_ms\":0}"));
+        client.scheduledReprobe();
+        assertThat(client.isReachable()).isTrue();
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private JsonNode readBody() {

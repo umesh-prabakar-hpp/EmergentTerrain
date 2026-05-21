@@ -16,23 +16,11 @@ OLLAMA_NUM_PARALLEL=3 ollama serve
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && cargo run --release
 ```
 
-## 3. Julia math sidecar (optional — phase-22.1, opt-in)
+## 3. Julia math sidecar (optional — phase-22, opt-in)
 
 ```bash
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ./scripts/start.sh
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ./scripts/start.sh &
 ```
-
-Binds 127.0.0.1:8088. Tees stdout+stderr to
-`julia-math-sidecar/logs/sidecar.log` (mirror of EmergentTerrain's
-`logs/et-app.log`). First-time setup: see `julia-math-sidecar/README.md`
-for Julia install + `Pkg.instantiate()` (takes ~1-3 minutes on a
-fresh machine). Skip this step if you don't have Julia installed or
-`app.julia.enabled` is `false` — EmergentTerrain falls back to
-in-process Symja unchanged.
-
-Verify the sidecar is up: `curl localhost:8088/healthz` should return
-`{"ok":true,"status":"ready",...}`. Tail the log with
-`tail -f julia-math-sidecar/logs/sidecar.log`.
 
 ## 4. Spring Boot app
 

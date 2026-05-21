@@ -55,8 +55,8 @@ app:
     enabled: true
     baseUrl: http://localhost:8088
     timeoutMs: 5000
-    healthProbeTimeoutMs: 2000
-    reportIntervalMs: 300000   # 5-minute sidecar metrics heartbeat
+    healthProbeTimeoutMs: 3000   # 2026-05-20: bumped 2000 → 3000 to survive JIT-busy window
+    reportIntervalMs: 300000     # 5-minute sidecar metrics heartbeat
   gpu:
     enabled: true
     world:

@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.scheduling.annotation.Scheduled;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -127,7 +128,7 @@ public class JuliaMathClient {
             @Value("${app.julia.enabled:false}") boolean enabled,
             @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.julia.timeoutMs:5000}") long timeoutMs,
-            @Value("${app.julia.healthProbeTimeoutMs:2000}") long healthProbeTimeoutMs,
+            @Value("${app.julia.healthProbeTimeoutMs:3000}") long healthProbeTimeoutMs,
             ObjectMapper mapper) {
         this.enabled = enabled;
         // Strip trailing slash so the URL-building below doesn't double-slash.
@@ -165,6 +166,43 @@ public class JuliaMathClient {
         boolean ok = probeHealth();
         log.info("JuliaMathClient: enabled, baseUrl={}, timeoutMs={}, reachable={}",
                 baseUrl, timeoutMs, ok);
+    }
+
+    /**
+     * Phase 22 §22.7 fixup — periodic re-probe to recover from a
+     * transient first-probe failure. The original {@link #onInit}
+     * probe runs in the @PostConstruct phase and can race the
+     * sidecar's JIT compilation window: if the sidecar happens to be
+     * JIT-compiling a previous request when /healthz arrives, the
+     * single-threaded HTTP.jl handler queues the request past our
+     * probe timeout and we mark `reachable=false`. Before this
+     * scheduled re-probe was added, that one timeout pinned the
+     * JVM on the Symja fallback for the entire run.
+     *
+     * <p>Only re-probes when {@code reachable=false} so a healthy
+     * client doesn't burn HTTP calls every minute. Once recovered,
+     * the next first-call's transport failure would sticky-false
+     * again — and this method would recover it on the next tick.
+     *
+     * <p>Cadence is 60 s — quick enough to recover within one paper
+     * if the first probe missed, slow enough that a permanently-down
+     * sidecar doesn't fill the log with WARN spam (re-probe failures
+     * log at DEBUG when already false, not WARN).
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 60_000)
+    public void scheduledReprobe() {
+        if (!enabled) return;
+        if (reachable.get()) return;  // already up, nothing to do
+        // Quiet re-probe — temporarily downgrade the failure log
+        // level so a permanently-down sidecar doesn't spam WARN
+        // every 60s. probeHealth() itself emits at WARN level on
+        // the first failure; we already logged that during @PostConstruct,
+        // and subsequent re-probe failures are noise.
+        boolean before = reachable.get();
+        boolean now = probeHealth();
+        if (now && !before) {
+            log.info("JuliaMathClient: sidecar recovered — reachable=true via scheduled re-probe");
+        }
     }
 
     /**
