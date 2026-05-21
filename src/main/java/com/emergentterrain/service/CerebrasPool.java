@@ -674,6 +674,7 @@ public class CerebrasPool implements LlmPool {
         if (prompt + completion <= 0) return;
         // Phase 20.4 step 2b-2 — per-paper accumulator (see GroqPool).
         com.emergentterrain.llm.LlmCallContext.recordTokenUsage(prompt, completion);
+        if (callMetrics != null) callMetrics.recordTokens(PROVIDER_ID, model, prompt, completion);
         if (tokenAccountant != null) {
             tokenAccountant.record(new TokenUsage(
                     PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));

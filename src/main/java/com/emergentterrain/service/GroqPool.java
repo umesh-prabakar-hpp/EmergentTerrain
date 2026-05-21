@@ -1307,6 +1307,7 @@ public class GroqPool implements LlmPool {
         // model-scoped tokenAccountant so unit tests without an accountant
         // wired still get the per-paper count.
         com.emergentterrain.llm.LlmCallContext.recordTokenUsage(prompt, completion);
+        if (callMetrics != null) callMetrics.recordTokens(PROVIDER_ID, model, prompt, completion);
         if (tokenAccountant != null) {
             tokenAccountant.record(new TokenUsage(
                     PROVIDER_ID, model, prompt, completion, java.time.Instant.now()));

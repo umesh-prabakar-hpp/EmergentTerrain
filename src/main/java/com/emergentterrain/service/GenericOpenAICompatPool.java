@@ -1178,6 +1178,7 @@ public class GenericOpenAICompatPool implements LlmPool {
         if (prompt + completion <= 0) return;
         // Phase 20.4 step 2b-2 — per-paper accumulator (no-op outside scope).
         LlmCallContext.recordTokenUsage(prompt, completion);
+        if (callMetrics != null) callMetrics.recordTokens(cfg.providerKey(), model, prompt, completion);
         if (tokenAccountant != null) {
             tokenAccountant.record(new TokenUsage(
                     cfg.providerKey(), model, prompt, completion, Instant.now()));
