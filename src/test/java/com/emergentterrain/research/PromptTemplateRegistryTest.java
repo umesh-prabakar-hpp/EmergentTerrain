@@ -815,7 +815,13 @@ class PromptTemplateRegistryTest {
                 .contains("\"contradictions\"")
                 .contains("\"trace_idx\"")
                 .contains("\"vs_prose\"")
-                .contains("\"recommendations\"");
+                .contains("\"recommendations\"")
+                // Phase 23.6 panel-emission slice — evidence_label field.
+                .contains("\"evidence_label\"")
+                .contains("THEOREM")
+                .contains("EMPIRICAL_RESULT")
+                .contains("CONJECTURE")
+                .contains("UNEXPLAINED_OBSERVATION");
     }
 
     @Test

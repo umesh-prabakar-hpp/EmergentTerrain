@@ -1112,17 +1112,23 @@ public class UniversityService {
                 ? narration.status().name()
                 : NarrationResult.OutcomeStatus.UNKNOWN.name());
 
+        // Phase 23.6 panel-emission slice — route the aggregated reviewer
+        // proposal (median ordinal, weaker-side tiebreak) onto the paper
+        // BEFORE the floor's demote pass, so the floor validates the panel's
+        // claim against the paper text. Empty proposal (no reviewer voted,
+        // or panel never ran) leaves the paper's prior label intact — which
+        // defaults to CONJECTURE by ResearchPaper's field initializer.
+        if (outcome != null) {
+            outcome.proposedEvidenceLabel().ifPresent(paper::setEvidenceLabel);
+        }
+
         // Phase 23.6 — vet the proposed EvidenceLabel through LabelFloor
         // before persistence. The floor reads the full paper corpus
         // (hypothesis + findings + conclusion + discussion) and demotes
         // labels that the text doesn't support: claims of THEOREM with no
         // Proof/Q.E.D./∎ structure → CONJECTURE; claims of EMPIRICAL_RESULT
         // without "mechanism" AND ("adversarial check" OR a verify_conjecture
-        // tool call) → CONJECTURE. v1: nobody upstream proposes a label
-        // above CONJECTURE yet, so this is a no-op pass-through. When the
-        // reviewer-panel-label slice lands, it'll call setEvidenceLabel()
-        // with the panel's proposal BEFORE this line, and the floor will
-        // validate.
+        // tool call) → CONJECTURE.
         paper.setEvidenceLabel(LabelFloor.demote(paper.evidenceLabel(), paper));
 
         // Phase 3 Iter 8: bootstrap institutions and stamp FKs onto the paper before

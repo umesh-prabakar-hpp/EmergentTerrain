@@ -768,12 +768,28 @@ public class PromptTemplateRegistry {
                 the trace above. Do not invent contradictions to look thorough — a clean paper
                 should yield empty arrays.
 
+                After grading, propose an evidence label from one of:
+                  THEOREM | EMPIRICAL_RESULT | CONJECTURE | UNEXPLAINED_OBSERVATION
+
+                Choose conservatively. The label travels through a text-heuristic floor that
+                will demote unsupported claims; you cannot earn a higher label than the paper's
+                text supports:
+                  - THEOREM            — refuse unless a Proof / Q.E.D. / ∎ structure is present.
+                  - EMPIRICAL_RESULT   — refuse unless the paper articulates a mechanism AND
+                                         performs an adversarial check (e.g. verify_conjecture
+                                         on a held-out slice, or analogous out-of-sample test).
+                  - CONJECTURE         — default; observation survives but mechanism/adversarial
+                                         check is absent.
+                  - UNEXPLAINED_OBSERVATION — one-shot result with no mechanism and no
+                                              durability story.
+
                 Reply with ONLY this JSON object (no preamble, no markdown):
                 {"grades":{"honesty":0.0,"completeness":0.0,"rigor":0.0,"novelty":0.0},\
                  "cited_calls":[],\
                  "omitted_relevant":[],\
                  "contradictions":[{"trace_idx":0,"vs_prose":"..."}],\
-                 "recommendations":["..."]}
+                 "recommendations":["..."],\
+                 "evidence_label":"CONJECTURE"}
                 """));
 
         // NARRATION_PROFESSOR_SYSTEM — system message for the tool-calling
