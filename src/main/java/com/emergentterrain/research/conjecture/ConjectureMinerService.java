@@ -9,10 +9,12 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Phase 23.1J runtime — periodically mines math-domain conjectures and
@@ -157,9 +159,70 @@ public class ConjectureMinerService {
                 System.currentTimeMillis() - t0);
     }
 
-    /** Exposes the next conjecture from the live queue for the paper-writing pipeline. v1 ordering: most-confirmed first, then tightest slack. */
+    /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
     public List<Conjecture> liveConjectures(String domain) {
         return repo.findByDomainAndDroppedByKnobIsNull(domain);
+    }
+
+    /**
+     * Phase 23.3 — single highest-priority conjecture from the queue for
+     * the paper-writing pipeline. Priority tiers, in order:
+     * <ol>
+     *   <li><b>Recently refuted by counterexample</b> — paper-worthy
+     *       refutation material. Highest signal-per-paper because the
+     *       conjecture survived seeding only to be broken by held-out data.</li>
+     *   <li><b>Live conjectures with high confirmation</b> — the
+     *       robust-bound papers. Sorted by confirmedRuns desc, then
+     *       p99Slack asc (tighter = more publishable).</li>
+     * </ol>
+     *
+     * <p>Returns empty when the DB has no conjectures for this domain
+     * (e.g., the miner hasn't run yet, or the flag is off).
+     */
+    public Optional<Conjecture> next(String domain) {
+        List<Conjecture> picks = nextN(domain, 1);
+        return picks.isEmpty() ? Optional.empty() : Optional.of(picks.get(0));
+    }
+
+    /**
+     * Batch variant of {@link #next}. Returns up to {@code n} conjectures
+     * in priority order. Tier-1 items are exhausted before tier-2 items
+     * are emitted; ordering within a tier follows the rules in
+     * {@link #next}'s javadoc.
+     */
+    public List<Conjecture> nextN(String domain, int n) {
+        if (n <= 0) {
+            return List.of();
+        }
+        List<Conjecture> all = repo.findByDomain(domain);
+        if (all.isEmpty()) {
+            return List.of();
+        }
+        List<Conjecture> out = new ArrayList<>(Math.min(n, all.size()));
+
+        // Tier 1: retired by counterexample, most recent first.
+        all.stream()
+                .filter(c -> DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
+                .sorted((a, b) -> Long.compare(timestampOf(b), timestampOf(a)))
+                .limit(n)
+                .forEach(out::add);
+
+        // Tier 2: live, highest confirmation first, tightest slack as tiebreaker.
+        if (out.size() < n) {
+            all.stream()
+                    .filter(c -> c.droppedByKnob() == null)
+                    .sorted(Comparator
+                            .<Conjecture>comparingInt(c -> -c.confirmedRuns())
+                            .thenComparingDouble(Conjecture::p99Slack))
+                    .limit((long) n - out.size())
+                    .forEach(out::add);
+        }
+        return out;
+    }
+
+    private static long timestampOf(Conjecture c) {
+        Instant t = c.updatedAt() != null ? c.updatedAt() : c.createdAt();
+        return t == null ? 0 : t.toEpochMilli();
     }
 
     private List<Map<String, Double>> materialize(Run run) {
