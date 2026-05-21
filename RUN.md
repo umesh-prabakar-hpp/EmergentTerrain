@@ -36,7 +36,7 @@ App listens on http://localhost:8081.
 /loop 30m /paper-review research/a3289005 --logs logs/et-app.log
 ```
 
-## 5. Phase-doc pending-items review (Claude Code)
+## 5. Phase-doc pending-items review + archive (Claude Code)
 
 ```
 /phase-review
@@ -44,6 +44,13 @@ App listens on http://localhost:8081.
 
 Walks `phases-for-human-like-performance/` and prints a categorized list of
 genuinely-open items (code lanes, flag flips queued, live-run acceptance
-pending, operational follow-ups, deferred-by-design, doc hygiene). Add
-`--out PENDING_REVIEW.md` to also write a markdown artifact. Pair with
-`/loop 1d /phase-review` for a daily walk.
+pending, operational follow-ups, deferred-by-design, doc hygiene). **Also
+archives completed docs** via `git mv` to `archive/` when their Status is
+terminal (`CLOSED` / `SHIPPED` / `COMPLETE`) and every closing condition is
+marked done. Archive moves are staged but not committed.
+
+Add `--out PENDING_REVIEW.md` to also write a markdown artifact. Add
+`--no-archive` to suppress the archive step (audit-only mode). Pair with
+`/loop 1d /phase-review` for a daily walk, or `/loop 1d /phase-review
+--no-archive` if you only want archive moves during focused human-driven
+sessions.

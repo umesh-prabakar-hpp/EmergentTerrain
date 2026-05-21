@@ -567,15 +567,18 @@ A `phase-review` skill is installed at `~/.claude/skills/phase-review/SKILL.md`.
 walks `phases-for-human-like-performance/` (or any phase-doc folder) and prints a
 categorized list of genuinely-open items — cross-checking every unchecked box
 against current code state so "DONE despite unchecked" items are not reported as
-pending.
+pending. As of 2026-05-20 it also **archives completed docs** (`git mv` to
+`archive/`) when the doc's closing condition is fully met. Pass `--no-archive`
+to suppress the archive step.
 
-**One-shot review** — open Claude Code in this repo and run:
+**One-shot review + archive** — open Claude Code in this repo and run:
 
 ```
 /phase-review
 ```
 
-Defaults: folder `phases-for-human-like-performance/`, terminal output only.
+Defaults: folder `phases-for-human-like-performance/`, terminal output only,
+archive step enabled.
 
 **Override the folder** (e.g. for a different project layout):
 
@@ -589,11 +592,20 @@ Defaults: folder `phases-for-human-like-performance/`, terminal output only.
 /phase-review --out PENDING_REVIEW.md
 ```
 
+**Audit-only mode** (no `git mv`):
+
+```
+/phase-review --no-archive
+```
+
 **Periodic refresh** — pair with the `loop` skill:
 
 ```
 /loop 1d /phase-review
 ```
+
+Use `/loop 1d /phase-review --no-archive` if you want daily summaries but
+only want archive moves to happen during a focused human-driven session.
 
 **Output buckets** (in order):
 
@@ -607,8 +619,32 @@ Defaults: folder `phases-for-human-like-performance/`, terminal output only.
    20.11 step-2b deletion checklists).
 5. **Deferred by design** — items with an explicit named trigger ("if a second
    example appears within N refreshes, promote").
-6. **Doc hygiene** — status-vs-body inconsistencies caught during the walk,
-   docs marked `CLOSED PENDING REFRESH` that should move to `archive/`.
+6. **Doc hygiene** — status-vs-body inconsistencies caught during the walk
+   (status lines that contradict the body, etc.). Docs marked
+   `CLOSED PENDING REFRESH` no longer auto-flag here — they're correctly
+   considered awaiting an external trigger.
+7. **Archived this run** — docs the skill moved to `archive/` because their
+   Status is terminal (`CLOSED` / `SHIPPED` / `COMPLETE`) AND every condition
+   in their `Closing condition` section is marked done. The `git mv` is staged
+   but NOT committed — review and commit in a single follow-up.
+8. **Skipped for archive** — docs that *almost* qualified for archive but are
+   blocked by an unmet closing condition or recent unrelated activity. Fix
+   the noted hygiene issue and the next run will pick them up.
+
+**Archive eligibility — hard rules:**
+
+- Status line must contain `CLOSED` (without `PENDING`), `SHIPPED`, `COMPLETE`,
+  `LANDED`, or `MOVED TO ARCHIVE`.
+- Every `Closing condition` / `Acceptance` / `Closes when` item must be marked
+  ✅ / DONE / MET. Any ⏳ / ❌ / "pending" / "operator action" / "awaits"
+  blocks the move.
+- Always-live docs are exempt: `STATUS.md`, `README.md` / `readme.md`,
+  `INDEX.md`, `phase-flags.md`, any `phase-wishlist*.md`, any doc whose
+  filename contains `tracking` / `index` / `status`.
+- The working tree must be clean inside `<phase_dir>/`. If you have unstaged
+  edits, the skill skips the archive step and reports the situation.
+- No more than 3 archives per single run without explicit confirmation. If
+  4+ docs qualify, the skill lists them and asks before moving.
 
 **Skill arguments:**
 
@@ -616,9 +652,11 @@ Defaults: folder `phases-for-human-like-performance/`, terminal output only.
 |---|---|---|
 | `<phase_dir>` | `phases-for-human-like-performance/` | Override if the project uses a different folder. |
 | `--out <path>` | none | If given, write the bucket tables to this markdown file in addition to terminal output. |
+| `--no-archive` | (archive enabled) | Skip step 5 (archive moves). Audit-only mode. |
 
-> The skill is read-only — doc-hygiene findings are reported, never auto-applied.
-> Fix them yourself after reviewing the summary.
+> Archive moves are staged via `git mv` but never committed by the skill.
+> Always review the rename diffs and commit in a single explicit commit so
+> the move history is clean.
 
 ---
 
