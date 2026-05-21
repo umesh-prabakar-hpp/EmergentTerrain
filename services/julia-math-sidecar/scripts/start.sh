@@ -32,6 +32,19 @@ PORT="${PORT:-8088}"
 JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-1}"
 export JULIA_NUM_THREADS
 
+# Logging — by default tee stdout+stderr to logs/sidecar.log under the
+# repo root. EmergentTerrain mirrors this pattern with logs/et-app.log,
+# so an operator can `tail -f` both in adjacent terminals without
+# hunting for ephemeral task-output files.
+#
+# Override LOG_FILE=- to disable file logging entirely (e.g. when
+# running under systemd, which captures stdout into the journal).
+LOG_FILE="${LOG_FILE:-$REPO_ROOT/logs/sidecar.log}"
+if [ "$LOG_FILE" != "-" ]; then
+    mkdir -p "$(dirname "$LOG_FILE")"
+    echo "julia-math-sidecar: tee'ing log to $LOG_FILE"
+fi
+
 # Confirm `julia` is on PATH before doing anything else — gives a
 # clearer error than a confused "command not found" deep in the
 # `using Pkg` call below.
@@ -56,7 +69,19 @@ fi
 # `-e` runs the inline script: load the package, then call
 # start_server!(host, port). The package directory must be on
 # LOAD_PATH; Julia auto-finds it via `--project=.`.
-exec julia --project=. -e "
-    using JuliaMathSidecar
-    start_server!(host=\"$HOST\", port=$PORT)
-"
+# If a log file is configured, tee stdout+stderr so we get BOTH
+# real-time console output AND a persistent file. `exec ... 2>&1 | tee -a`
+# composes: redirect stderr to stdout, pipe to tee which appends to
+# the file. `-a` so multiple restarts share one log; rotate externally
+# (logrotate / systemd) when it gets too big.
+if [ "$LOG_FILE" = "-" ]; then
+    exec julia --project=. -e "
+        using JuliaMathSidecar
+        start_server!(host=\"$HOST\", port=$PORT)
+    "
+else
+    exec julia --project=. -e "
+        using JuliaMathSidecar
+        start_server!(host=\"$HOST\", port=$PORT)
+    " 2>&1 | tee -a "$LOG_FILE"
+fi

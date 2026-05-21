@@ -86,7 +86,24 @@ Override via env vars:
 PORT=9000 ./scripts/start.sh                 # different port
 HOST=0.0.0.0 ./scripts/start.sh              # bind all interfaces (NOT for prod)
 JULIA_NUM_THREADS=4 ./scripts/start.sh       # parallel request handling
+LOG_FILE=/custom/path/sidecar.log ./scripts/start.sh   # alternate log
+LOG_FILE=- ./scripts/start.sh                # disable file logging (systemd captures)
 ```
+
+By default the sidecar tees stdout+stderr to `logs/sidecar.log` under
+the repo root (matches EmergentTerrain's `logs/et-app.log` pattern).
+Tail it with:
+
+```bash
+tail -f /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar/logs/sidecar.log
+```
+
+The log shows JIT warmup notices on first request to each new
+expression shape, every `@info`/`@warn` from the handlers, and the
+Julia stack trace on any unhandled exception. Use it for the §22.7
+acceptance verification — grep for `MethodError` or `DomainError` to
+spot evaluation failures the JuliaSidecarReporter heartbeat would only
+count, not detail.
 
 ## Quick check
 

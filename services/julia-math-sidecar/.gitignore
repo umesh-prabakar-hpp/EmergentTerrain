@@ -28,3 +28,7 @@ coverage/
 # Local environment
 .env
 .envrc
+
+# Sidecar log file (default location from scripts/start.sh)
+logs/
+sidecar.log
