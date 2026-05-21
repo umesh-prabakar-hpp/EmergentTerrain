@@ -254,33 +254,37 @@ public domain but the original implementation was never distributed."
 
 Legend: ✅ open source · ⚠️ partial/unclear/web-only · ❌ closed or unreleased.
 
+Compute profile: 🔥 heavy (hours–days, often GPU/cluster — kick off and walk away)
+· ⏱ moderate (scales with input; minutes–hours typical)
+· ⚡ light (seconds per call; safe to call inline).
+
 Links verified 2026-05-21 via `gh api` / web search. Star counts shown
 for GitHub repos as a rough liveness signal.
 
-| Engine | Status | Repo / link |
-|---|---|---|
-| Ramanujan Machine | ✅ Open source | https://github.com/RamanujanMachine/RamanujanMachine (Python, ~352★); newer toolkit at https://github.com/RamanujanMachine/ramanujantools (MIT) |
-| PSLQ | ✅ OSS impls | mpmath: https://github.com/mpmath/mpmath (BSD-3, ~1.1k★); SymPy: https://github.com/sympy/sympy; Bailey's MPFUN at https://www.davidhbailey.com/dhbsoftware/ |
-| LLL | ✅ OSS impls | FPLLL: https://github.com/fplll/fplll (LGPL-2.1, ~405★); NTL (Shoup): https://libntl.org/ (LGPL); SageMath: https://github.com/sagemath/sage; PARI/GP: https://pari.math.u-bordeaux.fr/ |
-| Inverse Symbolic Calculator | ⚠️ Web service, source not released | Query at https://isc.carma.newcastle.edu.au/ (Bailey/Borwein-era ISC+) — query-only, no source |
-| OEIS + Superseeker | ✅ Open data + scripts | Data: https://github.com/oeis/oeisdata (content CC BY-NC, ~125★); Superseeker invoked via https://oeis.org/ovgf.html |
-| Graffiti (Fajtlowicz) | ❌ Never released | Conjectures catalogued at https://cms.dt.uh.edu/faculty/delavinae/research/wowref.htm; source not distributed |
-| Graffiti.pc (DeLaViña) | ❌ Binary-only | Same UH page; binary requests via DeLaViña |
-| AutoGraphiX (AGX) | ❌ Academic binary | GERAD page: https://www.gerad.ca/en/software/agx — binary distribution to academics |
-| Conjecturing (Larson/Van Cleemput) | ✅ Open source | https://github.com/nvcleemp/conjecturing (Sage); project page https://nvcleemp.github.io/conjecturing/; companion data: https://github.com/math1um/objects-invariants-properties (GPL-3.0) |
-| GrInvIn | ✅ Free download | http://www.grinvin.org/ (Java); graph DB sister project: https://hog.grinvin.org/ |
-| AM (Lenat) | ❌ Historical, not released | LISP source never officially distributed |
-| EURISKO | ❌ Famously unreleased | Lenat kept source private; partial decompilations only |
-| HR / HR3 (Colton) | ⚠️ No official repo | Colton's HR3 not released; spiritual successor `HRLPlus` (multi-agent, Lakatos-style) at https://github.com/dshea89/HRLPlus |
-| Eureqa | ❌ Proprietary | Nutonian → DataRobot; free-for-academia build no longer hosted |
-| AI Feynman | ✅ Open source | https://github.com/SJ001/AI-Feynman (MIT, ~758★) |
-| PySR | ✅ Open source | https://github.com/MilesCranmer/PySR (Apache-2.0, ~3.5k★) |
-| AlphaGeometry | ✅ Open source (v1) | https://github.com/google-deepmind/alphageometry (Apache-2.0, ~4.8k★) |
-| AlphaGeometry 2 | ⚠️ Partial release | https://github.com/google-deepmind/alphageometry2 (Apache-2.0) — symbolic DDAR engine + examples only; LM weights/training pipeline not released |
-| AlphaProof | ❌ Not released | DeepMind paper only; no public code or weights |
-| Zeilberger / WZ | ✅ OSS impls | Zeilberger's Maple packages (incl. EKHAD): https://sites.math.rutgers.edu/~zeilberg/programs.html and https://sites.math.rutgers.edu/~zeilberg/programsAB.html; SymPy: https://docs.sympy.org/latest/modules/concrete.html |
-| Gosper's algorithm | ✅ OSS impls | SymPy `gosper_sum`; SageMath; Maple `SumTools[Hypergeometric][Gosper]` |
-| Sister Celine's method | ✅ OSS impls | Bundled in EKHAD; SymPy `Sum.rewrite`/`hyperexpand` machinery |
+| Engine | Status | Compute | Repo / link |
+|---|---|---|---|
+| Ramanujan Machine | ✅ Open source | 🔥 MITM/grid scans designed for cluster runs | https://github.com/RamanujanMachine/RamanujanMachine (Python, ~352★); newer toolkit at https://github.com/RamanujanMachine/ramanujantools (MIT) |
+| PSLQ | ✅ OSS impls | ⏱ Per-call seconds–minutes; needs hundreds of digits of precision for large `n` | mpmath: https://github.com/mpmath/mpmath (BSD-3, ~1.1k★); SymPy: https://github.com/sympy/sympy; Bailey's MPFUN at https://www.davidhbailey.com/dhbsoftware/ |
+| LLL | ✅ OSS impls | ⏱ Polynomial but constant blows up with dimension; crypto-sized lattices take hours | FPLLL: https://github.com/fplll/fplll (LGPL-2.1, ~405★); NTL (Shoup): https://libntl.org/ (LGPL); SageMath: https://github.com/sagemath/sage; PARI/GP: https://pari.math.u-bordeaux.fr/ |
+| Inverse Symbolic Calculator | ⚠️ Web service | ⚡ Lookup; instant | Query at https://isc.carma.newcastle.edu.au/ (Bailey/Borwein-era ISC+) — query-only, no source |
+| OEIS + Superseeker | ✅ Open data + scripts | ⚡ DB lookup + small transforms | Data: https://github.com/oeis/oeisdata (content CC BY-NC, ~125★); Superseeker invoked via https://oeis.org/ovgf.html |
+| Graffiti (Fajtlowicz) | ❌ Never released | ⏱ Grows with invariant pool × graph corpus | Conjectures catalogued at https://cms.dt.uh.edu/faculty/delavinae/research/wowref.htm; source not distributed |
+| Graffiti.pc (DeLaViña) | ❌ Binary-only | ⏱ Same shape; configurable | Same UH page; binary requests via DeLaViña |
+| AutoGraphiX (AGX) | ❌ Academic binary | 🔥 VNS optimization at scale; long runs typical | GERAD page: https://www.gerad.ca/en/software/agx — binary distribution to academics |
+| Conjecturing (Larson/Van Cleemput) | ✅ Open source | ⏱→🔥 Minutes for small pools; hours+ when invariant pool is wide | https://github.com/nvcleemp/conjecturing (Sage); project page https://nvcleemp.github.io/conjecturing/; companion data: https://github.com/math1um/objects-invariants-properties (GPL-3.0) |
+| GrInvIn | ✅ Free download | ⚡ Interactive teaching tool | http://www.grinvin.org/ (Java); graph DB sister project: https://hog.grinvin.org/ |
+| AM (Lenat) | ❌ Historical, not released | ⏱ Era-appropriate; agenda search ran for days on 1976 hardware | LISP source never officially distributed |
+| EURISKO | ❌ Famously unreleased | 🔥 Historically ran for days; self-modifying heuristics | Lenat kept source private; partial decompilations only |
+| HR / HR3 (Colton) | ⚠️ No official repo | ⏱ Bottlenecked by external prover calls (Otter/MACE/CSP) | Colton's HR3 not released; spiritual successor `HRLPlus` at https://github.com/dshea89/HRLPlus |
+| Eureqa | ❌ Proprietary | 🔥 GP runs designed to go for hours–days | Nutonian → DataRobot; free-for-academia build no longer hosted |
+| AI Feynman | ✅ Open source | 🔥 Trains a neural net per recursion (GPU); brute-force basis search at leaves | https://github.com/SJ001/AI-Feynman (MIT, ~758★) |
+| PySR | ✅ Open source | 🔥 Multi-population GP designed to scale to hours–days; configurable | https://github.com/MilesCranmer/PySR (Apache-2.0, ~3.5k★) |
+| AlphaGeometry | ✅ Open source (v1) | 🔥 LM inference per problem (minutes–hours); training is GPU-cluster scale | https://github.com/google-deepmind/alphageometry (Apache-2.0, ~4.8k★) |
+| AlphaGeometry 2 | ⚠️ Partial release | 🔥 Same shape; symbolic DDAR alone is moderate, full pipeline needs LM | https://github.com/google-deepmind/alphageometry2 (Apache-2.0) — DDAR + examples only; LM weights/training pipeline not released |
+| AlphaProof | ❌ Not released | 🔥 RL self-play on Lean; training reportedly weeks on TPU | DeepMind paper only; no public code or weights |
+| Zeilberger / WZ | ✅ OSS impls | ⏱ Per-identity seconds–minutes; nested sums can drag | Zeilberger's Maple packages (incl. EKHAD): https://sites.math.rutgers.edu/~zeilberg/programs.html and https://sites.math.rutgers.edu/~zeilberg/programsAB.html; SymPy: https://docs.sympy.org/latest/modules/concrete.html |
+| Gosper's algorithm | ✅ OSS impls | ⚡ Decision procedure; typically sub-second | SymPy `gosper_sum`; SageMath; Maple `SumTools[Hypergeometric][Gosper]` |
+| Sister Celine's method | ✅ OSS impls | ⏱ Slower than Gosper/WZ due to wider ansatz | Bundled in EKHAD; SymPy `Sum.rewrite`/`hyperexpand` machinery |
 
 **Practical takeaway for the `scripts/graffiti/` and
 `scripts/conjecture-miner/` lanes:** the closest cousin that can be
