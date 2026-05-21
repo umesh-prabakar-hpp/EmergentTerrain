@@ -1,13 +1,25 @@
 # Phase 23 — Conjecture-Driven Novelty for Paper Writing
 
-**Status (2026-05-21):** Scoping + Python prototype shipped (23.1 in
-`scripts/conjecture-miner/math/`, commit `ddfe262`). Architecture pivot
-2026-05-21 mid-implementation: the runtime moves into the Spring app
-(in-process Java miner, DB-backed conjecture store), not the
-Python+JSON-roundtrip path originally sketched. The Python prototype
-stays in the tree as a working reference for the seed/refute/tighten
-mechanics but is not on the runtime path. See "Architecture (post-pivot)"
-section below.
+**Status (2026-05-21):** All Phase 23 code slices shipped — 23.1J
+(Java miner + persistence + scheduler), 23.2 (OEIS gate), 23.3
+(priority queue), 23.4/4b (PaperKind.CONJECTURE_INVESTIGATION
+foundation + wiring + cycle branch), 23.5 (`verify_conjecture`
+tool), and 23.6 (EvidenceLabel + LabelFloor + ProposedLabelParser +
+reviewer-panel emission + conjecture-paper prompt template).
+Architecture pivot 2026-05-21 mid-implementation moved the runtime
+into the Spring app (in-process Java miner, DB-backed conjecture
+store), not the Python+JSON-roundtrip path originally sketched. The
+Python prototype stays in the tree as a working reference for the
+seed/refute/tighten mechanics but is not on the runtime path. See
+"Architecture (post-pivot)" section below.
+
+**Remaining to close Phase 23:** 23.7 (physics + materials miners,
+P2 — deferred until math path produces papers worth showing) and
+23.8 (operator calibration check — one-afternoon human task on 20
+high-novelty papers). The acceptance bar (20-paper sample with
+median novelty > 0.3 AND OEIS-rediscovery rate < 10%) is observable
+only via a corpus run + 23.8 calibration; all *code* needed to
+produce such a sample is now in place.
 
 Motivated by the persistent `novelty=0` ratings in `research/a3289005/`
 paper outputs: the panel is correctly identifying that hypotheses pulled from the fixed
@@ -428,15 +440,47 @@ Original-doc body (preserved for reference):
   slice uses this as: `parse(llmResponse).ifPresent(paper::setEvidenceLabel)`
   before {@code LabelFloor.demote} runs.
 
-- **23.6 reviewer-panel emission + conjecture-paper prompt template**
-  (still deferred) — wire the LLM reviewer-panel prompt to emit a
-  proposed `EvidenceLabel`, and write the conjecture-paper prompt
-  template that produces Mechanism + Adversarial Check sections (which
-  the LabelFloor's EMPIRICAL_RESULT branch already recognizes). Both
-  live in `ResearchNarrationService` (3111 LOC) and require touching
-  the LLM prompt path; punting keeps the slice atomic. With the parser
-  shipped, this final piece is purely about prompt-text changes — the
-  parsing, validation, and persistence are all already in place.
+- **23.6d reviewer-panel emission + conjecture-paper prompt template**
+  (shipped 2026-05-21, three commits) — three slices landed in sequence:
+
+  - **Foundation** (`a9b60df`): `PanelReview` + `PanelOutcome` carry
+    `Optional<EvidenceLabel> proposedLabel` / `proposedEvidenceLabel`.
+    Per-reviewer parsing reads the JSON's new `evidence_label` field;
+    the aggregator takes the median ordinal across voters with the
+    weaker label winning even-N ties (the stronger claim must be earned
+    by ≥⌈N/2⌉ reviewers, mirroring the LabelFloor's spirit). Legacy
+    6-arg / 7-arg ctors preserved as convenience overloads so existing
+    callers stay untouched.
+
+  - **Panel emission** (`a1921f9`): `NARRATION_PANEL_REVIEW` template
+    bumped v1 → `v2-with-evidence-label`; body adds per-label refusal
+    rules (THEOREM only with Q.E.D./∎/## Proof; EMPIRICAL_RESULT only
+    with mechanism + adversarial check) and the
+    `"evidence_label":"CONJECTURE"` JSON field.
+    `UniversityService.publishPaper` wires
+    `outcome.proposedEvidenceLabel().ifPresent(paper::setEvidenceLabel)`
+    BEFORE the existing `LabelFloor.demote` call, so the floor
+    validates the panel's claim against the paper text. Empty proposal
+    (no voter, panel disabled, legacy reviewer) leaves the paper's
+    default `CONJECTURE` intact.
+
+  - **Conjecture template** (`b6a04f8`): new
+    `NARRATION_CONJECTURE_INVESTIGATION` prompt that instructs the
+    narrator to emit `## Mechanism` + `## Adversarial Check` sections
+    with the verbatim `verify_conjecture` token — the exact strings the
+    LabelFloor's text heuristics look for, so an EMPIRICAL_RESULT label
+    proposal from the panel can survive the floor on this path.
+    `ResearchNarrationService.buildNarrationPrompt` branches on
+    `draft.kind()` at the top; `activeNarrationTemplateId/Version(draft)`
+    now report the conjecture id+version so `NarrationResult` records
+    the right provenance.
+
+  Tests: `PanelToFloorIntegrationTest` (7 cases pinning the
+  panel→outcome→setEvidenceLabel→LabelFloor handshake), 11 new cases
+  across `PanelReviewTest` + `PanelOutcomeTest`, 3 new cases in
+  `PromptTemplateRegistryTest` (template registration + slot
+  interpolation + marker-token presence). 132/132 green across all
+  touched-area tests.
 
 Original 23.6 body (preserved):
 
@@ -506,8 +550,8 @@ determines whether 24 is worth building.
 
 ## Acceptance for Phase 23 (rollup, 2026-05-21)
 
-Code shipped this session (13 commits, ~28 tests across the label +
-conjecture + cycle dimensions):
+All code slices shipped (16 commits + ~46 tests across the label +
+conjecture + cycle + panel-emission dimensions):
 
 | Slice | Status | Commit |
 |---|---|---|
@@ -524,16 +568,12 @@ conjecture + cycle dimensions):
 | 23.6 foundation (`EvidenceLabel` + persisted column) | ✅ | `8e75695` |
 | 23.6 floor + persist-time wiring | ✅ | `d8296a8` |
 | 23.6c proposed-label parser | ✅ | `2449326` |
+| 23.6d foundation (PanelReview/PanelOutcome carry proposed label) | ✅ | `a9b60df` |
+| 23.6d panel emission (template v2 + `publishPaper` wiring) | ✅ | `a1921f9` |
+| 23.6d conjecture template + narration kind-branch | ✅ | `b6a04f8` |
 
 Deferred (clearly scoped, not started):
 
-- 23.6 reviewer-panel emission + conjecture-paper prompt template —
-  the only remaining piece is the LLM-prompt-text change inside
-  `ResearchNarrationService` (3111 LOC). With the parser shipped,
-  this is a one-line caller change for both the prompt extension and
-  the parse-and-set step. Punted because LLM-prompt engineering
-  benefits from human judgment about wording and behavior with real
-  LLM outputs.
 - 23.7 physics + materials substrates — P2 per the original phase
   doc; defer until the math path produces papers worth showing.
 - 23.8 calibration check — operational human task (pick 20 high-
@@ -541,9 +581,13 @@ Deferred (clearly scoped, not started):
 
 Phase 23 closes when a 20-paper sample produced under it has *both*
 median novelty > 0.3 (vs. ~0 today) AND OEIS-rediscovery rate < 10%.
-Either failure mode keeps the phase open. As of this session, the
-infrastructure to *produce* such a sample is in place; the calibration
-itself (23.8) is the final remaining step.
+Either failure mode keeps the phase open. As of this session, all
+infrastructure to *produce* such a sample is in place — the label
+flow runs end-to-end (panel proposes → outcome aggregates → publishPaper
+sets → LabelFloor validates); the conjecture-investigation narration
+path produces the Mechanism + Adversarial Check prose the floor needs
+to admit EMPIRICAL_RESULT. The calibration itself (23.8) is the final
+remaining step.
 
 ---
 
