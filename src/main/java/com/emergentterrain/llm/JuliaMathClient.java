@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Phase 22 §22.2 — HTTP client for the {@code julia-math-sidecar}
@@ -99,6 +100,25 @@ public class JuliaMathClient {
      * controlled by the caller).
      */
     private final AtomicBoolean reachable = new AtomicBoolean(false);
+
+    // ── Phase 22 §22.6 — running counters surfaced by JuliaSidecarReporter
+    //
+    // Updated inside post() on every call path: success bumps okCalls
+    // + latency; safety reject bumps safetyRejectCalls (and skips
+    // latency since no HTTP happened); transport bumps
+    // transportFailCalls (also no latency); other server-side errors
+    // (parse_error, eval_error, timeout) bump evalErrorCalls + latency.
+    //
+    // Atomic longs because handler threads run concurrently — Spring
+    // doesn't guarantee single-threaded access through the bean. The
+    // counters are running totals; deltas are the reporter's problem.
+    private final AtomicLong totalCalls          = new AtomicLong();
+    private final AtomicLong okCalls             = new AtomicLong();
+    private final AtomicLong safetyRejectCalls   = new AtomicLong();
+    private final AtomicLong transportFailCalls  = new AtomicLong();
+    private final AtomicLong evalErrorCalls      = new AtomicLong();
+    private final AtomicLong latencyMsTotal      = new AtomicLong();
+    private final AtomicLong latencyMsMax        = new AtomicLong();
 
     private final HttpClient http;
     private final ObjectMapper mapper;
@@ -338,6 +358,7 @@ public class JuliaMathClient {
      * {@link #probeHealth()} call.
      */
     private JsonNode post(String path, Map<String, Object> body) {
+        totalCalls.incrementAndGet();
         if (!enabled) {
             throw new JuliaMathException("not_enabled",
                     "JuliaMathClient is disabled (app.julia.enabled=false); cannot call " + path);
@@ -367,6 +388,7 @@ public class JuliaMathClient {
             // forbidden tokens before we serialise the request.
             String bad = JuliaSafetyFilter.firstForbiddenPattern(s);
             if (bad != null) {
+                safetyRejectCalls.incrementAndGet();
                 throw new JuliaMathException("client_safety_rejected",
                         "Client-side safety filter rejected " + key + " containing '"
                                 + bad + "' (forbidden token). Sidecar would have rejected "
@@ -386,6 +408,7 @@ public class JuliaMathClient {
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
                 .build();
+        long t0 = System.nanoTime();
         HttpResponse<String> resp;
         try {
             resp = http.send(req, HttpResponse.BodyHandlers.ofString());
@@ -394,28 +417,94 @@ public class JuliaMathClient {
             // layer, etc. Mark sticky-unreachable so callers stop
             // retrying without a probe.
             reachable.set(false);
+            transportFailCalls.incrementAndGet();
             throw new JuliaMathException("transport",
                     "Sidecar unreachable at " + baseUrl + path + ": " + e.getMessage(), e);
         }
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+        // Record latency for any call that actually made it onto the
+        // wire — covers ok, eval_error, parse_error, timeout, etc.
+        // Safety/transport rejects are recorded above (zero-latency).
+        accumulateLatency(elapsedMs);
         // Parse the JSON envelope. Sidecar returns JSON for both 2xx
         // and 4xx/5xx, so we parse first and inspect the `ok` field.
         JsonNode root;
         try {
             root = mapper.readTree(resp.body());
         } catch (Exception e) {
+            evalErrorCalls.incrementAndGet();
             throw new JuliaMathException("response_parse",
                     "Sidecar returned non-JSON body (status=" + resp.statusCode() + "): "
                             + truncate(resp.body(), 200), e);
         }
         boolean ok = root.path("ok").asBoolean(false);
         if (!ok) {
+            evalErrorCalls.incrementAndGet();
             String code = root.path("error").asText("unknown");
             String explanation = root.path("explanation").asText("(no explanation)");
             throw new JuliaMathException(code,
                     "Sidecar returned error '" + code + "': " + explanation);
         }
+        okCalls.incrementAndGet();
         return root;
     }
+
+    /**
+     * Bump {@code latencyMsTotal} (cumulative) and {@code latencyMsMax}
+     * (running peak). Both are running totals — the
+     * {@link JuliaSidecarReporter} computes deltas across successive
+     * snapshots so each log line reflects the most-recent 5-minute
+     * window.
+     */
+    private void accumulateLatency(long elapsedMs) {
+        latencyMsTotal.addAndGet(elapsedMs);
+        // AtomicLong has no direct max(); CAS until it sticks.
+        long prev;
+        do {
+            prev = latencyMsMax.get();
+            if (elapsedMs <= prev) return;
+        } while (!latencyMsMax.compareAndSet(prev, elapsedMs));
+    }
+
+    // ── Phase 22 §22.6 — snapshot for JuliaSidecarReporter ──────────
+
+    /**
+     * Snapshot the running counters. Values are cumulative since the
+     * JVM started — callers (the reporter) subtract their last
+     * snapshot to compute deltas for the current heartbeat window.
+     */
+    public SidecarStats snapshot() {
+        long calls = okCalls.get();
+        long total = latencyMsTotal.get();
+        double avg = calls == 0 ? 0.0 : (double) total / calls;
+        return new SidecarStats(
+                totalCalls.get(),
+                calls,
+                safetyRejectCalls.get(),
+                evalErrorCalls.get(),
+                transportFailCalls.get(),
+                total,
+                latencyMsMax.get(),
+                avg);
+    }
+
+    /**
+     * Cumulative counters surfaced to {@link JuliaSidecarReporter}.
+     * All counts are since JVM start. {@code latencyMsTotal} +
+     * {@code latencyMsMax} cover only calls that made it onto the
+     * wire (ok / eval_error / parse_error / timeout — but not
+     * safety-rejected or transport-failed calls, which short-circuit
+     * before HTTP).
+     */
+    public record SidecarStats(
+            long totalCalls,
+            long okCalls,
+            long safetyRejectCalls,
+            long evalErrorCalls,
+            long transportFailCalls,
+            long latencyMsTotal,
+            long latencyMsMax,
+            double latencyMsAvg) {}
 
     private static String truncate(String s, int max) {
         if (s == null || s.length() <= max) return s;

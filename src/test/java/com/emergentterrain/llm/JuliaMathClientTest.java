@@ -374,6 +374,74 @@ class JuliaMathClientTest {
         assertThat(client.isAvailable()).isFalse();
     }
 
+    // ── Phase 22 §22.6 — counter tracking ──────────────────────────
+
+    @Test
+    void counters_okCallIncrementsOkAndLatency() {
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"result\":\"5.0\",\"type\":\"Float64\",\"elapsed_ms\":3}"));
+        JuliaMathClient client = buildClient();
+        // probeHealth() in buildClient counted as 1 total call. Take
+        // a baseline before the eval call we're measuring.
+        var before = client.snapshot();
+
+        client.eval("1+1");
+
+        var after = client.snapshot();
+        assertThat(after.totalCalls()).isEqualTo(before.totalCalls() + 1);
+        assertThat(after.okCalls()).isEqualTo(before.okCalls() + 1);
+        // The successful call recorded latency on the wire.
+        assertThat(after.latencyMsTotal()).isGreaterThanOrEqualTo(before.latencyMsTotal());
+    }
+
+    @Test
+    void counters_clientSafetyRejectIncrementsSafetyOnly() {
+        JuliaMathClient client = buildClient();
+        var before = client.snapshot();
+
+        assertThatThrownBy(() -> client.eval("(using Pkg; Pkg.add(\"X\"))"))
+                .isInstanceOf(JuliaMathException.class);
+
+        var after = client.snapshot();
+        assertThat(after.safetyRejectCalls()).isEqualTo(before.safetyRejectCalls() + 1);
+        // No HTTP happened so latency should NOT have grown.
+        assertThat(after.latencyMsTotal()).isEqualTo(before.latencyMsTotal());
+        assertThat(after.okCalls()).isEqualTo(before.okCalls());
+    }
+
+    @Test
+    void counters_evalErrorIncrementsEvalError() {
+        nextResponse.set(new CannedResponse(500,
+                "{\"ok\":false,\"error\":\"eval_error\",\"explanation\":\"boom\"}"));
+        JuliaMathClient client = buildClient();
+        var before = client.snapshot();
+
+        assertThatThrownBy(() -> client.eval("undefined_symbol(x)"))
+                .isInstanceOf(JuliaMathException.class);
+
+        var after = client.snapshot();
+        assertThat(after.evalErrorCalls()).isEqualTo(before.evalErrorCalls() + 1);
+        // HTTP DID happen — latency should have grown.
+        assertThat(after.latencyMsTotal()).isGreaterThanOrEqualTo(before.latencyMsTotal());
+    }
+
+    @Test
+    void counters_transportFailIncrementsTransportOnly() {
+        // Make probeHealth succeed first, then stop the stub.
+        nextResponse.set(new CannedResponse(200, "{\"ok\":true,\"elapsed_ms\":0}"));
+        JuliaMathClient client = buildClient(true);
+        var before = client.snapshot();
+
+        stub.stop(0);
+        stub = null;  // prevent tearDown double-stop
+
+        assertThatThrownBy(() -> client.eval("1+1"))
+                .isInstanceOf(JuliaMathException.class);
+
+        var after = client.snapshot();
+        assertThat(after.transportFailCalls()).isEqualTo(before.transportFailCalls() + 1);
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private JsonNode readBody() {

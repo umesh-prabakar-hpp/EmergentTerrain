@@ -377,18 +377,74 @@ acceptance lives in Phase 22.7.
   - 3 new tests: Symja schema advertises 1000 cap, Julia schema
     advertises 100,000 cap, Julia description explains JIT.
 
-### 22.6 — TokenAccountant integration
+### 22.6 — Sidecar call accounting + heartbeat — **LANDED 2026-05-20**
 
 The sidecar doesn't consume LLM tokens, but it does consume **compute
 budget** — the Spring side should be able to see "Julia: 42 calls,
 avg 35ms, max 4900ms" in the 5-minute tier-reporter heartbeat.
 
-Add a third "tier" to `TokenTierReporter`: `julia` (alongside `primary`
-and `fast`). Or — cleaner — record the sidecar in a separate
-`SidecarCallReporter` that mirrors the existing reporter's pattern but
-counts compute time instead of tokens.
+Chose the "separate reporter" path over extending `TokenTierReporter`:
 
-**Effort: 1 day; defer if the basic integration is working.**
+- `TokenTierReporter` tracks LLM token spend (count + bytes). The
+  Julia sidecar produces compute milliseconds (count + latency).
+  Different units, different aggregation semantics — keeping them in
+  separate beans avoids overloading either.
+- The JVM-side full picture (safety rejects + transport failures +
+  fall-throughs) requires JVM-side counters; the sidecar's own
+  `/metrics` only sees what reached it. So the new reporter reads
+  from `JuliaMathClient`, not by scraping `/metrics`.
+
+**Status (2026-05-20):** SHIPPED. Files added/modified:
+
+- `src/main/java/com/emergentterrain/llm/JuliaMathClient.java` —
+  new `AtomicLong` fields for `totalCalls`, `okCalls`,
+  `safetyRejectCalls`, `transportFailCalls`, `evalErrorCalls`,
+  `latencyMsTotal`, `latencyMsMax`. `post()` increments on every
+  call path: success bumps `okCalls`+latency; safety reject bumps
+  `safetyRejectCalls` (no latency since no HTTP); transport bumps
+  `transportFailCalls` (also no latency); server-side errors bump
+  `evalErrorCalls`+latency. New `snapshot()` method returns a
+  `SidecarStats` record with the current cumulative counts.
+- `src/main/java/com/emergentterrain/llm/JuliaSidecarReporter.java` —
+  new `@Component`, `@Scheduled(fixedDelayString =
+  "${app.julia.reportIntervalMs:300000}")` (5-minute default
+  matching `TokenTierReporter`'s cadence). Stores the previous
+  snapshot so each log line covers the delta — operators see rate,
+  not lifetime totals. Suppresses the log when `totalCalls == 0`
+  (silent during dormant intervals).
+
+  Log line format:
+  ```
+  julia-sidecar window=5m calls={ok=42, safety_reject=3,
+      eval_error=1, transport_fail=0}
+      latency_ms={avg=35, max=4900, total=1470}
+  ```
+
+- `src/test/java/com/emergentterrain/llm/JuliaSidecarReporterTest.java` —
+  new, 3 cases: delta from zero, delta from non-zero (subtracts
+  prev), latency-max is running peak (pinned so future tightening
+  is intentional).
+- `src/test/java/com/emergentterrain/llm/JuliaMathClientTest.java` —
+  +4 counter tests: ok call increments `okCalls`+latency, client
+  safety reject increments `safetyRejectCalls` only (no latency),
+  server `eval_error` increments `evalErrorCalls`+latency, transport
+  failure increments `transportFailCalls` only.
+
+**Acceptance:** all 54 Phase-22 tests pass (10 description + 7 live
+integration + 12 safety filter + 22 client [was 18, +4 counters]
++ 3 reporter). Counters are atomic-safe under concurrent post() calls.
+
+**Configuration:**
+
+```yaml
+app:
+  julia:
+    reportIntervalMs: 300000   # 5 minutes; matches TokenTierReporter
+```
+
+Setting `reportIntervalMs: 0` would fire every cycle (pathological);
+the safe range is 60_000 – 3_600_000 ms. The scheduler is robust to
+sub-second values but the log would drown signal in noise.
 
 ### 22.7 — Acceptance + rollout
 
