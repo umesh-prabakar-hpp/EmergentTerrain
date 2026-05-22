@@ -1271,7 +1271,14 @@ public class MathToolSuite {
           .append(varNames.size()).append(" vars (")
           .append(String.join(", ", varNames)).append(") → ")
           .append(targetName).append(". Evaluated ").append(result.evaluated())
-          .append(" members in ").append(result.elapsedMs()).append(" ms.\n\n");
+          .append(" members in ").append(result.elapsedMs()).append(" ms.");
+        if (result.retried()) {
+            // Phase 24 §24.6 Lever 3 surface. The first pass produced a
+            // stuck-looking fit; the sidecar re-ran with autoNormalize=true
+            // and merged the better entries into the front below.
+            sb.append(" autoRetry fired (rescaled-search rescue applied).");
+        }
+        sb.append("\n\n");
         sb.append("| Complexity | MSE | Expression |\n");
         sb.append("|---|---|---|\n");
         for (com.emergentterrain.llm.JuliaMathClient.ParetoEntry e : result.pareto()) {

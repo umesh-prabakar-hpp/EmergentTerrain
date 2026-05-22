@@ -103,6 +103,14 @@ public class JuliaMathClient {
     private final int  pysrPopulations;
     private final int  pysrIterations;
     private final int  pysrComplexityCeiling;
+    // ── Phase 24 §24.6 — Lever 1 + Lever 3 defaults ───────────────
+    // Toggled at the JuliaMathClient level so every symbolic_regress
+    // call from MathToolSuite picks up the recommended production
+    // wiring (autoRetry=true, autoNormalize=false) without each
+    // caller having to set it. Per-request PysrRequest overrides
+    // still work for tests and the probe.
+    private final boolean pysrAutoNormalize;
+    private final boolean pysrAutoRetry;
 
     // ── Phase 28 §28.1 — conjecture-substrate consolidation flag.
     // Independent of the main `enabled` flag so the operator can keep
@@ -170,6 +178,8 @@ public class JuliaMathClient {
              /*pysrPopulations*/ 8,
              /*pysrIterations*/ 40,
              /*pysrComplexityCeiling*/ 30,
+             /*pysrAutoNormalize*/ false,
+             /*pysrAutoRetry*/ true,
              /*conjectureEnabled*/ false,
              /*conjectureTimeoutMs*/ 5_000L,
              mapper);
@@ -189,8 +199,32 @@ public class JuliaMathClient {
         this(enabled, baseUrl, timeoutMs, healthProbeTimeoutMs,
              pysrEnabled, pysrTimeoutMs, pysrPopulations, pysrIterations,
              pysrComplexityCeiling,
+             /*pysrAutoNormalize*/ false,
+             /*pysrAutoRetry*/ true,
              /*conjectureEnabled*/ false,
              /*conjectureTimeoutMs*/ 5_000L,
+             mapper);
+    }
+
+    /**
+     * Back-compat overload pre-dating phase-24 §24.6 Lever 1+3 toggles.
+     * Same as the Spring canonical sans the {@code pysrAutoNormalize}
+     * and {@code pysrAutoRetry} args; fills in the recommended
+     * production defaults (autoNormalize=false, autoRetry=true).
+     */
+    public JuliaMathClient(boolean enabled, String baseUrl, long timeoutMs,
+                            long healthProbeTimeoutMs,
+                            boolean pysrEnabled, long pysrTimeoutMs,
+                            int pysrPopulations, int pysrIterations,
+                            int pysrComplexityCeiling,
+                            boolean conjectureEnabled, long conjectureTimeoutMs,
+                            ObjectMapper mapper) {
+        this(enabled, baseUrl, timeoutMs, healthProbeTimeoutMs,
+             pysrEnabled, pysrTimeoutMs, pysrPopulations, pysrIterations,
+             pysrComplexityCeiling,
+             /*pysrAutoNormalize*/ false,
+             /*pysrAutoRetry*/ true,
+             conjectureEnabled, conjectureTimeoutMs,
              mapper);
     }
 
@@ -205,6 +239,8 @@ public class JuliaMathClient {
             @Value("${app.julia.pysr.populations:8}") int pysrPopulations,
             @Value("${app.julia.pysr.iterations:40}") int pysrIterations,
             @Value("${app.julia.pysr.complexityCeiling:30}") int pysrComplexityCeiling,
+            @Value("${app.julia.pysr.autoNormalize:false}") boolean pysrAutoNormalize,
+            @Value("${app.julia.pysr.autoRetry:true}") boolean pysrAutoRetry,
             @Value("${app.julia.conjecture.enabled:false}") boolean conjectureEnabled,
             @Value("${app.julia.conjecture.timeoutMs:5000}") long conjectureTimeoutMs,
             ObjectMapper mapper) {
@@ -220,6 +256,8 @@ public class JuliaMathClient {
         this.pysrPopulations = pysrPopulations;
         this.pysrIterations = pysrIterations;
         this.pysrComplexityCeiling = pysrComplexityCeiling;
+        this.pysrAutoNormalize = pysrAutoNormalize;
+        this.pysrAutoRetry = pysrAutoRetry;
         this.conjectureEnabled = conjectureEnabled;
         this.conjectureTimeoutMs = conjectureTimeoutMs;
         this.mapper = mapper;
@@ -581,6 +619,16 @@ public class JuliaMathClient {
         body.put("complexityCeiling", complexity);
         body.put("timeoutMs",         callTimeoutMs);
         if (request.seed() != null)   body.put("seed", request.seed());
+        // Phase 24 §24.6 Levers 1 + 3. Per-request override (non-null
+        // PysrRequest field) wins over the client-level configured
+        // default; default of defaults is autoRetry=true, autoNormalize=false
+        // (recommended production wiring per phase-24 §24.6).
+        boolean useAutoNormalize = request.autoNormalize() != null
+                ? request.autoNormalize() : pysrAutoNormalize;
+        boolean useAutoRetry = request.autoRetry() != null
+                ? request.autoRetry() : pysrAutoRetry;
+        body.put("autoNormalize", useAutoNormalize);
+        body.put("autoRetry",     useAutoRetry);
 
         long t0 = System.nanoTime();
         JsonNode resp = post("/pysr", body);
@@ -600,7 +648,8 @@ public class JuliaMathClient {
         return new PysrResult(
                 java.util.List.copyOf(entries),
                 resp.path("evaluated").asInt(0),
-                resp.path("elapsed_ms").asLong(0));
+                resp.path("elapsed_ms").asLong(0),
+                resp.path("retried").asBoolean(false));
     }
 
     /**
@@ -930,7 +979,37 @@ public class JuliaMathClient {
             int iterations,
             int complexityCeiling,
             long timeoutMs,
-            Long seed) {}
+            Long seed,
+            /**
+             * Phase 24 §24.6 Lever 1 toggle. {@code null} → fall back to
+             * the client's configured {@code app.julia.pysr.autoNormalize}
+             * default. Non-null → per-request override.
+             */
+            Boolean autoNormalize,
+            /**
+             * Phase 24 §24.6 Lever 3 toggle. {@code null} → fall back to
+             * the client's configured {@code app.julia.pysr.autoRetry}
+             * default. Non-null → per-request override.
+             */
+            Boolean autoRetry) {
+        /**
+         * Back-compat constructor pre-dating phase-24 §24.6. Leaves both
+         * Lever toggles at the client's configured defaults.
+         */
+        public PysrRequest(double[][] samples,
+                           java.util.List<String> varNames,
+                           String targetName,
+                           java.util.List<String> operators,
+                           int populations,
+                           int iterations,
+                           int complexityCeiling,
+                           long timeoutMs,
+                           Long seed) {
+            this(samples, varNames, targetName, operators, populations,
+                 iterations, complexityCeiling, timeoutMs, seed,
+                 /*autoNormalize*/ null, /*autoRetry*/ null);
+        }
+    }
 
     /**
      * Pareto-front entry: a candidate expression with its mean-squared
@@ -947,7 +1026,22 @@ public class JuliaMathClient {
     public record PysrResult(
             java.util.List<ParetoEntry> pareto,
             int evaluated,
-            long elapsedMs) {}
+            long elapsedMs,
+            /**
+             * Phase 24 §24.6 Lever 3 signal: true when the sidecar's
+             * autoRetry path fired (first pass looked stuck, second
+             * pass ran with autoNormalize=true and merged into pareto).
+             * False otherwise. Surfaced so the LLM caller can hint
+             * "we recovered this via retry" in user-visible output.
+             */
+            boolean retried) {
+        /** Back-compat constructor pre-dating phase-24 §24.6 retried field. */
+        public PysrResult(java.util.List<ParetoEntry> pareto,
+                          int evaluated,
+                          long elapsedMs) {
+            this(pareto, evaluated, elapsedMs, /*retried*/ false);
+        }
+    }
 
     // ── Phase 28 §28.1 — /numbertheory/window result ─────────────────
 

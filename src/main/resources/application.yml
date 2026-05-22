@@ -68,6 +68,12 @@ app:
       populations: 8             # multi-population GP island count
       iterations: 40             # iterations per population
       complexityCeiling: 30      # max expression-tree size SR will propose
+      # Phase 24 §24.6 Lever 1 + Lever 3 defaults. Per-PysrRequest override
+      # available for tests/probe; production defaults match the recommended
+      # wiring (autoRetry on, autoNormalize off — clean fits pay nothing,
+      # stuck fits get the rescaling rescue via the sidecar's lazy retry).
+      autoNormalize: false
+      autoRetry: true
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
     # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
     # + Java binding without migrating any caller. Flip `enabled: true`
