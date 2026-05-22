@@ -28,6 +28,23 @@ cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ./scripts/start.sh 
 
 Stop: `./scripts/stop.sh`. Log: `tail -f logs/sidecar.log`.
 
+First-time setup or after `Project.toml`/`Manifest.toml` changes:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+julia --project=. -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
+```
+
+PySR recovery probe (run from the ET repo, sidecar must be running):
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+./scripts/pysr-probe/run.sh                                       # default
+./scripts/pysr-probe/run.sh --filter hooke                        # one fixture
+./scripts/pysr-probe/run.sh \
+  --iterations 160 --populations 24 --samples-per-dim 8 --timeout-ms 90000   # deep
+```
+
 ## 4. Spring Boot app
 
 ```bash

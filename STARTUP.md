@@ -276,16 +276,22 @@ bean lands in Phase 22.2).
 
 **First-time setup.** Install Julia 1.10+ (`curl -fsSL
 https://install.julialang.org | sh`, or `dnf install julia` on Fedora),
-then instantiate the package environment:
+then resolve + instantiate the package environment:
 
 ```bash
 cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
-julia --project=. -e 'using Pkg; Pkg.instantiate()'
+julia --project=. -e 'using Pkg; Pkg.resolve(); Pkg.instantiate()'
 ```
 
-First instantiation pulls down Symbolics.jl + deps (~150 MB compiled,
-~1-3 minutes on a fresh machine). Subsequent runs reuse the compiled
-cache.
+`Pkg.resolve()` reconciles `Project.toml` ↔ `Manifest.toml` when
+dependencies have shifted (run after `git pull` if either file
+changed). `Pkg.instantiate()` downloads + precompiles. First
+instantiation pulls Symbolics.jl + SymbolicRegression.jl + deps
+(~300 MB compiled with PySR, ~5–10 minutes on a fresh machine);
+subsequent runs reuse the compiled cache and take seconds. Skip
+both on routine restarts — needed only after a dep change or a
+fresh clone. Restart the sidecar after instantiating so the new
+compiled state actually loads.
 
 **Run.**
 
@@ -309,21 +315,45 @@ curl -X POST localhost:8088/eval \
 ```
 
 **Endpoints exposed:** `/healthz`, `/metrics`, `/eval`, `/solve`,
-`/nsolve`, `/integrate`, `/sweep`. Each enforces a safety filter
-(rejects I/O, package management, FFI, module loading, reflection)
-and a per-call timeout (default 5 s, max 30 s). See
-`julia-math-sidecar/README.md` for the full protocol.
+`/nsolve`, `/integrate`, `/sweep`, `/pysr` (phase 24). Each enforces a
+safety filter (rejects I/O, package management, FFI, module loading,
+reflection) and a per-call timeout (default 5 s, max 30 s for the
+`/eval`-family; `/pysr` has its own 120 s ceiling — see phase 24 §24.6).
+See `julia-math-sidecar/README.md` for the full protocol.
+
+**PySR recovery probe (phase 24 §24.5).** Five synthetic physics
+fixtures fed to `/pysr` to validate the symbolic-regression engine
+end-to-end. Run from the **ET repo** (the probe script lives there,
+not in the sidecar repo) with the sidecar already running:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+./scripts/pysr-probe/run.sh                                       # default smoke check (~60 s)
+./scripts/pysr-probe/run.sh --filter hooke                        # one fixture
+./scripts/pysr-probe/run.sh \
+  --iterations 160 --populations 24 --samples-per-dim 8 --timeout-ms 90000   # deep search
+```
+
+Default config (populations=16, iterations=80) runs in ~60 s total
+and exercises every fixture under the JIT-warm path. The deep variant
+exercises the new `MAX_PYSR_TIMEOUT_MS = 120 000` ceiling — useful
+after a sidecar code change to confirm the search isn't getting
+HTTP-408'd at 30 s. 3/5 expected on the current fixtures; the
+`newton-gravity` (scale-precision) and `rc-decay` (linear local
+optimum) misses are fixture-design artifacts diagnosed in phase 24
+§24.6, not engine regressions.
 
 **Production deployment:** see
 `julia-math-sidecar/systemd/julia-math-sidecar.service` for a starter
 systemd unit with hardened directives (read-only filesystem,
 `NoNewPrivileges`, memory cap, syscall filter, localhost-only).
 
-**When EmergentTerrain will actually use it:** not yet. Phase 22.2
-will add `JuliaMathClient` and the
-`app.julia.enabled` / `app.julia.baseUrl` config knobs. Today the
-sidecar is shipped and runnable standalone but EmergentTerrain ignores
-it.
+**When EmergentTerrain uses it:** `app.julia.enabled=true` (default
+on as of phase 22.2) routes `/eval`, `/solve`, `/sweep`, etc. through
+the sidecar with Symja as the in-process fallback. `app.julia.pysr.enabled=true`
+(flipped at the end of 2026-05-22) additionally wires the
+`symbolic_regress` LLM tool through `/pysr`. Set either flag to
+`false` in `application.yml` to revert to the JVM-only path.
 
 ---
 
