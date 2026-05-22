@@ -800,17 +800,178 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing — remaining domains ─────────────
+    // ── INTERDISCIPLINARY domain (ported §28.5e) ─────────────────────
 
     @Test
-    void interdisciplinaryDomain_notYetPorted_returnsEmpty() {
+    void interdiscTopic0_collatzRlc_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // INTERDISCIPLINARY — next pending after MATERIALS finished.
+        // Math→Physics chain. n = param1·3 + i·step·10; collatzSteps(n)
+        // → L = depth/10000 → f₀ = 1/(2π·√(L·C)).
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 0, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("INTERDISCIPLINARY", 0, 3, 0.0, sp);
-        assertThat(side).as("INTERDISCIPLINARY domain not yet ported").isEmpty();
+                liveClient().physicsTopic("INTERDISCIPLINARY", 0, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 0 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
+
+    @Test
+    void interdiscTopic1_primeGapDefect_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 1, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 1, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 1 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic2_resonantFatigue_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Uses the NEGATIVE_INFINITY sentinel branch — exercises the
+        // "zero-fail is valid first-candidate" guard explicitly.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 2, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 2, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 2 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic3_happyPacking_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 3, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 3, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 3 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic4_vdwComposite_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Different from MATERIALS topic 2 — only 20 Newton iters,
+        // break-on-first-crossover semantics.
+        int param1 = 4;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 4, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 4, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 4 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic5_hallEffect_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 2;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 5, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 5, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 5 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic6_schottky_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // exp() with exponent-gate at < -60 — exercises the underflow
+        // guard branch shared with the JVM.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 6, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 6, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 6 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void interdiscTopic7_doppler_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Topic 7 → default branch (acousticDopplerShift).
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("INTERDISCIPLINARY", 7, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("INTERDISCIPLINARY", 7, param1, param2, sp);
+
+        assertThat(side).as("INTERDISCIPLINARY topic 7 (default) should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── not_ported routing — remaining domains ─────────────
 
     @Test
     void biologyDomain_notYetPorted_returnsEmpty() {
