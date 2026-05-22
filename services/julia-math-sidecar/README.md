@@ -277,6 +277,7 @@ instead of to the in-process Symja library. The sidecar is opt-in via
 │  1. JSON parse                                                  │
 │  2. safety_check(expr)        ─── src/safety.jl                 │
 │  3. clamp_timeout_ms          ─── default 5s, max 30s          │
+│     (/pysr inline clamp uses MAX_PYSR_TIMEOUT_MS = 120s)        │
 │  4. timed_evaluate(...)       ─── Threads.@spawn + race        │
 │  5. record_call! (latency, outcome) ─── src/metrics.jl         │
 │  6. Build JSON response                                         │

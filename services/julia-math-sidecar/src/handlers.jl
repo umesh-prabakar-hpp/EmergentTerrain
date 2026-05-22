@@ -39,9 +39,11 @@ using SymbolicRegression
 # Default per-call timeout in milliseconds. Phase-22 §22.5 calls for a
 # `app.julia.maxEvalMs` knob on the EmergentTerrain side; the sidecar
 # enforces its own ceiling on top, so a buggy client can't ask for a
-# 60-second hang.
+# 60-second hang. The /pysr endpoint runs symbolic regression that
+# legitimately wants a longer search budget, so it has its own larger
+# ceiling (`MAX_PYSR_TIMEOUT_MS`, defined near the /pysr handler).
 const DEFAULT_TIMEOUT_MS = 5_000
-const MAX_TIMEOUT_MS     = 30_000   # absolute ceiling
+const MAX_TIMEOUT_MS     = 30_000   # absolute ceiling for /eval, /solve, /sweep, etc.
 
 # Helper: pull the request timeout out of a parsed JSON body, clamped
 # to the (0, MAX_TIMEOUT_MS] range. Missing or invalid → default.
@@ -635,6 +637,11 @@ const DEFAULT_PYSR_MAX_COMPLEXITY = 30
 const MAX_PYSR_SAMPLES = 256
 const MAX_PYSR_VARS    = 6
 const MAX_PYSR_QUEUE_MS = 5_000   # how long a second call waits behind the lock
+# Per-endpoint ceiling: SR runs evolve a Pareto front rather than evaluate a
+# single expression, so they need a budget well above the 30s shared cap.
+# PYSR_LOCK serialises calls, so a long search can only tie up one core at a
+# time; the daily restart referenced in `timed_evaluate` still bounds leaks.
+const MAX_PYSR_TIMEOUT_MS = 120_000
 
 const PYSR_LOCK = ReentrantLock()
 
@@ -798,7 +805,7 @@ function handle_pysr(req::HTTP.Request)
     max_complexity = get(body, :complexityCeiling, DEFAULT_PYSR_MAX_COMPLEXITY)
     timeout_ms_raw = get(body, :timeoutMs,      DEFAULT_PYSR_TIMEOUT_MS)
     timeout_ms = if timeout_ms_raw isa Integer && timeout_ms_raw > 0
-        min(timeout_ms_raw, MAX_TIMEOUT_MS)
+        min(timeout_ms_raw, MAX_PYSR_TIMEOUT_MS)
     else
         DEFAULT_PYSR_TIMEOUT_MS
     end
