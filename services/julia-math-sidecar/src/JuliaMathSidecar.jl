@@ -65,6 +65,7 @@ include("physics_physics.jl")    # PHYSICS domain (phase-28 §28.5c).
 include("physics_materials.jl")  # MATERIALS domain (phase-28 §28.5d).
 include("physics_interdisc.jl")  # INTERDISCIPLINARY domain (phase-28 §28.5e).
 include("physics_biology.jl")    # BIOLOGY domain (phase-28 §28.5f).
+include("physics_chemistry.jl")  # CHEMISTRY domain (phase-28 §28.5g).
 include("physics.jl")            # physics_compute dispatch (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.
