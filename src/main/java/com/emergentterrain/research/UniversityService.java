@@ -1619,7 +1619,13 @@ public class UniversityService {
         if (cited.isEmpty()) {
             for (String text : new String[]{hypothesis, findings, conclusion}) {
                 if (text == null) continue;
-                Matcher m = CITED_PAPER_PATTERN.matcher(text);
+                // 2026-05-22 — narrator prose routinely emits unicode dashes
+                // (U+2010 hyphen, U+2011 non-breaking hyphen, U+2012 figure
+                // dash, U+2013 en-dash) inside paper-ID references like
+                // "P‑2022‑07". The CITED_PAPER_PATTERN only matches ASCII
+                // '-', so unnormalised text leaks fabricated cites past the
+                // citation persistence layer. Normalise before matching.
+                Matcher m = CITED_PAPER_PATTERN.matcher(normalizeUnicodeDashes(text));
                 while (m.find()) {
                     String id = m.group();
                     if (!id.equals(thisPaperId)) cited.add(id);
@@ -2685,6 +2691,26 @@ public class UniversityService {
         if (discussion != null && !discussion.isBlank()) sb.append(discussion).append('\n');
         if (relatedWork != null && !relatedWork.isBlank()) sb.append(relatedWork);
         return sb.toString();
+    }
+
+    /**
+     * 2026-05-22 — replaces unicode dash characters (U+2010 hyphen,
+     * U+2011 non-breaking hyphen, U+2012 figure dash, U+2013 en-dash)
+     * with the ASCII hyphen so paper-ID regexes match LLM prose that
+     * uses typographic dashes. Em-dash (U+2014) is intentionally NOT
+     * normalised — it's a sentence-level punctuation mark that has no
+     * legitimate place inside a paper ID.
+     */
+    public static String normalizeUnicodeDashes(String s) {
+        if (s == null) return null;
+        if (s.indexOf('‐') < 0 && s.indexOf('‑') < 0
+                && s.indexOf('‒') < 0 && s.indexOf('–') < 0) {
+            return s;
+        }
+        return s.replace('‐', '-')
+                .replace('‑', '-')
+                .replace('‒', '-')
+                .replace('–', '-');
     }
 
     static String normalizeMode(String raw) {

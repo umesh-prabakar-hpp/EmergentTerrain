@@ -2938,6 +2938,12 @@ public class ResearchNarrationService {
             if (typedNode != null && typedNode.isArray()) {
                 for (com.fasterxml.jackson.databind.JsonNode e : typedNode) {
                     String id = e.path("id").asText(null);
+                    // 2026-05-22 — accept unicode-dashed IDs (U+2010 / U+2011 /
+                    // U+2012 / U+2013); they're a typographic accident, not a
+                    // semantic difference. Normalise to ASCII so downstream
+                    // dedup / lookup / publish flow treats them the same.
+                    id = com.emergentterrain.research.UniversityService
+                            .normalizeUnicodeDashes(id);
                     if (id == null || !PAPER_ID_PATTERN.matcher(id).matches()) continue;
                     String typeStr = e.path("type").asText("EXTENDS").toUpperCase();
                     com.emergentterrain.research.RelationshipType type;
@@ -2955,7 +2961,8 @@ public class ResearchNarrationService {
             com.fasterxml.jackson.databind.JsonNode citedNode = root.get("cited_paper_ids");
             if (citedNode != null && citedNode.isArray()) {
                 for (com.fasterxml.jackson.databind.JsonNode idNode : citedNode) {
-                    String id = idNode.asText(null);
+                    String id = com.emergentterrain.research.UniversityService
+                            .normalizeUnicodeDashes(idNode.asText(null));
                     if (id != null && PAPER_ID_PATTERN.matcher(id).matches()) citedPaperIds.add(id);
                 }
             }
