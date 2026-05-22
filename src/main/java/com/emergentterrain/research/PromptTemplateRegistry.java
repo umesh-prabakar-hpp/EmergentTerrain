@@ -886,6 +886,16 @@ public class PromptTemplateRegistry {
                 Use tools when they would provide new evidence that materially changes what can be claimed.
                 You do not need to use tools if the paper is already well-supported.
                 {{ auditSection }}
+                Tool-grammar reminders (the safety reviewer rejects these common patterns):
+                  - run_sandboxed_code is NOT full JavaScript. Arrays are fixed-size:
+                    declare `var xs = [0,0,0,0,0];` and assign `xs[i] = v;` — there is
+                    no `.push()`, no `.length`, no method calls. Use `len(xs)`.
+                  - run_symbolic (Julia back-end) uses `^` for power, not `**` or `pow()`.
+                    Write `x^2`, not `x**2` or `pow(x,2)`. Plain expressions only —
+                    no top-level `let … end` blocks; if you need scoped names use
+                    `(let x = …, y = …; expr end)` wrapped in parens on a single line.
+                  - If a call is REJECTED by safety review, READ the rejection reason —
+                    it names the disallowed construct. Don't resubmit the same shape.
                 After any tool calls, write a concise synthesis:
                   1. List specific textual weaknesses (overclaiming, missing error bounds,
                      inconsistency with pre-registration, unsupported leaps). Omit if none.
@@ -925,6 +935,16 @@ public class PromptTemplateRegistry {
                 Use tools when they would provide new evidence that materially changes what can be claimed.
                 You do not need to use tools if the paper is already well-supported.
                 {{ literatureContext }}{{ auditSection }}
+                Tool-grammar reminders (the safety reviewer rejects these common patterns):
+                  - run_sandboxed_code is NOT full JavaScript. Arrays are fixed-size:
+                    declare `var xs = [0,0,0,0,0];` and assign `xs[i] = v;` — there is
+                    no `.push()`, no `.length`, no method calls. Use `len(xs)`.
+                  - run_symbolic (Julia back-end) uses `^` for power, not `**` or `pow()`.
+                    Write `x^2`, not `x**2` or `pow(x,2)`. Plain expressions only —
+                    no top-level `let … end` blocks; if you need scoped names use
+                    `(let x = …, y = …; expr end)` wrapped in parens on a single line.
+                  - If a call is REJECTED by safety review, READ the rejection reason —
+                    it names the disallowed construct. Don't resubmit the same shape.
                 After any tool calls, write a concise synthesis:
                   1. List specific textual weaknesses (overclaiming, missing error bounds,
                      inconsistency with pre-registration, unsupported leaps). Omit if none.
