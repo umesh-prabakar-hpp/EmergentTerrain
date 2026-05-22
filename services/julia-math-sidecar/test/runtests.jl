@@ -19,6 +19,8 @@ using Test
 using HTTP
 using JSON3
 using JuliaMathSidecar
+using SymbolicRegression
+using Statistics: median
 
 # Reach into the module to test private functions. `Base.@invokelatest`
 # isn't needed because we're loaded at the same world-age.
@@ -75,6 +77,87 @@ end
     # Non-string entry.
     rejected3 = JuliaMathSidecar.pysr_operators_check(["+", 42])
     @test rejected3 isa JuliaMathSidecar.SafetyReject
+end
+
+@testset "auto-normalize round-trip math (Lever 1, phase-24 §24.6)" begin
+    # Synthetic newton-gravity data: y = c * m1 * m2 with c = 6.674e-27
+    # and inputs at raw SI mass magnitudes (1e22..1e24). This is the
+    # canonical fixture the Lever 1 rewrite has to handle: scales span
+    # ~50 OOM between inputs and the recoverable coefficient.
+    m1 = [1.0e24, 3.0e24, 5.0e24, 2.5e24, 4.5e24]
+    m2 = [2.0e22, 4.0e22, 6.0e22, 3.5e22, 5.5e22]
+    c_true = 6.674e-27
+    y = c_true .* m1 .* m2
+    X = Matrix{Float64}(undef, 2, 5)
+    X[1, :] .= m1
+    X[2, :] .= m2
+
+    s_x, s_y = JuliaMathSidecar.compute_robust_scales(X, y)
+    @test s_x[1] ≈ 3.0e24  rtol=1e-12
+    @test s_x[2] ≈ 4.0e22  rtol=1e-12
+    @test s_y ≈ median(abs.(y))  rtol=1e-12
+
+    # Rescaled data ought to live in [0, ~10].
+    X_rescaled = X ./ s_x
+    y_rescaled = y ./ s_y
+    @test all(0 .<= X_rescaled .<= 10)
+    @test all(0 .<= y_rescaled .<= 10)
+
+    # Build a tree that mimics what SR would converge to on rescaled
+    # data: (x1 * x2) * c_rescaled. The rewrite must produce a tree
+    # whose evaluation on the *original unscaled* X matches y.
+    binary_ops = Function[(+), (-), (*), (/)]
+    unary_ops = Function[]
+    options = SymbolicRegression.Options(
+        binary_operators = binary_ops,
+        unary_operators  = unary_ops,
+        populations = 4, maxsize = 30, seed = 42, verbosity = 0,
+    )
+    mul_idx = 3
+    T = Float64
+    c_rescaled = c_true * s_x[1] * s_x[2] / s_y
+    sr_output = Node{T}(
+        mul_idx,
+        Node{T}(mul_idx, Node{T}(; feature=1), Node{T}(; feature=2)),
+        Node{T}(; val=c_rescaled),
+    )
+
+    rewritten = JuliaMathSidecar.rewrite_for_unscaling(
+        sr_output, s_x, s_y, mul_idx, binary_ops, unary_ops, options)
+    pred, ok = SymbolicRegression.eval_tree_array(rewritten, X, options)
+    @test ok
+    # Relative error on every training row should be at float64 epsilon.
+    @test all(abs.(pred .- y) ./ abs.(y) .< 1e-12)
+
+    # Out-of-sample: the rewritten expression must still recover the
+    # underlying law on points outside the median-defining sample set.
+    m1_test = [7.0e24, 1.5e24]
+    m2_test = [8.0e22, 0.5e22]
+    y_test = c_true .* m1_test .* m2_test
+    X_test = Matrix{Float64}(undef, 2, 2)
+    X_test[1, :] .= m1_test
+    X_test[2, :] .= m2_test
+    pred_test, ok_test = SymbolicRegression.eval_tree_array(rewritten, X_test, options)
+    @test ok_test
+    @test all(abs.(pred_test .- y_test) ./ abs.(y_test) .< 1e-12)
+end
+
+@testset "auto-normalize fold_constants identity (Lever 1, phase-24 §24.6)" begin
+    binary_ops = Function[(+), (-), (*), (/)]
+    unary_ops = Function[]
+    T = Float64
+    # Variable * 1.0 collapses to just the variable.
+    var = Node{T}(; feature=1)
+    times_one = Node{T}(3, var, Node{T}(; val=1.0))
+    folded = JuliaMathSidecar.fold_constants(times_one, binary_ops, unary_ops)
+    @test folded.degree == 0 && !folded.constant && folded.feature == 1
+    # Variable + 0.0 collapses similarly.
+    plus_zero = Node{T}(1, var, Node{T}(; val=0.0))
+    @test JuliaMathSidecar.fold_constants(plus_zero, binary_ops, unary_ops).feature == 1
+    # (2.0 + 3.0) folds to 5.0.
+    const_sum = Node{T}(1, Node{T}(; val=2.0), Node{T}(; val=3.0))
+    folded_sum = JuliaMathSidecar.fold_constants(const_sum, binary_ops, unary_ops)
+    @test folded_sum.degree == 0 && folded_sum.constant && folded_sum.val ≈ 5.0
 end
 
 # ---------------------------------------------------------------------

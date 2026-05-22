@@ -31,6 +31,7 @@ using Symbolics
 using Roots
 using QuadGK
 using SymbolicRegression
+using Statistics: median
 
 # ---------------------------------------------------------------------
 # Shared helpers
@@ -702,6 +703,225 @@ function coerce_pysr_row(row)
     return out
 end
 
+# ─────────────────────────────────────────────────────────────────────
+# Auto-normalization for /pysr (Lever 1, phase-24 §24.6)
+# ─────────────────────────────────────────────────────────────────────
+#
+# When the client sets `autoNormalize: true`, we rescale X and y to
+# unit-ish magnitudes before handing them to SymbolicRegression.jl, so
+# the constant optimizer isn't fighting float64 precision on
+# astronomical inputs (the canonical case: newton-gravity at SI
+# magnitudes, where the discoverable coefficient is ~1e-27 and BFGS's
+# gradient signal is at the float64 noise floor).
+#
+# Round-trip:
+#   1. s_x[j] = max(median(|X[j,:]|), EPSILON_SCALE_FLOOR);
+#      s_y   = max(median(|y|),       EPSILON_SCALE_FLOOR)
+#   2. X' = X ./ s_x, y' = y ./ s_y
+#   3. SR runs on (X', y')
+#   4. For each Pareto entry: substitute var_j → var_j * (1/s_x[j]),
+#      then wrap root in `* s_y`, then simplify + constant-fold so the
+#      LLM-visible expression collapses the scale factors into the
+#      model's own constants where possible.
+#   5. Re-evaluate mse on the *original unscaled* data so the returned
+#      mse number is meaningful to the caller.
+#
+# Cost: median is O(N log N) per column on data already in hand; tree
+# rewrite is O(tree size) per Pareto entry. Both are negligible
+# relative to the actual SR search.
+#
+# Note: the rewrite requires `*` to construct the substitution and
+# root-wrap nodes. If the caller's operator set omits `*`, we inject
+# it transparently — `autoNormalize` is opt-in, so the implicit
+# capability addition is documented behaviour, not a surprise.
+
+const EPSILON_SCALE_FLOOR = 1e-12
+
+"""
+    compute_robust_scales(X, y) -> (s_x, s_y)
+
+Per-variable and target scales for auto-normalization. Uses median of
+absolute values (robust to a few outliers and to signed data) with a
+1e-12 floor so a zero-variance column doesn't produce a div-by-zero
+in the rescale step.
+"""
+function compute_robust_scales(X::AbstractMatrix{T}, y::AbstractVector{T}) where T<:AbstractFloat
+    nvars, _ = size(X)
+    s_x = Vector{Float64}(undef, nvars)
+    @inbounds for j in 1:nvars
+        s_x[j] = max(median(abs.(@view X[j, :])), EPSILON_SCALE_FLOOR)
+    end
+    s_y = max(median(abs.(y)), EPSILON_SCALE_FLOOR)
+    return s_x, s_y
+end
+
+"""
+    find_or_append_mul!(binary_ops, ops_strs) -> Int
+
+Locate the `*` callable in `binary_ops`. If absent, append it (to
+both the callable list and the string-form list so the safety
+allowlist stays consistent) and return the new index.
+"""
+function find_or_append_mul!(binary_ops::Vector{Function}, ops_strs::Vector)
+    for (i, op) in enumerate(binary_ops)
+        if op === (*)
+            return i
+        end
+    end
+    push!(binary_ops, (*))
+    push!(ops_strs, "*")
+    return length(binary_ops)
+end
+
+"""
+    substitute_variables(tree, s_x, mul_op_idx) -> new tree
+
+Non-mutating recursive rebuild: each variable leaf `x_j` becomes
+`x_j * (1 / s_x[j])`. Numeric constants and internal operator nodes
+pass through unchanged. Used to translate an expression learned on
+rescaled inputs back to a form that evaluates correctly on the
+original unscaled inputs.
+"""
+function substitute_variables(tree::Node{T}, s_x::Vector{Float64}, mul_op_idx::Int)::Node{T} where T
+    if tree.degree == 0
+        if tree.constant
+            return Node{T}(; val=tree.val)
+        else
+            j = tree.feature
+            inv_node = Node{T}(; val=T(1.0 / s_x[j]))
+            var_node = Node{T}(; feature=j)
+            return Node{T}(mul_op_idx, var_node, inv_node)
+        end
+    elseif tree.degree == 1
+        return Node{T}(tree.op, substitute_variables(tree.l, s_x, mul_op_idx))
+    else
+        return Node{T}(tree.op,
+                       substitute_variables(tree.l, s_x, mul_op_idx),
+                       substitute_variables(tree.r, s_x, mul_op_idx))
+    end
+end
+
+"""
+    wrap_root_with_y_scale(tree, s_y, mul_op_idx) -> Node
+
+Wrap the root in a `* s_y` node so `y/s_y → y` after the unscaling
+round-trip. No-op when s_y is very close to 1 (e.g. when the target
+was already in a natural range).
+"""
+function wrap_root_with_y_scale(tree::Node{T}, s_y::Float64, mul_op_idx::Int)::Node{T} where T
+    if abs(s_y - 1.0) < 1e-12
+        return tree
+    end
+    s_y_node = Node{T}(; val=T(s_y))
+    return Node{T}(mul_op_idx, tree, s_y_node)
+end
+
+"""
+    fold_constants(tree, binary_ops, unary_ops) -> Node
+
+Bottom-up constant folding: any subtree whose evaluation depends on
+no variables collapses to a single constant. Catches the `s_y * c`
+and `(1/s_x[j]) * c` cases introduced by the rewrite. Domain errors
+(log of a negative, sqrt of a negative) leave the offending subtree
+untouched.
+"""
+function fold_constants(tree::Node{T}, binary_ops::Vector{Function}, unary_ops::Vector{Function})::Node{T} where T
+    if tree.degree == 0
+        return tree
+    elseif tree.degree == 1
+        folded_l = fold_constants(tree.l, binary_ops, unary_ops)
+        if folded_l.degree == 0 && folded_l.constant
+            f = unary_ops[tree.op]
+            try
+                v = T(f(folded_l.val))
+                if isfinite(v)
+                    return Node{T}(; val=v)
+                end
+            catch
+            end
+        end
+        return Node{T}(tree.op, folded_l)
+    else
+        folded_l = fold_constants(tree.l, binary_ops, unary_ops)
+        folded_r = fold_constants(tree.r, binary_ops, unary_ops)
+        if folded_l.degree == 0 && folded_l.constant &&
+           folded_r.degree == 0 && folded_r.constant
+            f = binary_ops[tree.op]
+            try
+                v = T(f(folded_l.val, folded_r.val))
+                if isfinite(v)
+                    return Node{T}(; val=v)
+                end
+            catch
+            end
+        end
+        # Identity simplifications: catches the (* 1.0), (+ 0.0) shapes
+        # the auto-normalize rewrite introduces. Keyed on the actual
+        # callable rather than the op index so caller's operator
+        # ordering doesn't matter.
+        op_fn = binary_ops[tree.op]
+        l_is_const = folded_l.degree == 0 && folded_l.constant
+        r_is_const = folded_r.degree == 0 && folded_r.constant
+        if op_fn === (*)
+            r_is_const && folded_r.val == one(T) && return folded_l
+            l_is_const && folded_l.val == one(T) && return folded_r
+        elseif op_fn === (+)
+            r_is_const && folded_r.val == zero(T) && return folded_l
+            l_is_const && folded_l.val == zero(T) && return folded_r
+        elseif op_fn === (-)
+            r_is_const && folded_r.val == zero(T) && return folded_l
+        elseif op_fn === (/)
+            r_is_const && folded_r.val == one(T) && return folded_l
+        end
+        return Node{T}(tree.op, folded_l, folded_r)
+    end
+end
+
+"""
+    rewrite_for_unscaling(tree, s_x, s_y, mul_op_idx, binary_ops, unary_ops, options) -> Node
+
+Full Lever 1 round-trip: substitute variables, wrap with y scale,
+simplify + fold so scale factors collapse into the model's own
+constants where the algebra allows.
+"""
+function rewrite_for_unscaling(tree::Node{T}, s_x::Vector{Float64}, s_y::Float64,
+                                mul_op_idx::Int, binary_ops::Vector{Function},
+                                unary_ops::Vector{Function}, options)::Node{T} where T
+    substituted = substitute_variables(tree, s_x, mul_op_idx)
+    wrapped = wrap_root_with_y_scale(substituted, s_y, mul_op_idx)
+    try
+        SymbolicRegression.simplify_tree!(wrapped, options)
+        wrapped = SymbolicRegression.combine_operators(wrapped, options)
+    catch
+        # SR simplification helpers can throw on unusual tree shapes;
+        # fold_constants alone keeps the result correct, just slightly
+        # uglier.
+    end
+    return fold_constants(wrapped, binary_ops, unary_ops)
+end
+
+"""
+    eval_mse_on(tree, X, y, options) -> Float64
+
+Evaluate the (rewritten, original-scale) tree on the unscaled data
+and return mean-squared error. Used to refresh the `mse` field on
+each Pareto entry so the caller sees error in caller-relevant units
+rather than rescaled-space error from the search.
+"""
+function eval_mse_on(tree::Node{T}, X::AbstractMatrix{T}, y::AbstractVector{T}, options)::Float64 where T
+    pred, ok = SymbolicRegression.eval_tree_array(tree, X, options)
+    if !ok
+        return Inf
+    end
+    n = length(y)
+    sse = 0.0
+    @inbounds for i in 1:n
+        d = Float64(pred[i]) - Float64(y[i])
+        sse += d * d
+    end
+    return sse / n
+end
+
 function handle_pysr(req::HTTP.Request)
     t0 = time_ns()
 
@@ -799,6 +1019,25 @@ function handle_pysr(req::HTTP.Request)
     end
     binary_ops, unary_ops = split_pysr_operators(ops_strs)
 
+    # --- 3.5. Auto-normalize prep (Lever 1, phase-24 §24.6) ----------
+    # When the caller sets `autoNormalize: true`, rescale X and y so
+    # the constant optimizer searches in its natural [0.1, 10] range
+    # rather than fighting float64 precision on astronomical inputs.
+    # Per-Pareto-entry tree rewriting happens after the search; see §6.
+    auto_normalize = get(body, :autoNormalize, false) === true
+    mul_op_idx = 0
+    if auto_normalize
+        # Mutable Vector{String} so find_or_append_mul! can push without
+        # aliasing the JSON3 input.
+        ops_strs = String[String(o) for o in ops_strs]
+        mul_op_idx = find_or_append_mul!(binary_ops, ops_strs)
+    end
+    s_x, s_y = auto_normalize ?
+        compute_robust_scales(X, y) :
+        (ones(Float64, nvars), 1.0)
+    X_search = auto_normalize ? X ./ s_x : X
+    y_search = auto_normalize ? y ./ s_y : y
+
     # --- 4. Search parameters ---------------------------------------
     populations = get(body, :populations,       DEFAULT_PYSR_POPULATIONS)
     iterations  = get(body, :iterations,        DEFAULT_PYSR_ITERATIONS)
@@ -851,7 +1090,7 @@ function handle_pysr(req::HTTP.Request)
                 verbosity        = 0,
             )
             hof = SymbolicRegression.equation_search(
-                X, y;
+                X_search, y_search;
                 niterations = iterations,
                 options     = options,
                 variable_names = var_names_str,
@@ -864,15 +1103,27 @@ function handle_pysr(req::HTTP.Request)
             # it honours variable_names so the LLM sees `x * y` rather than
             # the internal `x0 * x1` positional form. Cost of the rename
             # is one pass over the tree; trivial relative to the search.
+            #
+            # When `auto_normalize` is on, each Pareto entry's tree is
+            # rewritten to the original (unscaled) input space and its
+            # mse is recomputed against the unscaled (X, y). Untouched
+            # otherwise, so default callers see exactly the old shape.
             members = SymbolicRegression.calculate_pareto_frontier(hof)
             front = Vector{Dict{String,Any}}()
             for m in members
+                tree_for_caller = auto_normalize ?
+                    rewrite_for_unscaling(m.tree, s_x, s_y, mul_op_idx,
+                                           binary_ops, unary_ops, options) :
+                    m.tree
+                mse_for_caller = auto_normalize ?
+                    eval_mse_on(tree_for_caller, X, y, options) :
+                    Float64(m.loss)
                 expr_str = SymbolicRegression.string_tree(
-                    m.tree, options; variable_names=var_names_str)
+                    tree_for_caller, options; variable_names=var_names_str)
                 push!(front, Dict(
                     "expr"       => expr_str,
-                    "mse"        => Float64(m.loss),
-                    "complexity" => Int(SymbolicRegression.compute_complexity(m.tree, options)),
+                    "mse"        => mse_for_caller,
+                    "complexity" => Int(SymbolicRegression.compute_complexity(tree_for_caller, options)),
                 ))
             end
             sort!(front, by = e -> e["complexity"])
