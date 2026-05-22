@@ -688,14 +688,24 @@ public class JuliaMathClient {
         }
         JsonNode resp = post("/numbertheory/window",
                 Map.of("start", start, "size", size, "timeoutMs", conjectureTimeoutMs));
-        // Preserve the wire order. `result` is a JSON array of 2-element
-        // arrays — `[["abundant_density", 0.24], ...]` — exactly to keep
-        // ordering stable for the §28.2 parity comparison.
+        // Preserve the wire order. The sidecar emits each entry as a
+        // single-key JSON object — `[{"abundant_density":0.24},
+        // {"deficient_density":0.76}, ...]` — because Julia's JSON3
+        // serializes `Vector{Pair{String,Float64}}` that way. Order
+        // matches Julia insertion order, which is the §28.2 parity
+        // contract. We also tolerate the legacy 2-element-array shape
+        // (`[["key", val], ...]`) so a future sidecar version that
+        // switches to that wire format doesn't break this client.
         java.util.LinkedHashMap<String, Double> scalars = new java.util.LinkedHashMap<>();
         JsonNode result = resp.path("result");
         if (result.isArray()) {
             for (JsonNode pair : result) {
-                if (pair.isArray() && pair.size() == 2) {
+                if (pair.isObject() && pair.size() == 1) {
+                    // Current shape: {"key": value}
+                    String key = pair.fieldNames().next();
+                    scalars.put(key, pair.path(key).asDouble());
+                } else if (pair.isArray() && pair.size() == 2) {
+                    // Legacy shape: ["key", value]
                     scalars.put(pair.get(0).asText(), pair.get(1).asDouble());
                 }
             }

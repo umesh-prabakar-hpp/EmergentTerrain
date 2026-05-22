@@ -36,7 +36,15 @@ public class ConjectureVerifier {
     /** Cap on total integers scanned per verify call (numWindows × windowSize). */
     public static final int MAX_WORK = 100_000;
 
-    private final AtomicReference<MathConjectureSubstrate> substrateRef = new AtomicReference<>();
+    /**
+     * Phase 28 §28.2 — substrate calls go through the delegate so the
+     * sidecar's {@code /numbertheory/window} path serves them when
+     * the conjecture-sidecar flag is on. Lazy-fetched via the
+     * Spring application context to keep this class's existing
+     * @Component construction zero-arg (legacy verifier wiring).
+     */
+    @org.springframework.beans.factory.annotation.Autowired
+    private MathConjectureSubstrateDelegate substrateDelegate;
 
     /** One window's evaluation: the scalar values + the resulting margin. */
     public record WindowReport(
@@ -100,7 +108,7 @@ public class ConjectureVerifier {
                     "window extends to n=" + maxEvaluated + " which exceeds MAX_N=" + MAX_N);
         }
 
-        MathConjectureSubstrate sub = substrate();
+        MathConjectureSubstrateDelegate sub = substrate();
 
         List<WindowReport> reports = new ArrayList<>(numWindows);
         double worstMargin = Double.NEGATIVE_INFINITY;
@@ -128,16 +136,21 @@ public class ConjectureVerifier {
         return new VerifyResult(lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
     }
 
-    private MathConjectureSubstrate substrate() {
-        MathConjectureSubstrate s = substrateRef.get();
-        if (s != null) return s;
-        synchronized (this) {
-            s = substrateRef.get();
-            if (s == null) {
-                s = new MathConjectureSubstrate(MAX_N);
-                substrateRef.set(s);
-            }
-        }
-        return s;
+    /**
+     * Phase 28 §28.2: returns the delegate. Used to be a lazy
+     * {@code MathConjectureSubstrate} factory; the delegate now
+     * owns the legacy substrate eagerly + the sidecar dispatch.
+     *
+     * <p>Package-private + non-final so tests that don't wire the
+     * Spring context can inject a delegate directly:
+     * {@code verifier.setSubstrateDelegate(testDelegate)}.
+     */
+    MathConjectureSubstrateDelegate substrate() {
+        return substrateDelegate;
+    }
+
+    /** Test-only injection seam. Spring's @Autowired handles production. */
+    void setSubstrateDelegate(MathConjectureSubstrateDelegate delegate) {
+        this.substrateDelegate = delegate;
     }
 }
