@@ -130,6 +130,35 @@ function is_squarefree(n::Integer)::Bool
 end
 
 """
+    mobius_of(n) -> Int
+
+Möbius function μ(n): squarefree-aware. Returns +1 for n with an
+even number of distinct prime factors, −1 for odd, 0 if n has any
+squared prime factor. Port of MathPhysicsEngine.mobius (line 1218),
+including the `m > 1` final-prime-factor check.
+"""
+function mobius_of(n::Integer)::Int
+    n == 1 && return 1
+    prime_factors = 0
+    m = Int64(n)
+    p = Int64(2)
+    while p * p <= m
+        if m % p == 0
+            m = m ÷ p
+            prime_factors += 1
+            if m % p == 0
+                return 0  # square factor
+            end
+        end
+        p += 1
+    end
+    if m > 1
+        prime_factors += 1
+    end
+    return (prime_factors & 1) == 0 ? 1 : -1
+end
+
+"""
     stern_brocot_depth_of(p, q) -> Int
 
 Continued-fraction expansion length of p/q via the Euclidean

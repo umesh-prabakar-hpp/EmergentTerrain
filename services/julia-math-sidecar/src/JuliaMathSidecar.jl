@@ -55,9 +55,13 @@ include("safety.jl")       # Safety filter for incoming expressions.
 include("metrics.jl")      # Per-endpoint call counts + latency histogram.
 include("numbertheory.jl")    # SPF sieve + window aggregator (phase-28 §28.1).
 include("math_invariants.jl")    # BASE + DERIVED scalar vocabulary (phase-28 §28.4).
-include("physics_primitives.jl") # isPrime/isHappy/collatz/sigma (phase-28 §28.5a).
+include("physics_primitives.jl") # isPrime/isHappy/collatz/sigma/mobius (phase-28 §28.5a).
 include("predicate.jl")          # /predicate/scan interpreter (phase-28 §28.5a).
-include("physics.jl")            # MathPhysicsEngine.compute port (phase-28 §28.5b).
+# physics_compute split across one file per JVM domain so each stays
+# small and new ports land cleanly. Order matters: per-domain impls
+# must be loaded before the dispatch file that references them.
+include("physics_mathematics.jl") # MATHEMATICS domain (phase-28 §28.5b/cont/cont2/cont3).
+include("physics.jl")            # physics_compute dispatch (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.
 include("server.jl")       # HTTP route table + server loop.
