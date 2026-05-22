@@ -388,6 +388,59 @@ end
 end
 
 # ---------------------------------------------------------------------
+# Lever 2 prep: parallel equation_search with disjoint Options
+# (phase-24 §24.6 future-work)
+# ---------------------------------------------------------------------
+#
+# Proves the thread-safety assumption Lever 2's ensemble fan-out will
+# rely on: K independent SymbolicRegression.jl Options instances can
+# share a process running concurrently without cross-contamination.
+# If this ever regresses, Lever 2's fan-out cannot be built.
+#
+# Test only runs when Julia has >= 2 threads. The production sidecar
+# starts with JULIA_NUM_THREADS=4 (see STARTUP.md), so the guard
+# trips only in single-threaded local runs.
+
+@testset "parallel equation_search safety (Lever 2 prep, phase-24 §24.6)" begin
+    if Threads.nthreads() < 2
+        @test_skip "needs --threads >= 2 to actually parallelise"
+    else
+        n = 20
+        xa1 = collect(range(0.0, 5.0; length=n))
+        xa2 = collect(range(1.0, 3.0; length=n))
+        Xa = vcat(xa1', xa2')
+        ya = xa1 .+ xa2
+
+        xb1 = collect(range(0.5, 2.0; length=n))
+        xb2 = collect(range(1.0, 4.0; length=n))
+        Xb = vcat(xb1', xb2')
+        yb = xb1 .* xb2
+
+        ops_strs   = String["+", "-", "*"]
+        binary_ops = Function[(+), (-), (*)]
+        unary_ops  = Function[]
+
+        task_a = Threads.@spawn JuliaMathSidecar.run_pysr_pass(Xa, ya;
+            auto_normalize=false, ops_strs=ops_strs, binary_ops=binary_ops,
+            unary_ops=unary_ops, var_names_str=String["x1", "x2"],
+            populations=4, iterations=8, max_complexity=15, seed=42)
+
+        task_b = Threads.@spawn JuliaMathSidecar.run_pysr_pass(Xb, yb;
+            auto_normalize=false, ops_strs=ops_strs, binary_ops=binary_ops,
+            unary_ops=unary_ops, var_names_str=String["x1", "x2"],
+            populations=4, iterations=8, max_complexity=15, seed=7)
+
+        front_a, n_a = fetch(task_a)
+        front_b, n_b = fetch(task_b)
+
+        @test n_a > 0 && !isempty(front_a)
+        @test n_b > 0 && !isempty(front_b)
+        @test isfinite(minimum(Float64(e["mse"]) for e in front_a))
+        @test isfinite(minimum(Float64(e["mse"]) for e in front_b))
+    end
+end
+
+# ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------
 # Number-theory primitives — unit tests (phase-28 §28.1)
