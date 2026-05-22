@@ -1,9 +1,27 @@
 # Phase 28 — Julia Sidecar Consolidation of Conjecture + Math Compute
 
-**Status (2026-05-22):** DRAFT. §28.1 ships with this phase doc;
-§28.2–§28.6 are sub-phases that build on the same pattern. Promoted
-from `reference-conjecture-engines.md` § "Decisions — Julia
+**Status (2026-05-22):** §28.1 → §28.5 SHIPPED, §28.6 DEFERRED (operational).
+Promoted from `reference-conjecture-engines.md` § "Decisions — Julia
 consolidation (2026-05-22)" Slice 1.
+
+Sub-phase status:
+- ✅ §28.1 — `/numbertheory/window` endpoint + SPF sieve port
+- ✅ §28.2 — `MathConjectureSubstrateDelegate` + parity test
+- ✅ §28.3 — `/conjecture/seed` + `/conjecture/update`
+- ✅ §28.4 — `/conjecture/verify` batched endpoint + `ConjectureVerifier`
+  delegate routing
+- ✅ §28.5 — `/physics/topic` + `/predicate/scan`. Full coverage: all 9
+  MathPhysicsEngine domains × ~5–10 topics each (63 ported topics)
+  with bit-identical parity confirmed by 65/65
+  `PhysicsTopicParityTest`. `MathPhysicsEngineDelegate` ships in
+  shadow-read mode (default OFF); 5 callers
+  (`ResearchCycleService`, `BotLifecycleService`, `ReplicationService`,
+  `ResearchNarrationService`, `MathToolSuite`) wired through the seam.
+  Live integration test (`MathPhysicsEngineDelegateIntegrationTest`)
+  validates shadow-read parity counters against a running sidecar.
+- ⏸ §28.6 — flag flip + legacy removal. Deferred to operational
+  burn-in; precondition is zero `parityMismatches` over an N-day
+  shadow-read window.
 
 **Motivation.** The JVM currently hosts six conjecture / math
 compute classes — `MathConjectureSubstrate`, `MathInvariants`,
@@ -228,28 +246,90 @@ What lands:
 - Migration: `ConjectureVerifier.verify` delegates via the new
   delegate when the flag is on.
 
-### 28.5 — `/physics/topic` + `/predicate/scan` endpoints
+### 28.5 — `/physics/topic` + `/predicate/scan` endpoints — ✅ SHIPPED
 
-What lands:
+Sidecar layout — one file per JVM domain so future ports land
+cleanly (§28.5b-cont3 split):
 
-- Sidecar: `src/physics.jl` ports `MathPhysicsEngine.compute` for
-  every domain×topicIdx pair (RLC, FCC, VdW, diffraction, beam,
-  gravity, etc.). `src/predicate.jl` ports `DynamicComputeEngine`'s
-  `fraction_satisfying` / `mean_of` / `max_of` interpreters,
-  reusing the number-theory + physics modules.
-- JVM: `JuliaMathClient.physicsTopic(...)` +
-  `JuliaMathClient.predicateScan(spec)`.
-- Migration: `MathPhysicsEngine` + `DynamicComputeEngine` callers
-  go through their respective delegates.
+- `src/physics.jl` — small dispatch (`physics_compute`) only
+- `src/physics_primitives.jl` — `is_prime`, `sigma_sum`, `mobius_of`,
+  `stern_brocot_depth_of`, `is_squarefree`, `collatz_steps`
+- `src/physics_mathematics.jl` — MATHEMATICS topics 0..9+ (incl.
+  aliquot Set-based cycle detection + Möbius-driven Mertens)
+- `src/physics_physics.jl` — PHYSICS topics 0..9+ (incl. 5000-step
+  Euler projectile trajectory)
+- `src/physics_materials.jl` — MATERIALS topics 0..9+ (incl. Math.exp
+  Arrhenius + fractional-pow Basquin)
+- `src/physics_interdisc.jl` — INTERDISCIPLINARY topics 0..7+
+- `src/physics_biology.jl` — BIOLOGY topics 0..4+ (incl. Lotka-Volterra
+  400-step ODE)
+- `src/physics_chemistry.jl` — CHEMISTRY topics 0..4+ (incl. Van't
+  Hoff exp+log compound + Pitzer-Curl Z-factor)
+- `src/physics_arch_terr.jl` — ARCHITECTURE_TERRESTRIAL topics 0..4+
+- `src/physics_arch_liquid.jl` — ARCHITECTURE_LIQUID topics 0..4+
+- `src/physics_arch_space.jl` — ARCHITECTURE_SPACE topics 0..4+ (incl.
+  pow(.., 0.25) vacuum thermal balance)
 
-### 28.6 — Flag flip + legacy removal (deferred)
+JVM:
+- `JuliaMathClient.physicsTopic(...)` — returns
+  `Optional<PhysicsTopicResultWire>`. Empty signals not_ported, so
+  callers fall back to in-process compute transparently.
+- `JuliaMathClient.predicateScan(spec)` — §28.5a.
+- `MathPhysicsEngineDelegate` — shadow-read wrapper, flag-gated
+  dormant (`app.julia.physics.topic.enabled=false` by default).
+  When enabled, calls in-process compute (source of truth) AND
+  sidecar in parallel; compares the four scalars + ClaimStatus
+  byte-for-byte; tracks `parityMatches/parityMismatches/sidecarErrors/
+  sidecarEmpty` counters for the §28.6 cutover precondition.
 
-Not a code lane initially. After 28.1–28.5 ship and burn-in passes
-(N papers green on the Julia path, parity tests stable for one
-release), the operator flips `app.julia.conjecture.enabled` to
-true by default and the legacy JVM implementations move to
-`@Deprecated`. Actual class removal waits one further release so
-the rollback path stays open.
+Callers wired through the delegate (5 services):
+- `ResearchCycleService` (paper-write hot path, 2 sites)
+- `BotLifecycleService` (competency puzzle)
+- `ReplicationService` (replication verification)
+- `ResearchNarrationService` (refinement loops, 2 sites)
+- `MathToolSuite` (`run_param_sweep` tool; setter-chained from RNS)
+
+Bit-identity discipline: Java
+`Math.{sin, cos, sqrt, asin, exp, log, pow}` on OpenJDK x86-64 agrees
+byte-for-byte with Julia's openlibm primitives across all ported
+topics — confirmed by 65/65 `PhysicsTopicParityTest` cases under
+strict `.isEqualTo()`. Compounds tested include 5000-step Euler
+trajectories, 400-step ODEs, 30-step Newton iterators, exp+log
+chains, and fractional-pow expressions.
+
+DynamicComputeEngine migration was reconsidered: it doesn't call
+`MathPhysicsEngine.compute` — it uses the primitive helpers
+(`isPrime`, `isHappy`, `sigmaSum`, `collatzSteps`) directly. Those
+stay JVM-side; per-call HTTP would be prohibitive given the inner
+loops over millions of integers (architecture question #1 in this
+doc).
+
+### 28.6 — Flag flip + legacy removal (deferred — operational)
+
+Not a code lane. After 28.1–28.5 ship and burn-in passes (N papers
+green on the Julia path, parity tests stable for one release), the
+operator flips the per-feature flags to true by default and the
+legacy JVM implementations move to `@Deprecated`. Actual class
+removal waits one further release so the rollback path stays open.
+
+Feature flags to flip (default OFF today):
+- `app.julia.conjecture.enabled` — substrate + verify + seed/update
+- `app.julia.physics.topic.enabled` — physics topic + predicate scan
+
+Cutover precondition for `app.julia.physics.topic.enabled`:
+- Operator runs production with the flag on for N days
+- `MathPhysicsEngineDelegate.Stats.parityMismatches == 0` throughout
+- `sidecarErrors / shadowCalls` below some threshold (e.g. <0.1%)
+
+After cutover, §28.6 work involves:
+- Changing the delegate from shadow-read to sidecar-primary
+- Composing the JVM `ResearchResult` prose from the sidecar's `detail`
+  JsonNode (each topic emits the detail fields the JVM caller's prose
+  templates already read)
+- Deprecating + then removing `MathPhysicsEngine.compute` and its
+  per-topic methods
+- Mirror sequence for the conjecture stack
+
 
 ---
 
