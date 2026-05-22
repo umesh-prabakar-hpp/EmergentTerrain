@@ -105,3 +105,26 @@ is_abundant(n::Integer) = sigma_sum(n) > n
 n is perfect iff sigma_sum(n) == n. Predicate form for /predicate/scan.
 """
 is_perfect(n::Integer) = sigma_sum(n) == n
+
+"""
+    is_squarefree(n) -> Bool
+
+n is squarefree iff no prime p has p² | n. Port of
+MathPhysicsEngine.isSquarefree (line 1252): trial-divides up to
+√n, dividing out the prime once and refusing the second occurrence.
+"""
+function is_squarefree(n::Integer)::Bool
+    n < 1 && return false
+    m = Int64(n)
+    p = Int64(2)
+    while p * p <= m
+        if m % p == 0
+            m = m ÷ p
+            if m % p == 0
+                return false
+            end
+        end
+        p += 1
+    end
+    return true
+end
