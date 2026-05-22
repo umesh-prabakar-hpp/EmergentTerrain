@@ -469,6 +469,289 @@ function physics_rlc_damping_transition(seed_L::Real, C::Real,
         physics_rlc_damping_transition_at(seed_L, C) : best
 end
 
+# ---------------------------------------------------------------------
+# PHYSICS topic 5 — wienPeak (line 1493-1529)
+# ---------------------------------------------------------------------
+#
+# Wien displacement law λ_max·T = b where b = 2.8977719e-3 m·K.
+# Inline-sweep pattern (no inner-at split): for each i in [0, breadth),
+# T = max(100, seedT + i·stepSize·200); λ_max = b/T (closed-form), then
+# a synthetic "observed" λ_max with 0.5% sinusoidal noise; track the
+# worst |observed·T − b|/b deviation. Status bands: ≤5% → SUPPORTED,
+# ≤10% → PARTIAL, else REFUTED.
+
+"""
+    physics_wien_peak(seed_T, sp) -> Dict
+"""
+function physics_wien_peak(seed_T::Real, sp::Dict{String,Any})::Dict{String,Any}
+    wien_b = 2.8977719e-3
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_dev = 0.0
+    best_T = Float64(seed_T)
+    best_lambda = 0.0
+    samples = 0
+    sum_dev = 0.0
+    for i in 0:(candidate_breadth - 1)
+        T = max(100.0, Float64(seed_T) + i * step_size * 200.0)
+        lambda_max = wien_b / T
+        observed = lambda_max * (1.0 + sin(i * 0.37) * 0.005)
+        dev = abs(observed * T - wien_b) / wien_b
+        sum_dev += dev
+        samples += 1
+        if dev > best_dev
+            best_dev = dev
+            best_T = T
+            best_lambda = observed
+        end
+    end
+    mean_dev = samples > 0 ? sum_dev / samples : 0.0
+    status = best_dev <= 0.05 ? "SUPPORTED" :
+             best_dev <= 0.10 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_dev,
+        "secondaryValue"   => mean_dev,
+        "tertiaryValue"    => best_lambda,
+        "reviewValue"      => best_dev,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_dev) && isfinite(mean_dev) &&
+                              isfinite(best_lambda),
+        "bestT"            => best_T,
+        "bestLambda"       => best_lambda,
+        "meanDev"          => mean_dev,
+        "samples"          => samples,
+        "wienB"            => wien_b,
+        "seedT"            => Float64(seed_T),
+    )
+end
+
+# ---------------------------------------------------------------------
+# PHYSICS topic 6 — schrodingerInfiniteWell (line 1532-1567)
+# ---------------------------------------------------------------------
+#
+# Particle-in-a-1D-infinite-well ground-state E₁ = h²/(8·m_e·L²).
+# Sweep Lnm DOWNWARD (Lnm = max(0.1, seedLnm − i·stepSize·0.05)) and
+# track max E₁/(kB·T). Status: ratio > 5 → SUPPORTED, > 1 → PARTIAL,
+# else OBSERVATIONAL (the F3.2 "confinement vs thermal" diagnostic).
+
+"""
+    physics_schrodinger_infinite_well(seed_L_nm, param2, sp) -> Dict
+"""
+function physics_schrodinger_infinite_well(seed_L_nm::Real, param2::Real,
+                                            sp::Dict{String,Any})::Dict{String,Any}
+    h  = 6.62607015e-34
+    me = 9.1093837015e-31
+    kB = 1.380649e-23
+    T  = 300.0 + Float64(param2) * 30.0
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_ratio = 0.0
+    best_L = Float64(seed_L_nm)
+    best_E1 = 0.0
+    samples = 0
+    for i in 0:(candidate_breadth - 1)
+        Lnm = max(0.1, Float64(seed_L_nm) - i * step_size * 0.05)
+        Lm  = Lnm * 1e-9
+        E1  = (h * h) / (8.0 * me * Lm * Lm)
+        ratio = E1 / (kB * T)
+        samples += 1
+        if ratio > best_ratio
+            best_ratio = ratio
+            best_L = Lnm
+            best_E1 = E1
+        end
+    end
+    confinement_dominant = best_ratio > 1.0
+    status = best_ratio > 5.0 ? "SUPPORTED" :
+             confinement_dominant ? "PARTIAL" : "OBSERVATIONAL"
+    return Dict{String,Any}(
+        "primaryValue"     => best_ratio,
+        "secondaryValue"   => best_E1,
+        "tertiaryValue"    => best_L,
+        "reviewValue"      => best_ratio,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_ratio) && isfinite(best_E1) &&
+                              isfinite(best_L),
+        "bestRatio"        => best_ratio,
+        "bestE1"           => best_E1,
+        "bestL"            => best_L,
+        "T"                => T,
+        "samples"          => samples,
+        "seedLnm"          => Float64(seed_L_nm),
+    )
+end
+
+# ---------------------------------------------------------------------
+# PHYSICS topic 7 — keplerThirdLaw (line 1570-1610)
+# ---------------------------------------------------------------------
+#
+# Kepler's third law T² = (4π²/GM)·a³. For solar M, T (years) and
+# a (AU) satisfy T²/a³ = 1. Sweep aAU upward; compute Tyear, perturb
+# with 2% sinusoidal noise; track worst |T²/a³ − 1|.
+
+const KEPLER_GMSUN = 1.32712440018e20    # m³/s²
+const KEPLER_AU = 1.495978707e11          # m
+const KEPLER_SEC_PER_YEAR = 3.15576e7
+
+"""
+    physics_kepler_third_law(seed_aAU, sp) -> Dict
+"""
+function physics_kepler_third_law(seed_aAU::Real, sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_dev = 0.0
+    best_a = Float64(seed_aAU)
+    best_T = 0.0
+    samples = 0
+    sum_dev = 0.0
+    for i in 0:(candidate_breadth - 1)
+        aAU = max(0.05, Float64(seed_aAU) + i * step_size * 0.5)
+        aM = aAU * KEPLER_AU
+        Tsec = 2 * pi * sqrt(aM * aM * aM / KEPLER_GMSUN)
+        Tyear = Tsec / KEPLER_SEC_PER_YEAR
+        observedT = Tyear * (1.0 + sin(i * 0.51) * 0.02)
+        ratio = (observedT * observedT) / (aAU * aAU * aAU)
+        dev = abs(ratio - 1.0)
+        sum_dev += dev
+        samples += 1
+        if dev > best_dev
+            best_dev = dev
+            best_a = aAU
+            best_T = observedT
+        end
+    end
+    mean_dev = samples > 0 ? sum_dev / samples : 0.0
+    status = best_dev <= 0.10 ? "SUPPORTED" :
+             best_dev <= 0.20 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_dev,
+        "secondaryValue"   => mean_dev,
+        "tertiaryValue"    => best_T,
+        "reviewValue"      => best_dev,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_dev) && isfinite(mean_dev) &&
+                              isfinite(best_T),
+        "bestA"            => best_a,
+        "bestT"            => best_T,
+        "meanDev"          => mean_dev,
+        "samples"          => samples,
+        "seedAuAu"         => Float64(seed_aAU),
+    )
+end
+
+# ---------------------------------------------------------------------
+# PHYSICS topic 8 — snellCriticalAngle (line 1613-1647)
+# ---------------------------------------------------------------------
+#
+# θ_c = arcsin(n₂/n₁) for n₁ > n₂. Fixed n₁ = 1.5 (glass); sweep n₂
+# with clamp [1.0, n₁ − 0.01]; perturb θ_c by up to 1.5° sinusoidal
+# noise; track worst |θ_predicted − θ_observed|.
+
+"""
+    physics_snell_critical_angle(seed_n2, sp) -> Dict
+"""
+function physics_snell_critical_angle(seed_n2::Real, sp::Dict{String,Any})::Dict{String,Any}
+    n1 = 1.5
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_err = 0.0
+    best_n2 = Float64(seed_n2)
+    best_theta = 0.0
+    samples = 0
+    sum_err = 0.0
+    for i in 0:(candidate_breadth - 1)
+        # JVM line 1622: clamp via nested Math.max + Math.min — match exactly.
+        n2 = max(1.0, min(n1 - 0.01, Float64(seed_n2) + i * step_size * 0.05))
+        thetaC = rad2deg(asin(n2 / n1))
+        observed = thetaC + sin(i * 0.43) * 1.5
+        err = abs(thetaC - observed)
+        sum_err += err
+        samples += 1
+        if err > best_err
+            best_err = err
+            best_n2 = n2
+            best_theta = thetaC
+        end
+    end
+    mean_err = samples > 0 ? sum_err / samples : 0.0
+    status = best_err <= 2.0 ? "SUPPORTED" :
+             best_err <= 4.0 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_err,
+        "secondaryValue"   => mean_err,
+        "tertiaryValue"    => best_theta,
+        "reviewValue"      => best_err,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_err) && isfinite(mean_err) &&
+                              isfinite(best_theta),
+        "bestN2"           => best_n2,
+        "bestTheta"        => best_theta,
+        "meanErr"          => mean_err,
+        "samples"          => samples,
+        "n1"               => n1,
+        "seedN2"           => Float64(seed_n2),
+    )
+end
+
+# ---------------------------------------------------------------------
+# PHYSICS topic 9 (default) — stefanBoltzmann (line 1650-1686)
+# ---------------------------------------------------------------------
+#
+# P = σ·A·T⁴ for a unit-area emitter. Sweep T upward; synthetic
+# observation with 3% sinusoidal noise; recover σ_obs = P_obs/(A·T⁴);
+# track worst |σ_obs − σ|/σ.
+
+"""
+    physics_stefan_boltzmann(seed_T, sp) -> Dict
+"""
+function physics_stefan_boltzmann(seed_T::Real, sp::Dict{String,Any})::Dict{String,Any}
+    sigma_true = 5.670374419e-8
+    A = 1.0
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_dev = 0.0
+    best_T = Float64(seed_T)
+    best_sigma = 0.0
+    samples = 0
+    sum_dev = 0.0
+    for i in 0:(candidate_breadth - 1)
+        T = max(100.0, Float64(seed_T) + i * step_size * 100.0)
+        # JVM uses Math.pow(T, 4); for integer exponent both Java and
+        # Julia reduce to T·T·T·T (bit-identical). Spell it out so the
+        # reader doesn't need to trust the JIT.
+        T4 = T * T * T * T
+        P = sigma_true * A * T4
+        observed_P = P * (1.0 + sin(i * 0.29) * 0.03)
+        sigma_obs = observed_P / (A * T4)
+        dev = abs(sigma_obs - sigma_true) / sigma_true
+        sum_dev += dev
+        samples += 1
+        if dev > best_dev
+            best_dev = dev
+            best_T = T
+            best_sigma = sigma_obs
+        end
+    end
+    mean_dev = samples > 0 ? sum_dev / samples : 0.0
+    status = best_dev <= 0.10 ? "SUPPORTED" :
+             best_dev <= 0.20 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_dev,
+        "secondaryValue"   => mean_dev,
+        "tertiaryValue"    => best_sigma,
+        "reviewValue"      => best_dev,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_dev) && isfinite(mean_dev) &&
+                              isfinite(best_sigma),
+        "bestT"            => best_T,
+        "bestSigma"        => best_sigma,
+        "meanDev"          => mean_dev,
+        "samples"          => samples,
+        "sigmaTrue"        => sigma_true,
+        "seedT"            => Float64(seed_T),
+    )
+end
+
 """
     physics_compute_physics(topic_idx, param1, param2, sp) -> Union{Dict, Nothing}
 
@@ -477,21 +760,18 @@ as the §28.5c vertical slice. Topics 1..9 fall through to `nothing`
 so JVM JuliaMathClient.physicsTopic surfaces Optional.empty() and
 the caller falls back to in-process MathPhysicsEngine.compute.
 
-Ported (topicIdx) → JVM mapping:
+PHYSICS domain is fully ported (10/10):
   0 → physics_projectile_with_drag(10.0 + param2·5, param1/1000.0)
   1 → physics_pendulum_breakdown(0.1 + param1/200.0)
   2 → physics_van_der_waals_deviation(200.0 + param1·3, 0.01)
   3 → physics_diffraction_survey(1.0 + param1/50.0, 400.0 + param2·40)
   4 → physics_rlc_damping_transition(0.001 + param1/10000.0,
                                       1e-6 + param2·1e-7)
-
-Remaining JVM dispatch (line 1268-1280) — return `nothing` until
-ported in §28.5c continuations:
-  5 — wienPeak
-  6 — schrodingerInfiniteWell
-  7 — keplerThirdLaw
-  8 — snellCriticalAngle
-  9+ — stefanBoltzmann (JVM `default` branch)
+  5 → physics_wien_peak(2000.0 + param1·30)
+  6 → physics_schrodinger_infinite_well(1.0 + param1/10, param2)
+  7 → physics_kepler_third_law(0.5 + param1/20)
+  8 → physics_snell_critical_angle(1.0 + param2/9)
+  9+ → physics_stefan_boltzmann(300.0 + param1·50)   (JVM `default` branch)
 """
 function physics_compute_physics(topic_idx::Integer,
                                   param1::Integer, param2::Real,
@@ -523,7 +803,26 @@ function physics_compute_physics(topic_idx::Integer,
         seed_L = 0.001 + Float64(param1) / 10000.0
         C      = 1e-6 + Float64(param2) * 1e-7
         return physics_rlc_damping_transition(seed_L, C, sp)
+    elseif topic_idx == 5
+        # JVM line 1275: wienPeak(2000.0 + param1 * 30.0, sp).
+        seed_T = 2000.0 + Float64(param1) * 30.0
+        return physics_wien_peak(seed_T, sp)
+    elseif topic_idx == 6
+        # JVM line 1276: schrodingerInfiniteWell(1.0 + param1 / 10.0, param2, sp).
+        seed_L = 1.0 + Float64(param1) / 10.0
+        return physics_schrodinger_infinite_well(seed_L, param2, sp)
+    elseif topic_idx == 7
+        # JVM line 1277: keplerThirdLaw(0.5 + param1 / 20.0, sp).
+        seed_aAU = 0.5 + Float64(param1) / 20.0
+        return physics_kepler_third_law(seed_aAU, sp)
+    elseif topic_idx == 8
+        # JVM line 1278: snellCriticalAngle(1.0 + param2 / 9.0, sp).
+        seed_n2 = 1.0 + Float64(param2) / 9.0
+        return physics_snell_critical_angle(seed_n2, sp)
+    else
+        # JVM line 1279: default → stefanBoltzmann(300.0 + param1 * 50.0, sp).
+        # Routes topic 9+ here per the JVM `default` branch in computePhysics.
+        seed_T = 300.0 + Float64(param1) * 50.0
+        return physics_stefan_boltzmann(seed_T, sp)
     end
-    # Topic 5..9+ not yet ported.
-    return nothing
 end
