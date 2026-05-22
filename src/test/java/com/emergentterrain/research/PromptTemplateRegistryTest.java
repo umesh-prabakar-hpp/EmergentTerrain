@@ -513,18 +513,50 @@ class PromptTemplateRegistryTest {
         String auditSection = "\nA quality audit identified these specific gaps. Address them with your tools:\n"
                             + "- [CRITICAL] overclaiming: claims exceed evidence\n\n";
 
-        // Phase 6 D1.3 added a v2-with-literature variant; this regression test
-        // continues to pin the v1 body explicitly.
+        // Phase 24.4 added a {{ srHint }} slot for the symbolic-regression
+        // hint. The hint is empty when the SR engine isn't in use; pass
+        // "" so the slot resolves cleanly and the pin matches both the
+        // base template body and the Phase 471c1a6 "tool-grammar
+        // reminders" block that came in after the original test was
+        // written.
+        String srHint = "";
+
+        Map<String, Object> params = new java.util.LinkedHashMap<>();
+        params.put("auditSection", auditSection);
+        params.put("srHint", srHint);
         String registryRendered = r.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
                 PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION,
-                Map.of("auditSection", auditSection));
+                params);
 
+        // Expected body tracks the current template: original four-line
+        // intro, auditSection + srHint slots, the Phase 471c1a6
+        // tool-grammar reminders block (added without bumping the
+        // template version because the additions are read-only
+        // guidance), then the original "after any tool calls" coda.
+        // The template puts {{ auditSection }}{{ srHint }} on its own
+        // line, so the trailing newline from that line ends up between
+        // the auditSection content (which itself ends in \n\n) and the
+        // following "Tool-grammar reminders" block. Net: three newlines
+        // = two blank lines between "[CRITICAL] overclaiming…" and the
+        // tool-grammar header. The %s%s placeholders here also live on
+        // their own line so the formatted string ends up with the
+        // matching newline triple.
         String inlineExpected = """
                 You are a professor reviewing a student's computational research paper.
                 You have access to mathematical tools to investigate gaps you identify.
                 Use tools when they would provide new evidence that materially changes what can be claimed.
                 You do not need to use tools if the paper is already well-supported.
-                %s
+                %s%s
+                Tool-grammar reminders (the safety reviewer rejects these common patterns):
+                  - run_sandboxed_code is NOT full JavaScript. Arrays are fixed-size:
+                    declare `var xs = [0,0,0,0,0];` and assign `xs[i] = v;` — there is
+                    no `.push()`, no `.length`, no method calls. Use `len(xs)`.
+                  - run_symbolic (Julia back-end) uses `^` for power, not `**` or `pow()`.
+                    Write `x^2`, not `x**2` or `pow(x,2)`. Plain expressions only —
+                    no top-level `let … end` blocks; if you need scoped names use
+                    `(let x = …, y = …; expr end)` wrapped in parens on a single line.
+                  - If a call is REJECTED by safety review, READ the rejection reason —
+                    it names the disallowed construct. Don't resubmit the same shape.
                 After any tool calls, write a concise synthesis:
                   1. List specific textual weaknesses (overclaiming, missing error bounds,
                      inconsistency with pre-registration, unsupported leaps). Omit if none.
@@ -532,7 +564,7 @@ class PromptTemplateRegistryTest {
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
-                """.formatted(auditSection);
+                """.formatted(auditSection, srHint);
 
         assertThat(registryRendered).isEqualTo(inlineExpected);
     }
