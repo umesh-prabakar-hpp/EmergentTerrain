@@ -189,6 +189,21 @@ public class UniversityService {
      */
     private final boolean proseBaselineDriftEnabled;
     private final String  proseBaselineDriftMode;
+    /**
+     * 2026-05-21 review §1 rec #5 — flags textual "Lastname (Year)"
+     * citations in published paper prose that don't appear in
+     * literature-corpus.yml. Targets the fabrication cluster (P-a328-862
+     * cited "P-2022-07", P-a328-872 "Torquato and Stillinger", P-a328-890
+     * "Hecht Optics 5th ed."). Mode escalation mirrors
+     * {@link #unsourcedClaimMode}: {@code warn} logs only,
+     * {@code downgrade} routes to NEEDS_REVISION with
+     * {@code publish:citation_corpus→needs_revision}. Default enabled+warn
+     * so the first refresh exposes the false-positive rate before any
+     * status changes (textbook references without years are a known v1
+     * blind spot that we want to observe before promoting).
+     */
+    private final boolean citationCorpusEnabled;
+    private final String  citationCorpusMode;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -319,6 +334,8 @@ public class UniversityService {
             @Value("${app.research.unsourced-claim.mode:warn}") String unsourcedClaimMode,
             @Value("${app.research.prose-baseline-drift.enabled:false}") boolean proseBaselineDriftEnabled,
             @Value("${app.research.prose-baseline-drift.mode:warn}") String proseBaselineDriftMode,
+            @Value("${app.research.citation-corpus.enabled:false}") boolean citationCorpusEnabled,
+            @Value("${app.research.citation-corpus.mode:warn}") String citationCorpusMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -366,6 +383,8 @@ public class UniversityService {
         this.unsourcedClaimMode           = normalizeMode(unsourcedClaimMode);
         this.proseBaselineDriftEnabled    = proseBaselineDriftEnabled;
         this.proseBaselineDriftMode       = normalizeMode(proseBaselineDriftMode);
+        this.citationCorpusEnabled        = citationCorpusEnabled;
+        this.citationCorpusMode           = normalizeMode(citationCorpusMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -453,6 +472,17 @@ public class UniversityService {
                     + "run_predicate_scan tool-call baseline are {} (2026-05-21 review §1 rec #4).",
                     proseBaselineDriftMode,
                     switch (proseBaselineDriftMode) {
+                        case "downgrade" -> "routed to NEEDS_REVISION";
+                        case "suppress"  -> "dropped";
+                        default           -> "logged only (no status change)";
+                    });
+        }
+        if (citationCorpusEnabled) {
+            log.info("UniversityService: citation-corpus ENABLED mode={} — papers whose "
+                    + "Findings/Discussion/Related-Work prose carries 'Lastname (Year)' cites "
+                    + "absent from literature-corpus.yml are {} (2026-05-21 review §1 rec #5).",
+                    citationCorpusMode,
+                    switch (citationCorpusMode) {
                         case "downgrade" -> "routed to NEEDS_REVISION";
                         case "suppress"  -> "dropped";
                         default           -> "logged only (no status change)";
@@ -846,6 +876,28 @@ public class UniversityService {
             log.warn("prose-baseline-drift check failed paperId={} mode={} reasons={}",
                     draft.paperId(), proseBaselineDriftMode, proseBaselineDriftFailures);
         }
+        // 2026-05-21 review §1 rec #5 — textual "Lastname (Year)" cites in
+        // Findings / Discussion / Related-Work prose that don't appear in
+        // literature-corpus.yml. P-a328-862 cited "P-2022-07" (which the
+        // unicode-dashed paper-ID regex also missed; that's a separate fix),
+        // P-a328-872 "Torquato and Stillinger", P-a328-890 "Hecht Optics".
+        // The corpus is sourced from LiteratureSearchService (already
+        // wired via setter injection at line 258). Skip the check entirely
+        // when the service hasn't published a non-empty corpus yet.
+        List<String> citationCorpusFailures = (citationCorpusEnabled
+                && literatureSearch != null && literatureSearch.size() > 0)
+                ? CitationCorpusValidator.validate(
+                        joinPaperProse(findingsBlocks,
+                                narration.discussion(), narration.relatedWork()),
+                        literatureSearch.allReferences())
+                : List.of();
+        boolean citationCorpusFlagged = !citationCorpusFailures.isEmpty();
+        boolean citationCorpusRoutes  = citationCorpusFlagged
+                && "downgrade".equals(citationCorpusMode);
+        if (citationCorpusFlagged) {
+            log.warn("citation-corpus check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), citationCorpusMode, citationCorpusFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -1054,6 +1106,12 @@ public class UniversityService {
             // predicate scan with the prose baseline or rewriting the
             // prose to match the args.
             paperStatus = "NEEDS_REVISION";
+        } else if (citationCorpusRoutes) {
+            // 2026-05-21 review §1 rec #5 — fabricated author-year cite
+            // not in literature-corpus.yml. Same tier as F3/F4/prose-
+            // baseline: revision can fix by either citing a real corpus
+            // entry or removing the unsupported reference.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1141,6 +1199,16 @@ public class UniversityService {
         if (proseBaselineDriftFlagged) {
             String suffix = proseBaselineDriftRoutes ? "→needs_revision" : ":warn";
             String stamp = "publish:prose_baseline_drift" + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
+        }
+        // 2026-05-21 — additive stamp for citation-corpus. Same shape; the
+        // count of unmatched cites goes in the stamp so review-report can
+        // see firing severity at a glance.
+        if (citationCorpusFlagged) {
+            String suffix = citationCorpusRoutes ? "→needs_revision" : ":warn";
+            String stamp = "publish:citation_corpus:n=" + citationCorpusFailures.size() + suffix;
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? stamp
                     : persistedCallPath + " → " + stamp;
@@ -2457,6 +2525,25 @@ public class UniversityService {
             case "PUBLISHED", "PUBLISHED_NO_PROFESSOR", "NULL_RESULT" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * 2026-05-21 — assembles the prose slice the CitationCorpusValidator
+     * scans. Joins every findings block plus discussion + related-work
+     * with single newlines. Skips null/blank parts so the validator
+     * doesn't trip on "null (1999)" or similar noise.
+     */
+    static String joinPaperProse(java.util.Map<Integer, String> findingsBlocks,
+                                  String discussion, String relatedWork) {
+        StringBuilder sb = new StringBuilder();
+        if (findingsBlocks != null) {
+            for (String block : findingsBlocks.values()) {
+                if (block != null && !block.isBlank()) sb.append(block).append('\n');
+            }
+        }
+        if (discussion != null && !discussion.isBlank()) sb.append(discussion).append('\n');
+        if (relatedWork != null && !relatedWork.isBlank()) sb.append(relatedWork);
+        return sb.toString();
     }
 
     static String normalizeMode(String raw) {

@@ -257,6 +257,8 @@ class MathPhysicsEngineTest {
                 /* unsourcedClaimMode            */ "warn",
                 /* proseBaselineDriftEnabled     */ false,
                 /* proseBaselineDriftMode        */ "warn",
+                /* citationCorpusEnabled         */ false,
+                /* citationCorpusMode            */ "warn",
                 mapper);
 
         // Files must be staged AFTER the UniversityService constructor: as of

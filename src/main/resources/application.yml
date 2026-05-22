@@ -701,6 +701,21 @@ app:
     prose-baseline-drift:
       enabled: true
       mode: warn
+    # 2026-05-21 review §1 rec #5 — when on, flags "Lastname (Year)" cites
+    # in Findings / Discussion / Related-Work prose that aren't backed by
+    # any literature-corpus.yml entry. Targets the fabrication cluster:
+    # P-a328-862 cited "P-2022-07", P-a328-872 "Torquato and Stillinger",
+    # P-a328-890 "Hecht Optics 5th ed.". Mode escalation:
+    #   warn      — log + stamp publish:citation_corpus:n=N:warn, no status change.
+    #   downgrade — route to NEEDS_REVISION with publish:citation_corpus:n=N→needs_revision.
+    # Default enabled+warn for rollout — v1 has known blind spots (textbook
+    # references without years aren't extracted; unicode-dashed paper-IDs
+    # like "P‑2022‑07" with U+2010 still escape the existing in-room
+    # paper-ID regex). One refresh in warn mode should expose the
+    # would-be-route rate before promotion.
+    citation-corpus:
+      enabled: true
+      mode: warn
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does
