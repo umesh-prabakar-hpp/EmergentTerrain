@@ -32,6 +32,25 @@ public sealed interface RecognitionResult
         public String engine()         { return evidence.engine(); }
         public String displayName()    { return evidence.displayName(); }
         public String citationHandle() { return evidence.citationHandle(); }
+
+        /**
+         * Phase 26 §26.4 narration-integration helper. Renders the hit
+         * as a short prose line ready to append to a paper's findings.
+         * The format is what the {@link RecognitionCitationValidator}
+         * (and the §26.6 acceptance audit) expects to see:
+         *
+         * <pre>{@code
+         *   Refinement recognition: ≈ ζ(3) [cite-recognised:pslq:zeta(3)].
+         * }</pre>
+         *
+         * Keeping the format here (rather than at each call site) makes
+         * the citation-handle envelope easy to grep and ensures every
+         * recognition citation in the corpus uses the same shape.
+         */
+        public String formatAsCitationLine() {
+            return "Refinement recognition: ≈ " + displayName()
+                    + " [" + citationHandle() + "].";
+        }
     }
 
     /** No engine recognised the value. */

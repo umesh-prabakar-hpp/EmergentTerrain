@@ -265,6 +265,76 @@ class ConstantRecognitionServiceTest {
 
     // ── Counters ────────────────────────────────────────────────────
 
+    // ── isAvailable aggregate ────────────────────────────────────────
+
+    @Test
+    void isAvailable_allEnginesNull_returnsFalse() {
+        ConstantRecognitionService svc =
+                new ConstantRecognitionService(null, null, null);
+        assertThat(svc.isAvailable()).isFalse();
+    }
+
+    @Test
+    void isAvailable_anyEngineUp_returnsTrue() {
+        // Only OEIS up — orchestrator can still answer sequence calls.
+        ConstantRecognitionService svc1 = new ConstantRecognitionService(
+                oeisMissStub(), null, null);
+        assertThat(svc1.isAvailable()).isTrue();
+        // Only PSLQ up — orchestrator can still answer constant calls.
+        ConstantRecognitionService svc2 = new ConstantRecognitionService(
+                null, pslqMissStub(), null);
+        assertThat(svc2.isAvailable()).isTrue();
+    }
+
+    @Test
+    void isAvailable_allEnginesDown_returnsFalse() {
+        OeisRecogniserClient oeisDown = new OeisRecogniserClient(
+                false, "http://stub", 5_000, liveSidecar(),
+                inMemoryCache(), MAPPER) {
+            @Override public boolean isAvailable() { return false; }
+        };
+        PslqRecogniserClient pslqDown = new PslqRecogniserClient(
+                false, "http://stub", 5_000, 200, liveSidecar(), MAPPER) {
+            @Override public boolean isAvailable() { return false; }
+        };
+        ConstantRecognitionService svc =
+                new ConstantRecognitionService(oeisDown, pslqDown, null);
+        assertThat(svc.isAvailable()).isFalse();
+    }
+
+    // ── PrimaryHit.formatAsCitationLine ──────────────────────────────
+
+    @Test
+    void formatAsCitationLine_includesDisplayNameAndHandle() {
+        RecognitionResult.PrimaryHit hit = new RecognitionResult.PrimaryHit(
+                new RecognitionEvidence(
+                        "pslq", "zeta(3)",
+                        "cite-recognised:pslq:zeta(3)",
+                        "basis=BASIC;...",
+                        50L));
+        String line = hit.formatAsCitationLine();
+        assertThat(line).contains("zeta(3)");
+        assertThat(line).contains("cite-recognised:pslq:zeta(3)");
+        assertThat(line).startsWith("Refinement recognition:");
+    }
+
+    @Test
+    void formatAsCitationLine_handleMatchesValidatorPattern() {
+        // The citation line must contain a handle the validator's
+        // HANDLE_PATTERN can extract.
+        RecognitionResult.PrimaryHit hit = new RecognitionResult.PrimaryHit(
+                new RecognitionEvidence(
+                        "oeis", "Fibonacci numbers",
+                        "cite-recognised:oeis:A000045",
+                        "A000045:identity", 12L));
+        String line = hit.formatAsCitationLine();
+        // Round-trip: validator should see the handle in the line.
+        java.util.regex.Matcher m =
+                RecognitionCitationValidator.HANDLE_PATTERN.matcher(line);
+        assertThat(m.find()).isTrue();
+        assertThat(m.group()).isEqualTo("cite-recognised:oeis:A000045");
+    }
+
     @Test
     void stats_reflectSequenceVsConstantSplit() {
         OeisRecogniserClient oeis = oeisHitStub(

@@ -68,6 +68,26 @@ public class ConstantRecognitionService {
     }
 
     /**
+     * Whether any underlying engine reports available. Callers
+     * (notably {@link com.emergentterrain.service.ResearchNarrationService})
+     * use this to skip calling recognise() when no engine can
+     * usefully respond — short-circuits the latency cost of building
+     * a request just to get NoMatch back.
+     *
+     * <p>"Any" is the right semantic: the orchestrator routes
+     * sequence requests to OEIS and constant requests to PSLQ → LLL,
+     * so as long as at least one engine is live the orchestrator can
+     * answer at least one of its two recognise methods. Callers that
+     * care about a specific engine should check the engine client
+     * directly.
+     */
+    public boolean isAvailable() {
+        return (oeisClient != null && oeisClient.isAvailable())
+                || (pslqClient != null && pslqClient.isAvailable())
+                || (lllClient  != null && lllClient.isAvailable());
+    }
+
+    /**
      * Try to recognise an integer sequence via OEIS Superseeker.
      *
      * @param sequence the integer sequence; must have ≥4 terms

@@ -2519,6 +2519,11 @@ public class ResearchNarrationService {
 
         String accumulatedFindings = draft.rawFindings();
         int completedRefinements = 0;
+        // Phase 26 §26.4 — track the last refined value so we can attempt
+        // recognition once the loop completes (firing per-iteration would
+        // multiply latency unnecessarily; the final value carries the
+        // signal we care about).
+        MathPhysicsEngine.ResearchResult latestRefined = null;
 
         // Track visited (param1, param2) pairs to reject duplicate refinement proposals
         Set<String> visitedParams = new HashSet<>();
@@ -2558,6 +2563,7 @@ public class ResearchNarrationService {
 
                 MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
                         draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
+                latestRefined = refined;
 
                 // Phase 10 — drop the `(param1=N, param2=M.M)` annotation that
                 // was leaking verbatim into the published prose of P-344,
@@ -2593,6 +2599,16 @@ public class ResearchNarrationService {
 
         if (completedRefinements == 0) return draft;
 
+        // Phase 26 §26.4 — try to recognise the final refined value as a
+        // known constant. Best-effort: any failure (orchestrator null,
+        // sidecar down, validator reject, transport timeout) silently
+        // skips — recognition is informational, never a publication
+        // blocker. A successful PrimaryHit appends a citation line that
+        // the future RecognitionCitationValidator (§26.4b) will
+        // mechanically verify against the audit chain.
+        accumulatedFindings = appendRefinementRecognition(
+                accumulatedFindings, latestRefined, draft.paperId());
+
         return new PaperDraft(
                 draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), accumulatedFindings,
@@ -2605,6 +2621,59 @@ public class ResearchNarrationService {
                 draft.recentPapers(), draft.researchHypothesis(),
                 draft.preRegistration(), draft.resultClassification(),
                 draft.plannerQuestionId());
+    }
+
+    /**
+     * Phase 26 §26.4 — try to recognise the final refined value as a
+     * known constant via {@link com.emergentterrain.research.recognise.ConstantRecognitionService}.
+     * Best-effort: any failure path (orchestrator null, sidecar down,
+     * non-finite value, transport timeout, validator reject) silently
+     * returns the input findings unchanged. A successful
+     * {@code PrimaryHit} appends a citation line built by
+     * {@link com.emergentterrain.research.recognise.RecognitionResult.PrimaryHit#formatAsCitationLine()}
+     * so the future
+     * {@link com.emergentterrain.research.recognise.RecognitionCitationValidator}
+     * (§26.4b) can mechanically verify the {@code cite-recognised:*}
+     * handle against the audit chain.
+     *
+     * <p>Recognition fires once per paper (after the refinement loop)
+     * rather than per iteration: each {@code recognise} call costs
+     * ~50-200ms wall, and the final value carries the signal the
+     * narrator actually surfaces in the published prose.
+     *
+     * <p>Skipped when the refined primaryValue is non-finite, very
+     * close to zero (PSLQ has no chance to find a meaningful
+     * relation), or the orchestrator bean is missing / unavailable.
+     */
+    private String appendRefinementRecognition(String findings,
+            MathPhysicsEngine.ResearchResult latestRefined,
+            String paperId) {
+        if (latestRefined == null) return findings;
+        if (constantRecognitionService == null
+                || !constantRecognitionService.isAvailable()) {
+            return findings;
+        }
+        double v = latestRefined.primaryValue();
+        if (!Double.isFinite(v) || Math.abs(v) < 1e-10) return findings;
+        try {
+            com.emergentterrain.research.recognise.RecognitionResult result =
+                    constantRecognitionService.recogniseConstant(
+                            Double.toString(v), "PHYSICS",
+                            "paper=" + paperId);
+            if (result instanceof
+                    com.emergentterrain.research.recognise.RecognitionResult.PrimaryHit hit) {
+                log.info("LLM refinement recognition hit paperId={} value={} name={} handle={}",
+                        paperId, v, hit.displayName(), hit.citationHandle());
+                return findings + "\n" + hit.formatAsCitationLine();
+            }
+        } catch (Exception e) {
+            // Best-effort: any failure (transport, parse, safety, sidecar
+            // down) silently passes through. Recognition is informational;
+            // a failure here must not block paper publication.
+            log.debug("LLM refinement recognition skipped paperId={}: {}",
+                    paperId, e.getMessage());
+        }
+        return findings;
     }
 
     private String buildRefinementPrompt(PaperDraft draft, String accumulatedFindings,
