@@ -205,16 +205,120 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing ────────────────────────────────────────────
+    // ── MATHEMATICS topic 2 — goldbachPartitions (ported §28.5b-cont2) ──
 
     @Test
-    void mathTopic2_notYetPorted_returnsEmpty() {
+    void mathTopic2_goldbach_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // MATHEMATICS topic 2 (goldbachPartitions) isn't ported yet.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 2, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("MATHEMATICS", 2, 3, 0.0, sp);
-        assertThat(side).as("MATHEMATICS topic 2 not yet ported").isEmpty();
+                liveClient().physicsTopic("MATHEMATICS", 2, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 2 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── MATHEMATICS topic 6 — divisorSumAverage (ported §28.5b-cont2) ──
+
+    @Test
+    void mathTopic6_divisorSumAverage_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Sweeps N upward from max(10, param1*4) through candidateBreadth
+        // values; asymptotic π²/12 ≈ 0.8225.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 6, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 6, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 6 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── MATHEMATICS topic 7 — riemannEulerProduct (ported §28.5b-cont2) ──
+
+    @Test
+    void mathTopic7_riemannEulerProduct_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedS = 1.5 + param2/9; truncation 5000 on the zeta sum,
+        // primes ≤ 200 on the Euler product. Slow-ish per fixture (~1s).
+        int param1 = 0;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 7, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 7, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 7 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── MATHEMATICS topic 8 — sternBrocotDepth (ported §28.5b-cont2) ──
+
+    @Test
+    void mathTopic8_sternBrocotDepth_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 8, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 8, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 8 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── not_ported routing — remaining MATHEMATICS topics ─────────────
+
+    @Test
+    void mathTopic3_aliquot_notYetPorted_returnsEmpty() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // MATHEMATICS topic 3 (aliquotSequences) — complex cycle
+        // detection w/ Set + overflow; deferred to a later slice.
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 3, 3, 0.0, sp);
+        assertThat(side).as("MATHEMATICS topic 3 not yet ported").isEmpty();
+    }
+
+    @Test
+    void mathTopic5_mertens_notYetPorted_returnsEmpty() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // MATHEMATICS topic 5 (mertensPartialSums) — needs a Möbius
+        // primitive port; deferred to a later slice.
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 5, 3, 0.0, sp);
+        assertThat(side).as("MATHEMATICS topic 5 not yet ported").isEmpty();
     }
 
     @Test
