@@ -475,16 +475,128 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing — remaining PHYSICS topics + other domains ──
+    // ── PHYSICS topics 5..9+ — F3.2 batch (ported §28.5c-cont3) ──
 
     @Test
-    void physicsTopic5_notYetPorted_returnsEmpty() {
+    void physicsTopic5_wienPeak_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // PHYSICS topic 5 (wienPeak) — pending; deferred.
+        // seedT = 2000 + param1·30 K. Wien displacement λ_max·T = b.
+        int param1 = 4;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 5, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("PHYSICS", 5, 3, 0.0, sp);
-        assertThat(side).as("PHYSICS topic 5 not yet ported").isEmpty();
+                liveClient().physicsTopic("PHYSICS", 5, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 5 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void physicsTopic6_schrodingerWell_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedLnm = 1 + param1/10; T = 300 + param2·30. Pure arithmetic
+        // E₁ = h²/(8mL²) — no transcendentals.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 6, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 6, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 6 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void physicsTopic7_kepler_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedAuAu = 0.5 + param1/20 AU. Tsec = 2π√(a³/GM); noise is
+        // sin(i·0.51)·0.02.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 7, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 7, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 7 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void physicsTopic8_snell_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedN2 = 1 + param2/9. asin(n₂/n₁) with n₁=1.5; clamp to
+        // [1.0, n₁−0.01].
+        int param1 = 0;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 8, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 8, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 8 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void physicsTopic9_stefanBoltzmann_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedT = 300 + param1·50 K. Topic 9+ routes to stefanBoltzmann
+        // (JVM `default` branch). pow(T, 4) is integer-exponent → bit-
+        // identical between Java/Julia regardless of libm.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 9, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 9, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 9 (default) should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── not_ported routing — remaining domains ─────────────
+
+    @Test
+    void materialsDomain_notYetPorted_returnsEmpty() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // MATERIALS domain — next pending after PHYSICS finished.
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATERIALS", 0, 3, 0.0, sp);
+        assertThat(side).as("MATERIALS domain not yet ported").isEmpty();
     }
 
     @Test
