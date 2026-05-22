@@ -330,6 +330,7 @@ not in the sidecar repo) with the sidecar already running:
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/pysr-probe/run.sh                                       # default smoke check (~60 s)
 ./scripts/pysr-probe/run.sh --filter hooke                        # one fixture
+./scripts/pysr-probe/run.sh --auto-normalize                      # phase 24.7 Lever 1
 ./scripts/pysr-probe/run.sh \
   --iterations 160 --populations 24 --samples-per-dim 8 --timeout-ms 90000   # deep search
 ```
@@ -338,10 +339,22 @@ Default config (populations=16, iterations=80) runs in ~60 s total
 and exercises every fixture under the JIT-warm path. The deep variant
 exercises the new `MAX_PYSR_TIMEOUT_MS = 120 000` ceiling — useful
 after a sidecar code change to confirm the search isn't getting
-HTTP-408'd at 30 s. 3/5 expected on the current fixtures; the
-`newton-gravity` (scale-precision) and `rc-decay` (linear local
-optimum) misses are fixture-design artifacts diagnosed in phase 24
-§24.6, not engine regressions.
+HTTP-408'd at 30 s.
+
+`--auto-normalize` (phase 24.7 Lever 1) flips the request body's
+`autoNormalize` field to `true`, so each fixture's inputs and target
+are rescaled to unit-ish magnitudes before search and the returned
+Pareto entries are rewritten back to original scale. Switches the
+pass criterion from per-fixture absolute MSE to NRMSE (sqrt(mse)/RMS(y) < 1e-6)
+since absolute MSE thresholds are meaningless on SI-magnitude
+targets where a float-perfect fit still has mse ~ y² × ε².
+
+Without `--auto-normalize`, 3/5 is the current expectation on the
+fixtures; the `newton-gravity` (scale-precision) and `rc-decay`
+(linear local optimum) misses are fixture-design artifacts diagnosed
+in phase 24 §24.6, not engine regressions. With `--auto-normalize`,
+newton-gravity should clear the bar; rc-decay still misses because
+Lever 1 doesn't address operator-prior failures.
 
 **Production deployment:** see
 `julia-math-sidecar/systemd/julia-math-sidecar.service` for a starter

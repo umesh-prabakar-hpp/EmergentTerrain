@@ -209,12 +209,18 @@ class ProbeOutcome:
     elapsed_ms: int
     pareto_size: int
     error: str | None = None
+    # NRMSE = sqrt(MSE) / RMS(y) — scale-invariant relative error. Set
+    # by probe_fixture from the y values it just sent the sidecar. Used
+    # for the pass criterion when autoNormalize is on, since absolute
+    # MSE thresholds are meaningless when y is at SI magnitudes.
+    nrmse: float = float("nan")
 
 
 def probe_fixture(fixture: Fixture, base_url: str,
                   populations: int, iterations: int,
                   per_call_timeout_ms: int,
-                  n_per_dim: int) -> ProbeOutcome:
+                  n_per_dim: int,
+                  auto_normalize: bool = False) -> ProbeOutcome:
     samples = build_samples(fixture, n_per_dim=n_per_dim, seed=42)
     body = {
         "samples": samples,
@@ -226,6 +232,7 @@ def probe_fixture(fixture: Fixture, base_url: str,
         "timeoutMs": per_call_timeout_ms,
         "complexityCeiling": 25,
         "seed": 42,
+        "autoNormalize": auto_normalize,
     }
     # HTTP timeout slightly above the sidecar's own cap to give the
     # response time to flow back. +15s headroom covers JIT warmup on
@@ -258,7 +265,30 @@ def probe_fixture(fixture: Fixture, base_url: str,
     top3 = sorted(pareto, key=lambda e: e.get("complexity", 0))[:3]
     best = min(top3, key=lambda e: e.get("mse", float("inf")))
     best_mse = float(best.get("mse", float("inf")))
-    ok = best_mse < fixture.mse_threshold
+
+    # Compute NRMSE from the y values the probe just sent the sidecar.
+    # sqrt(MSE) / RMS(y) is scale-invariant — a perfect fit lands near
+    # float64 epsilon (1e-16) regardless of target magnitude.
+    y_vals = [row[-1] for row in samples]
+    y_rms = math.sqrt(sum(v * v for v in y_vals) / max(len(y_vals), 1))
+    nrmse = math.sqrt(max(best_mse, 0.0)) / y_rms if y_rms > 0 else float("inf")
+
+    # Pass criterion: when autoNormalize is on, use NRMSE against a
+    # unified 1e-6 (parts-per-million) bar — absolute MSE thresholds
+    # are meaningless at SI magnitudes where a float-perfect rewrite
+    # still produces mse ~ y_magnitude² × ε². Without autoNormalize,
+    # keep the legacy per-fixture absolute mse_threshold.
+    if auto_normalize:
+        nrmse_threshold = 1e-6
+        ok = nrmse < nrmse_threshold
+        error = (None if ok
+                 else f"nrmse {nrmse:.3g} >= threshold {nrmse_threshold:.0e} "
+                      f"(mse {best_mse:.3g} on |y|≈{y_rms:.2g})")
+    else:
+        ok = best_mse < fixture.mse_threshold
+        error = (None if ok
+                 else f"mse {best_mse:.3g} >= threshold {fixture.mse_threshold:.0e}")
+
     return ProbeOutcome(
         fixture=fixture.name,
         ok=ok,
@@ -266,7 +296,8 @@ def probe_fixture(fixture: Fixture, base_url: str,
         best_expr=str(best.get("expr", "")),
         elapsed_ms=int(resp.get("elapsed_ms", 0)),
         pareto_size=len(pareto),
-        error=None if ok else f"mse {best_mse:.3g} >= threshold {fixture.mse_threshold:.0e}",
+        error=error,
+        nrmse=nrmse,
     )
 
 
@@ -291,6 +322,13 @@ def main() -> int:
                              "this^len(vars) (default: %(default)s → 36 rows)")
     parser.add_argument("--filter", default="",
                         help="comma-separated fixture names to run; empty = all")
+    parser.add_argument("--auto-normalize", action="store_true",
+                        help="opt into /pysr's autoNormalize round-trip "
+                             "(Lever 1, phase-24 §24.6) — rescales inputs/target "
+                             "to unit magnitudes before search and rewrites the "
+                             "returned Pareto entries back to original scale. "
+                             "Needed for fixtures with extreme-magnitude inputs "
+                             "like newton-gravity at raw SI masses.")
     args = parser.parse_args()
 
     selected = FIXTURES
@@ -304,7 +342,8 @@ def main() -> int:
     print(f"== PySR recovery probe ==")
     print(f"sidecar: {args.base_url}")
     print(f"populations={args.populations} iterations={args.iterations} "
-          f"timeoutMs={args.timeout_ms} samples_per_dim={args.samples_per_dim}")
+          f"timeoutMs={args.timeout_ms} samples_per_dim={args.samples_per_dim} "
+          f"autoNormalize={args.auto_normalize}")
     print(f"fixtures: {len(selected)}")
     print()
 
@@ -337,12 +376,14 @@ def main() -> int:
             iterations=args.iterations,
             per_call_timeout_ms=args.timeout_ms,
             n_per_dim=args.samples_per_dim,
+            auto_normalize=args.auto_normalize,
         )
         elapsed_s = time.time() - t0
         outcomes.append(out)
         mark = "PASS" if out.ok else "FAIL"
+        nrmse_part = f"  nrmse={out.nrmse:.2g}" if args.auto_normalize else ""
         print(f"   {mark}  wall={elapsed_s:5.1f}s  sidecar={out.elapsed_ms:>5d}ms  "
-              f"mse={out.best_mse:.3g}  pareto={out.pareto_size}")
+              f"mse={out.best_mse:.3g}{nrmse_part}  pareto={out.pareto_size}")
         if out.best_expr:
             print(f"        best: {out.best_expr}")
         if out.error and not out.ok:
