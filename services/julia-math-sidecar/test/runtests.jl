@@ -514,6 +514,133 @@ end
     @test body[:error] == "safety_reject"
 end
 
+# ---------------------------------------------------------------------
+# /recognise/constant — PSLQ integer-relation search (phase-26 §26.2)
+# ---------------------------------------------------------------------
+#
+# Exercises handle_recognise_constant in-process. No outbound network
+# (mpmath-only) so these can run in CI without the OEIS dependency
+# that /recognise/sequence carries.
+
+function _recognise_constant(value, basis="BASIC", precision=200)
+    body = Dict("value"=>value, "basis"=>basis, "precisionDigits"=>precision)
+    req = HTTP.Request("POST", "/recognise/constant",
+                       ["Content-Type"=>"application/json"],
+                       Vector{UInt8}(JSON3.write(body)))
+    resp = JuliaMathSidecar.handle_recognise_constant(req)
+    return resp.status, JSON3.read(String(copy(resp.body)))
+end
+
+# Use precise 99-digit truncations of the named constants. The
+# input-precision-aware tol picks a tolerance below the input's
+# noise floor (~1e-90), which is what real callers will get when
+# they round-trip a constant through 100-digit decimal storage.
+
+@testset "/recognise/constant classical constants (phase-26 §26.2)" begin
+
+    @testset "ζ(3) via BASIC basis" begin
+        status, body = _recognise_constant(
+            "1.20205690315959428539973816151144999076498629234049888179227155534183820578631309018645587360933525")
+        @test status == 200
+        @test body[:ok] == true
+        @test body[:recognized] == true
+        @test String(body[:name]) == "zeta(3)"
+        @test String(body[:basis_used]) == "BASIC"
+    end
+
+    @testset "π via BASIC" begin
+        status, body = _recognise_constant(
+            "3.14159265358979323846264338327950288419716939937510582097494459230781640628620899862803482534211706")
+        @test status == 200 && body[:recognized] == true
+        @test String(body[:name]) == "pi"
+    end
+
+    @testset "e via BASIC" begin
+        status, body = _recognise_constant(
+            "2.71828182845904523536028747135266249775724709369995957496696762772407663035354759457138217852516642")
+        @test body[:recognized] == true
+        @test String(body[:name]) == "e"
+    end
+
+    @testset "γ (Euler-Mascheroni) via BASIC" begin
+        status, body = _recognise_constant(
+            "0.57721566490153286060651209008240243104215933593992359880576723488486772677766467093694706329174674")
+        @test body[:recognized] == true
+        @test String(body[:name]) == "gamma"
+    end
+
+    @testset "π² via BASIC (direct basis element)" begin
+        status, body = _recognise_constant(
+            "9.86960440108935861883449099987615113531369940724079062641334937622004482241920524300177340371855224")
+        @test body[:recognized] == true
+        @test String(body[:name]) == "pi^2"
+    end
+
+    @testset "Catalan via PHYSICS basis" begin
+        status, body = _recognise_constant(
+            "0.91596559417721901505460351493238411077414937428167213426649811962176301977625476947935651292611510",
+            "PHYSICS")
+        @test body[:recognized] == true
+        @test String(body[:name]) == "catalan"
+        @test String(body[:basis_used]) == "PHYSICS"
+    end
+
+    @testset "Catalan via BASIC (NOT in basis) returns no_match" begin
+        # Catalan isn't in BASIC, so PSLQ should find no clean relation.
+        status, body = _recognise_constant(
+            "0.91596559417721901505460351493238411077414937428167213426649811962176301977625476947935651292611510",
+            "BASIC")
+        @test body[:recognized] == false
+    end
+
+    @testset "Random transcendental returns no_match" begin
+        # Made-up digits — no chance this fits an integer relation in
+        # the BASIC basis. Negative-result correctness is critical
+        # because a false positive would hallucinate a citation.
+        status, body = _recognise_constant(
+            "0.78901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234")
+        @test body[:recognized] == false
+    end
+end
+
+@testset "/recognise/constant input validation (phase-26 §26.2)" begin
+    # Missing value
+    status, body = _recognise_constant("")
+    @test status == 400
+    @test body[:ok] == false
+
+    # Unknown basis
+    status, body = _recognise_constant("3.14159", "MYSTERY_BASIS")
+    @test status == 400
+    @test body[:ok] == false
+
+    # Safety reject: non-decimal string can't reach mpmath
+    status, body = _recognise_constant("__import__('os').system('rm')")
+    @test status == 400
+    @test body[:ok] == false
+    @test String(body[:error]) == "safety_reject"
+
+    # Exponent notation is permitted
+    status, body = _recognise_constant("3.14159265358979e0")
+    @test status == 200
+    @test body[:ok] == true
+    # (Whether it recognises as π depends on the digit count — just
+    # confirming the safety filter didn't reject the input.)
+end
+
+@testset "estimate_input_precision (phase-26 §26.2)" begin
+    # Helper directly — verifies the tolerance heuristic.
+    @test JuliaMathSidecar.estimate_input_precision("3.14159") == 6
+    @test JuliaMathSidecar.estimate_input_precision("3.14159e0") == 6
+    @test JuliaMathSidecar.estimate_input_precision("0.5") == 1
+    @test JuliaMathSidecar.estimate_input_precision("100") == 3
+    @test JuliaMathSidecar.estimate_input_precision("0.0001") == 4
+    @test JuliaMathSidecar.estimate_input_precision("-1.234") == 4
+    # 99-digit value used in the classical-constants tests
+    big = "1.20205690315959428539973816151144999076498629234049888179227155534183820578631309018645587360933525"
+    @test JuliaMathSidecar.estimate_input_precision(big) == 99
+end
+
 @testset "parallel equation_search safety (Lever 2 prep, phase-24 §24.6)" begin
     if Threads.nthreads() < 2
         @test_skip "needs --threads >= 2 to actually parallelise"

@@ -1894,3 +1894,284 @@ function handle_recognise_sequence(req::HTTP.Request)
         "transform_chain" => transform,
     ))
 end
+
+# ---------------------------------------------------------------------
+# /recognise/constant — PSLQ integer-relation search (phase-26 §26.1)
+# ---------------------------------------------------------------------
+#
+# Body: `{"value": "<decimal string>", "precisionDigits": 200,
+#         "basis": "BASIC"|"PHYSICS"|"COMBINATORIAL",
+#         "timeoutMs": optional}`
+# Response on a hit:
+#   {"ok": true, "recognized": true,
+#    "name": "ζ(3)",
+#    "relation": [[a0, "<target>"], [a1, "1"], [a2, "π"], ...],
+#    "basis_used": "BASIC", "precision_used": 200, "elapsed_ms": N}
+# Response on no match:
+#   {"ok": true, "recognized": false, "basis_used": "BASIC",
+#    "precision_used": 200, "elapsed_ms": N}
+#
+# Backed by PyCall→mpmath.pslq at the requested precision. The named
+# basis sets cover the constants the v1 caller is most likely to
+# rediscover (physics ζ-functions + transcendentals; combinatorics
+# constants are a deferred basis). A successful relation
+# `[a0, a1, ..., an]` means `a0*value + a1*basis[1] + ... + an*basis[n] ≈ 0`;
+# the response renders this as a clean expression when the relation is
+# small (|coefficient| ≤ MAX_PSLQ_COEFF), else returns recognized=false
+# even when pslq found something (noisy relations aren't useful).
+#
+# Safety: caller-supplied `value` string is validated as a numeric
+# literal via regex before being handed to mpmath; the parser is
+# never reached with arbitrary Python. The basis names are picked
+# from a closed allowlist; the caller can NOT specify a custom basis.
+
+const PSLQ_DEFAULT_PRECISION = 200
+const PSLQ_MIN_PRECISION     = 30   # below this PSLQ can't disambiguate
+const PSLQ_MAX_PRECISION     = 500  # above this mpmath gets slow
+const PSLQ_MAX_VALUE_LEN     = 1024
+const MAX_PSLQ_COEFF         = 100  # reject "noisy" multi-coefficient relations
+
+# Allowlist of mpmath expressions per named basis. Kept as `(name,
+# mpmath-expr-string)` so the response can render the relation with
+# human-readable names. The mpmath-expr strings are evaluated through
+# a small switch in `build_basis_value` — never via Python eval, so
+# this list IS the universe of recognisable elementary constants.
+const PSLQ_BASES = Dict{String, Vector{Tuple{String,String}}}(
+    "BASIC" => [
+        ("1",       "mpf(1)"),
+        ("pi",      "pi"),
+        ("pi^2",    "pi**2"),
+        ("e",       "e"),
+        ("ln(2)",   "ln(2)"),
+        ("ln(3)",   "ln(3)"),
+        ("gamma",   "euler"),
+        ("zeta(3)", "apery"),
+    ],
+    "PHYSICS" => [
+        # BASIC entries duplicated explicitly — PSLQ needs the literal
+        # basis indices stable across the list.
+        ("1",          "mpf(1)"),
+        ("pi",         "pi"),
+        ("pi^2",       "pi**2"),
+        ("e",          "e"),
+        ("ln(2)",      "ln(2)"),
+        ("ln(3)",      "ln(3)"),
+        ("gamma",      "euler"),
+        ("zeta(3)",    "apery"),
+        ("zeta(2)",    "zeta(2)"),
+        ("zeta(5)",    "zeta(5)"),
+        ("catalan",    "catalan"),
+        ("phi",        "phi"),
+    ],
+)
+
+const PSLQ_VALUE_PATTERN = r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$"
+
+"""
+    estimate_input_precision(value_str) -> Int
+
+Count the significant digits the caller actually supplied in
+`value_str`. PSLQ's tolerance must match the input's noise floor —
+a 200-digit working precision against a 30-digit input value
+produces relations the tolerance check rejects because the residual
+sits at ~1e-30 while tol is 1e-100. Returns the number of digits
+after stripping sign, leading int-zeros, and the exponent.
+"""
+function estimate_input_precision(value_str::AbstractString)::Int
+    m = match(r"^-?(\d+)(?:\.(\d+))?(?:[eE][+-]?\d+)?$", value_str)
+    m === nothing && return 15  # fallback to double-precision-ish
+    int_part = m.captures[1] === nothing ? "" : String(m.captures[1])
+    frac_part = m.captures[2] === nothing ? "" : String(m.captures[2])
+    # Strip leading zeros from the int part — they're not significant.
+    int_stripped = lstrip(int_part, '0')
+    return length(int_stripped) + length(frac_part)
+end
+
+function build_basis_value(mp, expr::AbstractString)
+    # Hand-coded dispatch over the allowlisted mpmath expressions —
+    # we never let the caller's basis string reach Python's eval.
+    if expr == "mpf(1)"; return mp.mpf(1)
+    elseif expr == "pi"; return mp.pi
+    elseif expr == "pi**2"; return mp.pi^2
+    elseif expr == "e"; return mp.e
+    elseif expr == "ln(2)"; return mp.ln(2)
+    elseif expr == "ln(3)"; return mp.ln(3)
+    elseif expr == "euler"; return mp.euler
+    elseif expr == "apery"; return mp.apery
+    elseif expr == "zeta(2)"; return mp.zeta(2)
+    elseif expr == "zeta(5)"; return mp.zeta(5)
+    elseif expr == "catalan"; return mp.catalan
+    elseif expr == "phi"; return mp.phi
+    else
+        error("Unsupported basis expression: $expr (programmer error — " *
+              "an entry in PSLQ_BASES has no matching dispatch arm)")
+    end
+end
+
+"""
+    render_pslq_relation(relation, basis_names) -> String
+
+Build a human-readable expression for the recognised value from a
+PSLQ integer relation `[a0, a1, ..., an]` against basis names. The
+relation means `a0*x + sum(ai*basis[i]) ≈ 0`, so `x = -sum/a0`.
+
+Single-term, a0=±1, a_i=±1 cases produce the cleanest output:
+"π", "-ζ(3)", "1/π" (when a0=1, a_i=π_idx with coef 1). Multi-term
+relations render as the full integer linear combination. Returns a
+short string suitable for direct citation by the narration layer.
+"""
+function render_pslq_relation(relation::Vector{Int}, basis_names::Vector{String})::String
+    a0 = relation[1]
+    nonzero = [(i, c) for (i, c) in enumerate(relation[2:end]) if c != 0]
+    if isempty(nonzero)
+        return "0"  # degenerate; caller should treat as no_match
+    end
+    # Build numerator string: -sum(a_i * name_i)
+    parts = String[]
+    for (i, c) in nonzero
+        name = basis_names[i]
+        neg_c = -c  # because x = -sum/a0
+        sign = neg_c < 0 ? "-" : (isempty(parts) ? "" : "+")
+        mag = abs(neg_c)
+        term = if mag == 1
+            "$(sign)$(name)"
+        else
+            "$(sign)$(mag)*$(name)"
+        end
+        push!(parts, term)
+    end
+    numerator = join(parts, " ")
+    # Trim a leading "+ " noise
+    numerator = lstrip(numerator, ['+', ' '])
+    if abs(a0) == 1
+        return a0 == 1 ? numerator : "-($(numerator))"
+    end
+    return "($(numerator)) / $(a0)"
+end
+
+function handle_recognise_constant(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_constant", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    value_str = String(get(body, :value, ""))
+    if isempty(value_str)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_constant", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'value' is required (decimal-string form)", elapsed_ms)
+    end
+    if length(value_str) > PSLQ_MAX_VALUE_LEN
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_constant", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'value' exceeds $(PSLQ_MAX_VALUE_LEN)-char cap", elapsed_ms)
+    end
+    if !occursin(PSLQ_VALUE_PATTERN, value_str)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_constant", elapsed_ms, :safety_reject)
+        return error_response("safety_reject",
+            "Field 'value' must be a plain decimal string " *
+            "(matching $(PSLQ_VALUE_PATTERN))", elapsed_ms)
+    end
+
+    basis_name = String(get(body, :basis, "BASIC"))
+    if !haskey(PSLQ_BASES, basis_name)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_constant", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Unknown basis '$(basis_name)'; must be one of " *
+            join(sort(collect(keys(PSLQ_BASES))), ", "),
+            elapsed_ms)
+    end
+
+    precision_raw = get(body, :precisionDigits, PSLQ_DEFAULT_PRECISION)
+    precision = if precision_raw isa Integer && precision_raw > 0
+        clamp(Int(precision_raw), PSLQ_MIN_PRECISION, PSLQ_MAX_PRECISION)
+    else
+        PSLQ_DEFAULT_PRECISION
+    end
+
+    # PyCall + Threads.@spawn don't compose (same caveat as /prove_identity);
+    # run synchronously on the request thread.
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        mpmath = pyimport("mpmath")
+        mpmath.mp.dps = precision
+
+        # Build basis: [target, b1, b2, ..., bn]
+        target = mpmath.mpf(value_str)
+        basis_specs = PSLQ_BASES[basis_name]
+        basis_values = [build_basis_value(mpmath, spec) for (_, spec) in basis_specs]
+        basis_names  = String[name for (name, _) in basis_specs]
+        pslq_input = vcat([target], basis_values)
+
+        # Tolerance must match the noise floor of the *input value*,
+        # not the working precision. A 200-digit working environment
+        # against a 30-digit input has residuals at ~1e-30 and a tol
+        # of 1e-100 would reject every legitimate relation. Take the
+        # tighter of (working precision / 2) and (input precision - 5)
+        # so heavily-truncated inputs still recognise.
+        input_precision = estimate_input_precision(value_str)
+        tol_exp = min(div(precision, 2), max(input_precision - 5, 10))
+        tol = mpmath.mpf(10)^(-tol_exp)
+        # maxcoeff bounds the search; relations beyond this aren't
+        # actionable for recognition.
+        rel_py = mpmath.pslq(pslq_input, tol=tol, maxcoeff=MAX_PSLQ_COEFF * 1000)
+
+        if rel_py === nothing
+            value = Dict{String,Any}(
+                "recognized"     => false,
+                "basis_used"     => basis_name,
+                "precision_used" => precision,
+            )
+        else
+            # Coerce to Vector{Int} — mpmath returns a Python list of
+            # ints. PyCall converts to Vector{Int64}.
+            relation = convert(Vector{Int}, rel_py)
+            # Sanity: filter out noisy relations where any coefficient
+            # exceeds the friendliness bound.
+            if any(abs(c) > MAX_PSLQ_COEFF for c in relation)
+                value = Dict{String,Any}(
+                    "recognized"     => false,
+                    "basis_used"     => basis_name,
+                    "precision_used" => precision,
+                    "_pslq_returned" => "relation rejected as noisy " *
+                                       "(max |coeff| > $(MAX_PSLQ_COEFF))",
+                )
+            else
+                rendered = render_pslq_relation(relation, basis_names)
+                # Build the relation-as-pairs for the audit field.
+                pairs = Vector{Vector{Any}}()
+                push!(pairs, Any[relation[1], "<target>"])
+                for (i, name) in enumerate(basis_names)
+                    push!(pairs, Any[relation[i+1], name])
+                end
+                value = Dict{String,Any}(
+                    "recognized"     => true,
+                    "name"           => rendered,
+                    "relation"       => pairs,
+                    "basis_used"     => basis_name,
+                    "precision_used" => precision,
+                )
+            end
+        end
+    catch e
+        outcome = :error
+        value = "mpmath/pslq threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("recognise_constant", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("recognise_constant", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+

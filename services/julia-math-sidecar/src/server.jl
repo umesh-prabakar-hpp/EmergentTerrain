@@ -49,6 +49,9 @@ function build_router()
     # OEIS Superseeker lookup (phase-26 §26.1). JVM caller is expected to
     # maintain a Postgres cache; the sidecar only sees cache misses.
     HTTP.register!(router, "POST", "/recognise/sequence", handle_recognise_sequence)
+    # PSLQ integer-relation search (phase-26 §26.2). PyCall→mpmath at
+    # caller-configured precision against named basis sets.
+    HTTP.register!(router, "POST", "/recognise/constant", handle_recognise_constant)
     return router
 end
 
