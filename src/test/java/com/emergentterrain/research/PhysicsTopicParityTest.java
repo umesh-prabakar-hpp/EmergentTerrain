@@ -134,17 +134,87 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
+    // ── MATHEMATICS topic 1 — collatzStoppingTimes (ported §28.5b-cont) ──
+
+    @Test
+    void mathTopic1_collatz_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 1, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 1, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 1 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── MATHEMATICS topic 4 — happyNumbers (ported §28.5b-cont) ──
+
+    @Test
+    void mathTopic4_happy_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 2;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 4, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 4, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 4 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        // claimStatus is set by the outer wrapper based on
+        // maxDeviation across ALL searched windows (not just `best`),
+        // so this exercises the outer-wrapper branch on both sides.
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── MATHEMATICS topic 9+ — squarefreeDensity (default branch) ──
+
+    @Test
+    void mathTopic9_squarefreeDensity_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Topic 9 is JVM computeMath's `default` branch — anything ≥ 9
+        // routes to squarefreeDensity. Asymptotic 6/π² ≈ 0.6079.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 9, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("MATHEMATICS", 9, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 9 (default) should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
     // ── not_ported routing ────────────────────────────────────────────
 
     @Test
-    void mathTopic1_notYetPorted_returnsEmpty() {
+    void mathTopic2_notYetPorted_returnsEmpty() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // MATHEMATICS topic 1 (collatzStoppingTimes) isn't in the
-        // sidecar's physics_compute dispatch yet — Optional.empty().
+        // MATHEMATICS topic 2 (goldbachPartitions) isn't ported yet.
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("MATHEMATICS", 1, 3, 0.0, sp);
-        assertThat(side).as("MATHEMATICS topic 1 not yet ported").isEmpty();
+                liveClient().physicsTopic("MATHEMATICS", 2, 3, 0.0, sp);
+        assertThat(side).as("MATHEMATICS topic 2 not yet ported").isEmpty();
     }
 
     @Test
