@@ -149,3 +149,63 @@ function safety_reject_response(expr::AbstractString)
     end
     return nothing
 end
+
+# =====================================================================
+# PySR operator allowlist (phase-24 §24.1)
+# =====================================================================
+#
+# /pysr accepts a list of arithmetic operators that PySR's evolutionary
+# search may compose. Unlike /eval — which takes free-form Julia text
+# and needs substring rejection — /pysr never executes user-supplied
+# strings; the operators are mapped to fixed Julia functions on the
+# server side. So the only safety question is "did the caller name an
+# operator we don't know how to map?" — which is a closed-vocabulary
+# allowlist, not a denylist.
+#
+# Allowlist sized to common physics/materials laws: arithmetic, powers,
+# exp/log, sqrt, abs, trig (sin/cos). Wider sets (tanh, erf, gamma) can
+# be added when a specific paper demands it; phase-24 §"Open question 2"
+# documents the policy.
+
+const ALLOWED_PYSR_OPERATORS = Set([
+    "+", "-", "*", "/", "^",
+    "exp", "log", "sqrt", "abs", "sin", "cos",
+])
+
+"""
+    pysr_operators_check(ops) -> SafetyOk | SafetyReject
+
+Validate that every element of `ops` is a string in `ALLOWED_PYSR_OPERATORS`.
+Returns `SAFETY_OK` if all are allowed; otherwise a `SafetyReject` naming
+the first offender.
+"""
+function pysr_operators_check(ops)
+    for op in ops
+        if !(op isa AbstractString)
+            return SafetyReject(string(op),
+                "Operator entry is not a string: $(repr(op)).")
+        end
+        if !(String(op) in ALLOWED_PYSR_OPERATORS)
+            allowed = join(sort(collect(ALLOWED_PYSR_OPERATORS)), ", ")
+            return SafetyReject(String(op),
+                "Operator '$op' is not in the PySR allowlist. " *
+                "Allowed: $allowed.")
+        end
+    end
+    return SAFETY_OK
+end
+
+# Convenience: build a 400 rejection response from a pysr_operators_check.
+function pysr_operators_reject_response(ops)
+    result = pysr_operators_check(ops)
+    if result isa SafetyReject
+        body = JSON3.write(Dict(
+            "ok" => false,
+            "error" => "safety_rejected",
+            "pattern" => result.pattern,
+            "explanation" => result.explanation,
+        ))
+        return HTTP.Response(400, ["Content-Type" => "application/json"], body)
+    end
+    return nothing
+end

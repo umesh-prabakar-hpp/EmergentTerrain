@@ -19,6 +19,7 @@ Symbolics  = "0c5d862f-8b57-4792-8d23-62f2024744c7"  # symbolic algebra
 SymbolicUtils = "d1185830-fcd6-423d-90d6-eec64667417b"  # used transitively
 Roots  = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"  # numeric root finding
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"  # adaptive numerical integration
+SymbolicRegression = "8254be44-1295-4e6a-a16d-46603ac705cb"  # PySR backend (phase-24)
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"  # stdlib
 
 [extras]

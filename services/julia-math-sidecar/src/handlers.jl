@@ -30,6 +30,7 @@ using Logging
 using Symbolics
 using Roots
 using QuadGK
+using SymbolicRegression
 
 # ---------------------------------------------------------------------
 # Shared helpers
@@ -574,6 +575,319 @@ function handle_sweep(req::HTTP.Request)
             "min"  => value.min,
             "max"  => value.max,
             "n"    => value.n,
+        ))
+    end
+end
+
+# ---------------------------------------------------------------------
+# /pysr — symbolic regression via SymbolicRegression.jl  (phase-24 §24.1)
+# ---------------------------------------------------------------------
+#
+# Body:
+#   {
+#     "samples":          [[x1, y1, …, target1], …],   <= 256 rows
+#     "varNames":         ["x", "y", …],                 <= 6 names
+#     "targetName":       "f",
+#     "operators":        ["+","-","*","/","^","exp","log",…]?,
+#     "populations":      8?,
+#     "iterations":       40?,
+#     "complexityCeiling": 30?,
+#     "seed":             <int>?,
+#     "timeoutMs":        20000?
+#   }
+#
+# Response (success):
+#   {
+#     "ok": true,
+#     "pareto": [
+#       {"expr": "<julia expr>", "mse": <f64>, "complexity": <int>},
+#       …
+#     ],
+#     "evaluated": <int>,
+#     "elapsed_ms": <int>
+#   }
+#
+# Why a separate endpoint
+# -----------------------
+# /eval and /sweep evaluate a known expression. /pysr searches *for* an
+# expression that fits supplied data — fundamentally a different shape.
+# SymbolicRegression.jl is a heavy dep (~150 MB compiled state), so the
+# import lives at the top of this file but the search is gated behind
+# this endpoint only.
+#
+# Concurrency
+# -----------
+# SymbolicRegression.jl shares mutable per-population state internally
+# and is not safe to invoke from two HTTP handler threads at once. The
+# `PYSR_LOCK` reentrant lock serialises calls; a second concurrent
+# /pysr call blocks up to `queueMs` (clamped against the per-call
+# timeout) before returning `busy`. The Java client surfaces `busy`
+# as a typed exception so the LLM tool loop can retry or move on.
+
+# Default per-call params for /pysr. Sized for a 20-second wall-clock
+# budget — enough to recover laws like F = G m1 m2 / r² but not enough
+# to chase arbitrary high-complexity fits. The Java side overrides
+# these via the request body when needed.
+const DEFAULT_PYSR_TIMEOUT_MS    = 20_000
+const DEFAULT_PYSR_POPULATIONS   = 8
+const DEFAULT_PYSR_ITERATIONS    = 40
+const DEFAULT_PYSR_MAX_COMPLEXITY = 30
+const MAX_PYSR_SAMPLES = 256
+const MAX_PYSR_VARS    = 6
+const MAX_PYSR_QUEUE_MS = 5_000   # how long a second call waits behind the lock
+
+const PYSR_LOCK = ReentrantLock()
+
+# Map operator strings (validated by the safety allowlist) to the actual
+# Julia callables SymbolicRegression.Options expects. Kept in lockstep
+# with `ALLOWED_PYSR_OPERATORS` — adding a new operator means an entry
+# both there and in one of these tables.
+const PYSR_BINARY_OPS = Dict(
+    "+" => (+),
+    "-" => (-),
+    "*" => (*),
+    "/" => (/),
+    "^" => (^),
+)
+const PYSR_UNARY_OPS = Dict(
+    "exp"  => exp,
+    "log"  => log,
+    "sqrt" => sqrt,
+    "abs"  => abs,
+    "sin"  => sin,
+    "cos"  => cos,
+)
+
+# Split an operator list into (binary_ops, unary_ops). Assumes the list
+# has already passed `pysr_operators_check` so every entry is known.
+function split_pysr_operators(ops_strs)
+    binary = Function[]
+    unary  = Function[]
+    for op in ops_strs
+        s = String(op)
+        if haskey(PYSR_BINARY_OPS, s)
+            push!(binary, PYSR_BINARY_OPS[s])
+        elseif haskey(PYSR_UNARY_OPS, s)
+            push!(unary, PYSR_UNARY_OPS[s])
+        end
+    end
+    return binary, unary
+end
+
+# Default operator list when the client omits the field. Covers most
+# physics/materials laws.
+const DEFAULT_PYSR_OPS = ["+", "-", "*", "/", "^", "exp", "log"]
+
+# Coerce a single JSON sample row into a Vector{Float64}. Returns
+# nothing on type error so the caller can produce a bad_request.
+function coerce_pysr_row(row)
+    if !(row isa AbstractArray)
+        return nothing
+    end
+    out = Vector{Float64}(undef, length(row))
+    for (i, v) in enumerate(row)
+        if v isa Number
+            out[i] = Float64(v)
+        else
+            return nothing
+        end
+    end
+    return out
+end
+
+function handle_pysr(req::HTTP.Request)
+    t0 = time_ns()
+
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    # --- 1. Required fields + shape checks ---------------------------
+    samples_raw  = get(body, :samples,    nothing)
+    var_names    = get(body, :varNames,   nothing)
+    target_name  = get(body, :targetName, "y")
+    if samples_raw === nothing || !(samples_raw isa AbstractArray) || isempty(samples_raw)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Missing required field 'samples' (non-empty array of rows)",
+            elapsed_ms)
+    end
+    if var_names === nothing || !(var_names isa AbstractArray) || isempty(var_names)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Missing required field 'varNames' (non-empty array of strings)",
+            elapsed_ms)
+    end
+    if length(samples_raw) > MAX_PYSR_SAMPLES
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'samples' exceeds cap of $(MAX_PYSR_SAMPLES) rows " *
+            "(downsample on the client side)",
+            elapsed_ms)
+    end
+    if length(var_names) > MAX_PYSR_VARS
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'varNames' exceeds cap of $(MAX_PYSR_VARS) variables",
+            elapsed_ms)
+    end
+
+    # Variable names must be plain identifiers — they get baked into
+    # the printed expressions.
+    var_names_str = String[]
+    for v in var_names
+        s = String(v)
+        if !occursin(r"^[A-Za-z_][A-Za-z0-9_]*$", s)
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("pysr", elapsed_ms, :error)
+            return error_response("bad_request",
+                "Variable name '$s' must match [A-Za-z_][A-Za-z0-9_]*",
+                elapsed_ms)
+        end
+        push!(var_names_str, s)
+    end
+
+    nvars = length(var_names_str)
+    expected_cols = nvars + 1   # vars … target
+
+    # --- 2. Coerce samples to a P×N matrix (P=vars, N=rows) ----------
+    # SymbolicRegression.jl wants `X::AbstractMatrix` where each column
+    # is a sample; we receive row-per-sample JSON so we transpose.
+    n_rows = length(samples_raw)
+    X = Matrix{Float64}(undef, nvars, n_rows)
+    y = Vector{Float64}(undef, n_rows)
+    for (i, row) in enumerate(samples_raw)
+        coerced = coerce_pysr_row(row)
+        if coerced === nothing || length(coerced) != expected_cols
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("pysr", elapsed_ms, :error)
+            return error_response("bad_request",
+                "samples[$(i-1)] must be a numeric row of length $(expected_cols) " *
+                "(= length(varNames) + 1 for target)",
+                elapsed_ms)
+        end
+        for j in 1:nvars
+            X[j, i] = coerced[j]
+        end
+        y[i] = coerced[end]
+    end
+
+    # --- 3. Operators (allowlist + default) --------------------------
+    ops_strs = get(body, :operators, DEFAULT_PYSR_OPS)
+    if !(ops_strs isa AbstractArray) || isempty(ops_strs)
+        ops_strs = DEFAULT_PYSR_OPS
+    end
+    reject = pysr_operators_reject_response(ops_strs)
+    if reject !== nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("pysr", elapsed_ms, :safety_reject)
+        return reject
+    end
+    binary_ops, unary_ops = split_pysr_operators(ops_strs)
+
+    # --- 4. Search parameters ---------------------------------------
+    populations = get(body, :populations,       DEFAULT_PYSR_POPULATIONS)
+    iterations  = get(body, :iterations,        DEFAULT_PYSR_ITERATIONS)
+    max_complexity = get(body, :complexityCeiling, DEFAULT_PYSR_MAX_COMPLEXITY)
+    timeout_ms_raw = get(body, :timeoutMs,      DEFAULT_PYSR_TIMEOUT_MS)
+    timeout_ms = if timeout_ms_raw isa Integer && timeout_ms_raw > 0
+        min(timeout_ms_raw, MAX_TIMEOUT_MS)
+    else
+        DEFAULT_PYSR_TIMEOUT_MS
+    end
+
+    # Deterministic default seed (hash of samples + var names) so unit
+    # tests are repeatable without the caller supplying one.
+    seed = get(body, :seed, hash((samples_raw, var_names_str)) % typemax(UInt32))
+
+    # --- 5. Acquire the per-process lock (search is not reentrant) ---
+    # Try-lock with a budget so a stuck call can't starve the second.
+    if !trylock(PYSR_LOCK)
+        # Wait up to MAX_PYSR_QUEUE_MS for the current call to finish.
+        deadline = time_ns() + MAX_PYSR_QUEUE_MS * 1_000_000
+        got = false
+        while time_ns() < deadline
+            sleep(0.05)
+            if trylock(PYSR_LOCK)
+                got = true
+                break
+            end
+        end
+        if !got
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("pysr", elapsed_ms, :error)
+            return error_response("busy",
+                "Another /pysr call is in progress; tried for $(MAX_PYSR_QUEUE_MS)ms",
+                elapsed_ms, status=503)
+        end
+    end
+
+    # --- 6. Run the search inside timed_evaluate, releasing the lock
+    # via try/finally so even a timeout/error path clears it.
+    outcome = :error
+    value = "uninitialised"
+    try
+        outcome, value = timed_evaluate(timeout_ms) do
+            options = SymbolicRegression.Options(;
+                binary_operators = binary_ops,
+                unary_operators  = unary_ops,
+                populations      = populations,
+                maxsize          = max_complexity,
+                seed             = seed,
+                verbosity        = 0,
+            )
+            hof = SymbolicRegression.equation_search(
+                X, y;
+                niterations = iterations,
+                options     = options,
+                variable_names = var_names_str,
+                parallelism = :serial,
+            )
+            # Convert the hall-of-fame to a Pareto front sorted by
+            # complexity ascending. Each entry: (expr_string, mse, complexity).
+            #
+            # `string_tree` is the canonical printer in SymbolicRegression.jl;
+            # it honours variable_names so the LLM sees `x * y` rather than
+            # the internal `x0 * x1` positional form. Cost of the rename
+            # is one pass over the tree; trivial relative to the search.
+            members = SymbolicRegression.calculate_pareto_frontier(hof)
+            front = Vector{Dict{String,Any}}()
+            for m in members
+                expr_str = SymbolicRegression.string_tree(
+                    m.tree, options; variable_names=var_names_str)
+                push!(front, Dict(
+                    "expr"       => expr_str,
+                    "mse"        => Float64(m.loss),
+                    "complexity" => Int(SymbolicRegression.compute_complexity(m.tree, options)),
+                ))
+            end
+            sort!(front, by = e -> e["complexity"])
+            (pareto = front, evaluated = length(members))
+        end
+    finally
+        unlock(PYSR_LOCK)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+
+    if outcome === :timeout
+        record_call!("pysr", elapsed_ms, :timeout)
+        return error_response("timeout", value::String, elapsed_ms, status=408)
+    elseif outcome === :error
+        record_call!("pysr", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    else  # :ok
+        record_call!("pysr", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, Dict(
+            "pareto"    => value.pareto,
+            "evaluated" => value.evaluated,
         ))
     end
 end

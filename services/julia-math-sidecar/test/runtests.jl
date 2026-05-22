@@ -60,6 +60,23 @@ end
     end
 end
 
+@testset "pysr_operators_check allowlist (phase-24)" begin
+    @test JuliaMathSidecar.pysr_operators_check(
+        ["+", "-", "*", "/", "^", "exp", "log"]) isa JuliaMathSidecar.SafetyOk
+    @test JuliaMathSidecar.pysr_operators_check(["sin", "cos", "sqrt", "abs"]) isa
+        JuliaMathSidecar.SafetyOk
+    # Out-of-allowlist operator.
+    rejected = JuliaMathSidecar.pysr_operators_check(["+", "tanh"])
+    @test rejected isa JuliaMathSidecar.SafetyReject
+    @test rejected.pattern == "tanh"
+    # Function-name that looks math-y but is shell-y.
+    rejected2 = JuliaMathSidecar.pysr_operators_check(["+", "run"])
+    @test rejected2 isa JuliaMathSidecar.SafetyReject
+    # Non-string entry.
+    rejected3 = JuliaMathSidecar.pysr_operators_check(["+", 42])
+    @test rejected3 isa JuliaMathSidecar.SafetyReject
+end
+
 # ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------
@@ -177,6 +194,86 @@ using Sockets
         @test haskey(body, :endpoints)
         # By now we've hit /eval, /nsolve, /integrate, /sweep, /healthz at least once.
         @test body[:endpoints][:eval][:count_total] >= 1
+    end
+
+    # ─────────────────────────────────────────────────────────────────
+    # /pysr — symbolic regression (phase-24 §24.1)
+    # ─────────────────────────────────────────────────────────────────
+    #
+    # Two shape tests + one acceptance test. The acceptance test feeds
+    # a synthetic f(x, y) = x * y dataset and expects the simplest
+    # Pareto entry to recover that law. Tagged with a generous timeout
+    # because the first /pysr call also JIT-compiles SymbolicRegression.
+
+    @testset "/pysr rejects unknown operator" begin
+        r = HTTP.post("$base/pysr";
+            body = JSON3.write(Dict(
+                :samples => [[1.0, 2.0, 2.0], [2.0, 3.0, 6.0], [3.0, 4.0, 12.0]],
+                :varNames => ["x", "y"],
+                :targetName => "f",
+                :operators => ["+", "tanh"],
+            )),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+        )
+        @test r.status == 400
+        body = JSON3.read(r.body)
+        @test body[:ok] == false
+        @test body[:error] == "safety_rejected"
+        @test body[:pattern] == "tanh"
+    end
+
+    @testset "/pysr enforces shape caps" begin
+        # Row width mismatch: varNames says 2 vars, row has 4 fields.
+        r = HTTP.post("$base/pysr";
+            body = JSON3.write(Dict(
+                :samples => [[1.0, 2.0, 3.0, 4.0]],
+                :varNames => ["x", "y"],
+                :targetName => "f",
+            )),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+        )
+        @test r.status == 400
+        body = JSON3.read(r.body)
+        @test body[:ok] == false
+        @test body[:error] == "bad_request"
+    end
+
+    @testset "/pysr recovers f(x,y) = x*y from synthetic data" begin
+        # Build a small grid: x ∈ 1:6, y ∈ 1:6, target = x*y. 36 rows.
+        rows = Vector{Vector{Float64}}()
+        for x in 1:6, y in 1:6
+            push!(rows, [Float64(x), Float64(y), Float64(x*y)])
+        end
+        r = HTTP.post("$base/pysr";
+            body = JSON3.write(Dict(
+                :samples => rows,
+                :varNames => ["x", "y"],
+                :targetName => "f",
+                :operators => ["+", "-", "*"],
+                # Keep the search tiny so the test runs fast.
+                :populations => 4,
+                :iterations => 8,
+                :timeoutMs => 60_000,
+                :seed => 42,
+            )),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+            readtimeout = 120,
+        )
+        @test r.status == 200
+        body = JSON3.read(r.body)
+        @test body[:ok] == true
+        @test haskey(body, :pareto)
+        @test !isempty(body[:pareto])
+        # Pareto front must be complexity-ascending.
+        complexities = [Int(e[:complexity]) for e in body[:pareto]]
+        @test complexities == sort(complexities)
+        # At least one entry must have near-zero mse — the law x*y is
+        # reachable under the {+, -, *} operator set on this exact grid.
+        min_mse = minimum(Float64(e[:mse]) for e in body[:pareto])
+        @test min_mse < 1e-6
     end
 
     # ─────────────────────────────────────────────────────────────────

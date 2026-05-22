@@ -36,6 +36,9 @@ function build_router()
     HTTP.register!(router, "POST", "/nsolve",    handle_nsolve)
     HTTP.register!(router, "POST", "/integrate", handle_integrate)
     HTTP.register!(router, "POST", "/sweep",     handle_sweep)
+    # Symbolic regression — PySR-equivalent via SymbolicRegression.jl
+    # (phase-24 §24.1). Gated by per-call lock; one search at a time.
+    HTTP.register!(router, "POST", "/pysr",      handle_pysr)
     return router
 end
 
