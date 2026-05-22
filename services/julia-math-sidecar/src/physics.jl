@@ -9,7 +9,7 @@
 # new domain ports land cleanly:
 #
 #   physics_mathematics.jl  — MATHEMATICS (topics 0..9+, fully ported)
-#   physics_physics.jl      — PHYSICS     (topic 0 ported; 1..9+ pending)
+#   physics_physics.jl      — PHYSICS     (topics 0, 1, 2 ported; 3..9+ pending)
 #   physics_materials.jl    — MATERIALS            (TODO)
 #   physics_interdisc.jl    — INTERDISCIPLINARY    (TODO)
 #   physics_biology.jl      — BIOLOGY              (TODO)
@@ -39,7 +39,7 @@ legacy.
 Ported domains:
   MATHEMATICS — topics 0..9+ (all topics; topic 9+ routes to the
                               JVM `default` branch, squarefreeDensity)
-  PHYSICS     — topic 0 (projectileWithDrag); 1..9+ pending
+  PHYSICS     — topics 0, 1, 2 (projectile/pendulum/vanDerWaals); 3..9+ pending
 
 Pending domains (each will gain a `physics_<domain>.jl` file):
   MATERIALS, INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
