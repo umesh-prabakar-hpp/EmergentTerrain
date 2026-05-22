@@ -855,7 +855,14 @@ public class PromptTemplateRegistry {
                 Choose conservatively. The label travels through a text-heuristic floor that
                 will demote unsupported claims; you cannot earn a higher label than the paper's
                 text supports:
-                  - THEOREM            — refuse unless a Proof / Q.E.D. / ∎ structure is present.
+                  - THEOREM            — refuse unless either (a) a narrative Proof / Q.E.D. / ∎
+                                         structure is present, OR (b) the agentic tool trace
+                                         shows a successful prove_identity call (machine-certified
+                                         Gosper / Zeilberger-WZ proof with a certificate string
+                                         attached). When granting on (b), sanity-check that the
+                                         certificate string is syntactically a rational function
+                                         in the summation variables — if it isn't, downgrade and
+                                         note the discrepancy in `contradictions`.
                   - EMPIRICAL_RESULT   — refuse unless the paper articulates a mechanism AND
                                          performs an adversarial check (e.g. verify_conjecture
                                          on a held-out slice, or analogous out-of-sample test).

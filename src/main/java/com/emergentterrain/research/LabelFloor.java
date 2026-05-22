@@ -8,8 +8,16 @@ package com.emergentterrain.research;
  *
  * <p>Rules (strongest defensible label first):
  * <ul>
- *   <li>{@link EvidenceLabel#THEOREM} — paper text contains "Q.E.D.",
- *       "∎", or a "## Proof" section header.</li>
+ *   <li>{@link EvidenceLabel#THEOREM} — paper text contains
+ *       (a) "Q.E.D.", "∎", or a "## Proof" section header (the
+ *       Phase 23.6 narrative-proof markers), OR (b) a Phase 25 §25.4
+ *       machine-certified proof marker: both the literal
+ *       {@code "prove_identity"} tool name AND the bolded
+ *       {@code "**PROVED**"} verdict the tool's PROVED output emits.
+ *       The double-marker check is conservative — the LLM doesn't
+ *       routinely emit Markdown-bolded {@code **PROVED**} in prose,
+ *       so the combination is a strong signal that the tool actually
+ *       fired and returned a certificate.</li>
  *   <li>{@link EvidenceLabel#EMPIRICAL_RESULT} — paper text contains
  *       "mechanism" AND ("adversarial check" OR a {@code verify_conjecture}
  *       tool-call trace).</li>
@@ -37,7 +45,7 @@ public final class LabelFloor {
     public static EvidenceLabel maxDefensibleLabel(ResearchPaper paper) {
         if (paper == null) return EvidenceLabel.CONJECTURE;
         String corpus = corpusFor(paper);
-        if (hasProofMarker(corpus)) {
+        if (hasProofMarker(corpus) || hasMachineCertifiedProof(corpus)) {
             return EvidenceLabel.THEOREM;
         }
         if (hasMechanism(corpus) && hasAdversarialCheck(corpus)) {
@@ -82,6 +90,19 @@ public final class LabelFloor {
         return lower.contains("q.e.d.")
                 || lower.contains("∎")
                 || lower.contains("## proof");
+    }
+
+    /**
+     * Phase 25 §25.4 — detect the marker pair emitted by
+     * {@code MathToolSuite.proveIdentity()} on a successful SymPy
+     * Gosper/WZ proof. Both markers must be present so the floor
+     * doesn't admit prose that loosely says "proved" without the
+     * tool actually firing. The corpus is already lowercased by
+     * {@link #corpusFor}, hence the lowercase form of the bold
+     * verdict here.
+     */
+    private static boolean hasMachineCertifiedProof(String lower) {
+        return lower.contains("prove_identity") && lower.contains("**proved**");
     }
 
     private static boolean hasMechanism(String lower) {

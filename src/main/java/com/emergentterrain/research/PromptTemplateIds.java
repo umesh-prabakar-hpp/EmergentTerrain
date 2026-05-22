@@ -73,7 +73,7 @@ public final class PromptTemplateIds {
      * fans this out to N providers in parallel.
      */
     public static final String NARRATION_PANEL_REVIEW_ID      = "narration.panel_review";
-    public static final String NARRATION_PANEL_REVIEW_VERSION = "v2-with-evidence-label";
+    public static final String NARRATION_PANEL_REVIEW_VERSION = "v3-with-machine-certified-proofs";
 
     // --- Formulation pipeline (com.emergentterrain.service.FormulationService) ---
 

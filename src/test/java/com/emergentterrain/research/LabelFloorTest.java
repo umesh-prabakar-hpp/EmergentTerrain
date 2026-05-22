@@ -68,6 +68,61 @@ class LabelFloorTest {
         assertEquals(EvidenceLabel.THEOREM, LabelFloor.maxDefensibleLabel(p));
     }
 
+    // ── Phase 25 §25.4 — machine-certified proof marker ──────────────
+
+    @Test
+    void proveIdentityProvedMarkerReachesTheorem() {
+        // Exact shape of the MathToolSuite.proveIdentity dispatcher's
+        // PROVED output: "prove_identity:" prefix + "**PROVED**" verdict.
+        // Both markers present → THEOREM eligible.
+        ResearchPaper p = paper(
+                "Hypothesis: Σ binomial(n,k) for k from 0 to n equals 2^n.",
+                "Tool calls: prove_identity: Σ binomial(n, k) for k from 0 to n. " +
+                        "**PROVED** via zeilberger_wz. " +
+                        "Closed form: `2**n`. Certificate: `sympy.simplify(...)`.",
+                "Identity is machine-proven.");
+        assertEquals(EvidenceLabel.THEOREM, LabelFloor.maxDefensibleLabel(p));
+    }
+
+    @Test
+    void proveIdentityProvedAlsoUnblocksDemote() {
+        // Demote path: a panel that proposes THEOREM on a paper with the
+        // machine-cert marker should be allowed to keep it.
+        ResearchPaper p = paper(
+                "Hypothesis: Σ k from 0 to n = n(n+1)/2.",
+                "prove_identity: ... **PROVED** via gosper. " +
+                        "Certificate: `k*(k - 1)/2`.",
+                "Proven.");
+        assertEquals(EvidenceLabel.THEOREM,
+                LabelFloor.demote(EvidenceLabel.THEOREM, p));
+    }
+
+    @Test
+    void bareProvedWordWithoutToolNameStaysAtConjecture() {
+        // Prose that says "I proved this" but doesn't carry the tool
+        // trace must NOT earn THEOREM. The marker pair is conservative
+        // by design — single-marker prose triggers no upgrade.
+        ResearchPaper p = paper(
+                "Hypothesis: Σ k from 0 to n = n(n+1)/2.",
+                "**PROVED** by hand using induction.",  // marker without prove_identity
+                "Done.");
+        assertEquals(EvidenceLabel.CONJECTURE, LabelFloor.maxDefensibleLabel(p));
+    }
+
+    @Test
+    void prove_identityMentionWithoutProvedVerdictStaysBelow() {
+        // The tool was called but returned no_closed_form (or wasn't
+        // PROVED). The dispatcher's output for no_closed_form contains
+        // "prove_identity" but NOT "**PROVED**" — floor must keep
+        // CONJECTURE.
+        ResearchPaper p = paper(
+                "Hypothesis: Σ 1/k^2 for k from 1 to n.",
+                "prove_identity returned **no_closed_form**. " +
+                        "Sympy could not reduce this sum.",
+                "Claim remains a conjecture.");
+        assertEquals(EvidenceLabel.CONJECTURE, LabelFloor.maxDefensibleLabel(p));
+    }
+
     @Test
     void demoteCapsProposedAtCeiling() {
         ResearchPaper bare = paper("h", "f", "c");
