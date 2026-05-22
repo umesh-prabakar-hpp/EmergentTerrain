@@ -58,6 +58,18 @@ public class ResearchNarrationService {
      * treats null as "no hint" and renders the slot empty.
      */
     private final com.emergentterrain.llm.JuliaMathClient juliaMathClient;
+    /**
+     * Phase 26 §26.4 — optional constant-recognition orchestrator.
+     * Stored for future use by the §26.5 conjecture-miner integration
+     * and a planned {@code maybeRefineComputation} hook that emits
+     * {@code cite-recognised:*} handles in prose. v1 stores the
+     * reference but doesn't call recognise() — the narration side of
+     * the integration deserves its own product review before changing
+     * paper output.
+     */
+    @SuppressWarnings("unused")
+    private final com.emergentterrain.research.recognise.ConstantRecognitionService
+            constantRecognitionService;
     private final PromptTemplateRegistry promptRegistry;
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore narrationSlot;
@@ -324,6 +336,17 @@ public class ResearchNarrationService {
             // omits prove_identity from the tool schema.
             @org.springframework.beans.factory.annotation.Autowired(required = false)
             com.emergentterrain.llm.SympyIdentityClient sympyIdentityClient,
+            // Phase 26 §26.4 — optional constant-recognition orchestrator
+            // (OEIS + PSLQ + LLL). When null OR
+            // app.julia.recognise.enabled is false, no recognise() calls
+            // fire; narration prints naked decimals. The narration-side
+            // hook that actually invokes recognise() lands in a later
+            // slice (§26.5 conjecture-miner integration or a follow-on)
+            // because emitting cite-recognised:* handles changes paper
+            // output and deserves its own product review.
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.emergentterrain.research.recognise.ConstantRecognitionService
+                    constantRecognitionService,
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
             boolean literatureSearchEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
@@ -348,6 +371,7 @@ public class ResearchNarrationService {
                 sympyIdentityClient);
         this.objectMapper              = objectMapper;
         this.juliaMathClient           = juliaMathClient;
+        this.constantRecognitionService = constantRecognitionService;
         this.promptRegistry            = promptRegistry;
         this.literatureSearch          = literatureSearch;
         this.literatureSearchEnabled   = literatureSearchEnabled;
