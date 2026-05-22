@@ -10,7 +10,7 @@
 #
 #   physics_mathematics.jl  — MATHEMATICS (topics 0..9+, fully ported)
 #   physics_physics.jl      — PHYSICS     (topics 0..9+, fully ported)
-#   physics_materials.jl    — MATERIALS            (TODO)
+#   physics_materials.jl    — MATERIALS   (topics 0..9+, fully ported)
 #   physics_interdisc.jl    — INTERDISCIPLINARY    (TODO)
 #   physics_biology.jl      — BIOLOGY              (TODO)
 #   physics_chemistry.jl    — CHEMISTRY            (TODO)
@@ -41,9 +41,11 @@ Ported domains:
                               JVM `default` branch, squarefreeDensity)
   PHYSICS     — topics 0..9+ (all topics; topic 9+ routes to the
                               JVM `default` branch, stefanBoltzmann)
+  MATERIALS   — topics 0..9+ (all topics; topic 9+ routes to the
+                              JVM `default` branch, youngLaplaceCapillary)
 
 Pending domains (each will gain a `physics_<domain>.jl` file):
-  MATERIALS, INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
+  INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
   ARCHITECTURE_TERRESTRIAL, ARCHITECTURE_LIQUID, ARCHITECTURE_SPACE.
 """
 function physics_compute(domain::String, topic_idx::Integer,
@@ -53,6 +55,8 @@ function physics_compute(domain::String, topic_idx::Integer,
         return physics_compute_mathematics(topic_idx, param1, param2, sp)
     elseif domain == "PHYSICS"
         return physics_compute_physics(topic_idx, param1, param2, sp)
+    elseif domain == "MATERIALS"
+        return physics_compute_materials(topic_idx, param1, param2, sp)
     end
     # Not ported. JVM caller falls back to in-process MathPhysicsEngine.
     return nothing
