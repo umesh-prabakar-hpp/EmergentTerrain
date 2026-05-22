@@ -117,6 +117,39 @@ public class ResearchCycleService {
     }
 
     /**
+     * Phase 28 §28.5 — optional sidecar shadow-read wrapper. When Spring
+     * resolves a {@link MathPhysicsEngineDelegate} bean (which it does
+     * once the @Service is on the classpath — i.e. always in production),
+     * the cycle routes compute calls through the delegate. The delegate
+     * is dormant by default — {@code app.julia.physics.topic.enabled=false}
+     * — so the in-process behaviour is unchanged. Flipping the flag
+     * activates the shadow-read parity check. Tests that construct
+     * ResearchCycleService directly leave this null; the call sites
+     * gracefully fall back to {@link MathPhysicsEngine#compute} when so.
+     */
+    private volatile MathPhysicsEngineDelegate physicsEngineDelegate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPhysicsEngineDelegate(MathPhysicsEngineDelegate delegate) {
+        this.physicsEngineDelegate = delegate;
+    }
+
+    /**
+     * Centralised dispatch for the two MathPhysicsEngine.compute call
+     * sites in this class — uses the delegate when wired, else the
+     * static path. Inline by hand at each call site would duplicate
+     * the null check; one helper keeps the dispatch policy in one place.
+     */
+    private MathPhysicsEngine.ResearchResult dispatchCompute(String domain, int topicIndex,
+                                                              int param1, double param2,
+                                                              MathPhysicsEngine.SearchParams sp) {
+        MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
+        return delegate != null
+                ? delegate.compute(domain, topicIndex, param1, param2, sp)
+                : MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+    }
+
+    /**
      * Phase 7 F3 — when true, the topic-selection step uses uniform random over
      * every registered topic for the bot's domain (current 5 per main domain
      * plus the F3 additions) rather than the bot's weighted genome over the
@@ -283,7 +316,7 @@ public class ResearchCycleService {
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
                 author.getState().getGenome(), popParams.educationFactor());
-        MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+        MathPhysicsEngine.ResearchResult result = dispatchCompute(domain, topicIndex, param1, param2, sp);
 
         boolean authorError         = rng.nextDouble() < author.errorRate();
         double  reportedReviewValue = authorError
@@ -319,7 +352,7 @@ public class ResearchCycleService {
                 boolean    reviewerError = rng.nextDouble() < reviewer.errorRate();
 
                 MathPhysicsEngine.ResearchResult reviewResult =
-                        MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+                        dispatchCompute(domain, topicIndex, param1, param2, sp);
                 double reviewValue = reviewerError
                         ? reviewResult.reviewValue() * (1 + (rng.nextDouble() - 0.5) * 0.15)
                         : reviewResult.reviewValue();
