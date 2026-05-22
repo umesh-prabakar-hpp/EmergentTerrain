@@ -104,6 +104,16 @@ public class JuliaMathClient {
     private final int  pysrIterations;
     private final int  pysrComplexityCeiling;
 
+    // ── Phase 28 §28.1 — conjecture-substrate consolidation flag.
+    // Independent of the main `enabled` flag so the operator can keep
+    // /eval and /sweep on while toggling the substrate-port endpoints
+    // off (or vice versa). When false, isConjectureAvailable() returns
+    // false; callers (added in §28.2+) take the legacy in-process
+    // MathConjectureSubstrate path. §28.1 ships the endpoint + this
+    // flag without migrating any caller — that's §28.2.
+    private final boolean conjectureEnabled;
+    private final long    conjectureTimeoutMs;
+
     /**
      * Runtime reachability. Set true after a successful /healthz probe.
      * Set false on any /healthz failure OR on the first transport
@@ -160,6 +170,27 @@ public class JuliaMathClient {
              /*pysrPopulations*/ 8,
              /*pysrIterations*/ 40,
              /*pysrComplexityCeiling*/ 30,
+             /*conjectureEnabled*/ false,
+             /*conjectureTimeoutMs*/ 5_000L,
+             mapper);
+    }
+
+    /**
+     * Back-compat overload that exposes pysr config but pre-dates the
+     * phase-28 conjecture flag. Used by tests that opt in to pysr but
+     * don't need conjecture wiring.
+     */
+    public JuliaMathClient(boolean enabled, String baseUrl, long timeoutMs,
+                            long healthProbeTimeoutMs,
+                            boolean pysrEnabled, long pysrTimeoutMs,
+                            int pysrPopulations, int pysrIterations,
+                            int pysrComplexityCeiling,
+                            ObjectMapper mapper) {
+        this(enabled, baseUrl, timeoutMs, healthProbeTimeoutMs,
+             pysrEnabled, pysrTimeoutMs, pysrPopulations, pysrIterations,
+             pysrComplexityCeiling,
+             /*conjectureEnabled*/ false,
+             /*conjectureTimeoutMs*/ 5_000L,
              mapper);
     }
 
@@ -174,6 +205,8 @@ public class JuliaMathClient {
             @Value("${app.julia.pysr.populations:8}") int pysrPopulations,
             @Value("${app.julia.pysr.iterations:40}") int pysrIterations,
             @Value("${app.julia.pysr.complexityCeiling:30}") int pysrComplexityCeiling,
+            @Value("${app.julia.conjecture.enabled:false}") boolean conjectureEnabled,
+            @Value("${app.julia.conjecture.timeoutMs:5000}") long conjectureTimeoutMs,
             ObjectMapper mapper) {
         this.enabled = enabled;
         // Strip trailing slash so the URL-building below doesn't double-slash.
@@ -187,6 +220,8 @@ public class JuliaMathClient {
         this.pysrPopulations = pysrPopulations;
         this.pysrIterations = pysrIterations;
         this.pysrComplexityCeiling = pysrComplexityCeiling;
+        this.conjectureEnabled = conjectureEnabled;
+        this.conjectureTimeoutMs = conjectureTimeoutMs;
         this.mapper = mapper;
         // 5-second connect timeout: if we can't even open a TCP socket
         // to the sidecar in 5s, assume it's down and let isAvailable()
@@ -322,6 +357,23 @@ public class JuliaMathClient {
     /** Whether the pysr-specific flag is on (independent of reachability). */
     public boolean isPysrEnabled() {
         return pysrEnabled;
+    }
+
+    /**
+     * Phase 28 §28.1 — true iff the main Julia path is available AND
+     * the conjecture-specific flag is on. Callers in §28.2+ branch on
+     * this to choose between the sidecar endpoint and the legacy
+     * in-process `MathConjectureSubstrate`. As of §28.1, no caller
+     * branches on it yet — the flag exists so wiring can land in the
+     * next sub-phase without re-touching this file.
+     */
+    public boolean isConjectureAvailable() {
+        return isAvailable() && conjectureEnabled;
+    }
+
+    /** Whether the conjecture-specific flag is on (independent of reachability). */
+    public boolean isConjectureEnabled() {
+        return conjectureEnabled;
     }
 
     // ── Endpoint methods ─────────────────────────────────────────────
@@ -548,6 +600,61 @@ public class JuliaMathClient {
         return new PysrResult(
                 java.util.List.copyOf(entries),
                 resp.path("evaluated").asInt(0),
+                resp.path("elapsed_ms").asLong(0));
+    }
+
+    /**
+     * Phase 28 §28.1 — POST /numbertheory/window — per-window scalar
+     * aggregate over integers in {@code [start, start+size)}. Port of
+     * {@code MathConjectureSubstrate.evaluateWindow}.
+     *
+     * <p>The sidecar builds an SPF sieve lazily on first call and
+     * shares it across subsequent calls (one ~50ms build per JVM run,
+     * sub-ms per call after).
+     *
+     * <p>Returns a {@link NumberTheoryWindow} carrying an ordered
+     * {@link java.util.LinkedHashMap} of scalar name → value. Key
+     * ordering matches the JVM legacy implementation exactly so the
+     * §28.2 parity test can compare by sequence rather than by set.
+     *
+     * <p>This method does <strong>not</strong> consult the
+     * {@link #isConjectureAvailable()} flag — that's the caller's
+     * responsibility. We always honour the call when the main Julia
+     * path is reachable; the flag governs whether <em>application
+     * code</em> chooses to make the call.
+     *
+     * @param start window start (inclusive); must be ≥ 0.
+     * @param size  window size; must be &gt; 0.
+     * @throws JuliaMathException on transport, sidecar error
+     *         (`bad_request`, `eval_error`, `timeout`), or
+     *         protocol-level errors. Also thrown when the main Julia
+     *         path is disabled (`not_enabled`).
+     */
+    public NumberTheoryWindow numberTheoryWindow(int start, int size) {
+        if (start < 0) {
+            throw new IllegalArgumentException("start must be >= 0; got " + start);
+        }
+        if (size <= 0) {
+            throw new IllegalArgumentException("size must be > 0; got " + size);
+        }
+        JsonNode resp = post("/numbertheory/window",
+                Map.of("start", start, "size", size, "timeoutMs", conjectureTimeoutMs));
+        // Preserve the wire order. `result` is a JSON array of 2-element
+        // arrays — `[["abundant_density", 0.24], ...]` — exactly to keep
+        // ordering stable for the §28.2 parity comparison.
+        java.util.LinkedHashMap<String, Double> scalars = new java.util.LinkedHashMap<>();
+        JsonNode result = resp.path("result");
+        if (result.isArray()) {
+            for (JsonNode pair : result) {
+                if (pair.isArray() && pair.size() == 2) {
+                    scalars.put(pair.get(0).asText(), pair.get(1).asDouble());
+                }
+            }
+        }
+        return new NumberTheoryWindow(
+                scalars,
+                resp.path("start").asInt(start),
+                resp.path("size").asInt(size),
                 resp.path("elapsed_ms").asLong(0));
     }
 
@@ -840,5 +947,22 @@ public class JuliaMathClient {
     public record PysrResult(
             java.util.List<ParetoEntry> pareto,
             int evaluated,
+            long elapsedMs) {}
+
+    // ── Phase 28 §28.1 — /numbertheory/window result ─────────────────
+
+    /**
+     * Result of {@link #numberTheoryWindow(int, int)}. {@code scalars}
+     * is an ordered map (insertion order matches the wire order, which
+     * in turn matches the JVM legacy
+     * {@code MathConjectureSubstrate.evaluateWindow} key order) of
+     * scalar name → value for the requested window. {@code start} and
+     * {@code size} are echoed back so the caller doesn't need to track
+     * them across the round-trip.
+     */
+    public record NumberTheoryWindow(
+            java.util.LinkedHashMap<String, Double> scalars,
+            int start,
+            int size,
             long elapsedMs) {}
 }

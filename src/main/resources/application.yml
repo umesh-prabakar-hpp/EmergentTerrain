@@ -68,6 +68,14 @@ app:
       populations: 8             # multi-population GP island count
       iterations: 40             # iterations per population
       complexityCeiling: 30      # max expression-tree size SR will propose
+    # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
+    # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
+    # + Java binding without migrating any caller. Flip `enabled: true`
+    # once §28.2 (delegate + parity test) has shipped and the parity
+    # check is green on the corpus.
+    conjecture:
+      enabled: false
+      timeoutMs: 5000            # per-/numbertheory/* call cap; sidecar clamps at 30s
   gpu:
     enabled: true
     world:

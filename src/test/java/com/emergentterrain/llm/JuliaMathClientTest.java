@@ -633,6 +633,134 @@ class JuliaMathClientTest {
                 .isGreaterThanOrEqualTo(before.pysrLatencyMsTotal());
     }
 
+    // ── Phase 28 §28.1 — /numbertheory/window binding ────────────────
+
+    /** Build a conjecture-enabled client pointing at the stub. */
+    private JuliaMathClient buildConjectureClient() {
+        JuliaMathClient client = new JuliaMathClient(
+                /*enabled*/ true,
+                "http://127.0.0.1:" + port,
+                /*timeoutMs*/ 2_000,
+                /*healthProbeTimeoutMs*/ 1_000,
+                /*pysrEnabled*/ false,
+                /*pysrTimeoutMs*/ 20_000,
+                /*pysrPopulations*/ 8,
+                /*pysrIterations*/ 40,
+                /*pysrComplexityCeiling*/ 30,
+                /*conjectureEnabled*/ true,
+                /*conjectureTimeoutMs*/ 3_000,
+                mapper);
+        client.probeHealth();
+        return client;
+    }
+
+    @Test
+    void numberTheoryWindow_isConjectureAvailable_reflectsFlag() {
+        JuliaMathClient on = buildConjectureClient();
+        assertThat(on.isConjectureEnabled()).isTrue();
+        assertThat(on.isConjectureAvailable()).isTrue();
+
+        JuliaMathClient off = buildClient();   // conjectureEnabled=false via back-compat ctor
+        assertThat(off.isConjectureEnabled()).isFalse();
+        assertThat(off.isConjectureAvailable()).isFalse();
+    }
+
+    @Test
+    void numberTheoryWindow_happyPath_preservesScalarOrdering() {
+        // Wire result is an array of [key, value] pairs — the order must
+        // round-trip into the result's LinkedHashMap unchanged so the
+        // §28.2 parity test against the JVM substrate can compare key
+        // sequences directly.
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,"
+                + "\"result\":["
+                + "[\"abundant_density\",0.24],"
+                + "[\"deficient_density\",0.76],"
+                + "[\"prime_density\",0.2],"
+                + "[\"happy_density\",0.14],"
+                + "[\"mean_omega\",1.94],"
+                + "[\"mean_Omega\",2.68],"
+                + "[\"mean_divisor_count\",5.9],"
+                + "[\"max_divisor_count\",16.0],"
+                + "[\"mertens_delta\",-1.0]"
+                + "],"
+                + "\"start\":100,\"size\":50,"
+                + "\"elapsed_ms\":3}"));
+        JuliaMathClient client = buildConjectureClient();
+
+        JuliaMathClient.NumberTheoryWindow r = client.numberTheoryWindow(100, 50);
+
+        assertThat(r.start()).isEqualTo(100);
+        assertThat(r.size()).isEqualTo(50);
+        assertThat(r.elapsedMs()).isEqualTo(3);
+        assertThat(r.scalars()).containsKeys(
+                "abundant_density", "deficient_density", "prime_density",
+                "happy_density", "mean_omega", "mean_Omega",
+                "mean_divisor_count", "max_divisor_count", "mertens_delta");
+        // The map must be a LinkedHashMap with the exact wire ordering.
+        assertThat(r.scalars().keySet().toArray()).containsExactly(
+                "abundant_density", "deficient_density", "prime_density",
+                "happy_density", "mean_omega", "mean_Omega",
+                "mean_divisor_count", "max_divisor_count", "mertens_delta");
+        assertThat(r.scalars().get("prime_density")).isEqualTo(0.2);
+        assertThat(r.scalars().get("max_divisor_count")).isEqualTo(16.0);
+
+        // Request body shape — start, size, and per-call timeoutMs go over.
+        assertThat(lastRequestPath.get()).isEqualTo("/numbertheory/window");
+        JsonNode body = readBody();
+        assertThat(body.path("start").asInt()).isEqualTo(100);
+        assertThat(body.path("size").asInt()).isEqualTo(50);
+        assertThat(body.path("timeoutMs").asLong()).isEqualTo(3_000);
+    }
+
+    @Test
+    void numberTheoryWindow_disabledClient_throwsNotEnabled() {
+        // `enabled=false` on the main Julia path short-circuits before
+        // the request leaves the JVM, regardless of conjecture flag.
+        JuliaMathClient client = new JuliaMathClient(
+                /*enabled*/ false,
+                "http://127.0.0.1:" + port,
+                2_000, 1_000,
+                /*pysrEnabled*/ false, 20_000, 8, 40, 30,
+                /*conjectureEnabled*/ true, 3_000,
+                mapper);
+        assertThatThrownBy(() -> client.numberTheoryWindow(100, 50))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
+                        .isEqualTo("not_enabled"));
+    }
+
+    @Test
+    void numberTheoryWindow_rejectsNonPositiveSize() {
+        JuliaMathClient client = buildConjectureClient();
+        assertThatThrownBy(() -> client.numberTheoryWindow(100, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("size");
+        assertThatThrownBy(() -> client.numberTheoryWindow(100, -1))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("size");
+    }
+
+    @Test
+    void numberTheoryWindow_rejectsNegativeStart() {
+        JuliaMathClient client = buildConjectureClient();
+        assertThatThrownBy(() -> client.numberTheoryWindow(-1, 10))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("start");
+    }
+
+    @Test
+    void numberTheoryWindow_sidecarErrorEnvelope_surfacesAsException() {
+        nextResponse.set(new CannedResponse(400,
+                "{\"ok\":false,\"error\":\"bad_request\","
+                + "\"explanation\":\"Window exceeds NT_MAX_N\"}"));
+        JuliaMathClient client = buildConjectureClient();
+        assertThatThrownBy(() -> client.numberTheoryWindow(100, 50))
+                .isInstanceOf(JuliaMathException.class)
+                .satisfies(e -> assertThat(((JuliaMathException) e).errorCode())
+                        .isEqualTo("bad_request"));
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private JsonNode readBody() {
