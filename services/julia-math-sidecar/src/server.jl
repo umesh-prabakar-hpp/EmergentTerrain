@@ -66,6 +66,11 @@ function build_router()
     # to /numbertheory/window into one call; the JVM ConjectureVerifier
     # routes here when the conjecture flag is on.
     HTTP.register!(router, "POST", "/conjecture/verify", handle_conjecture_verify)
+    # DynamicComputeEngine port — predicate / metric scan over an
+    # integer range (phase-28 §28.5a). Returns numeric scalars only;
+    # the JVM caller layers on the prose. /physics/topic is deferred
+    # to §28.5b — 3700-line port too large for one slice.
+    HTTP.register!(router, "POST", "/predicate/scan", handle_predicate_scan)
     return router
 end
 

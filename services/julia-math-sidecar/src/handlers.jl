@@ -2768,3 +2768,123 @@ function handle_conjecture_verify(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# ---------------------------------------------------------------------
+# /predicate/scan — DynamicComputeEngine port (phase-28 §28.5a)
+# ---------------------------------------------------------------------
+#
+# Body: {predicate, metric, rangeStart, rangeEnd, baseline}
+# Response (ok=true): numeric scalars only (count, fraction, deviation,
+# mean, se, max, status). The JVM caller layers on the findings /
+# hypothesis / equation prose so we avoid byte-identical-format
+# friction between Java String.format and Julia @sprintf.
+#
+# Metrics:
+#   fraction_satisfying — proportion of [rangeStart, rangeEnd) satisfying pred
+#   mean_of:<fnName>    — Welford mean of fn(i) over matching i
+#   max_of:<fnName>     — max of fn(i) over matching i
+#
+# Predicate allowlist (PREDICATE_FNS): isPrime, isHappy,
+# collatzTerminates, isAbundant, isPerfect. Value-fn allowlist
+# (VALUE_FNS): collatzSteps, sigmaSum.
+#
+# The /predicate/scan parity test in EmergentTerrain pins
+# byte-identical numeric output against the in-process JVM
+# DynamicComputeEngine.
+
+function handle_predicate_scan(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("predicate_scan", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    predicate_spec = String(get(body, :predicate, ""))
+    metric         = String(get(body, :metric, "fraction_satisfying"))
+    range_start_raw = get(body, :rangeStart, nothing)
+    range_end_raw   = get(body, :rangeEnd, nothing)
+    baseline_raw    = get(body, :baseline, nothing)
+
+    if isempty(predicate_spec) || range_start_raw === nothing ||
+            range_end_raw === nothing || baseline_raw === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("predicate_scan", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Required fields: predicate (string), rangeStart (int), " *
+            "rangeEnd (int), baseline (number). " *
+            "metric optional (defaults to fraction_satisfying)",
+            elapsed_ms)
+    end
+
+    range_start = Int(range_start_raw)
+    range_end   = Int(range_end_raw)
+    baseline    = Float64(baseline_raw)
+
+    # JVM clamp: start := max(1, rangeStart); end := min(rangeEnd, start + MAX_RANGE)
+    start = max(1, range_start)
+    end_  = min(range_end, start + PREDICATE_MAX_RANGE)
+    n = end_ - start
+
+    if n <= 0
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("predicate_scan", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, Dict{String,Any}(
+            "metric" => "empty",
+            "n"      => 0,
+            "_note"  => "empty range after clamp; JVM returns " *
+                        "DynamicComputeEngine.emptyResult-equivalent",
+        ))
+    end
+
+    pred = parse_predicate(predicate_spec)
+    if pred === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("predicate_scan", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Unknown predicate '$(predicate_spec)'. Available: " *
+            join(sort(collect(keys(PREDICATE_FNS))), ", ") *
+            " (combined with ' AND ' or ' OR ')",
+            elapsed_ms)
+    end
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        if metric == "fraction_satisfying"
+            value = predicate_scan_fraction(start, end_, n, pred, baseline)
+        elseif startswith(metric, "mean_of:") || startswith(metric, "max_of:")
+            fn_name = metric[(findfirst(':', metric) + 1):end]
+            val_fn = parse_value_fn(fn_name)
+            if val_fn === nothing
+                elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+                record_call!("predicate_scan", elapsed_ms, :error)
+                return error_response("bad_request",
+                    "Unknown value function '$(fn_name)'. Available: " *
+                    join(sort(collect(keys(VALUE_FNS))), ", "),
+                    elapsed_ms)
+            end
+            is_max = startswith(metric, "max_of:")
+            value = predicate_scan_value(start, end_, pred, val_fn, baseline, is_max)
+        else
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("predicate_scan", elapsed_ms, :error)
+            return error_response("bad_request",
+                "Unknown metric '$(metric)'. Expected " *
+                "'fraction_satisfying', 'mean_of:<fnName>', or 'max_of:<fnName>'",
+                elapsed_ms)
+        end
+    catch e
+        outcome = :error
+        value = "predicate_scan threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("predicate_scan", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("predicate_scan", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+
