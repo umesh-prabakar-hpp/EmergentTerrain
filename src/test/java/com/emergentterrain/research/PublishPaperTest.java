@@ -167,6 +167,8 @@ class PublishPaperTest {
                 /* proseBaselineDriftMode        */ "warn",
                 /* citationCorpusEnabled         */ false,
                 /* citationCorpusMode            */ "warn",
+                /* topicConsistencyEnabled       */ false,
+                /* topicConsistencyMode          */ "warn",
                 mapper);
         roomId = UUID.randomUUID();
     }

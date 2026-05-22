@@ -109,6 +109,19 @@ public class TopicValidatorRegistry {
         return specs.size();
     }
 
+    /**
+     * 2026-05-21 — snapshot of every registered topic name across all
+     * domains. Used by {@link TopicConsistencyValidator} to check whether
+     * published prose mentions a foreign topic name (P-a328-886 leaked
+     * "Pendulum Breakdown Angle" into an Abundant Density paper). Returns
+     * a defensive copy so callers can't mutate the registry.
+     */
+    public java.util.Set<String> allTopicNames() {
+        java.util.Set<String> out = new java.util.HashSet<>(specs.size());
+        for (TopicKey k : specs.keySet()) out.add(k.topic());
+        return out;
+    }
+
     // ---- Seed: 20 known topics from MathPhysicsEngine ----
 
     private void registerDefaults() {

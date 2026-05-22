@@ -716,6 +716,20 @@ app:
     citation-corpus:
       enabled: true
       mode: warn
+    # 2026-05-21 review §1 rec #6 — when on, flags published Discussion /
+    # Related-Work prose that mentions a TopicValidatorRegistry topic name
+    # OTHER than the paper's declared topic. P-a328-886 (Abundant Density)
+    # carried "the specific focus on the Pendulum Breakdown Angle is new"
+    # — narrator template-bleed from a different paper's context. Mode:
+    #   warn      — log + stamp publish:topic_consistency:n=N:warn, no status change.
+    #   downgrade — route to NEEDS_REVISION with publish:topic_consistency:n=N→needs_revision.
+    # Default enabled+warn for rollout: a legitimate cross-topic mention
+    # in Discussion is possible (e.g. methodological comparison), so we
+    # observe the FP rate before promoting. Findings is excluded from the
+    # scan because findings legitimately reference other topics.
+    topic-consistency:
+      enabled: true
+      mode: warn
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does

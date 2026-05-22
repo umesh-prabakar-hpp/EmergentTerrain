@@ -204,6 +204,18 @@ public class UniversityService {
      */
     private final boolean citationCorpusEnabled;
     private final String  citationCorpusMode;
+    /**
+     * 2026-05-21 review §1 rec #6 — flags published prose that mentions a
+     * registered topic name OTHER than the paper's declared topic.
+     * P-a328-886 (Abundant Density paper) carried the phrase "the specific
+     * focus on the Pendulum Breakdown Angle is new" in Related Work — a
+     * template-bleed from a different paper's context. Mode escalation
+     * mirrors {@link #unsourcedClaimMode}; default disabled+warn so the
+     * first refresh exposes the FP rate (legitimate cross-topic mentions
+     * in Discussion are possible).
+     */
+    private final boolean topicConsistencyEnabled;
+    private final String  topicConsistencyMode;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -336,6 +348,8 @@ public class UniversityService {
             @Value("${app.research.prose-baseline-drift.mode:warn}") String proseBaselineDriftMode,
             @Value("${app.research.citation-corpus.enabled:false}") boolean citationCorpusEnabled,
             @Value("${app.research.citation-corpus.mode:warn}") String citationCorpusMode,
+            @Value("${app.research.topic-consistency.enabled:false}") boolean topicConsistencyEnabled,
+            @Value("${app.research.topic-consistency.mode:warn}") String topicConsistencyMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -385,6 +399,8 @@ public class UniversityService {
         this.proseBaselineDriftMode       = normalizeMode(proseBaselineDriftMode);
         this.citationCorpusEnabled        = citationCorpusEnabled;
         this.citationCorpusMode           = normalizeMode(citationCorpusMode);
+        this.topicConsistencyEnabled      = topicConsistencyEnabled;
+        this.topicConsistencyMode         = normalizeMode(topicConsistencyMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -483,6 +499,17 @@ public class UniversityService {
                     + "absent from literature-corpus.yml are {} (2026-05-21 review §1 rec #5).",
                     citationCorpusMode,
                     switch (citationCorpusMode) {
+                        case "downgrade" -> "routed to NEEDS_REVISION";
+                        case "suppress"  -> "dropped";
+                        default           -> "logged only (no status change)";
+                    });
+        }
+        if (topicConsistencyEnabled) {
+            log.info("UniversityService: topic-consistency ENABLED mode={} — papers whose "
+                    + "Discussion/Related-Work prose mentions a TopicValidatorRegistry name "
+                    + "other than the paper's declared topic are {} (2026-05-21 review §1 rec #6).",
+                    topicConsistencyMode,
+                    switch (topicConsistencyMode) {
                         case "downgrade" -> "routed to NEEDS_REVISION";
                         case "suppress"  -> "dropped";
                         default           -> "logged only (no status change)";
@@ -898,6 +925,26 @@ public class UniversityService {
             log.warn("citation-corpus check failed paperId={} mode={} reasons={}",
                     draft.paperId(), citationCorpusMode, citationCorpusFailures);
         }
+        // 2026-05-21 review §1 rec #6 — Discussion / Related-Work prose
+        // mentioning a registered topic other than the paper's own.
+        // P-a328-886 (Abundant Density) carried "the specific focus on the
+        // Pendulum Breakdown Angle is new" — narrator template-bleed.
+        // Scope is discussion + related-work only; findings legitimately
+        // reference other topics when comparing computations.
+        List<String> topicConsistencyFailures = topicConsistencyEnabled
+                ? TopicConsistencyValidator.validate(draft.topicName(),
+                        joinDiscussionAndRelatedWork(narration.discussion(),
+                                narration.relatedWork()),
+                        TopicValidatorRegistry.defaultRegistry().allTopicNames())
+                : List.of();
+        boolean topicConsistencyFlagged = !topicConsistencyFailures.isEmpty();
+        boolean topicConsistencyRoutes  = topicConsistencyFlagged
+                && "downgrade".equals(topicConsistencyMode);
+        if (topicConsistencyFlagged) {
+            log.warn("topic-consistency check failed paperId={} declaredTopic=\"{}\" mode={} foreignTopics={}",
+                    draft.paperId(), draft.topicName(), topicConsistencyMode,
+                    topicConsistencyFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -1112,6 +1159,12 @@ public class UniversityService {
             // baseline: revision can fix by either citing a real corpus
             // entry or removing the unsupported reference.
             paperStatus = "NEEDS_REVISION";
+        } else if (topicConsistencyRoutes) {
+            // 2026-05-21 review §1 rec #6 — foreign topic name mentioned
+            // in Discussion / Related-Work. Same tier as citation-corpus:
+            // revision can fix by either removing the cross-topic mention
+            // or reframing it as a legitimate methodological comparison.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1209,6 +1262,17 @@ public class UniversityService {
         if (citationCorpusFlagged) {
             String suffix = citationCorpusRoutes ? "→needs_revision" : ":warn";
             String stamp = "publish:citation_corpus:n=" + citationCorpusFailures.size() + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
+        }
+        // 2026-05-21 — additive stamp for topic-consistency. Carries the
+        // count of foreign topics so refresh can see at a glance whether
+        // a paper had a single leak or many.
+        if (topicConsistencyFlagged) {
+            String suffix = topicConsistencyRoutes ? "→needs_revision" : ":warn";
+            String stamp = "publish:topic_consistency:n="
+                    + topicConsistencyFailures.size() + suffix;
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? stamp
                     : persistedCallPath + " → " + stamp;
@@ -2525,6 +2589,20 @@ public class UniversityService {
             case "PUBLISHED", "PUBLISHED_NO_PROFESSOR", "NULL_RESULT" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * 2026-05-21 — narrow prose slice for the topic-consistency validator.
+     * Findings is excluded because findings legitimately reference other
+     * topics when comparing computations (e.g. "matching the Hardy-
+     * Littlewood twin density"); Discussion + Related Work are the
+     * sections where template-bleed manifests.
+     */
+    static String joinDiscussionAndRelatedWork(String discussion, String relatedWork) {
+        StringBuilder sb = new StringBuilder();
+        if (discussion != null && !discussion.isBlank()) sb.append(discussion).append('\n');
+        if (relatedWork != null && !relatedWork.isBlank()) sb.append(relatedWork);
+        return sb.toString();
     }
 
     /**
