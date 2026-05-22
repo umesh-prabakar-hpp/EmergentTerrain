@@ -56,6 +56,11 @@ function build_router()
     # basis [1, α, α², ..., α^d] — equivalent to single-row LLL for this
     # narrow use case; no Nemo.jl dep required.
     HTTP.register!(router, "POST", "/recognise/minpoly", handle_recognise_minpoly)
+    # Dalmatian-style conjecture seed/update (phase-28 §28.3). Pure numeric
+    # compute; the §28.3 parity test pins byte-identical output against the
+    # JVM ConjectureEngine.
+    HTTP.register!(router, "POST", "/conjecture/seed",   handle_conjecture_seed)
+    HTTP.register!(router, "POST", "/conjecture/update", handle_conjecture_update)
     return router
 end
 

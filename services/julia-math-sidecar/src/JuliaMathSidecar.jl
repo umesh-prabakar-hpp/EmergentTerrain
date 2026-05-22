@@ -54,6 +54,7 @@ export start_server!
 include("safety.jl")       # Safety filter for incoming expressions.
 include("metrics.jl")      # Per-endpoint call counts + latency histogram.
 include("numbertheory.jl") # SPF sieve + window aggregator (phase-28 §28.1).
+include("conjecture.jl")   # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.
 include("server.jl")       # HTTP route table + server loop.
 

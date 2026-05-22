@@ -2391,3 +2391,211 @@ function handle_recognise_minpoly(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# ---------------------------------------------------------------------
+# /conjecture/seed + /conjecture/update (phase-28 §28.3)
+# ---------------------------------------------------------------------
+#
+# Ports JVM ConjectureEngine.seed + ConjectureEngine.update to the
+# sidecar. JSON wire shape matches the JVM Inequality + Witness
+# records exactly; the §28.3 parity test pins byte-identical output
+# between the JVM in-process path and these endpoints.
+#
+# /conjecture/seed body:  {"samples": [{"name": value, ...}, ...],
+#                          "vocabulary": ["name1", "name2", ...]}
+# /conjecture/seed reply: {"ok":true, "inequalities":[Inequality,...],
+#                          "elapsed_ms":N}
+#
+# /conjecture/update body:  {"store":[Inequality,...],
+#                            "runKey":"W500_low",
+#                            "configHash":"W500",
+#                            "samples":[{...},...]}
+# /conjecture/update reply: {"ok":true, "confirmed":N, "retired":M,
+#                            "retiredItems":[Inequality,...],
+#                            "store":[Inequality,...],
+#                            "elapsed_ms":N}
+#
+# These are pure numeric computations — no safety filter. The
+# vocabulary array is the surface of caller-controlled strings;
+# we don't eval anything, only use them as Dict keys.
+
+"""
+    _deep_plain(x)
+
+Recursively convert JSON3.Object / JSON3.Array values to plain Julia
+Dict{String,Any} / Vector{Any}. JSON3's default types use Symbol keys
+on objects, which break `haskey(dict, "string-key")` checks later in
+the pipeline. After this pass every dict has String keys and every
+array is a plain Vector.
+"""
+function _deep_plain(x)
+    if x isa AbstractDict
+        return Dict{String,Any}(String(k) => _deep_plain(v) for (k, v) in x)
+    elseif x isa AbstractArray
+        return Any[_deep_plain(v) for v in x]
+    else
+        return x
+    end
+end
+
+function _coerce_samples(samples_raw)::Union{Vector, String}
+    if !(samples_raw isa AbstractArray)
+        return "Field 'samples' must be an array of {name: value} objects"
+    end
+    out = Vector{Dict{String,Float64}}()
+    for (i, s) in enumerate(samples_raw)
+        if !(s isa AbstractDict)
+            return "samples[$(i-1)] must be an object {name: value}"
+        end
+        d = Dict{String,Float64}()
+        for (k, v) in s
+            if v isa Number
+                d[String(k)] = Float64(v)
+            elseif v isa Bool
+                # Skip booleans silently — they're invalid as scalar values
+            else
+                return "samples[$(i-1)][$(k)] must be numeric; got $(typeof(v))"
+            end
+        end
+        push!(out, d)
+    end
+    return out
+end
+
+function handle_conjecture_seed(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_seed", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    samples_raw = get(body, :samples, nothing)
+    vocab_raw   = get(body, :vocabulary, nothing)
+    if samples_raw === nothing || vocab_raw === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_seed", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Required fields: samples (array), vocabulary (array of names)",
+            elapsed_ms)
+    end
+    coerced = _coerce_samples(samples_raw)
+    if coerced isa String
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_seed", elapsed_ms, :error)
+        return error_response("bad_request", coerced, elapsed_ms)
+    end
+    if !(vocab_raw isa AbstractArray)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_seed", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'vocabulary' must be an array of strings", elapsed_ms)
+    end
+    vocab = String[String(v) for v in vocab_raw]
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        inequalities = conjecture_seed(coerced, vocab)
+        value = Dict{String,Any}("inequalities" => inequalities)
+    catch e
+        outcome = :error
+        value = "conjecture_seed threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("conjecture_seed", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("conjecture_seed", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+
+function handle_conjecture_update(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_update", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    store_raw   = get(body, :store, nothing)
+    run_key     = String(get(body, :runKey, ""))
+    config_hash = String(get(body, :configHash, ""))
+    samples_raw = get(body, :samples, nothing)
+
+    if store_raw === nothing || samples_raw === nothing || isempty(run_key) || isempty(config_hash)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_update", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Required fields: store (array of Inequality), runKey (string), " *
+            "configHash (string), samples (array)",
+            elapsed_ms)
+    end
+    if !(store_raw isa AbstractArray)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_update", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'store' must be an array of Inequality objects", elapsed_ms)
+    end
+
+    # Coerce store entries to plain Dicts so conjecture_update can read
+    # them with `get(d, key, default)`. _deep_plain unwraps the nested
+    # JSON3 types (slackByConfig object, refutedBy array of objects)
+    # to plain String-keyed Dicts and Vectors.
+    store = Vector{Dict{String,Any}}()
+    for (i, e) in enumerate(store_raw)
+        if !(e isa AbstractDict)
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("conjecture_update", elapsed_ms, :error)
+            return error_response("bad_request",
+                "store[$(i-1)] must be an Inequality object",
+                elapsed_ms)
+        end
+        d = _deep_plain(e)
+        # Defaults — caller may omit fields on freshly-seeded inequalities.
+        for (k, default) in (("confirmedRuns", 0), ("confirmedConfigs", String[]),
+                              ("refutedBy", Dict{String,Any}[]),
+                              ("p99Slack", 0.0),
+                              ("slackByConfig", Dict{String,Float64}()),
+                              ("droppedByKnob", nothing))
+            if !haskey(d, k)
+                d[k] = default
+            end
+        end
+        push!(store, d)
+    end
+
+    coerced_samples = _coerce_samples(samples_raw)
+    if coerced_samples isa String
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_update", elapsed_ms, :error)
+        return error_response("bad_request", coerced_samples, elapsed_ms)
+    end
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        result = conjecture_update(store, run_key, config_hash, coerced_samples)
+        value = Dict{String,Any}(
+            "confirmed"    => result.confirmed,
+            "retired"      => length(result.retiredItems),
+            "retiredItems" => result.retiredItems,
+            "store"        => result.store,
+        )
+    catch e
+        outcome = :error
+        value = "conjecture_update threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("conjecture_update", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("conjecture_update", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+
