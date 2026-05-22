@@ -1,0 +1,206 @@
+package com.emergentterrain.research;
+
+import com.emergentterrain.llm.JuliaMathClient;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicLong;
+
+/**
+ * Phase 28 §28.5 — dispatch wrapper around {@link MathPhysicsEngine#compute}
+ * and the sidecar's {@code /physics/topic} endpoint (via
+ * {@link JuliaMathClient#physicsTopic}).
+ *
+ * <h2>Dispatch rule</h2>
+ *
+ * The §28.5b-§28.5h sidecar ports cover all 9 MathPhysicsEngine
+ * domains × ~5–10 topics each (~63 topics total) with byte-identical
+ * {@code primaryValue/secondaryValue/tertiaryValue/claimStatus}
+ * agreement, pinned by {@link PhysicsTopicParityTest}.
+ *
+ * <p>This delegate ships in <strong>shadow-read mode</strong> only:
+ * the in-process compute path is the source of truth on every call.
+ * When {@code app.julia.physics.topic.enabled=true} AND the sidecar is
+ * reachable, the delegate ALSO calls the sidecar in parallel, compares
+ * scalars + claim status against the in-process result, and updates
+ * the parity-match / parity-mismatch counters. The returned
+ * {@link MathPhysicsEngine.ResearchResult} is unchanged.
+ *
+ * <h2>Why shadow read first</h2>
+ *
+ * The §28.5b–§28.5h ports landed under a synthetic parity test using
+ * {@link MathPhysicsEngine.SearchParams#neutral()}. Real bots use
+ * genome-sampled SearchParams across the full
+ * {@code stepSize × candidateBreadth} grid. Shadow mode lets the
+ * operator confirm parity under live load before the §28.6 cutover
+ * flips the read path to sidecar-primary. Stats exposed via
+ * {@link #stats()} are the burn-in signal: a clean run with zero
+ * {@code parityMismatch} over N days unblocks §28.6.
+ *
+ * <h2>Why a delegate, not a static replacement</h2>
+ *
+ * Same reasoning as {@link com.emergentterrain.research.conjecture.MathConjectureSubstrateDelegate}:
+ * the in-process path is correct, fast, and operator-trusted. Cutting
+ * over without a burn-in window would regress on the first sidecar
+ * outage. The delegate seam keeps the flip reversible.
+ *
+ * <h2>What this delegate does NOT do (yet)</h2>
+ *
+ * Even when the flag is true, the returned ResearchResult is still
+ * built by {@link MathPhysicsEngine#compute} in-process — the sidecar
+ * call is shadow-only. The §28.6 step composes the JVM ResearchResult
+ * directly from the sidecar's {@code detail} JsonNode, removing the
+ * in-process compute call on the hot path.
+ */
+@Service
+public class MathPhysicsEngineDelegate {
+
+    private static final Logger log = LoggerFactory.getLogger(MathPhysicsEngineDelegate.class);
+
+    private final JuliaMathClient juliaMathClient;
+    private final boolean shadowReadEnabled;
+
+    private final AtomicLong totalCalls       = new AtomicLong();
+    private final AtomicLong shadowCalls      = new AtomicLong();
+    private final AtomicLong parityMatches    = new AtomicLong();
+    private final AtomicLong parityMismatches = new AtomicLong();
+    private final AtomicLong sidecarErrors    = new AtomicLong();
+    private final AtomicLong sidecarEmpty     = new AtomicLong();
+
+    /**
+     * Single constructor — used for both Spring injection and tests.
+     * The {@code @Value} default-OFF flag and the
+     * {@code @Autowired(required=false)} client both keep the delegate
+     * safe to instantiate in test slice contexts where no
+     * JuliaMathClient bean is wired.
+     */
+    @Autowired
+    public MathPhysicsEngineDelegate(
+            @Value("${app.julia.physics.topic.enabled:false}") boolean shadowReadEnabled,
+            @Autowired(required = false) JuliaMathClient juliaMathClient) {
+        this.juliaMathClient   = juliaMathClient;
+        // Shadow read activates only when the flag AND a JuliaMathClient
+        // bean are both present — defends against partial wiring in
+        // test slice contexts.
+        this.shadowReadEnabled = shadowReadEnabled && juliaMathClient != null;
+        log.info("MathPhysicsEngineDelegate: ready, shadowReadEnabled={} " +
+                "(flag={} client={})",
+                this.shadowReadEnabled, shadowReadEnabled, juliaMathClient != null);
+    }
+
+    /**
+     * Compute the ResearchResult for {@code (domain, topicIndex)} with
+     * the given search parameters. Always returns the in-process result;
+     * when shadow mode is on, also fires a sidecar request and updates
+     * parity counters.
+     *
+     * <p>Mirrors the signature of
+     * {@link MathPhysicsEngine#compute(String, int, int, double, MathPhysicsEngine.SearchParams)}
+     * so the delegate is a drop-in replacement for direct static calls
+     * in {@link ResearchCycleService}, {@link BotLifecycleService}, and
+     * {@link ReplicationService}.
+     */
+    public MathPhysicsEngine.ResearchResult compute(String domain, int topicIndex,
+                                                     int param1, double param2,
+                                                     MathPhysicsEngine.SearchParams sp) {
+        totalCalls.incrementAndGet();
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+
+        if (!shadowReadEnabled || !juliaMathClient.isAvailable()) {
+            return jvm;
+        }
+
+        shadowCalls.incrementAndGet();
+        try {
+            Optional<JuliaMathClient.PhysicsTopicResultWire> wire =
+                    juliaMathClient.physicsTopic(domain, topicIndex, param1, param2, sp);
+            if (wire.isEmpty()) {
+                // Not-ported response from sidecar — shouldn't happen
+                // once §28.5h is in, but track it so a partial-coverage
+                // regression is visible in stats.
+                sidecarEmpty.incrementAndGet();
+                return jvm;
+            }
+            recordParity(jvm, wire.get(), domain, topicIndex);
+        } catch (RuntimeException e) {
+            sidecarErrors.incrementAndGet();
+            log.warn("MathPhysicsEngineDelegate: sidecar physicsTopic failed " +
+                    "(domain={} topic={}): {} — shadow read counted as error, " +
+                    "in-process result returned unchanged",
+                    domain, topicIndex, e.getMessage());
+        }
+        return jvm;
+    }
+
+    /**
+     * Convenience overload for callers that haven't built a SearchParams
+     * — uses the neutral genome, same as
+     * {@link MathPhysicsEngine#compute(String, int, int, double)}.
+     */
+    public MathPhysicsEngine.ResearchResult compute(String domain, int topicIndex,
+                                                     int param1, double param2) {
+        return compute(domain, topicIndex, param1, param2,
+                MathPhysicsEngine.SearchParams.neutral());
+    }
+
+    /**
+     * Compare the in-process result against the sidecar wire result.
+     * Bumps {@link #parityMatches} on byte-identity, {@link #parityMismatches}
+     * with a WARN log otherwise. The four-scalar check matches the
+     * {@link PhysicsTopicParityTest} acceptance bar exactly.
+     */
+    private void recordParity(MathPhysicsEngine.ResearchResult jvm,
+                              JuliaMathClient.PhysicsTopicResultWire wire,
+                              String domain, int topicIndex) {
+        boolean match = Double.compare(jvm.primaryValue(),   wire.primaryValue())   == 0
+                     && Double.compare(jvm.secondaryValue(), wire.secondaryValue()) == 0
+                     && Double.compare(jvm.tertiaryValue(),  wire.tertiaryValue())  == 0
+                     && Double.compare(jvm.reviewValue(),    wire.reviewValue())    == 0
+                     && jvm.claimStatus().name().equals(wire.claimStatus());
+
+        if (match) {
+            parityMatches.incrementAndGet();
+            return;
+        }
+
+        parityMismatches.incrementAndGet();
+        log.warn("MathPhysicsEngineDelegate: parity MISMATCH (domain={} topic={}) " +
+                "jvm=(p={}, s={}, t={}, r={}, status={}) " +
+                "sidecar=(p={}, s={}, t={}, r={}, status={})",
+                domain, topicIndex,
+                jvm.primaryValue(),  jvm.secondaryValue(),  jvm.tertiaryValue(),
+                jvm.reviewValue(),   jvm.claimStatus().name(),
+                wire.primaryValue(), wire.secondaryValue(), wire.tertiaryValue(),
+                wire.reviewValue(),  wire.claimStatus());
+    }
+
+    /**
+     * Snapshot of dispatch counters. The §28.6 cutover precondition is
+     * {@code parityMismatches == 0} AND {@code parityMatches > N_threshold}
+     * over the burn-in window.
+     */
+    public Stats stats() {
+        return new Stats(
+                totalCalls.get(),
+                shadowCalls.get(),
+                parityMatches.get(),
+                parityMismatches.get(),
+                sidecarErrors.get(),
+                sidecarEmpty.get(),
+                shadowReadEnabled);
+    }
+
+    public record Stats(
+            long totalCalls,
+            long shadowCalls,
+            long parityMatches,
+            long parityMismatches,
+            long sidecarErrors,
+            long sidecarEmpty,
+            boolean shadowReadEnabled) {}
+}
