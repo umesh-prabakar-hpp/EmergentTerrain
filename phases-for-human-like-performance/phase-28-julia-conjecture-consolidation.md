@@ -35,6 +35,34 @@ Sub-phase status:
   enables shadow-read only. Legacy removal across all six ported
   classes also remains deferred.
 
+**§28.6 physics-topic — wire-contract finding (2026-05-22).** An
+attempt to implement primary-read cutover for `/physics/topic`
+surfaced a blocker: the Julia handlers in `physics_*.jl` deliberately
+return *scalars + ClaimStatus only* (per the wire-contract comment in
+`physics_mathematics.jl`:11-13 — "the JVM caller composes the
+findings / hypothesis / equation prose locally — avoids
+byte-identical-format friction between Java String.format and Julia
+@sprintf"). A flag-only flip from shadow-read to primary-read therefore
+can't replace the in-process `MathPhysicsEngine.compute` call — the
+sidecar response doesn't carry the findings prose the JVM
+`ResearchResult` requires. Splitting §28.6 into two sub-phases:
+
+- **§28.6a — Julia-side prose templates** (~1 day). Add a
+  `findings` (and optionally `theoryCheck` / `claimAssessment`)
+  string field to each of the 63 ported (domain, topicIdx) handler
+  responses. Each topic gets a per-domain prose template that
+  emits the same format the JVM produces today. Parity test
+  asserts byte-equal findings strings across the corpus.
+- **§28.6b — JVM `composeFromSidecar` cutover** (~30 min after
+  §28.6a). New `app.julia.physics.topic.primary` flag; when on,
+  `MathPhysicsEngineDelegate.compute` skips the in-process call
+  and builds `ResearchResult` from the wire response's `detail`
+  JsonNode (now carrying prose).
+
+Neither sub-phase is blocking burn-in — the existing shadow-read
+mode already drives parity counters, and the conjecture-side flag
+flip (above) is the genuinely operator-visible §28.6 step.
+
 **Motivation.** The JVM currently hosts six conjecture / math
 compute classes — `MathConjectureSubstrate`, `MathInvariants`,
 `MathPhysicsEngine`, `DynamicComputeEngine`, `ConjectureEngine`,
