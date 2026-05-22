@@ -126,6 +126,16 @@ public class ResearchNarrationService {
     private String citationsAsSchemaMode;
 
     /**
+     * Paper-review 2026-05-22 — threshold for the result-bearing
+     * exemption to the downgrade path. See
+     * {@link #MODERATE_MISMATCH_THRESHOLD_DEFAULT}. Set to 0 to disable
+     * the exemption; raise to widen the rescue band.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.citations.moderate-mismatch.threshold:5}")
+    private int moderateMismatchThreshold = MODERATE_MISMATCH_THRESHOLD_DEFAULT;
+
+    /**
      * Phase 16 P6a — cross-citation verdict propagation. Controls how the
      * narration prompt assembles the {@code priorPapers} context block for
      * papers in the room with the same domain + topic as the draft.
@@ -1201,6 +1211,96 @@ public class ResearchNarrationService {
     private static final int CITATIONS_UNCITED_SUPPRESS_THRESHOLD = 3;
 
     /**
+     * Paper-review 2026-05-22 — moderate-mismatch threshold for the
+     * "result-bearing trace" exemption. When the citation validator
+     * fires with {@code traceMismatch=true} BUT the total
+     * unmatched+outOfTolerance count is at or below this threshold AND
+     * the tool-call trace has ≥1 successful entry, the paper is routed
+     * to {@code MANUAL_REVIEW} instead of being downgraded to
+     * {@code NULL_RESULT}.
+     *
+     * <p>Drawn from the 2026-05-22 /paper-review on research/a3289005:
+     * four of six papers were downgraded to NULL_RESULT despite their
+     * tool calls producing hypothesis-answering results (P-a328-905
+     * confirmation within CI; P-a328-900 single-λ partial sweep;
+     * P-a328-901 cited a derived deviation; P-a328-902 refuted with
+     * max=170 but had 7 unmatched claims — over threshold). Threshold
+     * 5 keeps the genuine-fabrication cases (7+ unmatched) on the
+     * NULL_RESULT path while rescuing papers with a few stray
+     * prose-vs-trace gaps.
+     *
+     * <p>The exemption stamps {@code citations:moderate_mismatch:manual_review}
+     * in the call path so operators can grep for papers rescued from
+     * the downgrade. Tunable via
+     * {@code app.citations.moderate-mismatch.threshold} — set to 0 to
+     * disable the exemption entirely.
+     */
+    private static final int MODERATE_MISMATCH_THRESHOLD_DEFAULT = 5;
+
+    /**
+     * Paper-review 2026-05-22 — routing decisions emitted by the
+     * citation gate. Pulled into its own enum so the decision function
+     * (which contains the threshold logic) can be unit-tested in
+     * isolation without standing up the full ResearchNarrationService.
+     */
+    enum CitationGateDecision {
+        /** Publish unchanged (no failures, or "warn" mode). */
+        PUBLISH,
+        /** Publish with a {@code citations:manual_review} marker (uncited-only fail). */
+        MANUAL_REVIEW,
+        /** Publish with a {@code citations:moderate_mismatch:manual_review} marker
+         *  (rescue: traceMismatch fired but mismatch count ≤ threshold). */
+        MODERATE_MISMATCH_RESCUE,
+        /** Rewrite findings + conclusion as NULL_RESULT and publish. */
+        NULL_RESULT_DOWNGRADE,
+        /** Drop the paper (return null). */
+        SUPPRESS
+    }
+
+    /**
+     * Paper-review 2026-05-22 — pure-function citation-gate router.
+     * Given the validator outputs and the gate's configuration, decide
+     * which routing path to take. Extracted from
+     * {@link #applyCitationsGate} so the decision is unit-testable
+     * without instantiating the full service.
+     *
+     * @param uncited                    {@code cv.uncitedCount()}
+     * @param unmatched                  {@code cv.unmatchedClaimCount()}
+     * @param outOfTolerance             {@code cv.outOfToleranceCount()}
+     * @param traceSize                  {@code trace.size()} — 0 if null/empty
+     * @param moderateMismatchThreshold  {@code app.citations.moderate-mismatch.threshold},
+     *                                   0 disables the rescue branch
+     * @param mode                       "warn" | "downgrade" | "suppress"
+     */
+    static CitationGateDecision decideCitationGate(
+            int uncited, int unmatched, int outOfTolerance, int traceSize,
+            int moderateMismatchThreshold, String mode) {
+        boolean traceMismatch = unmatched > 0 || outOfTolerance > 0;
+        boolean uncitedHeavy  = uncited >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD;
+        String normalized     = mode == null ? "warn" : mode.toLowerCase();
+
+        switch (normalized) {
+            case "suppress":
+                if (traceMismatch || uncitedHeavy) return CitationGateDecision.SUPPRESS;
+                return CitationGateDecision.PUBLISH;
+            case "downgrade":
+                if (traceMismatch) {
+                    int total = unmatched + outOfTolerance;
+                    boolean traceHasEvidence = traceSize > 0;
+                    if (moderateMismatchThreshold > 0
+                            && total <= moderateMismatchThreshold
+                            && traceHasEvidence) {
+                        return CitationGateDecision.MODERATE_MISMATCH_RESCUE;
+                    }
+                    return CitationGateDecision.NULL_RESULT_DOWNGRADE;
+                }
+                return CitationGateDecision.MANUAL_REVIEW;
+            default:  // "warn" or unknown
+                return CitationGateDecision.PUBLISH;
+        }
+    }
+
+    /**
      * Phase 11 C4 — run the citation validator and apply the configured rollout
      * mode. Returns the (possibly downgraded) narration, or null when {@code
      * suppress} mode drops the paper.
@@ -1280,39 +1380,49 @@ public class ResearchNarrationService {
                 // on the same paper.
                 + ":exempt_sweep=" + cv.exemptSweepCount()
                 + ":exempt_hyp=" + cv.hypothesisParamExemptCount();
-        boolean traceMismatch = cv.unmatchedClaimCount() > 0 || cv.outOfToleranceCount() > 0;
-        boolean uncitedHeavy  = cv.uncitedCount() >= CITATIONS_UNCITED_SUPPRESS_THRESHOLD;
+        // Paper-review 2026-05-22 — route through the pure decideCitationGate
+        // function so the threshold/exemption logic is unit-testable in
+        // isolation. Each branch below stamps its call-path marker and
+        // logs at the appropriate level; the return value is the
+        // (possibly transformed) narration or null on suppress.
+        int traceSize = trace == null ? 0 : trace.size();
         String mode = citationsAsSchemaMode == null ? "warn" : citationsAsSchemaMode.toLowerCase();
+        CitationGateDecision decision = decideCitationGate(
+                cv.uncitedCount(), cv.unmatchedClaimCount(), cv.outOfToleranceCount(),
+                traceSize, moderateMismatchThreshold, mode);
+        callPath.add(summary);
 
-        switch (mode) {
-            case "suppress" -> {
-                callPath.add(summary);
-                if (traceMismatch || uncitedHeavy) {
-                    callPath.add("prof:" + abbrev(router.primaryModel())
-                            + ":citations_failed→suppressed");
-                    log.warn("CitationValidator: paperId={} mode=suppress {} — paper "
-                                    + "dropped issues={}", paperId, summary, cv.issues());
-                    return null;
-                }
-                log.warn("CitationValidator: paperId={} mode=suppress {} below threshold — "
-                                + "publishing", paperId, summary);
+        switch (decision) {
+            case SUPPRESS -> {
+                callPath.add("prof:" + abbrev(router.primaryModel())
+                        + ":citations_failed→suppressed");
+                log.warn("CitationValidator: paperId={} mode=suppress {} — paper "
+                                + "dropped issues={}", paperId, summary, cv.issues());
+                return null;
+            }
+            case NULL_RESULT_DOWNGRADE -> {
+                callPath.add("citations:downgrade→null_result");
+                log.warn("CitationValidator: paperId={} mode=downgrade {} — routing to "
+                                + "NULL_RESULT issues={}", paperId, summary, cv.issues());
+                return downgradeNarrationToNull(narration, cv);
+            }
+            case MODERATE_MISMATCH_RESCUE -> {
+                int total = cv.unmatchedClaimCount() + cv.outOfToleranceCount();
+                callPath.add("citations:moderate_mismatch:manual_review");
+                log.warn("CitationValidator: paperId={} mode=downgrade {} — "
+                                + "moderate-mismatch exemption fired (unmatched+oot={} "
+                                + "≤ threshold={}, trace n={}) — MANUAL_REVIEW stamped, "
+                                + "publishing", paperId, summary, total,
+                        moderateMismatchThreshold, traceSize);
                 return narration;
             }
-            case "downgrade" -> {
-                callPath.add(summary);
-                if (traceMismatch) {
-                    callPath.add("citations:downgrade→null_result");
-                    log.warn("CitationValidator: paperId={} mode=downgrade {} — routing to "
-                                    + "NULL_RESULT issues={}", paperId, summary, cv.issues());
-                    return downgradeNarrationToNull(narration, cv);
-                }
+            case MANUAL_REVIEW -> {
                 callPath.add("citations:manual_review");
                 log.warn("CitationValidator: paperId={} mode=downgrade {} uncited-only — "
                                 + "MANUAL_REVIEW stamped, publishing", paperId, summary);
                 return narration;
             }
-            default -> {  // "warn" or anything else
-                callPath.add(summary);
+            default -> {  // PUBLISH (warn mode or below-threshold suppress)
                 log.warn("CitationValidator: paperId={} mode={} {} issues={}",
                         paperId, mode, summary, cv.issues());
                 return narration;

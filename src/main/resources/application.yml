@@ -902,6 +902,18 @@ app:
       # still publishes (peer score + call path + panel outcome
       # preserved). Rollback: set back to `warn`.
       mode: downgrade
+    # Paper-review 2026-05-22 — moderate-mismatch exemption. When the
+    # validator fires with traceMismatch=true (unmatched > 0 OR
+    # out_of_tolerance > 0) BUT the total mismatch count is at or below
+    # this threshold AND the trace has ≥1 successful entry, route to
+    # MANUAL_REVIEW instead of NULL_RESULT. Catches papers whose tool
+    # calls actually answered the hypothesis but whose prose has a few
+    # stray uncited/unmatched numbers (P-a328-905, -900, -901 in the
+    # 2026-05-22 research/a3289005 batch). Set to 0 to disable the
+    # exemption (legacy NULL_RESULT-on-any-mismatch behaviour).
+    citations:
+      moderate-mismatch:
+        threshold: 5
     # Phase 7 F2 — number of independent computation prose blocks the narrator
     # produces (NOT the number of MathPhysicsEngine compute() calls, which is
     # still driven by the refinement loop). Clamped to 1 when
