@@ -378,17 +378,65 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
+    // ── PHYSICS topic 1 — pendulumBreakdown (ported §28.5c-cont) ──
+
+    @Test
+    void physicsTopic1_pendulumBreakdown_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedL = 0.1 + param1/200. Inner Maclaurin-style series for
+        // the elliptic-integral period, swept over θ in 5°..80°.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 1, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 1, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 1 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── PHYSICS topic 2 — vanDerWaalsDeviation (ported §28.5c-cont) ──
+
+    @Test
+    void physicsTopic2_vanDerWaals_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedT = 200 + param1·3 K, tolerance = 0.01. 30-step Newton
+        // iteration per (P, T) pair — pure arithmetic, no transcendentals.
+        int param1 = 4;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 2, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 2, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 2 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
     // ── not_ported routing — remaining PHYSICS topics + other domains ──
 
     @Test
-    void physicsTopic1_notYetPorted_returnsEmpty() {
+    void physicsTopic3_notYetPorted_returnsEmpty() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // PHYSICS topic 1 (pendulumBreakdown) — pending; deferred to
+        // PHYSICS topic 3 (diffractionSurvey) — pending; deferred to
         // §28.5c continuations.
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("PHYSICS", 1, 3, 0.0, sp);
-        assertThat(side).as("PHYSICS topic 1 not yet ported").isEmpty();
+                liveClient().physicsTopic("PHYSICS", 3, 3, 0.0, sp);
+        assertThat(side).as("PHYSICS topic 3 not yet ported").isEmpty();
     }
 
     @Test
