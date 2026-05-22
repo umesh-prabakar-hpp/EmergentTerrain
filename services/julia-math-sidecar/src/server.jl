@@ -52,6 +52,10 @@ function build_router()
     # PSLQ integer-relation search (phase-26 §26.2). PyCall→mpmath at
     # caller-configured precision against named basis sets.
     HTTP.register!(router, "POST", "/recognise/constant", handle_recognise_constant)
+    # Minimal polynomial recovery (phase-26 §26.3). PSLQ on the polynomial
+    # basis [1, α, α², ..., α^d] — equivalent to single-row LLL for this
+    # narrow use case; no Nemo.jl dep required.
+    HTTP.register!(router, "POST", "/recognise/minpoly", handle_recognise_minpoly)
     return router
 end
 

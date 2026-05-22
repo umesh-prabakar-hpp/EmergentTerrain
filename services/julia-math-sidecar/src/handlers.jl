@@ -2175,3 +2175,219 @@ function handle_recognise_constant(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# ---------------------------------------------------------------------
+# /recognise/minpoly — minimal polynomial recovery (phase-26 §26.3)
+# ---------------------------------------------------------------------
+#
+# Body: `{"value": "<decimal>", "degreeBound": 4,
+#         "precisionDigits": 200, "timeoutMs": optional}`
+# Response on a hit:
+#   {"ok": true, "recognized": true,
+#    "minPoly": "x^4 - 10*x^2 + 1",
+#    "degree": 4,
+#    "coefficients": [1, 0, -10, 0, 1],   // ascending: a0..ad
+#    "precision_used": 200,
+#    "elapsed_ms": N}
+# Response on no relation:
+#   {"ok": true, "recognized": false, "precision_used": 200, "elapsed_ms": N}
+#
+# Approach: PSLQ on the polynomial basis [1, α, α², ..., α^d]
+# recovers the integer relation a0 + a1·α + a2·α² + ... + ad·α^d ≈ 0.
+# That IS the minimal polynomial (or an integer multiple). The
+# historical Phase 26 doc called this the "LLL slice" and proposed
+# wrapping Nemo.jl's FLINT-backed LLL; for v1 we observe that PSLQ
+# on the polynomial basis is mathematically equivalent for this
+# specific problem (single-row lattice reduction) and reuses the
+# already-imported mpmath/PyCall infrastructure with zero new
+# Julia-side dependencies. If a future workload demands the
+# higher-dimensional LLL features (cryptanalysis-size lattices),
+# the slice can be re-engineered against Nemo.jl without changing
+# the HTTP contract.
+#
+# Safety: same value-string validation as /recognise/constant.
+# degreeBound clamped to [MIN_LLL_DEGREE, MAX_LLL_DEGREE].
+# maxcoeff is wider than PSLQ-on-constants because minimal-polynomial
+# coefficients can legitimately reach into the thousands (e.g.,
+# Chebyshev-like algebraic numbers).
+
+const MIN_LLL_DEGREE   = 2     # degree 1 is trivially α = -a0/a1
+const MAX_LLL_DEGREE   = 12    # higher than this and PSLQ noise dominates
+const DEFAULT_LLL_DEGREE = 4   # matches the §26.3 acceptance bar (√2+√3)
+const MAX_LLL_COEFF    = 10_000
+
+"""
+    render_polynomial(coefficients) -> String
+
+Build a clean polynomial string from an ascending coefficient
+array `[a0, a1, ..., ad]`. Examples:
+  [1, 0, -10, 0, 1] → "x^4 - 10*x^2 + 1"
+  [-1, 0, 1]        → "x^2 - 1"
+  [0, 0, 1]         → "x^2"
+  [5]               → "5"
+"""
+function render_polynomial(coefficients::Vector{Int})::String
+    n = length(coefficients)
+    parts = String[]
+    # Walk degrees high-to-low for natural reading order.
+    for i in n:-1:1
+        a = coefficients[i]
+        a == 0 && continue
+        degree = i - 1
+        mag = abs(a)
+        # Variable part: "x^degree" / "x" / "" (for the constant term)
+        var_part = if degree == 0
+            ""
+        elseif degree == 1
+            "x"
+        else
+            "x^$(degree)"
+        end
+        # Coefficient part: "n*" prefix for mag != 1 (or for the constant
+        # term, just the magnitude); for mag == 1 and degree > 0, omit
+        # the coefficient entirely.
+        coeff_part = if degree == 0
+            string(mag)
+        elseif mag == 1
+            ""
+        else
+            "$(mag)*"
+        end
+        term = coeff_part * var_part
+        sign = if isempty(parts)
+            a < 0 ? "-" : ""
+        else
+            a < 0 ? " - " : " + "
+        end
+        push!(parts, sign * term)
+    end
+    return isempty(parts) ? "0" : join(parts)
+end
+
+function handle_recognise_minpoly(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_minpoly", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    value_str = String(get(body, :value, ""))
+    if isempty(value_str)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_minpoly", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'value' is required (decimal-string form)", elapsed_ms)
+    end
+    if length(value_str) > PSLQ_MAX_VALUE_LEN
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_minpoly", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'value' exceeds $(PSLQ_MAX_VALUE_LEN)-char cap", elapsed_ms)
+    end
+    if !occursin(PSLQ_VALUE_PATTERN, value_str)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_minpoly", elapsed_ms, :safety_reject)
+        return error_response("safety_reject",
+            "Field 'value' must be a plain decimal string " *
+            "(matching $(PSLQ_VALUE_PATTERN))", elapsed_ms)
+    end
+
+    degree_raw = get(body, :degreeBound, DEFAULT_LLL_DEGREE)
+    degree = if degree_raw isa Integer && degree_raw > 0
+        clamp(Int(degree_raw), MIN_LLL_DEGREE, MAX_LLL_DEGREE)
+    else
+        DEFAULT_LLL_DEGREE
+    end
+
+    precision_raw = get(body, :precisionDigits, PSLQ_DEFAULT_PRECISION)
+    precision = if precision_raw isa Integer && precision_raw > 0
+        clamp(Int(precision_raw), PSLQ_MIN_PRECISION, PSLQ_MAX_PRECISION)
+    else
+        PSLQ_DEFAULT_PRECISION
+    end
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        mpmath = pyimport("mpmath")
+        mpmath.mp.dps = precision
+
+        alpha = mpmath.mpf(value_str)
+        # Build [1, α, α², ..., α^degree]
+        basis = Vector{Any}(undef, degree + 1)
+        basis[1] = mpmath.mpf(1)
+        basis[2] = alpha
+        for k in 3:(degree + 1)
+            basis[k] = basis[k-1] * alpha
+        end
+
+        input_precision = estimate_input_precision(value_str)
+        tol_exp = min(div(precision, 2), max(input_precision - 5, 10))
+        tol = mpmath.mpf(10)^(-tol_exp)
+
+        rel_py = mpmath.pslq(basis, tol=tol, maxcoeff=MAX_LLL_COEFF)
+
+        if rel_py === nothing
+            value = Dict{String,Any}(
+                "recognized"     => false,
+                "precision_used" => precision,
+                "degree_bound"   => degree,
+            )
+        else
+            coefficients = convert(Vector{Int}, rel_py)
+            # Reject "trivial" polynomials (all-zero or single-term).
+            nonzero_count = count(c -> c != 0, coefficients)
+            if nonzero_count < 2
+                value = Dict{String,Any}(
+                    "recognized"     => false,
+                    "precision_used" => precision,
+                    "degree_bound"   => degree,
+                    "_pslq_returned" => "trivial relation ($nonzero_count nonzero coeffs)",
+                )
+            elseif any(abs(c) > MAX_LLL_COEFF for c in coefficients)
+                value = Dict{String,Any}(
+                    "recognized"     => false,
+                    "precision_used" => precision,
+                    "degree_bound"   => degree,
+                    "_pslq_returned" => "relation rejected as noisy " *
+                                       "(max |coeff| > $(MAX_LLL_COEFF))",
+                )
+            else
+                # Compute actual degree (highest nonzero coefficient).
+                actual_degree = 0
+                for i in length(coefficients):-1:1
+                    if coefficients[i] != 0
+                        actual_degree = i - 1
+                        break
+                    end
+                end
+                # Conventional normalisation: leading coefficient
+                # positive. If it's negative, negate the whole relation.
+                if coefficients[actual_degree + 1] < 0
+                    coefficients = [-c for c in coefficients]
+                end
+                minpoly_str = render_polynomial(coefficients)
+                value = Dict{String,Any}(
+                    "recognized"     => true,
+                    "minPoly"        => minpoly_str,
+                    "degree"         => actual_degree,
+                    "coefficients"   => coefficients,
+                    "precision_used" => precision,
+                )
+            end
+        end
+    catch e
+        outcome = :error
+        value = "mpmath/pslq threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("recognise_minpoly", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("recognise_minpoly", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+

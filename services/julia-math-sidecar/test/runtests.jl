@@ -628,6 +628,109 @@ end
     # confirming the safety filter didn't reject the input.)
 end
 
+# ---------------------------------------------------------------------
+# /recognise/minpoly — minimal polynomial recovery (phase-26 §26.3)
+# ---------------------------------------------------------------------
+
+function _recognise_minpoly(value, degreeBound=4, precision=200)
+    body = Dict("value"=>value, "degreeBound"=>degreeBound,
+                "precisionDigits"=>precision)
+    req = HTTP.Request("POST", "/recognise/minpoly",
+                       ["Content-Type"=>"application/json"],
+                       Vector{UInt8}(JSON3.write(body)))
+    resp = JuliaMathSidecar.handle_recognise_minpoly(req)
+    return resp.status, JSON3.read(String(copy(resp.body)))
+end
+
+@testset "/recognise/minpoly classical algebraics (phase-26 §26.3)" begin
+
+    @testset "√2 + √3 → x^4 - 10*x^2 + 1 (canonical §26.3 case)" begin
+        status, body = _recognise_minpoly(
+            "3.14626436994197234232913506571557044551247712918732870123248671744266549537090707593153372",
+            4)
+        @test status == 200
+        @test body[:ok] == true
+        @test body[:recognized] == true
+        @test String(body[:minPoly]) == "x^4 - 10*x^2 + 1"
+        @test body[:degree] == 4
+        @test Int.(body[:coefficients]) == [1, 0, -10, 0, 1]
+    end
+
+    @testset "√2 → x^2 - 2" begin
+        status, body = _recognise_minpoly(
+            "1.41421356237309504880168872420969807856967187537694807317667973799073247846210703885038753",
+            2)
+        @test body[:recognized] == true
+        @test String(body[:minPoly]) == "x^2 - 2"
+        @test body[:degree] == 2
+        @test Int.(body[:coefficients]) == [-2, 0, 1]
+    end
+
+    @testset "golden ratio (1+√5)/2 → x^2 - x - 1" begin
+        status, body = _recognise_minpoly(
+            "1.6180339887498948482045868343656381177203091798057628621354486227052604628189024497072072",
+            2)
+        @test body[:recognized] == true
+        @test String(body[:minPoly]) == "x^2 - x - 1"
+        @test Int.(body[:coefficients]) == [-1, -1, 1]
+    end
+
+    @testset "∛2 → x^3 - 2" begin
+        status, body = _recognise_minpoly(
+            "1.25992104989487316476721060727822835057025146470150798008197511215529967651395948372939656",
+            3)
+        @test body[:recognized] == true
+        @test String(body[:minPoly]) == "x^3 - 2"
+        @test body[:degree] == 3
+    end
+
+    @testset "π → no_match at degree 4 (transcendental)" begin
+        status, body = _recognise_minpoly(
+            "3.14159265358979323846264338327950288419716939937510582097494459230781640628620899862803482",
+            4)
+        @test body[:recognized] == false
+    end
+
+    @testset "leading coefficient normalised positive" begin
+        # The √2 case at degree 2 — PSLQ might return ±(a0, a1, a2);
+        # the handler normalises so a_d > 0.
+        status, body = _recognise_minpoly(
+            "1.41421356237309504880168872420969807856967187537694807317667973799073247846210703885038753",
+            2)
+        coeffs = Int.(body[:coefficients])
+        @test coeffs[end] > 0  # leading coefficient must be positive
+    end
+end
+
+@testset "/recognise/minpoly input validation (phase-26 §26.3)" begin
+    # Missing value
+    status, body = _recognise_minpoly("")
+    @test status == 400 && body[:ok] == false
+
+    # Safety reject
+    status, body = _recognise_minpoly("__import__('os').system('rm')")
+    @test status == 400
+    @test String(body[:error]) == "safety_reject"
+
+    # Out-of-range degreeBound clamps silently (doesn't reject) — both
+    # degree=0 and degree=99 land within [MIN_LLL_DEGREE, MAX_LLL_DEGREE].
+    status, body = _recognise_minpoly(
+        "1.41421356237309504880168872420969807856967187537694807317667973799073247846210703885038753",
+        99)
+    @test status == 200
+    @test body[:ok] == true  # clamped to MAX_LLL_DEGREE=12, recognises fine
+end
+
+@testset "render_polynomial (phase-26 §26.3)" begin
+    @test JuliaMathSidecar.render_polynomial([1, 0, -10, 0, 1]) == "x^4 - 10*x^2 + 1"
+    @test JuliaMathSidecar.render_polynomial([-2, 0, 1]) == "x^2 - 2"
+    @test JuliaMathSidecar.render_polynomial([-1, -1, 1]) == "x^2 - x - 1"
+    @test JuliaMathSidecar.render_polynomial([-2, 0, 0, 1]) == "x^3 - 2"
+    @test JuliaMathSidecar.render_polynomial([5]) == "5"
+    @test JuliaMathSidecar.render_polynomial([0, 0, 1]) == "x^2"
+    @test JuliaMathSidecar.render_polynomial([1, -3, 0, 2]) == "2*x^3 - 3*x + 1"
+end
+
 @testset "estimate_input_precision (phase-26 §26.2)" begin
     # Helper directly — verifies the tolerance heuristic.
     @test JuliaMathSidecar.estimate_input_precision("3.14159") == 6
