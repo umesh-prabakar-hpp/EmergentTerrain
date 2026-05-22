@@ -717,6 +717,145 @@ public class JuliaMathClient {
                 resp.path("elapsed_ms").asLong(0));
     }
 
+    /**
+     * Phase 28 §28.3 — POST /conjecture/seed. Port of the JVM-side
+     * {@link com.emergentterrain.research.conjecture.ConjectureEngine#seed}.
+     * Returns a list of {@link com.emergentterrain.research.conjecture.Inequality}
+     * matching the same wire shape as the in-process call's output —
+     * the §28.3 parity test pins byte-identical scalar comparisons.
+     *
+     * @param samples    list of {name -> value} maps (one per
+     *                   sample/window/tick)
+     * @param vocabulary the conjecture-eligible scalar names
+     */
+    public java.util.List<com.emergentterrain.research.conjecture.Inequality>
+            conjectureSeed(java.util.List<java.util.Map<String, Double>> samples,
+                            java.util.List<String> vocabulary) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("samples", samples);
+        body.put("vocabulary", vocabulary);
+        JsonNode resp = post("/conjecture/seed", body);
+        return parseInequalities(resp.path("inequalities"));
+    }
+
+    /**
+     * Phase 28 §28.3 — POST /conjecture/update. Port of the JVM-side
+     * {@link com.emergentterrain.research.conjecture.ConjectureEngine#update}.
+     * Returns an {@link UpdateResultWire} carrying the new surviving
+     * store + the retired items + the confirmed/retired counts. Unlike
+     * the in-process JVM call (which mutates {@code store} in place),
+     * this returns the new store list — callers should replace their
+     * local copy with {@code result.store()}.
+     */
+    public UpdateResultWire conjectureUpdate(
+            java.util.List<com.emergentterrain.research.conjecture.Inequality> store,
+            String runKey,
+            String configHash,
+            java.util.List<java.util.Map<String, Double>> samples) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("store",      store.stream().map(this::serializeInequality).toList());
+        body.put("runKey",     runKey);
+        body.put("configHash", configHash);
+        body.put("samples",    samples);
+        JsonNode resp = post("/conjecture/update", body);
+        return new UpdateResultWire(
+                resp.path("confirmed").asInt(0),
+                resp.path("retired").asInt(0),
+                parseInequalities(resp.path("retiredItems")),
+                parseInequalities(resp.path("store")));
+    }
+
+    /**
+     * Phase 28 §28.3 — JSON-array → {@code List<Inequality>}. Each
+     * entry is reconstructed via the {@code Inequality.fromFields}
+     * factory so the post-construction mutable state ends up
+     * identical to the in-process path.
+     */
+    private java.util.List<com.emergentterrain.research.conjecture.Inequality>
+            parseInequalities(JsonNode arr) {
+        java.util.List<com.emergentterrain.research.conjecture.Inequality> out =
+                new java.util.ArrayList<>();
+        if (!arr.isArray()) return out;
+        for (JsonNode node : arr) {
+            String lhs = node.path("lhs").asText();
+            String rhs = node.path("rhs").asText();
+            double k = node.path("k").asDouble();
+            double c = node.path("c").asDouble();
+            int confirmedRuns = node.path("confirmedRuns").asInt(0);
+            java.util.List<String> confirmedConfigs = new java.util.ArrayList<>();
+            JsonNode ccArr = node.path("confirmedConfigs");
+            if (ccArr.isArray()) {
+                for (JsonNode v : ccArr) confirmedConfigs.add(v.asText());
+            }
+            java.util.List<com.emergentterrain.research.conjecture.Witness> refutedBy =
+                    new java.util.ArrayList<>();
+            JsonNode rArr = node.path("refutedBy");
+            if (rArr.isArray()) {
+                for (JsonNode w : rArr) {
+                    refutedBy.add(new com.emergentterrain.research.conjecture.Witness(
+                            w.path("runKey").asText(),
+                            w.path("tick").asLong(),
+                            w.path("margin").asDouble()));
+                }
+            }
+            double p99Slack = node.path("p99Slack").asDouble(0.0);
+            java.util.Map<String, Double> slackByConfig = new java.util.LinkedHashMap<>();
+            JsonNode sbc = node.path("slackByConfig");
+            if (sbc.isObject()) {
+                sbc.fields().forEachRemaining(e ->
+                        slackByConfig.put(e.getKey(), e.getValue().asDouble(0.0)));
+            }
+            String droppedByKnob = node.has("droppedByKnob") && !node.get("droppedByKnob").isNull()
+                    ? node.path("droppedByKnob").asText() : null;
+            out.add(com.emergentterrain.research.conjecture.Inequality.fromFields(
+                    lhs, rhs, k, c, confirmedRuns, confirmedConfigs,
+                    refutedBy, p99Slack, slackByConfig, droppedByKnob));
+        }
+        return out;
+    }
+
+    /**
+     * Serialise an Inequality to the wire shape the sidecar expects.
+     * Mirrors {@link #parseInequalities} in reverse — same field
+     * names, same nullability semantics for {@code droppedByKnob}.
+     */
+    private Map<String, Object> serializeInequality(
+            com.emergentterrain.research.conjecture.Inequality ineq) {
+        java.util.LinkedHashMap<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("lhs", ineq.lhs());
+        m.put("rhs", ineq.rhs());
+        m.put("k", ineq.k());
+        m.put("c", ineq.c());
+        m.put("confirmedRuns", ineq.confirmedRuns());
+        m.put("confirmedConfigs", ineq.confirmedConfigs());
+        java.util.List<Map<String, Object>> witnesses = new java.util.ArrayList<>();
+        for (com.emergentterrain.research.conjecture.Witness w : ineq.refutedBy()) {
+            java.util.LinkedHashMap<String, Object> wm = new java.util.LinkedHashMap<>();
+            wm.put("runKey", w.runKey());
+            wm.put("tick", w.tick());
+            wm.put("margin", w.margin());
+            witnesses.add(wm);
+        }
+        m.put("refutedBy", witnesses);
+        m.put("p99Slack", ineq.p99Slack());
+        m.put("slackByConfig", ineq.slackByConfig());
+        m.put("droppedByKnob", ineq.droppedByKnob());
+        return m;
+    }
+
+    /**
+     * Result envelope for {@link #conjectureUpdate}. Carries the new
+     * surviving store (which the caller swaps in for their local list),
+     * the retired entries (with their final witness state), and the
+     * confirmed / retired counts that mirror the in-process
+     * {@code ConjectureEngine.UpdateResult}.
+     */
+    public record UpdateResultWire(
+            int confirmed,
+            int retired,
+            java.util.List<com.emergentterrain.research.conjecture.Inequality> retiredItems,
+            java.util.List<com.emergentterrain.research.conjecture.Inequality> store) {}
+
     // ── Internal HTTP plumbing ───────────────────────────────────────
 
     /**

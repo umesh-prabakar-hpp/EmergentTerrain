@@ -42,6 +42,31 @@ public class Inequality {
         this.c = c;
     }
 
+    /**
+     * Phase 28 §28.3 — full-field factory for wire-roundtrip deserialization.
+     * Used by {@code JuliaMathClient.conjectureSeed} / {@code conjectureUpdate}
+     * to reconstruct Inequality instances from the sidecar's JSON response.
+     * Keeps the per-field setters package-private (so post-construction
+     * mutation stays inside {@link ConjectureEngine}) while still letting
+     * cross-package callers materialise a fully-populated instance.
+     */
+    public static Inequality fromFields(String lhs, String rhs, double k, double c,
+                                         int confirmedRuns,
+                                         List<String> confirmedConfigs,
+                                         List<Witness> refutedBy,
+                                         double p99Slack,
+                                         Map<String, Double> slackByConfig,
+                                         String droppedByKnob) {
+        Inequality ineq = new Inequality(lhs, rhs, k, c);
+        ineq.confirmedRuns = confirmedRuns;
+        if (confirmedConfigs != null) ineq.confirmedConfigs.addAll(confirmedConfigs);
+        if (refutedBy != null)        ineq.refutedBy.addAll(refutedBy);
+        ineq.p99Slack = p99Slack;
+        if (slackByConfig != null)    ineq.slackByConfig.putAll(slackByConfig);
+        ineq.droppedByKnob = droppedByKnob;
+        return ineq;
+    }
+
     public String lhs() { return lhs; }
     public String rhs() { return rhs; }
     public double k() { return k; }
