@@ -61,6 +61,11 @@ function build_router()
     # JVM ConjectureEngine.
     HTTP.register!(router, "POST", "/conjecture/seed",   handle_conjecture_seed)
     HTTP.register!(router, "POST", "/conjecture/update", handle_conjecture_update)
+    # Held-out verification of an Inequality across N disjoint windows
+    # (phase-28 §28.4). Batches what would otherwise be N round-trips
+    # to /numbertheory/window into one call; the JVM ConjectureVerifier
+    # routes here when the conjecture flag is on.
+    HTTP.register!(router, "POST", "/conjecture/verify", handle_conjecture_verify)
     return router
 end
 

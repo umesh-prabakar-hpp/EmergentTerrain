@@ -2599,3 +2599,172 @@ function handle_conjecture_update(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# ---------------------------------------------------------------------
+# /conjecture/verify — held-out verification (phase-28 §28.4)
+# ---------------------------------------------------------------------
+#
+# Body: {lhs, rhs, k, c, windows: [{start, size}, ...]}.
+# Response (ok=true):
+#   {held, worstMargin, worstWindowStart, windowsEvaluated,
+#    windows: [{windowStart, lhsValue, rhsValue, margin, holds}, ...]}
+#
+# Algorithm (mirrors ConjectureVerifier.verify byte-for-byte):
+#   For each requested window:
+#     1. nt_evaluate_window(start, size) → raw BASE map.
+#     2. math_invariants_extract(raw, start, size) → flat map with
+#        BASE + DERIVED + window metadata (_window_start, _window_size,
+#        _tick). _tick = windowStart so the conjecture-engine update
+#        path picks the same tick from the worst sample.
+#     3. lookup lhs, rhs in the flat map (default 0.0 if absent).
+#     4. margin = lhs - (k * rhs + c); holds = margin <= 2*TOL.
+#     5. Track worst margin + corresponding windowStart.
+#
+# Caller-side validation: lhs/rhs must be in the vocabulary
+# (math_invariants_vocabulary). The handler rejects out-of-vocabulary
+# names with bad_request so the engine doesn't silently default to 0.0
+# for a typo.
+
+function handle_conjecture_verify(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    lhs = String(get(body, :lhs, ""))
+    rhs = String(get(body, :rhs, ""))
+    k_raw = get(body, :k, nothing)
+    c_raw = get(body, :c, nothing)
+    windows_raw = get(body, :windows, nothing)
+
+    if isempty(lhs) || isempty(rhs) || k_raw === nothing ||
+            c_raw === nothing || windows_raw === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Required fields: lhs (string), rhs (string), k (number), " *
+            "c (number), windows (array of {start, size})", elapsed_ms)
+    end
+
+    vocab = math_invariants_vocabulary()
+    if !(lhs in vocab)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Unknown lhs scalar '$(lhs)'. Vocabulary: " *
+            join(vocab, ", "), elapsed_ms)
+    end
+    if !(rhs in vocab)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Unknown rhs scalar '$(rhs)'. Vocabulary: " *
+            join(vocab, ", "), elapsed_ms)
+    end
+
+    k = Float64(k_raw)
+    c = Float64(c_raw)
+
+    if !(windows_raw isa AbstractArray)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'windows' must be an array of {start, size} objects",
+            elapsed_ms)
+    end
+
+    # Pre-parse windows so we surface bad shapes before any compute.
+    parsed_windows = Vector{Tuple{Int,Int}}()
+    for (i, w) in enumerate(windows_raw)
+        if !(w isa AbstractDict)
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("conjecture_verify", elapsed_ms, :error)
+            return error_response("bad_request",
+                "windows[$(i-1)] must be an object {start, size}",
+                elapsed_ms)
+        end
+        ws = _deep_plain(w)
+        s_raw = get(ws, "start", nothing)
+        sz_raw = get(ws, "size", nothing)
+        if s_raw === nothing || sz_raw === nothing
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("conjecture_verify", elapsed_ms, :error)
+            return error_response("bad_request",
+                "windows[$(i-1)] missing 'start' or 'size'",
+                elapsed_ms)
+        end
+        s  = Int(s_raw)
+        sz = Int(sz_raw)
+        if s < 0 || sz <= 0
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("conjecture_verify", elapsed_ms, :error)
+            return error_response("bad_request",
+                "windows[$(i-1)] requires start>=0 and size>0", elapsed_ms)
+        end
+        if s + sz > NT_MAX_N + 1
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("conjecture_verify", elapsed_ms, :error)
+            return error_response("bad_request",
+                "windows[$(i-1)] extends to $(s + sz) which exceeds " *
+                "NT_MAX_N=$(NT_MAX_N) + 1", elapsed_ms)
+        end
+        push!(parsed_windows, (s, sz))
+    end
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        held = true
+        worst_margin = -Inf
+        worst_window_start = parsed_windows[1][1]
+        reports = Vector{Dict{String,Any}}()
+        for (s, sz) in parsed_windows
+            raw_pairs = nt_evaluate_window(s, sz)
+            flat_pairs = math_invariants_extract(raw_pairs, s, sz)
+            # Convert to lookup dict for O(1) lhs/rhs access.
+            flat = Dict{String,Float64}()
+            for (name, v) in flat_pairs
+                flat[name] = v
+            end
+            lhs_v = get(flat, lhs, 0.0)
+            rhs_v = get(flat, rhs, 0.0)
+            margin = lhs_v - (k * rhs_v + c)
+            holds = margin <= 2.0 * CONJ_TOL
+            push!(reports, Dict{String,Any}(
+                "windowStart" => s,
+                "lhsValue"    => lhs_v,
+                "rhsValue"    => rhs_v,
+                "margin"      => margin,
+                "holds"       => holds,
+            ))
+            if margin > worst_margin
+                worst_margin       = margin
+                worst_window_start = s
+            end
+            if !holds
+                held = false
+            end
+        end
+        value = Dict{String,Any}(
+            "held"             => held,
+            "worstMargin"      => worst_margin,
+            "worstWindowStart" => worst_window_start,
+            "windowsEvaluated" => length(parsed_windows),
+            "windows"          => reports,
+        )
+    catch e
+        outcome = :error
+        value = "conjecture_verify threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("conjecture_verify", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("conjecture_verify", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+
