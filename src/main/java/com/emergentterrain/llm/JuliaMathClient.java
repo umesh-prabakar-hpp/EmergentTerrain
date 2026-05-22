@@ -856,6 +856,67 @@ public class JuliaMathClient {
             java.util.List<com.emergentterrain.research.conjecture.Inequality> retiredItems,
             java.util.List<com.emergentterrain.research.conjecture.Inequality> store) {}
 
+    /**
+     * Phase 28 §28.4 — POST /conjecture/verify. Held-out verification
+     * of an Inequality across N disjoint windows. Returns a fully-baked
+     * {@link com.emergentterrain.research.conjecture.ConjectureVerifier.VerifyResult}
+     * — the sidecar batches what would otherwise be one
+     * {@code /numbertheory/window} call per disjoint window into a
+     * single round trip + DERIVED extract on the sidecar side.
+     *
+     * @param lhs    left-hand-side scalar name (must be in vocabulary)
+     * @param rhs    right-hand-side scalar name (must be in vocabulary)
+     * @param k      slope coefficient
+     * @param c      intercept (the additive constant being verified)
+     * @param windows list of (start, size) pairs to evaluate disjointly.
+     *                Each window is sent verbatim; caller is responsible
+     *                for arithmetic (e.g. striding by size for disjoint
+     *                evaluation).
+     */
+    public com.emergentterrain.research.conjecture.ConjectureVerifier.VerifyResult
+            conjectureVerify(String lhs, String rhs, double k, double c,
+                              java.util.List<long[]> windows) {
+        java.util.List<Map<String, Object>> windowDicts = new java.util.ArrayList<>();
+        for (long[] w : windows) {
+            if (w.length != 2) {
+                throw new IllegalArgumentException(
+                        "each window must be {start, size}; got length " + w.length);
+            }
+            java.util.LinkedHashMap<String, Object> m = new java.util.LinkedHashMap<>();
+            m.put("start", w[0]);
+            m.put("size",  w[1]);
+            windowDicts.add(m);
+        }
+        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("lhs",     lhs);
+        body.put("rhs",     rhs);
+        body.put("k",       k);
+        body.put("c",       c);
+        body.put("windows", windowDicts);
+        JsonNode resp = post("/conjecture/verify", body);
+
+        java.util.List<com.emergentterrain.research.conjecture.ConjectureVerifier.WindowReport> reports =
+                new java.util.ArrayList<>();
+        JsonNode windowsArr = resp.path("windows");
+        if (windowsArr.isArray()) {
+            for (JsonNode w : windowsArr) {
+                reports.add(new com.emergentterrain.research.conjecture.ConjectureVerifier.WindowReport(
+                        w.path("windowStart").asLong(),
+                        w.path("lhsValue").asDouble(),
+                        w.path("rhsValue").asDouble(),
+                        w.path("margin").asDouble(),
+                        w.path("holds").asBoolean(false)));
+            }
+        }
+        return new com.emergentterrain.research.conjecture.ConjectureVerifier.VerifyResult(
+                lhs, rhs, k, c,
+                resp.path("windowsEvaluated").asInt(0),
+                resp.path("held").asBoolean(false),
+                resp.path("worstMargin").asDouble(),
+                resp.path("worstWindowStart").asLong(),
+                reports);
+    }
+
     // ── Internal HTTP plumbing ───────────────────────────────────────
 
     /**

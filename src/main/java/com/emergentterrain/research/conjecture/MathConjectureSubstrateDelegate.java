@@ -129,6 +129,16 @@ public class MathConjectureSubstrateDelegate {
         return legacy.evaluateWindow(start, size);
     }
 
+    /**
+     * Phase 28 §28.4 — accessor for the wrapped sidecar client.
+     * {@link ConjectureVerifier} reads this to route /conjecture/verify
+     * through the same JuliaMathClient instance. Returns null when no
+     * sidecar is wired.
+     */
+    public JuliaMathClient juliaMathClient() {
+        return juliaMathClient;
+    }
+
     /** Snapshot of dispatch counters. Useful for the §28.2 burn-in audit. */
     public Stats stats() {
         return new Stats(

@@ -108,6 +108,31 @@ public class ConjectureVerifier {
                     "window extends to n=" + maxEvaluated + " which exceeds MAX_N=" + MAX_N);
         }
 
+        // Phase 28 §28.4 — try the sidecar batched verify path first.
+        // One round trip instead of `numWindows` calls to
+        // /numbertheory/window. Any failure (transport, bad_request,
+        // eval_error) falls back to the legacy per-window path below,
+        // logged at WARN. Recognition / verification never blocks on
+        // a sidecar outage.
+        com.emergentterrain.llm.JuliaMathClient sidecarClient = juliaMathClientOrNull();
+        if (sidecarClient != null && sidecarClient.isConjectureAvailable()) {
+            try {
+                List<long[]> windows = new ArrayList<>(numWindows);
+                for (int i = 0; i < numWindows; i++) {
+                    long start = windowStart + (long) i * windowSize;
+                    windows.add(new long[]{start, windowSize});
+                }
+                return sidecarClient.conjectureVerify(lhs, rhs, k, c, windows);
+            } catch (RuntimeException e) {
+                org.slf4j.LoggerFactory.getLogger(ConjectureVerifier.class).warn(
+                        "ConjectureVerifier: sidecar /conjecture/verify failed " +
+                        "(lhs={} rhs={} numWindows={}): {} — falling back to " +
+                        "per-window legacy path",
+                        lhs, rhs, numWindows, e.getMessage());
+                // Fall through to the legacy path below.
+            }
+        }
+
         MathConjectureSubstrateDelegate sub = substrate();
 
         List<WindowReport> reports = new ArrayList<>(numWindows);
@@ -134,6 +159,18 @@ public class ConjectureVerifier {
         }
 
         return new VerifyResult(lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
+    }
+
+    /**
+     * Returns the optional sidecar client used by the §28.4 dispatch.
+     * Resolved through the delegate so a single Spring-wired bean
+     * powers both 28.2 (substrate) and 28.4 (verify). Returns null
+     * when no sidecar client is configured — production keeps the
+     * legacy path live until the conjecture flag flips.
+     */
+    private com.emergentterrain.llm.JuliaMathClient juliaMathClientOrNull() {
+        if (substrateDelegate == null) return null;
+        return substrateDelegate.juliaMathClient();
     }
 
     /**
