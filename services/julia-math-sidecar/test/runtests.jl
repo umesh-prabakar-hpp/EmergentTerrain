@@ -160,6 +160,81 @@ end
     @test folded_sum.degree == 0 && folded_sum.constant && folded_sum.val ≈ 5.0
 end
 
+@testset "run_pysr_pass end-to-end (Lever 1 + 3 regression, phase-24 §24.6)" begin
+    # This test covers the path from equation_search → calculate_pareto_frontier
+    # → get_tree(Expression) → rewrite_for_unscaling(Node). A bug in the
+    # Expression-vs-Node typing shipped in ff4d40e because the synthetic
+    # round-trip test bypassed equation_search; this regression catches
+    # it. y = 7 * x  on a small linear fixture so SR converges fast.
+    n = 12
+    x_vals = collect(range(1.0, 6.0; length=n))
+    y_vals = 7.0 .* x_vals
+    X = reshape(x_vals, 1, n)
+    front, evaluated = JuliaMathSidecar.run_pysr_pass(X, y_vals;
+        auto_normalize = true,
+        ops_strs       = String["+", "-", "*"],
+        binary_ops     = Function[(+), (-), (*)],
+        unary_ops      = Function[],
+        var_names_str  = String["x"],
+        populations    = 4,
+        iterations     = 12,
+        max_complexity = 10,
+        seed           = 42,
+    )
+    @test evaluated > 0
+    @test !isempty(front)
+    best_mse = minimum(Float64(get(e, "mse", Inf)) for e in front)
+    @test best_mse < 1e-10  # search recovers y = 7x to float precision
+
+    # Same pass with auto_normalize=false should also work (covers the
+    # non-rewrite path through get_tree).
+    front_raw, _ = JuliaMathSidecar.run_pysr_pass(X, y_vals;
+        auto_normalize = false,
+        ops_strs       = String["+", "-", "*"],
+        binary_ops     = Function[(+), (-), (*)],
+        unary_ops      = Function[],
+        var_names_str  = String["x"],
+        populations    = 4,
+        iterations     = 12,
+        max_complexity = 10,
+        seed           = 42,
+    )
+    @test !isempty(front_raw)
+end
+
+@testset "fit_looks_stuck (Lever 3, phase-24 §24.6)" begin
+    y = Float64[1.0, 2.0, 3.0, 4.0, 5.0]
+    # A clean fit (mse ~ 0) should NOT look stuck.
+    good_front = [Dict{String,Any}("expr"=>"x", "mse"=>1e-20, "complexity"=>1)]
+    @test !JuliaMathSidecar.fit_looks_stuck(good_front, y)
+    # A bad fit (mse ~ var(y)) SHOULD look stuck.
+    bad_front = [Dict{String,Any}("expr"=>"0", "mse"=>10.0, "complexity"=>1)]
+    @test JuliaMathSidecar.fit_looks_stuck(bad_front, y)
+    # Empty front trips trivially.
+    @test JuliaMathSidecar.fit_looks_stuck(Dict{String,Any}[], y)
+    # Inf mse trips.
+    inf_front = [Dict{String,Any}("expr"=>"oops", "mse"=>Inf, "complexity"=>1)]
+    @test JuliaMathSidecar.fit_looks_stuck(inf_front, y)
+end
+
+@testset "merge_pareto_fronts (Lever 3, phase-24 §24.6)" begin
+    front_a = [
+        Dict{String,Any}("expr"=>"x", "mse"=>1.0, "complexity"=>1),
+        Dict{String,Any}("expr"=>"x*y", "mse"=>0.5, "complexity"=>3),
+    ]
+    front_b = [
+        Dict{String,Any}("expr"=>"x", "mse"=>0.1, "complexity"=>1),  # better mse, same expr
+        Dict{String,Any}("expr"=>"x+y", "mse"=>0.3, "complexity"=>3),
+    ]
+    merged = JuliaMathSidecar.merge_pareto_fronts(front_a, front_b)
+    @test length(merged) == 3   # x deduped; x*y and x+y both kept
+    # x entry should have the better mse (0.1 from front_b)
+    x_entry = first(e for e in merged if e["expr"] == "x")
+    @test x_entry["mse"] ≈ 0.1
+    # Sorted by complexity ascending — `x` first, then `x*y` and `x+y` tied
+    @test merged[1]["complexity"] == 1
+end
+
 # ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------

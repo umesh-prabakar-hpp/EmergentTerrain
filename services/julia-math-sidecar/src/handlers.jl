@@ -31,7 +31,7 @@ using Symbolics
 using Roots
 using QuadGK
 using SymbolicRegression
-using Statistics: median
+using Statistics: median, mean
 
 # ---------------------------------------------------------------------
 # Shared helpers
@@ -922,6 +922,140 @@ function eval_mse_on(tree::Node{T}, X::AbstractMatrix{T}, y::AbstractVector{T}, 
     return sse / n
 end
 
+# ─────────────────────────────────────────────────────────────────────
+# Lever 3 helpers (phase-24 §24.6): one-pass orchestration + stuck-fit
+# detection + Pareto-front merge for the autoRetry path.
+# ─────────────────────────────────────────────────────────────────────
+
+"""
+    run_pysr_pass(X, y; auto_normalize, ...) -> (front, evaluated)
+
+One symbolic-regression pass over (X, y). When `auto_normalize` is
+true, rescales inputs/target via Lever 1 then rewrites returned
+Pareto trees back to the original (unscaled) space. Always returns a
+front sorted by complexity ascending. Caller's `binary_ops` and
+`ops_strs` are not mutated — local copies are made when `*` injection
+is needed.
+"""
+function run_pysr_pass(X::AbstractMatrix{Float64}, y::AbstractVector{Float64};
+                       auto_normalize::Bool,
+                       ops_strs::AbstractVector,
+                       binary_ops::Vector{Function},
+                       unary_ops::Vector{Function},
+                       var_names_str::Vector{String},
+                       populations::Integer,
+                       iterations::Integer,
+                       max_complexity::Integer,
+                       seed::Integer)::Tuple{Vector{Dict{String,Any}}, Int}
+    nvars = size(X, 1)
+
+    local_binary_ops = auto_normalize ? copy(binary_ops) : binary_ops
+    local_ops_strs   = auto_normalize ? String[String(o) for o in ops_strs] : ops_strs
+    mul_op_idx = 0
+    if auto_normalize
+        mul_op_idx = find_or_append_mul!(local_binary_ops, local_ops_strs)
+    end
+
+    s_x, s_y = auto_normalize ?
+        compute_robust_scales(X, y) :
+        (ones(Float64, nvars), 1.0)
+    X_search = auto_normalize ? X ./ s_x : X
+    y_search = auto_normalize ? y ./ s_y : y
+
+    options = SymbolicRegression.Options(;
+        binary_operators = local_binary_ops,
+        unary_operators  = unary_ops,
+        populations      = populations,
+        maxsize          = max_complexity,
+        seed             = seed,
+        verbosity        = 0,
+    )
+    hof = SymbolicRegression.equation_search(
+        X_search, y_search;
+        niterations = iterations,
+        options     = options,
+        variable_names = var_names_str,
+        parallelism = :serial,
+    )
+    members = SymbolicRegression.calculate_pareto_frontier(hof)
+    front = Vector{Dict{String,Any}}()
+    for m in members
+        # `m.tree` is an Expression wrapping a Node; unwrap to a bare
+        # Node{T} so our rewrite helpers (which pattern-match on Node)
+        # can consume it. string_tree / eval_tree_array / compute_complexity
+        # all accept Node directly with the variable_names kwarg.
+        raw_node = SymbolicRegression.get_tree(m.tree)
+        tree_for_caller = auto_normalize ?
+            rewrite_for_unscaling(raw_node, s_x, s_y, mul_op_idx,
+                                   local_binary_ops, unary_ops, options) :
+            raw_node
+        mse_for_caller = auto_normalize ?
+            eval_mse_on(tree_for_caller, X, y, options) :
+            Float64(m.loss)
+        expr_str = SymbolicRegression.string_tree(
+            tree_for_caller, options; variable_names=var_names_str)
+        push!(front, Dict(
+            "expr"       => expr_str,
+            "mse"        => mse_for_caller,
+            "complexity" => Int(SymbolicRegression.compute_complexity(tree_for_caller, options)),
+        ))
+    end
+    sort!(front, by = e -> e["complexity"])
+    return front, length(members)
+end
+
+"""
+    fit_looks_stuck(front, y; nmse_threshold=1e-3) -> Bool
+
+Heuristic: trip when the best Pareto entry's normalized MSE
+(mse / mean(y²)) exceeds the threshold. A "perfect" fit has
+NMSE ~ ε² ≈ 1e-32, so anything above 1e-3 is unambiguously a
+bad fit. Empty fronts and `Inf` mse always trip.
+"""
+function fit_looks_stuck(front::Vector{Dict{String,Any}}, y::AbstractVector{Float64};
+                         nmse_threshold::Float64=1e-3)::Bool
+    isempty(front) && return true
+    best_mse = minimum(Float64(get(e, "mse", Inf)) for e in front)
+    if !isfinite(best_mse)
+        return true
+    end
+    y_var = mean(y .^ 2)
+    if y_var <= 0
+        return false
+    end
+    return (best_mse / y_var) > nmse_threshold
+end
+
+"""
+    merge_pareto_fronts(front_a, front_b) -> merged
+
+Concatenate two fronts and dedup by the printed `expr` string,
+keeping the entry with the smallest `mse` within each duplicate
+group. Result is sorted by complexity ascending. Used to combine
+the first pass and the autoRetry pass without returning two
+parallel fronts to the caller.
+"""
+function merge_pareto_fronts(front_a::Vector{Dict{String,Any}},
+                              front_b::Vector{Dict{String,Any}})::Vector{Dict{String,Any}}
+    by_expr = Dict{String, Dict{String,Any}}()
+    for entry in Iterators.flatten((front_a, front_b))
+        key = String(get(entry, "expr", ""))
+        existing = get(by_expr, key, nothing)
+        if existing === nothing
+            by_expr[key] = entry
+        else
+            mse_existing = Float64(get(existing, "mse", Inf))
+            mse_new      = Float64(get(entry,    "mse", Inf))
+            if mse_new < mse_existing
+                by_expr[key] = entry
+            end
+        end
+    end
+    merged = collect(values(by_expr))
+    sort!(merged, by = e -> Int(get(e, "complexity", 0)))
+    return merged
+end
+
 function handle_pysr(req::HTTP.Request)
     t0 = time_ns()
 
@@ -1019,24 +1153,13 @@ function handle_pysr(req::HTTP.Request)
     end
     binary_ops, unary_ops = split_pysr_operators(ops_strs)
 
-    # --- 3.5. Auto-normalize prep (Lever 1, phase-24 §24.6) ----------
-    # When the caller sets `autoNormalize: true`, rescale X and y so
-    # the constant optimizer searches in its natural [0.1, 10] range
-    # rather than fighting float64 precision on astronomical inputs.
-    # Per-Pareto-entry tree rewriting happens after the search; see §6.
+    # --- 3.5. Lever 1 + Lever 3 flag parsing (phase-24 §24.6) --------
+    # Both default false for back-compat. autoNormalize rescales
+    # inputs/target around the search (Lever 1); autoRetry re-runs
+    # with autoNormalize forced on if the first pass produces a
+    # stuck-looking fit (Lever 3 lazy trigger).
     auto_normalize = get(body, :autoNormalize, false) === true
-    mul_op_idx = 0
-    if auto_normalize
-        # Mutable Vector{String} so find_or_append_mul! can push without
-        # aliasing the JSON3 input.
-        ops_strs = String[String(o) for o in ops_strs]
-        mul_op_idx = find_or_append_mul!(binary_ops, ops_strs)
-    end
-    s_x, s_y = auto_normalize ?
-        compute_robust_scales(X, y) :
-        (ones(Float64, nvars), 1.0)
-    X_search = auto_normalize ? X ./ s_x : X
-    y_search = auto_normalize ? y ./ s_y : y
+    auto_retry     = get(body, :autoRetry,     false) === true
 
     # --- 4. Search parameters ---------------------------------------
     populations = get(body, :populations,       DEFAULT_PYSR_POPULATIONS)
@@ -1075,59 +1198,47 @@ function handle_pysr(req::HTTP.Request)
         end
     end
 
-    # --- 6. Run the search inside timed_evaluate, releasing the lock
-    # via try/finally so even a timeout/error path clears it.
+    # --- 6. Run the search(es) inside timed_evaluate, releasing the
+    # lock via try/finally so even a timeout/error path clears it.
+    # First pass uses the caller's autoNormalize as-is. If autoRetry
+    # is on, the first pass wasn't already auto-normalized, and the
+    # best fit looks stuck, we run a second pass with autoNormalize=true
+    # and merge the two Pareto fronts.
     outcome = :error
     value = "uninitialised"
     try
         outcome, value = timed_evaluate(timeout_ms) do
-            options = SymbolicRegression.Options(;
-                binary_operators = binary_ops,
-                unary_operators  = unary_ops,
-                populations      = populations,
-                maxsize          = max_complexity,
-                seed             = seed,
-                verbosity        = 0,
+            front_1, eval_1 = run_pysr_pass(X, y;
+                auto_normalize = auto_normalize,
+                ops_strs       = ops_strs,
+                binary_ops     = binary_ops,
+                unary_ops      = unary_ops,
+                var_names_str  = var_names_str,
+                populations    = populations,
+                iterations     = iterations,
+                max_complexity = max_complexity,
+                seed           = seed,
             )
-            hof = SymbolicRegression.equation_search(
-                X_search, y_search;
-                niterations = iterations,
-                options     = options,
-                variable_names = var_names_str,
-                parallelism = :serial,
-            )
-            # Convert the hall-of-fame to a Pareto front sorted by
-            # complexity ascending. Each entry: (expr_string, mse, complexity).
-            #
-            # `string_tree` is the canonical printer in SymbolicRegression.jl;
-            # it honours variable_names so the LLM sees `x * y` rather than
-            # the internal `x0 * x1` positional form. Cost of the rename
-            # is one pass over the tree; trivial relative to the search.
-            #
-            # When `auto_normalize` is on, each Pareto entry's tree is
-            # rewritten to the original (unscaled) input space and its
-            # mse is recomputed against the unscaled (X, y). Untouched
-            # otherwise, so default callers see exactly the old shape.
-            members = SymbolicRegression.calculate_pareto_frontier(hof)
-            front = Vector{Dict{String,Any}}()
-            for m in members
-                tree_for_caller = auto_normalize ?
-                    rewrite_for_unscaling(m.tree, s_x, s_y, mul_op_idx,
-                                           binary_ops, unary_ops, options) :
-                    m.tree
-                mse_for_caller = auto_normalize ?
-                    eval_mse_on(tree_for_caller, X, y, options) :
-                    Float64(m.loss)
-                expr_str = SymbolicRegression.string_tree(
-                    tree_for_caller, options; variable_names=var_names_str)
-                push!(front, Dict(
-                    "expr"       => expr_str,
-                    "mse"        => mse_for_caller,
-                    "complexity" => Int(SymbolicRegression.compute_complexity(tree_for_caller, options)),
-                ))
+            retried = false
+            merged = front_1
+            evaluated_total = eval_1
+            if auto_retry && !auto_normalize && fit_looks_stuck(front_1, y)
+                front_2, eval_2 = run_pysr_pass(X, y;
+                    auto_normalize = true,
+                    ops_strs       = ops_strs,
+                    binary_ops     = binary_ops,
+                    unary_ops      = unary_ops,
+                    var_names_str  = var_names_str,
+                    populations    = populations,
+                    iterations     = iterations,
+                    max_complexity = max_complexity,
+                    seed           = seed,
+                )
+                merged = merge_pareto_fronts(front_1, front_2)
+                evaluated_total = eval_1 + eval_2
+                retried = true
             end
-            sort!(front, by = e -> e["complexity"])
-            (pareto = front, evaluated = length(members))
+            (pareto = merged, evaluated = evaluated_total, retried = retried)
         end
     finally
         unlock(PYSR_LOCK)
@@ -1146,6 +1257,7 @@ function handle_pysr(req::HTTP.Request)
         return ok_response(elapsed_ms, Dict(
             "pareto"    => value.pareto,
             "evaluated" => value.evaluated,
+            "retried"   => value.retried,
         ))
     end
 end
