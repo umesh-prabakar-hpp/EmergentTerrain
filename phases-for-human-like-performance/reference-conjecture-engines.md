@@ -318,15 +318,16 @@ no guaranteed GPU**.
 | Engine | Implementation | Field served | Example call → result | Why it fits | Phase doc |
 |---|---|---|---|---|---|
 | **PySR** (SymbolicRegression.jl) | separate (Julia sidecar peer service, port 8088) | PHYSICS, MATERIALS, TERRESTRIAL, UNDERWATER | Input: table of `(m1, m2, r, F)` rows from a gravity sweep. Output Pareto front, simplest entry: `F = 6.67e-11 · m1 · m2 / r²` (Newton's law recovered, mse ≈ 1e-9). | Julia-native — reuses the existing `julia-math-sidecar` instead of adding a runtime. CPU-only with tunable population × iteration budget. Configurable wall-clock cap. Biggest single unlock for non-math domains: turns parameter sweeps into candidate laws. | `phase-24-pysr-symbolic-regression.md` |
-| **Zeilberger/WZ + Gosper + Sister Celine** (SymPy) | attached (Python subprocess per call) | MATHEMATICS (combinatorial identities) | Input: summand `binomial(n,k)`, `var=k`, bounds `0..n`. Output: `status=proved`, `result=2**n`, `certificate=k/(n-k+1)` (WZ certificate; identity Σ C(n,k) = 2ⁿ mechanically proven). | Python subprocess at ~10 s budget per call. Emits a **machine certificate** that mechanically proves the identity — the first tool in the suite that can legitimately earn `EvidenceLabel.THEOREM`. | `phase-25-sympy-identity-prover.md` |
-| **PSLQ via mpmath** + **OEIS Superseeker** | attached (Python subprocess for PSLQ; HTTP + Postgres cache for OEIS) | MATHEMATICS, PHYSICS (constant/sequence recognition) | PSLQ input: `1.2020569031595942...` against BASIC basis → `recognized=ζ(3)`. Superseeker input: `[1,1,2,3,5,8,13]` → `A000045` (Fibonacci, identity transform). | mpmath PSLQ runs at 200-digit precision in ~1 s per call against a small basis. OEIS Superseeker is HTTP + a local cache. Bundled into one "recognise the constant" pass right after refinement. Strengthens citation precision; cleans the conjecture queue of rediscoveries. | `phase-26-constant-recognition-pass.md` |
+| **Zeilberger/WZ + Gosper + Sister Celine** (SymPy) | separate (Julia sidecar — SymPy via PyCall.jl) | MATHEMATICS (combinatorial identities) | Input: summand `binomial(n,k)`, `var=k`, bounds `0..n`. Output: `status=proved`, `result=2**n`, `certificate=...` (WZ certificate; identity Σ C(n,k) = 2ⁿ mechanically proven — exact certificate string TBD against real `prove_identity` output). | SymPy embedded in the Julia sidecar via PyCall.jl: one process lifecycle, no per-call subprocess startup. Emits a **machine certificate** that mechanically proves the identity — the first tool in the suite that can legitimately earn `EvidenceLabel.THEOREM`. | `phase-25-sympy-identity-prover.md` |
+| **PSLQ via mpmath** | separate (Julia sidecar — Arb-based PSLQ in Julia; PyCall→mpmath fallback) | MATHEMATICS, PHYSICS (constant recognition) | Input: `1.2020569031595942...` against BASIC basis → `recognized=ζ(3)`. | 200-digit-precision integer-relation search against a small basis, ~1 s/call. Hosted inside the sidecar — no separate Python subprocess. Strengthens citation precision when refinement produces a known constant. | `phase-26-constant-recognition-pass.md` |
+| **OEIS Superseeker** | attached (HTTP call from Julia sidecar; Postgres cache shared via JVM repo) | MATHEMATICS (sequence recognition) | Input: `[1,1,2,3,5,8,13]` → `A000045` (Fibonacci, identity transform). | HTTP + local cache covers full OEIS plus the 18 standard transforms. Bundled into the same "recognise" pass as PSLQ; cleans the conjecture queue of rediscoveries. | `phase-26-constant-recognition-pass.md` |
 
 ### Tier 2 — worthwhile if the math lane proves out
 
 | Engine | Implementation | Field served | Example call → result | Why it's Tier-2 | Phase doc |
 |---|---|---|---|---|---|
 | **Conjecturing** (Sage) | separate (nightly cron/systemd batch; JSON dropoff → ingest endpoint) | MATHEMATICS, GRAPH-THEORY, INTERDISCIPLINARY | Input: graph corpus order ≤ 7 + 30 graph invariants. Output sample inequality: `α(G) + χ(G) ≤ n(G) + 1` (Nordhaus-Gaddum-style, survives the Dalmatian filter on every graph in the corpus). | Generalises the Phase-23 Dalmatian miner to arbitrary `(object, invariant)` tuples; ships with ~400 invariants via `objects-invariants-properties`. Heavy install (~1.5 GB Sage), runs as nightly batch off the hot path. Only worth paying if Phase 23.8 calibration shows the Java miner's invariant pool is the bottleneck. | `phase-27-conjecturing-sage-batch.md` |
-| **LLL** (FPLLL / NTL) | attached (native C++ subprocess) | MATHEMATICS, PHYSICS | Input: `1.6180339887498948...`, degree bound 2. Output: `minPoly = x² − x − 1` (golden ratio recovered as algebraic number). Higher-degree example: `√2 + √3 ≈ 3.1462643...` → `x⁴ − 10x² + 1`. | Complements PSLQ for closed-form / minimal-polynomial recovery on high-precision constants. Modest lattice dimensions only (≤30). Native subprocess dependency. Folded into the Phase 26 doc as a flag-gated optional layer; ship the binary only when a specific paper demands it. | bundled in `phase-26-constant-recognition-pass.md` (§26.3) |
+| **LLL** (Nemo.jl over FLINT) | separate (Julia sidecar — `Nemo.jl` wraps FLINT's LLL) | MATHEMATICS, PHYSICS | Input: `1.6180339887498948...`, degree bound 2. Output: `minPoly = x² − x − 1` (golden ratio recovered as algebraic number). Higher-degree example: `√2 + √3 ≈ 3.1462643...` → `x⁴ − 10x² + 1`. | Complements PSLQ for closed-form / minimal-polynomial recovery. Modest lattice dimensions only (≤30). `Nemo.jl` is already in the Julia ecosystem — no FPLLL native subprocess or extra binary needed. Folded into the Phase 26 doc as a flag-gated optional layer. | bundled in `phase-26-constant-recognition-pass.md` (§26.3) |
 
 ### Tier 3 — skip given current resources
 
@@ -340,34 +341,48 @@ no guaranteed GPU**.
 | **Inverse Symbolic Calculator** | Web-service only (no source). PSLQ in-process covers the same surface for our basis sets. |
 | **Eureqa** | Proprietary; PySR is the open replacement. |
 | **Graffiti / Graffiti.pc / AutoGraphiX** | Closed-source or binary-only. Conjecturing covers most of the same ground openly. AGX is a candidate v2 add behind a subprocess wrapper if extremal-graph optimisation becomes a paper kind. |
+| **AM / EURISKO / HR / HR3** | Historical theory-formation systems. AM and EURISKO were never publicly released; HR3 has no official repo (only `HRLPlus`, a partial successor). Spiritually closer to a general AGI research line than to a tool that slots into the EmergentTerrain narration pipeline. Out-of-scope on availability grounds, not technical merit. |
 
 ### Recommended sequence
 
 1. **Phase 24 — PySR via the Julia sidecar.** Biggest reach: unlocks
    the PHYSICS/MATERIALS/TERRESTRIAL/UNDERWATER conjecture lane that
-   Phase 23.7 currently gates on. ~5 days. Flag-gated dormant.
+   Phase 23.7 currently gates on. ~5 days. Flag-gated dormant under
+   `app.julia.pysr.enabled` (default off). §24.1–§24.5 code complete
+   as of 2026-05-22; awaiting operator deploy + corpus-level
+   verification checks.
 2. **Phase 25 — SymPy combinatorial-identity prover.** Cheapest
    `EvidenceLabel.THEOREM` win for the math lane. ~6 days. Flag-gated
-   dormant.
+   dormant under `app.julia.sympy.enabled` (default off). **Hosted
+   inside the Julia sidecar via PyCall.jl** — see Decisions block
+   below.
 3. **Phase 26 — Constant recognition pass.** Bundles PSLQ + OEIS
    Superseeker + (optional) LLL into one "recognise" step in
-   `maybeRefineComputation`. ~6.5 days without LLL, ~8.5 with.
-   Flag-gated dormant.
+   `maybeRefineComputation`. ~6.5 days without LLL, ~8.5 with (LLL
+   adds ~2 days, accounted within Phase 26 §26.3). Flag-gated dormant
+   under `app.julia.recognise.enabled` (default off). **All three
+   layers hosted in the Julia sidecar** — see Decisions block below.
 4. **Phase 27 — Conjecturing in Sage** (deferred). Gated on Phase
-   23.8 calibration. ~8.5 days when it lands.
+   23.8 calibration. ~8.5 days when it lands. Stays a separate
+   nightly batch — not folded into the sidecar.
 
-Total Tier-1 effort: ~17.5 days end-to-end. Tier-2 adds ~8.5 more
-contingent on calibration.
+Total Tier-1 effort: ~17.5 days end-to-end (5 + 6 + 6.5; LLL is the
++2-day delta). Tier-2 adds ~8.5 days more for Conjecturing,
+contingent on Phase 23.8 calibration.
 
 ### Why this shape
 
 - **Reuse infrastructure already paid for.** PySR slots into the
-  Julia sidecar (Phase 22). The SymPy / mpmath subprocesses share a
-  pattern with `JuliaMathClient` (Phase 22.2). OEIS Superseeker
-  extends the cache pattern from `OeisCatalog` (Phase 23.2).
-- **Don't add long-running services.** Three new subprocess-shaped
-  integrations (SymPy, mpmath PSLQ, FPLLL); zero new long-running
-  daemons. Sage in Phase 27 is a batch, not a peer service.
+  Julia sidecar (Phase 22). Phase 25 SymPy and Phase 26 PSLQ ride
+  the same sidecar via PyCall.jl / native Julia — no new
+  subprocess type spawned from the JVM. OEIS Superseeker extends
+  the cache pattern from `OeisCatalog` (Phase 23.2).
+- **One operator-visible sidecar.** The decision below collapses
+  what was originally three subprocess-shaped integrations (SymPy,
+  mpmath PSLQ, FPLLL) into endpoints on the existing
+  `julia-math-sidecar`. One health probe, one deploy unit, one log
+  stream. Sage in Phase 27 remains a separate batch, not a peer
+  service.
 - **Match engine cost to expected value.** Heavy engines
   (Ramanujan Machine, AI Feynman, AlphaProof) are deferred not
   because they're bad but because their compute envelope exceeds
@@ -378,3 +393,100 @@ contingent on calibration.
   both strengthen the audit trail for claims the LLM panel
   currently has to take on faith. This compounds with Phase 23.6's
   `EvidenceLabel` floor instead of adding new ungrounded surface.
+
+---
+
+## Decisions — Julia consolidation (2026-05-22)
+
+After auditing the JVM-side conjecture + math surface against the
+existing Julia sidecar, the following direction was set. Drivers:
+collapse three planned subprocess types into the sidecar, eliminate
+the FPLLL native dependency outright, and keep `MathToolSuite`'s
+tool-routing surface in the JVM while moving the compute body to
+Julia.
+
+### Slice 1 — Pure-compute move from JVM into the sidecar
+
+Port the following JVM classes to Julia sidecar endpoints. Each
+gets a corresponding HTTP route; the JVM classes become thin
+delegators behind `app.julia.conjecture.enabled` (default off),
+preserving the legacy in-process path during burn-in per the
+flag-gated-dormant pattern.
+
+| JVM class today | Sidecar endpoint | Notes |
+|---|---|---|
+| `MathConjectureSubstrate.java` (SPF sieve + 9 window scalars) | `POST /numbertheory/window {start, size}` | Trivial port — `Primes.jl` + sieve. Batched: one call per window, not per `n`. |
+| `MathInvariants.java` (5 derived scalars) | folded into `/numbertheory/window` response | Algebraic compositions; no separate endpoint needed. |
+| `MathPhysicsEngine.java` (closed-form physics topics) | `POST /physics/topic {domain, topicIdx, params}` | Topic registry stays JVM-side; sidecar implements the formulae. |
+| `DynamicComputeEngine.java` (predicate / metric scans) | `POST /predicate/scan {spec, window}` | Reuses Julia number-theory helpers; replaces JVM Symja eval for this lane. |
+| `ConjectureEngine.java` (Dalmatian seed/rank/refute) | `POST /conjecture/seed {samples}` and `POST /conjecture/update {existing, samples}` | Numeric only; Pearson + `tightestKC` are short in Julia. |
+| `ConjectureVerifier.java` (held-out-window verification) | `POST /conjecture/verify {inequality, windows}` | Returns per-window margins + held/refuted verdict. |
+
+**Stays in the JVM:**
+- `ConjectureMinerService.java` — `@Scheduled` orchestrator. The
+  schedule stays; per-cycle compute body calls the sidecar.
+- `Conjecture` entity + `ConjectureRepository` + `ConjectureMapper`
+  + `ConjectureTopicProvider` + `ConjectureQueue` — Spring/JPA
+  persistence and Spring wiring.
+- `MathToolSuite.java` — tool JSON schema + routing. LLM harness
+  lives in the JVM.
+- `OeisCatalog.java` + `OeisAnnotator.java` — the lookup map can
+  move; the orchestration pass stays JVM-side.
+- `SandboxEngine.java` — the LLM-pseudocode interpreter with
+  5K-iter / 50K-stmt / 64-frame safety caps. Math primitives
+  delegate to the sidecar; the **safety controller stays JVM-side**
+  (Julia's sandboxing primitives are weaker; re-implementing the
+  safety layer in Julia is the work, not the value).
+- `SymbolicEngine.java` (Symja) — deprecate gradually. `Julia
+  /eval` already covers this; remove once Phase 24/25/26 are live
+  and the fallback hasn't fired in production for one release.
+
+**Tracking:** slice 1 is not yet a phase doc; capture as a
+follow-on once Phases 25 + 26 land, since the sidecar API surface
+those two add (PyCall + recognise endpoints) defines the patterns
+slice 1 will follow.
+
+### Slice 2 — Phase 26 redirected to Julia-resident
+
+- **LLL:** implement via `Nemo.jl` (wraps FLINT). No FPLLL native
+  subprocess, no FPLLL build step on the deploy host. Phase 26
+  §26.3 drops from "optional native binary" to "optional Julia
+  endpoint, flag-gated within the sidecar."
+- **PSLQ:** prefer a native Julia implementation (Arb / `BigFloat`,
+  ~few-hundred-line port of the standard algorithm). PyCall→mpmath
+  is the fallback if precision regression is observed during burn-in.
+- **OEIS Superseeker:** HTTP call hosted in the Julia sidecar.
+  Cache writes flow back to Postgres through the JVM repo (single
+  source of truth on the cache).
+
+Net effect on Phase 26: zero JVM-spawned Python subprocesses, zero
+FPLLL native dependency. The phase doc retains the recognise-stage
+pipeline but reroutes all three engines through the sidecar — see
+the phase-26 doc's decision-update preamble.
+
+### Slice 3 — Phase 25 SymPy via PyCall.jl
+
+SymPy stays the engine (Julia has no first-class WZ/Gosper/Sister
+Celine implementation). Invocation path changes from "Python
+subprocess per call from the JVM" to **"SymPy embedded in the Julia
+sidecar via PyCall.jl,"** giving one process lifecycle and
+amortizing Python startup cost across calls.
+
+The Python install dependency is unchanged in surface area — the
+operator still installs Python + SymPy — but it now lives inside
+the sidecar's environment rather than as a separate subprocess
+type the JVM has to manage. Safety isolation (no-net, RLIMIT,
+expression denylist) moves into the PyCall wrapper.
+
+### What this does **not** change
+
+- Phase 27 (Conjecturing / Sage). Sage is a ~1.5 GB install and
+  spawns its own Python+C++ stack; not worth pulling into the
+  sidecar. Stays a nightly batch.
+- GPU Rust engine (`GpuEngineAdapter` + gRPC). Different concern,
+  different process, unchanged.
+- LLM tool harness, `MathToolSuite` schema, Spring scheduling and
+  persistence — all JVM-side, unchanged.
+- The decision to keep flag-gated-dormant defaults: every new
+  endpoint ships behind a `@Value`-injected `app.julia.*.enabled`
+  flag default `false`, matching the project pattern.

@@ -6,6 +6,65 @@ phase because they all answer variants of the same question:
 **"this number / sequence the refinement just produced — is it
 something already known?"**
 
+---
+
+## Decision update — 2026-05-22 (supersedes subprocess architecture below)
+
+**All three recognition engines now host inside the Julia sidecar
+(`julia-math-sidecar`, port 8088). No Python subprocess spawned from
+the JVM. No FPLLL native binary.** See
+`reference-conjecture-engines.md` § "Decisions — Julia consolidation
+(2026-05-22)" for the framing.
+
+Specifically:
+
+- **PSLQ:** native Julia implementation against `Arb` / `BigFloat`
+  (~few-hundred-line port of the standard algorithm). PyCall→mpmath
+  is the *fallback* if burn-in shows precision regression vs a
+  reference run. The sections labelled "PslqRecogniserClient + mpmath
+  subprocess" in §26.2 below describe the **historical** plan and do
+  not reflect the current direction.
+- **LLL:** `Nemo.jl` wraps FLINT's LLL — no FPLLL build, no
+  `scripts/lll_recogniser/` C++ binary, no subprocess dependency.
+  Replaces §26.3's "wrapped through a small C++ binary" plan
+  outright. §26.3 becomes a sidecar endpoint behind
+  `app.julia.recognise.lll.enabled` (default off).
+- **OEIS Superseeker:** HTTP call hosted in the Julia sidecar.
+  Cache writes flow back to Postgres through the JVM's
+  `OeisCatalog` repo (single cache source of truth, even though
+  the lookup originates in Julia). §26.1's overall pipeline stands
+  — only the caller changes.
+
+**New endpoints expected on the sidecar:**
+
+| Route | Replaces | Returns |
+|---|---|---|
+| `POST /recognise/constant` | PslqRecogniserClient subprocess | `{recognized, name, basis, citation}` or `none` |
+| `POST /recognise/sequence` | OeisSuperseekerClient HTTP+cache | `{recognized, oeis_id, transform_chain, citation}` or `none` |
+| `POST /recognise/minpoly` | LllRecogniserClient binary | `{minPoly, degree, evidence}` or `none` |
+
+**Java client surface stays:** `ConstantRecognitionService` +
+`{Pslq,Oeis,Lll}RecogniserClient` peers. They all call the sidecar
+via the same HTTP shape `JuliaMathClient` uses; safety isolation
+(timeout, denylist, value-range checks) moves into the sidecar.
+
+**Flag knob:** `app.julia.recognise.enabled` (master flag, default
+off), with sub-flags `app.julia.recognise.lll.enabled` for the LLL
+layer. Matches the flag-gated-dormant pattern.
+
+**Effort impact:** roughly neutral. Saves the FPLLL build/distribute
+work (~1 day) and the JVM-side subprocess plumbing for two engines
+(~0.5 day), but pays for native PSLQ in Julia (~1 day). Net ~6-7
+days, LLL included — slightly under the original "~8.5 with LLL"
+estimate.
+
+Detailed phasing rewrite is deferred until the phase starts; §26.4
+(`ConstantRecognitionService` + narration wiring) and §26.5
+(conjecture-miner integration) and §26.6 (acceptance + rollout) are
+not affected by this change.
+
+---
+
 **Motivation.** `ResearchNarrationService.maybeRefineComputation`
 already runs an optional pass that turns LLM-suggested numerics
 into refined numerics (via Julia sidecar / Symja / GPU). What

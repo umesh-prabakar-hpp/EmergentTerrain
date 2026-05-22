@@ -1,7 +1,46 @@
 # Phase 25 — SymPy Combinatorial-Identity Prover (Gosper / WZ / Sister Celine)
 
-**Status (2026-05-22):** DRAFT. Not started. Independent of Phase 22
-(Julia sidecar) and Phase 24 (PySR). Useful as soon as it lands.
+**Status (2026-05-22):** DRAFT. Not started. **Depends on Phase 22**
+(Julia sidecar) per the 2026-05-22 consolidation decision — see
+`reference-conjecture-engines.md` § "Decisions — Julia consolidation
+(2026-05-22)". Phase 24 (PySR) need not have shipped, but the sidecar
+must be live.
+
+---
+
+## Decision update — 2026-05-22 (supersedes the architecture below)
+
+**Invocation path changed from "Python subprocess per call from the
+JVM" to "SymPy embedded in the Julia sidecar via `PyCall.jl`."**
+
+The sections labelled "Why a Python subprocess, not JEP/Jython/JNI,"
+"Why subprocess each call vs long-lived worker," and the
+ProcessBuilder / RLIMIT machinery in §25.1–25.3 below are kept as
+historical context but **do not reflect the current direction**.
+When this phase starts, the implementation rewrites against:
+
+- A `/prove_identity` HTTP route on `julia-math-sidecar` (port 8088).
+- `PyCall.jl` initialised at sidecar startup with SymPy imported
+  once; per-call cost amortizes to a Python function dispatch
+  rather than a 150ms+ interpreter cold start.
+- Safety isolation moves into the PyCall wrapper: expression
+  denylist (`__`, `os.`, `subprocess.`, backticks) applied before
+  the call; wall-clock timeout enforced by Julia (`Base.timedwait`
+  or `Task` + interrupt) since RLIMIT no longer applies in-process.
+- Flag: `app.julia.sympy.enabled` (default off). The Java client
+  `SympyIdentityClient` becomes a peer of `JuliaMathClient.pysr()`
+  — same HTTP shape, same `JuliaSidecarReporter` accounting.
+
+Rationale: one operator-visible sidecar instead of JVM-spawned
+Python subprocesses; one Python install footprint (unchanged in
+surface area, but living inside the sidecar's environment); no
+per-call subprocess startup cost.
+
+Detailed phasing rewrite is deferred until the phase actually
+starts; the §25.4 reviewer-panel integration and §25.5 acceptance
+work are not affected by this change.
+
+---
 
 **Motivation.** Phase 23.6 introduced the `EvidenceLabel` floor
 (`THEOREM` / `EMPIRICAL_RESULT` / `CONJECTURE` /
