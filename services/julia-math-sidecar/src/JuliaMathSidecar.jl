@@ -61,6 +61,7 @@ include("predicate.jl")          # /predicate/scan interpreter (phase-28 §28.5a
 # small and new ports land cleanly. Order matters: per-domain impls
 # must be loaded before the dispatch file that references them.
 include("physics_mathematics.jl") # MATHEMATICS domain (phase-28 §28.5b/cont/cont2/cont3).
+include("physics_physics.jl")    # PHYSICS domain (phase-28 §28.5c).
 include("physics.jl")            # physics_compute dispatch (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.

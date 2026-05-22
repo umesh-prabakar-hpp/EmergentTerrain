@@ -9,7 +9,7 @@
 # new domain ports land cleanly:
 #
 #   physics_mathematics.jl  — MATHEMATICS (topics 0..9+, fully ported)
-#   physics_physics.jl      — PHYSICS              (TODO)
+#   physics_physics.jl      — PHYSICS     (topic 0 ported; 1..9+ pending)
 #   physics_materials.jl    — MATERIALS            (TODO)
 #   physics_interdisc.jl    — INTERDISCIPLINARY    (TODO)
 #   physics_biology.jl      — BIOLOGY              (TODO)
@@ -39,9 +39,10 @@ legacy.
 Ported domains:
   MATHEMATICS — topics 0..9+ (all topics; topic 9+ routes to the
                               JVM `default` branch, squarefreeDensity)
+  PHYSICS     — topic 0 (projectileWithDrag); 1..9+ pending
 
 Pending domains (each will gain a `physics_<domain>.jl` file):
-  PHYSICS, MATERIALS, INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
+  MATERIALS, INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
   ARCHITECTURE_TERRESTRIAL, ARCHITECTURE_LIQUID, ARCHITECTURE_SPACE.
 """
 function physics_compute(domain::String, topic_idx::Integer,
@@ -49,6 +50,8 @@ function physics_compute(domain::String, topic_idx::Integer,
                           sp::Dict{String,Any})::Union{Dict{String,Any}, Nothing}
     if domain == "MATHEMATICS"
         return physics_compute_mathematics(topic_idx, param1, param2, sp)
+    elseif domain == "PHYSICS"
+        return physics_compute_physics(topic_idx, param1, param2, sp)
     end
     # Not ported. JVM caller falls back to in-process MathPhysicsEngine.
     return nothing
