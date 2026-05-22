@@ -890,13 +890,21 @@ public class ResearchNarrationService {
             // produced any valid tool output still publishes; the only papers
             // suppressed are those with literally no successful computation —
             // which is exactly the fabrication signal refresh #3 named.
-            if (metrics.totalSuccesses() == 0) {
+            // 2026-05-21 strengthening — P-a328-865/880/890 reached publish with
+            // empty profTrace despite prof:ok being stamped. ToolMetrics and
+            // profTrace are evidently diverging on some path (fallback chain
+            // retaining metrics from a discarded handle?). Belt-and-suspenders:
+            // suppress if EITHER counter is zero. Root cause for the divergence
+            // is a separate follow-up; this defensive AND prevents the leak now.
+            if (metrics.totalSuccesses() == 0 || profTrace == null || profTrace.isEmpty()) {
                 callPath.add("prof:" + abbrev(router.primaryModel())
-                        + ":zero_successes→suppressed");
-                log.warn("LLM professor tools: 0 successes (rejects={}) paperId={} — draft suppressed "
-                                + "(Phase 12 D3; fabrication pattern from REVIEW_REPORT.md refresh #3 "
-                                + "P-395/402/405/411/422)",
-                        metrics.totalRejects(), draft.paperId());
+                        + ":empty_trace→suppressed");
+                log.warn("LLM professor tools: 0 successes (rejects={}) traceSize={} paperId={} — "
+                                + "draft suppressed (Phase 12 D3 + 2026-05-21 strengthening; "
+                                + "patterns P-395/402/405/411/422, P-865/880/890)",
+                        metrics.totalRejects(),
+                        profTrace == null ? 0 : profTrace.size(),
+                        draft.paperId());
                 return null;
             }
             callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");

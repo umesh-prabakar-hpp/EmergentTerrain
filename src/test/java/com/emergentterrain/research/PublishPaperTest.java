@@ -62,6 +62,7 @@ class PublishPaperTest {
     private boolean uncertaintyDisclosureEnabled = false;
     /** Phase 14 F5: tests that exercise the missing-Methods gate set this via {@link #enableMissingMethodsGate()}. */
     private boolean missingMethodsGateEnabled = false;
+    private String  missingMethodsGateMode    = "downgrade";
     /** Phase 14 F3: tests that exercise the single-point-sweep validator set this via {@link #enableSinglePointSweep()}. */
     private boolean singlePointSweepEnabled = false;
     /** Phase 14 F4: tests that exercise the direction-of-finding validator set this via {@link #enableDirectionOfFinding()}. */
@@ -151,6 +152,7 @@ class PublishPaperTest {
                 /* closingProseValidatorEnabled          */ closingProseValidatorEnabled,
                 /* uncertaintyDisclosureEnabled          */ uncertaintyDisclosureEnabled,
                 /* missingMethodsGateEnabled             */ missingMethodsGateEnabled,
+                /* missingMethodsGateMode                */ missingMethodsGateMode,
                 /* singlePointSweepEnabled               */ singlePointSweepEnabled,
                 /* directionOfFindingEnabled             */ directionOfFindingEnabled,
                 /* blockCountStampEnabled                */ blockCountStampEnabled,

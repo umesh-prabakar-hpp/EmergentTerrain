@@ -113,6 +113,18 @@ public class UniversityService {
      */
     private final boolean missingMethodsGateEnabled;
     /**
+     * 2026-05-21 — when the gate fires, controls the disposition.
+     * {@code warn} logs only without changing status. {@code downgrade}
+     * (default, legacy behaviour) routes the paper to NEEDS_REVISION via
+     * the status-precedence block, so the empty-trace artefact still lands
+     * on disk. {@code suppress} drops the paper entirely (no addPaper, no
+     * disk write, no DB row), same shape as
+     * {@code numerical-consistency.mode=suppress}. The 2026-05-21 review
+     * batch had three empty-trace papers (P-865/880/890) that the reader
+     * gains nothing from — suppress mode is the natural follow-up.
+     */
+    private final String missingMethodsGateMode;
+    /**
      * Phase 14 F3 — when on, papers whose Findings prose claims a sample
      * count (e.g. "sixteen sampled cases") that exceeds {@code 2 ×
      * trace.size()} publish as NEEDS_REVISION. Addresses the refresh-#2
@@ -283,6 +295,7 @@ public class UniversityService {
             @Value("${app.research.closing-prose-validator.enabled:false}") boolean closingProseValidatorEnabled,
             @Value("${app.research.uncertainty-disclosure.enabled:false}") boolean uncertaintyDisclosureEnabled,
             @Value("${app.research.missing-methods-gate.enabled:false}") boolean missingMethodsGateEnabled,
+            @Value("${app.research.missing-methods-gate.mode:downgrade}") String missingMethodsGateMode,
             @Value("${app.research.single-point-sweep.enabled:false}") boolean singlePointSweepEnabled,
             @Value("${app.research.direction-of-finding.enabled:false}") boolean directionOfFindingEnabled,
             @Value("${app.research.block-count-stamp.enabled:false}") boolean blockCountStampEnabled,
@@ -331,6 +344,7 @@ public class UniversityService {
         this.closingProseValidatorEnabled = closingProseValidatorEnabled;
         this.uncertaintyDisclosureEnabled = uncertaintyDisclosureEnabled;
         this.missingMethodsGateEnabled    = missingMethodsGateEnabled;
+        this.missingMethodsGateMode       = normalizeMode(missingMethodsGateMode);
         this.singlePointSweepEnabled      = singlePointSweepEnabled;
         this.directionOfFindingEnabled    = directionOfFindingEnabled;
         this.blockCountStampEnabled       = blockCountStampEnabled;
@@ -398,9 +412,15 @@ public class UniversityService {
                     + "(Phase 13 E6).");
         }
         if (missingMethodsGateEnabled) {
-            log.info("UniversityService: missing-methods-gate ENABLED — papers reaching "
-                    + "publishPaper with a null or empty tool-call trace publish as "
-                    + "NEEDS_REVISION (Phase 14 F5).");
+            log.info("UniversityService: missing-methods-gate ENABLED mode={} — papers reaching "
+                    + "publishPaper with a null or empty tool-call trace are {} (Phase 14 F5"
+                    + "; 2026-05-21 mode flag added).",
+                    missingMethodsGateMode,
+                    switch (missingMethodsGateMode) {
+                        case "suppress" -> "dropped (no disk write, no DB row)";
+                        case "warn"     -> "logged only (no status change)";
+                        default          -> "published as NEEDS_REVISION";
+                    });
         }
         if (singlePointSweepEnabled) {
             log.info("UniversityService: single-point-sweep ENABLED — papers whose "
@@ -910,6 +930,18 @@ public class UniversityService {
             researchCycleService.decrementDraftQueue();
             return;
         }
+        // 2026-05-21 — when missing-methods mode is `suppress`, drop the
+        // empty-trace paper entirely. Same shape as the numerical-consistency
+        // suppress branch above. The 2026-05-21 batch produced three empty-
+        // trace papers (P-865/880/890) where readers gain nothing from a
+        // NEEDS_REVISION stamp (no Methods section to revise). Default mode
+        // is `downgrade`, preserving the prior status-precedence behaviour.
+        if (noMethods && "suppress".equals(missingMethodsGateMode)) {
+            log.warn("missing-methods→suppressed paperId={} (toolCallTrace null/empty)",
+                    draft.paperId());
+            researchCycleService.decrementDraftQueue();
+            return;
+        }
         // Phase 12 D2 — when mode is `downgrade`, override findings + conclusion
         // with an honest NULL_RESULT preamble naming the first few unverifiable
         // values so readers can see exactly which numerics the validator couldn't
@@ -947,11 +979,14 @@ public class UniversityService {
             // G6 / D6: a content-quality issue that revision can fix by
             // adding the ± clause or the "exact closed form" qualifier.
             paperStatus = "NEEDS_REVISION";
-        } else if (noMethods) {
+        } else if (noMethods && "downgrade".equals(missingMethodsGateMode)) {
             // Phase 14 F5 — missing Methods section. Structurally stronger
             // than uncertaintyMissing (no math at all vs unlabeled math).
             // Slotted at this tier because revision CAN fix it by re-running
             // the professor stage with a non-empty trace.
+            // 2026-05-21 — mode-gated. `suppress` already short-circuited
+            // before status precedence; `warn` falls through to the next
+            // clause; only `downgrade` (legacy default) stamps here.
             paperStatus = "NEEDS_REVISION";
         } else if (singlePointSweep) {
             // Phase 14 F3 — inflated sweep size in Findings. Same tier as

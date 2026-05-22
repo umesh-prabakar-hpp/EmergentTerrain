@@ -244,6 +244,7 @@ class MathPhysicsEngineTest {
                 /* closingProseValidatorEnabled          */ false,
                 /* uncertaintyDisclosureEnabled          */ false,
                 /* missingMethodsGateEnabled             */ false,
+                /* missingMethodsGateMode                */ "downgrade",
                 /* singlePointSweepEnabled               */ false,
                 /* directionOfFindingEnabled             */ false,
                 /* blockCountStampEnabled                */ false,
