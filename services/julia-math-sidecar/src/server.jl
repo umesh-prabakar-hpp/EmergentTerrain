@@ -46,6 +46,9 @@ function build_router()
     # Number-theory window aggregator — port of `MathConjectureSubstrate`
     # (phase-28 §28.1). Numeric input only; no safety filter exposure.
     HTTP.register!(router, "POST", "/numbertheory/window", handle_numbertheory_window)
+    # OEIS Superseeker lookup (phase-26 §26.1). JVM caller is expected to
+    # maintain a Postgres cache; the sidecar only sees cache misses.
+    HTTP.register!(router, "POST", "/recognise/sequence", handle_recognise_sequence)
     return router
 end
 

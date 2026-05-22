@@ -1699,3 +1699,198 @@ function handle_numbertheory_window(req::HTTP.Request)
         ))
     end
 end
+
+# ---------------------------------------------------------------------
+# /recognise/sequence — OEIS Superseeker lookup (phase-26 §26.1)
+# ---------------------------------------------------------------------
+#
+# Body: `{"sequence": [n1, n2, ...], "timeoutMs": optional}`
+# Response on a hit:
+#   {"ok": true, "recognized": true, "oeis_id": "A000045",
+#    "name": "Fibonacci numbers: F(n) = ...",
+#    "transform_chain": "identity", "elapsed_ms": N}
+# Response on no match (still status 200):
+#   {"ok": true, "recognized": false, "elapsed_ms": N}
+#
+# The endpoint calls oeis.org/search via HTTP.jl and parses the JSON
+# response. The JVM caller is expected to maintain a Postgres cache;
+# the sidecar talks to OEIS only on cache miss. OEIS asks for
+# ≤1 req/sec — we don't enforce that on the sidecar side because
+# the JVM cache absorbs all repeated lookups; bare-host call volume
+# is tiny in practice.
+#
+# Errors:
+#   - bad_request (400) — non-array sequence, sequence too short
+#     (<4 elements; Superseeker needs enough terms to disambiguate),
+#     non-integer elements, or sequence length > MAX_OEIS_TERMS.
+#   - transport (502) — couldn't reach oeis.org (network, timeout,
+#     rate-limit). Surfaces as `ok=false` so the caller can degrade
+#     to "naked decimal" rather than escalate.
+#   - eval_error (500) — unexpected exception during parse.
+
+const OEIS_BASE_URL = "https://oeis.org/search"
+const OEIS_USER_AGENT = "EmergentTerrain/26.1 (julia-math-sidecar)"
+const MAX_OEIS_TERMS = 32
+const MIN_OEIS_TERMS = 4   # Superseeker needs ≥4 for meaningful disambiguation
+const OEIS_DEFAULT_TIMEOUT_MS = 5_000
+const OEIS_MAX_TIMEOUT_MS     = 15_000
+
+"""
+    classify_transform(query_terms, oeis_data_field) -> String
+
+Compare the queried sequence against the OEIS result's `data` field.
+If the query appears as a contiguous subsequence ANYWHERE in the
+canonical data — at offset 0 or shifted by k terms — this is an
+"identity" match (different OEIS sequences typically use different
+offset conventions; F(0)=0 vs F(1)=1 is the canonical example).
+Otherwise Superseeker matched via a transform (binomial, partial
+sums, etc.) — return `"transformed"` since /search doesn't expose
+the specific chain in v1. A future slice can call /transforms.
+"""
+function classify_transform(query_terms::Vector{<:Integer},
+                            oeis_data::AbstractString)::String
+    # data is "0,1,1,2,3,5,8,13,..." — split on commas, parse to BigInt.
+    canonical = BigInt[]
+    for token in split(oeis_data, ",")
+        v = tryparse(BigInt, strip(String(token)))
+        v === nothing && break  # malformed; stop parsing further terms
+        push!(canonical, v)
+    end
+    nq = length(query_terms)
+    nc = length(canonical)
+    if nc < nq
+        return "transformed"
+    end
+    # Slide the query window over canonical and look for an exact match.
+    @inbounds for start in 1:(nc - nq + 1)
+        matched = true
+        for i in 1:nq
+            if canonical[start + i - 1] != BigInt(query_terms[i])
+                matched = false
+                break
+            end
+        end
+        matched && return "identity"
+    end
+    return "transformed"
+end
+
+function handle_recognise_sequence(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_sequence", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    seq_raw = get(body, :sequence, nothing)
+    if !(seq_raw isa AbstractArray) || isempty(seq_raw)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_sequence", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'sequence' must be a non-empty array of integers",
+            elapsed_ms)
+    end
+    if length(seq_raw) < MIN_OEIS_TERMS
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_sequence", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'sequence' must contain at least $(MIN_OEIS_TERMS) terms " *
+            "(Superseeker needs ≥$(MIN_OEIS_TERMS) for meaningful disambiguation)",
+            elapsed_ms)
+    end
+    if length(seq_raw) > MAX_OEIS_TERMS
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_sequence", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'sequence' exceeds $(MAX_OEIS_TERMS) terms (cap)", elapsed_ms)
+    end
+
+    terms = Vector{Int}(undef, length(seq_raw))
+    @inbounds for (i, v) in enumerate(seq_raw)
+        if !(v isa Integer)
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("recognise_sequence", elapsed_ms, :error)
+            return error_response("bad_request",
+                "sequence[$(i-1)] must be an integer; got $(v)",
+                elapsed_ms)
+        end
+        terms[i] = Int(v)
+    end
+
+    timeout_ms_raw = get(body, :timeoutMs, OEIS_DEFAULT_TIMEOUT_MS)
+    timeout_ms = if timeout_ms_raw isa Integer && timeout_ms_raw > 0
+        min(timeout_ms_raw, OEIS_MAX_TIMEOUT_MS)
+    else
+        OEIS_DEFAULT_TIMEOUT_MS
+    end
+
+    query_part = join(string.(terms), ",")
+    url = "$(OEIS_BASE_URL)?q=signed:$(query_part)&fmt=json&start=0"
+
+    matches_json = try
+        resp = HTTP.get(url;
+            headers = ["User-Agent" => OEIS_USER_AGENT],
+            readtimeout = div(timeout_ms, 1000),
+            connect_timeout = 5,
+        )
+        if resp.status != 200
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("recognise_sequence", elapsed_ms, :error)
+            # OEIS returns 429 under rate limit; we treat any non-200 as
+            # transport so the caller degrades to "no match" gracefully.
+            return error_response("transport",
+                "OEIS /search returned status $(resp.status)", elapsed_ms,
+                status=502)
+        end
+        JSON3.read(String(resp.body))
+    catch e
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("recognise_sequence", elapsed_ms, :error)
+        return error_response("transport",
+            "OEIS /search unreachable: $(sprint(showerror, e))",
+            elapsed_ms, status=502)
+    end
+
+    # Empty response from /search means no match. Returned shape:
+    # either an array of hits, or an object containing {results: [...]}
+    # depending on the API mode. The `signed:` query returns an array
+    # directly when matches exist, or an empty/null body when none.
+    matches = if matches_json isa AbstractArray
+        matches_json
+    else
+        []
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+
+    if isempty(matches)
+        record_call!("recognise_sequence", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, Dict(
+            "recognized" => false,
+        ))
+    end
+
+    # First match by relevance (OEIS sorts by relevance by default).
+    top = matches[1]
+    a_number  = get(top, :number, nothing)
+    name      = String(get(top, :name, ""))
+    data_str  = String(get(top, :data, ""))
+
+    if !(a_number isa Integer)
+        record_call!("recognise_sequence", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, Dict("recognized" => false))
+    end
+
+    transform = classify_transform(terms, data_str)
+    oeis_id = "A" * lpad(string(Int(a_number)), 6, '0')
+
+    record_call!("recognise_sequence", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, Dict(
+        "recognized"      => true,
+        "oeis_id"         => oeis_id,
+        "name"            => name,
+        "transform_chain" => transform,
+    ))
+end
