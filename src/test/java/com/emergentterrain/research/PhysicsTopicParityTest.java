@@ -350,16 +350,45 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing — remaining domains ─────────────
+    // ── PHYSICS topic 0 — projectileWithDrag (ported §28.5c) ──
 
     @Test
-    void physicsDomain_notYetPorted_returnsEmpty() {
+    void physicsTopic0_projectileDrag_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // No PHYSICS domain port yet — Optional.empty() across the board.
+        // seedV0 = 10 + param2·5; k = param1/1000. Euler-integrates a
+        // ballistic trajectory under quadratic drag — sensitive to
+        // sin/cos/sqrt bit-identity across the JVM and Julia stacks
+        // because 5000 Euler steps amplify any ulp-scale divergence.
+        // The riemann/euler-product parity (5000-term zeta sum) is the
+        // existence proof that Math.sin/cos/pow agree byte-identically.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 0, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("PHYSICS", 0, 3, 0.0, sp);
-        assertThat(side).as("PHYSICS domain not yet ported").isEmpty();
+                liveClient().physicsTopic("PHYSICS", 0, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 0 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── not_ported routing — remaining PHYSICS topics + other domains ──
+
+    @Test
+    void physicsTopic1_notYetPorted_returnsEmpty() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // PHYSICS topic 1 (pendulumBreakdown) — pending; deferred to
+        // §28.5c continuations.
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 1, 3, 0.0, sp);
+        assertThat(side).as("PHYSICS topic 1 not yet ported").isEmpty();
     }
 
     @Test
