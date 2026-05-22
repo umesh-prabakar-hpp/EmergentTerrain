@@ -649,6 +649,13 @@ app:
     # Panel). Flipped ON 2026-05-17.
     missing-methods-gate:
       enabled: true
+      # 2026-05-21 review surfaced 3 empty-trace papers (P-a328-865, 880, 890)
+      # reaching publish despite enabled=true; the legacy `downgrade` stamp
+      # routed them to NEEDS_REVISION on disk but the reader gains nothing
+      # from an artefact missing its Methods section. Flipped to `suppress`
+      # to drop empty-trace papers entirely (no addPaper, no disk write).
+      # Rollback: set `mode: downgrade`.
+      mode: suppress
     # Phase 14 F3 — when on, papers whose Findings prose claims a sample
     # count exceeding 2 × trace.size() (e.g. "sixteen sampled cases" backed
     # by 1 call) publish as NEEDS_REVISION. Catches refresh-#2 P-494 /
