@@ -917,6 +917,73 @@ public class JuliaMathClient {
                 reports);
     }
 
+    /**
+     * Phase 28 §28.5a — POST /predicate/scan. Numeric port of
+     * {@link com.emergentterrain.research.DynamicComputeEngine#compute}
+     * (interpreter side only — the JVM caller composes the final
+     * findings / hypothesis / equation prose so we avoid byte-identical-
+     * format friction between Java String.format and Julia @sprintf).
+     *
+     * @param predicate    predicate spec (e.g. "isPrime", "isHappy AND isAbundant")
+     * @param metric       "fraction_satisfying", "mean_of:&lt;fnName&gt;", or "max_of:&lt;fnName&gt;"
+     * @param rangeStart   inclusive start; sidecar clamps to >= 1
+     * @param rangeEnd     exclusive end;   sidecar clamps to <= start + MAX_RANGE
+     * @param baseline     prior-predicted value for status classification
+     */
+    public PredicateScanResultWire predicateScan(String predicate, String metric,
+                                                   int rangeStart, int rangeEnd,
+                                                   double baseline) {
+        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("predicate",  predicate);
+        body.put("metric",     metric);
+        body.put("rangeStart", rangeStart);
+        body.put("rangeEnd",   rangeEnd);
+        body.put("baseline",   baseline);
+        JsonNode resp = post("/predicate/scan", body);
+        return new PredicateScanResultWire(
+                resp.path("metric").asText(""),
+                resp.path("count").asInt(0),
+                resp.path("n").asInt(0),
+                resp.path("fraction").asDouble(0.0),
+                resp.path("mean").asDouble(0.0),
+                resp.path("se").asDouble(0.0),
+                resp.path("max").asLong(0),
+                resp.path("primary").asDouble(0.0),
+                resp.path("deviation").asDouble(0.0),
+                resp.path("status").asText(""));
+    }
+
+    /**
+     * Result of {@link #predicateScan}. Numeric scalars + status only —
+     * the JVM caller layers on prose. Field set is the union across
+     * the three metric branches (fraction / mean / max); irrelevant
+     * fields default to 0.0 / 0 / "".
+     *
+     * @param metric    "fraction_satisfying" | "mean_of" | "max_of" | "empty"
+     * @param count     matches in [rangeStart, rangeEnd)
+     * @param n         total integers scanned (after clamp)
+     * @param fraction  count / n (fraction_satisfying only)
+     * @param mean      Welford running mean of val_fn(i) (mean/max only)
+     * @param se        standard error (formula matches DynamicComputeEngine)
+     * @param max       max val_fn(i) over matches (max_of only)
+     * @param primary   primary numeric per metric branch — fraction's
+     *                  deviation OR mean's deviation OR max's value
+     * @param deviation absolute deviation of fraction/mean from baseline
+     * @param status    "SUPPORTED" | "PARTIAL" | "REFUTED" — matches
+     *                  the JVM ClaimStatus enum names
+     */
+    public record PredicateScanResultWire(
+            String metric,
+            int count,
+            int n,
+            double fraction,
+            double mean,
+            double se,
+            long max,
+            double primary,
+            double deviation,
+            String status) {}
+
     // ── Internal HTTP plumbing ───────────────────────────────────────
 
     /**
