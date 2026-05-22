@@ -251,6 +251,20 @@ public class MathToolSuite {
         this.sympyIdentityClient = sympyIdentityClient;
     }
 
+    /**
+     * Phase 28 §28.5 — optional sidecar shadow-read wrapper. Passed
+     * in by {@link ResearchNarrationService} after Spring autowires
+     * its own delegate setter. MathToolSuite is not a Spring bean
+     * (constructed manually inside RNS), so we can't @Autowired here;
+     * RNS bridges the wiring.
+     */
+    private volatile com.emergentterrain.research.MathPhysicsEngineDelegate physicsEngineDelegate;
+
+    public void setPhysicsEngineDelegate(
+            com.emergentterrain.research.MathPhysicsEngineDelegate delegate) {
+        this.physicsEngineDelegate = delegate;
+    }
+
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
     /**
@@ -681,8 +695,10 @@ public class MathToolSuite {
         if (topicIdx < 0) return "Topic not computable via MathPhysicsEngine.";
         try {
             long t = System.currentTimeMillis();
-            MathPhysicsEngine.ResearchResult result =
-                    MathPhysicsEngine.compute(draft.domain(), topicIdx, param1, param2);
+            com.emergentterrain.research.MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
+            MathPhysicsEngine.ResearchResult result = delegate != null
+                    ? delegate.compute(draft.domain(), topicIdx, param1, param2)
+                    : MathPhysicsEngine.compute(draft.domain(), topicIdx, param1, param2);
             log.info("MathToolSuite: run_param_sweep domain={} topic={} param1={} param2={} ms={}",
                     draft.domain(), draft.topicName(), param1, param2, System.currentTimeMillis() - t);
             return "Param sweep (param1=%d, param2=%.1f): %s [Rationale: %s]"

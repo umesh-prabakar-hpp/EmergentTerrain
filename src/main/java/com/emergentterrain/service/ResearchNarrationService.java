@@ -400,6 +400,40 @@ public class ResearchNarrationService {
     }
 
     /**
+     * Phase 28 §28.5 — optional sidecar shadow-read wrapper. Spring
+     * resolves the {@link com.emergentterrain.research.MathPhysicsEngineDelegate}
+     * bean (always present in production); tests that construct this
+     * service directly skip the setter and the legacy in-process
+     * compute path is preserved.
+     *
+     * <p>Propagates to the embedded {@link MathToolSuite} so its
+     * {@code run_param_sweep} tool also runs through the delegate.
+     */
+    private volatile com.emergentterrain.research.MathPhysicsEngineDelegate physicsEngineDelegate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPhysicsEngineDelegate(
+            com.emergentterrain.research.MathPhysicsEngineDelegate delegate) {
+        this.physicsEngineDelegate = delegate;
+        if (this.toolSuite != null) {
+            this.toolSuite.setPhysicsEngineDelegate(delegate);
+        }
+    }
+
+    /**
+     * Centralised dispatch for the two MathPhysicsEngine.compute call
+     * sites in this class — delegate when wired, static when not.
+     */
+    private MathPhysicsEngine.ResearchResult dispatchCompute(
+            String domain, int topicIndex, int param1, double param2,
+            MathPhysicsEngine.SearchParams sp) {
+        com.emergentterrain.research.MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
+        return delegate != null
+                ? delegate.compute(domain, topicIndex, param1, param2, sp)
+                : MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+    }
+
+    /**
      * Returns true when the simulation gate is wired and currently closed, meaning
      * the next Groq-spending stage for this paper should short-circuit. Stamps the
      * callPath with a stage-specific marker so the persisted Call Path explains why
@@ -1944,7 +1978,7 @@ public class ResearchNarrationService {
                 if (topicIdx < 0) return null;
                 MathPhysicsEngine.SearchParams focusSp =
                         new MathPhysicsEngine.SearchParams(0.1, 0.0, 10, 0.5, 0.0);
-                result = MathPhysicsEngine.compute(
+                result = dispatchCompute(
                         draft.domain(), topicIdx, gap.param1(), gap.param2(), focusSp);
             } else {
                 return null;
@@ -2561,7 +2595,7 @@ public class ResearchNarrationService {
                 }
                 visitedParams.add(paramKey);
 
-                MathPhysicsEngine.ResearchResult refined = MathPhysicsEngine.compute(
+                MathPhysicsEngine.ResearchResult refined = dispatchCompute(
                         draft.domain(), topicIdx, decision.param1(), decision.param2(), focusSp);
                 latestRefined = refined;
 
