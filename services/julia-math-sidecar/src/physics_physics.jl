@@ -311,6 +311,164 @@ function physics_van_der_waals_deviation(seed_T::Real, tolerance::Real,
         physics_van_der_waals_deviation_at(seed_T, tolerance) : best
 end
 
+# ---------------------------------------------------------------------
+# PHYSICS topic 3 — diffractionSurvey (line 1422-1453)
+# ---------------------------------------------------------------------
+#
+# Grating-diffraction order count vs wavelength. For grating spacing
+# d (µm) and reference wavelength λ_ref (nm), maxOrder is the largest
+# integer m such that m·λ ≤ d (in matched units; the JVM uses
+# `(int)(dMicrons*1000/lambdaNm)` — truncation toward 0). Sweep a
+# fixed 7-wavelength array {400..700 nm}; record minOrders and
+# maxOrders; primary value is the ratio maxOrders/max(1, minOrders).
+
+# Fixed wavelength sweep — keep as a Tuple so the JIT can specialise.
+const DIFFRACTION_WAVELENGTHS_NM = (400.0, 450.0, 500.0, 550.0, 600.0, 650.0, 700.0)
+
+"""
+    physics_diffraction_survey_at(d_microns, lambda_nm) -> Dict
+
+Inner per-grating: compute maxOrder + first-order angle θ₁ at the
+reference wavelength, then sweep 7 wavelengths to bracket the
+order-count range. Returns the order ratio (primary), maxOrder
+(secondary), θ₁ in degrees (tertiary).
+"""
+function physics_diffraction_survey_at(d_microns::Real, lambda_nm::Real)::Dict{String,Any}
+    # JVM line 1434: `(int)(dMicrons * 1000 / lambdaNm)` — Java casts a
+    # positive double to int by truncation toward 0; Julia's `trunc(Int, ...)`
+    # matches that semantic exactly.
+    max_order = trunc(Int, Float64(d_microns) * 1000.0 / Float64(lambda_nm))
+    theta1 = max_order >= 1 ?
+        rad2deg(asin(min(1.0, Float64(lambda_nm) / (Float64(d_microns) * 1000.0)))) :
+        0.0
+    min_orders = typemax(Int)
+    max_orders = 0
+    for lam in DIFFRACTION_WAVELENGTHS_NM
+        orders = trunc(Int, Float64(d_microns) * 1000.0 / lam)
+        if orders < min_orders; min_orders = orders end
+        if orders > max_orders; max_orders = orders end
+    end
+    order_ratio = Float64(max_orders) / Float64(max(1, min_orders))
+    # JVM line 1446-1452: 3-arg ResearchResult (findings, primary,
+    # secondary, tertiary) → status defaults to OBSERVATIONAL.
+    return Dict{String,Any}(
+        "primaryValue"     => order_ratio,
+        "secondaryValue"   => Float64(max_order),
+        "tertiaryValue"    => theta1,
+        "reviewValue"      => order_ratio,
+        "claimStatus"      => "OBSERVATIONAL",
+        "theoryConsistent" => isfinite(order_ratio) &&
+                              isfinite(Float64(max_order)) && isfinite(theta1),
+        "dMicrons"         => Float64(d_microns),
+        "lambdaNm"         => Float64(lambda_nm),
+        "maxOrder"         => max_order,
+        "theta1"           => theta1,
+        "minOrders"        => min_orders == typemax(Int) ? 0 : min_orders,
+        "maxOrders"        => max_orders,
+        "orderRatio"       => order_ratio,
+    )
+end
+
+"""
+    physics_diffraction_survey(seed_d, lambda_nm, sp) -> Dict
+
+Outer: scan candidateBreadth grating spacings spaced by
+stepSize·0.5 µm starting at max(0.4, seed_d).
+"""
+function physics_diffraction_survey(seed_d::Real, lambda_nm::Real,
+                                     sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best::Union{Nothing, Dict{String,Any}} = nothing
+    best_extreme = -1.0
+    for i in 0:(candidate_breadth - 1)
+        d = max(0.4, Float64(seed_d) + i * step_size * 0.5)
+        r = physics_diffraction_survey_at(d, lambda_nm)
+        if r["primaryValue"] > best_extreme
+            best_extreme = r["primaryValue"]
+            best = r
+        end
+    end
+    return best === nothing ?
+        physics_diffraction_survey_at(seed_d, lambda_nm) : best
+end
+
+# ---------------------------------------------------------------------
+# PHYSICS topic 4 — rlcDampingTransition (line 1457-1488)
+# ---------------------------------------------------------------------
+#
+# RLC resonant circuit. Given L (H), C (F): critR = 2√(L/C), ω₀ = 1/√(L·C),
+# f₀ = ω₀/(2π). Sweep R = critR·mult for 6 fixed multipliers; Q = ω₀·L/R.
+# Outer search uses a DIVISIVE step (L decreases as i increases) per the
+# JVM line 1461: `L = max(1e-5, seedL / (1.0 + i*stepSize*0.2))`.
+
+const RLC_R_MULTIPLIERS = (0.1, 0.25, 0.5, 1.0, 2.0, 4.0)
+
+"""
+    physics_rlc_damping_transition_at(L, C) -> Dict
+
+Inner: for inductance L and capacitance C, compute resonance + a
+Q-factor sweep across 6 R/R_crit multipliers. Returns f₀ (primary),
+critR (secondary), and the Q range ratio maxQ/max(minQ, 1e-10)
+(tertiary).
+"""
+function physics_rlc_damping_transition_at(L::Real, C::Real)::Dict{String,Any}
+    L_f = Float64(L)
+    C_f = Float64(C)
+    crit_R  = 2 * sqrt(L_f / C_f)
+    omega0  = 1 / sqrt(L_f * C_f)
+    f0      = omega0 / (2 * pi)
+    min_Q = floatmax(Float64)
+    max_Q = 0.0
+    for mult in RLC_R_MULTIPLIERS
+        R = crit_R * mult
+        Q = omega0 * L_f / R
+        if Q < min_Q; min_Q = Q end
+        if Q > max_Q; max_Q = Q end
+    end
+    q_range = max_Q / max(min_Q, 1e-10)
+    return Dict{String,Any}(
+        "primaryValue"     => f0,
+        "secondaryValue"   => crit_R,
+        "tertiaryValue"    => q_range,
+        "reviewValue"      => f0,
+        "claimStatus"      => "OBSERVATIONAL",
+        "theoryConsistent" => isfinite(f0) && isfinite(crit_R) && isfinite(q_range),
+        "L"                => L_f,
+        "C"                => C_f,
+        "f0"               => f0,
+        "critR"            => crit_R,
+        "minQ"             => min_Q,
+        "maxQ"             => max_Q,
+        "qRange"           => q_range,
+    )
+end
+
+"""
+    physics_rlc_damping_transition(seed_L, C, sp) -> Dict
+
+Outer: scan candidateBreadth inductances L = max(1e-5, seedL / (1 +
+i·stepSize·0.2)). Note this is a DIVISIVE step — lower L gives
+higher f₀ — per JVM line 1461.
+"""
+function physics_rlc_damping_transition(seed_L::Real, C::Real,
+                                         sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best::Union{Nothing, Dict{String,Any}} = nothing
+    best_extreme = -1.0
+    for i in 0:(candidate_breadth - 1)
+        L = max(1e-5, Float64(seed_L) / (1.0 + i * step_size * 0.2))
+        r = physics_rlc_damping_transition_at(L, C)
+        if r["primaryValue"] > best_extreme
+            best_extreme = r["primaryValue"]
+            best = r
+        end
+    end
+    return best === nothing ?
+        physics_rlc_damping_transition_at(seed_L, C) : best
+end
+
 """
     physics_compute_physics(topic_idx, param1, param2, sp) -> Union{Dict, Nothing}
 
@@ -323,11 +481,12 @@ Ported (topicIdx) → JVM mapping:
   0 → physics_projectile_with_drag(10.0 + param2·5, param1/1000.0)
   1 → physics_pendulum_breakdown(0.1 + param1/200.0)
   2 → physics_van_der_waals_deviation(200.0 + param1·3, 0.01)
+  3 → physics_diffraction_survey(1.0 + param1/50.0, 400.0 + param2·40)
+  4 → physics_rlc_damping_transition(0.001 + param1/10000.0,
+                                      1e-6 + param2·1e-7)
 
 Remaining JVM dispatch (line 1268-1280) — return `nothing` until
 ported in §28.5c continuations:
-  3 — diffractionSurvey
-  4 — rlcDampingTransition
   5 — wienPeak
   6 — schrodingerInfiniteWell
   7 — keplerThirdLaw
@@ -353,7 +512,18 @@ function physics_compute_physics(topic_idx::Integer,
         # JVM line 1271: vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp).
         seed_T = 200.0 + Float64(param1) * 3.0
         return physics_van_der_waals_deviation(seed_T, 0.01, sp)
+    elseif topic_idx == 3
+        # JVM line 1272: diffractionSurvey(1.0 + param1/50.0, 400.0 + param2*40, sp).
+        seed_d   = 1.0 + Float64(param1) / 50.0
+        lambdaNm = 400.0 + Float64(param2) * 40.0
+        return physics_diffraction_survey(seed_d, lambdaNm, sp)
+    elseif topic_idx == 4
+        # JVM line 1273: rlcDampingTransition(0.001 + param1/10000.0,
+        # 1e-6 + param2*1e-7, sp).
+        seed_L = 0.001 + Float64(param1) / 10000.0
+        C      = 1e-6 + Float64(param2) * 1e-7
+        return physics_rlc_damping_transition(seed_L, C, sp)
     end
-    # Topic 3..9+ not yet ported.
+    # Topic 5..9+ not yet ported.
     return nothing
 end
