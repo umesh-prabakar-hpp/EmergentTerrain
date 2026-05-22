@@ -598,6 +598,16 @@ public class MathToolSuite {
         }
         if (!VALID_METRICS.contains(metric))
             return "Invalid metric '" + metric + "'. Use: " + VALID_METRICS;
+        // 2026-05-21 review §1 rec #4 — baseline shape vs metric type. Catches
+        // the P-a328-871 family where the narrator picks a probability-shaped
+        // baseline (≈ 0.3) against a magnitude metric (mean_of:sigmaSum). LLM
+        // sees the rejection synchronously and can correct mid-loop.
+        java.util.Optional<String> baselineErr =
+                com.emergentterrain.research.BaselineMetricRangeValidator
+                        .validate(metric, baseline);
+        if (baselineErr.isPresent()) {
+            return "Invalid baseline: " + baselineErr.get();
+        }
         try {
             long t = System.currentTimeMillis();
             String id = "prof-scan-" + System.currentTimeMillis();
