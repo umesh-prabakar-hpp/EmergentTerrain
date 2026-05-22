@@ -125,10 +125,9 @@ app:
       enabled: false
       timeoutMs: 5000            # per-/numbertheory/* call cap; sidecar clamps at 30s
     # Phase 28 §28.5 — physics-topic delegate (MathPhysicsEngineDelegate).
-    # Flag-gated dormant per [[feedback_flag_gated_dormant]]: §28.5b–§28.5h
-    # ports all 63 MathPhysicsEngine topics across 9 domains to the
-    # sidecar's /physics/topic endpoint; §28.5j-cont2 wires the 5 callers
-    # (ResearchCycleService, BotLifecycleService, ReplicationService,
+    # §28.5b–§28.5h ports all 63 MathPhysicsEngine topics across 9 domains
+    # to the sidecar's /physics/topic endpoint; §28.5j-cont2 wires the 5
+    # callers (ResearchCycleService, BotLifecycleService, ReplicationService,
     # ResearchNarrationService, MathToolSuite) through the delegate seam.
     #
     # When this flag is true, the delegate fires the sidecar in PARALLEL
@@ -139,14 +138,18 @@ app:
     # ResearchResult is ALWAYS the in-process value — shadow read never
     # serves the sidecar's scalars; it only validates them.
     #
-    # §28.6 cutover preconditions (deferred — operational, not a code
-    # lane): parityMismatches == 0 over N-day burn-in window AND
-    # sidecarErrors / shadowCalls < ~0.1%. After that, the delegate
-    # changes to sidecar-primary and the in-process compute path moves
-    # to @Deprecated → removal.
+    # BURN-IN ACTIVE — flipped true on 2026-05-22T21:25Z. Operator watches
+    # the per-1000-match INFO heartbeat for the running totals; any WARN
+    # line containing "parity MISMATCH" stops the burn-in and rolls this
+    # flag back to false until the divergence is investigated.
+    #
+    # §28.6 cutover preconditions: parityMismatches == 0 over N-day
+    # burn-in window AND sidecarErrors / shadowCalls < ~0.1%. After that,
+    # the delegate changes to sidecar-primary and the in-process compute
+    # path moves to @Deprecated → removal.
     physics:
       topic:
-        enabled: false
+        enabled: true
   gpu:
     enabled: true
     world:
