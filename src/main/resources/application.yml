@@ -690,6 +690,17 @@ app:
     unsourced-claim:
       enabled: true
       mode: downgrade
+    # 2026-05-21 review §1 rec #4 follow-up — when on, flags Hypothesis prose
+    # that declares a baseline value not matching any run_predicate_scan
+    # tool-call baseline (P-a328-871 signature: prose said "≈ 0.300" while
+    # the tool was called with baseline=0). Mode escalation:
+    #   warn      — log + stamp publish:prose_baseline_drift:warn, no status change.
+    #   downgrade — route to NEEDS_REVISION with publish:prose_baseline_drift→needs_revision.
+    # Default disabled+warn for rollout; one refresh of warn-mode data should
+    # show the would-be-route rate before any paper status changes.
+    prose-baseline-drift:
+      enabled: true
+      mode: warn
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does

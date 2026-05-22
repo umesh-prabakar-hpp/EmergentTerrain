@@ -178,6 +178,17 @@ public class UniversityService {
      */
     private final boolean unsourcedClaimEnabled;
     private final String  unsourcedClaimMode;
+    /**
+     * 2026-05-21 review §1 rec #4 follow-up — flags hypothesis prose that
+     * declares a baseline value not matching any run_predicate_scan call
+     * in the trace. Mode escalation matches the unsourced-claim pattern:
+     * {@code warn} logs only, {@code downgrade} routes to NEEDS_REVISION
+     * with a {@code publish:prose_baseline_drift→needs_revision} stamp.
+     * Default enabled+warn so the first refresh exposes the false-positive
+     * rate before any paper status changes.
+     */
+    private final boolean proseBaselineDriftEnabled;
+    private final String  proseBaselineDriftMode;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -306,6 +317,8 @@ public class UniversityService {
             @Value("${app.research.topic-clone-backoff.max-retries:3}") int topicCloneBackoffMaxRetries,
             @Value("${app.research.unsourced-claim.enabled:false}") boolean unsourcedClaimEnabled,
             @Value("${app.research.unsourced-claim.mode:warn}") String unsourcedClaimMode,
+            @Value("${app.research.prose-baseline-drift.enabled:false}") boolean proseBaselineDriftEnabled,
+            @Value("${app.research.prose-baseline-drift.mode:warn}") String proseBaselineDriftMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -351,6 +364,8 @@ public class UniversityService {
         this.blockCountGuardEnabled       = blockCountGuardEnabled;
         this.unsourcedClaimEnabled        = unsourcedClaimEnabled;
         this.unsourcedClaimMode           = normalizeMode(unsourcedClaimMode);
+        this.proseBaselineDriftEnabled    = proseBaselineDriftEnabled;
+        this.proseBaselineDriftMode       = normalizeMode(proseBaselineDriftMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -431,6 +446,17 @@ public class UniversityService {
             log.info("UniversityService: direction-of-finding ENABLED — papers whose "
                     + "Conclusion polarity contradicts Findings vs Hypothesis bound "
                     + "publish as NEEDS_REVISION (Phase 14 F4).");
+        }
+        if (proseBaselineDriftEnabled) {
+            log.info("UniversityService: prose-baseline-drift ENABLED mode={} — papers whose "
+                    + "Hypothesis prose cites a baseline value not matching any "
+                    + "run_predicate_scan tool-call baseline are {} (2026-05-21 review §1 rec #4).",
+                    proseBaselineDriftMode,
+                    switch (proseBaselineDriftMode) {
+                        case "downgrade" -> "routed to NEEDS_REVISION";
+                        case "suppress"  -> "dropped";
+                        default           -> "logged only (no status change)";
+                    });
         }
         if (blockCountStampEnabled) {
             log.info("UniversityService: block-count-stamp ENABLED — Findings markdown "
@@ -804,6 +830,22 @@ public class UniversityService {
             log.warn("unsourced-claim check failed paperId={} mode={} reasons={}",
                     draft.paperId(), unsourcedClaimMode, unsourcedClaimFailures);
         }
+        // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose cites a
+        // baseline value (e.g. "≈ 0.300") that no run_predicate_scan tool
+        // call actually used. P-a328-871 wrote "0.300" into prose while
+        // the tool was invoked with baseline=0; the published artifact
+        // looks like 0.300 was tested when the simulator never did.
+        List<String> proseBaselineDriftFailures = proseBaselineDriftEnabled
+                ? ProseBaselineDriftValidator.validate(hypothesis,
+                        narration.toolCallTrace())
+                : List.of();
+        boolean proseBaselineDriftFlagged = !proseBaselineDriftFailures.isEmpty();
+        boolean proseBaselineDriftRoutes  = proseBaselineDriftFlagged
+                && "downgrade".equals(proseBaselineDriftMode);
+        if (proseBaselineDriftFlagged) {
+            log.warn("prose-baseline-drift check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), proseBaselineDriftMode, proseBaselineDriftFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -1005,6 +1047,13 @@ public class UniversityService {
             // Only routes here in mode=downgrade; warn mode stamps without
             // changing status.
             paperStatus = "NEEDS_REVISION";
+        } else if (proseBaselineDriftRoutes) {
+            // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose
+            // cited a baseline the tool call never used. Same tier as
+            // unsourced-claim: revision can fix by either re-running the
+            // predicate scan with the prose baseline or rewriting the
+            // prose to match the args.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1082,6 +1131,16 @@ public class UniversityService {
                     .replaceFirst("\\s.*", "");
             String suffix = unsourcedClaimRoutes ? "→needs_revision" : ":warn";
             String stamp = "publish:unsourced_claim:" + claimType + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
+        }
+        // 2026-05-21 — additive stamp for prose-baseline-drift. Same shape as
+        // unsourced-claim: warn mode stamps :warn so refresh can audit
+        // would-be-route rate; downgrade mode routes via the status above.
+        if (proseBaselineDriftFlagged) {
+            String suffix = proseBaselineDriftRoutes ? "→needs_revision" : ":warn";
+            String stamp = "publish:prose_baseline_drift" + suffix;
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? stamp
                     : persistedCallPath + " → " + stamp;

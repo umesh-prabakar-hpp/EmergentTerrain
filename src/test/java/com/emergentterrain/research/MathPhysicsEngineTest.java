@@ -255,6 +255,8 @@ class MathPhysicsEngineTest {
                 /* topicCloneBackoffMaxRetries   */ 3,
                 /* unsourcedClaimEnabled         */ false,
                 /* unsourcedClaimMode            */ "warn",
+                /* proseBaselineDriftEnabled     */ false,
+                /* proseBaselineDriftMode        */ "warn",
                 mapper);
 
         // Files must be staged AFTER the UniversityService constructor: as of
