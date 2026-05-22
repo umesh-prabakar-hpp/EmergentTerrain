@@ -317,6 +317,13 @@ public class ResearchNarrationService {
             // back to Symja / SandboxEngine.
             @org.springframework.beans.factory.annotation.Autowired(required = false)
             com.emergentterrain.llm.JuliaMathClient juliaMathClient,
+            // Phase 25 §25.3 — optional SymPy identity prover. Same
+            // sidecar as juliaMathClient (PyCall.jl bridge); the
+            // separate bean keeps failure surfaces decoupled. When
+            // null (or app.julia.sympy.enabled=false), MathToolSuite
+            // omits prove_identity from the tool schema.
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.emergentterrain.llm.SympyIdentityClient sympyIdentityClient,
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
             boolean literatureSearchEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
@@ -337,7 +344,8 @@ public class ResearchNarrationService {
         // null (or disabled, or unreachable), the sidecar delegation in
         // MathToolSuite short-circuits and Symja stays the default.
         this.toolSuite                 = new MathToolSuite(router, objectMapper,
-                gpuEngineAdapter, juliaMathClient);
+                gpuEngineAdapter, juliaMathClient, /*conjectureVerifier*/ null,
+                sympyIdentityClient);
         this.objectMapper              = objectMapper;
         this.juliaMathClient           = juliaMathClient;
         this.promptRegistry            = promptRegistry;

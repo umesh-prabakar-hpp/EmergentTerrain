@@ -203,29 +203,52 @@ public class MathToolSuite {
      */
     private final com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier;
 
+    /**
+     * Phase 25 §25.3 — optional SymPy identity prover. When non-null
+     * AND its sidecar path is reachable, {@code toolsJson()} advertises
+     * {@code prove_identity} and the dispatcher routes calls into
+     * {@link com.emergentterrain.llm.SympyIdentityClient}. When null
+     * (the test default), the tool stays absent from the schema so
+     * the LLM never sees a feature it can't call.
+     */
+    private final com.emergentterrain.llm.SympyIdentityClient sympyIdentityClient;
+
     public MathToolSuite(LlmRouter router, ObjectMapper mapper) {
-        this(router, mapper, null, null, null);
+        this(router, mapper, null, null, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper, GpuEngineAdapter gpuEngineAdapter) {
-        this(router, mapper, gpuEngineAdapter, null, null);
+        this(router, mapper, gpuEngineAdapter, null, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper,
                           GpuEngineAdapter gpuEngineAdapter,
                           com.emergentterrain.llm.JuliaMathClient juliaMathClient) {
-        this(router, mapper, gpuEngineAdapter, juliaMathClient, null);
+        this(router, mapper, gpuEngineAdapter, juliaMathClient, null, null);
     }
 
     public MathToolSuite(LlmRouter router, ObjectMapper mapper,
                           GpuEngineAdapter gpuEngineAdapter,
                           com.emergentterrain.llm.JuliaMathClient juliaMathClient,
                           com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier) {
+        this(router, mapper, gpuEngineAdapter, juliaMathClient, conjectureVerifier, null);
+    }
+
+    /**
+     * Canonical constructor. Tests and production code paths funnel
+     * through here; the smaller overloads cascade with nulls.
+     */
+    public MathToolSuite(LlmRouter router, ObjectMapper mapper,
+                          GpuEngineAdapter gpuEngineAdapter,
+                          com.emergentterrain.llm.JuliaMathClient juliaMathClient,
+                          com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier,
+                          com.emergentterrain.llm.SympyIdentityClient sympyIdentityClient) {
         this.router = router;
         this.mapper = mapper;
         this.gpuEngineAdapter = gpuEngineAdapter;
         this.juliaMathClient = juliaMathClient;
         this.conjectureVerifier = conjectureVerifier;
+        this.sympyIdentityClient = sympyIdentityClient;
     }
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
@@ -457,10 +480,12 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
-                        ? SYMBOLIC_REGRESS_TOOL_JSON : "");
+                        ? SYMBOLIC_REGRESS_TOOL_JSON : "",
+                (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
+                        ? PROVE_IDENTITY_TOOL_JSON : "");
     }
 
     /**
@@ -486,6 +511,36 @@ public class MathToolSuite {
                     "rationale":{"type":"string","description":"Why a closed-form fit addresses a specific weakness in the paper (e.g. 'paper observes k between 0.03 and 0.05 across a temperature sweep; check whether a clean Arrhenius form fits')."}
                   },
                   "required":["samples","var_names","rationale"]
+                }
+              }
+            }""";
+
+    /**
+     * Phase 25 §25.3 — prove_identity tool advertised when the Julia
+     * sidecar is up AND app.julia.sympy.enabled=true. Returns a
+     * machine certificate (Gosper antidifference or WZ reduction
+     * chain) alongside the closed form, which the reviewer panel
+     * uses to grant {@code EvidenceLabel.THEOREM} legitimately
+     * (phase 25 §25.4 wires that path).
+     */
+    private static final String PROVE_IDENTITY_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"prove_identity",
+                "description":"Phase 25 — attempt a machine-certified proof of a hypergeometric-sum identity via SymPy's Gosper / Zeilberger-WZ machinery. Input is a summand F(k), a summation variable, lower and upper bounds, and optionally a target closed form. Returns 'proved' with a closed form + certificate string when the sum is hypergeometrically summable, 'no_closed_form' otherwise. Use ONLY on sums of hypergeometric terms (products of factorials, binomials, Pochhammer symbols, rational functions, powers); not appropriate for algebraic identities, geometric theorems, or general real-analysis claims. Examples that resolve: Σ binomial(n,k) for k from 0 to n → 2**n; Σ k·binomial(n,k) → n·2**(n-1); Σ 1/(k·(k+1)) for k from 1 to n → n/(n+1); Σ r**k for k from 0 to n → (r**(n+1)-1)/(r-1). Examples that return no_closed_form: Σ 1/k**2 (harmonic — no hypergeometric closed form), Σ k**k. A successful proof carries a certificate that the reviewer panel can stamp as EvidenceLabel.THEOREM in the published paper's audit trail.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "algorithm":{"type":"string","enum":["gosper","zeilberger_wz","sister_celine","auto"],"description":"Which algorithm to attempt. 'gosper' is cheapest, handles indefinite single-variable antidifferences (Σk, Σr^k). 'zeilberger_wz' handles multi-variable definite sums (Σbinomial(n,k), Σ k·binomial(n,k)). 'sister_celine' routes through the same SymPy summation in v1. 'auto' (recommended) tries Gosper first, falls back to WZ."},
+                    "summand":{"type":"string","maxLength":512,"description":"The summand F(k) as a Python/SymPy expression. May reference the summation variable + free symbols (e.g. n, m). Example: 'binomial(n, k)', 'k**2', 'r**k', '1/(k*(k+1))'."},
+                    "var":{"type":"string","pattern":"^[A-Za-z_][A-Za-z0-9_]*$","description":"Name of the summation variable. Must be a plain identifier."},
+                    "lower":{"type":"string","maxLength":64,"description":"Lower bound expression. Usually an integer literal ('0', '1') but symbolic bounds like 'm' are supported."},
+                    "upper":{"type":"string","maxLength":64,"description":"Upper bound expression. Usually 'n' for symbolic upper bounds; integer literals also OK."},
+                    "target":{"type":"string","maxLength":256,"description":"Optional. Expected closed form for verification mode. Accepted but not yet used by the v1 dispatcher."},
+                    "rationale":{"type":"string","description":"Why proving this identity addresses a specific weakness in the paper (e.g. 'paper claims Σ C(n,k) sums to 2^n but treats it as a conjecture; a machine certificate would let the panel grant THEOREM instead of CONJECTURE')."}
+                  },
+                  "required":["summand","var","lower","upper","rationale"]
                 }
               }
             }""";
@@ -545,6 +600,7 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
+                    case "prove_identity"     -> proveIdentity(args);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -1285,6 +1341,105 @@ public class MathToolSuite {
             sb.append("| ").append(e.complexity()).append(" | ")
               .append(String.format("%.4g", e.mse())).append(" | `")
               .append(e.expression()).append("` |\n");
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Phase 25 §25.3 — prove_identity tool handler. Routes to
+     * {@link com.emergentterrain.llm.SympyIdentityClient#prove}, formats
+     * the proof outcome (or no-closed-form fallback) as a Markdown-friendly
+     * string for the LLM's tool-result channel. A successful proof
+     * includes the certificate verbatim so the panel can sanity-check
+     * that it's a rational function (phase 25 §25.4's panel check).
+     *
+     * <p>Failure paths return plain-text result strings — no exception
+     * thrown — so the professor stage can read the reason and retry
+     * with adjusted args or fall back to surfacing the claim as a
+     * CONJECTURE rather than a THEOREM.
+     */
+    private String proveIdentity(JsonNode args) {
+        if (sympyIdentityClient == null || !sympyIdentityClient.isAvailable()) {
+            return "prove_identity not configured: SymPy sidecar path is unavailable. "
+                    + "Set app.julia.sympy.enabled=true and verify the sidecar is reachable.";
+        }
+        String algorithm = args.path("algorithm").asText("auto");
+        String summand   = args.path("summand").asText("");
+        String var       = args.path("var").asText("");
+        String lower     = args.path("lower").asText("");
+        String upper     = args.path("upper").asText("");
+        String target    = args.has("target") ? args.path("target").asText("") : null;
+
+        if (summand.isBlank()) return "Missing 'summand': must be a non-empty SymPy expression.";
+        if (var.isBlank())     return "Missing 'var': must be a single identifier (e.g. 'k').";
+        if (lower.isBlank())   return "Missing 'lower': must be an integer literal or symbolic expression.";
+        if (upper.isBlank())   return "Missing 'upper': must be an integer literal or symbolic expression.";
+        if (!var.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            return "Invalid 'var' '" + var + "': must match [A-Za-z_][A-Za-z0-9_]*.";
+        }
+        if (!java.util.Set.of("gosper", "zeilberger_wz", "sister_celine", "auto")
+                .contains(algorithm)) {
+            return "Invalid 'algorithm' '" + algorithm
+                    + "': must be one of gosper, zeilberger_wz, sister_celine, auto.";
+        }
+
+        com.emergentterrain.llm.SympyIdentityClient.IdentityProof proof;
+        try {
+            proof = sympyIdentityClient.prove(algorithm, summand, var, lower, upper,
+                    target == null || target.isBlank()
+                            ? java.util.Optional.empty()
+                            : java.util.Optional.of(target));
+        } catch (com.emergentterrain.llm.SympyIdentityException e) {
+            // `busy` is retryable; surface as a hint. `safety_reject`
+            // means the LLM tried an unsafe expression and should
+            // rephrase. Other codes are terminal.
+            if ("busy".equals(e.errorCode())) {
+                return "prove_identity busy: another /prove_identity call is in progress. "
+                        + "Retry after a short delay or move on.";
+            }
+            if ("safety_reject".equals(e.errorCode())) {
+                return "prove_identity safety-rejected: " + e.getMessage()
+                        + ". Rephrase the summand without Python-meta tokens.";
+            }
+            log.warn("MathToolSuite: prove_identity failed code={} msg={}",
+                    e.errorCode(), e.getMessage());
+            return "prove_identity failed (" + e.errorCode() + "): " + e.getMessage();
+        } catch (IllegalArgumentException e) {
+            return "prove_identity rejected: " + e.getMessage();
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("prove_identity: Σ ").append(summand)
+          .append(" for ").append(var).append(" from ").append(lower)
+          .append(" to ").append(upper)
+          .append(". Sidecar wall ").append(proof.wallMs()).append(" ms. ");
+        switch (proof.status()) {
+            case PROVED -> {
+                sb.append("**PROVED** via ").append(proof.algorithmUsed())
+                  .append(".\n\n")
+                  .append("Closed form: `").append(proof.result()).append("`\n\n")
+                  .append("Certificate: `").append(proof.certificate()).append("`\n\n")
+                  .append("This identity is machine-proven and may be cited as ")
+                  .append("EvidenceLabel.THEOREM in the audit trail.");
+            }
+            case RECURRENCE -> {
+                sb.append("**RECURRENCE** via ").append(proof.algorithmUsed())
+                  .append(". The sum satisfies a polynomial recurrence but ")
+                  .append("isn't closed-form.\n\n")
+                  .append("Recurrence: `").append(proof.result()).append("`\n\n")
+                  .append("Certificate: `").append(proof.certificate()).append("`");
+            }
+            case NO_CLOSED_FORM -> {
+                sb.append("**no_closed_form** via ").append(proof.algorithmUsed())
+                  .append(". SymPy could not reduce this sum to a closed ")
+                  .append("form via Gosper/WZ. The claim must remain ")
+                  .append("CONJECTURE / EMPIRICAL_RESULT unless verified by ")
+                  .append("another route.");
+            }
+            case UNKNOWN -> {
+                sb.append("**unknown status** from sidecar (")
+                  .append(proof.algorithmUsed()).append("). Treat as no_closed_form.");
+            }
         }
         return sb.toString();
     }
