@@ -127,4 +127,37 @@ class DirectionOfFindingValidatorTest {
                 "Hypothesis ruled out.");
         assertThat(reasons).hasSize(1);
     }
+
+    // Phase 14 F4-ext (2026-05-21) — three-way contradiction overload.
+
+    @Test
+    void p883SignatureFlagsThreeWayContradiction() {
+        // P-a328-883: Findings cites call_2 returning bestAngle=27.0°; Conclusion
+        // stamps "null result"; trace has 1 successful call. → flag.
+        List<String> reasons = DirectionOfFindingValidator.validate(
+                "Range-optimal angle will be less than the 45° vacuum optimum.",
+                java.util.Map.of(1,
+                        "The optimal launch angle was verified as 27.0° from call_2, "
+                                + "yielding a trajectory range of 34.66 m."),
+                "The pre-registered prediction was not verified by direct computational "
+                        + "evidence; this paper is recorded as a null result.",
+                /* traceSize */ 1);
+        assertThat(reasons).hasSize(1);
+        assertThat(reasons.get(0))
+                .contains("null-result")
+                .contains("size=1");
+    }
+
+    @Test
+    void emptyTraceNullStampIsHonestNotContradictory() {
+        // Trace empty + Conclusion null + Findings has no trace citation → no flag.
+        // This is the honest path: no computation ran, no result claimed.
+        List<String> reasons = DirectionOfFindingValidator.validate(
+                "Range-optimal angle will be less than 45°.",
+                java.util.Map.of(1,
+                        "NULL_RESULT — no tool call executed; hypothesis untested."),
+                "The hypothesis remains untested in this submission.",
+                /* traceSize */ 0);
+        assertThat(reasons).isEmpty();
+    }
 }

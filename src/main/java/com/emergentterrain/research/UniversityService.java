@@ -758,7 +758,8 @@ public class UniversityService {
         // P-491 (0.694% well within 5% but Conclusion "rules out"), P-496
         // (quality-score talk against ratio hypothesis), P-511 (wrong Tc).
         List<String> directionOfFindingFailures = directionOfFindingEnabled
-                ? DirectionOfFindingValidator.validate(hypothesis, findingsBlocks, conclusion)
+                ? DirectionOfFindingValidator.validate(hypothesis, findingsBlocks, conclusion,
+                        narration.toolCallTrace() == null ? 0 : narration.toolCallTrace().size())
                 : List.of();
         boolean directionOfFindingInverted = !directionOfFindingFailures.isEmpty();
         if (directionOfFindingInverted) {

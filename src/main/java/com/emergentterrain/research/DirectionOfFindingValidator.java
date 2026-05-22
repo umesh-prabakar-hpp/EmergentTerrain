@@ -93,6 +93,34 @@ public final class DirectionOfFindingValidator {
                     + "contradicts?\\s+(?:the\\s+)?hypothesis)\\b");
 
     /**
+     * Conclusion stamps the result as a null / untested outcome. Distinct
+     * from CONCLUSION_OUTSIDE (which is a refutation claim): null means the
+     * narrator says "no result was obtained", typically the validator-stub
+     * phrasing or "remains unverified by direct computational evidence".
+     * P-a328-883 carried this against a Findings section that cited
+     * bestAngle=27.0° from call_2 — a concrete positive verification.
+     */
+    private static final Pattern CONCLUSION_NULL = Pattern.compile(
+            "(?i)\\b(?:null\\s+result|"
+                    + "remains?\\s+(?:untested|unverified)|"
+                    + "(?:not|never)\\s+verified|"
+                    + "no\\s+(?:direct\\s+)?computational\\s+evidence|"
+                    + "pre[-\\u2010\\u2011]registered\\s+prediction\\s+(?:was\\s+)?not\\s+verified|"
+                    + "recorded\\s+as\\s+(?:a\\s+)?null\\s+result)\\b");
+
+    /**
+     * Findings prose attributes a concrete numeric value to a specific tool
+     * call — the smoking gun for "the computation ran and produced X". When
+     * this is present alongside a CONCLUSION_NULL stamp AND the trace is
+     * non-empty, the paper is internally contradictory.
+     */
+    private static final Pattern FINDINGS_CITES_TRACE_NUMERIC = Pattern.compile(
+            "(?i)(?:\\[call_\\d+\\]|from\\s+call_?\\d+|tool[-\\s]call\\s*#?\\d+|"
+                    + "call_\\d+\\s+(?:returned|computed|produced|gives?|gave|yields?))"
+                    + ".{0,80}?[0-9]+(?:\\.[0-9]+)?",
+            Pattern.DOTALL);
+
+    /**
      * Returns a single-entry reason list when the Conclusion's polarity
      * contradicts the Findings actual vs Hypothesis bound; empty list
      * otherwise. Returns empty on any ambiguity:
@@ -150,5 +178,42 @@ public final class DirectionOfFindingValidator {
         if (findingsMap == null || findingsMap.isEmpty()) return List.of();
         return validate(hypothesis,
                 MagnitudeRangeValidator.joinBlocks(findingsMap), conclusion);
+    }
+
+    /**
+     * Three-way overload — extends the polarity check with a "Findings has
+     * concrete result + Conclusion stamps null" detection. The trace size
+     * gates the new check: an honestly-empty trace ({@code traceSize == 0})
+     * skips the new check (Conclusion=null is correct when no computation
+     * ran), while a non-empty trace with Findings citing a trace numeric
+     * and Conclusion stamping null triggers the contradiction.
+     *
+     * <p>Target case: P-a328-883. Findings cites
+     * {@code "verified as 27.0°, yielding a trajectory range of 34.66 m"}
+     * (call_2 returned exactly those values), Conclusion stamps
+     * {@code "recorded as a null result"}. The two-arg overload missed
+     * this because the Hypothesis used a directional comparator
+     * ({@code "less than 45°"}) rather than a tolerance, so
+     * HYPOTHESIS_BOUND didn't match.
+     */
+    public static List<String> validate(String hypothesis,
+                                         Map<Integer, String> findingsMap,
+                                         String conclusion,
+                                         int traceSize) {
+        List<String> reasons = new java.util.ArrayList<>(
+                validate(hypothesis, findingsMap, conclusion));
+        if (traceSize > 0 && findingsMap != null && !findingsMap.isEmpty()
+                && conclusion != null) {
+            String joined = MagnitudeRangeValidator.joinBlocks(findingsMap);
+            boolean conclNull = CONCLUSION_NULL.matcher(conclusion).find();
+            boolean findingsCitesTrace =
+                    FINDINGS_CITES_TRACE_NUMERIC.matcher(joined).find();
+            if (conclNull && findingsCitesTrace) {
+                reasons.add("Conclusion stamps null-result but Findings cites "
+                        + "concrete numerics from a non-empty trace (size="
+                        + traceSize + "; Phase 14 F4-ext, 2026-05-21).");
+            }
+        }
+        return reasons;
     }
 }
