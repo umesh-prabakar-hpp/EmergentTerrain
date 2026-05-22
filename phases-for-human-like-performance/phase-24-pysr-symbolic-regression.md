@@ -1,10 +1,26 @@
 # Phase 24 — PySR Symbolic Regression via the Julia Sidecar
 
-**Status (2026-05-22):** DRAFT. Not started. Depends on Phase 22 sidecar
-being live (`app.julia.enabled: true`) and on Phase 23.7 (non-math
-miners) having shipped the substrate for physics/materials parameter
-sweeps the regressor can consume. Both are operator-gated, not
-code-gated.
+**Status (2026-05-22):** CODE COMPLETE. §24.1–§24.4 shipped + tested
+(50/50 + 11/11 + 8/8 + 32/32 + 4/4 + 6/6 = unit/integration passes;
+pre-existing Mockito/Java-25 friction in `MathToolSuiteToolDescriptionTest`
+unrelated to this work). §24.5's offline recovery probe shipped at
+`scripts/pysr-probe/`; the two corpus-level checks (in-corpus uptake +
+math-domain non-regression) remain operator tasks once the production
+sidecar has been restarted with the new binary AND `Pkg.instantiate`
+has pulled SymbolicRegression.jl on the deployment host.
+
+**Live-verification runbook:**
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar
+julia --project=. -e 'using Pkg; Pkg.instantiate()'     # ~5-10 min first run
+./scripts/start.sh                                       # restart sidecar
+cd ../EmergentTerrain
+./scripts/pysr-probe/run.sh                              # acceptance probe
+# If ≥4/5 pass, flip app.julia.pysr.enabled=true in application.yml
+# and let 20 PHYSICS+MATERIALS papers ship before checking corpus uptake.
+```
+
+**Original motivation (preserved below):**
 
 **Motivation.** Phase 23 unlocked novelty for the MATHEMATICS domain
 via the `MathConjectureSubstrate` + Java Dalmatian miner. PHYSICS,
