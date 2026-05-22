@@ -426,17 +426,65 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
+    // ── PHYSICS topic 3 — diffractionSurvey (ported §28.5c-cont2) ──
+
+    @Test
+    void physicsTopic3_diffractionSurvey_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedD = 1.0 + param1/50; λ_ref = 400 + param2·40. Sweeps
+        // 7 fixed wavelengths to bracket maxOrder/minOrder.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 3, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 3, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 3 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── PHYSICS topic 4 — rlcDampingTransition (ported §28.5c-cont2) ──
+
+    @Test
+    void physicsTopic4_rlcDamping_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // seedL = 0.001 + param1/10000; C = 1e-6 + param2·1e-7. Outer
+        // loop uses a DIVISIVE step (L decreases) per JVM line 1461 —
+        // this exercises that branch.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("PHYSICS", 4, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("PHYSICS", 4, param1, param2, sp);
+
+        assertThat(side).as("PHYSICS topic 4 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
     // ── not_ported routing — remaining PHYSICS topics + other domains ──
 
     @Test
-    void physicsTopic3_notYetPorted_returnsEmpty() {
+    void physicsTopic5_notYetPorted_returnsEmpty() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // PHYSICS topic 3 (diffractionSurvey) — pending; deferred to
-        // §28.5c continuations.
+        // PHYSICS topic 5 (wienPeak) — pending; deferred.
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("PHYSICS", 3, 3, 0.0, sp);
-        assertThat(side).as("PHYSICS topic 3 not yet ported").isEmpty();
+                liveClient().physicsTopic("PHYSICS", 5, 3, 0.0, sp);
+        assertThat(side).as("PHYSICS topic 5 not yet ported").isEmpty();
     }
 
     @Test
