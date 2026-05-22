@@ -2785,10 +2785,18 @@ public class UniversityService {
      * comma; the real failure mode is "the last clause attaches a bare
      * numeric to a verb with no unit and no period." Match e.g. "observed30,"
      * "computed42," "measured100," "sampled7,".
+     *
+     * <p>2026-05-22 paper-review pass on research/a3289005: P-a328-906's
+     * conclusion contained *"The observed30, confirming that the chosen
+     * parameter region..."* — same corruption signature but **mid-text**,
+     * not end-of-text. The original `$` anchor made the pattern miss
+     * mid-conclusion occurrences. Anchor dropped; verb list extended
+     * with `recovered|peaked|reached|yielded` to capture variants seen
+     * in adjacent reviews.
      */
     private static final java.util.regex.Pattern NUMERIC_LEAK_TAIL =
             java.util.regex.Pattern.compile(
-                    "(?i)\\b(?:observed|computed|measured|sampled)\\d+,?\\s*$");
+                    "(?i)\\b(?:observed|computed|measured|sampled|recovered|peaked|reached|yielded)\\d+,?(?=\\s|$)");
 
     /**
      * Phase 5 A1 — true if the text ends in a sentence terminator (after stripping

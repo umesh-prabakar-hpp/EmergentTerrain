@@ -68,10 +68,17 @@ public final class PromptSanitizer {
      * "as observed from the starting position of 10 and scale of 7.7" — the P-237
      * leak (rec #14). Same root cause as STARTING_AT_POSITION but a different
      * phrasing the prior regex didn't catch.
+     *
+     * <p>2026-05-22 paper-review pass on research/a3289005 found two new
+     * variants the prior pattern missed: P-a328-898's *"with a starting
+     * position of 48 and scale of 5.0"* and P-a328-901's *"with a
+     * starting position of 50 and scale of 4.5"*. Both prefix the phrase
+     * with *"with a "* and drop the article *"the "*. Pattern broadened
+     * to accept either lead-in and make the article optional.
      */
     private static final Pattern OBSERVED_FROM_POSITION_AND_SCALE =
             Pattern.compile(CONNECTOR_PREFIX
-                    + "(?:as observed from )?the starting position of \\d+ and scale of [\\d.]+",
+                    + "(?:as observed from |with a )?(?:the )?starting position of \\d+ and scale of [\\d.]+",
                     Pattern.CASE_INSENSITIVE);
 
     /**

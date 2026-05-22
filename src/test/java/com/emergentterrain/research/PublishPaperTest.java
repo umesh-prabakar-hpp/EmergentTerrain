@@ -378,6 +378,33 @@ class PublishPaperTest {
     }
 
     @Test
+    void phase28_paperReview_rejectsMidTextNumericLeak() {
+        // 2026-05-22 paper-review on research/a3289005: P-a328-906's
+        // Conclusion contains "The observed30, confirming that the
+        // chosen parameter region..." — same corruption signature but
+        // mid-text rather than end-of-text. The original $-anchored
+        // detector missed it. After dropping the anchor and broadening
+        // the verb list, the mid-text occurrence is caught.
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "The observed30, confirming that the chosen parameter "
+                + "region yields far higher diffraction resolution than "
+                + "anticipated.")).isFalse();
+        // New verbs added (recovered, peaked, reached, yielded). Integer
+        // suffix only — the corpus corruption signature is token-merger
+        // on whole-number leaks (e.g. "the30 from prior paper"), not
+        // decimals.
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "the constant was recovered30 within tolerance.")).isFalse();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "intensity peaked42 at the resonance.")).isFalse();
+        // Word-boundary still protects legitimate "<verb> <number>" prose.
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "the constant was recovered to within 5.6%.")).isTrue();
+        assertThat(UniversityService.endsWithSentenceTerminator(
+                "intensity yielded 42 distinct peaks across the sweep.")).isTrue();
+    }
+
+    @Test
     void d5_p647InternalMalformationIsNotATailTruncation() {
         // P-a328-647 (refresh #4) had Conclusion:
         // "...with a mean deviation of 0.001. However,30, suggesting that the

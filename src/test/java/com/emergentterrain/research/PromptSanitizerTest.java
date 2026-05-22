@@ -121,6 +121,31 @@ class PromptSanitizerTest {
     }
 
     @Test
+    void phase28_paperReview_stripsWithAStartingPositionAndScaleLeak() {
+        // 2026-05-22 paper-review on research/a3289005: P-a328-898 and
+        // P-a328-901 leaked "with a starting position of N and scale of M"
+        // — variant of the P-237 leak that the original regex missed
+        // because it expected "as observed from" or no lead-in, and
+        // required the article "the".
+        String input898 = "first-order Bragg condition n·λ = 2·d·sin θ yields a "
+                + "recoverable diffraction angle in [0°, 90°] with a starting "
+                + "position of 48 and scale of 5.0";
+        String out898 = PromptSanitizer.sanitize(input898);
+        assertThat(out898)
+                .doesNotContain("starting position of 48")
+                .doesNotContain("scale of 5.0")
+                .contains("recoverable diffraction angle in [0°, 90°]");
+
+        String input901 = "for a unit-area emitter swept from T=2800 K with a "
+                + "starting position of 50 and scale of 4.5";
+        String out901 = PromptSanitizer.sanitize(input901);
+        assertThat(out901)
+                .doesNotContain("starting position of 50")
+                .doesNotContain("scale of 4.5")
+                .contains("swept from T=2800 K");
+    }
+
+    @Test
     void phase7_G4_stripsWithAScaleOfLeak() {
         // The P-256 / P-242 leak (rec #14).
         String input  = "Aliquot sequences in [528, 568) with a scale of 1.0 will terminate.";
