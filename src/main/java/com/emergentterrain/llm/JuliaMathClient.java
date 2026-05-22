@@ -984,6 +984,104 @@ public class JuliaMathClient {
             double deviation,
             String status) {}
 
+    /**
+     * Phase 28 §28.5b — POST /physics/topic. Vertical-slice port of
+     * {@link com.emergentterrain.research.MathPhysicsEngine#compute}.
+     * Returns {@link Optional#empty()} on two signals:
+     * <ul>
+     *   <li>The sidecar reports {@code error: "not_ported"} (HTTP 404)
+     *       — the (domain, topicIdx) pair isn't yet in the sidecar's
+     *       {@code physics_compute} dispatch. JVM caller falls back to
+     *       in-process MathPhysicsEngine.compute transparently.</li>
+     *   <li>Any sidecar reachability / parse failure. Verification /
+     *       computation never blocks on a sidecar outage.</li>
+     * </ul>
+     *
+     * <p>Same wire contract as §28.5a /predicate/scan: numeric scalars
+     * + ClaimStatus name only. The JVM caller layers on the findings /
+     * hypothesis / equation / claimAssessment prose locally.
+     *
+     * @param domain     "MATHEMATICS", "PHYSICS", etc.
+     * @param topicIdx   topic index within the domain
+     * @param param1     primary integer search parameter
+     * @param param2     secondary float search parameter
+     * @param sp         SearchParams (5-field record)
+     */
+    public java.util.Optional<PhysicsTopicResultWire> physicsTopic(
+            String domain, int topicIdx, int param1, double param2,
+            com.emergentterrain.research.MathPhysicsEngine.SearchParams sp) {
+        java.util.LinkedHashMap<String, Object> spMap = new java.util.LinkedHashMap<>();
+        spMap.put("stepSize",         sp.stepSize());
+        spMap.put("restartProb",      sp.restartProb());
+        spMap.put("candidateBreadth", sp.candidateBreadth());
+        spMap.put("depthBias",        sp.depthBias());
+        spMap.put("acceptThreshold",  sp.acceptThreshold());
+
+        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("domain",       domain);
+        body.put("topicIdx",     topicIdx);
+        body.put("param1",       param1);
+        body.put("param2",       param2);
+        body.put("searchParams", spMap);
+
+        JsonNode resp;
+        try {
+            resp = post("/physics/topic", body);
+        } catch (JuliaMathException e) {
+            // not_ported comes back as a JuliaMathException with the
+            // error code in the message. Surface as Optional.empty()
+            // so callers fall back; any other failure (transport,
+            // eval_error) also falls back rather than propagating.
+            if (e.getMessage() != null && e.getMessage().contains("not_ported")) {
+                org.slf4j.LoggerFactory.getLogger(JuliaMathClient.class)
+                        .debug("/physics/topic not ported for domain={} topicIdx={}; " +
+                               "falling back to legacy", domain, topicIdx);
+            } else {
+                org.slf4j.LoggerFactory.getLogger(JuliaMathClient.class)
+                        .warn("/physics/topic failed (domain={} topicIdx={}): {} — " +
+                              "falling back to legacy", domain, topicIdx, e.getMessage());
+            }
+            return java.util.Optional.empty();
+        }
+
+        return java.util.Optional.of(new PhysicsTopicResultWire(
+                resp.path("primaryValue").asDouble(0.0),
+                resp.path("secondaryValue").asDouble(0.0),
+                resp.path("tertiaryValue").asDouble(0.0),
+                resp.path("reviewValue").asDouble(0.0),
+                resp.path("claimStatus").asText("OBSERVATIONAL"),
+                resp.path("theoryConsistent").asBoolean(true),
+                resp));
+    }
+
+    /**
+     * Numeric envelope returned by {@link #physicsTopic}. The four
+     * scalar values + claim status + theory-consistent flag are the
+     * core of MathPhysicsEngine.ResearchResult; {@code detail} carries
+     * the full sidecar JSON so the JVM caller can read domain-specific
+     * extras (twin counts, max gap, prediction values, etc.) when
+     * composing the findings prose.
+     *
+     * @param primaryValue    first scalar (engine-specific meaning)
+     * @param secondaryValue  second scalar
+     * @param tertiaryValue   third scalar
+     * @param reviewValue     reviewer-reproduction scalar
+     * @param claimStatus     "SUPPORTED" | "PARTIAL" | "REFUTED" |
+     *                        "OBSERVATIONAL" — the JVM ClaimStatus
+     *                        enum names verbatim
+     * @param theoryConsistent finite-vs-non-finite finality check
+     * @param detail          raw sidecar response (full JsonNode) for
+     *                        topic-specific extras
+     */
+    public record PhysicsTopicResultWire(
+            double primaryValue,
+            double secondaryValue,
+            double tertiaryValue,
+            double reviewValue,
+            String claimStatus,
+            boolean theoryConsistent,
+            JsonNode detail) {}
+
     // ── Internal HTTP plumbing ───────────────────────────────────────
 
     /**
