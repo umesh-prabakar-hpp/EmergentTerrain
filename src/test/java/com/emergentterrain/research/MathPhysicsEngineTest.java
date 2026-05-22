@@ -263,6 +263,8 @@ class MathPhysicsEngineTest {
                 /* topicConsistencyMode          */ "warn",
                 /* scalingSweepDepthEnabled      */ false,
                 /* scalingSweepDepthMode         */ "warn",
+                /* srEvidenceEnabled             */ false,
+                /* srEvidenceMode                */ "warn",
                 mapper);
 
         // Files must be staged AFTER the UniversityService constructor: as of

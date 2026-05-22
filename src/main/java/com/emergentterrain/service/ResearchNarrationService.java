@@ -51,6 +51,13 @@ public class ResearchNarrationService {
     private final LlmRouter router;
     private final MathToolSuite toolSuite;
     private final ObjectMapper objectMapper;
+    /**
+     * Phase 24 §24.4 — held for {@link #buildSymbolicRegressHint} so the
+     * professor-system prompt can conditionally include an SR nudge.
+     * Null when the bean wasn't wired (test contexts); the hint builder
+     * treats null as "no hint" and renders the slot empty.
+     */
+    private final com.emergentterrain.llm.JuliaMathClient juliaMathClient;
     private final PromptTemplateRegistry promptRegistry;
     private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
     private final Semaphore narrationSlot;
@@ -332,6 +339,7 @@ public class ResearchNarrationService {
         this.toolSuite                 = new MathToolSuite(router, objectMapper,
                 gpuEngineAdapter, juliaMathClient);
         this.objectMapper              = objectMapper;
+        this.juliaMathClient           = juliaMathClient;
         this.promptRegistry            = promptRegistry;
         this.literatureSearch          = literatureSearch;
         this.literatureSearchEnabled   = literatureSearchEnabled;
@@ -837,7 +845,14 @@ public class ResearchNarrationService {
             // Empty / null context means the prompts render their v1 variants
             // verbatim; non-empty context switches to v2-with-literature.
             String literatureContext = renderLiteratureContext(draft);
-            String systemPrompt = buildProfessorSystemPrompt(promptRegistry, auditSummary, literatureContext);
+            // Phase 24 §24.4 — conditional SR nudge. Built only when the
+            // pysr path is up AND the paper's domain is one where a
+            // closed-form law plausibly underlies the sweep (physics,
+            // materials, terrestrial, underwater). Null → slot renders
+            // empty and the template reads as it did pre-phase-24.
+            String srHint = buildSymbolicRegressHint(juliaMathClient, draft.domain());
+            String systemPrompt = buildProfessorSystemPrompt(
+                    promptRegistry, auditSummary, literatureContext, srHint);
             String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass, literatureContext);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
@@ -2139,31 +2154,83 @@ public class ResearchNarrationService {
     }
 
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry, String auditSummary) {
-        return buildProfessorSystemPrompt(registry, auditSummary, null);
+        return buildProfessorSystemPrompt(registry, auditSummary, null, null);
+    }
+
+    static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
+                                              String auditSummary, String literatureContext) {
+        return buildProfessorSystemPrompt(registry, auditSummary, literatureContext, null);
     }
 
     /**
-     * Phase 6 D1.3 — {@code literatureContext} is a rendered block of curated
-     * references (or null/empty when the flag is off or the lookup found
-     * nothing). Non-null/non-empty value switches the render to the
-     * {@code v2-with-literature} template variant; otherwise the original v1
-     * template renders verbatim.
+     * Phase 24 §24.4 — {@code srHint} is a one-line nudge populated when
+     * the symbolic_regress tool is in the schema AND the paper's domain
+     * is one where SR is likely to be useful (physics, materials,
+     * terrestrial, underwater). Empty / null for other domains; the
+     * LLM never sees it then. The hint is intentionally suggestive,
+     * not prescriptive — the LLM still decides whether to call.
+     *
+     * <p>Phase 6 D1.3 — {@code literatureContext} is a rendered block
+     * of curated references (or null/empty when the flag is off or
+     * the lookup found nothing). Non-null/non-empty value switches to
+     * the {@code v2-with-literature} template variant.
      */
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
-                                              String auditSummary, String literatureContext) {
+                                              String auditSummary,
+                                              String literatureContext,
+                                              String srHint) {
         String auditSection = (auditSummary != null && !auditSummary.isBlank())
                 ? "\nA quality audit identified these specific gaps. Address them with your tools:\n"
                   + auditSummary + "\n"
                 : "";
+        String srHintRendered = (srHint != null && !srHint.isBlank())
+                ? "\n" + srHint + "\n"
+                : "";
+        Map<String, Object> params = new LinkedHashMap<>();
+        params.put("auditSection", auditSection);
+        params.put("srHint", srHintRendered);
         if (literatureContext != null && !literatureContext.isEmpty()) {
+            params.put("literatureContext", literatureContext);
             return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
-                    "v2-with-literature",
-                    Map.of("auditSection", auditSection,
-                           "literatureContext", literatureContext));
+                    "v2-with-literature", params);
         }
         return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID,
-                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION,
-                Map.of("auditSection", auditSection));
+                PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_VERSION, params);
+    }
+
+    /**
+     * Phase 24 §24.4 — build the SR-hint sentence when conditions are
+     * right. Returns null otherwise; the caller's three-arg / four-arg
+     * overload of {@link #buildProfessorSystemPrompt} treats null as
+     * "no hint, render the slot empty."
+     *
+     * <p>Conditions for the hint:
+     * <ul>
+     *   <li>The Julia sidecar's pysr path is available.</li>
+     *   <li>The paper's domain is one where parameter sweeps over
+     *       continuous variables are the norm: PHYSICS, MATERIALS,
+     *       TERRESTRIAL, UNDERWATER (broadly the "scaling-law"
+     *       domains identified in phase-24.md §"Scope").</li>
+     * </ul>
+     * Math, interdisciplinary, and unknown domains: no hint — the SR
+     * tool isn't a natural match there.
+     */
+    static String buildSymbolicRegressHint(
+            com.emergentterrain.llm.JuliaMathClient juliaMathClient, String domain) {
+        if (juliaMathClient == null || !juliaMathClient.isPysrAvailable()) return null;
+        if (domain == null) return null;
+        String d = domain.toUpperCase(java.util.Locale.ROOT);
+        if (!("PHYSICS".equals(d) || "MATERIALS".equals(d)
+                || "TERRESTRIAL".equals(d) || "UNDERWATER".equals(d))) {
+            return null;
+        }
+        return "Symbolic-regression hint: if the paper's parameter sweep suggests a closed-form "
+                + "relationship between inputs (e.g. an Arrhenius / inverse-square / exponential-decay "
+                + "shape), consider calling `symbolic_regress` with the sweep rows. It returns a "
+                + "Pareto front of (expression, mse, complexity) — the simplest entry is often the "
+                + "law the paper should be citing. No need to call it for incremental or descriptive "
+                + "papers; only when there's reason to believe a clean functional law underlies "
+                + "the data.";
     }
 
     static String buildProfessorUserPrompt(PromptTemplateRegistry registry,

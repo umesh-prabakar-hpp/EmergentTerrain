@@ -230,6 +230,19 @@ public class UniversityService {
     private final boolean scalingSweepDepthEnabled;
     private final String  scalingSweepDepthMode;
 
+    /**
+     * Phase 24 §24.4 — flag papers whose prose claims a symbolic-
+     * regression result (PySR / Pareto / recovered closed-form) with
+     * no matching symbolic_regress tool call in the audit trail. Off
+     * by default per the dormant-flag pattern; flip
+     * {@code app.research.sr-evidence.enabled=true} once §24.5's
+     * recovery probe has shipped and at least one in-corpus paper
+     * has produced a legitimate PySR-cited result the validator can
+     * be tuned against.
+     */
+    private final boolean srEvidenceEnabled;
+    private final String  srEvidenceMode;
+
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
     private final ConcurrentHashMap<UUID, List<ResearchPaper>> published     = new ConcurrentHashMap<>();
@@ -365,6 +378,8 @@ public class UniversityService {
             @Value("${app.research.topic-consistency.mode:warn}") String topicConsistencyMode,
             @Value("${app.research.scaling-sweep-depth.enabled:false}") boolean scalingSweepDepthEnabled,
             @Value("${app.research.scaling-sweep-depth.mode:warn}") String scalingSweepDepthMode,
+            @Value("${app.research.sr-evidence.enabled:false}") boolean srEvidenceEnabled,
+            @Value("${app.research.sr-evidence.mode:warn}") String srEvidenceMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -418,6 +433,8 @@ public class UniversityService {
         this.topicConsistencyMode         = normalizeMode(topicConsistencyMode);
         this.scalingSweepDepthEnabled     = scalingSweepDepthEnabled;
         this.scalingSweepDepthMode        = normalizeMode(scalingSweepDepthMode);
+        this.srEvidenceEnabled            = srEvidenceEnabled;
+        this.srEvidenceMode               = normalizeMode(srEvidenceMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -990,6 +1007,24 @@ public class UniversityService {
             log.warn("scaling-sweep-depth check failed paperId={} mode={} reasons={}",
                     draft.paperId(), scalingSweepDepthMode, scalingSweepDepthFailures);
         }
+        // Phase 24 §24.4 — SR evidence: prose mentioning a symbolic-
+        // regression result must be backed by a successful
+        // symbolic_regress tool call in the audit trail. Detects the
+        // fabrication mode where the LLM claims a recovered closed-form
+        // without having invoked the tool that would produce one.
+        List<String> srEvidenceFailures = srEvidenceEnabled
+                ? SymbolicRegressionEvidenceValidator.validate(
+                        joinPaperProse(findingsBlocks,
+                                narration.discussion(), narration.relatedWork()),
+                        narration.toolCallTrace())
+                : List.of();
+        boolean srEvidenceFlagged = !srEvidenceFailures.isEmpty();
+        boolean srEvidenceRoutes  = srEvidenceFlagged
+                && "downgrade".equals(srEvidenceMode);
+        if (srEvidenceFlagged) {
+            log.warn("sr-evidence check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), srEvidenceMode, srEvidenceFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -1216,6 +1251,13 @@ public class UniversityService {
             // corpus: revision can fix by either running additional
             // sample points or reframing the claim as a single-point check.
             paperStatus = "NEEDS_REVISION";
+        } else if (srEvidenceRoutes) {
+            // Phase 24 §24.4 — prose claims a symbolic-regression result
+            // with no matching tool call. Same tier as F3/F4/citation-
+            // corpus: revision can fix by either removing the unsupported
+            // claim or re-running the professor stage with the
+            // symbolic_regress tool to produce real evidence.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1336,6 +1378,15 @@ public class UniversityService {
             int traceSize = narration.toolCallTrace() == null
                     ? 0 : narration.toolCallTrace().size();
             String stamp = "publish:scaling_sweep_depth:trace=" + traceSize + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
+        }
+        // Phase 24 §24.4 — additive stamp for sr-evidence. Reasons are
+        // capped at a one-line summary to keep the call-path tidy.
+        if (srEvidenceFlagged) {
+            String suffix = srEvidenceRoutes ? "→needs_revision" : ":warn";
+            String stamp = "publish:sr_evidence:fails=" + srEvidenceFailures.size() + suffix;
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? stamp
                     : persistedCallPath + " → " + stamp;
