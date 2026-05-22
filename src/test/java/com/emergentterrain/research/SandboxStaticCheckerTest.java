@@ -376,11 +376,12 @@ class SandboxStaticCheckerTest {
     @Test
     void mathPrefix_nonMathIdentifierMemberAccess_stillRejected() {
         // Only `Math.<name>` is rewritten by Layer 1a (and `.length` by
-        // Layer 1b). Other member access (e.g. `.push`, `.toFixed`) still
-        // hits the existing member-access guidance.
+        // Layer 1b). `.push` was added as a supported method (paper-review
+        // 2026-05-22). Other member access (e.g. `.pop`, `.toFixed`,
+        // `.shift`) still hits the existing member-access guidance.
         String code = """
                 var arr = [0, 0, 0];
-                arr.push(1);
+                arr.pop();
                 return arr[0];
                 """;
         SandboxStaticChecker.Result r = SandboxStaticChecker.check(code);

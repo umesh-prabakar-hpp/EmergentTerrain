@@ -123,12 +123,72 @@ class SandboxEngineWhitelistTest {
 
     @Test
     void mathDotPiSyntaxRemainsUnparseable() {
-        // The narrator may still try `Math.PI` (with dot syntax). The sandbox grammar
-        // doesn't support member access, so this must still fail — only the bare
-        // identifier `PI` is supported. Documenting current behaviour, not a behaviour
-        // change.
+        // The narrator may still try `Math.PI` (with dot syntax). After
+        // paper-review 2026-05-22 added DOT-tokenisation for `arr.push(v)`,
+        // `Math.PI` no longer throws at the lexer — but the parser stops at
+        // `Math` and evalExpr now rejects the leftover `.PI` tokens with a
+        // clear "member access not supported in expressions" message.
         assertThatThrownBy(() -> SandboxEngine.evalExpr("Math.PI", 0, 1))
-                .isInstanceOf(RuntimeException.class);
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("member access");
+    }
+
+    // ── Paper-review 2026-05-22 — dynamic-array `.push` support ──────────────
+
+    @Test
+    void arrayPush_growsActiveLengthAndReturnsLatestValue() {
+        // The canonical pattern P-a328-906 burned 4 sandbox slots trying:
+        // accumulate results in an array, return the count. After paper-
+        // review unblocked `.push`, the LLM's first-attempt idiom works.
+        String code = """
+                var xs = [0];
+                xs.push(10);
+                xs.push(20);
+                xs.push(30);
+                return len(xs);
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(4.0);  // initial [0] + 3 pushes
+    }
+
+    @Test
+    void arrayPush_indexAccessReadsLatestPushedValue() {
+        String code = """
+                var xs = [0];
+                xs.push(7);
+                xs.push(11);
+                return xs[len(xs) - 1];
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(11.0);
+    }
+
+    @Test
+    void arrayPush_fromEmptyLiteralWorks() {
+        // The JS-canonical idiom: declare empty, push to fill.
+        String code = """
+                var xs = [];
+                xs.push(1);
+                xs.push(2);
+                xs.push(3);
+                return xs[0] + xs[1] + xs[2];
+                """;
+        SandboxEngine.SandboxResult r = SandboxEngine.run(code, 0, 1, 0, 0.0);
+        assertThat(r.value()).isEqualTo(6.0);
+    }
+
+    @Test
+    void arrayPush_indexPastActiveLenRejects() {
+        // Bound-check uses activeLen, not the (always 1024) backing length.
+        // Reading slot N before pushing it raises out-of-bounds.
+        String code = """
+                var xs = [0];
+                xs.push(7);
+                return xs[5];
+                """;
+        assertThatThrownBy(() -> SandboxEngine.run(code, 0, 1, 0, 0.0))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessageContaining("out of bounds");
     }
 
     // ── Phase 10 — while loop + ===/!== ─────────────────────────────────────

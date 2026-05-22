@@ -731,14 +731,26 @@ public final class SandboxStaticChecker {
     static Result preScanForJavascriptIdioms(String code) {
         if (code == null) return new Result.Approved();
         // Member-access first (the larger cluster: 43% of static-parse fails).
+        // Paper-review 2026-05-22 — walk all matches and skip the now-supported
+        // `<ident>.push(<expr>)` form (added in the same pass; see SandboxEngine
+        // Stmt.ArrayPush + SandboxArr). Any other `.method`, AND `<bracket>.push`
+        // (push on an array element — not supported), still rejects.
         java.util.regex.Matcher m = MEMBER_ACCESS.matcher(code);
-        if (m.find()) {
+        while (m.find()) {
             String method = m.group(1);
+            String full   = m.group();
+            // Only `<ident>.push(...)` is supported. `gs[0].push(...)` matches
+            // the regex via the `\]` alternative and must still reject.
+            if ("push".equals(method) && !full.startsWith("]")) {
+                continue;
+            }
             return new Result.Rejected(
                     "member access not supported: '." + method + "' — "
                             + "the safe grammar has no objects or methods. "
                             + "For arrays: declare a fixed size `var xs = [0, 0, …]` "
-                            + "and index into it (`xs[i] = v`); use `len(xs)` for length. "
+                            + "and index into it (`xs[i] = v`); use `len(xs)` for length; "
+                            + "use `xs.push(v)` to grow up to " + SandboxEngine.MAX_ARRAY_LEN
+                            + " elements. "
                             + "For Math: call `pow`, `sqrt`, `sin`, etc. as flat "
                             + "identifiers (no `Math.` prefix). To collect statistics "
                             + "across iterations, call `recordSample(value)` at each "
@@ -790,6 +802,7 @@ public final class SandboxStaticChecker {
             case SandboxEngine.Stmt.FuncDef fd -> {
                 for (SandboxEngine.Stmt b : fd.body()) collectBadCalls(b, userFunctions, bad);
             }
+            case SandboxEngine.Stmt.ArrayPush ap -> walkExpr(ap.value(), userFunctions, bad);
         }
     }
 

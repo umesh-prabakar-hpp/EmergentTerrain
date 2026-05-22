@@ -29,15 +29,15 @@ class SandboxStaticCheckerPreScanTest {
     // ── Member-access detection ──────────────────────────────────────────────
 
     @Test
-    void detectsArrayPushAttempt() {
-        // Real example from P-576: `gaps.push(n-prev)`
-        String code = "var gaps = []; gaps.push(5); return 0;";
+    void acceptsArrayPushOnIdentifier_paperReview_2026_05_22() {
+        // Paper-review 2026-05-22 — `<ident>.push(<expr>)` is now supported
+        // (dynamic-array append, capped at MAX_ARRAY_LEN). The pre-scan must
+        // skip its rejection branch when the receiver is a bare identifier.
+        // Real example from P-576: `gaps.push(n-prev)` — was rejected
+        // pre-fix; should approve now and execute against SandboxArr.push.
+        String code = "var gaps = [0]; gaps.push(5); return len(gaps);";
         SandboxStaticChecker.Result r = SandboxStaticChecker.preScanForJavascriptIdioms(code);
-        String reason = rejectionReason(r);
-        assertThat(reason).contains("member access");
-        assertThat(reason).contains("push");
-        // Must steer LLM toward the right replacement:
-        assertThat(reason).contains("recordSample");
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Approved.class);
     }
 
     @Test
@@ -68,7 +68,11 @@ class SandboxStaticCheckerPreScanTest {
 
     @Test
     void detectsArrayElementMemberAccess() {
-        // Trickier: `gaps[i].push(v)` — close-bracket followed by `.push`.
+        // Paper-review 2026-05-22 — `<ident>.push(v)` was unblocked, but
+        // method-call-on-array-element (`gs[0].push(5)`) is still rejected
+        // because we don't support nested arrays or methods on array
+        // elements. The static-check skip only fires when the receiver
+        // is a bare identifier; `]`-prefixed matches still reject.
         String code = "var gs = [0, 0]; gs[0].push(5); return 0;";
         SandboxStaticChecker.Result r = SandboxStaticChecker.preScanForJavascriptIdioms(code);
         assertThat(rejectionReason(r)).contains("push");
@@ -166,16 +170,27 @@ class SandboxStaticCheckerPreScanTest {
     // ── Full pipeline — end-to-end check() integration ───────────────────────
 
     @Test
-    void checkEndToEndRejectsMemberAccessWithSpecificMessage() {
-        // The full check() pipeline must surface the pre-scan's specific
-        // message (not the lexer's "Unexpected char '.'" generic).
+    void checkEndToEndAcceptsArrayPush_paperReview_2026_05_22() {
+        // Paper-review 2026-05-22 — `xs.push(1)` is now supported (dynamic
+        // tail-append). The full check() pipeline must approve; the pre-scan
+        // skips its rejection branch when the receiver is a bare identifier
+        // and `.push` is the method.
         SandboxStaticChecker.Result r = SandboxStaticChecker.check(
-                "var xs = []; xs.push(1); return 0;");
+                "var xs = [0]; xs.push(1); return 0;");
+        assertThat(r).isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void checkEndToEndRejectsNonPushMemberAccessWithSpecificMessage() {
+        // Other `.method` calls (e.g. `.pop`, `.toFixed`, `.shift`) still
+        // get the pre-scan's instructive rejection — not the lexer's
+        // generic "Unexpected char '.'". `.length` is excluded from this
+        // check because Layer 1b auto-rewrites it to `len(xs)`.
+        SandboxStaticChecker.Result r = SandboxStaticChecker.check(
+                "var xs = [1, 2, 3]; xs.pop(); return 0;");
         String reason = rejectionReason(r);
         assertThat(reason).contains("member access");
-        assertThat(reason).contains("push");
-        // The pre-scan must fire BEFORE the lexer, so the message is the
-        // pre-scan's instructive text, not "parse failed: Unexpected char '.'":
+        assertThat(reason).contains("pop");
         assertThat(reason).doesNotContain("Unexpected char");
     }
 

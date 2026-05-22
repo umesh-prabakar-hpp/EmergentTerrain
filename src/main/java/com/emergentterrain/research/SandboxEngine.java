@@ -220,7 +220,20 @@ public class SandboxEngine {
     public static SandboxResult evalExpr(String expression, int start, int end) {
         try {
             List<Token> tokens = lex(expression);
-            Expr expr = new Parser(tokens).expr();
+            Parser parser = new Parser(tokens);
+            Expr expr = parser.expr();
+            // Paper-review 2026-05-22 — DOT is now a valid token (for the
+            // `arr.push(v)` statement form), so the lexer no longer throws
+            // on `Math.PI`. Catch leftover tokens here so an unsupported
+            // member-access expression fails loudly with a clear message
+            // rather than silently evaluating only the head identifier.
+            if (parser.peek().t() != TT.EOF) {
+                throw new RuntimeException(
+                        "Unexpected trailing token '" + parser.peek().v()
+                                + "' after expression — member access (e.g. `Math.PI`) "
+                                + "is not supported in expressions; only `arr.push(v)` "
+                                + "as a statement is.");
+            }
             double sum = 0, sum2 = 0, mn = Double.MAX_VALUE, mx = -Double.MAX_VALUE;
             int n = end - start;
             if (n <= 0) return new SandboxResult(0, "empty range");
@@ -251,6 +264,7 @@ public class SandboxEngine {
         LT, GT, LE, GE, EQ2, NEQ,
         AND2, OR2, BANG,
         EQ, SEMI, COMMA, LPAR, RPAR, LBRACE, RBRACE, LBRACK, RBRACK, QMARK, COLON,
+        DOT,  // Paper-review 2026-05-22 — for the `arr.push(v)` statement form
         IF, ELSE, FOR, WHILE, VAR, RET, BREAK, CONTINUE, TRUE, FALSE,
         FUNCTION,  // Phase 8 Tier 2 — user-defined function declarations
         EOF
@@ -345,6 +359,11 @@ public class SandboxEngine {
                 case '}' -> TT.RBRACE; case '[' -> TT.LBRACK; case ']' -> TT.RBRACK;
                 case ';' -> TT.SEMI; case ',' -> TT.COMMA;
                 case '?' -> TT.QMARK; case ':' -> TT.COLON;
+                // Paper-review 2026-05-22 — `.` is currently used only for the
+                // `arr.push(v)` statement form. Decimal points inside numeric
+                // literals are consumed by the number-scanning branch above
+                // before we reach the single-char dispatcher.
+                case '.' -> TT.DOT;
                 default -> throw new RuntimeException("Unexpected char '" + c + "' line " + line);
             };
             out.add(new Token(tt, String.valueOf(c), line));
@@ -381,7 +400,7 @@ public class SandboxEngine {
 
     sealed interface Stmt permits Stmt.Decl, Stmt.ExprS, Stmt.For, Stmt.While,
                                   Stmt.If, Stmt.Return, Stmt.Break, Stmt.Continue,
-                                  Stmt.Compound, Stmt.FuncDef {
+                                  Stmt.Compound, Stmt.FuncDef, Stmt.ArrayPush {
         record Decl  (String name, Expr init)                            implements Stmt {}
         record ExprS (Expr expr)                                         implements Stmt {}
         record For   (String var, Expr init, Expr cond, Expr upd,
@@ -405,6 +424,46 @@ public class SandboxEngine {
         // accepts these in parseProgram(); they are illegal inside if/for/
         // function bodies so all definitions are hoistable in one scan.
         record FuncDef(String name, List<String> params, List<Stmt> body) implements Stmt {}
+        // Paper-review 2026-05-22 — `arr.push(v);` appends `v` to the
+        // tail of a dynamic array. The interpreter writes at index
+        // {@code arr.activeLen} and increments; capped at MAX_ARRAY_LEN
+        // (matches the static-allocation cap). Only valid at statement
+        // position — `arr.push(v)` as a sub-expression raises.
+        record ArrayPush(String arrName, Expr value)                     implements Stmt {}
+    }
+
+    // ── Dynamic array wrapper (paper-review 2026-05-22) ──────────────────
+    //
+    // Replaces the prior raw {@code double[]} storage for arrays. The
+    // backing is always sized to {@link #MAX_ARRAY_LEN} so {@code .push}
+    // can grow up to the cap without reallocation; {@link #activeLen}
+    // tracks how many slots are live. Index reads and writes bound at
+    // {@code activeLen}; reading past it raises (matching the old
+    // length-based bounds-check, with {@code activeLen} replacing
+    // {@code backing.length} as the semantic length).
+
+    static final class SandboxArr {
+        final double[] backing;
+        int activeLen;
+
+        SandboxArr(double[] initial) {
+            if (initial.length > MAX_ARRAY_LEN) {
+                throw new RuntimeException("Array length " + initial.length
+                        + " exceeds cap " + MAX_ARRAY_LEN);
+            }
+            this.backing = new double[MAX_ARRAY_LEN];
+            System.arraycopy(initial, 0, backing, 0, initial.length);
+            this.activeLen = initial.length;
+        }
+
+        /** Append v; throws if at cap. */
+        void push(double v) {
+            if (activeLen >= MAX_ARRAY_LEN) {
+                throw new RuntimeException("Array push at cap " + MAX_ARRAY_LEN
+                        + " — declare a larger initial size or batch fewer items");
+            }
+            backing[activeLen++] = v;
+        }
     }
 
     // ── Parser ────────────────────────────────────────────────────────────────
@@ -547,6 +606,27 @@ public class SandboxEngine {
                 int save = pos;
                 String name = advance().v();
                 Expr e = null;
+                // Paper-review 2026-05-22 — `arr.push(v);` dynamic-array append.
+                // Only `.push` is recognised; any other `.method` falls through
+                // to the pos=save rewind below and re-emerges as a parse error
+                // at the unexpected DOT, matching the existing rejection
+                // shape for member access.
+                if (at(TT.DOT)) {
+                    int dotSave = pos;
+                    advance();  // .
+                    if (at(TT.IDENT) && "push".equals(peek().v())) {
+                        advance();  // push
+                        expect(TT.LPAR);
+                        Expr val = expr();
+                        expect(TT.RPAR);
+                        eatSemi();
+                        return new Stmt.ArrayPush(name, val);
+                    }
+                    // Not .push — rewind and let the static checker emit its
+                    // canonical "member access not supported" rejection on
+                    // the next pass.
+                    pos = dotSave;
+                }
                 // Phase 10 — indexed assignment `xs[i] = v` / `xs[i] += v` etc.
                 if (at(TT.LBRACK)) {
                     advance();
@@ -797,7 +877,7 @@ public class SandboxEngine {
             for (Map<String, Object> scope : scopes) {
                 Object v = scope.get(name);
                 if (v instanceof Double d) return d;
-                if (v instanceof double[]) throw new RuntimeException(
+                if (v instanceof SandboxArr) throw new RuntimeException(
                         "Cannot use array '" + name + "' as scalar");
                 if (v != null) return 0.0; // future-proof; should not happen today
             }
@@ -817,11 +897,15 @@ public class SandboxEngine {
             return null;
         }
 
-        /** Phase 10 — array-typed lookup. Raises if the binding is missing or scalar. */
-        double[] readArray(String name) {
+        /** Phase 10 — array-typed lookup. Raises if the binding is missing or scalar.
+         *  Paper-review 2026-05-22 — returns the SandboxArr wrapper rather than
+         *  a raw {@code double[]} so callers can read {@code activeLen}
+         *  (semantic length, affected by {@code .push}) instead of the
+         *  fixed backing length. */
+        SandboxArr readArray(String name) {
             for (Map<String, Object> scope : scopes) {
                 Object v = scope.get(name);
-                if (v instanceof double[] arr) return arr;
+                if (v instanceof SandboxArr arr) return arr;
                 if (v != null) throw new RuntimeException(
                         "Variable '" + name + "' is a scalar, not an array");
             }
@@ -837,7 +921,7 @@ public class SandboxEngine {
         void writeVar(String name, double value) {
             for (Map<String, Object> scope : scopes) {
                 Object existing = scope.get(name);
-                if (existing instanceof double[]) throw new RuntimeException(
+                if (existing instanceof SandboxArr) throw new RuntimeException(
                         "Cannot assign scalar to array variable '" + name + "'");
                 if (existing != null) { scope.put(name, value); return; }
             }
@@ -849,9 +933,11 @@ public class SandboxEngine {
             scopes.peek().put(name, value);
         }
 
-        /** Phase 10 — declare an array binding in the innermost (top) frame. */
-        void declareArray(String name, double[] arr) {
-            scopes.peek().put(name, arr);
+        /** Phase 10 — declare an array binding in the innermost (top) frame.
+         *  Paper-review 2026-05-22 — wraps the initial values in a
+         *  {@link SandboxArr} so {@code .push} can grow up to MAX_ARRAY_LEN. */
+        void declareArray(String name, double[] initial) {
+            scopes.peek().put(name, new SandboxArr(initial));
         }
 
         // ── Execution ────────────────────────────────────────────────────────
@@ -939,6 +1025,11 @@ public class SandboxEngine {
                 }
                 // Hoisted in exec(); ignored if it survives to this point.
                 case Stmt.FuncDef fd -> { /* no-op */ }
+                // Paper-review 2026-05-22 — `arr.push(v);` dynamic-array append.
+                case Stmt.ArrayPush ap -> {
+                    SandboxArr arr = readArray(ap.arrName());
+                    arr.push(eval(ap.value()));
+                }
             }
         }
 
@@ -989,25 +1080,25 @@ public class SandboxEngine {
                 case Expr.ArrayLit a -> throw new RuntimeException(
                         "Array literal can only appear as the RHS of a `var` declaration");
                 case Expr.Index ix -> {
-                    double[] arr = readArray(ix.arrName());
+                    SandboxArr arr = readArray(ix.arrName());
                     int idx = (int) eval(ix.idx());
-                    if (idx < 0 || idx >= arr.length) {
+                    if (idx < 0 || idx >= arr.activeLen) {
                         throw new RuntimeException("Array '" + ix.arrName()
                                 + "' index " + idx + " out of bounds [0,"
-                                + arr.length + ")");
+                                + arr.activeLen + ")");
                     }
-                    yield arr[idx];
+                    yield arr.backing[idx];
                 }
                 case Expr.IndexAssign ix -> {
-                    double[] arr = readArray(ix.arrName());
+                    SandboxArr arr = readArray(ix.arrName());
                     int idx = (int) eval(ix.idx());
-                    if (idx < 0 || idx >= arr.length) {
+                    if (idx < 0 || idx >= arr.activeLen) {
                         throw new RuntimeException("Array '" + ix.arrName()
                                 + "' index " + idx + " out of bounds [0,"
-                                + arr.length + ")");
+                                + arr.activeLen + ")");
                     }
                     double rhs = eval(ix.val());
-                    double cur = arr[idx];
+                    double cur = arr.backing[idx];
                     double res = switch (ix.op()) {
                         case "="  -> rhs;
                         case "+=" -> cur + rhs;
@@ -1016,7 +1107,7 @@ public class SandboxEngine {
                         case "/=" -> rhs == 0 ? 0 : cur / rhs;
                         default   -> rhs;
                     };
-                    arr[idx] = res;
+                    arr.backing[idx] = res;
                     yield res;
                 }
             };
@@ -1050,7 +1141,10 @@ public class SandboxEngine {
                     throw new RuntimeException(
                             "len(arr) expects a single array-variable argument");
                 }
-                return readArray(v.name()).length;
+                // Paper-review 2026-05-22 — returns the active length (affected
+                // by .push), not the backing length. Pre-push behaviour is
+                // unchanged: initial literal length is the active length.
+                return readArray(v.name()).activeLen;
             }
 
             double[] a = rawArgs.stream().mapToDouble(this::eval).toArray();
