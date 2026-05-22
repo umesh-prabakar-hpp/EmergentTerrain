@@ -14,9 +14,9 @@
 #   physics_interdisc.jl    — INTERDISCIPLINARY (topics 0..7+, fully ported)
 #   physics_biology.jl      — BIOLOGY     (topics 0..4+, fully ported)
 #   physics_chemistry.jl    — CHEMISTRY   (topics 0..4+, fully ported)
-#   physics_arch_terr.jl    — ARCHITECTURE_TERRESTRIAL (TODO)
-#   physics_arch_liquid.jl  — ARCHITECTURE_LIQUID  (TODO)
-#   physics_arch_space.jl   — ARCHITECTURE_SPACE   (TODO)
+#   physics_arch_terr.jl    — ARCHITECTURE_TERRESTRIAL (topics 0..4+, fully ported)
+#   physics_arch_liquid.jl  — ARCHITECTURE_LIQUID (topics 0..4+, fully ported)
+#   physics_arch_space.jl   — ARCHITECTURE_SPACE (topics 0..4+, fully ported)
 #
 # `physics_compute` returns `nothing` for any (domain, topicIdx) pair
 # whose domain port has not yet landed; the /physics/topic handler
@@ -49,9 +49,12 @@ Ported domains:
                               JVM `default` branch, hardyWeinberg)
   CHEMISTRY   — topics 0..4+ (all topics; topic 4+ routes to the
                               JVM `default` branch, compressibilityZ)
+  ARCHITECTURE_TERRESTRIAL — topics 0..4+ (default → daylightFactor)
+  ARCHITECTURE_LIQUID      — topics 0..4+ (default → dissolvedGasSolubility)
+  ARCHITECTURE_SPACE       — topics 0..4+ (default → orbitalDecayRate)
 
-Pending domains (each will gain a `physics_<domain>.jl` file):
-  ARCHITECTURE_TERRESTRIAL, ARCHITECTURE_LIQUID, ARCHITECTURE_SPACE.
+All 9 JVM MathPhysicsEngine domains are now ported. `physics_compute`
+returns `nothing` only for genuinely-unknown domain strings.
 """
 function physics_compute(domain::String, topic_idx::Integer,
                           param1::Integer, param2::Real,
@@ -68,7 +71,13 @@ function physics_compute(domain::String, topic_idx::Integer,
         return physics_compute_biology(topic_idx, param1, param2, sp)
     elseif domain == "CHEMISTRY"
         return physics_compute_chemistry(topic_idx, param1, param2, sp)
+    elseif domain == "ARCHITECTURE_TERRESTRIAL"
+        return physics_compute_arch_terrestrial(topic_idx, param1, param2, sp)
+    elseif domain == "ARCHITECTURE_LIQUID"
+        return physics_compute_arch_liquid(topic_idx, param1, param2, sp)
+    elseif domain == "ARCHITECTURE_SPACE"
+        return physics_compute_arch_space(topic_idx, param1, param2, sp)
     end
-    # Not ported. JVM caller falls back to in-process MathPhysicsEngine.
+    # Unknown domain. JVM caller falls back to in-process MathPhysicsEngine.
     return nothing
 end
