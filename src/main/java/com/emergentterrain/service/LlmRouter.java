@@ -505,6 +505,26 @@ public class LlmRouter {
             String systemPrompt, String userPrompt,
             String toolsJson,
             Function<String, String> executor) {
+        return callPrimaryWithTools(systemPrompt, userPrompt, toolsJson, executor, null);
+    }
+
+    /**
+     * 2026-05-22 — overload accepting a per-retry reset hook. Callers
+     * whose executor closes over shared mutable state (e.g. a
+     * {@link com.emergentterrain.service.MathToolSuite.ToolMetrics}
+     * accumulator) pass {@code onRetry} so that state can be cleared
+     * when the router moves to the next handle. Without this hook, a
+     * tool call that succeeded on handle A, then a subsequent network
+     * failure that bubbles a RuntimeException, leaves the executor's
+     * shared counters inflated for whichever handle ultimately returns
+     * — even when that handle's own trace is empty. Surfaced root cause
+     * for the P-a328-865/880/890 trace-empty-yet-prof:ok divergence.
+     */
+    public com.emergentterrain.llm.ToolCallResponse callPrimaryWithTools(
+            String systemPrompt, String userPrompt,
+            String toolsJson,
+            Function<String, String> executor,
+            Runnable onRetry) {
         List<ModelHandle> eligible = orderedAvailableToolEnabled();
         RuntimeException last = null;
         // Phase 12 D7 — record every model handle the router skips before reaching
@@ -532,6 +552,18 @@ public class LlmRouter {
                 skipped.add(h.modelId());
                 log.warn("LlmRouter: handle={} callWithTools failed, trying next: {}",
                         h.reviewerId(), e.getMessage());
+                // 2026-05-22 — clear shared-state accumulators in the caller's
+                // executor (typically a MathToolSuite.ToolMetrics) so partial
+                // success counts from this failed attempt don't leak into the
+                // next handle's response. Trace is naturally per-handle (built
+                // inside the pool's loop, discarded on exception), but metrics
+                // is shared via closure.
+                if (onRetry != null) {
+                    try { onRetry.run(); }
+                    catch (RuntimeException re) {
+                        log.warn("LlmRouter: onRetry callback failed: {}", re.getMessage());
+                    }
+                }
             }
         }
         if (last != null) throw last;

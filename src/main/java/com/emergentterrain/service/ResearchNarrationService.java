@@ -848,11 +848,17 @@ public class ResearchNarrationService {
             // Phase 20.5 — tag the professor tool-loop with role="professor-tools"
             // so RoleRouterPolicy can route per-role (e.g., avoid Groq llama for
             // this role specifically when daily-token cap is the active concern).
+            // 2026-05-22 — wire metrics::reset as the router's onRetry hook so a
+            // tool call that succeeds on handle A, then a network failure on
+            // the same handle, then a retry on handle B doesn't leave the
+            // success counter inflated from A's discarded attempt. Root cause
+            // of the P-865/880/890 prof:ok-but-empty-trace divergence.
             com.emergentterrain.llm.ToolCallResponse profResponse =
                     com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
                             router.callPrimaryWithTools(
                                     systemPrompt, userPrompt, toolsJson,
-                                    toolSuite.buildExecutor(draft, metrics)));
+                                    toolSuite.buildExecutor(draft, metrics),
+                                    metrics::reset));
             String professorSynthesis = profResponse.synthesis();
             // Phase 7 F5.3 — capture trace immediately so subsequent return paths
             // (gate closed, parse failed, exception) can still stamp the trace

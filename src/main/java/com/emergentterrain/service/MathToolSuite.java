@@ -117,6 +117,30 @@ public class MathToolSuite {
         void incrementGpuEvalRejects()   { gpuEvalRejectCount++;  }
         void incrementSandboxSuccesses()    { sandboxSuccessCount++;    }
         void incrementSymbolicSuccesses()   { symbolicSuccessCount++;   }
+
+        /**
+         * 2026-05-22 — clears every counter. Called by
+         * {@link com.emergentterrain.service.LlmRouter#callPrimaryWithTools}
+         * when the router falls through from a failed handle attempt to
+         * the next handle. The trace is naturally per-handle (local to
+         * each pool's tool-call loop, lost on exception), but ToolMetrics
+         * is shared via the executor closure — without this reset, a
+         * successful tool call on a handle that subsequently throws
+         * leaves the success counter inflated for whichever handle
+         * eventually returns. Surfaced root cause for the P-a328-865 /
+         * 880 / 890 trace-empty-yet-prof:ok divergence; the
+         * trace.isEmpty() defensive check in ResearchNarrationService
+         * still protects against future leaks of this shape.
+         */
+        public void reset() {
+            sandboxRejectCount = 0;
+            symbolicRejectCount = 0;
+            gpuEvalRejectCount = 0;
+            sandboxSuccessCount = 0;
+            symbolicSuccessCount = 0;
+            gpuEvalSuccessCount = 0;
+            predicateScanSuccessCount = 0;
+        }
         void incrementGpuEvalSuccesses()    { gpuEvalSuccessCount++;    }
         void incrementPredicateScanSuccesses() { predicateScanSuccessCount++; }
     }
