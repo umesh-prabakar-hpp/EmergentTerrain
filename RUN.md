@@ -46,8 +46,18 @@ Stop: `./scripts/stop.sh`. App listens on http://localhost:8081. Logs:
 ## 5. Paper-review loop (Claude Code)
 
 ```
-/loop 30m /paper-review research/a3289005 --logs logs/et-app.log
+/loop 30m /paper-review research/a3289005 \
+       --logs        logs/et-app.log \
+       --julia-log   ../julia-math-sidecar/logs/sidecar.log \
+       --gpu-log     ../EmergentTerrainGPUEngine/logs/gpu-engine.log
 ```
+
+`--julia-log` and `--gpu-log` are optional. When supplied, the review report
+gains a Julia-sidecar subsection (startup state, `UndefVarError`/`ParseError`
+groupings, `EADDRINUSE` detection) and a GPU-engine subsection (Vulkan adapter,
+`VK_ERROR_*`, kernel OOM, Rust panics from the `.err.log` peer). The Java app
+log alone shows 5-minute `JuliaSidecarReporter` rollup counts; pairing it with
+the sidecar logs gives the exception messages behind those counts.
 
 ## 6. Phase-doc pending-items review + archive (Claude Code)
 
