@@ -87,6 +87,18 @@ app:
     sympy:
       enabled: true
       timeoutMs: 10000
+    # Phase 26 §26.1 — constant + sequence recognition pass (OEIS
+    # Superseeker now; PSLQ + LLL in 26.2/26.3). Hosted in the sidecar
+    # via the /recognise/* routes per the 2026-05-22 Julia-consolidation
+    # decision. Flag-gated dormant until §26.6's coverage probe passes
+    # AND the citation-precision audit shows zero hallucinated cites.
+    # The JVM keeps the Postgres oeis_cache (single cache source of
+    # truth) and only hits the sidecar on cache miss.
+    recognise:
+      enabled: false
+      timeoutMs: 5000
+      lll:
+        enabled: false   # phase 26.3 sub-flag — Nemo.jl LLL is its own can
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
     # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
     # + Java binding without migrating any caller. Flip `enabled: true`
