@@ -973,12 +973,121 @@ class PhysicsTopicParityTest {
 
     // ── not_ported routing — remaining domains ─────────────
 
+    // ── BIOLOGY domain (ported §28.5f) ───────────────────────────────
+
     @Test
-    void biologyDomain_notYetPorted_returnsEmpty() {
+    void biologyTopic0_verhulst_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("BIOLOGY", 0, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("BIOLOGY", 0, 3, 0.0, sp);
-        assertThat(side).as("BIOLOGY domain not yet ported").isEmpty();
+                liveClient().physicsTopic("BIOLOGY", 0, param1, param2, sp);
+
+        assertThat(side).as("BIOLOGY topic 0 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void biologyTopic1_lotkaVolterra_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // 400-step Euler ODE per outer sample — second multi-step integrator
+        // port after PHYSICS projectile.
+        int param1 = 5;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("BIOLOGY", 1, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("BIOLOGY", 1, param1, param2, sp);
+
+        assertThat(side).as("BIOLOGY topic 1 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void biologyTopic2_michaelisMenten_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        int param1 = 4;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("BIOLOGY", 2, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("BIOLOGY", 2, param1, param2, sp);
+
+        assertThat(side).as("BIOLOGY topic 2 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void biologyTopic3_kleiber_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Fractional Math.pow (M^0.75) + Math.log/Math.pow regression.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("BIOLOGY", 3, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("BIOLOGY", 3, param1, param2, sp);
+
+        assertThat(side).as("BIOLOGY topic 3 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    @Test
+    void biologyTopic4_hardyWeinberg_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // Topic 4 → default branch (hardyWeinberg).
+        int param1 = 0;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("BIOLOGY", 4, param1, param2, sp);
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("BIOLOGY", 4, param1, param2, sp);
+
+        assertThat(side).as("BIOLOGY topic 4 (default) should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
+    }
+
+    // ── not_ported routing — remaining domains ─────────────
+
+    @Test
+    void chemistryDomain_notYetPorted_returnsEmpty() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
+        // CHEMISTRY — next pending after BIOLOGY finished.
+        Optional<JuliaMathClient.PhysicsTopicResultWire> side =
+                liveClient().physicsTopic("CHEMISTRY", 0, 3, 0.0, sp);
+        assertThat(side).as("CHEMISTRY domain not yet ported").isEmpty();
     }
 }
