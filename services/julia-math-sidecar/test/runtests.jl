@@ -793,6 +793,29 @@ end
 # `MathConjectureSubstrate` implementation at the per-primitive level
 # before the integration test exercises the HTTP route.
 
+@testset "julia_aliases — Mathematica-flavoured globals (paper-review 2026-05-22)" begin
+    # Numeric constants — bare-name resolution.
+    @test JuliaMathSidecar.PI == π
+    @test JuliaMathSidecar.PLANCK_H ≈ 6.62607015e-34
+    @test JuliaMathSidecar.σ_F     ≈ 5.670374419e-8
+    @test JuliaMathSidecar.SIGMA_SB == JuliaMathSidecar.σ_F
+    @test JuliaMathSidecar.BOLTZMANN_K ≈ 1.380649e-23
+    @test JuliaMathSidecar.SPEED_OF_LIGHT == 299_792_458.0
+    @test JuliaMathSidecar.GRAVITATIONAL_CONSTANT ≈ 6.67430e-11
+    @test JuliaMathSidecar.ELEMENTARY_CHARGE ≈ 1.602176634e-19
+
+    # isprime — fast-path sieve + trial-division fallback.
+    @test JuliaMathSidecar.isprime(2)
+    @test JuliaMathSidecar.isprime(97)
+    @test JuliaMathSidecar.isprime(1_000_003)            # in sieve range
+    @test !JuliaMathSidecar.isprime(1)
+    @test !JuliaMathSidecar.isprime(100)
+    @test !JuliaMathSidecar.isprime(1_000_002)
+    # Above NT_MAX_N (1_050_000) — exercises the trial-division branch.
+    @test JuliaMathSidecar.isprime(2_000_003)            # large prime
+    @test !JuliaMathSidecar.isprime(2_000_004)           # large composite
+end
+
 @testset "number-theory primitives parity" begin
     # SPF / isPrime
     @test JuliaMathSidecar.nt_is_prime(2)

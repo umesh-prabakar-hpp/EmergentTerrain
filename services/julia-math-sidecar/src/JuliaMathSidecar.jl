@@ -54,6 +54,7 @@ export start_server!
 include("safety.jl")       # Safety filter for incoming expressions.
 include("metrics.jl")      # Per-endpoint call counts + latency histogram.
 include("numbertheory.jl")    # SPF sieve + window aggregator (phase-28 §28.1).
+include("julia_aliases.jl") # Mathematica-flavoured aliases for LLM eval (paper-review 2026-05-22).
 include("math_invariants.jl")    # BASE + DERIVED scalar vocabulary (phase-28 §28.4).
 include("physics_primitives.jl") # isPrime/isHappy/collatz/sigma/mobius (phase-28 §28.5a).
 include("predicate.jl")          # /predicate/scan interpreter (phase-28 §28.5a).
