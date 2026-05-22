@@ -63,6 +63,7 @@ include("predicate.jl")          # /predicate/scan interpreter (phase-28 §28.5a
 include("physics_mathematics.jl") # MATHEMATICS domain (phase-28 §28.5b/cont/cont2/cont3).
 include("physics_physics.jl")    # PHYSICS domain (phase-28 §28.5c).
 include("physics_materials.jl")  # MATERIALS domain (phase-28 §28.5d).
+include("physics_interdisc.jl")  # INTERDISCIPLINARY domain (phase-28 §28.5e).
 include("physics.jl")            # physics_compute dispatch (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.
