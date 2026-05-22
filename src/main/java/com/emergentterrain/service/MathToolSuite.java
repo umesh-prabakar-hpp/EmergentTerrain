@@ -69,7 +69,8 @@ public class MathToolSuite {
             "Symbolic evaluation of",
             "GPU eval of",
             "Sandboxed computation —",
-            "verify_conjecture:");
+            "verify_conjecture:",
+            "symbolic_regress:");
 
     /**
      * Phase 17 P8b — is this tool-call result a real computational
@@ -456,9 +457,38 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
-                conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON);
+                }%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
+                (juliaMathClient != null && juliaMathClient.isPysrAvailable())
+                        ? SYMBOLIC_REGRESS_TOOL_JSON : "");
     }
+
+    /**
+     * Phase 24 §24.3 — symbolic_regress tool advertised when the Julia
+     * sidecar is up AND app.julia.pysr.enabled=true. Omitting it
+     * entirely from the schema when unavailable means the LLM never
+     * sees a tool it can't call, which is cheaper (token-wise) than
+     * advertising + rejecting.
+     */
+    private static final String SYMBOLIC_REGRESS_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"symbolic_regress",
+                "description":"Phase 24 — fit a closed-form expression to a small numeric table. Input is rows of [v1, v2, ..., vN, target] (max 256 rows, max 6 input variables). Returns a Pareto front of candidate expressions (mean-squared error vs complexity), sorted by complexity ascending — the first entry is the simplest law the search found, later entries fit better at the cost of complexity. Use when you suspect a clean functional law underlies a parameter sweep (e.g. gravity F=G·m1·m2/r², ideal-gas PV=nRT, Arrhenius k=A·exp(-Ea/RT), RC-decay v=v0·exp(-k·t)) and you want a machine to recover it rather than hand-fitting. Operators default to {+, -, *, /, ^, exp, log}; pass a custom subset from the allowlist {+, -, *, /, ^, exp, log, sqrt, abs, sin, cos} to constrain the search.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "samples":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"Rows of [v1, ..., vN, target]. Length(row) must equal length(var_names) + 1."},
+                    "var_names":{"type":"array","items":{"type":"string"},"description":"Variable names in order matching the first N entries of each row. Each must match [A-Za-z_][A-Za-z0-9_]*."},
+                    "target_name":{"type":"string","description":"Cosmetic name for the target variable (the last column of each row). Defaults to 'f' if omitted."},
+                    "operators":{"type":"array","items":{"type":"string","enum":["+","-","*","/","^","exp","log","sqrt","abs","sin","cos"]},"description":"Optional. Subset of operators the search is allowed to compose. Default: arithmetic + exp/log."},
+                    "rationale":{"type":"string","description":"Why a closed-form fit addresses a specific weakness in the paper (e.g. 'paper observes k between 0.03 and 0.05 across a temperature sweep; check whether a clean Arrhenius form fits')."}
+                  },
+                  "required":["samples","var_names","rationale"]
+                }
+              }
+            }""";
 
     private static final String VERIFY_CONJECTURE_TOOL_JSON = """
             ,{
@@ -514,6 +544,7 @@ public class MathToolSuite {
                     case "run_symbolic"       -> runSymbolic(args);
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
+                    case "symbolic_regress"   -> symbolicRegress(args);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -1130,6 +1161,123 @@ public class MathToolSuite {
             sb.append(String.format("\n  start=%d  lhs=%+.5f  rhs=%+.5f  margin=%+.5f  %s",
                     w.windowStart(), w.lhsValue(), w.rhsValue(), w.margin(),
                     w.holds() ? "holds" : "REFUTED"));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Phase 24 §24.3 — symbolic_regress tool handler. Validates the
+     * sample shape on the JVM side (so a malformed request never
+     * burns sidecar time), packages a {@link JuliaMathClient.PysrRequest},
+     * and formats the Pareto-front result as a Markdown table for the
+     * LLM's tool-result channel.
+     *
+     * <p>Failure modes are surfaced as plain-text result strings (no
+     * exception thrown) so the professor stage's tool loop can read
+     * the failure reason and either retry with adjusted args or move
+     * on, matching the pattern from runSymbolic / runSandboxedCode.
+     */
+    private String symbolicRegress(JsonNode args) {
+        if (juliaMathClient == null || !juliaMathClient.isPysrAvailable()) {
+            return "symbolic_regress not configured: Julia sidecar PySR path is unavailable. "
+                    + "Set app.julia.pysr.enabled=true and verify the sidecar is reachable.";
+        }
+        JsonNode samplesNode = args.path("samples");
+        JsonNode varNamesNode = args.path("var_names");
+        if (!samplesNode.isArray() || samplesNode.size() == 0) {
+            return "Missing 'samples': must be a non-empty array of rows.";
+        }
+        if (!varNamesNode.isArray() || varNamesNode.size() == 0) {
+            return "Missing 'var_names': must be a non-empty array of strings.";
+        }
+        if (samplesNode.size() > 256) {
+            return "Too many samples: " + samplesNode.size() + " rows (max 256). "
+                    + "Downsample stratified to ≤ 256 rows before retrying.";
+        }
+        if (varNamesNode.size() > 6) {
+            return "Too many variables: " + varNamesNode.size() + " (max 6). "
+                    + "PySR's recovery quality degrades beyond 6 inputs without per-call retuning.";
+        }
+        java.util.List<String> varNames = new java.util.ArrayList<>();
+        for (JsonNode v : varNamesNode) {
+            String s = v.asText("");
+            if (!s.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                return "Invalid var_names entry '" + s + "': must match [A-Za-z_][A-Za-z0-9_]*.";
+            }
+            varNames.add(s);
+        }
+        int expectedCols = varNames.size() + 1;
+        double[][] samples = new double[samplesNode.size()][];
+        for (int i = 0; i < samplesNode.size(); i++) {
+            JsonNode row = samplesNode.get(i);
+            if (!row.isArray() || row.size() != expectedCols) {
+                return "Invalid samples[" + i + "]: must be a numeric row of length "
+                        + expectedCols + " (= var_names.size() + 1 for target).";
+            }
+            double[] coerced = new double[expectedCols];
+            for (int j = 0; j < expectedCols; j++) {
+                JsonNode cell = row.get(j);
+                if (!cell.isNumber()) {
+                    return "Invalid samples[" + i + "][" + j + "]: not a number.";
+                }
+                coerced[j] = cell.asDouble();
+            }
+            samples[i] = coerced;
+        }
+        String targetName = args.path("target_name").asText("f");
+        java.util.List<String> operators = null;
+        JsonNode operatorsNode = args.path("operators");
+        if (operatorsNode.isArray() && operatorsNode.size() > 0) {
+            operators = new java.util.ArrayList<>();
+            for (JsonNode op : operatorsNode) {
+                operators.add(op.asText(""));
+            }
+        }
+        com.emergentterrain.llm.JuliaMathClient.PysrRequest request =
+                new com.emergentterrain.llm.JuliaMathClient.PysrRequest(
+                        samples,
+                        java.util.List.copyOf(varNames),
+                        targetName,
+                        operators == null ? null : java.util.List.copyOf(operators),
+                        /*populations*/ 0,
+                        /*iterations*/ 0,
+                        /*complexityCeiling*/ 0,
+                        /*timeoutMs*/ 0,
+                        /*seed*/ null);
+
+        com.emergentterrain.llm.JuliaMathClient.PysrResult result;
+        try {
+            result = juliaMathClient.pysr(request);
+        } catch (com.emergentterrain.llm.JuliaMathException e) {
+            // `busy` is retryable; surface as a hint. Other codes are
+            // terminal — the LLM should adjust args or try another tool.
+            if ("busy".equals(e.errorCode())) {
+                return "symbolic_regress busy: another /pysr call is in progress. "
+                        + "Retry after a short delay or batch this into a later iteration.";
+            }
+            log.warn("MathToolSuite: symbolic_regress failed code={} msg={}",
+                    e.errorCode(), e.getMessage());
+            return "symbolic_regress failed (" + e.errorCode() + "): " + e.getMessage();
+        }
+
+        if (result.pareto().isEmpty()) {
+            return "symbolic_regress: search ran but produced no candidate expressions "
+                    + "(evaluated " + result.evaluated() + " members in " + result.elapsedMs() + " ms). "
+                    + "Try increasing the operator set or relaxing the complexity ceiling.";
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("symbolic_regress: Pareto front over ").append(samples.length).append(" samples, ")
+          .append(varNames.size()).append(" vars (")
+          .append(String.join(", ", varNames)).append(") → ")
+          .append(targetName).append(". Evaluated ").append(result.evaluated())
+          .append(" members in ").append(result.elapsedMs()).append(" ms.\n\n");
+        sb.append("| Complexity | MSE | Expression |\n");
+        sb.append("|---|---|---|\n");
+        for (com.emergentterrain.llm.JuliaMathClient.ParetoEntry e : result.pareto()) {
+            sb.append("| ").append(e.complexity()).append(" | ")
+              .append(String.format("%.4g", e.mse())).append(" | `")
+              .append(e.expression()).append("` |\n");
         }
         return sb.toString();
     }

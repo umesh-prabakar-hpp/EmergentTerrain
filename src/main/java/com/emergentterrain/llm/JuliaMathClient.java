@@ -93,6 +93,17 @@ public class JuliaMathClient {
      */
     private final long healthProbeTimeoutMs;
 
+    // ── Phase 24 §24.2 — PySR-specific config (app.julia.pysr.*)
+    // Independent enable flag so the operator can flip pysr on/off
+    // separately from the main Julia path. When false, isPysrAvailable()
+    // returns false and MathToolSuite omits the symbolic_regress tool
+    // from toolsJson().
+    private final boolean pysrEnabled;
+    private final long pysrTimeoutMs;
+    private final int  pysrPopulations;
+    private final int  pysrIterations;
+    private final int  pysrComplexityCeiling;
+
     /**
      * Runtime reachability. Set true after a successful /healthz probe.
      * Set false on any /healthz failure OR on the first transport
@@ -121,14 +132,48 @@ public class JuliaMathClient {
     private final AtomicLong latencyMsTotal      = new AtomicLong();
     private final AtomicLong latencyMsMax        = new AtomicLong();
 
+    // ── Phase 24 §24.2 — /pysr-specific counters
+    //
+    // /pysr calls have a fundamentally different latency profile from
+    // /eval (20-second wall-clock vs ~30ms). Folding them into the
+    // shared latency counters would average misleadingly. Track them
+    // separately so the JuliaSidecarReporter can surface a dedicated
+    // pysr line.
+    private final AtomicLong pysrCalls           = new AtomicLong();
+    private final AtomicLong pysrLatencyMsTotal  = new AtomicLong();
+    private final AtomicLong pysrLatencyMsMax    = new AtomicLong();
+
     private final HttpClient http;
     private final ObjectMapper mapper;
 
+    /**
+     * Back-compat overload used by tests that don't care about pysr.
+     * Spring will not pick this one — it lacks {@code @Value}
+     * annotations — but it stays useful for direct instantiation in
+     * test code that pre-dates phase-24's pysr config.
+     */
+    public JuliaMathClient(boolean enabled, String baseUrl, long timeoutMs,
+                            long healthProbeTimeoutMs, ObjectMapper mapper) {
+        this(enabled, baseUrl, timeoutMs, healthProbeTimeoutMs,
+             /*pysrEnabled*/ false,
+             /*pysrTimeoutMs*/ 20_000L,
+             /*pysrPopulations*/ 8,
+             /*pysrIterations*/ 40,
+             /*pysrComplexityCeiling*/ 30,
+             mapper);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public JuliaMathClient(
             @Value("${app.julia.enabled:false}") boolean enabled,
             @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.julia.timeoutMs:5000}") long timeoutMs,
             @Value("${app.julia.healthProbeTimeoutMs:3000}") long healthProbeTimeoutMs,
+            @Value("${app.julia.pysr.enabled:false}") boolean pysrEnabled,
+            @Value("${app.julia.pysr.timeoutMs:20000}") long pysrTimeoutMs,
+            @Value("${app.julia.pysr.populations:8}") int pysrPopulations,
+            @Value("${app.julia.pysr.iterations:40}") int pysrIterations,
+            @Value("${app.julia.pysr.complexityCeiling:30}") int pysrComplexityCeiling,
             ObjectMapper mapper) {
         this.enabled = enabled;
         // Strip trailing slash so the URL-building below doesn't double-slash.
@@ -137,6 +182,11 @@ public class JuliaMathClient {
                 : baseUrl;
         this.timeoutMs = timeoutMs;
         this.healthProbeTimeoutMs = healthProbeTimeoutMs;
+        this.pysrEnabled = pysrEnabled;
+        this.pysrTimeoutMs = pysrTimeoutMs;
+        this.pysrPopulations = pysrPopulations;
+        this.pysrIterations = pysrIterations;
+        this.pysrComplexityCeiling = pysrComplexityCeiling;
         this.mapper = mapper;
         // 5-second connect timeout: if we can't even open a TCP socket
         // to the sidecar in 5s, assume it's down and let isAvailable()
@@ -256,6 +306,22 @@ public class JuliaMathClient {
     /** Last-seen reachability. May be stale if {@link #probeHealth()} hasn't been re-called recently. */
     public boolean isReachable() {
         return reachable.get();
+    }
+
+    /**
+     * Phase 24 §24.2 — PySR is available when (a) the main Julia path
+     * is available AND (b) the pysr-specific flag is also flipped. Two
+     * flags rather than one so the operator can keep the Julia sidecar
+     * active while toggling SR off (e.g. during the recovery-probe
+     * validation window in §24.5).
+     */
+    public boolean isPysrAvailable() {
+        return isAvailable() && pysrEnabled;
+    }
+
+    /** Whether the pysr-specific flag is on (independent of reachability). */
+    public boolean isPysrEnabled() {
+        return pysrEnabled;
     }
 
     // ── Endpoint methods ─────────────────────────────────────────────
@@ -382,6 +448,109 @@ public class JuliaMathClient {
                 body.path("elapsed_ms").asLong(0));
     }
 
+    /**
+     * Phase 24 §24.2 — POST /pysr — symbolic regression over a small
+     * data table. Returns a Pareto front of (expression, mse, complexity)
+     * candidates, sorted by complexity ascending.
+     *
+     * <p>Per-call wall-clock is bounded by {@code request.timeoutMs()}
+     * (or the {@code app.julia.pysr.timeoutMs} default if zero), capped
+     * server-side at 30 s. Concurrent /pysr calls serialise on the
+     * sidecar's per-process lock; a second concurrent call may return
+     * a {@link JuliaMathException} with code {@code busy} — callers
+     * should treat that as a retryable signal.
+     *
+     * <p>The {@link PysrRequest} carries client-side defaults; any zero
+     * / null / empty field falls back to the sidecar's defaults rather
+     * than overriding them, so callers can pass partially-populated
+     * requests safely.
+     *
+     * @throws JuliaMathException on transport / safety / eval errors.
+     *         Code {@code busy} specifically means another /pysr call
+     *         is in progress; the caller may retry.
+     */
+    public PysrResult pysr(PysrRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("PysrRequest cannot be null");
+        }
+        // Client-side validation — fails fast before the HTTP round-trip
+        // for shape errors that the sidecar would also reject. Mirrors
+        // the validation in the Julia handle_pysr handler so the error
+        // text is friendly.
+        if (request.samples() == null || request.samples().length == 0) {
+            throw new JuliaMathException("client_safety_rejected",
+                    "PysrRequest.samples must be a non-empty array of rows");
+        }
+        if (request.varNames() == null || request.varNames().isEmpty()) {
+            throw new JuliaMathException("client_safety_rejected",
+                    "PysrRequest.varNames must be a non-empty list");
+        }
+        for (String name : request.varNames()) {
+            if (name == null || !name.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+                throw new JuliaMathException("client_safety_rejected",
+                        "Variable name '" + name + "' must match [A-Za-z_][A-Za-z0-9_]*");
+            }
+        }
+        String targetName = request.targetName() == null || request.targetName().isBlank()
+                ? "f" : request.targetName();
+        if (!targetName.matches("[A-Za-z_][A-Za-z0-9_]*")) {
+            throw new JuliaMathException("client_safety_rejected",
+                    "Target name '" + targetName + "' must match [A-Za-z_][A-Za-z0-9_]*");
+        }
+        int expectedCols = request.varNames().size() + 1;
+        for (int i = 0; i < request.samples().length; i++) {
+            if (request.samples()[i] == null || request.samples()[i].length != expectedCols) {
+                throw new JuliaMathException("client_safety_rejected",
+                        "samples[" + i + "] must be a numeric row of length "
+                                + expectedCols + " (= varNames.size() + 1 target)");
+            }
+        }
+
+        // Build the body. LinkedHashMap so field order in the wire JSON
+        // matches what the sidecar logs prefer (cosmetic, but kind to
+        // operators reading log lines side-by-side).
+        java.util.LinkedHashMap<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("samples", request.samples());
+        body.put("varNames", request.varNames());
+        body.put("targetName", targetName);
+        if (request.operators() != null && !request.operators().isEmpty()) {
+            body.put("operators", request.operators());
+        }
+        // Zero / null → fall back to the configured pysr defaults
+        // (app.julia.pysr.*). Caller can override per-call by passing
+        // a positive value in the request.
+        int populations = request.populations() > 0 ? request.populations() : pysrPopulations;
+        int iterations  = request.iterations()  > 0 ? request.iterations()  : pysrIterations;
+        int complexity  = request.complexityCeiling() > 0
+                ? request.complexityCeiling() : pysrComplexityCeiling;
+        long callTimeoutMs = request.timeoutMs() > 0 ? request.timeoutMs() : pysrTimeoutMs;
+        body.put("populations",       populations);
+        body.put("iterations",        iterations);
+        body.put("complexityCeiling", complexity);
+        body.put("timeoutMs",         callTimeoutMs);
+        if (request.seed() != null)   body.put("seed", request.seed());
+
+        long t0 = System.nanoTime();
+        JsonNode resp = post("/pysr", body);
+        long elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
+        accumulatePysrLatency(elapsedMs);
+        pysrCalls.incrementAndGet();
+
+        // Parse the Pareto front.
+        java.util.ArrayList<ParetoEntry> entries = new java.util.ArrayList<>();
+        JsonNode pareto = resp.path("pareto");
+        if (pareto.isArray()) {
+            pareto.forEach(node -> entries.add(new ParetoEntry(
+                    node.path("expr").asText(""),
+                    node.path("mse").asDouble(Double.POSITIVE_INFINITY),
+                    node.path("complexity").asInt(0))));
+        }
+        return new PysrResult(
+                java.util.List.copyOf(entries),
+                resp.path("evaluated").asInt(0),
+                resp.path("elapsed_ms").asLong(0));
+    }
+
     // ── Internal HTTP plumbing ───────────────────────────────────────
 
     /**
@@ -414,10 +583,11 @@ public class JuliaMathClient {
             // `var` is a Julia identifier (alphanumeric + underscore)
             // and gets used as a parameter name, not eval'd as code.
             // Skip the filter; validate identifier shape instead.
-            if ("var".equals(key)) {
+            // `targetName` (phase-24 /pysr) is the same shape.
+            if ("var".equals(key) || "targetName".equals(key)) {
                 if (!s.matches("[A-Za-z_][A-Za-z0-9_]*")) {
                     throw new JuliaMathException("client_safety_rejected",
-                            "Field 'var' must be a Julia identifier "
+                            "Field '" + key + "' must be a Julia identifier "
                                     + "([A-Za-z_][A-Za-z0-9_]*); got: " + truncate(s, 40));
                 }
                 continue;
@@ -504,6 +674,21 @@ public class JuliaMathClient {
         } while (!latencyMsMax.compareAndSet(prev, elapsedMs));
     }
 
+    /**
+     * Mirror of {@link #accumulateLatency(long)} for /pysr-specific
+     * counters. /pysr wall-clock spans seconds vs /eval's milliseconds;
+     * tracking the two separately keeps avg-latency readings meaningful
+     * for each endpoint family.
+     */
+    private void accumulatePysrLatency(long elapsedMs) {
+        pysrLatencyMsTotal.addAndGet(elapsedMs);
+        long prev;
+        do {
+            prev = pysrLatencyMsMax.get();
+            if (elapsedMs <= prev) return;
+        } while (!pysrLatencyMsMax.compareAndSet(prev, elapsedMs));
+    }
+
     // ── Phase 22 §22.6 — snapshot for JuliaSidecarReporter ──────────
 
     /**
@@ -515,6 +700,9 @@ public class JuliaMathClient {
         long calls = okCalls.get();
         long total = latencyMsTotal.get();
         double avg = calls == 0 ? 0.0 : (double) total / calls;
+        long pysrN = pysrCalls.get();
+        long pysrTotal = pysrLatencyMsTotal.get();
+        double pysrAvg = pysrN == 0 ? 0.0 : (double) pysrTotal / pysrN;
         return new SidecarStats(
                 totalCalls.get(),
                 calls,
@@ -523,7 +711,11 @@ public class JuliaMathClient {
                 transportFailCalls.get(),
                 total,
                 latencyMsMax.get(),
-                avg);
+                avg,
+                pysrN,
+                pysrTotal,
+                pysrLatencyMsMax.get(),
+                pysrAvg);
     }
 
     /**
@@ -533,6 +725,13 @@ public class JuliaMathClient {
      * wire (ok / eval_error / parse_error / timeout — but not
      * safety-rejected or transport-failed calls, which short-circuit
      * before HTTP).
+     *
+     * <p>{@code pysrCalls} / {@code pysrLatencyMs*} (phase-24 §24.2)
+     * are a parallel set for /pysr only. /pysr calls also bump
+     * {@code totalCalls} / {@code okCalls} / shared latency — the
+     * /pysr-specific fields exist so the reporter can break out a
+     * dedicated heartbeat line without averaging /pysr's seconds-scale
+     * latency against /eval's milliseconds.
      */
     public record SidecarStats(
             long totalCalls,
@@ -542,7 +741,11 @@ public class JuliaMathClient {
             long transportFailCalls,
             long latencyMsTotal,
             long latencyMsMax,
-            double latencyMsAvg) {}
+            double latencyMsAvg,
+            long pysrCalls,
+            long pysrLatencyMsTotal,
+            long pysrLatencyMsMax,
+            double pysrLatencyMsAvg) {}
 
     private static String truncate(String s, int max) {
         if (s == null || s.length() <= max) return s;
@@ -580,4 +783,62 @@ public class JuliaMathClient {
     /** Result of {@link #sweep}. */
     public record SweepResult(double mean, double std, double min, double max,
                               int n, long elapsedMs) {}
+
+    // ── Phase 24 §24.2 — /pysr request + result records ──────────────
+
+    /**
+     * Request shape for {@link #pysr(PysrRequest)}.
+     *
+     * <p>Zero / null / empty fields fall back to the sidecar's defaults
+     * (populations=8, iterations=40, complexityCeiling=30, timeoutMs
+     * from the client's {@code app.julia.timeoutMs}, seed derived from
+     * the input hash). This lets callers populate only the knobs they
+     * care about.
+     *
+     * @param samples           N rows × (varNames.size() + 1) columns.
+     *                          Last column is the target value.
+     * @param varNames          Variable names; baked into the printed
+     *                          expressions. Each must match
+     *                          {@code [A-Za-z_][A-Za-z0-9_]*}.
+     * @param targetName        Target variable name; cosmetic, used in
+     *                          error messages. Defaults to {@code "f"}
+     *                          when null/blank.
+     * @param operators         Subset of the allowlist. Null/empty →
+     *                          sidecar default of arithmetic + exp/log.
+     * @param populations       Multi-population GP population count.
+     * @param iterations        Iterations per population.
+     * @param complexityCeiling Max expression complexity; the search
+     *                          will not propose anything beyond this.
+     * @param timeoutMs         Per-call wall-clock cap in ms. Clamped
+     *                          server-side at 30 s.
+     * @param seed              Deterministic seed; null → server picks
+     *                          one from hash of inputs.
+     */
+    public record PysrRequest(
+            double[][] samples,
+            java.util.List<String> varNames,
+            String targetName,
+            java.util.List<String> operators,
+            int populations,
+            int iterations,
+            int complexityCeiling,
+            long timeoutMs,
+            Long seed) {}
+
+    /**
+     * Pareto-front entry: a candidate expression with its mean-squared
+     * error against the training data and a symbolic-tree complexity.
+     * Lower mse + lower complexity is the trade-off frontier.
+     */
+    public record ParetoEntry(String expression, double mse, int complexity) {}
+
+    /**
+     * Result of {@link #pysr(PysrRequest)}. {@code pareto} is sorted by
+     * complexity ascending — the first entry is the simplest law the
+     * search found; later entries fit better at the cost of complexity.
+     */
+    public record PysrResult(
+            java.util.List<ParetoEntry> pareto,
+            int evaluated,
+            long elapsedMs) {}
 }

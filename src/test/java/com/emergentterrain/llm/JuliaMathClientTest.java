@@ -483,6 +483,156 @@ class JuliaMathClientTest {
         assertThat(client.isReachable()).isTrue();
     }
 
+    // ── Phase 24 §24.2 — /pysr binding ──────────────────────────────
+
+    /** Build a pysr-enabled client pointing at the stub. */
+    private JuliaMathClient buildPysrClient() {
+        JuliaMathClient client = new JuliaMathClient(
+                /*enabled*/ true,
+                "http://127.0.0.1:" + port,
+                /*timeoutMs*/ 2_000,
+                /*healthProbeTimeoutMs*/ 1_000,
+                /*pysrEnabled*/ true,
+                /*pysrTimeoutMs*/ 20_000,
+                /*pysrPopulations*/ 8,
+                /*pysrIterations*/ 40,
+                /*pysrComplexityCeiling*/ 30,
+                mapper);
+        client.probeHealth();
+        return client;
+    }
+
+    private JuliaMathClient.PysrRequest sampleRequest() {
+        double[][] samples = {{1.0, 2.0, 2.0}, {2.0, 3.0, 6.0}, {3.0, 4.0, 12.0}};
+        return new JuliaMathClient.PysrRequest(
+                samples,
+                java.util.List.of("x", "y"),
+                "f",
+                java.util.List.of("+", "-", "*"),
+                /*populations*/ 0,
+                /*iterations*/ 0,
+                /*complexityCeiling*/ 0,
+                /*timeoutMs*/ 0,
+                /*seed*/ null);
+    }
+
+    @Test
+    void pysr_isPysrAvailable_reflectsFlag() {
+        JuliaMathClient pysrOn = buildPysrClient();
+        assertThat(pysrOn.isPysrEnabled()).isTrue();
+        assertThat(pysrOn.isPysrAvailable()).isTrue();
+
+        JuliaMathClient pysrOff = buildClient();   // pysrEnabled=false via back-compat ctor
+        assertThat(pysrOff.isPysrEnabled()).isFalse();
+        assertThat(pysrOff.isPysrAvailable()).isFalse();
+    }
+
+    @Test
+    void pysr_happyPath_parsesParetoFront() {
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"pareto\":["
+                + "{\"expr\":\"x\",\"mse\":4.0,\"complexity\":1},"
+                + "{\"expr\":\"x * y\",\"mse\":1.0e-9,\"complexity\":3}"
+                + "],\"evaluated\":42,\"elapsed_ms\":1500}"));
+        JuliaMathClient client = buildPysrClient();
+        JuliaMathClient.PysrResult result = client.pysr(sampleRequest());
+
+        assertThat(result.evaluated()).isEqualTo(42);
+        assertThat(result.elapsedMs()).isEqualTo(1500);
+        assertThat(result.pareto()).hasSize(2);
+        // Wire ordering preserved — caller sees complexity-ascending.
+        assertThat(result.pareto().get(0).expression()).isEqualTo("x");
+        assertThat(result.pareto().get(0).complexity()).isEqualTo(1);
+        assertThat(result.pareto().get(1).expression()).isEqualTo("x * y");
+        assertThat(result.pareto().get(1).mse()).isLessThan(1e-6);
+    }
+
+    @Test
+    void pysr_busyResponse_surfacesAsException() {
+        nextResponse.set(new CannedResponse(503,
+                "{\"ok\":false,\"error\":\"busy\","
+                + "\"explanation\":\"another /pysr in progress\"}"));
+        JuliaMathClient client = buildPysrClient();
+
+        assertThatThrownBy(() -> client.pysr(sampleRequest()))
+                .isInstanceOf(JuliaMathException.class)
+                .hasMessageContaining("busy");
+    }
+
+    @Test
+    void pysr_appliesDefaultsForZeroFields() {
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"pareto\":[],\"evaluated\":0,\"elapsed_ms\":1}"));
+        JuliaMathClient client = buildPysrClient();
+        client.pysr(sampleRequest());
+
+        JsonNode body = readBody();
+        // Defaults from the buildPysrClient constructor should appear
+        // on the wire — caller passed zeros.
+        assertThat(body.path("populations").asInt()).isEqualTo(8);
+        assertThat(body.path("iterations").asInt()).isEqualTo(40);
+        assertThat(body.path("complexityCeiling").asInt()).isEqualTo(30);
+        assertThat(body.path("timeoutMs").asLong()).isEqualTo(20_000L);
+        // Caller-supplied fields appear verbatim.
+        assertThat(body.path("targetName").asText()).isEqualTo("f");
+        assertThat(body.path("samples").isArray()).isTrue();
+        assertThat(body.path("varNames").isArray()).isTrue();
+    }
+
+    @Test
+    void pysr_rejectsBadVarName_clientSide() {
+        JuliaMathClient client = buildPysrClient();
+        double[][] samples = {{1.0, 2.0, 2.0}};
+        // Var name with a dot — not a valid identifier; safety filter
+        // should reject before HTTP.
+        JuliaMathClient.PysrRequest bad = new JuliaMathClient.PysrRequest(
+                samples,
+                java.util.List.of("x.evil"),
+                "f", null, 0, 0, 0, 0, null);
+        // Wrong shape but the var-name check fires first.
+        lastRequestPath.set(null);
+        assertThatThrownBy(() -> client.pysr(bad))
+                .isInstanceOf(JuliaMathException.class)
+                .hasMessageContaining("Variable name");
+        // No HTTP made.
+        assertThat(lastRequestPath.get()).isNull();
+    }
+
+    @Test
+    void pysr_rejectsBadRowWidth_clientSide() {
+        JuliaMathClient client = buildPysrClient();
+        // varNames says 2 vars → rows must have 3 columns (2 + target).
+        double[][] wrongWidth = {{1.0, 2.0}};
+        JuliaMathClient.PysrRequest bad = new JuliaMathClient.PysrRequest(
+                wrongWidth,
+                java.util.List.of("x", "y"),
+                "f", null, 0, 0, 0, 0, null);
+        lastRequestPath.set(null);
+        assertThatThrownBy(() -> client.pysr(bad))
+                .isInstanceOf(JuliaMathException.class)
+                .hasMessageContaining("must be a numeric row of length 3");
+        assertThat(lastRequestPath.get()).isNull();
+    }
+
+    @Test
+    void pysr_bumpsPysrCountersOnSuccess() {
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"pareto\":[],\"evaluated\":0,\"elapsed_ms\":150}"));
+        JuliaMathClient client = buildPysrClient();
+        var before = client.snapshot();
+
+        client.pysr(sampleRequest());
+
+        var after = client.snapshot();
+        assertThat(after.pysrCalls()).isEqualTo(before.pysrCalls() + 1);
+        // Shared counters also tick because pysr() goes through post().
+        assertThat(after.totalCalls()).isEqualTo(before.totalCalls() + 1);
+        assertThat(after.okCalls()).isEqualTo(before.okCalls() + 1);
+        // Pysr latency should have measurable delta.
+        assertThat(after.pysrLatencyMsTotal())
+                .isGreaterThanOrEqualTo(before.pysrLatencyMsTotal());
+    }
+
     // ── Helpers ─────────────────────────────────────────────────────
 
     private JsonNode readBody() {

@@ -57,6 +57,17 @@ app:
     timeoutMs: 5000
     healthProbeTimeoutMs: 3000   # 2026-05-20: bumped 2000 → 3000 to survive JIT-busy window
     reportIntervalMs: 300000     # 5-minute sidecar metrics heartbeat
+    # Phase 24 §24.2 — PySR symbolic regression knobs. Flag-gated dormant
+    # until §24.5's recovery probe passes; flip `enabled: true` to wire
+    # the `symbolic_regress` tool into MathToolSuite. timeoutMs here is
+    # the per-/pysr-call cap (longer than the shared timeoutMs above
+    # because SR runs evolve a Pareto front, not a single evaluation).
+    pysr:
+      enabled: false
+      timeoutMs: 20000           # per-call wall-clock cap, server clamps at 30s
+      populations: 8             # multi-population GP island count
+      iterations: 40             # iterations per population
+      complexityCeiling: 30      # max expression-tree size SR will propose
   gpu:
     enabled: true
     world:

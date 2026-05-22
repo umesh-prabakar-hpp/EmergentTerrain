@@ -16,9 +16,23 @@ class JuliaSidecarReporterTest {
     private static JuliaMathClient.SidecarStats snap(long total, long ok,
             long safety, long evalErr, long transport,
             long latencyTotal, long latencyMax, double latencyAvg) {
+        // Phase 24 §24.2 added pysr-specific counters. The existing
+        // tests don't care about pysr; default the new fields to zero.
         return new JuliaMathClient.SidecarStats(
                 total, ok, safety, evalErr, transport,
-                latencyTotal, latencyMax, latencyAvg);
+                latencyTotal, latencyMax, latencyAvg,
+                0L, 0L, 0L, 0.0);
+    }
+
+    private static JuliaMathClient.SidecarStats snapWithPysr(long total, long ok,
+            long latencyTotal, long latencyMax,
+            long pysrCalls, long pysrLatencyTotal, long pysrLatencyMax) {
+        double avg = ok == 0 ? 0.0 : (double) latencyTotal / ok;
+        double pysrAvg = pysrCalls == 0 ? 0.0 : (double) pysrLatencyTotal / pysrCalls;
+        return new JuliaMathClient.SidecarStats(
+                total, ok, 0, 0, 0,
+                latencyTotal, latencyMax, avg,
+                pysrCalls, pysrLatencyTotal, pysrLatencyMax, pysrAvg);
     }
 
     @Test
@@ -61,5 +75,23 @@ class JuliaSidecarReporterTest {
 
         var d = JuliaSidecarReporter.computeDelta(prev, cur);
         assertThat(d.latencyMsMax()).isEqualTo(4900);
+    }
+
+    @Test
+    void computeDelta_separatesPysrFromSharedCounters() {
+        // Phase 24 §24.2 — /pysr counters track separately so a
+        // 20-second SR call doesn't poison the avg-latency reading
+        // for /eval and /solve. Pin that the delta carries pysr
+        // fields independently.
+        var prev = snapWithPysr(10, 8, 200, 50,  0,    0,    0);
+        var cur  = snapWithPysr(13, 11, 250, 50, 2, 32_000, 18_000);
+
+        var d = JuliaSidecarReporter.computeDelta(prev, cur);
+        // Shared latency only saw 50ms of new work — the pysr time
+        // didn't leak into it.
+        assertThat(d.latencyMsTotal()).isEqualTo(50);
+        assertThat(d.pysrCalls()).isEqualTo(2);
+        assertThat(d.pysrLatencyMsTotal()).isEqualTo(32_000);
+        assertThat(d.pysrLatencyMsMax()).isEqualTo(18_000);
     }
 }

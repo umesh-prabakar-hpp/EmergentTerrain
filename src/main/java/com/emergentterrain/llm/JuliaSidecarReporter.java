@@ -100,6 +100,16 @@ public class JuliaSidecarReporter {
                 d.okCalls, d.safetyRejectCalls, d.evalErrorCalls, d.transportFailCalls,
                 d.okCalls == 0 ? 0 : d.latencyMsTotal / d.okCalls,
                 d.latencyMsMax, d.latencyMsTotal);
+        // Phase 24 §24.2 — dedicated /pysr heartbeat. Suppress when no
+        // /pysr activity happened in this window so dormant-Julia
+        // periods don't double the log surface.
+        if (d.pysrCalls > 0) {
+            log.info("julia-sidecar window={}m pysr={{calls={}, avg_ms={}, max_ms={}, total_ms={}}}",
+                    intervalMs / 60_000L,
+                    d.pysrCalls,
+                    d.pysrCalls == 0 ? 0 : d.pysrLatencyMsTotal / d.pysrCalls,
+                    d.pysrLatencyMsMax, d.pysrLatencyMsTotal);
+        }
         lastSnapshot = cur;
     }
 
@@ -121,7 +131,10 @@ public class JuliaSidecarReporter {
                 cur.evalErrorCalls()     - prev.evalErrorCalls(),
                 cur.transportFailCalls() - prev.transportFailCalls(),
                 cur.latencyMsTotal()     - prev.latencyMsTotal(),
-                cur.latencyMsMax());  // running peak — not zeroed per window
+                cur.latencyMsMax(),                                // running peak — not zeroed per window
+                cur.pysrCalls()          - prev.pysrCalls(),
+                cur.pysrLatencyMsTotal() - prev.pysrLatencyMsTotal(),
+                cur.pysrLatencyMsMax());
     }
 
     /** Per-heartbeat-window counts. Same shape as SidecarStats but is a delta. */
@@ -132,9 +145,13 @@ public class JuliaSidecarReporter {
             long evalErrorCalls,
             long transportFailCalls,
             long latencyMsTotal,
-            long latencyMsMax) {}
+            long latencyMsMax,
+            long pysrCalls,
+            long pysrLatencyMsTotal,
+            long pysrLatencyMsMax) {}
 
     private static JuliaMathClient.SidecarStats zero() {
-        return new JuliaMathClient.SidecarStats(0, 0, 0, 0, 0, 0, 0, 0.0);
+        return new JuliaMathClient.SidecarStats(0, 0, 0, 0, 0, 0, 0, 0.0,
+                0, 0, 0, 0.0);
     }
 }
