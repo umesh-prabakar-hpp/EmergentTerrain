@@ -12,7 +12,7 @@
 #   physics_physics.jl      — PHYSICS     (topics 0..9+, fully ported)
 #   physics_materials.jl    — MATERIALS   (topics 0..9+, fully ported)
 #   physics_interdisc.jl    — INTERDISCIPLINARY (topics 0..7+, fully ported)
-#   physics_biology.jl      — BIOLOGY              (TODO)
+#   physics_biology.jl      — BIOLOGY     (topics 0..4+, fully ported)
 #   physics_chemistry.jl    — CHEMISTRY            (TODO)
 #   physics_arch_terr.jl    — ARCHITECTURE_TERRESTRIAL (TODO)
 #   physics_arch_liquid.jl  — ARCHITECTURE_LIQUID  (TODO)
@@ -45,9 +45,11 @@ Ported domains:
                               JVM `default` branch, youngLaplaceCapillary)
   INTERDISCIPLINARY — topics 0..7+ (all topics; topic 7+ routes to the
                               JVM `default` branch, acousticDopplerShift)
+  BIOLOGY     — topics 0..4+ (all topics; topic 4+ routes to the
+                              JVM `default` branch, hardyWeinberg)
 
 Pending domains (each will gain a `physics_<domain>.jl` file):
-  BIOLOGY, CHEMISTRY, ARCHITECTURE_TERRESTRIAL, ARCHITECTURE_LIQUID,
+  CHEMISTRY, ARCHITECTURE_TERRESTRIAL, ARCHITECTURE_LIQUID,
   ARCHITECTURE_SPACE.
 """
 function physics_compute(domain::String, topic_idx::Integer,
@@ -61,6 +63,8 @@ function physics_compute(domain::String, topic_idx::Integer,
         return physics_compute_materials(topic_idx, param1, param2, sp)
     elseif domain == "INTERDISCIPLINARY"
         return physics_compute_interdisciplinary(topic_idx, param1, param2, sp)
+    elseif domain == "BIOLOGY"
+        return physics_compute_biology(topic_idx, param1, param2, sp)
     end
     # Not ported. JVM caller falls back to in-process MathPhysicsEngine.
     return nothing
