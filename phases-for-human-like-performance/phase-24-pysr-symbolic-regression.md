@@ -1,19 +1,27 @@
 # Phase 24 — PySR Symbolic Regression via the Julia Sidecar
 
-**Status (2026-05-22, end-of-day):** CODE COMPLETE + FLAG ON.
+**Status (2026-05-22, end-of-day):** CODE COMPLETE + FLAG ON +
+**§24.5 acceptance bar cleared at 5/5**.
+
 §24.1–§24.4 shipped + tested (50/50 + 11/11 + 8/8 + 32/32 + 4/4 + 6/6
 = unit/integration passes; pre-existing Mockito/Java-25 friction in
 `MathToolSuiteToolDescriptionTest` unrelated to this work). §24.5's
 offline recovery probe shipped at `scripts/pysr-probe/`. Sidecar-side
-follow-up §24.6 landed the per-endpoint timeout split (`/pysr` ceiling
-raised to 120s in `handlers.jl`; `/eval`-family stays at 30s). The
-production flag `app.julia.pysr.enabled` flipped from `false → true`
-at end of 2026-05-22 with the probe at **3/5** — an explicit override
-of the §24.5 4/5 bar, because diagnosis showed the two stubborn
-misses are **fixture-design artifacts, not engine regressions** (see
-§24.6 classification below). The two corpus-level checks (in-corpus
-uptake + math-domain non-regression) remain operator tasks once 20
-PHYSICS+MATERIALS papers have shipped under the new flag.
+follow-up §24.6 landed three remediation levers:
+- Per-endpoint timeout split (`/pysr` ceiling 120s vs `/eval`-family 30s)
+- **Lever 1** auto-normalize (sidecar `ff4d40e` + hotfix `4574f8e`)
+- **Lever 3** lazy autoRetry on stuck fits (sidecar `4574f8e`)
+- Probe upgrades: `--auto-normalize` / `--auto-retry` flags, NRMSE
+  pass criterion, full-pareto scan (probe `64399e9`)
+
+The §24.5 4/5 acceptance bar — originally overridden at the flag flip
+when the probe was at 3/5 against absolute-MSE thresholds — is now
+cleared honestly at **5/5** under `--auto-retry` against the more
+defensible NRMSE < 1e-3 criterion (live run, 2026-05-22).
+Recommended production wiring: `autoRetry: true, autoNormalize: false`
+on every `symbolic_regress` call. The two corpus-level checks
+(in-corpus uptake + math-domain non-regression) remain operator
+tasks once 20 PHYSICS+MATERIALS papers have shipped under the new flag.
 
 **Live-verification runbook:**
 ```bash
@@ -337,7 +345,7 @@ the failure is precision-bound rather than search-bound.
 
 | Class | Hardware response | Example in current probe | Right fix |
 |---|---|---|---|
-| **Search-bound** | Cloud helps linearly. More populations × islands × cores → higher escape rate from local optima. Probabilistic, not deterministic. | `rc-decay` (`V = V0·exp(-0.5·t)`) — keeps recovering linear approximation `(V0 - t) * 0.612`. At populations=24 misses ~100%; at populations=200 (16-core box) probably escapes the linear basin 40-60% of runs. | More populations, or biased operator priors (boost `exp` selection weight), or a seed-expression hint from the professor stage. |
+| **Search-bound** | Cloud helps linearly. More populations × islands × cores → higher escape rate from local optima. Probabilistic, not deterministic. | Originally thought `rc-decay` and `arrhenius` were in this class. **2026-05-22 live-run correction**: Lever 1's rescaling actually fixed both. Rescaling reshapes the GP fitness landscape, not just the BFGS precision floor — local optima at one scale aren't local optima at another. So the class still exists in principle but the probe has no remaining members. | More populations, biased operator priors, or — *as we now know* — rescaling via Lever 1. |
 | **Algorithmic** | Cloud does NOT help. Failure is at the BFGS float64 precision floor, not the search depth. | `newton-gravity` — `m1 ∈ [1e24, 6e24]`, target coefficient `G/r² ≈ 6.67e-27`. BFGS gradient at `m1·m2·δ ≈ 1e46·δ` against float64's `1e-15` relative precision → gradient noise at `1e31`, optimizer cannot reliably take `1e-27`-sized steps. 128-core box produces identical failure. | Auto-normalize inputs and target inside `handle_pysr` ("Lever 1" below). NOT a hardware purchase. |
 
 **Why the algorithmic class doesn't scale with hardware.** PySR is GP
@@ -417,13 +425,23 @@ instances per request — a refactor, not a config flip. Worth doing
 *before* a cloud upgrade if multi-tenant throughput matters; not
 worth doing for the current single-operator workload.
 
-**Acceptance impact.** The §24.5 4/5 bar is preserved as written —
-this section explains why the current 3/5 was deemed acceptable for
-the flag flip (the two misses are diagnosed as fixture-design
-artifacts in the algorithmic class, not engine bugs). When Lever 1
-lands, the probe should reach 4/5 deterministically (newton-gravity
-fixed); rc-decay's escape from the linear basin remains
-probabilistic and may need a separate operator-prior pass.
+**Acceptance impact.** The §24.5 4/5 bar is now cleared at **5/5**
+under the recommended production config `autoRetry: true,
+autoNormalize: false` (2026-05-22 live run, sidecar commit
+`4574f8e`, probe commit `64399e9`). The 3/5-baseline-with-overrides
+framing in the original status block is **historical**: it reflected
+the absolute-MSE pass criterion which counted two coincidentally
+small-magnitude misses (rc-decay's linear approximation and
+arrhenius's piecewise-linear approximation) as passes. Under the
+honest NRMSE < 1e-3 criterion the baseline was actually 2/5; Lever 1
++ Lever 3 together raise it to 5/5.
+
+**Production wiring (recommended).** Set `autoRetry: true` on every
+`symbolic_regress` call from `MathToolSuite`. Leave `autoNormalize`
+default-false. The first pass costs nothing extra; the retry fires
+only on stuck fits (`fit_looks_stuck` heuristic in the sidecar). The
+LLM caller sees a single merged Pareto front with the retried-better
+entry surfaced when applicable.
 
 ---
 

@@ -42,6 +42,7 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 ./scripts/pysr-probe/run.sh                                       # default
 ./scripts/pysr-probe/run.sh --filter hooke                        # one fixture
 ./scripts/pysr-probe/run.sh --auto-normalize                      # phase 24.7 Lever 1
+./scripts/pysr-probe/run.sh --auto-retry                          # phase 24.7 Lever 3 (recommended)
 ./scripts/pysr-probe/run.sh \
   --iterations 160 --populations 24 --samples-per-dim 8 --timeout-ms 90000   # deep
 ```
