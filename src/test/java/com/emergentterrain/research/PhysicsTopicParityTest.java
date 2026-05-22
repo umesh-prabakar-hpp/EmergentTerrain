@@ -297,29 +297,60 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing — remaining MATHEMATICS topics ─────────────
+    // ── MATHEMATICS topic 3 — aliquotSequences (ported §28.5b-cont3) ──
 
     @Test
-    void mathTopic3_aliquot_notYetPorted_returnsEmpty() {
+    void mathTopic3_aliquot_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // MATHEMATICS topic 3 (aliquotSequences) — complex cycle
-        // detection w/ Set + overflow; deferred to a later slice.
+        // Aliquot walks Set-based cycle detection + ALIQUOT_X_CAP
+        // overflow. seedStart = max(2, param1); count = 40. Small
+        // param1 keeps the per-iteration work bounded.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 3, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("MATHEMATICS", 3, 3, 0.0, sp);
-        assertThat(side).as("MATHEMATICS topic 3 not yet ported").isEmpty();
+                liveClient().physicsTopic("MATHEMATICS", 3, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 3 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        // claimStatus is set by the outer wrapper after combining
+        // predominantTerminates + trendIncreases — exercises the
+        // multi-window logic on both sides.
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
+    // ── MATHEMATICS topic 5 — mertensPartialSums (ported §28.5b-cont3) ──
+
     @Test
-    void mathTopic5_mertens_notYetPorted_returnsEmpty() {
+    void mathTopic5_mertens_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // MATHEMATICS topic 5 (mertensPartialSums) — needs a Möbius
-        // primitive port; deferred to a later slice.
+        // seedStart = max(10, param1*5); width = 200. The Möbius
+        // primitive port lands in physics_primitives.jl alongside
+        // is_prime/sigma_sum/is_squarefree.
+        int param1 = 3;
+        double param2 = 0.0;
+
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute("MATHEMATICS", 5, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("MATHEMATICS", 5, 3, 0.0, sp);
-        assertThat(side).as("MATHEMATICS topic 5 not yet ported").isEmpty();
+                liveClient().physicsTopic("MATHEMATICS", 5, param1, param2, sp);
+
+        assertThat(side).as("MATHEMATICS topic 5 should be ported").isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
+
+    // ── not_ported routing — remaining domains ─────────────
 
     @Test
     void physicsDomain_notYetPorted_returnsEmpty() {
