@@ -74,6 +74,16 @@ app:
       # stuck fits get the rescaling rescue via the sidecar's lazy retry).
       autoNormalize: false
       autoRetry: true
+    # Phase 25 §25.2 — SymPy combinatorial-identity prover, hosted in
+    # the sidecar via PyCall.jl (per the 2026-05-22 Julia-consolidation
+    # decision). Flag-gated dormant until §25.5's coverage probe
+    # passes; flip enabled=true to register MathToolSuite's
+    # prove_identity tool. timeoutMs is currently advisory (PyCall +
+    # Threads.@spawn don't compose; sidecar enforces no wall-clock cap
+    # in v1 — relies on the 512-char input cap to bound runtime).
+    sympy:
+      enabled: false
+      timeoutMs: 10000
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
     # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
     # + Java binding without migrating any caller. Flip `enabled: true`
