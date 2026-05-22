@@ -186,8 +186,13 @@ public class ConjectureVerifier {
         return substrateDelegate;
     }
 
-    /** Test-only injection seam. Spring's @Autowired handles production. */
-    void setSubstrateDelegate(MathConjectureSubstrateDelegate delegate) {
+    /**
+     * Test-only injection seam. Spring's @Autowired handles production.
+     * Public (rather than package-private) so cross-package tests like
+     * {@code com.emergentterrain.service.MathToolSuiteVerifyConjectureTest}
+     * can wire a delegate when constructing a verifier outside Spring.
+     */
+    public void setSubstrateDelegate(MathConjectureSubstrateDelegate delegate) {
         this.substrateDelegate = delegate;
     }
 }

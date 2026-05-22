@@ -4,6 +4,8 @@ import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.ResultClassification;
 import com.emergentterrain.research.conjecture.ConjectureVerifier;
+import com.emergentterrain.research.conjecture.MathConjectureSubstrate;
+import com.emergentterrain.research.conjecture.MathConjectureSubstrateDelegate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -50,7 +52,7 @@ class MathToolSuiteVerifyConjectureTest {
     void dispatcherRoutesHeldCallToVerifier() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite(
-                (LlmRouter) null, mapper, null, null, new ConjectureVerifier());
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
         var executor = suite.buildExecutor(stubDraft());
 
         // Held-out window the Python miner didn't see (200_000), bound
@@ -77,7 +79,7 @@ class MathToolSuiteVerifyConjectureTest {
     void dispatcherRoutesRefutedCallToVerifier() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite(
-                (LlmRouter) null, mapper, null, null, new ConjectureVerifier());
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
         var executor = suite.buildExecutor(stubDraft());
 
         // Tight bound that's wrong: claim abundant_density <= 0.05.
@@ -131,6 +133,26 @@ class MathToolSuiteVerifyConjectureTest {
 
         String result = executor.apply(call);
         assertThat(result).startsWith("Invalid verify_conjecture call:");
+    }
+
+    /**
+     * Build a ConjectureVerifier with a delegate wired through the
+     * test-only seam. The §28.2 refactor moved substrate ownership to
+     * MathConjectureSubstrateDelegate (Spring-autowired in production);
+     * tests that construct ConjectureVerifier directly must inject the
+     * delegate or {@code substrate.evaluateWindow} NPEs at line 145.
+     *
+     * <p>SPF sieve sized to cover the test's window range
+     * (windowStart=200_000, numWindows × windowSize ≤ 1_500) with
+     * headroom — keeps the per-test cost under 50 ms.
+     */
+    private static ConjectureVerifier verifierWithSubstrate() {
+        MathConjectureSubstrate substrate = new MathConjectureSubstrate(210_000);
+        MathConjectureSubstrateDelegate delegate =
+                new MathConjectureSubstrateDelegate(substrate, /* juliaMathClient */ null);
+        ConjectureVerifier verifier = new ConjectureVerifier();
+        verifier.setSubstrateDelegate(delegate);
+        return verifier;
     }
 
     /** Same shape as the other MathToolSuite tests' stubDraft. */
