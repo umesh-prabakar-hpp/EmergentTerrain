@@ -61,6 +61,16 @@ public class MathPhysicsEngineDelegate {
 
     private static final Logger log = LoggerFactory.getLogger(MathPhysicsEngineDelegate.class);
 
+    /**
+     * Emit an INFO-level heartbeat with the stats snapshot every N
+     * successful shadow calls. Gives the operator a passive burn-in
+     * readout without standing up an actuator endpoint or scraping
+     * stats via JMX. Chosen so a typical paper-write workload (~26
+     * compute calls per paper, ~30 papers/hour) heartbeats roughly
+     * once every 1–2 hours.
+     */
+    private static final long HEARTBEAT_INTERVAL = 1_000L;
+
     private final JuliaMathClient juliaMathClient;
     private final boolean shadowReadEnabled;
 
@@ -164,7 +174,19 @@ public class MathPhysicsEngineDelegate {
                      && jvm.claimStatus().name().equals(wire.claimStatus());
 
         if (match) {
-            parityMatches.incrementAndGet();
+            long matches = parityMatches.incrementAndGet();
+            // Periodic burn-in heartbeat. Logs at parityMatches in
+            // {1000, 2000, 3000, ...} so the operator can confirm
+            // shadow read is alive and divergence-free without
+            // scraping stats() through a custom endpoint.
+            if (matches % HEARTBEAT_INTERVAL == 0) {
+                Stats s = stats();
+                log.info("MathPhysicsEngineDelegate: burn-in heartbeat — " +
+                        "totalCalls={} shadowCalls={} parityMatches={} " +
+                        "parityMismatches={} sidecarErrors={} sidecarEmpty={}",
+                        s.totalCalls(), s.shadowCalls(), s.parityMatches(),
+                        s.parityMismatches(), s.sidecarErrors(), s.sidecarEmpty());
+            }
             return;
         }
 
