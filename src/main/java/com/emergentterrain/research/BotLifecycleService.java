@@ -61,6 +61,20 @@ public class BotLifecycleService {
     }
 
     /**
+     * Phase 28 §28.5 — optional sidecar shadow-read wrapper for the
+     * competency-puzzle compute call. Same pattern as
+     * {@link ResearchCycleService#setPhysicsEngineDelegate}: null →
+     * static compute (legacy), non-null → delegate (shadow-read parity
+     * when flag is on).
+     */
+    private volatile MathPhysicsEngineDelegate physicsEngineDelegate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setPhysicsEngineDelegate(MathPhysicsEngineDelegate delegate) {
+        this.physicsEngineDelegate = delegate;
+    }
+
+    /**
      * Phase 1 Iter 2 — capture a ReputationHistory snapshot for any bot whose last
      * sample was more than {@link #REPUTATION_SAMPLE_INTERVAL_TICKS} ticks ago, or
      * who just transitioned phase. Called from UniversityService.maybeTick after
@@ -189,8 +203,10 @@ public class BotLifecycleService {
                                        int param1, double param2, Random rng) {
         if (genome == null) return 0.0;
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(genome);
-        MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+        MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
+        MathPhysicsEngine.ResearchResult result = delegate != null
+                ? delegate.compute(domain, topicIndex, param1, param2, sp)
+                : MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
         double score = MathPhysicsEngine.scoreResult(domain, topicIndex, result.reviewValue(), sp);
         return Math.max(0.0, score + rng.nextGaussian() * 0.05);
     }

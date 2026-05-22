@@ -69,6 +69,17 @@ public class ReplicationService {
     private volatile Consumer<ResearchPaper> disputeListener = p -> {};
 
     /**
+     * Phase 28 §28.5 — optional sidecar shadow-read wrapper. Same
+     * pattern as the other §28.5 caller migrations.
+     */
+    private volatile MathPhysicsEngineDelegate physicsEngineDelegate;
+
+    @Autowired(required = false)
+    public void setPhysicsEngineDelegate(MathPhysicsEngineDelegate delegate) {
+        this.physicsEngineDelegate = delegate;
+    }
+
+    /**
      * Phase 5 C2 — optional reconciliation listener receiving (disputedPaper,
      * replicatorBotId). UniversityService wires it to queue a typed
      * {@link ProgramOpenQuestion} on both bots' programs so the next paper
@@ -188,8 +199,10 @@ public class ReplicationService {
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
                 replicator.getState().getGenome(), educationFactor);
-        MathPhysicsEngine.ResearchResult replicaResult = MathPhysicsEngine.compute(
-                req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
+        MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
+        MathPhysicsEngine.ResearchResult replicaResult = delegate != null
+                ? delegate.compute(req.domain(), req.topicIndex(), req.param1(), req.param2(), sp)
+                : MathPhysicsEngine.compute(req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
         double replicaScore = MathPhysicsEngine.scoreResult(req.domain(), req.topicIndex(),
                 replicaResult.reviewValue(), sp);
 
