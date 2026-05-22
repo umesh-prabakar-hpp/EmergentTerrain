@@ -228,9 +228,11 @@ def probe_fixture(fixture: Fixture, base_url: str,
         "seed": 42,
     }
     # HTTP timeout slightly above the sidecar's own cap to give the
-    # response time to flow back. +5s headroom for JIT warmup on
-    # the first /pysr call of the process lifetime.
-    http_timeout_s = (per_call_timeout_ms / 1000.0) + 5.0
+    # response time to flow back. +15s headroom covers JIT warmup on
+    # the first /pysr call of the process lifetime and absorbs the
+    # serialization tail when the sidecar's MAX_PYSR_TIMEOUT_MS (120s)
+    # is approached on deeper searches.
+    http_timeout_s = (per_call_timeout_ms / 1000.0) + 15.0
     try:
         resp = call_pysr(base_url, body, http_timeout_s)
     except (urllib.error.URLError, TimeoutError, OSError) as e:

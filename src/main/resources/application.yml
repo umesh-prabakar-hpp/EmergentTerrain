@@ -63,8 +63,8 @@ app:
     # the per-/pysr-call cap (longer than the shared timeoutMs above
     # because SR runs evolve a Pareto front, not a single evaluation).
     pysr:
-      enabled: false
-      timeoutMs: 20000           # per-call wall-clock cap, server clamps at 30s
+      enabled: true
+      timeoutMs: 20000           # per-call wall-clock cap, server clamps /pysr at 120s
       populations: 8             # multi-population GP island count
       iterations: 40             # iterations per population
       complexityCeiling: 30      # max expression-tree size SR will propose
