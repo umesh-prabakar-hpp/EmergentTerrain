@@ -39,6 +39,9 @@ function build_router()
     # Symbolic regression — PySR-equivalent via SymbolicRegression.jl
     # (phase-24 §24.1). Gated by per-call lock; one search at a time.
     HTTP.register!(router, "POST", "/pysr",      handle_pysr)
+    # Number-theory window aggregator — port of `MathConjectureSubstrate`
+    # (phase-28 §28.1). Numeric input only; no safety filter exposure.
+    HTTP.register!(router, "POST", "/numbertheory/window", handle_numbertheory_window)
     return router
 end
 

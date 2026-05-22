@@ -80,6 +80,74 @@ end
 # ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------
+# Number-theory primitives — unit tests (phase-28 §28.1)
+# ---------------------------------------------------------------------
+#
+# Pure-function tests. No server needed. Validates parity with the JVM
+# `MathConjectureSubstrate` implementation at the per-primitive level
+# before the integration test exercises the HTTP route.
+
+@testset "number-theory primitives parity" begin
+    # SPF / isPrime
+    @test JuliaMathSidecar.nt_is_prime(2)
+    @test JuliaMathSidecar.nt_is_prime(97)
+    @test !JuliaMathSidecar.nt_is_prime(1)
+    @test !JuliaMathSidecar.nt_is_prime(91)   # 7 × 13
+    @test !JuliaMathSidecar.nt_is_prime(100)
+
+    # omega / bigOmega
+    @test JuliaMathSidecar.nt_omega(12)     == 2  # {2, 3}
+    @test JuliaMathSidecar.nt_big_omega(12) == 3  # 2 × 2 × 3
+    @test JuliaMathSidecar.nt_omega(1)      == 0
+    @test JuliaMathSidecar.nt_big_omega(1)  == 0
+
+    # sigma — sum of divisors
+    @test JuliaMathSidecar.nt_sigma(6)  == 12  # 1 + 2 + 3 + 6
+    @test JuliaMathSidecar.nt_sigma(12) == 28  # 1+2+3+4+6+12
+    @test JuliaMathSidecar.nt_sigma(1)  == 1
+
+    # divisor count τ(n)
+    @test JuliaMathSidecar.nt_divisor_count(6)  == 4
+    @test JuliaMathSidecar.nt_divisor_count(12) == 6
+    @test JuliaMathSidecar.nt_divisor_count(36) == 9
+
+    # Möbius μ(n)
+    @test JuliaMathSidecar.nt_mobius(1)  == 1
+    @test JuliaMathSidecar.nt_mobius(2)  == -1
+    @test JuliaMathSidecar.nt_mobius(6)  == 1
+    @test JuliaMathSidecar.nt_mobius(4)  == 0   # 2² → 0
+    @test JuliaMathSidecar.nt_mobius(12) == 0   # 2² × 3 → 0
+    @test JuliaMathSidecar.nt_mobius(30) == -1  # 2 × 3 × 5
+
+    # Happy numbers — known set in [1, 50]: {1, 7, 10, 13, 19, 23, 28,
+    # 31, 32, 44, 49, ...}. Spot-check.
+    @test JuliaMathSidecar.nt_is_happy(1)
+    @test JuliaMathSidecar.nt_is_happy(7)
+    @test JuliaMathSidecar.nt_is_happy(19)
+    @test !JuliaMathSidecar.nt_is_happy(2)
+    @test !JuliaMathSidecar.nt_is_happy(11)
+end
+
+@testset "nt_evaluate_window: keyed ordering + spot values" begin
+    pairs = JuliaMathSidecar.nt_evaluate_window(100, 50)
+    @test length(pairs) == 9
+    # Ordering matches the JVM `LinkedHashMap` exactly.
+    @test [first(p) for p in pairs] == [
+        "abundant_density", "deficient_density",
+        "prime_density",    "happy_density",
+        "mean_omega",       "mean_Omega",
+        "mean_divisor_count", "max_divisor_count",
+        "mertens_delta",
+    ]
+    pmap = Dict(pairs)
+    # Ten primes in [100, 150) → density 0.2.
+    @test isapprox(pmap["prime_density"], 10 / 50; atol=1e-12)
+    # Densities sum to ≤ 1 (abundant + deficient ≤ 1; perfect numbers
+    # 6, 28, 496 are excluded — none in [100, 150)).
+    @test pmap["abundant_density"] + pmap["deficient_density"] ≈ 1.0
+end
+
+# ---------------------------------------------------------------------
 #
 # We use a random ephemeral port (port=0 makes the OS pick one) to
 # avoid collisions with any sidecar the developer may already be
@@ -274,6 +342,66 @@ using Sockets
         # reachable under the {+, -, *} operator set on this exact grid.
         min_mse = minimum(Float64(e[:mse]) for e in body[:pareto])
         @test min_mse < 1e-6
+    end
+
+    # ─────────────────────────────────────────────────────────────────
+    # /numbertheory/window — port of MathConjectureSubstrate (phase-28 §28.1)
+    # ─────────────────────────────────────────────────────────────────
+
+    @testset "/numbertheory/window returns ordered scalar pairs" begin
+        # Window [100, 150): a deterministic, hand-checkable range.
+        r = HTTP.post("$base/numbertheory/window";
+            body = JSON3.write(Dict(:start => 100, :size => 50)),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+            readtimeout = 30,
+        )
+        @test r.status == 200
+        body = JSON3.read(r.body)
+        @test body[:ok] == true
+        @test body[:start] == 100
+        @test body[:size] == 50
+        # `result` is an ordered list of [key, value] pairs.
+        @test length(body[:result]) == 9
+        keys_in_order = [String(e[1]) for e in body[:result]]
+        @test keys_in_order == [
+            "abundant_density",   "deficient_density",
+            "prime_density",      "happy_density",
+            "mean_omega",         "mean_Omega",
+            "mean_divisor_count", "max_divisor_count",
+            "mertens_delta",
+        ]
+        # Spot-check primes in [100, 150): {101, 103, 107, 109, 113, 127,
+        # 131, 137, 139, 149} — ten primes over 50 integers → density 0.2.
+        result_map = Dict(String(e[1]) => Float64(e[2]) for e in body[:result])
+        @test isapprox(result_map["prime_density"], 10 / 50; atol=1e-12)
+    end
+
+    @testset "/numbertheory/window rejects out-of-range window" begin
+        r = HTTP.post("$base/numbertheory/window";
+            body = JSON3.write(Dict(
+                :start => JuliaMathSidecar.NT_MAX_N,
+                :size  => 100,
+            )),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+        )
+        @test r.status == 400
+        body = JSON3.read(r.body)
+        @test body[:ok] == false
+        @test body[:error] == "bad_request"
+    end
+
+    @testset "/numbertheory/window rejects negative size" begin
+        r = HTTP.post("$base/numbertheory/window";
+            body = JSON3.write(Dict(:start => 10, :size => -5)),
+            headers = ["Content-Type" => "application/json"],
+            status_exception = false,
+        )
+        @test r.status == 400
+        body = JSON3.read(r.body)
+        @test body[:ok] == false
+        @test body[:error] == "bad_request"
     end
 
     # ─────────────────────────────────────────────────────────────────

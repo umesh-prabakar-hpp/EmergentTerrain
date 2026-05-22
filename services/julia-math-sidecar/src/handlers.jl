@@ -898,3 +898,95 @@ function handle_pysr(req::HTTP.Request)
         ))
     end
 end
+
+# ---------------------------------------------------------------------
+# /numbertheory/window — port of MathConjectureSubstrate (phase-28 §28.1)
+# ---------------------------------------------------------------------
+#
+# Body: `{"start": N, "size": N, "timeoutMs": optional}`
+# Response on success:
+#   {"ok": true,
+#    "result": [
+#      ["abundant_density",   <float>],
+#      ["deficient_density",  <float>],
+#      ["prime_density",      <float>],
+#      ["happy_density",      <float>],
+#      ["mean_omega",         <float>],
+#      ["mean_Omega",         <float>],
+#      ["mean_divisor_count", <float>],
+#      ["max_divisor_count",  <float>],
+#      ["mertens_delta",      <float>]],
+#    "start": N, "size": N, "elapsed_ms": N}
+#
+# `result` is an ordered list of `[key, value]` pairs rather than a JSON
+# object — needed because we promise byte-identical ordering with the
+# JVM `LinkedHashMap` for the parity test in §28.2. JSON3 emits the
+# `Vector{Pair{String,Float64}}` we hand it as a 2-element array per
+# entry, which Java's Jackson re-reads in order.
+#
+# Errors:
+#   - `bad_request` (400) — missing/invalid `start` or `size`, or window
+#                            exceeds `NT_MAX_N`.
+#   - `eval_error`  (500) — unexpected exception during evaluation.
+#   - `timeout`     (408) — exceeded `timeoutMs`.
+#
+# No safety filter — input is two integers; nothing to eval.
+
+function handle_numbertheory_window(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("numbertheory_window", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    start_v = get(body, :start, nothing)
+    size_v  = get(body, :size, nothing)
+
+    if !(start_v isa Integer) || start_v < 0
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("numbertheory_window", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'start' must be a non-negative integer", elapsed_ms)
+    end
+    if !(size_v isa Integer) || size_v <= 0
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("numbertheory_window", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Field 'size' must be a positive integer", elapsed_ms)
+    end
+    # Fail-fast on out-of-range windows. The Julia-side check in
+    # nt_evaluate_window would also raise, but we'd rather return a
+    # clean 400 than a 500 wrapped around an ArgumentError.
+    if Int(start_v) + Int(size_v) > NT_MAX_N + 1
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("numbertheory_window", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Window [$(start_v), $(start_v + size_v)) exceeds NT_MAX_N=$(NT_MAX_N). " *
+            "Reduce 'start + size' or raise NT_MAX_N (see phase-28).", elapsed_ms)
+    end
+
+    timeout_ms = clamp_timeout_ms(body)
+
+    outcome, value = timed_evaluate(timeout_ms) do
+        nt_evaluate_window(Int(start_v), Int(size_v))
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+
+    if outcome === :timeout
+        record_call!("numbertheory_window", elapsed_ms, :timeout)
+        return error_response("timeout", value::String, elapsed_ms, status=408)
+    elseif outcome === :error
+        record_call!("numbertheory_window", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    else  # :ok
+        record_call!("numbertheory_window", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, Dict(
+            "result" => value,
+            "start"  => Int(start_v),
+            "size"   => Int(size_v),
+        ))
+    end
+end

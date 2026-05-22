@@ -51,9 +51,10 @@ using Logging
 export start_server!
 
 # Internal submodules. Each owns one slice of the HTTP surface.
-include("safety.jl")    # Safety filter for incoming expressions.
-include("metrics.jl")   # Per-endpoint call counts + latency histogram.
-include("handlers.jl")  # Endpoint implementations.
-include("server.jl")    # HTTP route table + server loop.
+include("safety.jl")       # Safety filter for incoming expressions.
+include("metrics.jl")      # Per-endpoint call counts + latency histogram.
+include("numbertheory.jl") # SPF sieve + window aggregator (phase-28 §28.1).
+include("handlers.jl")     # Endpoint implementations.
+include("server.jl")       # HTTP route table + server loop.
 
 end  # module
