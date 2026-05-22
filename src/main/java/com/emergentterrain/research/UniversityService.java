@@ -216,6 +216,19 @@ public class UniversityService {
      */
     private final boolean topicConsistencyEnabled;
     private final String  topicConsistencyMode;
+    /**
+     * 2026-05-21 review §1 rec #7 — when a paper carries a scaling /
+     * power-law / linearity claim, the trace needs at least 3 non-sweep
+     * sample points to make the claim structurally testable. The
+     * SinglePointSweepValidator (F3) catches narrator overclaims
+     * (Findings says "n=40" with 1 call); this validator catches honest
+     * underclaims (Findings says "σ scales as d^(-1/2)" with 2 calls).
+     * P-a328-884 (Hall-Petch) is the canonical signature. Mode escalation
+     * mirrors {@link #unsourcedClaimMode}; default disabled+warn so the
+     * first refresh exposes the FP rate.
+     */
+    private final boolean scalingSweepDepthEnabled;
+    private final String  scalingSweepDepthMode;
 
     // Per-room in-memory counters. Paper counters are lazily seeded from existing
     // on-disk research files so restarts keep IDs unique.
@@ -350,6 +363,8 @@ public class UniversityService {
             @Value("${app.research.citation-corpus.mode:warn}") String citationCorpusMode,
             @Value("${app.research.topic-consistency.enabled:false}") boolean topicConsistencyEnabled,
             @Value("${app.research.topic-consistency.mode:warn}") String topicConsistencyMode,
+            @Value("${app.research.scaling-sweep-depth.enabled:false}") boolean scalingSweepDepthEnabled,
+            @Value("${app.research.scaling-sweep-depth.mode:warn}") String scalingSweepDepthMode,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -401,6 +416,8 @@ public class UniversityService {
         this.citationCorpusMode           = normalizeMode(citationCorpusMode);
         this.topicConsistencyEnabled      = topicConsistencyEnabled;
         this.topicConsistencyMode         = normalizeMode(topicConsistencyMode);
+        this.scalingSweepDepthEnabled     = scalingSweepDepthEnabled;
+        this.scalingSweepDepthMode        = normalizeMode(scalingSweepDepthMode);
         this.objectMapper                = objectMapper;
         if (truncationGuardEnabled) {
             log.info("UniversityService: truncation-guard ENABLED — papers whose findings "
@@ -510,6 +527,17 @@ public class UniversityService {
                     + "other than the paper's declared topic are {} (2026-05-21 review §1 rec #6).",
                     topicConsistencyMode,
                     switch (topicConsistencyMode) {
+                        case "downgrade" -> "routed to NEEDS_REVISION";
+                        case "suppress"  -> "dropped";
+                        default           -> "logged only (no status change)";
+                    });
+        }
+        if (scalingSweepDepthEnabled) {
+            log.info("UniversityService: scaling-sweep-depth ENABLED mode={} — papers carrying "
+                    + "a scaling/linearity/power-law claim with fewer than 3 non-sweep "
+                    + "tool calls are {} (2026-05-21 review §1 rec #7).",
+                    scalingSweepDepthMode,
+                    switch (scalingSweepDepthMode) {
                         case "downgrade" -> "routed to NEEDS_REVISION";
                         case "suppress"  -> "dropped";
                         default           -> "logged only (no status change)";
@@ -945,6 +973,23 @@ public class UniversityService {
                     draft.paperId(), draft.topicName(), topicConsistencyMode,
                     topicConsistencyFailures);
         }
+        // 2026-05-21 review §1 rec #7 — scaling / power-law / linearity
+        // claim with fewer than 3 non-sweep sample points. P-a328-884
+        // (Hall-Petch) is the canonical signature: 2 sandbox calls, claim
+        // "σ scales as σ₀ + k·d^(−1/2)". The validator bypasses depth
+        // checks if any sweep-style tool (run_param_sweep, run_predicate_scan,
+        // run_gpu_eval, evaluate_symbolic) is in the trace.
+        List<String> scalingSweepDepthFailures = scalingSweepDepthEnabled
+                ? ScalingSweepDepthValidator.validate(hypothesis, findingsBlocks,
+                        conclusion, narration.toolCallTrace())
+                : List.of();
+        boolean scalingSweepDepthFlagged = !scalingSweepDepthFailures.isEmpty();
+        boolean scalingSweepDepthRoutes  = scalingSweepDepthFlagged
+                && "downgrade".equals(scalingSweepDepthMode);
+        if (scalingSweepDepthFlagged) {
+            log.warn("scaling-sweep-depth check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), scalingSweepDepthMode, scalingSweepDepthFailures);
+        }
         // Phase 14 F1b — flag the Five-Computation stub-block fabrication
         // pattern. When the structured-findings map has more blocks than the
         // tool-call trace has successful entries, the narrator emitted prose
@@ -1165,6 +1210,12 @@ public class UniversityService {
             // revision can fix by either removing the cross-topic mention
             // or reframing it as a legitimate methodological comparison.
             paperStatus = "NEEDS_REVISION";
+        } else if (scalingSweepDepthRoutes) {
+            // 2026-05-21 review §1 rec #7 — scaling/linearity claim with
+            // < 3 non-sweep sample points. Same tier as F3/F4/citation-
+            // corpus: revision can fix by either running additional
+            // sample points or reframing the claim as a single-point check.
+            paperStatus = "NEEDS_REVISION";
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1273,6 +1324,18 @@ public class UniversityService {
             String suffix = topicConsistencyRoutes ? "→needs_revision" : ":warn";
             String stamp = "publish:topic_consistency:n="
                     + topicConsistencyFailures.size() + suffix;
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? stamp
+                    : persistedCallPath + " → " + stamp;
+        }
+        // 2026-05-21 — additive stamp for scaling-sweep-depth. The trace
+        // size goes in the stamp so refresh can see whether the paper had
+        // 1 or 2 non-sweep calls without expanding the full reason.
+        if (scalingSweepDepthFlagged) {
+            String suffix = scalingSweepDepthRoutes ? "→needs_revision" : ":warn";
+            int traceSize = narration.toolCallTrace() == null
+                    ? 0 : narration.toolCallTrace().size();
+            String stamp = "publish:scaling_sweep_depth:trace=" + traceSize + suffix;
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? stamp
                     : persistedCallPath + " → " + stamp;

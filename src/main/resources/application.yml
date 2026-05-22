@@ -730,6 +730,23 @@ app:
     topic-consistency:
       enabled: true
       mode: warn
+    # 2026-05-21 review §1 rec #7 — when a paper carries a scaling /
+    # linearity / power-law claim, the trace needs ≥3 non-sweep sample
+    # points to make the claim structurally testable. The existing F3
+    # (single-point-sweep) catches narrator overclaims ("n=40" with 1 call);
+    # this gate catches honest underclaims ("σ scales as d^(-1/2)" with 2
+    # calls). P-a328-884 (Hall-Petch) is the canonical signature. Sweep-
+    # style tools (run_param_sweep, run_predicate_scan, run_gpu_eval,
+    # evaluate_symbolic) bypass the depth requirement — one such call is
+    # already a sweep. Mode escalation:
+    #   warn      — log + stamp publish:scaling_sweep_depth:trace=N:warn.
+    #   downgrade — route to NEEDS_REVISION with publish:scaling_sweep_depth:trace=N→needs_revision.
+    # Default enabled+warn for rollout; legitimate closed-form single-
+    # evaluation papers don't carry scaling vocabulary so the prose gate
+    # should keep FP rate low, but observe one refresh before promoting.
+    scaling-sweep-depth:
+      enabled: true
+      mode: warn
     # Phase 14 F1a — when on, the structured-findings markdown renderer
     # annotates each ### Computation N header with `[call_N]` and replaces
     # blocks beyond trace.size() with `(no data — call_N missing)`. Does
