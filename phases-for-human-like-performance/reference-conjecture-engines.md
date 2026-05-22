@@ -310,18 +310,23 @@ no guaranteed GPU**.
 
 ### Tier 1 — fits cleanly, high ROI, planned phase docs exist
 
-| Engine | Field served | Why it fits | Phase doc |
-|---|---|---|---|
-| **PySR** (SymbolicRegression.jl) | PHYSICS, MATERIALS, TERRESTRIAL, UNDERWATER | Julia-native — reuses the existing `julia-math-sidecar` instead of adding a runtime. CPU-only with tunable population × iteration budget. Configurable wall-clock cap. Biggest single unlock for non-math domains: turns parameter sweeps into candidate laws. | `phase-24-pysr-symbolic-regression.md` |
-| **Zeilberger/WZ + Gosper + Sister Celine** (SymPy) | MATHEMATICS (combinatorial identities) | Python subprocess at ~10 s budget per call. Emits a **machine certificate** that mechanically proves the identity — the first tool in the suite that can legitimately earn `EvidenceLabel.THEOREM`. | `phase-25-sympy-identity-prover.md` |
-| **PSLQ via mpmath** + **OEIS Superseeker** | MATHEMATICS, PHYSICS (constant/sequence recognition) | mpmath PSLQ runs at 200-digit precision in ~1 s per call against a small basis. OEIS Superseeker is HTTP + a local cache. Bundled into one "recognise the constant" pass right after refinement. Strengthens citation precision; cleans the conjecture queue of rediscoveries. | `phase-26-constant-recognition-pass.md` |
+**Implementation column legend:**
+- **in ET** — runs inside the EmergentTerrain JVM (in-process bean / library call).
+- **attached** — wired to ET as a subprocess or sidecar that ET launches/calls per request (per-call lifecycle managed from the JVM).
+- **separate** — independent peer process or scheduled batch; ET consumes its output but does not own its lifecycle.
+
+| Engine | Implementation | Field served | Why it fits | Phase doc |
+|---|---|---|---|---|
+| **PySR** (SymbolicRegression.jl) | separate (Julia sidecar peer service, port 8088) | PHYSICS, MATERIALS, TERRESTRIAL, UNDERWATER | Julia-native — reuses the existing `julia-math-sidecar` instead of adding a runtime. CPU-only with tunable population × iteration budget. Configurable wall-clock cap. Biggest single unlock for non-math domains: turns parameter sweeps into candidate laws. | `phase-24-pysr-symbolic-regression.md` |
+| **Zeilberger/WZ + Gosper + Sister Celine** (SymPy) | attached (Python subprocess per call) | MATHEMATICS (combinatorial identities) | Python subprocess at ~10 s budget per call. Emits a **machine certificate** that mechanically proves the identity — the first tool in the suite that can legitimately earn `EvidenceLabel.THEOREM`. | `phase-25-sympy-identity-prover.md` |
+| **PSLQ via mpmath** + **OEIS Superseeker** | attached (Python subprocess for PSLQ; HTTP + Postgres cache for OEIS) | MATHEMATICS, PHYSICS (constant/sequence recognition) | mpmath PSLQ runs at 200-digit precision in ~1 s per call against a small basis. OEIS Superseeker is HTTP + a local cache. Bundled into one "recognise the constant" pass right after refinement. Strengthens citation precision; cleans the conjecture queue of rediscoveries. | `phase-26-constant-recognition-pass.md` |
 
 ### Tier 2 — worthwhile if the math lane proves out
 
-| Engine | Field served | Why it's Tier-2 | Phase doc |
-|---|---|---|---|
-| **Conjecturing** (Sage) | MATHEMATICS, GRAPH-THEORY, INTERDISCIPLINARY | Generalises the Phase-23 Dalmatian miner to arbitrary `(object, invariant)` tuples; ships with ~400 invariants via `objects-invariants-properties`. Heavy install (~1.5 GB Sage), runs as nightly batch off the hot path. Only worth paying if Phase 23.8 calibration shows the Java miner's invariant pool is the bottleneck. | `phase-27-conjecturing-sage-batch.md` |
-| **LLL** (FPLLL / NTL) | MATHEMATICS, PHYSICS | Complements PSLQ for closed-form / minimal-polynomial recovery on high-precision constants. Modest lattice dimensions only (≤30). Native subprocess dependency. Folded into the Phase 26 doc as a flag-gated optional layer; ship the binary only when a specific paper demands it. | bundled in `phase-26-constant-recognition-pass.md` (§26.3) |
+| Engine | Implementation | Field served | Why it's Tier-2 | Phase doc |
+|---|---|---|---|---|
+| **Conjecturing** (Sage) | separate (nightly cron/systemd batch; JSON dropoff → ingest endpoint) | MATHEMATICS, GRAPH-THEORY, INTERDISCIPLINARY | Generalises the Phase-23 Dalmatian miner to arbitrary `(object, invariant)` tuples; ships with ~400 invariants via `objects-invariants-properties`. Heavy install (~1.5 GB Sage), runs as nightly batch off the hot path. Only worth paying if Phase 23.8 calibration shows the Java miner's invariant pool is the bottleneck. | `phase-27-conjecturing-sage-batch.md` |
+| **LLL** (FPLLL / NTL) | attached (native C++ subprocess) | MATHEMATICS, PHYSICS | Complements PSLQ for closed-form / minimal-polynomial recovery on high-precision constants. Modest lattice dimensions only (≤30). Native subprocess dependency. Folded into the Phase 26 doc as a flag-gated optional layer; ship the binary only when a specific paper demands it. | bundled in `phase-26-constant-recognition-pass.md` (§26.3) |
 
 ### Tier 3 — skip given current resources
 
