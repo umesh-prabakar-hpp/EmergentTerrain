@@ -236,6 +236,158 @@ end
 end
 
 # ---------------------------------------------------------------------
+# Per-operator Lever 1 round-trip identity (phase-24 §24.6)
+# ---------------------------------------------------------------------
+#
+# Property: `rewrite_for_unscaling(T, s_x, s_y, ...)` evaluated on
+# unscaled X must equal `T` evaluated on (X ./ s_x) times s_y. This
+# is the defining identity of Lever 1's rewrite — if it holds, the
+# rewritten tree faithfully transports an SR-found expression from
+# rescaled-space back to caller-space. Deterministic; no dependence
+# on SR convergence.
+#
+# Covers every operator currently in PYSR_BINARY_OPS ∪ PYSR_UNARY_OPS.
+# A new operator added to either map needs a row here too.
+
+"""
+    check_roundtrip(op_name, tree_factory, x_test, binary_ops, unary_ops)
+
+Build the tree via tree_factory, choose synthetic scales, apply
+rewrite_for_unscaling, and assert the round-trip identity holds at
+float64 epsilon on every test point.
+"""
+function check_roundtrip(op_name::String,
+                          tree_factory::Function,
+                          x_test::Matrix{Float64},
+                          binary_ops::Vector{Function},
+                          unary_ops::Vector{Function})
+    T = Float64
+    options = SymbolicRegression.Options(
+        binary_operators = binary_ops,
+        unary_operators  = unary_ops,
+        populations = 2, maxsize = 30, seed = 1, verbosity = 0,
+    )
+    # Find the index of `*` in binary_ops — required by the rewrite.
+    mul_idx = findfirst(==(*), binary_ops)
+    @assert mul_idx !== nothing "test setup error: $op_name needs `*` in binary_ops"
+
+    tree = tree_factory()
+    nvars = size(x_test, 1)
+
+    # Synthetic scales chosen to be non-trivial in every dimension.
+    s_x = [1.7, 2.3, 0.9][1:nvars]
+    s_y = 4.1
+
+    # Expected unscaled output: original tree evaluated on (X / s_x), times s_y.
+    x_rescaled = x_test ./ s_x
+    expected_rescaled, ok_e = SymbolicRegression.eval_tree_array(tree, x_rescaled, options)
+    @assert ok_e "test setup error: $op_name original tree failed to evaluate"
+    expected = expected_rescaled .* s_y
+
+    # Apply the rewrite and evaluate on the original (unscaled) X.
+    rewritten = JuliaMathSidecar.rewrite_for_unscaling(
+        tree, s_x, s_y, mul_idx, binary_ops, unary_ops, options)
+    actual, ok_a = SymbolicRegression.eval_tree_array(rewritten, x_test, options)
+    @assert ok_a "$op_name rewritten tree failed to evaluate on unscaled X"
+
+    # Float64 epsilon tolerance, relative to expected magnitude.
+    for i in eachindex(expected)
+        if !isfinite(expected[i]) || expected[i] == 0
+            @test isapprox(actual[i], expected[i]; atol=1e-12)
+        else
+            @test abs(actual[i] - expected[i]) / abs(expected[i]) < 1e-12
+        end
+    end
+end
+
+@testset "per-operator round-trip identity (Lever 1, phase-24 §24.6)" begin
+    T = Float64
+    # Binary-only operator set first (no unary at all — covers +, -, *, /, ^).
+    bin_ops = Function[(+), (-), (*), (/), (^)]
+    unary_ops_empty = Function[]
+    plus_idx, minus_idx, mul_idx, div_idx, pow_idx = 1, 2, 3, 4, 5
+
+    x_2var = Matrix{Float64}(undef, 2, 5)
+    x_2var[1, :] .= [1.0, 2.5, 4.0, 0.7, 3.3]
+    x_2var[2, :] .= [0.5, 1.2, 2.0, 0.3, 1.8]
+    x_1var = reshape([1.0, 2.5, 4.0, 0.7, 3.3], 1, 5)
+
+    @testset "+ (binary plus)" begin
+        check_roundtrip("+",
+            () -> Node{T}(plus_idx, Node{T}(; feature=1), Node{T}(; feature=2)),
+            x_2var, bin_ops, unary_ops_empty)
+    end
+    @testset "- (binary minus)" begin
+        check_roundtrip("-",
+            () -> Node{T}(minus_idx, Node{T}(; feature=1), Node{T}(; feature=2)),
+            x_2var, bin_ops, unary_ops_empty)
+    end
+    @testset "* (binary multiply)" begin
+        check_roundtrip("*",
+            () -> Node{T}(mul_idx, Node{T}(; feature=1), Node{T}(; feature=2)),
+            x_2var, bin_ops, unary_ops_empty)
+    end
+    @testset "/ (binary divide)" begin
+        check_roundtrip("/",
+            () -> Node{T}(div_idx, Node{T}(; feature=1), Node{T}(; feature=2)),
+            x_2var, bin_ops, unary_ops_empty)
+    end
+    @testset "^ (power)" begin
+        # x1 ^ 2 — squaring, magnitudes stay reasonable
+        check_roundtrip("^",
+            () -> Node{T}(pow_idx, Node{T}(; feature=1), Node{T}(; val=2.0)),
+            x_1var, bin_ops, unary_ops_empty)
+    end
+
+    # Unary operators. `*` still required for the rewrite, so it lives
+    # in binary_ops alongside `+, -`.
+    bin_for_unary = Function[(+), (-), (*)]
+    mul_idx_u = 3
+
+    @testset "exp" begin
+        unary_ops = Function[exp]
+        # exp(x1 * 0.3) on x_1var in [0.7, 4.0] gives ~[1.2, 3.3] — safe range
+        tree = () -> Node{T}(1, Node{T}(mul_idx_u, Node{T}(; feature=1), Node{T}(; val=0.3)))
+        check_roundtrip("exp", tree, x_1var, bin_for_unary, unary_ops)
+    end
+
+    @testset "log" begin
+        unary_ops = Function[log]
+        # log(x1 + 0.5) — keeps argument > 0 for all x_1var values
+        tree = () -> Node{T}(1, Node{T}(1, Node{T}(; feature=1), Node{T}(; val=0.5)))
+        # log over rescaled x1+0.5 → log scaled. x1+0.5 in [1.2, 4.5] >0.
+        check_roundtrip("log", tree, x_1var, bin_for_unary, unary_ops)
+    end
+
+    @testset "sqrt" begin
+        unary_ops = Function[sqrt]
+        tree = () -> Node{T}(1, Node{T}(; feature=1))
+        # x_1var values all positive; sqrt domain ok
+        check_roundtrip("sqrt", tree, x_1var, bin_for_unary, unary_ops)
+    end
+
+    @testset "abs" begin
+        unary_ops = Function[abs]
+        # abs(x1 - 2.0) gives mixed sign data points
+        tree = () -> Node{T}(1, Node{T}(2, Node{T}(; feature=1), Node{T}(; val=2.0)))
+        check_roundtrip("abs", tree, x_1var, bin_for_unary, unary_ops)
+    end
+
+    @testset "sin" begin
+        unary_ops = Function[sin]
+        # sin(x1) — x_1var values in [0.7, 4.0] span < 2π
+        tree = () -> Node{T}(1, Node{T}(; feature=1))
+        check_roundtrip("sin", tree, x_1var, bin_for_unary, unary_ops)
+    end
+
+    @testset "cos" begin
+        unary_ops = Function[cos]
+        tree = () -> Node{T}(1, Node{T}(; feature=1))
+        check_roundtrip("cos", tree, x_1var, bin_for_unary, unary_ops)
+    end
+end
+
+# ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------
 # Number-theory primitives — unit tests (phase-28 §28.1)
