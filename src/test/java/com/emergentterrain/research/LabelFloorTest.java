@@ -166,6 +166,44 @@ class LabelFloorTest {
         assertEquals(EvidenceLabel.CONJECTURE, LabelFloor.maxDefensibleLabel(null));
     }
 
+    // ── Phase 26 §26.5 — KNOWN_RESULT carve-out ──────────────────────
+
+    @Test
+    void demote_knownResultProposed_passesThroughRegardlessOfPaperText() {
+        // Even a paper with full proof structure can't UPGRADE
+        // KNOWN_RESULT to THEOREM. A rediscovery stays a rediscovery.
+        ResearchPaper proofPaper = paper(
+                "Hypothesis: π²/6.",
+                "## Proof\nBy direct evaluation... Q.E.D.",
+                "Established.");
+        assertEquals(EvidenceLabel.KNOWN_RESULT,
+                LabelFloor.demote(EvidenceLabel.KNOWN_RESULT, proofPaper));
+    }
+
+    @Test
+    void demote_knownResultProposed_passesThroughOnBarePaper() {
+        // Bare paper text with KNOWN_RESULT proposed → still KNOWN_RESULT.
+        // The floor doesn't second-guess the recognition pipeline.
+        ResearchPaper bare = paper("h", "f", "c");
+        assertEquals(EvidenceLabel.KNOWN_RESULT,
+                LabelFloor.demote(EvidenceLabel.KNOWN_RESULT, bare));
+    }
+
+    @Test
+    void maxDefensibleLabel_neverReturnsKnownResult() {
+        // The floor's structural-text check has no "this is a
+        // rediscovery" marker — KNOWN_RESULT can only be set by the
+        // explicit recognition path, never by maxDefensibleLabel.
+        ResearchPaper p = paper(
+                "Hypothesis: π²/6.",
+                "Findings: identified as π²/6 [cite-recognised:pslq:pi^2].",
+                "Known constant.");
+        // Even with a recognition citation in prose, the floor returns
+        // CONJECTURE (its default) — not KNOWN_RESULT. KNOWN_RESULT is
+        // a propose-and-respect signal, not a structural floor signal.
+        assertEquals(EvidenceLabel.CONJECTURE, LabelFloor.maxDefensibleLabel(p));
+    }
+
     private static ResearchPaper paper(String hypothesis, String findings, String conclusion) {
         return new ResearchPaper(
                 "P-test-" + UUID.randomUUID().toString().substring(0, 8),

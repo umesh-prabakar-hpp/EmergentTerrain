@@ -62,11 +62,23 @@ public final class LabelFloor {
      *
      * <p>{@code null} {@code proposed} is treated as the floor default
      * ({@link EvidenceLabel#CONJECTURE}).
+     *
+     * <p>Phase 26 §26.5 carve-out: {@link EvidenceLabel#KNOWN_RESULT}
+     * is orthogonal to the evidence axis — set explicitly by the
+     * recognition pipeline when a mined conjecture turns out to be a
+     * recognised constant / sequence. The floor never demotes
+     * <em>away from</em> KNOWN_RESULT (a rediscovery stays a
+     * rediscovery regardless of how strong the proof structure looks),
+     * and never promotes <em>to</em> KNOWN_RESULT (no text marker
+     * justifies it). So KNOWN_RESULT short-circuits both legs of the
+     * decision: if proposed is KNOWN_RESULT, return KNOWN_RESULT.
      */
     public static EvidenceLabel demote(EvidenceLabel proposed, ResearchPaper paper) {
         if (proposed == null) return EvidenceLabel.CONJECTURE;
+        if (proposed == EvidenceLabel.KNOWN_RESULT) return EvidenceLabel.KNOWN_RESULT;
         EvidenceLabel ceiling = maxDefensibleLabel(paper);
-        // Ordinal order: THEOREM=0 (strongest) → UNEXPLAINED_OBSERVATION=3 (weakest).
+        // Ordinal order: THEOREM=0 (strongest) → UNEXPLAINED_OBSERVATION=3 (weakest)
+        // → KNOWN_RESULT=4 (orthogonal-but-handled-above).
         // Weaker = higher ordinal. Pick the one with the higher ordinal.
         return proposed.ordinal() >= ceiling.ordinal() ? proposed : ceiling;
     }
