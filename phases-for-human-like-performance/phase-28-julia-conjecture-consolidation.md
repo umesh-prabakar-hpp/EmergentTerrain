@@ -1,6 +1,7 @@
 # Phase 28 — Julia Sidecar Consolidation of Conjecture + Math Compute
 
-**Status (2026-05-22):** §28.1 → §28.5 SHIPPED, §28.6 DEFERRED (operational).
+**Status (2026-05-22):** §28.1 → §28.5 SHIPPED, §28.6 PARTIAL (conjecture
+flag flipped; physics-topic still shadow-read pending code cutover).
 Promoted from `reference-conjecture-engines.md` § "Decisions — Julia
 consolidation (2026-05-22)" Slice 1.
 
@@ -19,9 +20,20 @@ Sub-phase status:
   `ResearchNarrationService`, `MathToolSuite`) wired through the seam.
   Live integration test (`MathPhysicsEngineDelegateIntegrationTest`)
   validates shadow-read parity counters against a running sidecar.
-- ⏸ §28.6 — flag flip + legacy removal. Deferred to operational
-  burn-in; precondition is zero `parityMismatches` over an N-day
-  shadow-read window.
+- ◐ §28.6 — partial cutover (2026-05-22). `app.julia.conjecture.enabled`
+  flipped `false → true` ahead of the full N-day burn-in due to
+  runtime-availability constraints. Justification: 19/19 parity tests
+  green on the live sidecar (`numbertheory_window`,
+  `conjecture_seed`/`update`/`verify`, `predicate_scan` all
+  byte-identical), zero sidecar errors across ~179 phase-28 endpoint
+  calls. Graceful fallback intact: `MathConjectureSubstrateDelegate`
+  logs WARN and falls through to legacy on any sidecar exception.
+  **Still deferred**: the physics-topic read cutover (composing
+  `ResearchResult` from the sidecar's `detail` JsonNode rather than
+  always calling `MathPhysicsEngine.compute` in-process); that's a
+  code change, not a flag flip — `app.julia.physics.topic.enabled`
+  enables shadow-read only. Legacy removal across all six ported
+  classes also remains deferred.
 
 **Motivation.** The JVM currently hosts six conjecture / math
 compute classes — `MathConjectureSubstrate`, `MathInvariants`,

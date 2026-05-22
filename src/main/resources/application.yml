@@ -117,12 +117,18 @@ app:
       lll:
         enabled: false   # phase 26.3 sub-flag — gated separately
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
-    # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
-    # + Java binding without migrating any caller. Flip `enabled: true`
-    # once §28.2 (delegate + parity test) has shipped and the parity
-    # check is green on the corpus.
+    # §28.6 cutover (2026-05-22): flipped enabled=true ahead of the full
+    # N-day burn-in window due to runtime-availability constraints.
+    # Justification: 19/19 parity tests green on the live sidecar
+    # (numbertheory_window, conjecture_seed/update/verify, predicate_scan
+    # all byte-identical), zero sidecar errors across ~179 calls so far.
+    # Graceful fallback is wired: MathConjectureSubstrateDelegate logs
+    # WARN and falls through to legacy on any sidecar exception, so a
+    # sidecar outage degrades to phase-23.1J behaviour rather than
+    # blocking recognition/mining. Flip back to false if sidecar warns
+    # cluster.
     conjecture:
-      enabled: false
+      enabled: true
       timeoutMs: 5000            # per-/numbertheory/* call cap; sidecar clamps at 30s
     # Phase 28 §28.5 — physics-topic delegate (MathPhysicsEngineDelegate).
     # §28.5b–§28.5h ports all 63 MathPhysicsEngine topics across 9 domains
