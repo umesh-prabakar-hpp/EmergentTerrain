@@ -76,13 +76,16 @@ app:
       autoRetry: true
     # Phase 25 §25.2 — SymPy combinatorial-identity prover, hosted in
     # the sidecar via PyCall.jl (per the 2026-05-22 Julia-consolidation
-    # decision). Flag-gated dormant until §25.5's coverage probe
-    # passes; flip enabled=true to register MathToolSuite's
-    # prove_identity tool. timeoutMs is currently advisory (PyCall +
-    # Threads.@spawn don't compose; sidecar enforces no wall-clock cap
-    # in v1 — relies on the 512-char input cap to bound runtime).
+    # decision). enabled=true (flipped 2026-05-22 end-of-day) registers
+    # MathToolSuite's prove_identity tool; the reviewer panel can stamp
+    # EvidenceLabel.THEOREM on identities where the tool returns a
+    # verified Gosper / Zeilberger-WZ certificate. Coverage probe
+    # cleared 10/10 (above the §25.5 8/10 bar) before this flip.
+    # timeoutMs is currently advisory (PyCall + Threads.@spawn don't
+    # compose; sidecar enforces no wall-clock cap in v1 — relies on
+    # the 512-char input cap to bound runtime).
     sympy:
-      enabled: false
+      enabled: true
       timeoutMs: 10000
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
     # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
