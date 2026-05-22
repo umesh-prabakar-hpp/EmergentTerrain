@@ -39,6 +39,10 @@ function build_router()
     # Symbolic regression — PySR-equivalent via SymbolicRegression.jl
     # (phase-24 §24.1). Gated by per-call lock; one search at a time.
     HTTP.register!(router, "POST", "/pysr",      handle_pysr)
+    # SymPy Gosper / WZ identity proofs via PyCall.jl (phase-25 §25.1).
+    # Per-call lock — PyCall + GIL means concurrent calls already
+    # serialise; the explicit lock gives a deterministic 503 surface.
+    HTTP.register!(router, "POST", "/prove_identity", handle_prove_identity)
     # Number-theory window aggregator — port of `MathConjectureSubstrate`
     # (phase-28 §28.1). Numeric input only; no safety filter exposure.
     HTTP.register!(router, "POST", "/numbertheory/window", handle_numbertheory_window)

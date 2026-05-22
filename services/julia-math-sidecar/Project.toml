@@ -22,6 +22,7 @@ QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"  # adaptive numerical integratio
 SymbolicRegression = "8254be44-1295-4e6a-a16d-46603ac705cb"  # PySR backend (phase-24)
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"  # stdlib
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"  # stdlib — median for Lever 1 auto-normalize
+PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"  # Python bridge for SymPy (phase-25)
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

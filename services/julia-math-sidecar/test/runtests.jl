@@ -401,6 +401,119 @@ end
 # starts with JULIA_NUM_THREADS=4 (see STARTUP.md), so the guard
 # trips only in single-threaded local runs.
 
+# ---------------------------------------------------------------------
+# /prove_identity — SymPy WZ/Gosper round-trip (phase-25 §25.1)
+# ---------------------------------------------------------------------
+#
+# Exercises handle_prove_identity in-process (no HTTP server needed)
+# against the classical hypergeometric identities Phase 25's
+# acceptance bar calls out, plus a known no-closed-form case.
+
+function _prove(algorithm, summand, var, lower, upper)
+    body = Dict("algorithm"=>algorithm, "summand"=>summand, "var"=>var,
+                "lower"=>lower, "upper"=>upper)
+    req = HTTP.Request("POST", "/prove_identity",
+                       ["Content-Type"=>"application/json"],
+                       Vector{UInt8}(JSON3.write(body)))
+    resp = JuliaMathSidecar.handle_prove_identity(req)
+    return resp.status, JSON3.read(String(copy(resp.body)))
+end
+
+@testset "/prove_identity classical identities (phase-25 §25.1)" begin
+
+    @testset "Σ k on [0,n] via Gosper = n(n+1)/2" begin
+        status, body = _prove("gosper", "k", "k", "0", "n")
+        @test status == 200
+        @test body[:ok] == true
+        @test body[:status] == "proved"
+        # SymPy may render as `n*(n + 1)/2` or `n*(n+1)/2`; check for both
+        # by normalising spaces.
+        result_nospace = replace(String(body[:result]), " " => "")
+        @test result_nospace == "n*(n+1)/2"
+        @test body[:algorithm_used] == "gosper"
+        @test occursin("k", String(body[:certificate]))  # antidifference references k
+    end
+
+    @testset "Σ binomial(n,k) on [0,n] via auto = 2^n" begin
+        status, body = _prove("auto", "binomial(n, k)", "k", "0", "n")
+        @test status == 200
+        @test body[:status] == "proved"
+        @test String(body[:result]) == "2**n"
+        # Auto fell through Gosper to WZ
+        @test body[:algorithm_used] == "zeilberger_wz"
+    end
+
+    @testset "Σ k·binomial(n,k) on [0,n] via auto = n·2^(n-1)" begin
+        status, body = _prove("auto", "k * binomial(n, k)", "k", "0", "n")
+        @test status == 200
+        @test body[:status] == "proved"
+        # SymPy renders this as `2**(n - 1)*n`
+        @test occursin("2**(n - 1)*n", String(body[:result])) ||
+              occursin("n*2**(n - 1)", String(body[:result]))
+    end
+
+    @testset "Σ binomial(n,k)² on [0,n] via auto = C(2n,n)" begin
+        status, body = _prove("auto", "binomial(n, k)**2", "k", "0", "n")
+        @test status == 200
+        @test body[:status] == "proved"
+        # SymPy returns the gamma-function form: 4^n * Γ(n+1/2) / (√π * Γ(n+1))
+        # which is mathematically equal to C(2n,n).
+        result = String(body[:result])
+        @test occursin("4**n", result) && occursin("gamma", result)
+    end
+
+    @testset "Σ r^k on [0,n] via auto = (r^(n+1)-1)/(r-1)" begin
+        status, body = _prove("auto", "r**k", "k", "0", "n")
+        @test status == 200
+        @test body[:status] == "proved"
+        # Gosper finds this cleanly: r**k/(r - 1) is the antidifference
+        @test body[:algorithm_used] == "gosper"
+        @test occursin("(r - 1)", String(body[:result]))
+    end
+
+    @testset "Σ 1/(k·(k+1)) on [1,n] via Gosper = n/(n+1) (telescoping)" begin
+        status, body = _prove("gosper", "1/(k*(k+1))", "k", "1", "n")
+        @test status == 200
+        @test body[:status] == "proved"
+        @test String(body[:result]) == "n/(n + 1)"
+    end
+
+    @testset "Σ 1/k² on [1,n] correctly returns no_closed_form" begin
+        # harmonic(n, 2) is just notation for the unevaluated sum; we
+        # reject it as not a real closed form.
+        status, body = _prove("auto", "1/k**2", "k", "1", "n")
+        @test status == 200
+        @test body[:status] == "no_closed_form"
+        @test body[:result] === nothing
+    end
+
+end
+
+@testset "/prove_identity input validation (phase-25 §25.1)" begin
+    # Missing required field
+    status, body = _prove("auto", "", "k", "0", "n")
+    @test status == 400
+    @test body[:ok] == false
+    @test occursin("Missing", String(body[:explanation]))
+
+    # Unknown algorithm
+    status, body = _prove("nonexistent", "k", "k", "0", "n")
+    @test status == 400
+    @test body[:ok] == false
+
+    # var must be identifier
+    status, body = _prove("gosper", "k", "k+1", "0", "n")
+    @test status == 400
+    @test body[:ok] == false
+
+    # Forbidden pattern
+    status, body = _prove("auto", "__import__('os').system('rm -rf /')",
+                          "k", "0", "n")
+    @test status == 400
+    @test body[:ok] == false
+    @test body[:error] == "safety_reject"
+end
+
 @testset "parallel equation_search safety (Lever 2 prep, phase-24 §24.6)" begin
     if Threads.nthreads() < 2
         @test_skip "needs --threads >= 2 to actually parallelise"

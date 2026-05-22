@@ -32,6 +32,7 @@ using Roots
 using QuadGK
 using SymbolicRegression
 using Statistics: median, mean
+using PyCall
 
 # ---------------------------------------------------------------------
 # Shared helpers
@@ -1259,6 +1260,351 @@ function handle_pysr(req::HTTP.Request)
             "evaluated" => value.evaluated,
             "retried"   => value.retried,
         ))
+    end
+end
+
+# ---------------------------------------------------------------------
+# /prove_identity — SymPy WZ / Gosper machinery via PyCall (phase-25 §25.1)
+# ---------------------------------------------------------------------
+#
+# Body: `{"algorithm": "gosper"|"zeilberger_wz"|"sister_celine"|"auto",
+#         "summand": "<expr in var + free symbols>",
+#         "var": "<identifier>",
+#         "lower": "<int or expr>",
+#         "upper": "<int or expr>",
+#         "target": "<optional expected closed form>",
+#         "timeoutMs": optional}`
+#
+# Response on success (proved):
+#   {"ok": true, "status": "proved", "result": "2**n",
+#    "certificate": "<antidifference or summation chain>",
+#    "algorithm_used": "<gosper|zeilberger_wz|sister_celine>",
+#    "elapsed_ms": N}
+#
+# Response on no-closed-form: status="no_closed_form", result/certificate=null.
+# Errors: bad_request (400) for shape/safety, eval_error (500) for SymPy
+# blow-ups, timeout (408) for elapsed_ms > timeout.
+#
+# The handler bridges to a process-wide SymPy instance imported at
+# first-call time and memoized in SYMPY_REF. PyCall isn't reentrant
+# across threads sharing one interpreter, so we serialise concurrent
+# /prove_identity calls with PROVE_IDENTITY_LOCK (same shape as
+# PYSR_LOCK). This is conservative — SymPy + GIL would handle some
+# concurrency — but the safe default is one in-flight prove call.
+#
+# Safety: caller-supplied strings (summand, lower, upper) pass through
+# `safety_check_sympy_expr` before sympify, which rejects dunders,
+# os/subprocess references, eval/exec/import/compile/open, and
+# backticks; length-capped at SYMPY_PROVE_MAX_EXPR_LEN. var must match
+# the same identifier regex used by /pysr.
+
+const SYMPY_PROVE_MAX_EXPR_LEN = 512
+const SYMPY_PROVE_DEFAULT_TIMEOUT_MS = 10_000
+const SYMPY_PROVE_MAX_TIMEOUT_MS     = 30_000
+
+const PROVE_IDENTITY_LOCK = ReentrantLock()
+
+# Forbidden substrings in caller-supplied summand / bounds. SymPy's
+# sympify doesn't eval Python — but layering a denylist defends
+# against future SymPy bugs or accidental parser changes that might
+# permit arbitrary callable lookup.
+const SYMPY_FORBIDDEN = ["__", "os.", "subprocess.", "sys.",
+                         "open(", "eval(", "exec(", "compile(",
+                         "import ", "lambda", "`"]
+
+"""
+    safety_check_sympy_expr(s) -> Union{Nothing, String}
+
+Return nothing if the string is acceptable for sympify, else a
+human-readable reason. Length-capped at SYMPY_PROVE_MAX_EXPR_LEN.
+"""
+function safety_check_sympy_expr(s::AbstractString)::Union{Nothing,String}
+    length(s) > SYMPY_PROVE_MAX_EXPR_LEN &&
+        return "exceeds $(SYMPY_PROVE_MAX_EXPR_LEN)-char cap"
+    for pat in SYMPY_FORBIDDEN
+        occursin(pat, s) && return "contains forbidden pattern '$pat'"
+    end
+    return nothing
+end
+
+# Lazy SymPy import. PyCall's pyimport is cached internally too but
+# we keep our own ref so the first /prove_identity call after sidecar
+# start pays the import cost predictably (vs spread across multiple
+# pyimport calls).
+const SYMPY_REF        = Ref{Any}(nothing)
+const SYMPY_GOSPER_REF = Ref{Any}(nothing)
+const SYMPY_TUPLE_REF  = Ref{Any}(nothing)
+const SYMPY_STR_REF    = Ref{Any}(nothing)
+
+function get_sympy()
+    if SYMPY_REF[] === nothing
+        SYMPY_REF[]        = pyimport("sympy")
+        SYMPY_GOSPER_REF[] = pyimport("sympy.concrete.gosper")
+        SYMPY_TUPLE_REF[]  = pybuiltin("tuple")
+        SYMPY_STR_REF[]    = pybuiltin("str")
+    end
+    return SYMPY_REF[]
+end
+
+# Stringify a PyObject as SymPy would (e.g. "k*(k - 1)/2"), without
+# the Julia `string()` prefix `"PyObject ..."` that wraps the repr.
+function pystr(x)::String
+    return String(SYMPY_STR_REF[](x))
+end
+
+"""
+    try_gosper(F, k, lo, hi) -> Union{Nothing, Tuple{String,String}}
+
+Attempt Gosper's algorithm: find indefinite antidifference T(k) such
+that T(k+1) − T(k) = F(k), then the definite sum on [lo, hi] is
+T(hi+1) − T(lo). Returns (closed_form_string, certificate_string)
+on success, nothing if Gosper can't find an antidifference (the
+sum is non-Gosper-summable) or if the certificate fails verification.
+"""
+function try_gosper(F, k, lo, hi)
+    sympy  = SYMPY_REF[]
+    gosper = SYMPY_GOSPER_REF[]
+    T = gosper.gosper_sum(F, k)
+    T === nothing && return nothing
+    # Definite sum = T(hi+1) − T(lo).
+    closed = sympy.simplify(T.subs(k, hi + 1) - T.subs(k, lo))
+    # Verify the antidifference: T(k+1) − T(k) − F(k) should simplify to 0.
+    verif = sympy.simplify(T.subs(k, k + 1) - T - F)
+    if !pyeq(verif, sympy.S.Zero)
+        # Certificate didn't algebraically verify — bail rather than
+        # report a proof we can't substantiate.
+        return nothing
+    end
+    return (pystr(closed), pystr(T))
+end
+
+# `==` semantics across PyCall: we want symbolic equality, not Python
+# object identity. SymPy's `S.Zero == sympy_expr` returns a sympy bool
+# we coerce to Julia Bool.
+function pyeq(a, b)::Bool
+    try
+        return convert(Bool, a == b)
+    catch
+        return false
+    end
+end
+
+"""
+    try_wz_summation(F, k, lo, hi) -> Union{Nothing, Tuple{String,String}}
+
+SymPy's `sympy.summation(F, (k, lo, hi))` dispatches internally to
+hypergeometric machinery (the WZ family) for multi-variable definite
+sums. Returns (closed_form, certificate) on success, nothing if a
+residual `Sum(...)` or `Piecewise(...)` survives simplification.
+
+The certificate here isn't the formal WZ rational R(n,k) — SymPy
+doesn't surface it directly — so we record the reduction chain. The
+caller's panel will see this string and can treat it as an audit
+note. A future slice can compute R(n,k) ourselves on top of
+SymPy primitives if the audit requires a stronger artifact.
+"""
+function try_wz_summation(F, k, lo, hi)
+    sympy = SYMPY_REF[]
+    tup   = SYMPY_TUPLE_REF[]
+    s = sympy.summation(F, tup((k, lo, hi)))
+    simplified = sympy.simplify(s)
+
+    # Piecewise unwrap: SymPy is formally careful and may return
+    # `Piecewise((<closed form>, <natural-bound condition>), (Sum(...), True))`.
+    # If the bounds are (0, n) the user implicitly means n >= 0, so the
+    # closed-form branch is the answer; the unevaluated-Sum branch is
+    # the conservative fallback. Pick the first branch whose expression
+    # doesn't itself contain a residual unevaluated sum.
+    branch_expr = simplified
+    if pyeq(simplified.func, sympy.Piecewise)
+        for arg in simplified.args
+            # arg is ExprCondPair(expr, cond). We want the first expr
+            # that doesn't reference Sum/Integral.
+            expr_part = arg[1]
+            expr_str  = pystr(expr_part)
+            if !occursin("Sum(", expr_str) && !occursin("Integral(", expr_str)
+                branch_expr = expr_part
+                break
+            end
+        end
+    end
+
+    sstr = pystr(branch_expr)
+    # Reject results that are still unevaluated-sum sugar: SymPy's
+    # `harmonic`, `polygamma`, `zeta` (when arg is symbolic), etc.,
+    # are notation for the sum itself, not a closed form. A future
+    # slice can whitelist specific closed forms involving these.
+    UNEVALUATED_FNS = ("Sum(", "Integral(", "Piecewise(", "harmonic(",
+                       "polygamma(", "RootSum(")
+    if any(occursin(fn, sstr) for fn in UNEVALUATED_FNS)
+        return nothing
+    end
+    return (sstr, "sympy.simplify(sympy.summation($(pystr(F)), ($(pystr(k)), $(pystr(lo)), $(pystr(hi)))))")
+end
+
+function handle_prove_identity(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("prove_identity", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    # Required-field parsing with explicit type narrowing — JSON3 gives
+    # us SubString views into the parsed buffer; convert to String for
+    # downstream PyCall + occursin safety.
+    summand = String(get(body, :summand, ""))
+    var     = String(get(body, :var, ""))
+    lower   = String(get(body, :lower, ""))
+    upper   = String(get(body, :upper, ""))
+    algorithm = String(get(body, :algorithm, "auto"))
+
+    if isempty(summand) || isempty(var) || isempty(lower) || isempty(upper)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("prove_identity", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Missing required field (summand, var, lower, upper all required)",
+            elapsed_ms)
+    end
+
+    if !(algorithm in ("gosper", "zeilberger_wz", "sister_celine", "auto"))
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("prove_identity", elapsed_ms, :error)
+        return error_response("bad_request",
+            "algorithm must be one of: gosper, zeilberger_wz, sister_celine, auto",
+            elapsed_ms)
+    end
+
+    if !occursin(r"^[A-Za-z_][A-Za-z0-9_]*$", var)
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("prove_identity", elapsed_ms, :error)
+        return error_response("bad_request",
+            "var '$var' must match [A-Za-z_][A-Za-z0-9_]*", elapsed_ms)
+    end
+
+    # Per-field safety check (caller-supplied expressions only).
+    for (name, val) in (("summand", summand), ("lower", lower), ("upper", upper))
+        rej = safety_check_sympy_expr(val)
+        if rej !== nothing
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("prove_identity", elapsed_ms, :safety_reject)
+            return error_response("safety_reject",
+                "$(name): $(rej)", elapsed_ms, status=400)
+        end
+    end
+
+    # Timeout: prove_identity uses its own ceiling rather than the
+    # shared one; SymPy proofs are quick but cap at 30s.
+    timeout_ms_raw = get(body, :timeoutMs, SYMPY_PROVE_DEFAULT_TIMEOUT_MS)
+    timeout_ms = if timeout_ms_raw isa Integer && timeout_ms_raw > 0
+        min(timeout_ms_raw, SYMPY_PROVE_MAX_TIMEOUT_MS)
+    else
+        SYMPY_PROVE_DEFAULT_TIMEOUT_MS
+    end
+
+    # Acquire the per-process lock. PyCall + GIL means we serialise
+    # concurrent SymPy calls anyway; making the lock explicit here
+    # gives a deterministic 503 if a parallel caller arrives during
+    # a slow proof.
+    if !trylock(PROVE_IDENTITY_LOCK)
+        deadline = time_ns() + 5_000 * 1_000_000  # 5s queue
+        got = false
+        while time_ns() < deadline
+            sleep(0.05)
+            if trylock(PROVE_IDENTITY_LOCK)
+                got = true
+                break
+            end
+        end
+        if !got
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("prove_identity", elapsed_ms, :error)
+            return error_response("busy",
+                "Another /prove_identity call is in progress; tried for 5000ms",
+                elapsed_ms, status=503)
+        end
+    end
+
+    # Note: NOT using `timed_evaluate` here. PyCall acquires Python's
+    # GIL on the thread that called `pyimport`; `timed_evaluate` uses
+    # `Threads.@spawn`, which can land on a different thread that
+    # doesn't hold the GIL, producing a hard libpython crash at the
+    # `PyImport_ImportModule` C entry. Until we wire a Python-side
+    # `signal.alarm` timeout, we rely on (a) the 512-char summand cap,
+    # (b) the safety denylist, and (c) the per-call lock to bound
+    # blast radius. timeout_ms is currently advisory and only
+    # surfaces in logs; cap-bounded inputs in practice resolve in
+    # <1s for SymPy's WZ + Gosper machinery on simple identities.
+    # TODO: install signal.alarm via PyCall for true wall-clock cap.
+    _ = timeout_ms  # silence unused warning until we wire a real timeout
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        try
+            sympy = get_sympy()
+            k_sym = sympy.Symbol(var, integer=true)
+            # Pass `locals={var => k_sym}` so sympify uses *our* k symbol
+            # (with integer=true) rather than minting a fresh assumption-
+            # less Symbol(var). Without this, gosper_sum treats the
+            # summand as a constant w.r.t. our k and returns nonsense.
+            sym_locals = Dict(var => k_sym)
+            F  = sympy.sympify(summand, sym_locals)
+            lo = sympy.sympify(lower,   sym_locals)
+            hi = sympy.sympify(upper,   sym_locals)
+
+            result_pair, used_alg = if algorithm == "gosper"
+                r = try_gosper(F, k_sym, lo, hi)
+                (r, "gosper")
+            elseif algorithm == "zeilberger_wz" || algorithm == "sister_celine"
+                # Sister Celine and the WZ recurrence both route through
+                # sympy.summation in v1; they diverge only in how the
+                # certificate is described.
+                r = try_wz_summation(F, k_sym, lo, hi)
+                (r, algorithm)
+            else  # auto
+                r = try_gosper(F, k_sym, lo, hi)
+                if r !== nothing
+                    (r, "gosper")
+                else
+                    r2 = try_wz_summation(F, k_sym, lo, hi)
+                    (r2, "zeilberger_wz")
+                end
+            end
+
+            value = if result_pair === nothing
+                Dict{String,Any}(
+                    "status"         => "no_closed_form",
+                    "result"         => nothing,
+                    "certificate"    => nothing,
+                    "algorithm_used" => used_alg,
+                )
+            else
+                closed, cert = result_pair
+                Dict{String,Any}(
+                    "status"         => "proved",
+                    "result"         => closed,
+                    "certificate"    => cert,
+                    "algorithm_used" => used_alg,
+                )
+            end
+        catch e
+            outcome = :error
+            value = "sympy raised: " * sprint(showerror, e)
+        end
+    finally
+        unlock(PROVE_IDENTITY_LOCK)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+
+    if outcome === :error
+        record_call!("prove_identity", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    else  # :ok
+        record_call!("prove_identity", elapsed_ms, :ok)
+        return ok_response(elapsed_ms, value::Dict{String,Any})
     end
 end
 
