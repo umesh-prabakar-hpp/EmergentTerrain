@@ -1187,15 +1187,125 @@ class PhysicsTopicParityTest {
         assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 
-    // ── not_ported routing — remaining domains ─────────────
+    // ── ARCHITECTURE_TERRESTRIAL domain (ported §28.5h) ──────────────
 
     @Test
-    void archTerrDomain_notYetPorted_returnsEmpty() {
+    void archTerrTopic0_beamDeflection_matchesLegacy() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_TERRESTRIAL", 0, 3, 0.0);
+    }
+
+    @Test
+    void archTerrTopic1_windLoad_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_TERRESTRIAL", 1, 3, 0.0);
+    }
+
+    @Test
+    void archTerrTopic2_bearingCapacity_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_TERRESTRIAL", 2, 4, 0.0);
+    }
+
+    @Test
+    void archTerrTopic3_thermalMass_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_TERRESTRIAL", 3, 3, 0.0);
+    }
+
+    @Test
+    void archTerrTopic4_daylightFactor_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // Topic 4 → default branch.
+        runArchTest("ARCHITECTURE_TERRESTRIAL", 4, 5, 0.0);
+    }
+
+    // ── ARCHITECTURE_LIQUID domain (ported §28.5h) ───────────────────
+
+    @Test
+    void archLiquidTopic0_hydrostatic_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_LIQUID", 0, 3, 0.0);
+    }
+
+    @Test
+    void archLiquidTopic1_buoyancy_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_LIQUID", 1, 4, 0.0);
+    }
+
+    @Test
+    void archLiquidTopic2_hullBuckling_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_LIQUID", 2, 3, 0.0);
+    }
+
+    @Test
+    void archLiquidTopic3_hydrodynamicDrag_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // Cd-transition branches at Re=1 and Re=1e3 exercised by the sweep.
+        runArchTest("ARCHITECTURE_LIQUID", 3, 5, 0.0);
+    }
+
+    @Test
+    void archLiquidTopic4_dissolvedGas_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // Topic 4 → default branch; also exercises gamma_seed pow(.., 0.6).
+        runArchTest("ARCHITECTURE_LIQUID", 4, 3, 0.0);
+    }
+
+    // ── ARCHITECTURE_SPACE domain (ported §28.5h) ────────────────────
+
+    @Test
+    void archSpaceTopic0_radiationShielding_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_SPACE", 0, 3, 0.0);
+    }
+
+    @Test
+    void archSpaceTopic1_vacuumThermal_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // pow(.., 0.25) inside the loop — fractional exponent test.
+        runArchTest("ARCHITECTURE_SPACE", 1, 4, 0.0);
+    }
+
+    @Test
+    void archSpaceTopic2_micrometeoroid_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        runArchTest("ARCHITECTURE_SPACE", 2, 5, 0.0);
+    }
+
+    @Test
+    void archSpaceTopic3_centrifugal_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // Exercises the "no comfortable ω found" fallback branch.
+        runArchTest("ARCHITECTURE_SPACE", 3, 3, 0.0);
+    }
+
+    @Test
+    void archSpaceTopic4_orbitalDecay_matchesLegacy() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // Topic 4 → default branch (exp() in atmospheric scale height).
+        runArchTest("ARCHITECTURE_SPACE", 4, 3, 0.0);
+    }
+
+    /**
+     * Shared parity helper for the architecture domains — same four
+     * scalar + claim status assertions used by every other parity test
+     * in this file, factored out for readability.
+     */
+    private void runArchTest(String domain, int topicIdx, int param1, double param2) {
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        // ARCHITECTURE_TERRESTRIAL — next pending after CHEMISTRY.
+        MathPhysicsEngine.ResearchResult jvm =
+                MathPhysicsEngine.compute(domain, topicIdx, param1, param2, sp);
         Optional<JuliaMathClient.PhysicsTopicResultWire> side =
-                liveClient().physicsTopic("ARCHITECTURE_TERRESTRIAL", 0, 3, 0.0, sp);
-        assertThat(side).as("ARCHITECTURE_TERRESTRIAL domain not yet ported").isEmpty();
+                liveClient().physicsTopic(domain, topicIdx, param1, param2, sp);
+
+        assertThat(side).as("%s topic %d should be ported", domain, topicIdx).isPresent();
+        JuliaMathClient.PhysicsTopicResultWire s = side.get();
+        assertThat(s.primaryValue())  .isEqualTo(jvm.primaryValue());
+        assertThat(s.secondaryValue()).isEqualTo(jvm.secondaryValue());
+        assertThat(s.tertiaryValue()) .isEqualTo(jvm.tertiaryValue());
+        assertThat(s.claimStatus())   .isEqualTo(jvm.claimStatus().name());
     }
 }
