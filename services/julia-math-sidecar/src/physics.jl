@@ -353,6 +353,272 @@ function physics_squarefree_density(seed_start::Integer, width::Integer,
     )
 end
 
+# ---------------------------------------------------------------------
+# MATHEMATICS topic 2 — goldbachPartitions (line 853-891)
+# ---------------------------------------------------------------------
+
+"""
+    physics_goldbach_partitions_at(even_start, count) -> Dict
+
+Inner: for each even n in [even_start, even_start + 2*count),
+count Goldbach partitions (pairs of primes summing to n). Returns
+{contrast = avg/max(1,minParts), avg, singleCount}.
+"""
+function physics_goldbach_partitions_at(even_start::Integer, count::Integer)::Dict{String,Any}
+    es = even_start % 2 != 0 ? even_start + 1 : even_start
+    es = es < 4 ? 4 : es
+    min_parts = typemax(Int)
+    min_parts_at = es
+    single_count = 0
+    tested = 0
+    w_mean = 0.0
+    w_m2   = 0.0
+    n = es
+    while n < es + count * 2
+        parts = 0
+        p = 2
+        while p <= n ÷ 2
+            if is_prime(p) && is_prime(n - p)
+                parts += 1
+            end
+            p += 1
+        end
+        tested += 1
+        delta = Float64(parts) - w_mean
+        w_mean += delta / tested
+        w_m2 += delta * (Float64(parts) - w_mean)
+        if parts < min_parts
+            min_parts = parts
+            min_parts_at = n
+        end
+        if parts == 1
+            single_count += 1
+        end
+        n += 2
+    end
+    avg = w_mean
+    contrast = avg / max(1.0, Float64(min_parts))
+    # 4-arg ResearchResult → status defaults to OBSERVATIONAL when finite.
+    return Dict{String,Any}(
+        "primaryValue"     => contrast,
+        "secondaryValue"   => avg,
+        "tertiaryValue"    => Float64(single_count),
+        "reviewValue"      => contrast,
+        "claimStatus"      => "OBSERVATIONAL",
+        "theoryConsistent" => isfinite(contrast) && isfinite(avg),
+        # Detail fields.
+        "evenStart"        => es,
+        "evenEnd"          => es + count * 2,
+        "minParts"         => min_parts == typemax(Int) ? 0 : min_parts,
+        "minPartsAt"       => min_parts_at,
+        "singleCount"      => single_count,
+        "tested"           => tested,
+        "avg"              => avg,
+    )
+end
+
+function physics_goldbach_partitions(seed_even::Integer, count::Integer,
+                                      sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best::Union{Nothing, Dict{String,Any}} = nothing
+    best_extreme = -1.0
+    for i in 0:(candidate_breadth - 1)
+        even = max(4, seed_even + Int(floor(i * step_size * 40)))
+        if even % 2 != 0
+            even += 1
+        end
+        r = physics_goldbach_partitions_at(even, count)
+        if r["primaryValue"] > best_extreme
+            best_extreme = r["primaryValue"]
+            best = r
+        end
+    end
+    return best === nothing ?
+        physics_goldbach_partitions_at(seed_even, count) : best
+end
+
+# ---------------------------------------------------------------------
+# MATHEMATICS topic 6 — divisorSumAverage (line 1056-1091)
+# ---------------------------------------------------------------------
+
+"""
+    physics_divisor_sum_average(seed_n, width, sp) -> Dict
+
+Sweeps N upward through candidateBreadth values spaced by stepSize*40.
+For each N: computes total = Σ_{n=1..N} σ(n) where σ(n) is the FULL
+divisor sum (includes 1 and n). Compares (total / N²) to π²/12.
+Tracks worst (largest deviation) sample. Status bands match JVM line
+1078-1079: ≤0.10 SUPPORTED, ≤0.20 PARTIAL, else REFUTED.
+"""
+function physics_divisor_sum_average(seed_n::Integer, width::Integer,
+                                      sp::Dict{String,Any})::Dict{String,Any}
+    asymptotic = pi * pi / 12.0
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_dev = 0.0
+    best_n = seed_n
+    best_avg = 0.0
+    samples = 0
+    sum_dev = 0.0
+    for i in 0:(candidate_breadth - 1)
+        N = max(20, seed_n + Int(floor(i * step_size * 40)))
+        # sigma_sum returns the ALIQUOT sum (σ(n)−n); JVM adds n back
+        # to recover the full divisor sum. Mirror that exactly.
+        total = Int64(0)
+        for n in 1:N
+            total += sigma_sum(n) + n
+        end
+        avg_over_n = Float64(total) / (Float64(N) * Float64(N))
+        dev = abs(avg_over_n - asymptotic) / asymptotic
+        sum_dev += dev
+        samples += 1
+        if dev > best_dev
+            best_dev = dev
+            best_n = N
+            best_avg = avg_over_n
+        end
+    end
+    mean_dev = samples > 0 ? sum_dev / samples : 0.0
+    status = best_dev <= 0.10 ? "SUPPORTED" :
+             best_dev <= 0.20 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_dev,
+        "secondaryValue"   => mean_dev,
+        "tertiaryValue"    => best_avg,
+        "reviewValue"      => best_dev,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_dev) && isfinite(mean_dev) &&
+                              isfinite(best_avg),
+        "bestN"            => best_n,
+        "bestAvg"          => best_avg,
+        "asymptotic"       => asymptotic,
+        "samples"          => samples,
+        "width"            => width,
+    )
+end
+
+# ---------------------------------------------------------------------
+# MATHEMATICS topic 7 — riemannEulerProduct (line 1094-1133)
+# ---------------------------------------------------------------------
+
+"""
+    physics_riemann_euler_product(seed_s, sp) -> Dict
+
+For each s in `seed_s + i * stepSize * 0.2` (clamped to >= 1.1):
+compute ζ_truncated(s) = Σ_{n=1..5000} n⁻ˢ; compute Euler product
+∏_{p prime ≤ 200} (1 − p⁻ˢ)⁻¹. The ratio (eulerProd / zetaSum)
+should approach 1 as truncation → ∞. Tracks worst deviation.
+Status bands: ≤0.05 SUPPORTED, ≤0.15 PARTIAL, else REFUTED.
+"""
+function physics_riemann_euler_product(seed_s::Real, sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    best_dev = 0.0
+    best_s = Float64(seed_s)
+    best_ratio = 1.0
+    samples = 0
+    sum_dev = 0.0
+    for i in 0:(candidate_breadth - 1)
+        s = max(1.1, Float64(seed_s) + i * step_size * 0.2)
+        truncation = 5000
+        zeta_sum = 0.0
+        for n in 1:truncation
+            zeta_sum += Float64(n) ^ (-s)
+        end
+        euler_prod = 1.0
+        for p in 2:200
+            is_prime(p) || continue
+            euler_prod *= 1.0 / (1.0 - Float64(p) ^ (-s))
+        end
+        ratio = euler_prod / zeta_sum
+        dev = abs(ratio - 1.0)
+        sum_dev += dev
+        samples += 1
+        if dev > best_dev
+            best_dev = dev
+            best_s = s
+            best_ratio = ratio
+        end
+    end
+    mean_dev = samples > 0 ? sum_dev / samples : 0.0
+    within_band = best_dev <= 0.05
+    status = within_band ? "SUPPORTED" :
+             best_dev <= 0.15 ? "PARTIAL" : "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => best_dev,
+        "secondaryValue"   => best_ratio,
+        "tertiaryValue"    => best_s,
+        "reviewValue"      => best_dev,
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(best_dev) && isfinite(best_ratio) &&
+                              isfinite(best_s),
+        "bestS"            => best_s,
+        "bestRatio"        => best_ratio,
+        "meanDev"          => mean_dev,
+        "samples"          => samples,
+        "seedS"            => seed_s,
+    )
+end
+
+# ---------------------------------------------------------------------
+# MATHEMATICS topic 8 — sternBrocotDepth (line 1136-1170)
+# ---------------------------------------------------------------------
+
+"""
+    physics_stern_brocot_depth(seed_q, sp) -> Dict
+
+For each candidate index i: q = max(2, seed_q + i*stepSize*50),
+p = 1 + (i*7) % max(2, q-1). Compute continued-fraction depth via
+stern_brocot_depth_of. Tracks max depth across all sampled rationals.
+
+Status: maxDepth in [5, 50) AND bestQ < 1_000_000 → SUPPORTED;
+shallower (<5) under that bound → PARTIAL; deeper or larger-q →
+REFUTED.
+"""
+function physics_stern_brocot_depth(seed_q::Integer, sp::Dict{String,Any})::Dict{String,Any}
+    candidate_breadth = Int(sp["candidateBreadth"])
+    step_size         = Float64(sp["stepSize"])
+    max_depth = 0
+    best_p = 0
+    best_q = seed_q
+    samples = 0
+    sum_depth = Int64(0)
+    for i in 0:(candidate_breadth - 1)
+        q = max(2, seed_q + Int(floor(i * step_size * 50)))
+        p = 1 + (i * 7) % max(2, q - 1)
+        depth = stern_brocot_depth_of(p, q)
+        sum_depth += depth
+        samples += 1
+        if depth > max_depth
+            max_depth = depth
+            best_p = p
+            best_q = q
+        end
+    end
+    mean_depth = samples > 0 ? Float64(sum_depth) / samples : 0.0
+    within_bound = max_depth < 50 && best_q < 1_000_000
+    status = within_bound ?
+        (max_depth >= 5 ? "SUPPORTED" : "PARTIAL") :
+        "REFUTED"
+    return Dict{String,Any}(
+        "primaryValue"     => Float64(max_depth),
+        "secondaryValue"   => mean_depth,
+        "tertiaryValue"    => Float64(best_q),
+        "reviewValue"      => Float64(max_depth),
+        "claimStatus"      => status,
+        "theoryConsistent" => isfinite(Float64(max_depth)) &&
+                              isfinite(mean_depth) &&
+                              isfinite(Float64(best_q)),
+        "maxDepth"         => max_depth,
+        "bestP"            => best_p,
+        "bestQ"            => best_q,
+        "meanDepth"        => mean_depth,
+        "samples"          => samples,
+        "seedQ"            => seed_q,
+    )
+end
+
 """
     physics_compute(domain, topic_idx, param1, param2, sp) -> Union{Dict, Nothing}
 
@@ -362,18 +628,23 @@ the handler can surface a 404-equivalent and the JVM falls back to
 legacy.
 
 Ported (domain, topicIdx) pairs:
-  MATHEMATICS / 0 → physics_prime_constellations(param1*10, param1*15, sp)
-  MATHEMATICS / 1 → physics_collatz_stopping_times(param1*3, 60, sp)
-  MATHEMATICS / 4 → physics_happy_numbers(param1*7, 150, sp)
-  MATHEMATICS / 9+ → physics_squarefree_density(max(10, param1*6), 200, sp)
+  MATHEMATICS / 0 → physics_prime_constellations(param1*10, param1*15)
+  MATHEMATICS / 1 → physics_collatz_stopping_times(param1*3, 60)
+  MATHEMATICS / 2 → physics_goldbach_partitions(max(4, param1*4),
+                                                 param2*10 + 20)
+  MATHEMATICS / 4 → physics_happy_numbers(param1*7, 150)
+  MATHEMATICS / 6 → physics_divisor_sum_average(max(10, param1*4), 150)
+  MATHEMATICS / 7 → physics_riemann_euler_product(1.5 + param2/9)
+  MATHEMATICS / 8 → physics_stern_brocot_depth(max(2, param1))
+  MATHEMATICS / 9+ → physics_squarefree_density(max(10, param1*6), 200)
     (topic 9 is the `default` branch in JVM computeMath — any topic
      index ≥ 9 in MATHEMATICS routes here)
 
-Future slices extend this dispatch with topics 2 (goldbach),
-3 (aliquot), 5 (mertensPartialSums), 6 (divisorSumAverage),
-7 (riemannEulerProduct), 8 (sternBrocotDepth), and the eight
-other domains (PHYSICS, MATERIALS, INTERDISCIPLINARY, BIOLOGY,
-CHEMISTRY, ARCHITECTURE_*). The wire shape stays the same.
+Remaining MATHEMATICS topics: 3 (aliquotSequences — complex cycle
+detection, ALIQUOT_X_CAP overflow), 5 (mertensPartialSums — needs
+mobius port). Future slices extend dispatch with the eight other
+domains (PHYSICS, MATERIALS, INTERDISCIPLINARY, BIOLOGY, CHEMISTRY,
+ARCHITECTURE_*).
 """
 function physics_compute(domain::String, topic_idx::Integer,
                           param1::Integer, param2::Real,
@@ -383,8 +654,20 @@ function physics_compute(domain::String, topic_idx::Integer,
             return physics_prime_constellations(param1 * 10, param1 * 15, sp)
         elseif topic_idx == 1
             return physics_collatz_stopping_times(param1 * 3, 60, sp)
+        elseif topic_idx == 2
+            # JVM line 735: goldbachPartitions(max(4, param1*4),
+            # (int) param2 * 10 + 20). Cast to int matches JVM truncation.
+            seed_even = max(4, param1 * 4)
+            count = Int(param2) * 10 + 20
+            return physics_goldbach_partitions(seed_even, count, sp)
         elseif topic_idx == 4
             return physics_happy_numbers(param1 * 7, 150, sp)
+        elseif topic_idx == 6
+            return physics_divisor_sum_average(max(10, param1 * 4), 150, sp)
+        elseif topic_idx == 7
+            return physics_riemann_euler_product(1.5 + param2 / 9.0, sp)
+        elseif topic_idx == 8
+            return physics_stern_brocot_depth(max(2, param1), sp)
         elseif topic_idx >= 9
             # JVM computeMath uses topic 9+ as the `default` branch
             # which routes to squarefreeDensity.

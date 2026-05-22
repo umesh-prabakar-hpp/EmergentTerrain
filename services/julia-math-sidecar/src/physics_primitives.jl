@@ -128,3 +128,24 @@ function is_squarefree(n::Integer)::Bool
     end
     return true
 end
+
+"""
+    stern_brocot_depth_of(p, q) -> Int
+
+Continued-fraction expansion length of p/q via the Euclidean
+algorithm. Port of MathPhysicsEngine.sternBrocotDepthOf (line 1239).
+Returns 0 for non-positive inputs.
+"""
+function stern_brocot_depth_of(p::Integer, q::Integer)::Int
+    (p <= 0 || q <= 0) && return 0
+    depth = 0
+    pp = Int(p)
+    qq = Int(q)
+    while pp > 0 && qq > 0
+        depth += 1
+        r = pp % qq
+        pp = qq
+        qq = r
+    end
+    return depth
+end
