@@ -71,6 +71,12 @@ function build_router()
     # the JVM caller layers on the prose. /physics/topic is deferred
     # to §28.5b — 3700-line port too large for one slice.
     HTTP.register!(router, "POST", "/predicate/scan", handle_predicate_scan)
+    # MathPhysicsEngine.compute vertical-slice port (phase-28 §28.5b).
+    # Only MATHEMATICS topic 0 (primeConstellations) ported in this
+    # slice; other (domain, topicIdx) pairs return ok=false with
+    # error="not_ported" and the JVM client falls back to in-process
+    # legacy. Future slices extend the physics_compute dispatch.
+    HTTP.register!(router, "POST", "/physics/topic", handle_physics_topic)
     return router
 end
 

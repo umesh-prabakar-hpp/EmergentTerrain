@@ -57,6 +57,7 @@ include("numbertheory.jl")    # SPF sieve + window aggregator (phase-28 §28.1).
 include("math_invariants.jl")    # BASE + DERIVED scalar vocabulary (phase-28 §28.4).
 include("physics_primitives.jl") # isPrime/isHappy/collatz/sigma (phase-28 §28.5a).
 include("predicate.jl")          # /predicate/scan interpreter (phase-28 §28.5a).
+include("physics.jl")            # MathPhysicsEngine.compute port (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
 include("handlers.jl")     # Endpoint implementations.
 include("server.jl")       # HTTP route table + server loop.

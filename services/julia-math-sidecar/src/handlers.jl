@@ -2888,3 +2888,96 @@ function handle_predicate_scan(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# ---------------------------------------------------------------------
+# /physics/topic — MathPhysicsEngine.compute port (phase-28 §28.5b)
+# ---------------------------------------------------------------------
+#
+# Body: {domain, topicIdx, param1, param2, searchParams: {stepSize,
+#   restartProb, candidateBreadth, depthBias, acceptThreshold}}.
+# Response on a ported (domain, topicIdx) pair:
+#   {ok: true, primaryValue, secondaryValue, tertiaryValue,
+#    reviewValue, claimStatus, theoryConsistent, ...domain-specific
+#    detail fields..., elapsed_ms}
+# Response when the (domain, topicIdx) pair is NOT YET PORTED:
+#   {ok: false, error: "not_ported", explanation: "...", elapsed_ms}
+# — and the JVM JuliaMathClient.physicsTopic surfaces this as
+# Optional.empty() so callers transparently fall back to in-process
+# MathPhysicsEngine.compute.
+#
+# Wire contract (matches §28.5a /predicate/scan): numeric scalars +
+# ClaimStatus name only. The JVM caller composes the final findings /
+# hypothesis / equation / claimAssessment prose locally to avoid
+# byte-identical-format friction.
+
+function handle_physics_topic(req::HTTP.Request)
+    t0 = time_ns()
+    body = safe_parse_body(req)
+    if body === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("physics_topic", elapsed_ms, :error)
+        return error_response("bad_request", "Body is not valid JSON", elapsed_ms)
+    end
+
+    domain    = String(get(body, :domain, ""))
+    topic_raw = get(body, :topicIdx, nothing)
+    p1_raw    = get(body, :param1, nothing)
+    p2_raw    = get(body, :param2, nothing)
+    sp_raw    = get(body, :searchParams, nothing)
+
+    if isempty(domain) || topic_raw === nothing ||
+            p1_raw === nothing || p2_raw === nothing || sp_raw === nothing
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("physics_topic", elapsed_ms, :error)
+        return error_response("bad_request",
+            "Required fields: domain (string), topicIdx (int), " *
+            "param1 (int), param2 (number), searchParams " *
+            "({stepSize, restartProb, candidateBreadth, depthBias, " *
+            "acceptThreshold})",
+            elapsed_ms)
+    end
+
+    topic_idx = Int(topic_raw)
+    param1    = Int(p1_raw)
+    param2    = Float64(p2_raw)
+    sp        = _deep_plain(sp_raw)
+    if !(sp isa AbstractDict) || !haskey(sp, "candidateBreadth") ||
+            !haskey(sp, "stepSize")
+        elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+        record_call!("physics_topic", elapsed_ms, :error)
+        return error_response("bad_request",
+            "searchParams must include at least 'candidateBreadth' and 'stepSize'",
+            elapsed_ms)
+    end
+
+    outcome = :ok
+    value::Any = "uninitialised"
+    try
+        result = physics_compute(domain, topic_idx, param1, param2, sp)
+        if result === nothing
+            elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+            record_call!("physics_topic", elapsed_ms, :error)
+            # not_ported is NOT a server error — it's a routing signal.
+            # Use 404 so the JVM client can distinguish it from
+            # generic 4xx and surface Optional.empty().
+            return error_response("not_ported",
+                "(domain='$(domain)', topicIdx=$(topic_idx)) is not yet " *
+                "ported to the sidecar; JVM caller should fall back to " *
+                "in-process MathPhysicsEngine.compute. Tracked under " *
+                "phase-28 §28.5b continuations.",
+                elapsed_ms, status=404)
+        end
+        value = result
+    catch e
+        outcome = :error
+        value = "physics_compute threw: " * sprint(showerror, e)
+    end
+
+    elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
+    if outcome === :error
+        record_call!("physics_topic", elapsed_ms, :error)
+        return error_response("eval_error", value::String, elapsed_ms, status=500)
+    end
+    record_call!("physics_topic", elapsed_ms, :ok)
+    return ok_response(elapsed_ms, value::Dict{String,Any})
+end
+
