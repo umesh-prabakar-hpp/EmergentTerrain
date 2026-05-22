@@ -87,18 +87,35 @@ app:
     sympy:
       enabled: true
       timeoutMs: 10000
-    # Phase 26 §26.1 — constant + sequence recognition pass (OEIS
-    # Superseeker now; PSLQ + LLL in 26.2/26.3). Hosted in the sidecar
-    # via the /recognise/* routes per the 2026-05-22 Julia-consolidation
-    # decision. Flag-gated dormant until §26.6's coverage probe passes
-    # AND the citation-precision audit shows zero hallucinated cites.
-    # The JVM keeps the Postgres oeis_cache (single cache source of
-    # truth) and only hits the sidecar on cache miss.
+    # Phase 26 §26.1–§26.6 — constant + sequence recognition pass.
+    # OEIS Superseeker + PSLQ + (optional) minimal-polynomial recovery
+    # hosted in the sidecar via /recognise/* routes per the 2026-05-22
+    # Julia-consolidation decision. The JVM keeps the Postgres
+    # oeis_cache (single cache source of truth) and only hits the
+    # sidecar on cache miss.
+    #
+    # enabled=true (flipped 2026-05-22) after §26.6's coverage probe
+    # cleared 30/30 constants + 30/30 sequences — both bars at maximum
+    # margin. OeisRecogniserClient.isAvailable() and
+    # PslqRecogniserClient.isAvailable() now report true; the
+    # ResearchNarrationService bean has the orchestrator wired but
+    # narration-side recognise() invocation is still gated by a
+    # follow-on slice (see 26.4b commit message).
+    #
+    # Operator watch items for the first 30 MATHEMATICS-domain papers:
+    # zero hallucinated cite-recognised:* handles (use
+    # RecognitionCitationValidator) and ≥80% narration-readability
+    # parity vs pre-phase-26 papers.
+    #
+    # The LLL sub-flag stays off — minimal-polynomial recovery has a
+    # larger false-positive surface than constant recognition; flip it
+    # on per-paper when an operator wants algebraic-number recovery
+    # for that specific computation.
     recognise:
-      enabled: false
+      enabled: true
       timeoutMs: 5000
       lll:
-        enabled: false   # phase 26.3 sub-flag — Nemo.jl LLL is its own can
+        enabled: false   # phase 26.3 sub-flag — gated separately
     # Phase 28 §28.1 — conjecture-substrate consolidation knobs.
     # Flag-gated dormant: §28.1 adds the /numbertheory/window endpoint
     # + Java binding without migrating any caller. Flip `enabled: true`
