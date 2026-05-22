@@ -296,3 +296,80 @@ original Graffiti, Graffiti.pc, and AGX are all behind closed doors,
 useful as design references but not as drop-in dependencies. For the
 math-substrate lane, **mpmath** (PSLQ) + **FPLLL** (LLL) cover
 integer-relation finding without leaving Python/C++.
+
+---
+
+## Suitability for EmergentTerrain (added 2026-05-22)
+
+Mapping of the open engines above to the EmergentTerrain paper-writing
+business case (MATHEMATICS, PHYSICS, MATERIALS, TERRESTRIAL,
+UNDERWATER, INTERDISCIPLINARY) against the current resource envelope:
+**single Fedora 44 host, JVM, optional Julia sidecar on `:8088`,
+optional GPU adapter, Postgres, multi-provider LLM pool, no cluster,
+no guaranteed GPU**.
+
+### Tier 1 — fits cleanly, high ROI, planned phase docs exist
+
+| Engine | Field served | Why it fits | Phase doc |
+|---|---|---|---|
+| **PySR** (SymbolicRegression.jl) | PHYSICS, MATERIALS, TERRESTRIAL, UNDERWATER | Julia-native — reuses the existing `julia-math-sidecar` instead of adding a runtime. CPU-only with tunable population × iteration budget. Configurable wall-clock cap. Biggest single unlock for non-math domains: turns parameter sweeps into candidate laws. | `phase-24-pysr-symbolic-regression.md` |
+| **Zeilberger/WZ + Gosper + Sister Celine** (SymPy) | MATHEMATICS (combinatorial identities) | Python subprocess at ~10 s budget per call. Emits a **machine certificate** that mechanically proves the identity — the first tool in the suite that can legitimately earn `EvidenceLabel.THEOREM`. | `phase-25-sympy-identity-prover.md` |
+| **PSLQ via mpmath** + **OEIS Superseeker** | MATHEMATICS, PHYSICS (constant/sequence recognition) | mpmath PSLQ runs at 200-digit precision in ~1 s per call against a small basis. OEIS Superseeker is HTTP + a local cache. Bundled into one "recognise the constant" pass right after refinement. Strengthens citation precision; cleans the conjecture queue of rediscoveries. | `phase-26-constant-recognition-pass.md` |
+
+### Tier 2 — worthwhile if the math lane proves out
+
+| Engine | Field served | Why it's Tier-2 | Phase doc |
+|---|---|---|---|
+| **Conjecturing** (Sage) | MATHEMATICS, GRAPH-THEORY, INTERDISCIPLINARY | Generalises the Phase-23 Dalmatian miner to arbitrary `(object, invariant)` tuples; ships with ~400 invariants via `objects-invariants-properties`. Heavy install (~1.5 GB Sage), runs as nightly batch off the hot path. Only worth paying if Phase 23.8 calibration shows the Java miner's invariant pool is the bottleneck. | `phase-27-conjecturing-sage-batch.md` |
+| **LLL** (FPLLL / NTL) | MATHEMATICS, PHYSICS | Complements PSLQ for closed-form / minimal-polynomial recovery on high-precision constants. Modest lattice dimensions only (≤30). Native subprocess dependency. Folded into the Phase 26 doc as a flag-gated optional layer; ship the binary only when a specific paper demands it. | bundled in `phase-26-constant-recognition-pass.md` (§26.3) |
+
+### Tier 3 — skip given current resources
+
+| Engine | Why skip |
+|---|---|
+| **Ramanujan Machine** | MITM / grid scans designed for cluster compute. The single-host envelope can't run a meaningful scan. Revisit only if a specific paper warrants a one-off targeted MITM. |
+| **AI Feynman** | Trains a neural net per recursion level — needs reliable GPU. PySR alone captures most of the value at a fraction of the compute. |
+| **AlphaGeometry / AG2** | Olympiad-geometry specific. Not in EmergentTerrain's domain catalog. |
+| **AlphaProof** | Closed; no public code or weights. |
+| **GrInvIn** | Interactive teaching front-end, not an autonomous engine. |
+| **Inverse Symbolic Calculator** | Web-service only (no source). PSLQ in-process covers the same surface for our basis sets. |
+| **Eureqa** | Proprietary; PySR is the open replacement. |
+| **Graffiti / Graffiti.pc / AutoGraphiX** | Closed-source or binary-only. Conjecturing covers most of the same ground openly. AGX is a candidate v2 add behind a subprocess wrapper if extremal-graph optimisation becomes a paper kind. |
+
+### Recommended sequence
+
+1. **Phase 24 — PySR via the Julia sidecar.** Biggest reach: unlocks
+   the PHYSICS/MATERIALS/TERRESTRIAL/UNDERWATER conjecture lane that
+   Phase 23.7 currently gates on. ~5 days. Flag-gated dormant.
+2. **Phase 25 — SymPy combinatorial-identity prover.** Cheapest
+   `EvidenceLabel.THEOREM` win for the math lane. ~6 days. Flag-gated
+   dormant.
+3. **Phase 26 — Constant recognition pass.** Bundles PSLQ + OEIS
+   Superseeker + (optional) LLL into one "recognise" step in
+   `maybeRefineComputation`. ~6.5 days without LLL, ~8.5 with.
+   Flag-gated dormant.
+4. **Phase 27 — Conjecturing in Sage** (deferred). Gated on Phase
+   23.8 calibration. ~8.5 days when it lands.
+
+Total Tier-1 effort: ~17.5 days end-to-end. Tier-2 adds ~8.5 more
+contingent on calibration.
+
+### Why this shape
+
+- **Reuse infrastructure already paid for.** PySR slots into the
+  Julia sidecar (Phase 22). The SymPy / mpmath subprocesses share a
+  pattern with `JuliaMathClient` (Phase 22.2). OEIS Superseeker
+  extends the cache pattern from `OeisCatalog` (Phase 23.2).
+- **Don't add long-running services.** Three new subprocess-shaped
+  integrations (SymPy, mpmath PSLQ, FPLLL); zero new long-running
+  daemons. Sage in Phase 27 is a batch, not a peer service.
+- **Match engine cost to expected value.** Heavy engines
+  (Ramanujan Machine, AI Feynman, AlphaProof) are deferred not
+  because they're bad but because their compute envelope exceeds
+  what a single dev host can deliver reliably. If the deployment
+  ever moves to a multi-host or GPU-equipped box, revisit Tier 3.
+- **Honest labelling first.** Phase 25 (machine-certified
+  combinatorial proofs) and Phase 26 (verified constant citations)
+  both strengthen the audit trail for claims the LLM panel
+  currently has to take on faith. This compounds with Phase 23.6's
+  `EvidenceLabel` floor instead of adding new ungrounded surface.
