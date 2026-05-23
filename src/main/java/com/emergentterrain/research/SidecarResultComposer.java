@@ -332,6 +332,46 @@ final class SidecarResultComposer {
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.happyPackingSweepSegment(
                             s.path("start").asInt(), s.path("density").asDouble(),
                             s.path("r").asDouble(), s.path("improvement").asDouble())));
+            case "INTERDISCIPLINARY:4" -> MathPhysicsEngine.composeVanDerWaalsCompositeStress(
+                    d.path("param2").asDouble(),
+                    d.path("bestStress").asDouble(),
+                    d.path("bestCrossoverP").asDouble(),
+                    d.path("bestT").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.vdwCompositeSweepSegment(
+                            s.path("T").asDouble(), s.path("crossoverP").asDouble(), s.path("stress").asDouble())));
+            case "INTERDISCIPLINARY:5" -> MathPhysicsEngine.composeHallEffectCarrierSign(
+                    d.path("param1").asInt(),
+                    d.path("param2").asDouble(),
+                    d.path("trueSign").asDouble(),
+                    d.path("totalSamples").asInt(),
+                    d.path("bestAbsV").asDouble(),
+                    d.path("bestB").asDouble(),
+                    d.path("bestN").asDouble(),
+                    d.path("signRecovery").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hallSweepSegment(
+                            s.path("B").asDouble(), s.path("n").asDouble(), s.path("V_H").asDouble())));
+            case "INTERDISCIPLINARY:6" -> MathPhysicsEngine.composeSchottkyThermionicEmission(
+                    d.path("param1").asInt(),
+                    d.path("param2").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestJ").asDouble(),
+                    d.path("bestT").asDouble(),
+                    d.path("bestPhi").asDouble(),
+                    d.path("aboveLimit").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.schottkySweepSegment(
+                            s.path("T").asDouble(), s.path("phi").asDouble(), s.path("J").asDouble())));
+            case "INTERDISCIPLINARY:7" -> MathPhysicsEngine.composeAcousticDopplerShift(
+                    d.path("param1").asInt(),
+                    d.path("param2").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestShift").asDouble(),
+                    d.path("bestFp").asDouble(),
+                    d.path("bestVs").asDouble(),
+                    d.path("bestVo").asDouble(),
+                    d.path("violatesBound").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.dopplerSweepSegment(
+                            s.path("v_s").asDouble(), s.path("v_o").asDouble(),
+                            s.path("fp").asDouble(), s.path("shift").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

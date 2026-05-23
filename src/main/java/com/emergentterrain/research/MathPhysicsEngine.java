@@ -2837,19 +2837,32 @@ public class MathPhysicsEngine {
             double EL = Vf * Ef + (1 - Vf) * Em;
             double stress = crossoverP > 0 ? crossoverP * EL / 1000.0 : 0;
             if (stress > bestStress) { bestStress = stress; bestCrossoverP = crossoverP; bestT = T; }
-            if (i < 4 && crossoverP > 0) sb.append("T=%.0fK→P_c=%.0fatm→σ=%.0fMPa ".formatted(T, crossoverP, stress));
+            if (i < 4 && crossoverP > 0) sb.append(vdwCompositeSweepSegment(T, crossoverP, stress));
         }
+        return composeVanDerWaalsCompositeStress(param2, bestStress, bestCrossoverP, bestT,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one VdW→composite chain sweep segment (incl. trailing space). */
+    static String vdwCompositeSweepSegment(double T, double crossoverP, double stress) {
+        return "T=%.0fK→P_c=%.0fatm→σ=%.0fMPa ".formatted(T, crossoverP, stress);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:4 (VdW→composite). */
+    static ResearchResult composeVanDerWaalsCompositeStress(double param2, double bestStress,
+            double bestCrossoverP, double bestT, String sweep) {
+        double pc = bestCrossoverP > 0 ? bestCrossoverP : 0;
         boolean highStress = bestStress > 3000;
         ClaimStatus status = highStress ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
         String assessment = "At T=%.0f K, VdW crossover at P_c=%.0f atm → composite longitudinal stress=%.0f MPa (Vf=%.2f). %s"
-                .formatted(bestT, bestCrossoverP > 0 ? bestCrossoverP : 0, bestStress,
+                .formatted(bestT, pc, bestStress,
                         0.3 + param2 * 0.05,
                         highStress ? "Crossover-driven stress exceeds 3 GPa — Van der Waals pressure onset is mechanically critical for this composite geometry."
                                    : "Stress below 3 GPa threshold — VdW crossover at this temperature does not critically load the composite.");
         return new ResearchResult(
                 "VdW→Composite chain: sample results: %s Best: T=%.0f K → P_c=%.0f atm → longitudinal σ=%.0f MPa."
-                        .formatted(sb.toString().trim(), bestT, bestCrossoverP > 0 ? bestCrossoverP : 0, bestStress),
-                bestStress, bestCrossoverP > 0 ? bestCrossoverP : 0, bestT, bestStress, status, assessment)
+                        .formatted(sweep, bestT, pc, bestStress),
+                bestStress, pc, bestT, bestStress, status, assessment)
                 .withHypothesis("Van der Waals crossover pressure for CO₂ at T=%.0f K, treated as a mechanical loading analogue, drives longitudinal stress in a %.0f%% fibre-volume composite."
                         .formatted(bestT, (0.3 + param2 * 0.05) * 100));
     }
@@ -2882,9 +2895,22 @@ public class MathPhysicsEngine {
             totalSamples++;
             if (Math.signum(V_H) == trueSign) correctSign++;
             if (Math.abs(V_H) > bestAbsV) { bestAbsV = Math.abs(V_H); bestB = B; bestN = n; }
-            if (i < 4) sb.append("B=%.2fT,n=%.1e→V_H=%.4eV ".formatted(B, n, V_H));
+            if (i < 4) sb.append(hallSweepSegment(B, n, V_H));
         }
         double signRecovery = (double) correctSign / Math.max(1, totalSamples);
+        return composeHallEffectCarrierSign(param1, param2, trueSign, totalSamples, bestAbsV,
+                bestB, bestN, signRecovery, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Hall-effect sweep segment (incl. trailing space). */
+    static String hallSweepSegment(double B, double n, double V_H) {
+        return "B=%.2fT,n=%.1e→V_H=%.4eV ".formatted(B, n, V_H);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:5 (Hall effect). */
+    static ResearchResult composeHallEffectCarrierSign(int param1, double param2, double trueSign,
+            int totalSamples, double bestAbsV, double bestB, double bestN, double signRecovery,
+            String sweep) {
         boolean physical = bestAbsV <= 1.0;  // F3 spec bound
         ClaimStatus status = physical && signRecovery >= 0.95 ? ClaimStatus.SUPPORTED
                 : physical ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
@@ -2895,7 +2921,7 @@ public class MathPhysicsEngine {
                                         : "sign-recovery degraded — check B-field direction convention");
         return new ResearchResult(
                 "Hall effect (carrier sign=%s, %d samples): max |V_H|=%.4f V at B=%.2f T, n=%.1e /m³; sign-recovery %.0f%%. Sample: %s"
-                        .formatted(trueSign > 0 ? "+" : "−", totalSamples, bestAbsV, bestB, bestN, signRecovery * 100, sb.toString().trim()),
+                        .formatted(trueSign > 0 ? "+" : "−", totalSamples, bestAbsV, bestB, bestN, signRecovery * 100, sweep),
                 bestAbsV, signRecovery, bestN, bestAbsV, status, assessment)
                 .withHypothesis(("For a current-carrying bar with parameters chosen near param1=%d, param2=%.1f, "
                         + "the sign of the Hall voltage V_H = (I·B)/(n·e·t) recovers the carrier charge type "
@@ -2930,8 +2956,21 @@ public class MathPhysicsEngine {
             samples++;
             if (J > bestJ) { bestJ = J; bestT = T; bestPhi = phi; }
             if (J > 1e6) aboveLimit++;
-            if (i < 4) sb.append("T=%.0fK,φ=%.2feV→J=%.2eA/cm² ".formatted(T, phi, J));
+            if (i < 4) sb.append(schottkySweepSegment(T, phi, J));
         }
+        return composeSchottkyThermionicEmission(param1, param2, samples, bestJ, bestT, bestPhi,
+                aboveLimit, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Schottky thermionic-emission sweep segment (incl. trailing space). */
+    static String schottkySweepSegment(double T, double phi, double J) {
+        return "T=%.0fK,φ=%.2feV→J=%.2eA/cm² ".formatted(T, phi, J);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:6 (Schottky emission). */
+    static ResearchResult composeSchottkyThermionicEmission(int param1, double param2, int samples,
+            double bestJ, double bestT, double bestPhi, int aboveLimit, String sweep) {
+        double Astar = 120.0;        // A/cm²/K², canonical Richardson constant
         boolean physical = aboveLimit == 0;  // F3 spec: J ≤ 10⁶ A/cm²
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : bestJ > 1e-3 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
@@ -2942,7 +2981,7 @@ public class MathPhysicsEngine {
                                         : "deep barrier or low T — emission negligible");
         return new ResearchResult(
                 "Schottky thermionic emission (A*=%.1f A/cm²/K², %d samples): max J=%.2e A/cm² at T=%.0f K, φ=%.2f eV. Sample: %s"
-                        .formatted(Astar, samples, bestJ, bestT, bestPhi, sb.toString().trim()),
+                        .formatted(Astar, samples, bestJ, bestT, bestPhi, sweep),
                 bestJ, bestT, bestPhi, bestJ, status, assessment)
                 .withHypothesis(("For a Schottky barrier with barrier height swept near φ=%.2f eV at temperatures "
                         + "starting near %d K, the Richardson-Dushman current density J = A*·T²·exp(−φ/kT) "
@@ -2975,8 +3014,23 @@ public class MathPhysicsEngine {
             samples++;
             if (shift > bestShift) { bestShift = shift; bestVs = v_s; bestVo = v_o; bestFp = fp; }
             if (shift > f) violatesBound++;  // F3 spec: |f' − f| ≤ f
-            if (i < 4) sb.append("v_s=%.1f,v_o=%.1f→f'=%.1fHz(Δ=%.1f) ".formatted(v_s, v_o, fp, shift));
+            if (i < 4) sb.append(dopplerSweepSegment(v_s, v_o, fp, shift));
         }
+        return composeAcousticDopplerShift(param1, param2, samples, bestShift, bestFp, bestVs,
+                bestVo, violatesBound, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one acoustic-Doppler sweep segment (incl. trailing space). */
+    static String dopplerSweepSegment(double v_s, double v_o, double fp, double shift) {
+        return "v_s=%.1f,v_o=%.1f→f'=%.1fHz(Δ=%.1f) ".formatted(v_s, v_o, fp, shift);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:7 (acoustic Doppler). */
+    static ResearchResult composeAcousticDopplerShift(int param1, double param2, int samples,
+            double bestShift, double bestFp, double bestVs, double bestVo, int violatesBound,
+            String sweep) {
+        double c = 343.0;  // m/s, sound speed in dry air at 20°C
+        double f = 1000.0; // Hz, baseline source frequency
         boolean physical = violatesBound == 0;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : bestShift > 5.0 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
@@ -2987,7 +3041,7 @@ public class MathPhysicsEngine {
                                         : "low relative velocities — minimal shift");
         return new ResearchResult(
                 "Acoustic Doppler (c=%.0f m/s, f=%.0f Hz, %d samples): max |f'−f|=%.1f Hz at v_s=%.1f, v_o=%.1f m/s → f'=%.1f Hz. Sample: %s"
-                        .formatted(c, f, samples, bestShift, bestVs, bestVo, bestFp, sb.toString().trim()),
+                        .formatted(c, f, samples, bestShift, bestVs, bestVo, bestFp, sweep),
                 bestShift, bestFp, bestVs, bestShift, status, assessment)
                 .withHypothesis(("For a 1 kHz source in dry air with source velocity swept around %.1f m/s and "
                         + "observer velocity around %.1f m/s, the relative-motion Doppler shift f' = f·(c+v_o)/(c−v_s) "

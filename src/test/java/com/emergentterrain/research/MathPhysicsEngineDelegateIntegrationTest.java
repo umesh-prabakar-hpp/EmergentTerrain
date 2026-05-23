@@ -166,8 +166,8 @@ class MathPhysicsEngineDelegateIntegrationTest {
      * claimStatus — proving the sidecar emits each topic's {@code detail} keys
      * with byte-equal values (including Welford M2 and the sample-sweep arrays)
      * and that the JVM composes the same prose from them. MATHEMATICS, PHYSICS,
-     * and MATERIALS (topics 0–9 each) are covered; add other domains' calls as
-     * their composers land.
+     * MATERIALS, and INTERDISCIPLINARY are covered (every topic in each, per
+     * {@code topicCount}); add other domains' calls as their composers land.
      */
     @Test
     void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allCoveredDomains() {
@@ -177,8 +177,9 @@ class MathPhysicsEngineDelegateIntegrationTest {
                 new MathPhysicsEngineDelegate(/*shadow*/ false, /*primary*/ true, client);
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        for (String domain : new String[]{"MATHEMATICS", "PHYSICS", "MATERIALS"}) {
-            for (int topic = 0; topic <= 9; topic++) {
+        for (String domain : new String[]{"MATHEMATICS", "PHYSICS", "MATERIALS", "INTERDISCIPLINARY"}) {
+            int topicCount = MathPhysicsEngine.topicCount(domain);
+            for (int topic = 0; topic < topicCount; topic++) {
                 MathPhysicsEngine.ResearchResult served =
                         delegate.compute(domain, topic, 3, 0.0, sp);
                 MathPhysicsEngine.ResearchResult jvm =

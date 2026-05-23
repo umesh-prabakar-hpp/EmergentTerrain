@@ -721,6 +721,101 @@ class SidecarResultComposerTest {
     }
 
     @Test
+    void interdisc4_vdwComposite_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("T", 209.0).put("crossoverP", 30.0).put("stress", 3120.0);
+        sweep.addObject().put("T", 250.0).put("crossoverP", 45.0).put("stress", 4500.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param2", 0.0);
+        d.put("bestStress", 4500.0);
+        d.put("bestCrossoverP", 45.0);
+        d.put("bestT", 250.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.vdwCompositeSweepSegment(209.0, 30.0, 3120.0)
+                + MathPhysicsEngine.vdwCompositeSweepSegment(250.0, 45.0, 4500.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeVanDerWaalsCompositeStress(0.0, 4500.0, 45.0, 250.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 4, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc5_hallEffect_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("B", 0.07).put("n", 1e24).put("V_H", 0.044);
+        sweep.addObject().put("B", 0.09).put("n", 1.1e24).put("V_H", 0.051);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 5);
+        d.put("param2", 0.4);
+        d.put("trueSign", 1.0);
+        d.put("totalSamples", 20);
+        d.put("bestAbsV", 0.051);
+        d.put("bestB", 0.09);
+        d.put("bestN", 1.1e24);
+        d.put("signRecovery", 1.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hallSweepSegment(0.07, 1e24, 0.044)
+                + MathPhysicsEngine.hallSweepSegment(0.09, 1.1e24, 0.051)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHallEffectCarrierSign(5, 0.4, 1.0, 20, 0.051, 0.09, 1.1e24, 1.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 5));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 5, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc6_schottky_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("T", 205.0).put("phi", 0.42).put("J", 1.5e-3);
+        sweep.addObject().put("T", 230.0).put("phi", 0.44).put("J", 8.0e-3);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 3);
+        d.put("param2", 0.5);
+        d.put("samples", 18);
+        d.put("bestJ", 8.0e-3);
+        d.put("bestT", 230.0);
+        d.put("bestPhi", 0.44);
+        d.put("aboveLimit", 0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.schottkySweepSegment(205.0, 0.42, 1.5e-3)
+                + MathPhysicsEngine.schottkySweepSegment(230.0, 0.44, 8.0e-3)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeSchottkyThermionicEmission(3, 0.5, 18, 8.0e-3, 230.0, 0.44, 0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 6));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 6, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc7_doppler_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("v_s", 5.0).put("v_o", 2.0).put("fp", 1014.9).put("shift", 14.9);
+        sweep.addObject().put("v_s", 10.0).put("v_o", 4.0).put("fp", 1042.1).put("shift", 42.1);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 10);
+        d.put("param2", 1.0);
+        d.put("samples", 25);
+        d.put("bestShift", 42.1);
+        d.put("bestFp", 1042.1);
+        d.put("bestVs", 10.0);
+        d.put("bestVo", 4.0);
+        d.put("violatesBound", 0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.dopplerSweepSegment(5.0, 2.0, 1014.9, 14.9)
+                + MathPhysicsEngine.dopplerSweepSegment(10.0, 4.0, 1042.1, 42.1)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeAcousticDopplerShift(10, 1.0, 25, 42.1, 1042.1, 10.0, 4.0, 0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 7));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 7, d)).contains(expected);
+    }
+
+    @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
         // throw or return a wrong result. (BIOLOGY / CHEMISTRY stay uncovered
