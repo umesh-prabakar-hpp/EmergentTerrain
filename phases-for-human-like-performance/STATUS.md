@@ -23,7 +23,7 @@ existing lowercase `readme.md` and effectively hide one of the two files.
 | Net new code | ~10,000 + ~2,300 (Phase 5) + ~1,200 (Phase 6) + ~15,000 (Phase 7–13) + ~3,000 (Phase 14–17) lines |
 | Tests | 135 → 577 → 690 → 704 → 709 → 717 → 1,400+ → 1,500+ (with Phase 17 P8a/P8b/panel-grade-floor + truncation-guard pin) |
 | Behaviour-changing iterations | 6 + 10 Phase 5 + 2 Phase 6 + Phase 7 multi-provider/structured-findings/topic-expansion + Phase 8 unrestricted-math + Phase 9 unified-registry + Phases 10–17 corpus-driven hardening, all behind feature flags |
-| Doc reorganization (2026-05-18) | `phase-wishlist.md` → `phase-wishlist-human-level.md` with P5–P8 trimmed (commit `cc440f4`); new `phase-18-pending-followups.md` consolidating open items; `phase-0` through `phase-17` moved to `archive/` (commit `144999e`). Active set (refreshed 2026-05-23): STATUS.md, readme.md, phase-18 (CLOSED 2026-05-23), phase-flags.md, phase-wishlist-human-level.md, phase-19-sandbox-friction (CLOSED PENDING REFRESH), phase-20-reference-repo-scoping (§20.11 step 2b deletes DONE 2026-05-23), phase-21-run-quality-triage (6 live-run acceptance criteria pending; 21.7 deferred), phase-4c-piece-3 (4 dormant PRs awaiting operator-authored variant), phase-22-julia-math-sidecar (infra complete; acceptance ≥50% + prod-host reproducibility operator-pending), phase-23-conjecture-driven-novelty, phase-24-pysr-symbolic-regression (code complete + flag ON; Lever 2 resource-adaptive ensemble open), phase-25-sympy-identity-prover (shipped + flag ON 2026-05-22), phase-26-constant-recognition-pass (shipped + flag ON 2026-05-22; LLL off, narration-side invocation gated), phase-27 (not started; Tier-2), phase-28 (§28.1–28.5 shipped, §28.6 partial). Closed session log `SESSION_2026-05-19_2026-05-20.md` archived 2026-05-20. |
+| Doc reorganization (2026-05-18) | `phase-wishlist.md` → `phase-wishlist-human-level.md` with P5–P8 trimmed (commit `cc440f4`); new `phase-18-pending-followups.md` consolidating open items; `phase-0` through `phase-17` moved to `archive/` (commit `144999e`). Active set (refreshed 2026-05-23): STATUS.md, readme.md, phase-flags.md, phase-wishlist-human-level.md, phase-19-sandbox-friction (CLOSED PENDING REFRESH), phase-20-reference-repo-scoping (§20.11 step 2b deletes DONE 2026-05-23), phase-21-run-quality-triage (6 live-run acceptance criteria pending; 21.7 deferred), phase-4c-piece-3 (4 dormant PRs awaiting operator-authored variant), phase-22-julia-math-sidecar (infra complete; acceptance ≥50% + prod-host reproducibility operator-pending), phase-23-conjecture-driven-novelty, phase-24-pysr-symbolic-regression (code complete + flag ON; Lever 2 resource-adaptive ensemble open), phase-25-sympy-identity-prover (shipped + flag ON 2026-05-22), phase-26-constant-recognition-pass (shipped + flag ON 2026-05-22; LLL off, narration-side invocation gated), phase-27 (not started; Tier-2), phase-28 (§28.1–28.5 shipped, §28.6 partial). Closed session log `SESSION_2026-05-19_2026-05-20.md` archived 2026-05-20; `phase-18-pending-followups.md` archived 2026-05-23 (CLOSED — all three conditions met). |
 
 Every behaviour change is opt-in per room via `app.research.*.enabled`
 flags. With every flag off, the system behaves exactly as it did before
@@ -1789,7 +1789,7 @@ handles those). The closing condition for Phase 18 is when 18.1 + 18.2
 ship and 18.3 either starts implementation under its own phase doc or
 is explicitly retired.
 
-**See [phase-18-pending-followups.md](phase-18-pending-followups.md)**
+**See [phase-18-pending-followups.md](archive/phase-18-pending-followups.md)** (archived 2026-05-23, CLOSED)
 for the full audit table + per-item file pointers + acceptance criteria.
 
 ---
@@ -1799,7 +1799,6 @@ for the full audit table + per-item file pointers + acceptance criteria.
 ```
 STATUS.md                                    ← you are here (shipped vs deferred)
 readme.md                                    ← original 10-iteration design doc
-phase-18-pending-followups.md                ← consolidated open items (P8c, P8d, Phase 4c Piece 3 decision); pointer to phase-flags.md for flag flips
 phase-flags.md                               ← rolling tracker for default-off / warn-mode flags awaiting rollout triggers (renamed from phase-15-flag-rollout-queue.md after Phase 16 added three more flags)
 phase-wishlist-human-level.md                ← human-level paper-building quality levers (P1–P4); reference, not queued; renamed from phase-wishlist.md on 2026-05-18 with P5–P8 trimmed out (migrated per its bottom table)
 archive/                                     ← shipped / historical phase docs (Phase 0 through Phase 17); moved here 2026-05-18 to keep the active set lean
