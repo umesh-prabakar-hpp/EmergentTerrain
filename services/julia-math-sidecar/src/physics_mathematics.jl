@@ -572,6 +572,7 @@ function physics_mertens_partial_sums(seed_start::Integer, width::Integer,
     best_x = seed_start + width
     best_m = Int64(0)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 windows for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         start = max(1, seed_start + Int(floor(i * step_size * 50)))
         end_  = start + width
@@ -582,6 +583,9 @@ function physics_mertens_partial_sums(seed_start::Integer, width::Integer,
             best_ratio = ratio
             best_x = end_
             best_m = m
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("x" => end_, "M" => m, "ratio" => ratio))
         end
     end
     within_bound = best_ratio <= 2.0
@@ -606,6 +610,7 @@ function physics_mertens_partial_sums(seed_start::Integer, width::Integer,
         "samples"          => samples,
         "width"            => width,
         "seedStart"        => seed_start,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -666,6 +671,7 @@ function physics_divisor_sum_average(seed_n::Integer, width::Integer,
         "asymptotic"       => asymptotic,
         "samples"          => samples,
         "width"            => width,
+        "seedN"            => seed_n,   # §28.6b — JVM hypothesis prose needs the seed
     )
 end
 
@@ -690,6 +696,7 @@ function physics_riemann_euler_product(seed_s::Real, sp::Dict{String,Any})::Dict
     best_ratio = 1.0
     samples = 0
     sum_dev = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 s-values for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         s = max(1.1, Float64(seed_s) + i * step_size * 0.2)
         truncation = 5000
@@ -711,6 +718,9 @@ function physics_riemann_euler_product(seed_s::Real, sp::Dict{String,Any})::Dict
             best_s = s
             best_ratio = ratio
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("s" => s, "ratio" => ratio))
+        end
     end
     mean_dev = samples > 0 ? sum_dev / samples : 0.0
     within_band = best_dev <= 0.05
@@ -729,6 +739,7 @@ function physics_riemann_euler_product(seed_s::Real, sp::Dict{String,Any})::Dict
         "meanDev"          => mean_dev,
         "samples"          => samples,
         "seedS"            => seed_s,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -755,6 +766,7 @@ function physics_stern_brocot_depth(seed_q::Integer, sp::Dict{String,Any})::Dict
     best_q = seed_q
     samples = 0
     sum_depth = Int64(0)
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 rationals for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         q = max(2, seed_q + Int(floor(i * step_size * 50)))
         p = 1 + (i * 7) % max(2, q - 1)
@@ -765,6 +777,9 @@ function physics_stern_brocot_depth(seed_q::Integer, sp::Dict{String,Any})::Dict
             max_depth = depth
             best_p = p
             best_q = q
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("p" => p, "q" => q, "depth" => depth))
         end
     end
     mean_depth = samples > 0 ? Float64(sum_depth) / samples : 0.0
@@ -787,6 +802,7 @@ function physics_stern_brocot_depth(seed_q::Integer, sp::Dict{String,Any})::Dict
         "meanDepth"        => mean_depth,
         "samples"          => samples,
         "seedQ"            => seed_q,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
