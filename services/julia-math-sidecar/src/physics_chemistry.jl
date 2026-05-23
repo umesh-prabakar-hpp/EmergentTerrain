@@ -18,6 +18,7 @@ function physics_chem_henderson_hasselbalch(true_pKa::Real,
     best_err = floatmax(Float64)
     best_recovered = Float64(true_pKa)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 titration points for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         ratio = 10.0^(-1.0 + i * step_size * 0.2)
         pH = Float64(true_pKa) + log10(ratio) + sin(i * 0.3) * 0.01
@@ -27,6 +28,9 @@ function physics_chem_henderson_hasselbalch(true_pKa::Real,
         if err < best_err
             best_err = err
             best_recovered = pKa_est
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("ratio" => ratio, "pH" => pH, "pKaEst" => pKa_est))
         end
     end
     status = best_err < 0.05 ? "SUPPORTED" :
@@ -42,6 +46,7 @@ function physics_chem_henderson_hasselbalch(true_pKa::Real,
         "bestErr"          => best_err,
         "bestRecovered"    => best_recovered,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -63,6 +68,7 @@ function physics_chem_nernst_potential(E0::Real, T::Real,
     best_E = Float64(E0)
     best_Q = 1.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 Q-samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Q = 10.0^(-2.0 + i * step_size * 0.4)
         E = Float64(E0) - (R * Float64(T) / (n * F)) * log(Q)
@@ -72,6 +78,9 @@ function physics_chem_nernst_potential(E0::Real, T::Real,
             best_dev = dev
             best_E = E
             best_Q = Q
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Q" => Q, "E" => E))
         end
     end
     physical = best_dev <= 0.3
@@ -91,6 +100,7 @@ function physics_chem_nernst_potential(E0::Real, T::Real,
         "bestQ"            => best_Q,
         "samples"          => samples,
         "physical"         => physical,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -108,6 +118,7 @@ function physics_chem_beer_lambert(true_eps::Real, true_L::Real,
     best_err = floatmax(Float64)
     best_recovered_eps = Float64(true_eps)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 concentration samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         c = 0.001 + i * step_size * 0.0005
         A = Float64(true_eps) * c * Float64(true_L) * (1.0 + sin(i * 0.27) * 0.01)
@@ -117,6 +128,9 @@ function physics_chem_beer_lambert(true_eps::Real, true_L::Real,
         if err < best_err
             best_err = err
             best_recovered_eps = eps_recovered
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("c" => c, "A" => A, "epsRecovered" => eps_recovered))
         end
     end
     status = best_err < 0.05 ? "SUPPORTED" :
@@ -133,6 +147,7 @@ function physics_chem_beer_lambert(true_eps::Real, true_L::Real,
         "bestErr"          => best_err,
         "bestRecoveredEps" => best_recovered_eps,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -156,6 +171,7 @@ function physics_chem_equilibrium_kc(Kc298::Real, seed_T::Real,
     best_T = Float64(seed_T)
     best_Kc = Float64(Kc298)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 temperature samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         T = max(250.0, Float64(seed_T) + i * step_size * 10.0)
         ln_ratio = -delta_H / R * (1.0 / T - 1.0 / 298.15)
@@ -166,6 +182,9 @@ function physics_chem_equilibrium_kc(Kc298::Real, seed_T::Real,
             best_drift = drift
             best_T = T
             best_Kc = Kc
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("T" => T, "Kc" => Kc, "drift" => drift))
         end
     end
     physical = isfinite(best_Kc) && best_Kc > 0
@@ -185,6 +204,7 @@ function physics_chem_equilibrium_kc(Kc298::Real, seed_T::Real,
         "bestKc"           => best_Kc,
         "samples"          => samples,
         "physical"         => physical,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -209,6 +229,7 @@ function physics_chem_compressibility_z(seed_Tr::Real, seed_Pr::Real,
     best_Z = 1.0
     samples = 0
     clamped_samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (Tr, Pr) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Tr = max(0.5, Float64(seed_Tr) + i * step_size * 0.05)
         Pr_raw = max(0.1, Float64(seed_Pr) + i * step_size * 0.2)
@@ -231,6 +252,9 @@ function physics_chem_compressibility_z(seed_Tr::Real, seed_Pr::Real,
             best_Pr = Pr
             best_Z = Z
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Tr" => Tr, "Pr" => Pr, "Z" => Z))
+        end
     end
     physical = best_dev <= 0.5
     status = !physical ? "REFUTED" :
@@ -249,6 +273,9 @@ function physics_chem_compressibility_z(seed_Tr::Real, seed_Pr::Real,
         "samples"          => samples,
         "clampedSamples"   => clamped_samples,
         "physical"         => physical,
+        "seedTr"           => Float64(seed_Tr),   # §28.6b — JVM hypothesis prose
+        "seedPr"           => Float64(seed_Pr),
+        "sampleSweep"      => sample_sweep,         # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
