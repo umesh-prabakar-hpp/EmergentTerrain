@@ -2,7 +2,7 @@
 
 **Status (2026-05-23):** §28.1 → §28.5 SHIPPED, §28.6 PARTIAL (conjecture
 flag flipped; physics-topic cutover seam landed and the **MATHEMATICS +
-PHYSICS + MATERIALS + INTERDISCIPLINARY + BIOLOGY + CHEMISTRY domains (48
+7 domains (everything except ARCHITECTURE_LIQUID + ARCHITECTURE_SPACE; 53
 topics) are now cut-over-capable**, primary flag default OFF). Promoted from
 `reference-conjecture-engines.md` §
 "Decisions — Julia consolidation (2026-05-22)" Slice 1.
@@ -45,8 +45,9 @@ Sub-phase status:
   **Physics-topic read cutover seam landed (2026-05-23)** via
   approach B (`SidecarResultComposer` + `app.julia.physics.topic.primary`,
   default OFF) — the MATHEMATICS + PHYSICS + MATERIALS + INTERDISCIPLINARY
-  + BIOLOGY + CHEMISTRY domains (48 topics) are cut-over-capable; 15 composer
-  branches remain across the 3 ARCHITECTURE domains (see §28.6a/b below). Legacy
+  + BIOLOGY + CHEMISTRY + ARCHITECTURE_TERRESTRIAL domains (53 topics) are
+  cut-over-capable; 10 composer branches remain across ARCHITECTURE_LIQUID +
+  ARCHITECTURE_SPACE (see §28.6a/b below). Legacy
   removal across all six ported classes remains deferred until prose-parity
   burn-in is clean.
 
@@ -84,11 +85,13 @@ sidecar response doesn't carry the findings prose the JVM
   `param1`/`param2` their cross-domain prose formats. BIOLOGY's 5 topics are
   likewise single-method aggregate+sweep; each got a `sampleSweep` array (Lotka
   also `alpha`). CHEMISTRY's 5 topics are the same shape; each got a
-  `sampleSweep` array (compressibility-Z also `seedTr`/`seedPr`). The remaining
-  15 (domain, topicIdx) handlers across the 3 ARCHITECTURE domains need the
-  same audit.
+  `sampleSweep` array (compressibility-Z also `seedTr`/`seedPr`).
+  ARCHITECTURE_TERRESTRIAL's 5 topics are the same shape; each got a
+  `sampleSweep` array plus its environment seed (gSeed / rhoAtmSeed / param1).
+  The remaining 10 (domain, topicIdx) handlers across ARCHITECTURE_LIQUID +
+  ARCHITECTURE_SPACE need the same audit.
 - **§28.6b — JVM `composeFromSidecar` cutover** — **seam SHIPPED
-  (2026-05-23, 6 domains: MATHEMATICS / PHYSICS / MATERIALS / INTERDISCIPLINARY / BIOLOGY / CHEMISTRY).** New `SidecarResultComposer`
+  (2026-05-23, 7 domains: everything except ARCHITECTURE_LIQUID / _SPACE).** New `SidecarResultComposer`
   parses the sidecar `detail` JsonNode and calls the same shared
   `MathPhysicsEngine.compose*` method the in-process path uses (so
   prose is byte-identical), then stamps `equationFor`. New
@@ -98,16 +101,16 @@ sidecar response doesn't carry the findings prose the JVM
   in-process + recording scalar parity so the cutover is observable
   and reversible. Topics without a composer branch fall back
   in-process — the cutover lights up topic-by-topic. **Done for the
-  6 domains MATHEMATICS / PHYSICS / MATERIALS / INTERDISCIPLINARY / BIOLOGY /
-  CHEMISTRY (48 topics); 15 composer branches remain** across the 3 ARCHITECTURE
-  domains (one per topic,
+  7 domains (everything except ARCHITECTURE_LIQUID / _SPACE; 53 topics);
+  10 composer branches remain** across those two domains (one per topic,
   mechanical: extract that topic's prose into a shared `compose*` method,
   add the `detail`-key branch, extend the parity tests). Three structural
   shapes recur and are now templated: inner-window prose (where the inner
   *At method is a cheap pure function of the winning param — recompute it,
   no sweep array; math 0–2, physics 0, materials 0/2/3/4), outer-overlay
   via `withFindingsAndClaim` (math 3,4), and aggregate + sample-sweep array
-  (math 5–9, physics 1–9, materials 1/5–9, all of interdisc 0–7 + biology 0–4 + chemistry 0–4). Dropping
+  (math 5–9, physics 1–9, materials 1/5–9, all of interdisc 0–7 + biology 0–4
+  + chemistry 0–4 + arch-terrestrial 0–4). Dropping
   the in-process call from the hot path (the actual perf win) is the final
   legacy-removal step, once prose-parity burn-in is clean.
 
@@ -115,17 +118,17 @@ Neither sub-phase is blocking burn-in — the existing shadow-read
 mode already drives parity counters, and the conjecture-side flag
 flip (above) is the genuinely operator-visible §28.6 step.
 
-**Tests (2026-05-23).** `SidecarResultComposerTest` (52 cases, pure
+**Tests (2026-05-23).** `SidecarResultComposerTest` (57 cases, pure
 JVM — one byte-identity case per covered topic across MATHEMATICS +
 PHYSICS + MATERIALS (0–9 each) + INTERDISCIPLINARY (0–7) + BIOLOGY (0–4)
-+ CHEMISTRY (0–4),
++ CHEMISTRY (0–4) + ARCHITECTURE_TERRESTRIAL (0–4),
 pinning the `detail`-key + equation wiring against the shared template, plus
 fall-back / null-detail / modulo-reduction cases; all green).
 `MathPhysicsEngineDelegateTest` gains two primary-read cases (cutover
 serves the composed result; uncovered topics fall back).
 `MathPhysicsEngineDelegateIntegrationTest` asserts live-sidecar
 full-`ResearchResult` byte-parity across every topic (by `topicCount`) of
-all 6 cut-over domains (through CHEMISTRY).
+all 7 cut-over domains (through ARCHITECTURE_TERRESTRIAL).
 `MathPhysicsEngineRegressionTest` (15, no Mockito)
 confirms every in-process `compose*` extraction is byte-identical. NB: the mock-based
 delegate cases don't run on this dev shell (JDK-25 / Mockito-inline
