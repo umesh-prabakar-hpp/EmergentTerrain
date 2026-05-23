@@ -513,6 +513,7 @@ function physics_carnot_efficiency(seed_Tc::Real, seed_Th::Real,
     best_Th = Float64(seed_Th)
     samples = 0
     sum_eta = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (Tc,Th) pairs for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Tc = max(50.0, Float64(seed_Tc) + sin(i * 0.31) * 30.0)
         Th = max(Tc + 10.0, Float64(seed_Th) + i * step_size * 25.0)
@@ -523,6 +524,9 @@ function physics_carnot_efficiency(seed_Tc::Real, seed_Th::Real,
             best_eta = eta
             best_Tc = Tc
             best_Th = Th
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Tc" => Tc, "Th" => Th, "eta" => eta))
         end
     end
     mean_eta = samples > 0 ? sum_eta / samples : 0.0
@@ -543,6 +547,9 @@ function physics_carnot_efficiency(seed_Tc::Real, seed_Th::Real,
         "meanEta"          => mean_eta,
         "samples"          => samples,
         "physical"         => physical,
+        "seedTc"           => Float64(seed_Tc),   # §28.6b — JVM prose needs the seeds
+        "seedTh"           => Float64(seed_Th),
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -568,6 +575,7 @@ function physics_basquin_fatigue(seed_sigma_f::Real, param2::Real,
     best_Nf = Int64(0)
     count_above_uts = 0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 cycle counts for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         # JVM line 1817: `(long) Math.max(1_000, 10_000 + i*stepSize*50_000)`.
         # Java cast to long is truncation toward 0 for positive doubles;
@@ -584,6 +592,9 @@ function physics_basquin_fatigue(seed_sigma_f::Real, param2::Real,
         end
         if sigma_a > UTS
             count_above_uts += 1
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Nf" => Nf, "sigmaA" => sigma_a))
         end
     end
     physical = count_above_uts == 0
@@ -605,6 +616,7 @@ function physics_basquin_fatigue(seed_sigma_f::Real, param2::Real,
         "countAboveUts"    => count_above_uts,
         "samples"          => samples,
         "physical"         => physical,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -631,6 +643,7 @@ function physics_young_laplace_capillary(seed_radius_mm::Real,
     best_r = Float64(seed_radius_mm)
     samples = 0
     count_above_limit = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 radii for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         r_mm = max(0.005, Float64(seed_radius_mm) - i * step_size * 0.005)
         r_m  = r_mm * 1e-3
@@ -643,6 +656,9 @@ function physics_young_laplace_capillary(seed_radius_mm::Real,
         end
         if h_cm > 50.0
             count_above_limit += 1
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("r" => r_mm, "h" => h_cm))
         end
     end
     physical = count_above_limit < samples ÷ 2
@@ -661,6 +677,8 @@ function physics_young_laplace_capillary(seed_radius_mm::Real,
         "samples"          => samples,
         "countAboveLimit"  => count_above_limit,
         "physical"         => physical,
+        "seedRadiusMm"     => Float64(seed_radius_mm),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,               # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
