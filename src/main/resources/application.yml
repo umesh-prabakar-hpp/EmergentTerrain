@@ -322,7 +322,12 @@ app:
       siteTitle: "EmergentTerrain"
       # Only OpenInference / NVIDIA backends are reliable on free tier; Venice is rate-capped.
       excludedBackends: "Venice"
-      preferredModels: "openai/gpt-oss-120b:free,nvidia/nemotron-3-super-120b-a12b:free"
+      # 2026-05-22 paper-review: nvidia/nemotron-3-super-120b-a12b dropped
+      # from the preferred list. 0/9 publish rate in the archive — the
+      # corpus-worst single-model quality signal. The OpenRouter:free tier
+      # version is a free-cost mirror of the same poor-quality output;
+      # removing it stops the panel from picking it as a reviewer.
+      preferredModels: "openai/gpt-oss-120b:free"
       # Phase 20.11 §migration step 2 (2026-05-20) — FLIPPED. The legacy
       # hand-written OpenRouterPool bean is now disabled; the generic-
       # pool entry under app.ai.providers.openrouter: takes over.
@@ -331,12 +336,27 @@ app:
       # contract documentation until step 2b deletes OpenRouterPool.java.
       legacy-pool: false
     nvidia:
-      enabled: true
+      # 2026-05-22 paper-review — provider DISABLED. Three reasons:
+      # (1) nvidia/nemotron-3-super-120b-a12b: 0/9 publish (corpus-worst).
+      # (2) Other NVIDIA-hosted models (meta/llama-3.3-70b-instruct,
+      #     openai/gpt-oss-120b) are same-architecture mirrors of cheaper
+      #     Groq offerings — 1.5–3× the per-token cost for marginal quality.
+      # (3) NVIDIA NIM dev-tier cap (100k tokens/day) is hit within ~30 min
+      #     of active research, triggering 6+ fallback hops per paper and
+      #     panel-degradation cascades (n=4 → n=1 → MANUAL_REVIEW suppression).
+      # Flip back to true if a paid NVIDIA tier is added and a model worth
+      # using is selected. See docs/llm-cost-analysis.md and the 2026-05-22
+      # research/a3289005/REVIEW_REPORT.md for the underlying analysis.
+      enabled: false
       apiKey: ${NVIDIA_API_KEY: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}
       baseUrl: "https://integrate.api.nvidia.com/v1"
-      # 5 confirmed working free 70B+ models with tools per 2026-05-13 tests.
-      # Excluded paid-tier-only models: nvidia/nemotron-4-340b-instruct, nvidia/llama-3.1-nemotron-70b-instruct
-      preferredModels: "meta/llama-3.3-70b-instruct,openai/gpt-oss-120b,nvidia/nemotron-3-super-120b-a12b,qwen/qwen3-next-80b-a3b-instruct,qwen/qwen3-coder-480b-a35b-instruct"
+      # Model list cleared 2026-05-22. Prior list (kept in commit history):
+      #   meta/llama-3.3-70b-instruct       — same as Groq, more expensive
+      #   openai/gpt-oss-120b               — same as Groq, more expensive
+      #   nvidia/nemotron-3-super-120b-a12b — 0/9 publish, quality-worst
+      #   qwen/qwen3-next-80b-a3b-instruct  — small sample, mediocre
+      #   qwen/qwen3-coder-480b-a35b        — $2/M, replaced by Cerebras
+      preferredModels: ""
       # Phase 20.11 §migration step 3 flipped (2026-05-20) — the legacy
       # hand-written NvidiaPool bean is now disabled; the generic-pool
       # entry under app.ai.providers.nvidia: takes over. Parity for both
@@ -374,7 +394,9 @@ app:
     # soak period for non-Groq tool calls completed on 2026-05-14 with
     # Phase 9 U3b's registry-backed routing.
     tool-calling:
-      providers: "groq,nvidia,openrouter,cerebras"
+      # 2026-05-22 paper-review — nvidia removed (provider disabled above).
+      # Restore "nvidia," if/when the legacy block flips enabled: true again.
+      providers: "groq,openrouter,cerebras"
     # Phase 20.5 — per-role override layer on top of the global primaryProviderOrder.
     # Empty section (default) reproduces today's behavior exactly. Each role key
     # is a free-form string that call sites pass to LlmCallContext.withRole(...);
@@ -491,7 +513,11 @@ app:
         base-url: https://openrouter.ai/api/v1
         api-key-env: OPENROUTER_API_KEY
         api-key: ${app.ai.openrouter.apiKey}
-        models: [openai/gpt-oss-120b:free, nvidia/nemotron-3-super-120b-a12b:free]
+        # 2026-05-22 paper-review — nvidia/nemotron-3-super-120b-a12b:free
+        # removed. The :free tier is a zero-cost mirror of nemotron-3 hosted
+        # on NVIDIA; same 0/9 publish-rate quality issue, no reason to keep
+        # it on the panel even at $0 cost.
+        models: [openai/gpt-oss-120b:free]
         supports-tools: true
         context-window: 32000
         max-output-tokens: 2000   # reasoning models — 2000 gives chain-of-thought headroom
@@ -556,12 +582,14 @@ app:
         base-url: https://integrate.api.nvidia.com/v1
         api-key-env: NVIDIA_API_KEY
         api-key: ${app.ai.nvidia.apiKey}
-        models:
-          - meta/llama-3.3-70b-instruct
-          - openai/gpt-oss-120b
-          - nvidia/nemotron-3-super-120b-a12b
-          - qwen/qwen3-next-80b-a3b-instruct
-          - qwen/qwen3-coder-480b-a35b-instruct
+        # 2026-05-22 paper-review — model list emptied. The legacy
+        # app.ai.nvidia.enabled flag above is now false, which is the
+        # authoritative kill-switch for the generic-pool entry too.
+        # Empty `models:` is a belt-and-braces defence so the pool can
+        # never select a model even if a code path skips the enabled
+        # check. To restore: copy the model list back from the commit
+        # that dropped it (and flip app.ai.nvidia.enabled: true).
+        models: []
         supports-tools: true
         context-window: 32000
         max-output-tokens: 2000   # matches legacy app.ai.nvidia.maxTokens
@@ -950,7 +978,12 @@ app:
     # opt-in providers; "*" allows every primary provider.
     review-panel:
       enabled: true
-      providers: "groq,nvidia,openrouter,cerebras"
+      # 2026-05-22 paper-review — nvidia dropped from the panel allowlist
+      # (provider disabled). The panel is now sourced from 3 providers:
+      # groq (workhorse), openrouter (zero-cost mirror), cerebras (qwen-3-235b
+      # on the unmetered dev tier). With ~6 active models across these 3
+      # providers, size=4 still gives cross-vendor representation.
+      providers: "groq,openrouter,cerebras"
       size: 4
     # Phase 12 D4 — when on, panels that return n ∈ {2, 3} of the configured
     # size demote the paper from PUBLISHED → NEEDS_REVISION (the paper still
