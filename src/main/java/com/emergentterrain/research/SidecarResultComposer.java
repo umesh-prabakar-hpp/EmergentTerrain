@@ -89,6 +89,32 @@ final class SidecarResultComposer {
                     d.path("singleCount").asInt(),
                     d.path("primaryValue").asDouble(),  // == contrast
                     d.path("avg").asDouble());
+            case "MATHEMATICS:3" -> MathPhysicsEngine.composeAliquotSequencesOuter(
+                    MathPhysicsEngine.composeAliquotSequencesInner(
+                            d.path("windowStart").asInt(),
+                            d.path("windowEnd").asInt(),
+                            d.path("terminate").asInt(),
+                            d.path("perfect").asInt(),
+                            d.path("cycle").asInt(),
+                            d.path("escape").asInt(),
+                            d.path("terminateFrac").asDouble(),
+                            d.path("anomalyFrac").asDouble(),
+                            d.path("count").asInt()),
+                    d.path("firstAnomaly").asDouble(),
+                    d.path("lastAnomaly").asDouble(),
+                    d.path("sampled").asInt());
+            case "MATHEMATICS:4" -> MathPhysicsEngine.composeHappyNumbersOuter(
+                    MathPhysicsEngine.composeHappyNumbersInner(
+                            d.path("windowStart").asInt(),
+                            d.path("windowEnd").asInt(),
+                            d.path("happyCount").asInt(),
+                            d.path("count").asInt(),
+                            d.path("avgSteps").asDouble(),   // == Welford happyMean
+                            d.path("happyM2").asDouble(),     // Welford M2 (for fmtMean)
+                            d.path("density").asDouble(),
+                            d.path("deviation").asDouble()),
+                    d.path("maxDeviation").asDouble(),
+                    d.path("sampled").asInt());
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

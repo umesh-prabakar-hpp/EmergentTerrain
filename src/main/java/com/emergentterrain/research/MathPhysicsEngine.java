@@ -953,17 +953,7 @@ public class MathPhysicsEngine {
             if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
         }
         if (best == null) best = aliquotSequencesAt(seedStart, count);
-        boolean predominantlyTerminates = best.secondaryValue() >= 0.5;
-        boolean trendIncreases = !Double.isNaN(firstAnomaly) && lastAnomaly >= firstAnomaly + 0.05;
-        ClaimStatus status = !predominantlyTerminates ? ClaimStatus.REFUTED
-                : trendIncreases ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
-        String assessment = "Predominant local termination is %s; anomaly fraction across %d searched windows changed from %.3f to %.3f, so the range-start trend claim is %s."
-                .formatted(predominantlyTerminates ? "observed" : "not observed",
-                        sampled, firstAnomaly, lastAnomaly,
-                        trendIncreases ? "supported by the sampled windows" : "not established");
-        String findings = "%s Search trend: anomaly fraction first_window=%.3f, last_window=%.3f across %d windows."
-                .formatted(best.findings(), firstAnomaly, lastAnomaly, sampled);
-        return best.withFindingsAndClaim(findings, status, assessment);
+        return composeAliquotSequencesOuter(best, firstAnomaly, lastAnomaly, sampled);
     }
 
     // Aliquot sequences can grow without bound — cap x to avoid O(√x) factoring of huge numbers.
@@ -994,6 +984,19 @@ public class MathPhysicsEngine {
         double terminateFrac = (double) terminate / count;
         double anomalyFrac   = (double) (cycle + escape) / count;
         int end = start + count;
+        return composeAliquotSequencesInner(start, end, terminate, perfect, cycle, escape,
+                terminateFrac, anomalyFrac, count);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:3 (aliquot),
+     * inner-window half. The outer search's trend overlay is applied by
+     * {@link #composeAliquotSequencesOuter}; splitting them keeps both the
+     * in-process path and the detail path single-sourced.
+     */
+    static ResearchResult composeAliquotSequencesInner(int start, int end, int terminate,
+            int perfect, int cycle, int escape, double terminateFrac,
+            double anomalyFrac, int count) {
         return new ResearchResult(
                 "Aliquot sequences [%d,%d): terminate=%d (%s), perfect=%d, cycle=%d, escape=%d. Anomaly fraction %s; range-start trend requires the multi-window validator."
                         .formatted(start, end, terminate, fmtProp(terminateFrac, count),
@@ -1001,6 +1004,26 @@ public class MathPhysicsEngine {
                 anomalyFrac, terminateFrac, cycle)
                 .withHypothesis("Aliquot sequences in [%d, %d) will predominantly terminate at 1; searched windows will test whether cycle-or-escape anomaly fractions increase with larger starts."
                         .formatted(start, end));
+    }
+
+    /**
+     * Phase 28 §28.6b — outer trend overlay for MATHEMATICS:3 (aliquot).
+     * Recomputes the predominant-termination / trend bands from the same
+     * inputs the in-process search uses, then overwrites findings + claim.
+     */
+    static ResearchResult composeAliquotSequencesOuter(ResearchResult best,
+            double firstAnomaly, double lastAnomaly, int sampled) {
+        boolean predominantlyTerminates = best.secondaryValue() >= 0.5;
+        boolean trendIncreases = !Double.isNaN(firstAnomaly) && lastAnomaly >= firstAnomaly + 0.05;
+        ClaimStatus status = !predominantlyTerminates ? ClaimStatus.REFUTED
+                : trendIncreases ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
+        String assessment = "Predominant local termination is %s; anomaly fraction across %d searched windows changed from %.3f to %.3f, so the range-start trend claim is %s."
+                .formatted(predominantlyTerminates ? "observed" : "not observed",
+                        sampled, firstAnomaly, lastAnomaly,
+                        trendIncreases ? "supported by the sampled windows" : "not established");
+        String findings = "%s Search trend: anomaly fraction first_window=%.3f, last_window=%.3f across %d windows."
+                .formatted(best.findings(), firstAnomaly, lastAnomaly, sampled);
+        return best.withFindingsAndClaim(findings, status, assessment);
     }
 
     // Outer search: try candidateBreadth windows spaced by stepSize*200.
@@ -1018,16 +1041,7 @@ public class MathPhysicsEngine {
             if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
         }
         if (best == null) best = happyNumbersAt(seedStart, count);
-        ClaimStatus status = maxDeviation <= 0.03 ? ClaimStatus.SUPPORTED
-                : maxDeviation <= 0.06 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
-        String assessment = "Across %d searched windows, the largest absolute density deviation from 14.3%% was %.4f; %s."
-                .formatted(sampled, maxDeviation,
-                        status == ClaimStatus.SUPPORTED ? "all sampled windows stayed close to the conjectured density"
-                                : status == ClaimStatus.PARTIAL ? "the global claim is only partially supported"
-                                : "the searched windows contradict the regardless-of-window claim");
-        String findings = "%s Multi-window validation: max_abs_deviation=%.4f across %d windows."
-                .formatted(best.findings(), maxDeviation, sampled);
-        return best.withFindingsAndClaim(findings, status, assessment);
+        return composeHappyNumbersOuter(best, maxDeviation, sampled);
     }
 
     private static ResearchResult happyNumbersAt(int start, int count) {
@@ -1050,9 +1064,21 @@ public class MathPhysicsEngine {
             }
         }
         double density  = (double) happy / count;
-        double avgSteps = happy > 0 ? happyMean : 0;
         double deviation = Math.abs(density - 0.1430);
         int end = start + count;
+        return composeHappyNumbersInner(start, end, happy, count, happyMean, happyM2,
+                density, deviation);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:4 (happy),
+     * inner-window half. {@code happyM2} is the Welford M2 of steps-to-1 over
+     * the happy numbers only (emitted by the sidecar for {@code fmtMean}); the
+     * outer multi-window overlay is applied by {@link #composeHappyNumbersOuter}.
+     */
+    static ResearchResult composeHappyNumbersInner(int start, int end, int happy,
+            int count, double happyMean, double happyM2, double density, double deviation) {
+        double avgSteps = happy > 0 ? happyMean : 0;
         return new ResearchResult(
                 "Happy numbers [%d,%d): happy=%d/%d, density=%s (theoretical≈0.143, deviation=%+.3f), avg_steps_to_1=%s. Local density is compared with the conjectured asymptotic."
                         .formatted(start, end, happy, count, fmtProp(density, count), density - 0.1430,
@@ -1060,6 +1086,25 @@ public class MathPhysicsEngine {
                 deviation, avgSteps, density)
                 .withHypothesis("Happy number density in [%d, %d) will remain close to the conjectured asymptotic 14.3%%; multi-window validation tests the broader regardless-of-window claim."
                         .formatted(start, end));
+    }
+
+    /**
+     * Phase 28 §28.6b — outer multi-window overlay for MATHEMATICS:4 (happy).
+     * The claim bands key off {@code maxDeviation} (the worst window), not the
+     * winning window's deviation — recomputed here from the same input.
+     */
+    static ResearchResult composeHappyNumbersOuter(ResearchResult best,
+            double maxDeviation, int sampled) {
+        ClaimStatus status = maxDeviation <= 0.03 ? ClaimStatus.SUPPORTED
+                : maxDeviation <= 0.06 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
+        String assessment = "Across %d searched windows, the largest absolute density deviation from 14.3%% was %.4f; %s."
+                .formatted(sampled, maxDeviation,
+                        status == ClaimStatus.SUPPORTED ? "all sampled windows stayed close to the conjectured density"
+                                : status == ClaimStatus.PARTIAL ? "the global claim is only partially supported"
+                                : "the searched windows contradict the regardless-of-window claim");
+        String findings = "%s Multi-window validation: max_abs_deviation=%.4f across %d windows."
+                .formatted(best.findings(), maxDeviation, sampled);
+        return best.withFindingsAndClaim(findings, status, assessment);
     }
 
     // ---- Phase 7 F3.4: new mathematics topics ----

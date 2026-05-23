@@ -75,6 +75,59 @@ class SidecarResultComposerTest {
     }
 
     @Test
+    void mathematics3_aliquot_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("windowStart", 2);
+        d.put("windowEnd", 42);
+        d.put("terminate", 35);
+        d.put("perfect", 1);
+        d.put("cycle", 2);
+        d.put("escape", 2);
+        d.put("terminateFrac", 35.0 / 40.0);
+        d.put("anomalyFrac", 4.0 / 40.0);
+        d.put("count", 40);
+        d.put("firstAnomaly", 0.05);
+        d.put("lastAnomaly", 0.12);   // ≥ first + 0.05 → trend increases → SUPPORTED
+        d.put("sampled", 20);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeAliquotSequencesOuter(
+                        MathPhysicsEngine.composeAliquotSequencesInner(
+                                2, 42, 35, 1, 2, 2, 35.0 / 40.0, 4.0 / 40.0, 40),
+                        0.05, 0.12, 20)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 3, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics4_happy_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("windowStart", 10);
+        d.put("windowEnd", 160);
+        d.put("happyCount", 22);
+        d.put("count", 150);
+        d.put("avgSteps", 5.3);       // == Welford happyMean
+        d.put("happyM2", 42.0);
+        d.put("density", 22.0 / 150.0);
+        d.put("deviation", Math.abs(22.0 / 150.0 - 0.1430));
+        d.put("maxDeviation", 0.025); // ≤ 0.03 → SUPPORTED
+        d.put("sampled", 18);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHappyNumbersOuter(
+                        MathPhysicsEngine.composeHappyNumbersInner(
+                                10, 160, 22, 150, 5.3, 42.0,
+                                22.0 / 150.0, Math.abs(22.0 / 150.0 - 0.1430)),
+                        0.025, 18)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 4, d))
+                .contains(expected);
+    }
+
+    @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
         // throw or return a wrong result. (PHYSICS / MATERIALS stay uncovered
