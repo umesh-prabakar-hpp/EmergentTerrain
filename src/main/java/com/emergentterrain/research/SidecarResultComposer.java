@@ -169,6 +169,22 @@ final class SidecarResultComposer {
                     d.path("breakdownAngle").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.pendulumSweepSegment(
                             s.path("deg").asDouble(), s.path("err").asDouble())));
+            case "PHYSICS:2" -> MathPhysicsEngine.composeVanDerWaalsDeviationAt(
+                    d.path("T").asDouble(),
+                    d.path("tolerance").asDouble(),
+                    d.path("maxDev").asDouble(),
+                    d.path("crossoverP").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.vdwSweepSegment(
+                            s.path("p").asInt(), s.path("dev").asDouble())));
+            case "PHYSICS:6" -> MathPhysicsEngine.composeSchrodingerInfiniteWell(
+                    d.path("seedLnm").asDouble(),
+                    d.path("T").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("bestL").asDouble(),
+                    d.path("bestE1").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.schrodingerSweepSegment(
+                            s.path("Lnm").asDouble(), s.path("E1").asDouble(), s.path("ratio").asDouble())));
             case "PHYSICS:3" -> MathPhysicsEngine.composeDiffractionSurveyAt(
                     d.path("dMicrons").asDouble(),
                     d.path("lambdaNm").asDouble(),

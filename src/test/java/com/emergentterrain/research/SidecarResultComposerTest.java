@@ -395,6 +395,50 @@ class SidecarResultComposerTest {
     }
 
     @Test
+    void physics2_vanDerWaals_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("p", 1).put("dev", 0.001);
+        sweep.addObject().put("p", 50).put("dev", 0.08);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("T", 300.0);
+        d.put("tolerance", 0.01);
+        d.put("maxDev", 0.12);
+        d.put("crossoverP", 10.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.vdwSweepSegment(1, 0.001)
+                + MathPhysicsEngine.vdwSweepSegment(50, 0.08)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeVanDerWaalsDeviationAt(300.0, 0.01, 0.12, 10.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 2, d)).contains(expected);
+    }
+
+    @Test
+    void physics6_schrodinger_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Lnm", 1.0).put("E1", 6.0e-20).put("ratio", 14.5);
+        sweep.addObject().put("Lnm", 0.9).put("E1", 7.4e-20).put("ratio", 17.9);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedLnm", 1.0);
+        d.put("T", 300.0);
+        d.put("samples", 20);
+        d.put("bestRatio", 18.0);
+        d.put("bestL", 0.9);
+        d.put("bestE1", 7.4e-20);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.schrodingerSweepSegment(1.0, 6.0e-20, 14.5)
+                + MathPhysicsEngine.schrodingerSweepSegment(0.9, 7.4e-20, 17.9)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeSchrodingerInfiniteWell(1.0, 300.0, 20, 18.0, 0.9, 7.4e-20, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 6));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 6, d)).contains(expected);
+    }
+
+    @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
         // throw or return a wrong result. (MATERIALS / INTERDISCIPLINARY stay

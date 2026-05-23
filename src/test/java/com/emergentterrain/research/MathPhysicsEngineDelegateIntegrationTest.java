@@ -165,26 +165,29 @@ class MathPhysicsEngineDelegateIntegrationTest {
      * claimAssessment, hypothesis, equation prose plus the four scalars and
      * claimStatus — proving the sidecar emits each topic's {@code detail} keys
      * with byte-equal values (including Welford M2 and the sample-sweep arrays)
-     * and that the JVM composes the same prose from them. All of MATHEMATICS
-     * (topics 0–9) is covered; add other domains' calls as their composers land.
+     * and that the JVM composes the same prose from them. MATHEMATICS and
+     * PHYSICS (topics 0–9 each) are covered; add other domains' calls as their
+     * composers land.
      */
     @Test
-    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allMathematics() {
+    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allMathematicsAndPhysics() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         JuliaMathClient client = liveClient();
         MathPhysicsEngineDelegate delegate =
                 new MathPhysicsEngineDelegate(/*shadow*/ false, /*primary*/ true, client);
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        for (int topic = 0; topic <= 9; topic++) {
-            MathPhysicsEngine.ResearchResult served =
-                    delegate.compute("MATHEMATICS", topic, 3, 0.0, sp);
-            MathPhysicsEngine.ResearchResult jvm =
-                    MathPhysicsEngine.compute("MATHEMATICS", topic, 3, 0.0, sp);
-            // Full-record equality — the §28.6b byte-exact acceptance bar.
-            assertThat(served)
-                    .as("MATHEMATICS:%d prose+scalars byte-parity", topic)
-                    .isEqualTo(jvm);
+        for (String domain : new String[]{"MATHEMATICS", "PHYSICS"}) {
+            for (int topic = 0; topic <= 9; topic++) {
+                MathPhysicsEngine.ResearchResult served =
+                        delegate.compute(domain, topic, 3, 0.0, sp);
+                MathPhysicsEngine.ResearchResult jvm =
+                        MathPhysicsEngine.compute(domain, topic, 3, 0.0, sp);
+                // Full-record equality — the §28.6b byte-exact acceptance bar.
+                assertThat(served)
+                        .as("%s:%d prose+scalars byte-parity", domain, topic)
+                        .isEqualTo(jvm);
+            }
         }
         // Zero divergence recorded on the scalar parity check too.
         assertThat(delegate.stats().parityMismatches()).isZero();

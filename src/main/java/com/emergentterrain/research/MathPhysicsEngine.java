@@ -1584,8 +1584,23 @@ public class MathPhysicsEngine {
             if (dev > maxDev) maxDev = dev;
             if (dev > tolerance && crossoverP < 0) crossoverP = p;
             if (p == 1 || p == 5 || p == 10 || p == 20 || p == 50 || p == 100)
-                sb.append("%datm→%.2f%% ".formatted(p, dev * 100));
+                sb.append(vdwSweepSegment(p, dev));
         }
+        return composeVanDerWaalsDeviationAt(T, tolerance, maxDev, crossoverP, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Van der Waals deviation sweep segment (incl. trailing space). */
+    static String vdwSweepSegment(int p, double dev) {
+        return "%datm→%.2f%% ".formatted(p, dev * 100);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for PHYSICS:2 (Van der Waals).
+     * {@code crossoverP} is the raw first-crossover pressure (−1 if none); the
+     * "observed" flag and the 101.0 sentinel secondary are derived here.
+     */
+    static ResearchResult composeVanDerWaalsDeviationAt(double T, double tolerance,
+            double maxDev, double crossoverP, String sweep) {
         boolean crossoverObserved = crossoverP > 0;
         String crossoverText = crossoverObserved
                 ? "First crossover >%.0f%% occurs at P=%.0f atm."
@@ -1596,7 +1611,7 @@ public class MathPhysicsEngine {
                 .formatted(T, tolerance * 100);
         return new ResearchResult(
                 "Van der Waals CO₂ (T=%.0f K): deviation from ideal: %s. %s Max deviation in [1,100] atm: %.2f%%."
-                        .formatted(T, sb.toString().trim(), crossoverText, maxDev * 100),
+                        .formatted(T, sweep, crossoverText, maxDev * 100),
                 maxDev * 100, crossoverObserved ? crossoverP : 101.0, T)
                 .withHypothesis(hypothesis);
     }
@@ -1764,8 +1779,20 @@ public class MathPhysicsEngine {
             double ratio = E1 / (kB * T);
             samples++;
             if (ratio > bestRatio) { bestRatio = ratio; bestL = Lnm; bestE1 = E1; }
-            if (i < 4) sb.append("L=%.2fnm→E₁=%.2eJ(ratio=%.2f) ".formatted(Lnm, E1, ratio));
+            if (i < 4) sb.append(schrodingerSweepSegment(Lnm, E1, ratio));
         }
+        return composeSchrodingerInfiniteWell(seedLnm, T, samples, bestRatio, bestL, bestE1,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one infinite-well ground-state sweep segment (incl. trailing space). */
+    static String schrodingerSweepSegment(double Lnm, double E1, double ratio) {
+        return "L=%.2fnm→E₁=%.2eJ(ratio=%.2f) ".formatted(Lnm, E1, ratio);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:6 (Schrödinger infinite well). */
+    static ResearchResult composeSchrodingerInfiniteWell(double seedLnm, double T, int samples,
+            double bestRatio, double bestL, double bestE1, String sweep) {
         boolean confinementDominant = bestRatio > 1.0;
         ClaimStatus status = bestRatio > 5.0 ? ClaimStatus.SUPPORTED
                 : confinementDominant ? ClaimStatus.PARTIAL : ClaimStatus.OBSERVATIONAL;
@@ -1776,7 +1803,7 @@ public class MathPhysicsEngine {
                                         : "thermal energy still dominates the well's ground state");
         return new ResearchResult(
                 "Infinite-well ground-state survey (L=%.2f–%.2f nm, T=%.0f K, %d samples): best ratio %.2f at L=%.2f nm, E₁=%.2e J. Sample sweep: %s"
-                        .formatted(seedLnm, bestL, T, samples, bestRatio, bestL, bestE1, sb.toString().trim()),
+                        .formatted(seedLnm, bestL, T, samples, bestRatio, bestL, bestE1, sweep),
                 bestRatio, bestE1, bestL, bestRatio, status, assessment)
                 .withHypothesis(("For an electron in a 1-D infinite well swept around L=%.2f nm at T=%.0f K, "
                         + "the ground-state energy E₁=h²/(8mL²) will exceed thermal energy kT for "
