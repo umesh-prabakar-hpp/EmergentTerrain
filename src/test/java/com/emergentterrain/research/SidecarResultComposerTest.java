@@ -1043,12 +1043,124 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 4, d)).contains(expected);
     }
 
+    // ── ARCHITECTURE_TERRESTRIAL topics (0–4) ────────────────────────────
+
+    @Test
+    void archTerr0_beamDeflection_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("L", 2.0).put("g", 9.81).put("ratio", 0.0001);
+        sweep.addObject().put("L", 4.0).put("g", 12.0).put("ratio", 0.0008);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("gSeed", 9.81);
+        d.put("samples", 20);
+        d.put("bestRatio", 0.0008);
+        d.put("bestL", 4.0);
+        d.put("bestG", 12.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.beamDeflectionSweepSegment(2.0, 9.81, 0.0001)
+                + MathPhysicsEngine.beamDeflectionSweepSegment(4.0, 12.0, 0.0008)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBeamDeflectionSelfWeight(9.81, 20, 0.0008, 4.0, 12.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_TERRESTRIAL", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 0, d)).contains(expected);
+    }
+
+    @Test
+    void archTerr1_windLoad_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("rhoAtm", 1.2).put("v", 5.0).put("q", 15.0);
+        sweep.addObject().put("rhoAtm", 1.5).put("v", 20.0).put("q", 300.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoAtmSeed", 1.2);
+        d.put("samples", 18);
+        d.put("bestPressure", 300.0);
+        d.put("bestV", 20.0);
+        d.put("bestRho", 1.5);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.windLoadSweepSegment(1.2, 5.0, 15.0)
+                + MathPhysicsEngine.windLoadSweepSegment(1.5, 20.0, 300.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeWindLoadPressure(1.2, 18, 300.0, 20.0, 1.5, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_TERRESTRIAL", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 1, d)).contains(expected);
+    }
+
+    @Test
+    void archTerr2_bearingCapacity_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("g", 9.81).put("B", 1.0).put("qKPa", 480.0);
+        sweep.addObject().put("g", 11.0).put("B", 2.0).put("qKPa", 560.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("gSeed", 9.81);
+        d.put("samples", 20);
+        d.put("maxQ", 560.0);
+        d.put("bestB", 2.0);
+        d.put("bestG", 11.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.bearingCapacitySweepSegment(9.81, 1.0, 480.0)
+                + MathPhysicsEngine.bearingCapacitySweepSegment(11.0, 2.0, 560.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBearingCapacityTerzaghi(9.81, 20, 560.0, 2.0, 11.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_TERRESTRIAL", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 2, d)).contains(expected);
+    }
+
+    @Test
+    void archTerr3_thermalMass_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("tWall", 0.2).put("rhoAtm", 1.2).put("tauHours", 13.0);
+        sweep.addObject().put("tWall", 0.5).put("rhoAtm", 0.5).put("tauHours", 46.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoAtmSeed", 1.2);
+        d.put("samples", 18);
+        d.put("maxTau", 46.0);
+        d.put("bestThickness", 0.5);
+        d.put("bestRho", 0.5);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.thermalMassSweepSegment(0.2, 1.2, 13.0)
+                + MathPhysicsEngine.thermalMassSweepSegment(0.5, 0.5, 46.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeThermalMassTimeLag(1.2, 18, 46.0, 0.5, 0.5, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_TERRESTRIAL", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 3, d)).contains(expected);
+    }
+
+    @Test
+    void archTerr4_daylightFactor_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("windowToFloor", 0.1).put("skyVisibility", 0.3).put("DF", 2.1);
+        sweep.addObject().put("windowToFloor", 0.2).put("skyVisibility", 0.5).put("DF", 7.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 30);
+        d.put("samples", 20);
+        d.put("maxDF", 7.0);
+        d.put("bestRatio", 0.2);
+        d.put("bestSky", 0.5);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.daylightFactorSweepSegment(0.1, 0.3, 2.1)
+                + MathPhysicsEngine.daylightFactorSweepSegment(0.2, 0.5, 7.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeDaylightFactor(30, 20, 7.0, 0.2, 0.5, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_TERRESTRIAL", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (The ARCHITECTURE domains stay
-        // uncovered through the MATHEMATICS..CHEMISTRY ports.)
-        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 0, mathTopic0Detail()))
+        // throw or return a wrong result. (ARCHITECTURE_LIQUID / _SPACE stay
+        // uncovered through the ARCHITECTURE_TERRESTRIAL port.)
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 0, mathTopic0Detail()))
                 .isEmpty();
         assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, mathTopic0Detail()))
                 .isEmpty();

@@ -455,6 +455,46 @@ final class SidecarResultComposer {
                     d.path("bestZ").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.compressibilityZSweepSegment(
                             s.path("Tr").asDouble(), s.path("Pr").asDouble(), s.path("Z").asDouble())));
+            case "ARCHITECTURE_TERRESTRIAL:0" -> MathPhysicsEngine.composeBeamDeflectionSelfWeight(
+                    d.path("gSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("bestL").asDouble(),
+                    d.path("bestG").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.beamDeflectionSweepSegment(
+                            s.path("L").asDouble(), s.path("g").asDouble(), s.path("ratio").asDouble())));
+            case "ARCHITECTURE_TERRESTRIAL:1" -> MathPhysicsEngine.composeWindLoadPressure(
+                    d.path("rhoAtmSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestPressure").asDouble(),
+                    d.path("bestV").asDouble(),
+                    d.path("bestRho").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.windLoadSweepSegment(
+                            s.path("rhoAtm").asDouble(), s.path("v").asDouble(), s.path("q").asDouble())));
+            case "ARCHITECTURE_TERRESTRIAL:2" -> MathPhysicsEngine.composeBearingCapacityTerzaghi(
+                    d.path("gSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxQ").asDouble(),
+                    d.path("bestB").asDouble(),
+                    d.path("bestG").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.bearingCapacitySweepSegment(
+                            s.path("g").asDouble(), s.path("B").asDouble(), s.path("qKPa").asDouble())));
+            case "ARCHITECTURE_TERRESTRIAL:3" -> MathPhysicsEngine.composeThermalMassTimeLag(
+                    d.path("rhoAtmSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxTau").asDouble(),
+                    d.path("bestThickness").asDouble(),
+                    d.path("bestRho").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.thermalMassSweepSegment(
+                            s.path("tWall").asDouble(), s.path("rhoAtm").asDouble(), s.path("tauHours").asDouble())));
+            case "ARCHITECTURE_TERRESTRIAL:4" -> MathPhysicsEngine.composeDaylightFactor(
+                    d.path("param1").asInt(),
+                    d.path("samples").asInt(),
+                    d.path("maxDF").asDouble(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("bestSky").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.daylightFactorSweepSegment(
+                            s.path("windowToFloor").asDouble(), s.path("skyVisibility").asDouble(), s.path("DF").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

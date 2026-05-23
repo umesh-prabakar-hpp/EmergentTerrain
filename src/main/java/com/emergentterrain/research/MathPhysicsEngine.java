@@ -3647,8 +3647,26 @@ public class MathPhysicsEngine {
             double ratio = delta / L;
             samples++;
             if (ratio > bestRatio) { bestRatio = ratio; bestL = L; bestG = g; }
-            if (i < 4) sb.append("L=%.1fm,g=%.2fm/s²→δ/L=%.4f ".formatted(L, g, ratio));
+            if (i < 4) sb.append(beamDeflectionSweepSegment(L, g, ratio));
         }
+        return composeBeamDeflectionSelfWeight(gSeed, samples, bestRatio, bestL, bestG,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one cantilever self-weight sweep segment (incl. trailing space). */
+    static String beamDeflectionSweepSegment(double L, double g, double ratio) {
+        return "L=%.1fm,g=%.2fm/s²→δ/L=%.4f ".formatted(L, g, ratio);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_TERRESTRIAL:0 (beam deflection). */
+    static ResearchResult composeBeamDeflectionSelfWeight(double gSeed, int samples,
+            double bestRatio, double bestL, double bestG, String sweep) {
+        double rho = 7850.0;
+        double E = 200e9;
+        double width = 0.2;
+        double height = 0.4;
+        double I = (width * Math.pow(height, 3)) / 12.0;
+        double A = width * height;
         ClaimStatus status = bestRatio < 0.005 ? ClaimStatus.SUPPORTED
                 : bestRatio < 0.01 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Self-weight beam deflection: max δ/L=%.4f at L=%.1f m under g=%.2f m/s². %s")
@@ -3658,7 +3676,7 @@ public class MathPhysicsEngine {
                                         : "deflection exceeds L/100 — beam too long for this gravity regime");
         return new ResearchResult(
                 "Cantilever self-weight (ρ=%.0f kg/m³, E=%.0e Pa, A=%.3f m², I=%.3e m⁴, %d samples): max δ/L=%.4f at L=%.1f m, g=%.2f m/s². Sample: %s"
-                        .formatted(rho, E, A, I, samples, bestRatio, bestL, bestG, sb.toString().trim()),
+                        .formatted(rho, E, A, I, samples, bestRatio, bestL, bestG, sweep),
                 bestRatio, bestL, bestG, bestRatio, status, assessment)
                 .withHypothesis(("For a steel cantilever swept over lengths starting at 2 m on a planetary surface "
                         + "with g≈%.2f m/s², the self-weight deflection δ/L = (ρ·g·A·L³)/(8·E·I) stays below the "
@@ -3680,8 +3698,20 @@ public class MathPhysicsEngine {
             double q = 0.5 * rhoAtm * v * v;
             samples++;
             if (q > bestPressure) { bestPressure = q; bestV = v; bestRho = rhoAtm; }
-            if (i < 4) sb.append("ρ_atm=%.2fkg/m³,v=%.1fm/s→q=%.1fPa ".formatted(rhoAtm, v, q));
+            if (i < 4) sb.append(windLoadSweepSegment(rhoAtm, v, q));
         }
+        return composeWindLoadPressure(rhoAtmSeed, samples, bestPressure, bestV, bestRho,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one wind-load sweep segment (incl. trailing space). */
+    static String windLoadSweepSegment(double rhoAtm, double v, double q) {
+        return "ρ_atm=%.2fkg/m³,v=%.1fm/s→q=%.1fPa ".formatted(rhoAtm, v, q);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_TERRESTRIAL:1 (wind load). */
+    static ResearchResult composeWindLoadPressure(double rhoAtmSeed, int samples,
+            double bestPressure, double bestV, double bestRho, String sweep) {
         // Spec bound: q ≤ 10 kPa even at hurricane wind on Venus-like atmosphere is the
         // limit of conventional facade design.
         boolean physical = bestPressure <= 10_000.0;
@@ -3694,7 +3724,7 @@ public class MathPhysicsEngine {
                                         : "low-pressure regime — minor facade design driver");
         return new ResearchResult(
                 "Wind load (%d samples): max q=%.1f Pa at v=%.1f m/s, ρ_atm=%.2f kg/m³. Sample: %s"
-                        .formatted(samples, bestPressure, bestV, bestRho, sb.toString().trim()),
+                        .formatted(samples, bestPressure, bestV, bestRho, sweep),
                 bestPressure, bestV, bestRho, bestPressure, status, assessment)
                 .withHypothesis(("For a vertical facade exposed to local atmospheric density ρ_atm≈%.2f kg/m³ "
                         + "with wind velocities swept from 5 m/s upward, the design pressure q=½·ρ_atm·v² scales "
@@ -3721,8 +3751,22 @@ public class MathPhysicsEngine {
             double q_kPa = q_u / 1000.0;
             samples++;
             if (q_kPa > maxQ) { maxQ = q_kPa; bestB = B; bestG = g; }
-            if (i < 4) sb.append("g=%.2f,B=%.1fm→q_u=%.0fkPa ".formatted(g, B, q_kPa));
+            if (i < 4) sb.append(bearingCapacitySweepSegment(g, B, q_kPa));
         }
+        return composeBearingCapacityTerzaghi(gSeed, samples, maxQ, bestB, bestG,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Terzaghi bearing-capacity sweep segment (incl. trailing space). */
+    static String bearingCapacitySweepSegment(double g, double B, double qKPa) {
+        return "g=%.2f,B=%.1fm→q_u=%.0fkPa ".formatted(g, B, qKPa);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_TERRESTRIAL:2 (Terzaghi bearing). */
+    static ResearchResult composeBearingCapacityTerzaghi(double gSeed, int samples,
+            double maxQ, double bestB, double bestG, String sweep) {
+        double cohesion = 20_000.0;  // Pa, cohesive soil
+        double rhoSoil = 1900.0;      // kg/m³
         ClaimStatus status = maxQ < 2000 ? ClaimStatus.SUPPORTED
                 : maxQ < 5000 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Terzaghi bearing: max q_u=%.0f kPa at B=%.1f m, g=%.2f m/s². %s")
@@ -3732,7 +3776,7 @@ public class MathPhysicsEngine {
                                         : "capacity > 5 MPa — bedrock or unusual soil");
         return new ResearchResult(
                 "Bearing capacity (c=%.0f Pa, ρ_soil=%.0f kg/m³, %d samples): max q_u=%.0f kPa at B=%.1f m, g=%.2f m/s². Sample: %s"
-                        .formatted(cohesion, rhoSoil, samples, maxQ, bestB, bestG, sb.toString().trim()),
+                        .formatted(cohesion, rhoSoil, samples, maxQ, bestB, bestG, sweep),
                 maxQ, bestB, bestG, maxQ, status, assessment)
                 .withHypothesis(("For a strip foundation in cohesive soil (c=%.0f Pa, ρ_soil=%.0f kg/m³) on a "
                         + "planetary surface with g≈%.2f m/s², the Terzaghi bearing capacity q_u "
@@ -3762,8 +3806,22 @@ public class MathPhysicsEngine {
             double tauHours = tau / 3600.0;
             samples++;
             if (tauHours > maxTau) { maxTau = tauHours; bestThickness = t_wall; bestRho = rhoAtm; }
-            if (i < 4) sb.append("t=%.2fm,ρ_atm=%.2f→τ=%.1fh ".formatted(t_wall, rhoAtm, tauHours));
+            if (i < 4) sb.append(thermalMassSweepSegment(t_wall, rhoAtm, tauHours));
         }
+        return composeThermalMassTimeLag(rhoAtmSeed, samples, maxTau, bestThickness, bestRho,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one thermal-mass time-lag sweep segment (incl. trailing space). */
+    static String thermalMassSweepSegment(double tWall, double rhoAtm, double tauHours) {
+        return "t=%.2fm,ρ_atm=%.2f→τ=%.1fh ".formatted(tWall, rhoAtm, tauHours);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_TERRESTRIAL:3 (thermal mass). */
+    static ResearchResult composeThermalMassTimeLag(double rhoAtmSeed, int samples,
+            double maxTau, double bestThickness, double bestRho, String sweep) {
+        double rho = 2400.0;       // kg/m³, concrete
+        double cp = 880.0;         // J/(kg·K), concrete
         ClaimStatus status = maxTau < 24 ? ClaimStatus.SUPPORTED
                 : maxTau < 48 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Thermal mass τ: max τ=%.1f h at t=%.2f m, ρ_atm=%.2f kg/m³. %s")
@@ -3773,7 +3831,7 @@ public class MathPhysicsEngine {
                                         : "unrealistic τ > 48 h — recheck h-coefficient model");
         return new ResearchResult(
                 "Thermal mass (ρ=%.0f kg/m³, c_p=%.0f J/kg·K, %d samples): max τ=%.1f h at t=%.2f m, ρ_atm=%.2f kg/m³. Sample: %s"
-                        .formatted(rho, cp, samples, maxTau, bestThickness, bestRho, sb.toString().trim()),
+                        .formatted(rho, cp, samples, maxTau, bestThickness, bestRho, sweep),
                 maxTau, bestThickness, bestRho, maxTau, status, assessment)
                 .withHypothesis(("For a concrete wall with thickness swept from 0.2 m exposed to atmospheric "
                         + "density ρ_atm≈%.2f kg/m³, the thermal time-lag τ=(ρ·c_p·V)/(h·A) scales as 1/√ρ_atm "
@@ -3796,8 +3854,21 @@ public class MathPhysicsEngine {
             double DF = windowToFloor * skyVisibility * tau * 100.0;
             samples++;
             if (DF > maxDF) { maxDF = DF; bestRatio = windowToFloor; bestSky = skyVisibility; }
-            if (i < 4) sb.append("WFR=%.2f,sky=%.2f→DF=%.2f%% ".formatted(windowToFloor, skyVisibility, DF));
+            if (i < 4) sb.append(daylightFactorSweepSegment(windowToFloor, skyVisibility, DF));
         }
+        return composeDaylightFactor(param1, samples, maxDF, bestRatio, bestSky,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one daylight-factor sweep segment (incl. trailing space). */
+    static String daylightFactorSweepSegment(double windowToFloor, double skyVisibility, double DF) {
+        return "WFR=%.2f,sky=%.2f→DF=%.2f%% ".formatted(windowToFloor, skyVisibility, DF);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_TERRESTRIAL:4 (daylight factor). */
+    static ResearchResult composeDaylightFactor(int param1, int samples, double maxDF,
+            double bestRatio, double bestSky, String sweep) {
+        double tau = 0.7;            // glazing transmittance
         ClaimStatus status = maxDF >= 2 && maxDF <= 20 ? ClaimStatus.SUPPORTED
                 : maxDF < 2 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Daylight factor: max DF=%.2f%% at WFR=%.2f, sky=%.2f. %s")
@@ -3807,7 +3878,7 @@ public class MathPhysicsEngine {
                                         : "DF > 20% — overheating risk dominant");
         return new ResearchResult(
                 "Daylight factor (transmittance=%.2f, %d samples): max DF=%.2f%% at WFR=%.2f, sky-vis=%.2f. Sample: %s"
-                        .formatted(tau, samples, maxDF, bestRatio, bestSky, sb.toString().trim()),
+                        .formatted(tau, samples, maxDF, bestRatio, bestSky, sweep),
                 maxDF, bestRatio, bestSky, maxDF, status, assessment)
                 .withHypothesis(("For window-to-floor ratios swept around %.2f with sky visibility ranging from "
                         + "0.3 to 1.0, the daylight factor DF=(E_internal/E_external)·100 lands in the standard "
