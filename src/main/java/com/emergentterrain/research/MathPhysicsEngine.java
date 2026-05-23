@@ -3078,8 +3078,21 @@ public class MathPhysicsEngine {
             double deviation = Math.abs(Nt - K) / K;
             samples++;
             if (deviation > bestDeviation) { bestDeviation = deviation; bestT = t; bestN = Nt; }
-            if (i < 4) sb.append("t=%.2f→N=%.1f(%.0f%%K) ".formatted(t, Nt, Nt / K * 100));
+            if (i < 4) sb.append(verhulstSweepSegment(t, Nt, K));
         }
+        return composeVerhulstLogistic(r, K, samples, bestDeviation, bestN, bestT,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Verhulst-logistic sweep segment (incl. trailing space). */
+    static String verhulstSweepSegment(double t, double Nt, double K) {
+        return "t=%.2f→N=%.1f(%.0f%%K) ".formatted(t, Nt, Nt / K * 100);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for BIOLOGY:0 (Verhulst logistic). */
+    static ResearchResult composeVerhulstLogistic(double r, double K, int samples,
+            double bestDeviation, double bestN, double bestT, String sweep) {
+        double N0 = K / 20.0;  // start at 5% of carrying capacity
         ClaimStatus status = bestDeviation < 0.99 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
         String assessment = ("Verhulst logistic: r=%.3f, K=%.1f, N₀=%.1f. Max distance from carrying capacity %.3f at t=%.2f (N=%.1f). %s")
                 .formatted(r, K, N0, bestDeviation, bestT, bestN,
@@ -3087,7 +3100,7 @@ public class MathPhysicsEngine {
                                 : "population still well below K — early growth phase");
         return new ResearchResult(
                 "Verhulst logistic (r=%.3f, K=%.1f, %d samples): max distance-from-K=%.3f at t=%.2f, N=%.1f. Sample sweep: %s"
-                        .formatted(r, K, samples, bestDeviation, bestT, bestN, sb.toString().trim()),
+                        .formatted(r, K, samples, bestDeviation, bestT, bestN, sweep),
                 bestDeviation, bestN, K, bestDeviation, status, assessment)
                 .withHypothesis(("For a population with intrinsic growth rate r=%.3f starting at N₀=%.1f in an "
                         + "environment with carrying capacity K=%.1f, the Verhulst dN/dt = r·N·(1−N/K) drives "
@@ -3122,8 +3135,22 @@ public class MathPhysicsEngine {
             double ratio = maxX / Math.max(0.001, minX);
             samples++;
             if (ratio > bestRatio) { bestRatio = ratio; bestAlpha = a; bestPeakX = maxX; }
-            if (i < 4) sb.append("α=%.3f→x_max/x_min=%.2f ".formatted(a, ratio));
+            if (i < 4) sb.append(lotkaSweepSegment(a, ratio));
         }
+        return composeLotkaVolterra(alpha, beta, samples, bestRatio, bestAlpha, bestPeakX,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Lotka-Volterra sweep segment (incl. trailing space). */
+    static String lotkaSweepSegment(double a, double ratio) {
+        return "α=%.3f→x_max/x_min=%.2f ".formatted(a, ratio);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for BIOLOGY:1 (Lotka-Volterra). γ/δ are fixed. */
+    static ResearchResult composeLotkaVolterra(double alpha, double beta, int samples,
+            double bestRatio, double bestAlpha, double bestPeakX, String sweep) {
+        double gamma = 0.3;
+        double delta = 0.01;
         // Cycle ratio >= 1.5 indicates stable oscillation; explosion >> 1e6 is unphysical.
         boolean physical = bestRatio < 1e6 && Double.isFinite(bestPeakX);
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
@@ -3135,7 +3162,7 @@ public class MathPhysicsEngine {
                                         : "weak oscillation — system tracks equilibrium");
         return new ResearchResult(
                 "Lotka-Volterra (β=%.4f, γ=%.2f, δ=%.3f, %d α-samples): max x_max/x_min=%.2f at α=%.3f. Sample: %s"
-                        .formatted(beta, gamma, delta, samples, bestRatio, bestAlpha, sb.toString().trim()),
+                        .formatted(beta, gamma, delta, samples, bestRatio, bestAlpha, sweep),
                 bestRatio, bestPeakX, bestAlpha, bestRatio, status, assessment)
                 .withHypothesis(("With predation β=%.4f, predator death γ=%.2f, predator gain δ=%.3f, and prey "
                         + "intrinsic growth swept around α=%.3f, the Lotka-Volterra ODEs sustain bounded "
@@ -3166,8 +3193,20 @@ public class MathPhysicsEngine {
             double err = Math.abs(KmEst - Km) / Km;
             samples++;
             if (err < bestRecoveryError) { bestRecoveryError = err; bestKmRecovered = KmEst; }
-            if (i < 4) sb.append("K_m_est=%.3f(err=%.3f) ".formatted(KmEst, err));
+            if (i < 4) sb.append(michaelisSweepSegment(KmEst, err));
         }
+        return composeMichaelisMenten(Km, Vmax, samples, bestRecoveryError, bestKmRecovered,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Michaelis-Menten K_m-recovery sweep segment (incl. trailing space). */
+    static String michaelisSweepSegment(double KmEst, double err) {
+        return "K_m_est=%.3f(err=%.3f) ".formatted(KmEst, err);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for BIOLOGY:2 (Michaelis-Menten). */
+    static ResearchResult composeMichaelisMenten(double Km, double Vmax, int samples,
+            double bestRecoveryError, double bestKmRecovered, String sweep) {
         ClaimStatus status = bestRecoveryError < 0.10 ? ClaimStatus.SUPPORTED
                 : bestRecoveryError < 0.30 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Michaelis-Menten: V_max=%.3f, true K_m=%.3f; best recovered K_m=%.3f (err=%.3f). %s")
@@ -3176,7 +3215,7 @@ public class MathPhysicsEngine {
                                 : "recovery error exceeds 10% — noise band or non-Michaelian behaviour");
         return new ResearchResult(
                 "Michaelis-Menten (V_max=%.3f, K_m=%.3f, %d samples): best K_m recovery err=%.3f. Sample: %s"
-                        .formatted(Vmax, Km, samples, bestRecoveryError, sb.toString().trim()),
+                        .formatted(Vmax, Km, samples, bestRecoveryError, sweep),
                 bestRecoveryError, bestKmRecovered, Vmax, bestRecoveryError, status, assessment)
                 .withHypothesis(("For an enzyme with V_max=%.3f and K_m=%.3f, the initial-rate Michaelis-Menten "
                         + "law v = V_max·[S]/(K_m+[S]) permits K_m recovery from two-point substrate measurements "
@@ -3195,7 +3234,7 @@ public class MathPhysicsEngine {
             double M = Math.max(0.01, seedM * Math.pow(2.0, i * sp.stepSize() - 4));
             double R = R0 * Math.pow(M, trueExp) * (1.0 + Math.sin(i * 0.41) * 0.03);
             samplesData.add(new double[]{M, R});
-            if (i < 4) sb.append("M=%.2f→R=%.2f ".formatted(M, R));
+            if (i < 4) sb.append(kleiberSweepSegment(M, R));
         }
         // Linear regression on log(R) vs log(M).
         double sumLogM = 0, sumLogR = 0, sumLogMLogR = 0, sumLogMSq = 0;
@@ -3211,6 +3250,18 @@ public class MathPhysicsEngine {
         double slope = (n * sumLogMLogR - sumLogM * sumLogR)
                 / Math.max(1e-12, n * sumLogMSq - sumLogM * sumLogM);
         double deviation = Math.abs(slope - trueExp);
+        return composeKleiberAllometric(seedM, n, slope, deviation, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Kleiber allometric (M, R) sweep segment (incl. trailing space). */
+    static String kleiberSweepSegment(double M, double R) {
+        return "M=%.2f→R=%.2f ".formatted(M, R);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for BIOLOGY:3 (Kleiber allometric). R₀ is fixed. */
+    static ResearchResult composeKleiberAllometric(double seedM, int n, double slope,
+            double deviation, String sweep) {
+        double R0 = 3.5;
         ClaimStatus status = deviation < 0.05 ? ClaimStatus.SUPPORTED
                 : deviation < 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Kleiber: fitted exponent %.3f vs Kleiber's 0.75 (deviation %.3f) across %d masses. %s")
@@ -3219,7 +3270,7 @@ public class MathPhysicsEngine {
                                 : "exponent drifts > 5% from 0.75 — additional metabolic terms suspected");
         return new ResearchResult(
                 "Kleiber allometric (R₀=%.2f, true exp=0.75, %d masses): fitted exp=%.3f (dev %.3f). Sample: %s"
-                        .formatted(R0, n, slope, deviation, sb.toString().trim()),
+                        .formatted(R0, n, slope, deviation, sweep),
                 deviation, slope, R0, deviation, status, assessment)
                 .withHypothesis(("Across a sweep of body masses centred near M=%.2f, the log-log slope of "
                         + "metabolic rate vs mass will recover Kleiber's 3/4 exponent within 5%% under noise.")
@@ -3248,8 +3299,20 @@ public class MathPhysicsEngine {
             }
             samples++;
             if (localMaxDrift > maxDrift) { maxDrift = localMaxDrift; finalP = pn; }
-            if (i < 4) sb.append("gen=%d→p=%.4f(drift=%.4f) ".formatted(generations, pn, localMaxDrift));
+            if (i < 4) sb.append(hardyWeinbergSweepSegment(generations, pn, localMaxDrift));
         }
+        return composeHardyWeinberg(p, samples, maxDrift, finalP, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Hardy-Weinberg generation-sweep segment (incl. trailing space). */
+    static String hardyWeinbergSweepSegment(int generations, double pn, double localMaxDrift) {
+        return "gen=%d→p=%.4f(drift=%.4f) ".formatted(generations, pn, localMaxDrift);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for BIOLOGY:4 (Hardy-Weinberg). q = 1 − p. */
+    static ResearchResult composeHardyWeinberg(double p, int samples, double maxDrift,
+            double finalP, String sweep) {
+        double q = 1.0 - p;
         ClaimStatus status = maxDrift < 0.05 ? ClaimStatus.SUPPORTED
                 : maxDrift < 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Hardy-Weinberg: starting p=%.3f (q=%.3f); max drift %.4f after %d simulations. %s")
@@ -3258,7 +3321,7 @@ public class MathPhysicsEngine {
                                 : "drift exceeds 5% — small-population deviation");
         return new ResearchResult(
                 "Hardy-Weinberg (p₀=%.3f, %d generation sweeps): max drift %.4f, ending p=%.4f. Sample: %s"
-                        .formatted(p, samples, maxDrift, finalP, sb.toString().trim()),
+                        .formatted(p, samples, maxDrift, finalP, sweep),
                 maxDrift, finalP, p, maxDrift, status, assessment)
                 .withHypothesis(("In an infinite randomly mating population starting from allele frequencies "
                         + "p=%.3f, q=%.3f, the Hardy-Weinberg equilibrium p² + 2pq + q² = 1 predicts no "

@@ -372,6 +372,46 @@ final class SidecarResultComposer {
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.dopplerSweepSegment(
                             s.path("v_s").asDouble(), s.path("v_o").asDouble(),
                             s.path("fp").asDouble(), s.path("shift").asDouble())));
+            case "BIOLOGY:0" -> MathPhysicsEngine.composeVerhulstLogistic(
+                    d.path("r").asDouble(),
+                    d.path("K").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("primaryValue").asDouble(),   // == bestDeviation
+                    d.path("bestN").asDouble(),
+                    d.path("bestT").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.verhulstSweepSegment(
+                            s.path("t").asDouble(), s.path("Nt").asDouble(), d.path("K").asDouble())));
+            case "BIOLOGY:1" -> MathPhysicsEngine.composeLotkaVolterra(
+                    d.path("alpha").asDouble(),
+                    d.path("beta").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("bestAlpha").asDouble(),
+                    d.path("bestPeakX").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.lotkaSweepSegment(
+                            s.path("a").asDouble(), s.path("ratio").asDouble())));
+            case "BIOLOGY:2" -> MathPhysicsEngine.composeMichaelisMenten(
+                    d.path("Km").asDouble(),
+                    d.path("Vmax").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestRecoveryErr").asDouble(),
+                    d.path("bestKmRecovered").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.michaelisSweepSegment(
+                            s.path("KmEst").asDouble(), s.path("err").asDouble())));
+            case "BIOLOGY:3" -> MathPhysicsEngine.composeKleiberAllometric(
+                    d.path("seedM").asDouble(),
+                    d.path("n").asInt(),
+                    d.path("slope").asDouble(),
+                    d.path("deviation").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.kleiberSweepSegment(
+                            s.path("M").asDouble(), s.path("R").asDouble())));
+            case "BIOLOGY:4" -> MathPhysicsEngine.composeHardyWeinberg(
+                    d.path("p").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxDrift").asDouble(),
+                    d.path("finalP").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hardyWeinbergSweepSegment(
+                            s.path("generations").asInt(), s.path("pn").asDouble(), s.path("drift").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

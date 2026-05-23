@@ -815,14 +815,126 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 7, d)).contains(expected);
     }
 
+    // ── BIOLOGY topics (0–4) — single-method aggregate+sweep ─────────────
+
+    @Test
+    void biology0_verhulst_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("t", 0.1).put("Nt", 5.5);
+        sweep.addObject().put("t", 2.0).put("Nt", 18.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("r", 0.5);
+        d.put("K", 120.0);
+        d.put("samples", 20);
+        d.put("primaryValue", 0.85);   // == bestDeviation
+        d.put("bestN", 18.0);
+        d.put("bestT", 2.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.verhulstSweepSegment(0.1, 5.5, 120.0)
+                + MathPhysicsEngine.verhulstSweepSegment(2.0, 18.0, 120.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeVerhulstLogistic(0.5, 120.0, 20, 0.85, 18.0, 2.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("BIOLOGY", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 0, d)).contains(expected);
+    }
+
+    @Test
+    void biology1_lotkaVolterra_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("a", 0.4).put("ratio", 2.5);
+        sweep.addObject().put("a", 0.45).put("ratio", 3.1);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("alpha", 0.4);
+        d.put("beta", 0.02);
+        d.put("samples", 18);
+        d.put("bestRatio", 3.1);
+        d.put("bestAlpha", 0.45);
+        d.put("bestPeakX", 88.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.lotkaSweepSegment(0.4, 2.5)
+                + MathPhysicsEngine.lotkaSweepSegment(0.45, 3.1)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeLotkaVolterra(0.4, 0.02, 18, 3.1, 0.45, 88.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("BIOLOGY", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 1, d)).contains(expected);
+    }
+
+    @Test
+    void biology2_michaelis_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("KmEst", 0.51).put("err", 0.02);
+        sweep.addObject().put("KmEst", 0.49).put("err", 0.02);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("Km", 0.5);
+        d.put("Vmax", 1.2);
+        d.put("samples", 15);
+        d.put("bestRecoveryErr", 0.005);
+        d.put("bestKmRecovered", 0.5025);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.michaelisSweepSegment(0.51, 0.02)
+                + MathPhysicsEngine.michaelisSweepSegment(0.49, 0.02)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeMichaelisMenten(0.5, 1.2, 15, 0.005, 0.5025, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("BIOLOGY", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 2, d)).contains(expected);
+    }
+
+    @Test
+    void biology3_kleiber_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("M", 0.5).put("R", 2.1);
+        sweep.addObject().put("M", 1.0).put("R", 3.5);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedM", 0.5);
+        d.put("n", 20);
+        d.put("slope", 0.748);
+        d.put("deviation", 0.002);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.kleiberSweepSegment(0.5, 2.1)
+                + MathPhysicsEngine.kleiberSweepSegment(1.0, 3.5)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeKleiberAllometric(0.5, 20, 0.748, 0.002, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("BIOLOGY", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 3, d)).contains(expected);
+    }
+
+    @Test
+    void biology4_hardyWeinberg_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("generations", 10).put("pn", 0.301).put("drift", 0.003);
+        sweep.addObject().put("generations", 14).put("pn", 0.299).put("drift", 0.004);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("p", 0.3);
+        d.put("samples", 25);
+        d.put("maxDrift", 0.004);
+        d.put("finalP", 0.299);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hardyWeinbergSweepSegment(10, 0.301, 0.003)
+                + MathPhysicsEngine.hardyWeinbergSweepSegment(14, 0.299, 0.004)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHardyWeinberg(0.3, 25, 0.004, 0.299, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("BIOLOGY", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (BIOLOGY / CHEMISTRY stay uncovered
-        // through the MATHEMATICS + PHYSICS + MATERIALS + INTERDISCIPLINARY ports.)
-        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 0, mathTopic0Detail()))
-                .isEmpty();
+        // throw or return a wrong result. (CHEMISTRY / ARCHITECTURE_SPACE stay
+        // uncovered through the MATHEMATICS..BIOLOGY ports.)
         assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 0, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, mathTopic0Detail()))
                 .isEmpty();
     }
 
