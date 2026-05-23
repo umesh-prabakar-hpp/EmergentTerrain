@@ -21,6 +21,7 @@ function physics_arch_liquid_hydrostatic_pressure_depth(rho_liq::Real,
     best_depth = 0.0
     best_rho = Float64(rho_liq)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (depth, ρ) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         rho = max(100.0, Float64(rho_liq) + sin(i * 0.27) * 500.0)
         depth = 1.0 + i * step_size * 5.0
@@ -30,6 +31,9 @@ function physics_arch_liquid_hydrostatic_pressure_depth(rho_liq::Real,
             max_P = P
             best_depth = depth
             best_rho = rho
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("depth" => depth, "rho" => rho, "P" => P))
         end
     end
     physical = max_P < 1.0e8
@@ -47,6 +51,8 @@ function physics_arch_liquid_hydrostatic_pressure_depth(rho_liq::Real,
         "bestRho"          => best_rho,
         "samples"          => samples,
         "physical"         => physical,
+        "rhoLiq"           => Float64(rho_liq),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -66,6 +72,7 @@ function physics_arch_liquid_buoyant_lift_capacity(rho_liq::Real,
     best_V = 0.0
     best_rho = Float64(rho_liq)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (V, ρ) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         rho = max(100.0, Float64(rho_liq) + sin(i * 0.27) * 500.0)
         V = 1.0 + i * step_size * 0.5
@@ -75,6 +82,9 @@ function physics_arch_liquid_buoyant_lift_capacity(rho_liq::Real,
             max_F = F
             best_V = V
             best_rho = rho
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("V" => V, "rho" => rho, "F" => F))
         end
     end
     status = max_F > 1.0e3 ? "SUPPORTED" : "OBSERVATIONAL"
@@ -89,6 +99,12 @@ function physics_arch_liquid_buoyant_lift_capacity(rho_liq::Real,
         "bestV"            => best_V,
         "bestRho"          => best_rho,
         "samples"          => samples,
+        "rhoLiq"           => Float64(rho_liq),   # §28.6b — JVM hypothesis prose
+        # JVM hypothesis formats `1 + candidateBreadth·stepSize·0.5` (the volume
+        # bound, one past the last sampled V); compute it here so the JVM needs
+        # no SearchParams.
+        "hypoV"            => 1.0 + candidate_breadth * step_size * 0.5,
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -109,6 +125,7 @@ function physics_arch_liquid_hull_buckling_pressure(rho_liq::Real,
     min_Pcrit = floatmax(Float64)
     best_t = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 wall-thickness samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         t = 0.005 + i * step_size * 0.002
         # (t/R)³ — integer exponent; expand for clarity / bit-identity proof.
@@ -118,6 +135,9 @@ function physics_arch_liquid_hull_buckling_pressure(rho_liq::Real,
         if Pcrit < min_Pcrit
             min_Pcrit = Pcrit
             best_t = t
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("t" => t, "Pcrit" => Pcrit))
         end
     end
     design_depth = 100.0
@@ -137,6 +157,8 @@ function physics_arch_liquid_hull_buckling_pressure(rho_liq::Real,
         "safetyMargin"     => safety_margin,
         "designP"          => design_P,
         "samples"          => samples,
+        "rhoLiq"           => Float64(rho_liq),   # §28.6b — JVM prose recomputes the safety margin
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -162,6 +184,7 @@ function physics_arch_liquid_hydrodynamic_drag(rho_liq::Real, mu_mpas::Real,
     best_Cd = 0.0
     best_Re = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 velocity samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         v = 0.1 + i * step_size * 0.5
         Re = Float64(rho_liq) * v * L / max(1e-6, mu)
@@ -175,6 +198,9 @@ function physics_arch_liquid_hydrodynamic_drag(rho_liq::Real, mu_mpas::Real,
             best_v = v
             best_Cd = Cd
             best_Re = Re
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("v" => v, "Re" => Re, "Cd" => Cd, "F" => F))
         end
     end
     status = max_F > 1.0 ? "SUPPORTED" : "OBSERVATIONAL"
@@ -190,6 +216,9 @@ function physics_arch_liquid_hydrodynamic_drag(rho_liq::Real, mu_mpas::Real,
         "bestCd"           => best_Cd,
         "bestRe"           => best_Re,
         "samples"          => samples,
+        "rhoLiq"           => Float64(rho_liq),    # §28.6b — JVM findings/hypothesis prose
+        "muMpas"           => Float64(mu_mpas),
+        "sampleSweep"      => sample_sweep,         # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -208,6 +237,7 @@ function physics_arch_liquid_dissolved_gas_solubility(gamma::Real, rho_liq::Real
     max_c = 0.0
     best_P = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 pressure samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         P = 0.5 + i * step_size * 0.5
         c = kH * P
@@ -215,6 +245,9 @@ function physics_arch_liquid_dissolved_gas_solubility(gamma::Real, rho_liq::Real
         if c > max_c
             max_c = c
             best_P = P
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("P" => P, "c" => c))
         end
     end
     status = max_c < 1.0 ? "SUPPORTED" : "PARTIAL"
@@ -231,6 +264,7 @@ function physics_arch_liquid_dissolved_gas_solubility(gamma::Real, rho_liq::Real
         "samples"          => samples,
         "gamma"            => Float64(gamma),
         "rhoLiq"           => Float64(rho_liq),
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
