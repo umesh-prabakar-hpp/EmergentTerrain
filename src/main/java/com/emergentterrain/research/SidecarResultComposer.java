@@ -271,6 +271,33 @@ final class SidecarResultComposer {
                     d.path("meanOrders").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.braggSweepSegment(
                             s.path("d").asDouble(), s.path("t1").asDouble())));
+            case "MATERIALS:7" -> MathPhysicsEngine.composeCarnotEfficiency(
+                    d.path("seedTc").asDouble(),
+                    d.path("seedTh").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestEta").asDouble(),
+                    d.path("bestTc").asDouble(),
+                    d.path("bestTh").asDouble(),
+                    d.path("meanEta").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.carnotSweepSegment(
+                            s.path("Tc").asDouble(), s.path("Th").asDouble(), s.path("eta").asDouble())));
+            case "MATERIALS:8" -> MathPhysicsEngine.composeBasquinFatigue(
+                    d.path("sigmaPrimeF").asDouble(),
+                    d.path("b").asDouble(),
+                    d.path("bestAmp").asDouble(),
+                    d.path("bestNf").asLong(),
+                    d.path("countAboveUts").asInt(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.basquinSweepSegment(
+                            s.path("Nf").asLong(), s.path("sigmaA").asDouble())));
+            case "MATERIALS:9" -> MathPhysicsEngine.composeYoungLaplaceCapillary(
+                    d.path("seedRadiusMm").asDouble(),
+                    d.path("maxH").asDouble(),
+                    d.path("bestR").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("countAboveLimit").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.youngLaplaceSweepSegment(
+                            s.path("r").asDouble(), s.path("h").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

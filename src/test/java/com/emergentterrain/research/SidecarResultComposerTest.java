@@ -562,6 +562,75 @@ class SidecarResultComposerTest {
     }
 
     @Test
+    void materials7_carnot_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Tc", 290.0).put("Th", 400.0).put("eta", 0.275);
+        sweep.addObject().put("Tc", 280.0).put("Th", 500.0).put("eta", 0.44);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedTc", 280.0);
+        d.put("seedTh", 400.0);
+        d.put("samples", 20);
+        d.put("bestEta", 0.44);
+        d.put("bestTc", 280.0);
+        d.put("bestTh", 500.0);
+        d.put("meanEta", 0.35);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.carnotSweepSegment(290.0, 400.0, 0.275)
+                + MathPhysicsEngine.carnotSweepSegment(280.0, 500.0, 0.44)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeCarnotEfficiency(280.0, 400.0, 20, 0.44, 280.0, 500.0, 0.35, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 7));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 7, d)).contains(expected);
+    }
+
+    @Test
+    void materials8_basquin_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Nf", 10000L).put("sigmaA", 520.0);
+        sweep.addObject().put("Nf", 60000L).put("sigmaA", 430.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("sigmaPrimeF", 800.0);
+        d.put("b", -0.085);
+        d.put("bestAmp", 520.0);
+        d.put("bestNf", 10000L);
+        d.put("countAboveUts", 0);
+        d.put("samples", 25);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.basquinSweepSegment(10000L, 520.0)
+                + MathPhysicsEngine.basquinSweepSegment(60000L, 430.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBasquinFatigue(800.0, -0.085, 520.0, 10000L, 0, 25, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 8));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 8, d)).contains(expected);
+    }
+
+    @Test
+    void materials9_youngLaplace_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("r", 0.1).put("h", 14.9);
+        sweep.addObject().put("r", 0.05).put("h", 29.7);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedRadiusMm", 0.1);
+        d.put("maxH", 29.7);
+        d.put("bestR", 0.05);
+        d.put("samples", 18);
+        d.put("countAboveLimit", 0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.youngLaplaceSweepSegment(0.1, 14.9)
+                + MathPhysicsEngine.youngLaplaceSweepSegment(0.05, 29.7)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeYoungLaplaceCapillary(0.1, 29.7, 0.05, 18, 0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 9));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 9, d)).contains(expected);
+    }
+
+    @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
         // throw or return a wrong result. (INTERDISCIPLINARY / BIOLOGY stay

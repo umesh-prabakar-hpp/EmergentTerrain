@@ -165,19 +165,19 @@ class MathPhysicsEngineDelegateIntegrationTest {
      * claimAssessment, hypothesis, equation prose plus the four scalars and
      * claimStatus — proving the sidecar emits each topic's {@code detail} keys
      * with byte-equal values (including Welford M2 and the sample-sweep arrays)
-     * and that the JVM composes the same prose from them. MATHEMATICS and
-     * PHYSICS (topics 0–9 each) are covered; add other domains' calls as their
-     * composers land.
+     * and that the JVM composes the same prose from them. MATHEMATICS, PHYSICS,
+     * and MATERIALS (topics 0–9 each) are covered; add other domains' calls as
+     * their composers land.
      */
     @Test
-    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allMathematicsAndPhysics() {
+    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allCoveredDomains() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         JuliaMathClient client = liveClient();
         MathPhysicsEngineDelegate delegate =
                 new MathPhysicsEngineDelegate(/*shadow*/ false, /*primary*/ true, client);
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        for (String domain : new String[]{"MATHEMATICS", "PHYSICS"}) {
+        for (String domain : new String[]{"MATHEMATICS", "PHYSICS", "MATERIALS"}) {
             for (int topic = 0; topic <= 9; topic++) {
                 MathPhysicsEngine.ResearchResult served =
                         delegate.compute(domain, topic, 3, 0.0, sp);

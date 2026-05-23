@@ -2069,9 +2069,21 @@ public class MathPhysicsEngine {
             sumEta += eta;
             samples++;
             if (eta > bestEta) { bestEta = eta; bestTc = Tc; bestTh = Th; }
-            if (i < 4) sb.append("T_c=%.0fK/T_h=%.0fK→η=%.3f ".formatted(Tc, Th, eta));
+            if (i < 4) sb.append(carnotSweepSegment(Tc, Th, eta));
         }
         double meanEta = samples > 0 ? sumEta / samples : 0;
+        return composeCarnotEfficiency(seedTc, seedTh, samples, bestEta, bestTc, bestTh,
+                meanEta, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Carnot efficiency sweep segment (incl. trailing space). */
+    static String carnotSweepSegment(double Tc, double Th, double eta) {
+        return "T_c=%.0fK/T_h=%.0fK→η=%.3f ".formatted(Tc, Th, eta);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATERIALS:7 (Carnot efficiency). */
+    static ResearchResult composeCarnotEfficiency(double seedTc, double seedTh, int samples,
+            double bestEta, double bestTc, double bestTh, double meanEta, String sweep) {
         // Carnot bound: η must be in [0, 1) strict. Above 1 is unphysical.
         boolean physical = bestEta >= 0 && bestEta < 1.0;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
@@ -2107,8 +2119,21 @@ public class MathPhysicsEngine {
             samples++;
             if (sigmaA > bestAmp) { bestAmp = sigmaA; bestNf = Nf; }
             if (sigmaA > UTS) countAboveUts++;
-            if (i < 4) sb.append("N_f=%dk→σ_a=%.0fMPa ".formatted(Nf / 1000, sigmaA));
+            if (i < 4) sb.append(basquinSweepSegment(Nf, sigmaA));
         }
+        return composeBasquinFatigue(sigmaPrimeF, b, bestAmp, bestNf, countAboveUts, samples,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Basquin S-N sweep segment (incl. trailing space). */
+    static String basquinSweepSegment(long Nf, double sigmaA) {
+        return "N_f=%dk→σ_a=%.0fMPa ".formatted(Nf / 1000, sigmaA);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATERIALS:8 (Basquin fatigue). */
+    static ResearchResult composeBasquinFatigue(double sigmaPrimeF, double b, double bestAmp,
+            long bestNf, int countAboveUts, int samples, String sweep) {
+        double UTS = sigmaPrimeF * 0.9;   // assume σ_f is ~90% of UTS
         boolean physical = countAboveUts == 0;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : bestAmp > sigmaPrimeF * 0.5 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
@@ -2118,7 +2143,7 @@ public class MathPhysicsEngine {
                                 : "fatigue-stress range stays below ultimate tensile strength");
         return new ResearchResult(
                 "Basquin S-N curve (σ'_f=%.0f MPa, b=%.3f, %d cycle counts): max σ_a=%.0fMPa at N_f=%d. Sample sweep: %s"
-                        .formatted(sigmaPrimeF, b, samples, bestAmp, bestNf, sb.toString().trim()),
+                        .formatted(sigmaPrimeF, b, samples, bestAmp, bestNf, sweep),
                 bestAmp, sigmaPrimeF, Math.abs(b), bestAmp, status, assessment)
                 .withHypothesis(("For a metal with fatigue strength coefficient σ'_f=%.0f MPa and exponent b=%.3f, "
                         + "the Basquin power law σ_a = σ'_f·(2·N_f)^b will produce stress amplitudes that stay below "
@@ -2145,8 +2170,27 @@ public class MathPhysicsEngine {
             samples++;
             if (h_cm > maxH) { maxH = h_cm; bestR = r_mm; }
             if (h_cm > 50.0) countAboveLimit++;  // F3 spec: water rise must be ≤ 50 cm
-            if (i < 4) sb.append("r=%.3fmm→h=%.2fcm ".formatted(r_mm, h_cm));
+            if (i < 4) sb.append(youngLaplaceSweepSegment(r_mm, h_cm));
         }
+        return composeYoungLaplaceCapillary(seedRadiusMm, maxH, bestR, samples, countAboveLimit,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Young-Laplace capillary-rise sweep segment (incl. trailing space). */
+    static String youngLaplaceSweepSegment(double rMm, double hCm) {
+        return "r=%.3fmm→h=%.2fcm ".formatted(rMm, hCm);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATERIALS:9 (Young-Laplace
+     * capillary rise). The fixed water/glass constants (γ, ρ, contact angle)
+     * are recomputed to match the in-process method.
+     */
+    static ResearchResult composeYoungLaplaceCapillary(double seedRadiusMm, double maxH,
+            double bestR, int samples, int countAboveLimit, String sweep) {
+        double gamma = 0.0728;   // N/m, water surface tension at 20°C
+        double rho = 1000.0;     // kg/m³
+        double contactAngle = Math.toRadians(20.0);  // wet glass
         boolean physical = countAboveLimit < samples / 2;  // most samples must stay sane
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : maxH > 5.0 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
@@ -2157,7 +2201,7 @@ public class MathPhysicsEngine {
                                         : "small capillary effect at this radius scale");
         return new ResearchResult(
                 "Young-Laplace capillary survey (γ=%.4f N/m, contact=%.0f°, %d radius samples): max rise %.2f cm at r=%.3f mm. Sample sweep: %s"
-                        .formatted(gamma, Math.toDegrees(contactAngle), samples, maxH, bestR, sb.toString().trim()),
+                        .formatted(gamma, Math.toDegrees(contactAngle), samples, maxH, bestR, sweep),
                 maxH, bestR, gamma, maxH, status, assessment)
                 .withHypothesis(("Water in a glass capillary with radii swept down from %.3f mm will rise per "
                         + "Young-Laplace h = 2γ·cos θ / (ρ·g·r); the maximum measurable rise across the sweep "
