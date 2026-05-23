@@ -366,12 +366,20 @@ app:
       # deletes NvidiaPool.java.
       legacy-pool: false
     cerebras:
-      enabled: true
+      # 2026-05-23 — provider DISABLED. Last-run trace (18 papers, 92 calls)
+      # showed 0 Cerebras-routed calls: the fast-audit role was pre-empted by
+      # groq/openrouter and the single configured model (qwen-3-235b-a22b)
+      # was never selected by PrimaryModelRegistry. Removing it from the
+      # panel allowlist below avoids spurious cross-vendor accounting in
+      # SimulationGate while the routing investigation is open.
+      # Flip back to true (and restore preferredModels + providers.cerebras.models)
+      # once Cerebras's panel slot is actually getting traffic again.
+      enabled: false
       apiKey: ${CEREBRAS_API_KEY:csk-denhmj335dh2ete5vdcv5n96w9p92hdpvt42f9ynw6yynkpk}
       baseUrl: "https://api.cerebras.ai/v1"
-      # Single confirmed model; WSE-3 hardware delivers 14ms tool-call inference — best fit
-      # for the runQualityAudit stage. Free tier is ~30 RPM per model.
-      preferredModels: "qwen-3-235b-a22b-instruct-2507"
+      # Model list cleared 2026-05-23. Prior value (kept in git history):
+      #   qwen-3-235b-a22b-instruct-2507   — WSE-3 14ms tool-call inference
+      preferredModels: ""
       role: "fast-audit"  # Phase 7 E1.4 — direct runQualityAudit at this pool first
       # Phase 20.11 §migration step 2 (2026-05-20) — FLIPPED. The legacy
       # hand-written CerebrasPool bean is now disabled; the generic-pool
@@ -395,8 +403,9 @@ app:
     # Phase 9 U3b's registry-backed routing.
     tool-calling:
       # 2026-05-22 paper-review — nvidia removed (provider disabled above).
-      # Restore "nvidia," if/when the legacy block flips enabled: true again.
-      providers: "groq,openrouter,cerebras"
+      # 2026-05-23 — cerebras removed (0 calls last run; provider disabled).
+      # Restore "nvidia," / "cerebras," if/when their legacy blocks flip enabled: true.
+      providers: "groq,openrouter"
     # Phase 20.5 — per-role override layer on top of the global primaryProviderOrder.
     # Empty section (default) reproduces today's behavior exactly. Each role key
     # is a free-form string that call sites pass to LlmCallContext.withRole(...);
@@ -503,7 +512,13 @@ app:
         # fallback). Single source of truth in app.ai.cerebras.apiKey above;
         # this entry just points at it so the key isn't duplicated.
         api-key: ${app.ai.cerebras.apiKey}
-        models: [qwen-3-235b-a22b-instruct-2507]
+        # 2026-05-23 — model list emptied. The legacy app.ai.cerebras.enabled
+        # flag above is now false, which is the authoritative kill-switch for
+        # the generic-pool entry too. Empty `models:` is a belt-and-braces
+        # defence so the pool can never select a model even if a code path
+        # skips the enabled check. To restore: copy the model list back from
+        # the commit that dropped it (and flip app.ai.cerebras.enabled: true).
+        models: []
         supports-tools: true
         context-window: 32000
         max-output-tokens: 2000   # legacy maxTokens parity; output cap, not context
@@ -978,12 +993,15 @@ app:
     # opt-in providers; "*" allows every primary provider.
     review-panel:
       enabled: true
-      # 2026-05-22 paper-review — nvidia dropped from the panel allowlist
-      # (provider disabled). The panel is now sourced from 3 providers:
-      # groq (workhorse), openrouter (zero-cost mirror), cerebras (qwen-3-235b
-      # on the unmetered dev tier). With ~6 active models across these 3
-      # providers, size=4 still gives cross-vendor representation.
-      providers: "groq,openrouter,cerebras"
+      # 2026-05-22 paper-review — nvidia dropped (provider disabled).
+      # 2026-05-23 — cerebras dropped (0 calls last run; provider disabled).
+      # The panel is now sourced from 2 providers: groq (workhorse — gpt-oss-120b
+      # + llama-3.3-70b-versatile) and openrouter (zero-cost mirror —
+      # gpt-oss-120b:free). Note: openrouter's gpt-oss-120b:free is the same
+      # model as groq's gpt-oss-120b, so panel diversity is effectively two
+      # distinct models. Watch panel-degradation rates — if n<size becomes
+      # common, drop `size: 4 → 3` or re-enable a third provider.
+      providers: "groq,openrouter"
       size: 4
     # Phase 12 D4 — when on, panels that return n ∈ {2, 3} of the configured
     # size demote the paper from PUBLISHED → NEEDS_REVISION (the paper still
