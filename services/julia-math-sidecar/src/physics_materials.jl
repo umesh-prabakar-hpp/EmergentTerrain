@@ -109,6 +109,7 @@ function physics_binary_sphere_packing(sp::Dict{String,Any})::Dict{String,Any}
     best_r = 0.0
     best_eta = eta_FCC
     samples = Int(sp["candidateBreadth"])
+    sample_sweep = Dict{String,Any}[]   # §28.6b — strided r-samples for JVM sweep string
     for i in 0:(samples - 1)
         # JVM: `r = 0.001 + (i / (double) Math.max(1, samples - 1)) * 0.649`.
         # Match the integer-promotion order exactly.
@@ -123,6 +124,10 @@ function physics_binary_sphere_packing(sp::Dict{String,Any})::Dict{String,Any}
         if eta_total > best_eta
             best_eta = eta_total
             best_r = r
+        end
+        # JVM line 1981: `i % (samples / Math.min(6, samples)) == 0` (int division).
+        if i % (samples ÷ min(6, samples)) == 0
+            push!(sample_sweep, Dict{String,Any}("r" => r, "eta" => eta_total))
         end
     end
     improvement = (best_eta - eta_FCC) * 100
@@ -139,6 +144,7 @@ function physics_binary_sphere_packing(sp::Dict{String,Any})::Dict{String,Any}
         "bestR"            => best_r,
         "improvement"      => improvement,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -387,6 +393,7 @@ function physics_hall_petch_strengthening(seed_sigma0::Real, param2::Real,
     max_yield = 0.0
     best_d = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 grain sizes for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         d_um = max(0.05, 50.0 - i * step_size * 1.5)
         sigma_Y = sigma0 + k / sqrt(d_um)
@@ -394,6 +401,9 @@ function physics_hall_petch_strengthening(seed_sigma0::Real, param2::Real,
         if sigma_Y > max_yield
             max_yield = sigma_Y
             best_d = d_um
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("d" => d_um, "sigmaY" => sigma_Y))
         end
     end
     physical_ceiling = max_yield < 5000
@@ -412,6 +422,7 @@ function physics_hall_petch_strengthening(seed_sigma0::Real, param2::Real,
         "bestD"            => best_d,
         "samples"          => samples,
         "physicalCeiling"  => physical_ceiling,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -434,6 +445,7 @@ function physics_bragg_diffraction(seed_d_nm::Real, lambda_nm::Real,
     best_n = 1
     samples = 0
     valid_orders = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 lattice spacings for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         d = max(0.05, Float64(seed_d_nm) + i * step_size * 0.02)
         orders = 0
@@ -451,6 +463,12 @@ function physics_bragg_diffraction(seed_d_nm::Real, lambda_nm::Real,
         end
         valid_orders += orders
         samples += 1
+        if i < 4
+            # JVM line 2012-2014: first-order θ at this d (90° when sin θ > 1).
+            sin_t1 = Float64(lambda_nm) / (2 * d)
+            t1 = sin_t1 <= 1.0 ? rad2deg(asin(sin_t1)) : 90.0
+            push!(sample_sweep, Dict{String,Any}("d" => d, "t1" => t1))
+        end
     end
     mean_orders = samples > 0 ? Float64(valid_orders) / samples : 0.0
     status = (best_angle > 0.5 && best_angle < 89.5) ? "SUPPORTED" :
@@ -470,6 +488,8 @@ function physics_bragg_diffraction(seed_d_nm::Real, lambda_nm::Real,
         "validOrders"      => valid_orders,
         "samples"          => samples,
         "lambdaNm"         => Float64(lambda_nm),
+        "seedDnm"          => Float64(seed_d_nm),   # §28.6b — JVM hypothesis prose needs it
+        "sampleSweep"      => sample_sweep,          # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
