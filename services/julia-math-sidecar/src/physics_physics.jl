@@ -156,12 +156,14 @@ function physics_pendulum_breakdown_at(L::Real)::Dict{String,Any}
     g  = 9.81
     T0 = 2 * pi * sqrt(Float64(L) / g)
     breakdown_angle = 80
+    sample_sweep = Dict{String,Any}[]   # §28.6b — all 16 amplitude steps for JVM sweep string
     # JVM: `for (int deg = 5; deg <= 80; deg += 5)` — match exactly.
     for deg in 5:5:80
         k  = sin(deg * DEGREES_TO_RADIANS / 2)
         k2 = k * k
         T  = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256)
         err = (T - T0) / T0 * 100
+        push!(sample_sweep, Dict{String,Any}("deg" => deg, "err" => err))
         # JVM line 1353: only set breakdownAngle the FIRST time err > 1%
         # — `nearlyEqual(breakdownAngle, 80, 0.5)` guards against
         # overwrite. Mirror the 0.5-tolerance equality check.
@@ -185,6 +187,7 @@ function physics_pendulum_breakdown_at(L::Real)::Dict{String,Any}
         "L"                => Float64(L),
         "T0"               => T0,
         "breakdownAngle"   => breakdown_angle,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -343,10 +346,12 @@ function physics_diffraction_survey_at(d_microns::Real, lambda_nm::Real)::Dict{S
         0.0
     min_orders = typemax(Int)
     max_orders = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — 7 wavelengths for JVM sweep string
     for lam in DIFFRACTION_WAVELENGTHS_NM
         orders = trunc(Int, Float64(d_microns) * 1000.0 / lam)
         if orders < min_orders; min_orders = orders end
         if orders > max_orders; max_orders = orders end
+        push!(sample_sweep, Dict{String,Any}("lam" => lam, "orders" => orders))
     end
     order_ratio = Float64(max_orders) / Float64(max(1, min_orders))
     # JVM line 1446-1452: 3-arg ResearchResult (findings, primary,
@@ -366,6 +371,7 @@ function physics_diffraction_survey_at(d_microns::Real, lambda_nm::Real)::Dict{S
         "minOrders"        => min_orders == typemax(Int) ? 0 : min_orders,
         "maxOrders"        => max_orders,
         "orderRatio"       => order_ratio,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -420,11 +426,13 @@ function physics_rlc_damping_transition_at(L::Real, C::Real)::Dict{String,Any}
     f0      = omega0 / (2 * pi)
     min_Q = floatmax(Float64)
     max_Q = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — 6 R/R_crit multipliers for JVM sweep string
     for mult in RLC_R_MULTIPLIERS
         R = crit_R * mult
         Q = omega0 * L_f / R
         if Q < min_Q; min_Q = Q end
         if Q > max_Q; max_Q = Q end
+        push!(sample_sweep, Dict{String,Any}("mult" => mult, "Q" => Q))
     end
     q_range = max_Q / max(min_Q, 1e-10)
     return Dict{String,Any}(
@@ -441,6 +449,7 @@ function physics_rlc_damping_transition_at(L::Real, C::Real)::Dict{String,Any}
         "minQ"             => min_Q,
         "maxQ"             => max_Q,
         "qRange"           => q_range,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
