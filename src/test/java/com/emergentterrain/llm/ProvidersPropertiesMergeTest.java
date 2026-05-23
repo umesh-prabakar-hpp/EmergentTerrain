@@ -37,11 +37,11 @@ class ProvidersPropertiesMergeTest {
         return p;
     }
 
-    /** Mirrors the live config: groq has both, groq-fast budget-only, openrouter rate-only. */
+    /** Mirrors the live config: groq has both, fast budget-only, openrouter rate-only. */
     private static ProvidersProperties liveShape() {
         Map<String, ProvidersProperties.Entry> m = new LinkedHashMap<>();
         m.put("groq",       entry(8.00, 6_800_000, 5_000_000, 270_000, 8_000));
-        m.put("groq-fast",  entry(2.00, 20_000_000, 12_500_000, 0, 0));        // no rate
+        m.put("fast",  entry(2.00, 20_000_000, 12_500_000, 0, 0));        // no rate
         m.put("openrouter", entry(0,    0,          0,          500_000, 175_000)); // no budget
         return withProviders(m);
     }
@@ -51,9 +51,9 @@ class ProvidersPropertiesMergeTest {
         BudgetProperties bp = new BudgetProperties();
         bp.mergeProviderBudgets(liveShape());
 
-        assertThat(bp.getProviders()).containsOnlyKeys("groq", "groq-fast"); // openrouter has no $ cap
+        assertThat(bp.getProviders()).containsOnlyKeys("groq", "fast"); // openrouter has no $ cap
         assertThat(bp.getProviders().get("groq").getMaxCostUsd()).isEqualTo(8.00);
-        assertThat(bp.getProviders().get("groq-fast").getMaxOutputTokens()).isEqualTo(12_500_000L);
+        assertThat(bp.getProviders().get("fast").getMaxOutputTokens()).isEqualTo(12_500_000L);
     }
 
     @Test
@@ -61,7 +61,7 @@ class ProvidersPropertiesMergeTest {
         TokenBudgetProperties tp = new TokenBudgetProperties();
         tp.mergeProviderRates(liveShape());
 
-        assertThat(tp.getProviders()).containsOnlyKeys("groq", "openrouter"); // groq-fast unmetered
+        assertThat(tp.getProviders()).containsOnlyKeys("groq", "openrouter"); // fast unmetered
         assertThat(tp.getProviders().get("groq").getMinuteLimit()).isEqualTo(8_000L);
         assertThat(tp.getProviders().get("openrouter").getDailyLimit()).isEqualTo(500_000L);
     }

@@ -48,7 +48,7 @@ class TokenTierReporterTest {
         TokenAccountant accountant = new TokenAccountant();
         rec(accountant, "groq",     "llama-3.3-70b-versatile", 5_000);  // primary
         rec(accountant, "groq",     "openai/gpt-oss-120b",     3_000);  // primary
-        rec(accountant, "groq-fast","mistral-saba-24b",        1_500);  // fast
+        rec(accountant, "fast","mistral-saba-24b",        1_500);  // fast
         rec(accountant, "cerebras", "unknown-experimental",    400);    // unknown
 
         TokenTierReporter reporter = buildReporter(accountant,

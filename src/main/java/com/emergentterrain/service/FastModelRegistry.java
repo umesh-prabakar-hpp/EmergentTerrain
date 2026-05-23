@@ -58,7 +58,7 @@ public class FastModelRegistry implements ModelRegistry {
                 // tier and contributes via modelIds(). Skip fastTierModelIds()
                 // here: GenericOpenAICompatPool publishes the same activeModels
                 // through both methods when fast-tier=true, so reading both
-                // doubled every groq-fast handle in the registry.
+                // doubled every fast handle in the registry.
                 for (String modelId : pool.modelIds()) {
                     collected.add(new ModelHandle(pool, modelId));
                 }

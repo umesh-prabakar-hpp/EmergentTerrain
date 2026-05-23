@@ -30,7 +30,7 @@ llm-pricing:
           in-usd-per-mtok: 0.15
           out-usd-per-mtok: 0.60
 
-    groq-fast:
+    fast:
       models:
         "llama-3.1-8b-instant":
           in-usd-per-mtok: 0.05

@@ -57,7 +57,7 @@ public class LlmRouter {
      * Phase 20.11 fixup — prompt-size threshold (estimated tokens) above
      * which {@link #callFast} and {@link #streamFast} silently reroute to
      * the primary chain. Picked to stay under the fast tier's tightest
-     * per-minute TPM budget: groq-fast's llama-3.1-8b-instant caps at
+     * per-minute TPM budget: fast's llama-3.1-8b-instant caps at
      * 6000 TPM, and the pool's max_tokens output cap is 2000, so prompts
      * up to ~4000 estimated tokens have headroom; anything larger trips
      * a TPM 413 on every fast handle in turn and the registry can do

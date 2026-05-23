@@ -138,15 +138,15 @@ class RunBudgetTrackerTest {
         BudgetProperties props = new BudgetProperties();
         props.setEnabled(true);
         props.getProviders().put("groq", caps(0, 1, 0, 0));
-        props.getProviders().put("groq-fast", caps(0, 1, 0, 0));
+        props.getProviders().put("fast", caps(0, 1, 0, 0));
         TestableTracker t = new TestableTracker(props, new LlmPricing());
 
-        t.recordCall("groq");        // groq exhausted; groq-fast not yet used → no stop
+        t.recordCall("groq");        // groq exhausted; fast not yet used → no stop
         assertThat(t.isExhausted("groq")).isTrue();
         assertThat(t.isStopRequested()).isFalse();
 
-        t.recordCall("groq-fast");   // now every used provider is exhausted → stop
-        assertThat(t.isExhausted("groq-fast")).isTrue();
+        t.recordCall("fast");   // now every used provider is exhausted → stop
+        assertThat(t.isExhausted("fast")).isTrue();
         assertThat(t.isStopRequested()).isTrue();
         assertThat(t.terminatedWith).hasValue(RunBudgetTracker.EXIT_CODE);
     }

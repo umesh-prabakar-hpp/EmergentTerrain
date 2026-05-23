@@ -115,7 +115,7 @@ import java.util.Set;
  *                          The previous incarnation passed
  *                          {@link #contextWindow} (32000 typical) as
  *                          {@code max_tokens}, which exceeded per-model
- *                          caps on several groq-fast models (allam-2-7b
+ *                          caps on several fast models (allam-2-7b
  *                          caps at 4096, llama-4-scout at 8192) and
  *                          tripped 400 invalid_request on every call.
  *                          Default {@code 4096} — safe for every modern
