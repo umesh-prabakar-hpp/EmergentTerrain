@@ -412,6 +412,49 @@ final class SidecarResultComposer {
                     d.path("finalP").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hardyWeinbergSweepSegment(
                             s.path("generations").asInt(), s.path("pn").asDouble(), s.path("drift").asDouble())));
+            case "CHEMISTRY:0" -> MathPhysicsEngine.composeHendersonHasselbalch(
+                    d.path("truePKa").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestErr").asDouble(),
+                    d.path("bestRecovered").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hendersonSweepSegment(
+                            s.path("ratio").asDouble(), s.path("pH").asDouble(), s.path("pKaEst").asDouble())));
+            case "CHEMISTRY:1" -> MathPhysicsEngine.composeNernstPotential(
+                    d.path("E0").asDouble(),
+                    d.path("T").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestDev").asDouble(),
+                    d.path("bestE").asDouble(),
+                    d.path("bestQ").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.nernstSweepSegment(
+                            s.path("Q").asDouble(), s.path("E").asDouble())));
+            case "CHEMISTRY:2" -> MathPhysicsEngine.composeBeerLambert(
+                    d.path("trueEps").asDouble(),
+                    d.path("trueL").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestErr").asDouble(),
+                    d.path("bestRecoveredEps").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.beerLambertSweepSegment(
+                            s.path("c").asDouble(), s.path("A").asDouble(), s.path("epsRecovered").asDouble())));
+            case "CHEMISTRY:3" -> MathPhysicsEngine.composeEquilibriumKc(
+                    d.path("Kc298").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestDrift").asDouble(),
+                    d.path("bestT").asDouble(),
+                    d.path("bestKc").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.equilibriumKcSweepSegment(
+                            s.path("T").asDouble(), s.path("Kc").asDouble(), s.path("drift").asDouble())));
+            case "CHEMISTRY:4" -> MathPhysicsEngine.composeCompressibilityZ(
+                    d.path("seedTr").asDouble(),
+                    d.path("seedPr").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("clampedSamples").asInt(),
+                    d.path("bestDev").asDouble(),
+                    d.path("bestTr").asDouble(),
+                    d.path("bestPr").asDouble(),
+                    d.path("bestZ").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.compressibilityZSweepSegment(
+                            s.path("Tr").asDouble(), s.path("Pr").asDouble(), s.path("Z").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

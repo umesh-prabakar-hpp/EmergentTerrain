@@ -927,12 +927,128 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 4, d)).contains(expected);
     }
 
+    // ── CHEMISTRY topics (0–4) — single-method aggregate+sweep ───────────
+
+    @Test
+    void chemistry0_henderson_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("ratio", 0.1).put("pH", 3.13).put("pKaEst", 4.13);
+        sweep.addObject().put("ratio", 0.16).put("pH", 3.34).put("pKaEst", 4.13);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("truePKa", 4.13);
+        d.put("samples", 20);
+        d.put("bestErr", 0.005);
+        d.put("bestRecovered", 4.135);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hendersonSweepSegment(0.1, 3.13, 4.13)
+                + MathPhysicsEngine.hendersonSweepSegment(0.16, 3.34, 4.13)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHendersonHasselbalch(4.13, 20, 0.005, 4.135, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("CHEMISTRY", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 0, d)).contains(expected);
+    }
+
+    @Test
+    void chemistry1_nernst_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Q", 0.01).put("E", 0.62);
+        sweep.addObject().put("Q", 0.025).put("E", 0.59);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("E0", 0.53);
+        d.put("T", 298.0);
+        d.put("samples", 18);
+        d.put("bestDev", 0.12);
+        d.put("bestE", 0.62);
+        d.put("bestQ", 0.01);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.nernstSweepSegment(0.01, 0.62)
+                + MathPhysicsEngine.nernstSweepSegment(0.025, 0.59)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeNernstPotential(0.53, 298.0, 18, 0.12, 0.62, 0.01, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("CHEMISTRY", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 1, d)).contains(expected);
+    }
+
+    @Test
+    void chemistry2_beerLambert_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("c", 0.001).put("A", 0.0011).put("epsRecovered", 1.1);
+        sweep.addObject().put("c", 0.0015).put("A", 0.0017).put("epsRecovered", 1.13);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("trueEps", 1.1);
+        d.put("trueL", 1.0);
+        d.put("samples", 15);
+        d.put("bestErr", 0.003);
+        d.put("bestRecoveredEps", 1.097);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.beerLambertSweepSegment(0.001, 0.0011, 1.1)
+                + MathPhysicsEngine.beerLambertSweepSegment(0.0015, 0.0017, 1.13)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBeerLambert(1.1, 1.0, 15, 0.003, 1.097, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("CHEMISTRY", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 2, d)).contains(expected);
+    }
+
+    @Test
+    void chemistry3_equilibriumKc_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("T", 298.0).put("Kc", 1.5).put("drift", 0.0);
+        sweep.addObject().put("T", 350.0).put("Kc", 2.4).put("drift", 0.47);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("Kc298", 1.5);
+        d.put("samples", 20);
+        d.put("bestDrift", 0.47);
+        d.put("bestT", 350.0);
+        d.put("bestKc", 2.4);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.equilibriumKcSweepSegment(298.0, 1.5, 0.0)
+                + MathPhysicsEngine.equilibriumKcSweepSegment(350.0, 2.4, 0.47)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeEquilibriumKc(1.5, 20, 0.47, 350.0, 2.4, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("CHEMISTRY", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 3, d)).contains(expected);
+    }
+
+    @Test
+    void chemistry4_compressibilityZ_composesByteIdenticalToSharedTemplate() {
+        // clampedSamples > 0 exercises the Pitzer-Curl envelope note branch.
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Tr", 0.75).put("Pr", 1.2).put("Z", 0.85);
+        sweep.addObject().put("Tr", 0.8).put("Pr", 1.4).put("Z", 0.82);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedTr", 0.7);
+        d.put("seedPr", 1.0);
+        d.put("samples", 18);
+        d.put("clampedSamples", 3);
+        d.put("bestDev", 0.18);
+        d.put("bestTr", 0.8);
+        d.put("bestPr", 1.4);
+        d.put("bestZ", 0.82);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.compressibilityZSweepSegment(0.75, 1.2, 0.85)
+                + MathPhysicsEngine.compressibilityZSweepSegment(0.8, 1.4, 0.82)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeCompressibilityZ(0.7, 1.0, 18, 3, 0.18, 0.8, 1.4, 0.82, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("CHEMISTRY", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (CHEMISTRY / ARCHITECTURE_SPACE stay
-        // uncovered through the MATHEMATICS..BIOLOGY ports.)
-        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 0, mathTopic0Detail()))
+        // throw or return a wrong result. (The ARCHITECTURE domains stay
+        // uncovered through the MATHEMATICS..CHEMISTRY ports.)
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 0, mathTopic0Detail()))
                 .isEmpty();
         assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, mathTopic0Detail()))
                 .isEmpty();

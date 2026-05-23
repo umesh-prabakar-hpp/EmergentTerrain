@@ -3357,8 +3357,20 @@ public class MathPhysicsEngine {
             double err = Math.abs(pKaEst - truePKa);
             samples++;
             if (err < bestErr) { bestErr = err; bestRecovered = pKaEst; }
-            if (i < 4) sb.append("ratio=%.3f→pH=%.2f(pKₐ_est=%.3f) ".formatted(ratio, pH, pKaEst));
+            if (i < 4) sb.append(hendersonSweepSegment(ratio, pH, pKaEst));
         }
+        return composeHendersonHasselbalch(truePKa, samples, bestErr, bestRecovered,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Henderson-Hasselbalch titration sweep segment (incl. trailing space). */
+    static String hendersonSweepSegment(double ratio, double pH, double pKaEst) {
+        return "ratio=%.3f→pH=%.2f(pKₐ_est=%.3f) ".formatted(ratio, pH, pKaEst);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for CHEMISTRY:0 (Henderson-Hasselbalch). */
+    static ResearchResult composeHendersonHasselbalch(double truePKa, int samples,
+            double bestErr, double bestRecovered, String sweep) {
         ClaimStatus status = bestErr < 0.05 ? ClaimStatus.SUPPORTED
                 : bestErr < 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Henderson-Hasselbalch: true pKₐ=%.3f, best recovered=%.3f (err=%.3f) across %d titration points. %s")
@@ -3367,7 +3379,7 @@ public class MathPhysicsEngine {
                                 : "recovery error > 0.05 — titration outside the buffer's effective region");
         return new ResearchResult(
                 "Henderson-Hasselbalch (true pKₐ=%.3f, %d titration points): best recovery err=%.3f. Sample: %s"
-                        .formatted(truePKa, samples, bestErr, sb.toString().trim()),
+                        .formatted(truePKa, samples, bestErr, sweep),
                 bestErr, bestRecovered, truePKa, bestErr, status, assessment)
                 .withHypothesis(("For a weak acid with pKₐ=%.3f, the Henderson-Hasselbalch equation "
                         + "permits pKₐ recovery from titration ratios within ±0.05 across a half-pH-unit sweep.")
@@ -3390,8 +3402,20 @@ public class MathPhysicsEngine {
             double dev = Math.abs(E - E0);
             samples++;
             if (dev > bestDeviation) { bestDeviation = dev; bestE = E; bestQ = Q; }
-            if (i < 4) sb.append("Q=%.3f→E=%.4fV ".formatted(Q, E));
+            if (i < 4) sb.append(nernstSweepSegment(Q, E));
         }
+        return composeNernstPotential(E0, T, samples, bestDeviation, bestE, bestQ,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Nernst cell-potential sweep segment (incl. trailing space). */
+    static String nernstSweepSegment(double Q, double E) {
+        return "Q=%.3f→E=%.4fV ".formatted(Q, E);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for CHEMISTRY:1 (Nernst potential). */
+    static ResearchResult composeNernstPotential(double E0, double T, int samples,
+            double bestDeviation, double bestE, double bestQ, String sweep) {
         // F3-style bound: |E − E°| ≤ 0.3 V indicates a sensible electrochemical range.
         boolean physical = bestDeviation <= 0.3;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
@@ -3403,7 +3427,7 @@ public class MathPhysicsEngine {
                                         : "near-standard conditions across the sweep");
         return new ResearchResult(
                 "Nernst (E°=%.3f V, T=%.0f K, %d Q-samples): max |E−E°|=%.4f V at Q=%.3f, E=%.4f V. Sample: %s"
-                        .formatted(E0, T, samples, bestDeviation, bestQ, bestE, sb.toString().trim()),
+                        .formatted(E0, T, samples, bestDeviation, bestQ, bestE, sweep),
                 bestDeviation, bestE, bestQ, bestDeviation, status, assessment)
                 .withHypothesis(("For an n=1 redox couple with E°=%.3f V at T=%.0f K, the Nernst equation "
                         + "produces measurable cell-potential shifts of order RT/F ≈ 25 mV per decade of Q.")
@@ -3424,8 +3448,20 @@ public class MathPhysicsEngine {
             double err = Math.abs(epsRecovered - trueEps) / trueEps;
             samples++;
             if (err < bestErr) { bestErr = err; bestRecoveredEps = epsRecovered; }
-            if (i < 4) sb.append("c=%.4f,A=%.3f→ε=%.3f ".formatted(c, A, epsRecovered));
+            if (i < 4) sb.append(beerLambertSweepSegment(c, A, epsRecovered));
         }
+        return composeBeerLambert(trueEps, trueL, samples, bestErr, bestRecoveredEps,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Beer-Lambert ε-recovery sweep segment (incl. trailing space). */
+    static String beerLambertSweepSegment(double c, double A, double epsRecovered) {
+        return "c=%.4f,A=%.3f→ε=%.3f ".formatted(c, A, epsRecovered);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for CHEMISTRY:2 (Beer-Lambert). */
+    static ResearchResult composeBeerLambert(double trueEps, double trueL, int samples,
+            double bestErr, double bestRecoveredEps, String sweep) {
         ClaimStatus status = bestErr < 0.05 ? ClaimStatus.SUPPORTED
                 : bestErr < 0.15 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Beer-Lambert: true ε=%.3f L·mol⁻¹·cm⁻¹, l=%.2f cm; best ε recovery err=%.3f. %s")
@@ -3434,7 +3470,7 @@ public class MathPhysicsEngine {
                                 : "absorbance / concentration deviates > 5% — non-linear regime");
         return new ResearchResult(
                 "Beer-Lambert (ε=%.3f, l=%.2f cm, %d c-samples): best ε recovery err=%.3f, est ε=%.3f. Sample: %s"
-                        .formatted(trueEps, trueL, samples, bestErr, bestRecoveredEps, sb.toString().trim()),
+                        .formatted(trueEps, trueL, samples, bestErr, bestRecoveredEps, sweep),
                 bestErr, bestRecoveredEps, trueEps, bestErr, status, assessment)
                 .withHypothesis(("For a dilute solution of molar absorptivity ε=%.3f L·mol⁻¹·cm⁻¹ in a "
                         + "%.2f cm cell, the Beer-Lambert law A = ε·c·l holds within 5%% across the swept "
@@ -3459,8 +3495,21 @@ public class MathPhysicsEngine {
             double drift = Math.abs(Math.log(Kc / Kc298));
             samples++;
             if (drift > bestDrift) { bestDrift = drift; bestT = T; bestKc = Kc; }
-            if (i < 4) sb.append("T=%.0fK→Kc=%.3f(|ln drift|=%.3f) ".formatted(T, Kc, drift));
+            if (i < 4) sb.append(equilibriumKcSweepSegment(T, Kc, drift));
         }
+        return composeEquilibriumKc(Kc298, samples, bestDrift, bestT, bestKc,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one equilibrium-Kc Van't Hoff sweep segment (incl. trailing space). */
+    static String equilibriumKcSweepSegment(double T, double Kc, double drift) {
+        return "T=%.0fK→Kc=%.3f(|ln drift|=%.3f) ".formatted(T, Kc, drift);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for CHEMISTRY:3 (equilibrium Kc). ΔH is fixed. */
+    static ResearchResult composeEquilibriumKc(double Kc298, int samples, double bestDrift,
+            double bestT, double bestKc, String sweep) {
+        double deltaH = 30_000.0;  // J/mol, modest endothermic
         boolean physical = Double.isFinite(bestKc) && bestKc > 0;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : bestDrift > 0.3 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
@@ -3471,7 +3520,7 @@ public class MathPhysicsEngine {
                                         : "minimal temperature-driven shift");
         return new ResearchResult(
                 "Equilibrium Kc (Kc°=%.3f at 298K, ΔH=%.0f J/mol, %d T-samples): max |ln drift|=%.3f at T=%.0f K (Kc=%.3f). Sample: %s"
-                        .formatted(Kc298, deltaH, samples, bestDrift, bestT, bestKc, sb.toString().trim()),
+                        .formatted(Kc298, deltaH, samples, bestDrift, bestT, bestKc, sweep),
                 bestDrift, bestKc, bestT, bestDrift, status, assessment)
                 .withHypothesis(("For a reaction with Kc°=%.3f at 298 K and ΔH=%.0f J/mol, the Van't Hoff "
                         + "integrated equation predicts measurable Kc drift across the swept temperature "
@@ -3515,8 +3564,21 @@ public class MathPhysicsEngine {
             double dev = Math.abs(1.0 - Z);
             samples++;
             if (dev > bestDev) { bestDev = dev; bestTr = Tr; bestPr = Pr; bestZ = Z; }
-            if (i < 4) sb.append("(Tr=%.2f,Pr=%.2f)→Z=%.3f ".formatted(Tr, Pr, Z));
+            if (i < 4) sb.append(compressibilityZSweepSegment(Tr, Pr, Z));
         }
+        return composeCompressibilityZ(seedTr, seedPr, samples, clampedSamples, bestDev,
+                bestTr, bestPr, bestZ, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one compressibility-Z (Tr, Pr) sweep segment (incl. trailing space). */
+    static String compressibilityZSweepSegment(double Tr, double Pr, double Z) {
+        return "(Tr=%.2f,Pr=%.2f)→Z=%.3f ".formatted(Tr, Pr, Z);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for CHEMISTRY:4 (compressibility Z). */
+    static ResearchResult composeCompressibilityZ(double seedTr, double seedPr, int samples,
+            int clampedSamples, double bestDev, double bestTr, double bestPr, double bestZ,
+            String sweep) {
         // Bound: |1−Z| ≤ 0.5 in the explored range; beyond that physics simplifies.
         boolean physical = bestDev <= 0.5;
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
@@ -3534,7 +3596,7 @@ public class MathPhysicsEngine {
                 "Compressibility Z (%d (Tr, Pr) samples%s): max |1−Z|=%.3f at Tr=%.2f, Pr=%.2f (Z=%.3f). Sample: %s"
                         .formatted(samples,
                                 clampedSamples > 0 ? ", " + clampedSamples + " clamped" : "",
-                                bestDev, bestTr, bestPr, bestZ, sb.toString().trim()),
+                                bestDev, bestTr, bestPr, bestZ, sweep),
                 bestDev, bestZ, bestPr, bestDev, status, assessment)
                 .withHypothesis(("Across reduced states sampled near (Tr=%.2f, Pr=%.2f), the Pitzer-Curl "
                         + "compressibility factor Z = 1 + B₀·Pr/Tr captures real-gas departure with |1−Z| ≤ 0.5.")
