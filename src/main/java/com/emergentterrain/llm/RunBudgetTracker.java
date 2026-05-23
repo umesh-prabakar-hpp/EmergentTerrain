@@ -211,4 +211,22 @@ public class RunBudgetTracker {
     public boolean isExhausted(String provider){ Acc a = byProvider.get(provider); return a != null && a.exhausted; }
     public double totalCostUsd()               { return global.costUsd.sum(); }
     public long totalCalls()                   { return global.calls.get(); }
+
+    /** Immutable snapshot of one accumulator (provider or global). */
+    public record Usage(long calls, long inputTokens, long outputTokens, double costUsd, boolean exhausted) {}
+
+    /** Per-provider usage snapshot, in first-seen order. Safe to read any time. */
+    public Map<String, Usage> usageByProvider() {
+        Map<String, Usage> out = new java.util.LinkedHashMap<>();
+        for (Map.Entry<String, Acc> e : byProvider.entrySet()) {
+            Acc a = e.getValue();
+            out.put(e.getKey(), new Usage(a.calls.get(), a.inTok.get(), a.outTok.get(), a.costUsd.sum(), a.exhausted));
+        }
+        return out;
+    }
+
+    /** Aggregate usage across all providers this run. */
+    public Usage globalUsage() {
+        return new Usage(global.calls.get(), global.inTok.get(), global.outTok.get(), global.costUsd.sum(), false);
+    }
 }

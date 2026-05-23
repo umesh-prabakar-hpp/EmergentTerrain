@@ -30,11 +30,17 @@ public class BudgetProperties {
     /** Master switch. Default OFF — no budget, today's behaviour. */
     private boolean enabled = false;
 
+    /** Heartbeat interval (ms) for RunBudgetReporter's spend log. */
+    private long reportIntervalMs = 300_000;
+
     private Caps global = new Caps();
     private Map<String, Caps> providers = new LinkedHashMap<>();
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
+
+    public long getReportIntervalMs() { return reportIntervalMs; }
+    public void setReportIntervalMs(long reportIntervalMs) { this.reportIntervalMs = reportIntervalMs; }
 
     public Caps getGlobal() { return global; }
     public void setGlobal(Caps global) { this.global = global; }
