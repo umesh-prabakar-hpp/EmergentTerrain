@@ -848,9 +848,22 @@ public class MathPhysicsEngine {
             if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
             if (steps > 100) longTraj++;
         }
-        double avgSteps = wMean;
         double longFraction = (double) longTraj / count;
         int end = start + count;
+        return composeCollatzStoppingTimes(start, end, maxSteps, maxStepsAt,
+                wMean, wM2, count, longFraction, allTerminated);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:1 (collatz).
+     * {@code wMean}/{@code wM2} are the Welford running mean + M2 of the
+     * stopping-step counts (the sidecar emits both so {@code fmtMean} can be
+     * reproduced JVM-side).
+     */
+    static ResearchResult composeCollatzStoppingTimes(int start, int end, int maxSteps,
+            int maxStepsAt, double wMean, double wM2, int count,
+            double longFraction, boolean allTerminated) {
+        double avgSteps = wMean;
         ClaimStatus status = allTerminated ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = allTerminated
                 ? "All %d starting values in [%d, %d) terminated at 1; the 3n+1 conjecture holds locally. Maximum stopping depth %d at n=%d."
@@ -902,6 +915,18 @@ public class MathPhysicsEngine {
         double avg = wMean;
         double contrast = avg / Math.max(1.0, minParts);
         int end = evenStart + count * 2;
+        return composeGoldbachPartitions(evenStart, end, wMean, wM2, tested,
+                minParts, minPartsAt, singleCount, contrast, avg);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:2 (goldbach).
+     * Uses the 4-arg ResearchResult constructor (status defaults to
+     * OBSERVATIONAL when finite), matching the in-process path.
+     */
+    static ResearchResult composeGoldbachPartitions(int evenStart, int end,
+            double wMean, double wM2, int tested, int minParts, int minPartsAt,
+            int singleCount, double contrast, double avg) {
         return new ResearchResult(
                 "Goldbach partitions, even [%d,%d): avg=%s partitions/number, min=%d (at n=%d), single-partition=%s. All even numbers satisfy Goldbach conjecture locally."
                         .formatted(evenStart, end, fmtMean(wMean, wM2, tested),

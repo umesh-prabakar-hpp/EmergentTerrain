@@ -76,12 +76,57 @@ class SidecarResultComposerTest {
 
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
-        // MATHEMATICS:1 (Collatz) has no composer branch yet — must signal
-        // fall-back rather than throw or return a wrong result.
-        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 1, mathTopic0Detail()))
-                .isEmpty();
+        // Topics with no composer branch yet must signal fall-back rather than
+        // throw or return a wrong result. (PHYSICS / MATERIALS stay uncovered
+        // throughout the MATHEMATICS port.)
         assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 0, mathTopic0Detail()))
                 .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 0, mathTopic0Detail()))
+                .isEmpty();
+    }
+
+    @Test
+    void mathematics1_collatz_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("windowStart", 30);
+        d.put("windowEnd", 90);
+        d.put("maxSteps", 111);
+        d.put("maxStepsAt", 27);
+        d.put("avgSteps", 38.5);
+        d.put("wM2", 1234.5);
+        d.put("count", 60);
+        d.put("longFraction", 0.05);
+        d.put("allTerminated", true);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeCollatzStoppingTimes(
+                        30, 90, 111, 27, 38.5, 1234.5, 60, 0.05, true)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 1, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics2_goldbach_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("evenStart", 100);
+        d.put("evenEnd", 220);
+        d.put("avg", 8.4);
+        d.put("wM2", 210.3);
+        d.put("tested", 60);
+        d.put("minParts", 3);
+        d.put("minPartsAt", 128);
+        d.put("singleCount", 0);
+        d.put("primaryValue", 2.8);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeGoldbachPartitions(
+                        100, 220, 8.4, 210.3, 60, 3, 128, 0, 2.8, 8.4)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 2, d))
+                .contains(expected);
     }
 
     @Test

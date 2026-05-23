@@ -68,7 +68,28 @@ final class SidecarResultComposer {
                     d.path("hlDeviation").asDouble(),
                     d.path("primeDensity").asDouble(),
                     d.path("twinDensity").asDouble());
-            // §28.6b continuations: remaining 62 (domain, topicIdx) composers land
+            case "MATHEMATICS:1" -> MathPhysicsEngine.composeCollatzStoppingTimes(
+                    d.path("windowStart").asInt(),
+                    d.path("windowEnd").asInt(),
+                    d.path("maxSteps").asInt(),
+                    d.path("maxStepsAt").asInt(),
+                    d.path("avgSteps").asDouble(),   // Welford running mean
+                    d.path("wM2").asDouble(),        // Welford M2 (for fmtMean)
+                    d.path("count").asInt(),
+                    d.path("longFraction").asDouble(),
+                    d.path("allTerminated").asBoolean());
+            case "MATHEMATICS:2" -> MathPhysicsEngine.composeGoldbachPartitions(
+                    d.path("evenStart").asInt(),
+                    d.path("evenEnd").asInt(),
+                    d.path("avg").asDouble(),        // Welford running mean
+                    d.path("wM2").asDouble(),        // Welford M2 (for fmtMean)
+                    d.path("tested").asInt(),
+                    d.path("minParts").asInt(),
+                    d.path("minPartsAt").asInt(),
+                    d.path("singleCount").asInt(),
+                    d.path("primaryValue").asDouble(),  // == contrast
+                    d.path("avg").asDouble());
+            // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.
             default -> null;
