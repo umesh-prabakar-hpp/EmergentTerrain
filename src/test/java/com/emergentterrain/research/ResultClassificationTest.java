@@ -156,21 +156,24 @@ class ResultClassificationTest {
                 .isEqualTo(ResultClassification.PARTIALLY_SUPPORTED);
     }
 
-    // ---- Real computation round-trip ----
+    // ---- Composed-result round-trip ----
+    // §28.6 removed the in-process numeric engine; these feed the classifier a
+    // result built by the shared compose* path (the same prose path the sidecar
+    // cutover serves), exercising the engine→classifier seam without a sidecar.
 
     @Test
-    void realComputeDefaultPhysicsResultIsNotDegenerate() {
+    void composedPhysicsResultIsNotDegenerate() {
         MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute("PHYSICS", 0, 50, 3.0);
-        // A real computation with mid-range params should produce a finite, non-zero result
+                MathPhysicsEngine.composeProjectileWithDragAt(50.0, 0.003, 38, 72.5);
+        // Finite, non-zero scalars → classifier must not call it degenerate.
         assertThat(UniversityService.classifyResult(result, 0.2))
                 .isNotEqualTo(ResultClassification.DEGENERATE);
     }
 
     @Test
-    void classifyResultWithRealMathematicsComputation() {
-        MathPhysicsEngine.ResearchResult result =
-                MathPhysicsEngine.compute("MATHEMATICS", 1, 40, 2.0);
+    void classifyComposedMathematicsResult() {
+        MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.composeCollatzStoppingTimes(
+                1, 40, 112, 27, 29.5, 5000.0, 39, 0.05, /*allTerminated*/ true);
         double score = MathPhysicsEngine.scoreResult("MATHEMATICS", 1, result.reviewValue(),
                 MathPhysicsEngine.SearchParams.neutral());
         ResultClassification cls = UniversityService.classifyResult(result, score);

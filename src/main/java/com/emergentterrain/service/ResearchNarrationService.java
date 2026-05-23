@@ -438,9 +438,11 @@ public class ResearchNarrationService {
             String domain, int topicIndex, int param1, double param2,
             MathPhysicsEngine.SearchParams sp) {
         com.emergentterrain.research.MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
-        return delegate != null
-                ? delegate.compute(domain, topicIndex, param1, param2, sp)
-                : MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+        if (delegate == null) {
+            throw new IllegalStateException("physics-topic compute requires the sidecar-backed "
+                    + "MathPhysicsEngineDelegate; none wired (in-process engine removed in §28.6).");
+        }
+        return delegate.compute(domain, topicIndex, param1, param2, sp);
     }
 
     /**

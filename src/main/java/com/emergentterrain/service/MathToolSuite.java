@@ -696,9 +696,11 @@ public class MathToolSuite {
         try {
             long t = System.currentTimeMillis();
             com.emergentterrain.research.MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
-            MathPhysicsEngine.ResearchResult result = delegate != null
-                    ? delegate.compute(draft.domain(), topicIdx, param1, param2)
-                    : MathPhysicsEngine.compute(draft.domain(), topicIdx, param1, param2);
+            if (delegate == null) {
+                throw new IllegalStateException("physics-topic compute requires the sidecar-backed "
+                        + "MathPhysicsEngineDelegate; none wired (in-process engine removed in §28.6).");
+            }
+            MathPhysicsEngine.ResearchResult result = delegate.compute(draft.domain(), topicIdx, param1, param2);
             log.info("MathToolSuite: run_param_sweep domain={} topic={} param1={} param2={} ms={}",
                     draft.domain(), draft.topicName(), param1, param2, System.currentTimeMillis() - t);
             return "Param sweep (param1=%d, param2=%.1f): %s [Rationale: %s]"

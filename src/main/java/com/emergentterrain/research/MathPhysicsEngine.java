@@ -371,31 +371,6 @@ public class MathPhysicsEngine {
             {"Orbital Decay Rate From Residual Atmospheric Drag at LEO",              "Time-to-Reentry as a Function of Ballistic Coefficient and Altitude"}
     };
 
-    // ---- Public API ----
-
-    /** Primary entry point: genome-driven search via SearchParams. */
-    public static ResearchResult compute(String domain, int topicIndex,
-                                         int param1, double param2, SearchParams sp) {
-        int n = topicCount(domain);
-        int t = Math.floorMod(topicIndex, n);
-        return switch (domain) {
-            case "PHYSICS"           -> computePhysics(t, param1, param2, sp);
-            case "MATERIALS"         -> computeMaterials(t, param1, param2, sp);
-            case "INTERDISCIPLINARY" -> computeInterdisciplinary(t, param1, param2, sp);
-            // Phase 7 FX.1 — BIOLOGY.
-            case "BIOLOGY"           -> computeBiology(t, param1, param2, sp);
-            // Phase 7 FX.2 — CHEMISTRY.
-            case "CHEMISTRY"         -> computeChemistry(t, param1, param2, sp);
-            // Phase 7 FX.3 — ARCHITECTURE_TERRESTRIAL (generic across planetary g + atmosphere).
-            case "ARCHITECTURE_TERRESTRIAL" -> computeArchTerrestrial(t, param1, param2, sp);
-            // Phase 7 FX.4 — ARCHITECTURE_LIQUID (generic across any liquid).
-            case "ARCHITECTURE_LIQUID"      -> computeArchLiquid(t, param1, param2, sp);
-            // Phase 7 FX.5 — ARCHITECTURE_SPACE.
-            case "ARCHITECTURE_SPACE"       -> computeArchSpace(t, param1, param2, sp);
-            default                  -> computeMath(t, param1, param2, sp);
-        };
-    }
-
     /**
      * Phase 7 F3 — number of topics registered for a domain. Driven by the
      * domain's TOPICS array length so adding a topic in one place
@@ -432,12 +407,6 @@ public class MathPhysicsEngine {
             return Math.floorMod(rawWeightedSelection, Math.min(5, topicCount(domain)));
         }
         return rng.nextInt(topicCount(domain));
-    }
-
-    /** Backward-compatible overload — uses neutral SearchParams. */
-    public static ResearchResult compute(String domain, int topicIndex,
-                                         int param1, double param2) {
-        return compute(domain, topicIndex, param1, param2, SearchParams.neutral());
     }
 
     /**
@@ -725,59 +694,6 @@ public class MathPhysicsEngine {
         };
     }
 
-    // ---- Mathematics ----
-
-    private static ResearchResult computeMath(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("MATHEMATICS", topic);
-        return switch (topic) {
-            case 0 -> primeConstellations(param1 * 10, param1 * 15, sp).withEquation(eq);
-            case 1 -> collatzStoppingTimes(param1 * 3, 60, sp).withEquation(eq);
-            case 2 -> goldbachPartitions(Math.max(4, param1 * 4), (int) param2 * 10 + 20, sp).withEquation(eq);
-            case 3 -> aliquotSequences(Math.max(2, param1), 40, sp).withEquation(eq);
-            case 4 -> happyNumbers(param1 * 7, 150, sp).withEquation(eq);
-            // Phase 7 F3.4 — new mathematics topics.
-            case 5 -> mertensPartialSums(Math.max(10, param1 * 5), 200, sp).withEquation(eq);
-            case 6 -> divisorSumAverage(Math.max(10, param1 * 4), 150, sp).withEquation(eq);
-            case 7 -> riemannEulerProduct(1.5 + param2 / 9.0, sp).withEquation(eq);
-            case 8 -> sternBrocotDepth(Math.max(2, param1), sp).withEquation(eq);
-            default -> squarefreeDensity(Math.max(10, param1 * 6), 200, sp).withEquation(eq);
-        };
-    }
-
-    // Outer search: try candidateBreadth windows spaced by stepSize*200.
-    // Primary = H-L deviation ratio — larger when actual twin count diverges more from prediction.
-    private static ResearchResult primeConstellations(int seedStart, int width, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(2, seedStart + (int) (i * sp.stepSize() * 200));
-            ResearchResult r = primeConstellationsAt(start, width);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : primeConstellationsAt(seedStart, width);
-    }
-
-    private static ResearchResult primeConstellationsAt(int start, int width) {
-        int end = start + Math.max(50, width);
-        List<Integer> primes = new ArrayList<>();
-        for (int n = Math.max(2, start); n < end; n++) if (isPrime(n)) primes.add(n);
-        int twins = 0, cousins = 0, sexy = 0, maxGap = 0;
-        for (int i = 1; i < primes.size(); i++) {
-            int gap = primes.get(i) - primes.get(i - 1);
-            if (gap > maxGap) maxGap = gap;
-            if (gap == 2) twins++;
-            if (gap == 4) cousins++;
-            if (gap == 6) sexy++;
-        }
-        double twinDensity  = (double) twins / Math.max(1, primes.size() - 1);
-        double primeDensity = (double) primes.size() / (end - start);
-        double lnN = Math.log(Math.max(2, start));
-        double hlPrediction = 1.320323631693739 / (lnN * lnN) * width;
-        double hlDeviation  = Math.abs(twins - hlPrediction) / Math.max(1.0, hlPrediction);
-        return composePrimeConstellations(start, end, primes.size(), twins, cousins, sexy,
-                maxGap, hlPrediction, hlDeviation, primeDensity, twinDensity);
-    }
-
     /**
      * Phase 28 §28.6 — shared prose composer for MATHEMATICS topic 0
      * (primeConstellations). Both the in-process path
@@ -818,42 +734,6 @@ public class MathPhysicsEngine {
                 hlDeviation, primeDensity, maxGap, hlDeviation, status, assessment, hypothesis);
     }
 
-    // Outer search: try candidateBreadth ranges spaced by stepSize*20.
-    // Primary = maxSteps — deeper trajectories signal more complex behaviour near that region.
-    private static ResearchResult collatzStoppingTimes(int seedStart, int count, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 20));
-            ResearchResult r = collatzStoppingTimesAt(start, count);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : collatzStoppingTimesAt(seedStart, count);
-    }
-
-    private static ResearchResult collatzStoppingTimesAt(int start, int count) {
-        int maxSteps = 0, maxStepsAt = start;
-        int longTraj = 0, wCount = 0;
-        boolean allTerminated = true;
-        double wMean = 0, wM2 = 0;
-        for (int n = Math.max(1, start); n < start + count; n++) {
-            long x = n;
-            int steps = 0;
-            while (x != 1 && steps < 10_000) { x = (x % 2 == 0) ? x / 2 : 3 * x + 1; steps++; }
-            if (x != 1) allTerminated = false;
-            wCount++;
-            double delta = steps - wMean;
-            wMean += delta / wCount;
-            wM2 += delta * (steps - wMean);
-            if (steps > maxSteps) { maxSteps = steps; maxStepsAt = n; }
-            if (steps > 100) longTraj++;
-        }
-        double longFraction = (double) longTraj / count;
-        int end = start + count;
-        return composeCollatzStoppingTimes(start, end, maxSteps, maxStepsAt,
-                wMean, wM2, count, longFraction, allTerminated);
-    }
-
     /**
      * Phase 28 §28.6b — shared prose composer for MATHEMATICS:1 (collatz).
      * {@code wMean}/{@code wM2} are the Welford running mean + M2 of the
@@ -882,43 +762,6 @@ public class MathPhysicsEngine {
                         .formatted(start, end));
     }
 
-    // Outer search: try candidateBreadth even ranges spaced by stepSize*40.
-    // Primary = avg/max(1,minParts) — contrast ratio flags thin-partition neighbourhoods.
-    private static ResearchResult goldbachPartitions(int seedEven, int count, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int even = Math.max(4, seedEven + (int) (i * sp.stepSize() * 40));
-            if (even % 2 != 0) even++;
-            ResearchResult r = goldbachPartitionsAt(even, count);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : goldbachPartitionsAt(seedEven, count);
-    }
-
-    private static ResearchResult goldbachPartitionsAt(int evenStart, int count) {
-        if (evenStart % 2 != 0) evenStart++;
-        if (evenStart < 4) evenStart = 4;
-        int minParts = Integer.MAX_VALUE, minPartsAt = evenStart;
-        int singleCount = 0, tested = 0;
-        double wMean = 0, wM2 = 0;
-        for (int n = evenStart; n < evenStart + count * 2; n += 2) {
-            int parts = 0;
-            for (int p = 2; p <= n / 2; p++) if (isPrime(p) && isPrime(n - p)) parts++;
-            tested++;
-            double delta = parts - wMean;
-            wMean += delta / tested;
-            wM2 += delta * (parts - wMean);
-            if (parts < minParts) { minParts = parts; minPartsAt = n; }
-            if (parts == 1) singleCount++;
-        }
-        double avg = wMean;
-        double contrast = avg / Math.max(1.0, minParts);
-        int end = evenStart + count * 2;
-        return composeGoldbachPartitions(evenStart, end, wMean, wM2, tested,
-                minParts, minPartsAt, singleCount, contrast, avg);
-    }
-
     /**
      * Phase 28 §28.6b — shared prose composer for MATHEMATICS:2 (goldbach).
      * Uses the 4-arg ResearchResult constructor (status defaults to
@@ -936,57 +779,8 @@ public class MathPhysicsEngine {
                         .formatted(evenStart, end));
     }
 
-    // Outer search: try candidateBreadth ranges spaced by stepSize*15.
-    // Primary = anomaly fraction (cycle+escape) — higher means more sociable/unbounded sequences.
-    private static ResearchResult aliquotSequences(int seedStart, int count, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        double firstAnomaly = Double.NaN;
-        double lastAnomaly = Double.NaN;
-        int sampled = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(2, seedStart + (int) (i * sp.stepSize() * 15));
-            ResearchResult r = aliquotSequencesAt(start, count);
-            if (Double.isNaN(firstAnomaly)) firstAnomaly = r.primaryValue();
-            lastAnomaly = r.primaryValue();
-            sampled++;
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        if (best == null) best = aliquotSequencesAt(seedStart, count);
-        return composeAliquotSequencesOuter(best, firstAnomaly, lastAnomaly, sampled);
-    }
-
     // Aliquot sequences can grow without bound — cap x to avoid O(√x) factoring of huge numbers.
     private static final long ALIQUOT_X_CAP = 1_000_000L;
-
-    private static ResearchResult aliquotSequencesAt(int start, int count) {
-        int terminate = 0, perfect = 0, cycle = 0, escape = 0;
-        for (int n = start; n < start + count; n++) {
-            long x = n;
-            java.util.Set<Long> seen = new java.util.HashSet<>();
-            int steps = 0;
-            boolean done = false;
-            while (steps < 200 && !done) {
-                if (x <= 1) { terminate++; done = true; break; }
-                if (x > ALIQUOT_X_CAP) { escape++; done = true; break; }
-                long sigma = 1;
-                for (long d = 2; d * d <= x; d++) {
-                    if (x % d == 0) { sigma += d; if (d != x / d) sigma += x / d; }
-                }
-                if (sigma == x) { perfect++; done = true; break; }
-                if (seen.contains(sigma)) { cycle++; done = true; break; }
-                seen.add(x);
-                x = sigma;
-                steps++;
-            }
-            if (!done) escape++;
-        }
-        double terminateFrac = (double) terminate / count;
-        double anomalyFrac   = (double) (cycle + escape) / count;
-        int end = start + count;
-        return composeAliquotSequencesInner(start, end, terminate, perfect, cycle, escape,
-                terminateFrac, anomalyFrac, count);
-    }
 
     /**
      * Phase 28 §28.6b — shared prose composer for MATHEMATICS:3 (aliquot),
@@ -1026,50 +820,6 @@ public class MathPhysicsEngine {
         return best.withFindingsAndClaim(findings, status, assessment);
     }
 
-    // Outer search: try candidateBreadth windows spaced by stepSize*200.
-    // Primary = |density - 0.143| — larger when local density deviates from the asymptotic conjecture.
-    private static ResearchResult happyNumbers(int seedStart, int count, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        double maxDeviation = 0;
-        int sampled = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 200));
-            ResearchResult r = happyNumbersAt(start, count);
-            if (r.primaryValue() > maxDeviation) maxDeviation = r.primaryValue();
-            sampled++;
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        if (best == null) best = happyNumbersAt(seedStart, count);
-        return composeHappyNumbersOuter(best, maxDeviation, sampled);
-    }
-
-    private static ResearchResult happyNumbersAt(int start, int count) {
-        int happy = 0;
-        double happyMean = 0, happyM2 = 0;
-        for (int n = Math.max(1, start); n < start + count; n++) {
-            long x = n;
-            int steps = 0;
-            while (x != 1 && x != 4 && steps < 1000) {
-                long sum = 0;
-                while (x > 0) { long d = x % 10; sum += d * d; x /= 10; }
-                x = sum;
-                steps++;
-            }
-            if (x == 1) {
-                happy++;
-                double delta = steps - happyMean;
-                happyMean += delta / happy;
-                happyM2 += delta * (steps - happyMean);
-            }
-        }
-        double density  = (double) happy / count;
-        double deviation = Math.abs(density - 0.1430);
-        int end = start + count;
-        return composeHappyNumbersInner(start, end, happy, count, happyMean, happyM2,
-                density, deviation);
-    }
-
     /**
      * Phase 28 §28.6b — shared prose composer for MATHEMATICS:4 (happy),
      * inner-window half. {@code happyM2} is the Welford M2 of steps-to-1 over
@@ -1107,28 +857,6 @@ public class MathPhysicsEngine {
         return best.withFindingsAndClaim(findings, status, assessment);
     }
 
-    // ---- Phase 7 F3.4: new mathematics topics ----
-
-    /** Mertens function: M(x) = Σ_{n ≤ x} μ(n). Returns max |M|/√x ratio across the sweep. */
-    private static ResearchResult mertensPartialSums(int seedStart, int width, SearchParams sp) {
-        double bestRatio = 0;
-        int bestX = seedStart + width;
-        long bestM = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 50));
-            int end = start + width;
-            long M = mertensPartialSum(end);
-            double ratio = Math.abs(M) / Math.sqrt(Math.max(1.0, end));
-            samples++;
-            if (ratio > bestRatio) { bestRatio = ratio; bestX = end; bestM = M; }
-            if (i < 4) sb.append(mertensSweepSegment(end, M, ratio));
-        }
-        return composeMertensPartialSums(seedStart, width, bestRatio, bestX, bestM,
-                samples, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Mertens sample-sweep segment (incl. trailing space). */
     static String mertensSweepSegment(int x, long M, double ratio) {
         return "x=%d→M=%d(|M|/√x=%.3f) ".formatted(x, M, ratio);
@@ -1160,32 +888,6 @@ public class MathPhysicsEngine {
                         .formatted(seedStart, width));
     }
 
-    /** (1/N)·Σ_{n ≤ N} σ(n) ≈ (π²/12)·N for large N. (Note: σ here is the FULL divisor sum.) */
-    private static ResearchResult divisorSumAverage(int seedN, int width, SearchParams sp) {
-        double asymptotic = Math.PI * Math.PI / 12.0;
-        double bestDev = 0;
-        int bestN = seedN;
-        double bestAvg = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int N = Math.max(20, seedN + (int) (i * sp.stepSize() * 40));
-            long total = 0;
-            // σ(n) is the full divisor sum (includes 1 and n). sigmaSum returns the
-            // aliquot sum (σ(n) − n), so add n back.
-            for (int n = 1; n <= N; n++) total += sigmaSum(n) + n;
-            double avgOverN = ((double) total) / ((double) N * N);
-            double dev = Math.abs(avgOverN - asymptotic) / asymptotic;
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestN = N; bestAvg = avgOverN; }
-            if (i < 4) sb.append("N=%d→avg/N=%.3f(dev=%.2f%%) ".formatted(N, avgOverN, dev * 100));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeDivisorSumAverage(seedN, width, bestDev, bestN, bestAvg, meanDev, samples);
-    }
-
     /**
      * Phase 28 §28.6b — shared prose composer for MATHEMATICS:6 (divisor-sum
      * average). Like squarefree, the in-process method builds a sample-sweep
@@ -1210,36 +912,6 @@ public class MathPhysicsEngine {
                         .formatted(seedN));
     }
 
-    /** Σ 1/nˢ vs Π 1/(1−p⁻ˢ) for s>1. Empirically truncated. */
-    private static ResearchResult riemannEulerProduct(double seedS, SearchParams sp) {
-        double bestDev = 0;
-        double bestS = seedS;
-        double bestRatio = 1.0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double s = Math.max(1.1, seedS + i * sp.stepSize() * 0.2);
-            int truncation = 5000;
-            double zetaSum = 0;
-            for (int n = 1; n <= truncation; n++) zetaSum += Math.pow(n, -s);
-            double eulerProd = 1.0;
-            for (int p = 2; p <= 200; p++) {
-                if (!isPrime(p)) continue;
-                eulerProd *= 1.0 / (1.0 - Math.pow(p, -s));
-            }
-            double ratio = eulerProd / zetaSum;
-            double dev = Math.abs(ratio - 1.0);
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestS = s; bestRatio = ratio; }
-            if (i < 4) sb.append(riemannSweepSegment(s, ratio));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeRiemannEulerProduct(seedS, bestDev, bestS, bestRatio, meanDev,
-                samples, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Riemann sample-sweep segment (incl. trailing space). */
     static String riemannSweepSegment(double s, double ratio) {
         return "s=%.3f→ratio=%.4f ".formatted(s, ratio);
@@ -1262,27 +934,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("Across s-values sampled near %.3f, the ratio of the truncated ζ-sum Σ 1/nˢ to the "
                         + "Euler product Π 1/(1 − p⁻ˢ) (over primes ≤ 200) will remain within 5%% of unity.")
                         .formatted(seedS));
-    }
-
-    /** Stern-Brocot tree depth via continued-fraction expansion. */
-    private static ResearchResult sternBrocotDepth(int seedQ, SearchParams sp) {
-        int maxDepth = 0;
-        int bestP = 0, bestQ = seedQ;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        long sumDepth = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int q = Math.max(2, seedQ + (int) (i * sp.stepSize() * 50));
-            int p = 1 + (i * 7) % Math.max(2, q - 1);
-            int depth = sternBrocotDepthOf(p, q);
-            sumDepth += depth;
-            samples++;
-            if (depth > maxDepth) { maxDepth = depth; bestP = p; bestQ = q; }
-            if (i < 4) sb.append(sternBrocotSweepSegment(p, q, depth));
-        }
-        double meanDepth = samples > 0 ? (double) sumDepth / samples : 0;
-        return composeSternBrocotDepth(seedQ, maxDepth, bestP, bestQ, meanDepth,
-                samples, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Stern-Brocot sample-sweep segment (incl. trailing space). */
@@ -1311,32 +962,6 @@ public class MathPhysicsEngine {
                         + "depth (equivalently the continued-fraction length) will stay below Fib⁻¹(max(p,q)) "
                         + "and below the empirical 50-level cap for q < 10⁶.")
                         .formatted(seedQ));
-    }
-
-    /** Squarefree density: count of n ≤ N with no repeated prime factor / N → 6/π². */
-    private static ResearchResult squarefreeDensity(int seedStart, int width, SearchParams sp) {
-        double asymptotic = 6.0 / (Math.PI * Math.PI);
-        double bestDev = 0;
-        int bestStart = seedStart;
-        double bestDensity = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(1, seedStart + (int) (i * sp.stepSize() * 200));
-            int end = start + width;
-            int count = 0;
-            for (int n = start; n < end; n++) if (isSquarefree(n)) count++;
-            double density = (double) count / Math.max(1, end - start);
-            double dev = Math.abs(density - asymptotic);
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestStart = start; bestDensity = density; }
-            if (i < 4) sb.append("[%d,%d)→density=%.4f(dev=%.4f) ".formatted(start, end, density, dev));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeSquarefreeDensity(seedStart, width, samples, bestDev, bestStart,
-                bestDensity, meanDev);
     }
 
     /**
@@ -1418,58 +1043,6 @@ public class MathPhysicsEngine {
         return true;
     }
 
-    // ---- Physics ----
-
-    private static ResearchResult computePhysics(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("PHYSICS", topic);
-        return switch (topic) {
-            case 0 -> projectileWithDrag(10.0 + param2 * 5, param1 / 1000.0, sp).withEquation(eq);
-            case 1 -> pendulumBreakdown(0.1 + param1 / 200.0, sp).withEquation(eq);
-            case 2 -> vanDerWaalsDeviation(200.0 + param1 * 3.0, 0.01, sp).withEquation(eq);
-            case 3 -> diffractionSurvey(1.0 + param1 / 50.0, 400.0 + param2 * 40, sp).withEquation(eq);
-            case 4 -> rlcDampingTransition(0.001 + param1 / 10000.0, 1e-6 + param2 * 1e-7, sp).withEquation(eq);
-            // Phase 7 F3.2 — new physics topics.
-            case 5 -> wienPeak(2000.0 + param1 * 30.0, sp).withEquation(eq);
-            case 6 -> schrodingerInfiniteWell(1.0 + param1 / 10.0, param2, sp).withEquation(eq);
-            case 7 -> keplerThirdLaw(0.5 + param1 / 20.0, sp).withEquation(eq);
-            case 8 -> snellCriticalAngle(1.0 + param2 / 9.0, sp).withEquation(eq);
-            default -> stefanBoltzmann(300.0 + param1 * 50.0, sp).withEquation(eq);
-        };
-    }
-
-    // Outer search: try candidateBreadth (v0, k) pairs — v0 increases by stepSize*5 per step.
-    // Primary = angle shift (45 - bestAngle); larger shift means drag is more distorting.
-    private static ResearchResult projectileWithDrag(double seedV0, double k, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double v0 = Math.max(2.0, seedV0 + i * sp.stepSize() * 5);
-            ResearchResult r = projectileWithDragAt(v0, k);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : projectileWithDragAt(seedV0, k);
-    }
-
-    private static ResearchResult projectileWithDragAt(double v0, double k) {
-        double g = 9.81, dt = 0.03;
-        int bestAngle = 45;
-        double bestRange = 0;
-        for (int a = 5; a <= 85; a++) {
-            double vx = v0 * Math.cos(Math.toRadians(a));
-            double vy = v0 * Math.sin(Math.toRadians(a));
-            double x = 0, y = 0;
-            for (int i = 0; i < 5000 && y >= -0.01; i++) {
-                double spd = Math.sqrt(vx * vx + vy * vy);
-                vx -= k * spd * vx * dt;
-                vy -= (g + k * spd * vy) * dt;
-                x += vx * dt;
-                y += vy * dt;
-            }
-            if (x > bestRange) { bestRange = x; bestAngle = a; }
-        }
-        return composeProjectileWithDragAt(v0, k, bestAngle, bestRange);
-    }
-
     /**
      * Phase 28 §28.6b — shared prose composer for PHYSICS:0 (projectile drag).
      * The derived scalars (vacuumRange, shift, loss) are recomputed from
@@ -1488,40 +1061,6 @@ public class MathPhysicsEngine {
                 shift, bestRange, loss)
                 .withHypothesis("With quadratic drag k=%.4f s/m and v₀=%.1f ms⁻¹, the range-optimal launch angle will fall below the vacuum 45° optimum."
                         .formatted(k, v0));
-    }
-
-    // Outer search: try candidateBreadth pendulum lengths spaced by stepSize*0.05 m.
-    // Primary = T0*(80-breakdownAngle): T0 scales with √L so longer pendula score higher,
-    // making the genome's stepSize/candidateBreadth actually influence which L is found.
-    private static ResearchResult pendulumBreakdown(double seedL, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double L = Math.max(0.01, seedL + i * sp.stepSize() * 0.05);
-            ResearchResult r = pendulumBreakdownAt(L);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : pendulumBreakdownAt(seedL);
-    }
-
-    private static ResearchResult pendulumBreakdownAt(double L) {
-        double g  = 9.81;
-        double T0 = 2 * Math.PI * Math.sqrt(L / g);
-        double breakdownAngle = 80;
-        StringBuilder sb = new StringBuilder();
-        for (int deg = 5; deg <= 80; deg += 5) {
-            double k  = Math.sin(Math.toRadians(deg) / 2);
-            double k2 = k * k;
-            double T  = T0 * (1 + k2 / 4 + 9 * k2 * k2 / 64 + 25 * k2 * k2 * k2 / 256);
-            double err = (T - T0) / T0 * 100;
-            // Self-contained tuple `θ=Nº→V%`: the angle is bound to its value within each
-            // pair so the narration LLM can't shift row labels by ignoring the small leading
-            // entry. P-a328-60 / P-a328-87 misread the prior unprefixed format and produced
-            // a 5°-shifted table (0.77% at 25° rather than 1.19%). Phase 5 C5.
-            sb.append(pendulumSweepSegment(deg, err));
-            if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
-        }
-        return composePendulumBreakdownAt(L, T0, breakdownAngle, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one pendulum period-error sweep segment (incl. trailing space). */
@@ -1553,42 +1092,6 @@ public class MathPhysicsEngine {
                 primary, T0, L, primary, status, assessment, hypothesis);
     }
 
-    // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
-    // Primary = maxDev*100 (max percentage deviation from ideal gas).
-    private static ResearchResult vanDerWaalsDeviation(double seedT, double tolerance, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(150, seedT + i * sp.stepSize() * 20);
-            ResearchResult r = vanDerWaalsDeviationAt(T, tolerance);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : vanDerWaalsDeviationAt(seedT, tolerance);
-    }
-
-    private static ResearchResult vanDerWaalsDeviationAt(double T, double tolerance) {
-        double a = 3.640, b = 0.04267, R = 0.08206;
-        double crossoverP = -1, maxDev = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int p = 1; p <= 100; p++) {
-            double P = p, Videal = R * T / P, V = Videal;
-            for (int iter = 0; iter < 30; iter++) {
-                double f  = (P + a / (V * V)) * (V - b) - R * T;
-                double df = (P + a / (V * V)) - 2 * a * (V - b) / (V * V * V);
-                if (Math.abs(df) < 1e-15) break;
-                double step = f / df;
-                V -= step;
-                if (V <= b) { V = b * 1.01; break; }
-            }
-            double dev = Math.abs(V - Videal) / Videal;
-            if (dev > maxDev) maxDev = dev;
-            if (dev > tolerance && crossoverP < 0) crossoverP = p;
-            if (p == 1 || p == 5 || p == 10 || p == 20 || p == 50 || p == 100)
-                sb.append(vdwSweepSegment(p, dev));
-        }
-        return composeVanDerWaalsDeviationAt(T, tolerance, maxDev, crossoverP, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Van der Waals deviation sweep segment (incl. trailing space). */
     static String vdwSweepSegment(int p, double dev) {
         return "%datm→%.2f%% ".formatted(p, dev * 100);
@@ -1616,37 +1119,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(hypothesis);
     }
 
-    // Outer search: try candidateBreadth grating spacings spaced by stepSize*0.5 µm.
-    // Primary = maxOrders/minOrders ratio — oscillates due to integer floor effects rather than
-    // growing monotonically, so the genome's strategy actually influences which d is found.
-    private static ResearchResult diffractionSurvey(double seedD, double lambdaNm, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double d = Math.max(0.4, seedD + i * sp.stepSize() * 0.5);
-            ResearchResult r = diffractionSurveyAt(d, lambdaNm);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : diffractionSurveyAt(seedD, lambdaNm);
-    }
-
-    private static ResearchResult diffractionSurveyAt(double dMicrons, double lambdaNm) {
-        int maxOrder = (int) (dMicrons * 1000 / lambdaNm);
-        double theta1 = maxOrder >= 1
-                ? Math.toDegrees(Math.asin(Math.min(1.0, lambdaNm / (dMicrons * 1000)))) : 0;
-        StringBuilder sb = new StringBuilder();
-        int minOrders = Integer.MAX_VALUE, maxOrders = 0;
-        for (double lam : new double[]{400, 450, 500, 550, 600, 650, 700}) {
-            int orders = (int) (dMicrons * 1000 / lam);
-            if (orders < minOrders) minOrders = orders;
-            if (orders > maxOrders) maxOrders = orders;
-            sb.append(diffractionSweepSegment(lam, orders));
-        }
-        double orderRatio = (double) maxOrders / Math.max(1, minOrders);
-        return composeDiffractionSurveyAt(dMicrons, lambdaNm, maxOrder, theta1, orderRatio,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one diffraction order-count sweep segment (incl. trailing space). */
     static String diffractionSweepSegment(double lam, int orders) {
         return "%.0fnm→%d ".formatted(lam, orders);
@@ -1662,35 +1134,6 @@ public class MathPhysicsEngine {
                 orderRatio, maxOrder, theta1)
                 .withHypothesis("For a grating with d=%.2f µm, the number of visible diffraction orders will vary across 400-700 nm wavelengths; shorter wavelengths will support more orders."
                         .formatted(dMicrons));
-    }
-
-    // Outer search: try candidateBreadth inductances; lower L (via stepSize) gives higher f₀.
-    // Primary = f₀ (resonant frequency) — bots that search toward smaller L find higher-frequency circuits.
-    private static ResearchResult rlcDampingTransition(double seedL, double C, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double L = Math.max(1e-5, seedL / (1.0 + i * sp.stepSize() * 0.2));
-            ResearchResult r = rlcDampingTransitionAt(L, C);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : rlcDampingTransitionAt(seedL, C);
-    }
-
-    private static ResearchResult rlcDampingTransitionAt(double L, double C) {
-        double critR  = 2 * Math.sqrt(L / C);
-        double omega0 = 1 / Math.sqrt(L * C);
-        double f0     = omega0 / (2 * Math.PI);
-        StringBuilder sb = new StringBuilder();
-        double minQ = Double.MAX_VALUE, maxQ = 0;
-        for (double mult : new double[]{0.1, 0.25, 0.5, 1.0, 2.0, 4.0}) {
-            double R = critR * mult;
-            double Q = omega0 * L / R;
-            if (Q < minQ) minQ = Q;
-            if (Q > maxQ) maxQ = Q;
-            sb.append(rlcSweepSegment(mult, Q));
-        }
-        return composeRlcDampingTransitionAt(L, C, f0, critR, minQ, maxQ, sb.toString().trim());
     }
 
     /**
@@ -1714,34 +1157,6 @@ public class MathPhysicsEngine {
                         .formatted(L, C));
     }
 
-    // ---- Phase 7 F3.2: new physics topics ----
-
-    /** Wien displacement law: peak-emission wavelength scales as b/T (b=2.898e-3 m·K). */
-    private static ResearchResult wienPeak(double seedT, SearchParams sp) {
-        double wienB = 2.8977719e-3;
-        double bestDev = 0;
-        double bestT = seedT;
-        double bestLambda = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(100.0, seedT + i * sp.stepSize() * 200);
-            double lambdaMax = wienB / T;
-            // Synthetic "observed" λ_max: perturb the closed-form by a 0.5% noise band so
-            // the deviation sweep is non-trivial. The hypothesis test is whether ALL
-            // sampled points stay within Wien's 5% acceptance band.
-            double observed = lambdaMax * (1.0 + Math.sin(i * 0.37) * 0.005);
-            double dev = Math.abs(observed * T - wienB) / wienB;
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestT = T; bestLambda = observed; }
-            if (i < 4) sb.append("T=%.0fK→λ_max=%.2fµm(dev=%.3f%%) ".formatted(T, observed * 1e6, dev * 100));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeWienPeak(seedT, bestT, samples, bestLambda, bestDev, meanDev);
-    }
-
     /** Phase 28 §28.6b — shared prose composer for PHYSICS:5 (Wien peak). */
     static ResearchResult composeWienPeak(double seedT, double bestT, int samples,
             double bestLambda, double bestDev, double meanDev) {
@@ -1759,30 +1174,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("Across the sampled temperature range starting near %.0f K, the empirical "
                         + "λ_max·T product will remain within 5%% of Wien's constant 2.898×10⁻³ m·K.")
                         .formatted(seedT));
-    }
-
-    /** Particle-in-a-1D-box ground-state energy E₁ = h²/(8mL²). */
-    private static ResearchResult schrodingerInfiniteWell(double seedLnm, double param2, SearchParams sp) {
-        double h = 6.62607015e-34;       // J·s
-        double me = 9.1093837015e-31;    // kg (electron mass)
-        double kB = 1.380649e-23;        // J/K
-        double T = 300.0 + param2 * 30.0;  // K — thermal reference
-        double bestRatio = 0;
-        double bestL = seedLnm;
-        double bestE1 = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double Lnm = Math.max(0.1, seedLnm - i * sp.stepSize() * 0.05);
-            double Lm = Lnm * 1e-9;
-            double E1 = (h * h) / (8.0 * me * Lm * Lm);
-            double ratio = E1 / (kB * T);
-            samples++;
-            if (ratio > bestRatio) { bestRatio = ratio; bestL = Lnm; bestE1 = E1; }
-            if (i < 4) sb.append(schrodingerSweepSegment(Lnm, E1, ratio));
-        }
-        return composeSchrodingerInfiniteWell(seedLnm, T, samples, bestRatio, bestL, bestE1,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one infinite-well ground-state sweep segment (incl. trailing space). */
@@ -1811,36 +1202,6 @@ public class MathPhysicsEngine {
                         .formatted(seedLnm, T));
     }
 
-    /** Kepler's third law: T² ∝ a³ with constant 4π²/(GM). Solar M assumed. */
-    private static ResearchResult keplerThirdLaw(double seedAuAu, SearchParams sp) {
-        double GMsun = 1.32712440018e20;  // m³/s²
-        double AU = 1.495978707e11;        // m
-        double secPerYear = 3.15576e7;
-        double bestDev = 0;
-        double bestA = seedAuAu;
-        double bestT = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double aAU = Math.max(0.05, seedAuAu + i * sp.stepSize() * 0.5);
-            double aM = aAU * AU;
-            double Tsec = 2 * Math.PI * Math.sqrt(aM * aM * aM / GMsun);
-            double Tyear = Tsec / secPerYear;
-            // Empirical synthetic observation with a small noise band.
-            double observedT = Tyear * (1.0 + Math.sin(i * 0.51) * 0.02);
-            // Kepler check: observed T² / a³ should equal 1 (yr² / AU³) for the sun.
-            double ratio = (observedT * observedT) / (aAU * aAU * aAU);
-            double dev = Math.abs(ratio - 1.0);
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestA = aAU; bestT = observedT; }
-            if (i < 4) sb.append("a=%.2fAU→T=%.2fyr(T²/a³=%.3f) ".formatted(aAU, observedT, ratio));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeKeplerThirdLaw(seedAuAu, bestA, samples, bestDev, bestT, meanDev);
-    }
-
     /** Phase 28 §28.6b — shared prose composer for PHYSICS:7 (Kepler third law). */
     static ResearchResult composeKeplerThirdLaw(double seedAuAu, double bestA, int samples,
             double bestDev, double bestT, double meanDev) {
@@ -1858,30 +1219,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("Across orbits sampled near a=%.2f AU under a Sol-mass primary, the period-"
                         + "semimajor-axis ratio T²/a³ will remain within 10%% of Kepler's constant (1 yr²/AU³).")
                         .formatted(seedAuAu));
-    }
-
-    /** Snell's law critical angle: θ_c = arcsin(n₂/n₁) for n₁>n₂. */
-    private static ResearchResult snellCriticalAngle(double seedN2, SearchParams sp) {
-        double n1 = 1.5;  // glass
-        double bestErr = 0;
-        double bestN2 = seedN2;
-        double bestTheta = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumErr = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double n2 = Math.max(1.0, Math.min(n1 - 0.01, seedN2 + i * sp.stepSize() * 0.05));
-            double thetaC = Math.toDegrees(Math.asin(n2 / n1));
-            // Synthetic observed angle drifts by up to 1.5° (within the 2° bound).
-            double observed = thetaC + Math.sin(i * 0.43) * 1.5;
-            double err = Math.abs(thetaC - observed);
-            sumErr += err;
-            samples++;
-            if (err > bestErr) { bestErr = err; bestN2 = n2; bestTheta = thetaC; }
-            if (i < 4) sb.append("n₂=%.3f→θ_c=%.1f°(err=%.2f°) ".formatted(n2, thetaC, err));
-        }
-        double meanErr = samples > 0 ? sumErr / samples : 0;
-        return composeSnellCriticalAngle(seedN2, bestN2, samples, bestErr, bestTheta, meanErr);
     }
 
     /** Phase 28 §28.6b — shared prose composer for PHYSICS:8 (Snell critical angle). */
@@ -1904,32 +1241,6 @@ public class MathPhysicsEngine {
                         .formatted(n1, seedN2));
     }
 
-    /** Stefan-Boltzmann: P = σ·A·T⁴ with σ = 5.67×10⁻⁸ W/m²/K⁴. */
-    private static ResearchResult stefanBoltzmann(double seedT, SearchParams sp) {
-        double sigmaTrue = 5.670374419e-8;
-        double A = 1.0;  // m², unit-area emitter
-        double bestDev = 0;
-        double bestT = seedT;
-        double bestSigma = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumDev = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(100.0, seedT + i * sp.stepSize() * 100.0);
-            double P = sigmaTrue * A * Math.pow(T, 4);
-            // Empirical "observed" power with small noise; recover σ_observed = P/(A·T⁴).
-            double observedP = P * (1.0 + Math.sin(i * 0.29) * 0.03);
-            double sigmaObs = observedP / (A * Math.pow(T, 4));
-            double dev = Math.abs(sigmaObs - sigmaTrue) / sigmaTrue;
-            sumDev += dev;
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestT = T; bestSigma = sigmaObs; }
-            if (i < 4) sb.append("T=%.0fK→P=%.2eW(σ_obs=%.3e, dev=%.2f%%) ".formatted(T, observedP, sigmaObs, dev * 100));
-        }
-        double meanDev = samples > 0 ? sumDev / samples : 0;
-        return composeStefanBoltzmann(seedT, bestT, samples, bestSigma, bestDev, meanDev);
-    }
-
     /** Phase 28 §28.6b — shared prose composer for PHYSICS:9 (Stefan-Boltzmann). */
     static ResearchResult composeStefanBoltzmann(double seedT, double bestT, int samples,
             double bestSigma, double bestDev, double meanDev) {
@@ -1947,28 +1258,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("For a unit-area emitter swept from T=%.0f K, the empirical σ recovered from "
                         + "P/(A·T⁴) will remain within 10%% of Stefan-Boltzmann's tabulated 5.670×10⁻⁸ W·m⁻²·K⁻⁴.")
                         .formatted(seedT));
-    }
-
-    // ---- Phase 7 F3.3: new materials topics ----
-
-    /** Hall-Petch grain-size strengthening: σ_y = σ_0 + k·d^(−1/2). */
-    private static ResearchResult hallPetchStrengthening(double seedSigma0, double param2, SearchParams sp) {
-        // k is the Hall-Petch coefficient (MPa·µm^½). Steels typically 300-700.
-        double k = 300.0 + param2 * 50.0;
-        double sigma0 = Math.max(50.0, seedSigma0);
-        double maxYield = 0;
-        double bestD = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double d_um = Math.max(0.05, 50.0 - i * sp.stepSize() * 1.5);
-            double sigmaY = sigma0 + k / Math.sqrt(d_um);
-            samples++;
-            if (sigmaY > maxYield) { maxYield = sigmaY; bestD = d_um; }
-            if (i < 4) sb.append(hallPetchSweepSegment(d_um, sigmaY));
-        }
-        return composeHallPetchStrengthening(sigma0, k, maxYield, bestD, samples,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Hall-Petch grain-size sweep segment (incl. trailing space). */
@@ -1998,39 +1287,6 @@ public class MathPhysicsEngine {
                         .formatted(sigma0, k));
     }
 
-    /** Bragg X-ray diffraction: n·λ = 2·d·sin θ. Recovers θ for given (d, λ, n). */
-    private static ResearchResult braggDiffraction(double seedDnm, double lambdaNm, SearchParams sp) {
-        double bestAngle = 0;
-        double bestD = seedDnm;
-        int bestN = 1;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        int validOrders = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double d = Math.max(0.05, seedDnm + i * sp.stepSize() * 0.02);
-            // Sweep diffraction orders n = 1..3, count those within [0°, 90°].
-            int orders = 0;
-            for (int n = 1; n <= 3; n++) {
-                double sinTheta = (n * lambdaNm) / (2 * d);
-                if (sinTheta <= 1.0) {
-                    double theta = Math.toDegrees(Math.asin(sinTheta));
-                    if (n == 1 && theta > bestAngle) { bestAngle = theta; bestD = d; bestN = n; }
-                    orders++;
-                }
-            }
-            validOrders += orders;
-            samples++;
-            if (i < 4) {
-                double sinT1 = lambdaNm / (2 * d);
-                double t1 = sinT1 <= 1.0 ? Math.toDegrees(Math.asin(sinT1)) : 90.0;
-                sb.append(braggSweepSegment(d, t1));
-            }
-        }
-        double meanOrders = samples > 0 ? (double) validOrders / samples : 0;
-        return composeBraggDiffraction(lambdaNm, seedDnm, samples, bestAngle, bestD, bestN,
-                meanOrders, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Bragg first-order-angle sweep segment (incl. trailing space). */
     static String braggSweepSegment(double d, double t1) {
         return "d=%.3fnm→θ₁=%.1f° ".formatted(d, t1);
@@ -2052,28 +1308,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("For λ=%.3f nm X-rays and lattice spacings swept near d=%.3f nm, the first-order "
                         + "Bragg condition n·λ = 2·d·sin θ yields a recoverable diffraction angle in [0°, 90°].")
                         .formatted(lambdaNm, seedDnm));
-    }
-
-    /** Carnot efficiency: η = 1 − T_c/T_h. */
-    private static ResearchResult carnotEfficiency(double seedTc, double seedTh, SearchParams sp) {
-        double bestEta = 0;
-        double bestTc = seedTc;
-        double bestTh = seedTh;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        double sumEta = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double Tc = Math.max(50.0, seedTc + Math.sin(i * 0.31) * 30.0);
-            double Th = Math.max(Tc + 10.0, seedTh + i * sp.stepSize() * 25.0);
-            double eta = 1.0 - Tc / Th;
-            sumEta += eta;
-            samples++;
-            if (eta > bestEta) { bestEta = eta; bestTc = Tc; bestTh = Th; }
-            if (i < 4) sb.append(carnotSweepSegment(Tc, Th, eta));
-        }
-        double meanEta = samples > 0 ? sumEta / samples : 0;
-        return composeCarnotEfficiency(seedTc, seedTh, samples, bestEta, bestTc, bestTh,
-                meanEta, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Carnot efficiency sweep segment (incl. trailing space). */
@@ -2103,28 +1337,6 @@ public class MathPhysicsEngine {
                         .formatted(seedTc, seedTh));
     }
 
-    /** Basquin high-cycle fatigue: σ_a = σ'_f · (2·N_f)^b. */
-    private static ResearchResult basquinFatigue(double seedSigmaF, double param2, SearchParams sp) {
-        double sigmaPrimeF = seedSigmaF;  // MPa, fatigue strength coefficient
-        double b = -0.08 - param2 * 0.01;  // typical -0.05 to -0.15
-        double UTS = sigmaPrimeF * 0.9;   // assume σ_f is ~90% of UTS
-        double bestAmp = 0;
-        long bestNf = 0;
-        int countAboveUts = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            long Nf = (long) Math.max(1_000, 10_000 + i * sp.stepSize() * 50_000);
-            double sigmaA = sigmaPrimeF * Math.pow(2.0 * Nf, b);
-            samples++;
-            if (sigmaA > bestAmp) { bestAmp = sigmaA; bestNf = Nf; }
-            if (sigmaA > UTS) countAboveUts++;
-            if (i < 4) sb.append(basquinSweepSegment(Nf, sigmaA));
-        }
-        return composeBasquinFatigue(sigmaPrimeF, b, bestAmp, bestNf, countAboveUts, samples,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Basquin S-N sweep segment (incl. trailing space). */
     static String basquinSweepSegment(long Nf, double sigmaA) {
         return "N_f=%dk→σ_a=%.0fMPa ".formatted(Nf / 1000, sigmaA);
@@ -2149,31 +1361,6 @@ public class MathPhysicsEngine {
                         + "the Basquin power law σ_a = σ'_f·(2·N_f)^b will produce stress amplitudes that stay below "
                         + "the material's ultimate tensile strength across the swept cycle-count range.")
                         .formatted(sigmaPrimeF, b));
-    }
-
-    /** Young-Laplace capillary rise: h = 2γ·cos θ / (ρ·g·r). */
-    private static ResearchResult youngLaplaceCapillary(double seedRadiusMm, SearchParams sp) {
-        double gamma = 0.0728;   // N/m, water surface tension at 20°C
-        double rho = 1000.0;     // kg/m³
-        double g = 9.81;
-        double contactAngle = Math.toRadians(20.0);  // wet glass
-        double maxH = 0;
-        double bestR = seedRadiusMm;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        int countAboveLimit = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double r_mm = Math.max(0.005, seedRadiusMm - i * sp.stepSize() * 0.005);
-            double r_m = r_mm * 1e-3;
-            double h_m = (2 * gamma * Math.cos(contactAngle)) / (rho * g * r_m);
-            double h_cm = h_m * 100.0;
-            samples++;
-            if (h_cm > maxH) { maxH = h_cm; bestR = r_mm; }
-            if (h_cm > 50.0) countAboveLimit++;  // F3 spec: water rise must be ≤ 50 cm
-            if (i < 4) sb.append(youngLaplaceSweepSegment(r_mm, h_cm));
-        }
-        return composeYoungLaplaceCapillary(seedRadiusMm, maxH, bestR, samples, countAboveLimit,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Young-Laplace capillary-rise sweep segment (incl. trailing space). */
@@ -2207,38 +1394,6 @@ public class MathPhysicsEngine {
                         + "Young-Laplace h = 2γ·cos θ / (ρ·g·r); the maximum measurable rise across the sweep "
                         + "scales inversely with tube radius.")
                         .formatted(seedRadiusMm));
-    }
-
-    // ---- Materials ----
-
-    private static ResearchResult computeMaterials(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("MATERIALS", topic);
-        return switch (topic) {
-            case 0 -> compositeFailureMode(50.0 + param1 * 5, sp).withEquation(eq);
-            case 1 -> binarySpherePacking(sp).withEquation(eq);
-            case 2 -> compositeStiffnessCrossover(10.0 + param1 * 2, 2.0, sp).withEquation(eq);
-            case 3 -> arrheniusRuleValidity(300.0 + param1 * 3, 50.0 + param2 * 20, sp).withEquation(eq);
-            case 4 -> thermalStressSafety(50.0 + param1 * 3, 200.0 + param2 * 50, sp).withEquation(eq);
-            // Phase 7 F3.3 — new materials topics.
-            case 5 -> hallPetchStrengthening(50.0 + param1, param2, sp).withEquation(eq);
-            case 6 -> braggDiffraction(0.05 + param1 / 500.0, 0.154, sp).withEquation(eq);
-            case 7 -> carnotEfficiency(280.0 + param2 * 10, 400.0 + param1 * 5, sp).withEquation(eq);
-            case 8 -> basquinFatigue(800.0 + param1 * 5, param2, sp).withEquation(eq);
-            default -> youngLaplaceCapillary(0.1 + param1 / 200.0, sp).withEquation(eq);
-        };
-    }
-
-    // Outer search: try candidateBreadth sigmaYm values spaced by stepSize*50 MPa.
-    // Primary = maxStress — higher matrix yield strength produces more extreme composite stress.
-    private static ResearchResult compositeFailureMode(double seedSigmaYm, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double sigmaYm = clamp(seedSigmaYm + i * sp.stepSize() * 50, 10.0, 200.0);
-            ResearchResult r = compositeFailureModeAt(sigmaYm);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : compositeFailureModeAt(clamp(seedSigmaYm, 10.0, 200.0));
     }
 
     // Phase 28 §28.6b — package-private so SidecarResultComposer can recompute
@@ -2301,28 +1456,6 @@ public class MathPhysicsEngine {
                 maxStress, failureStrain, maxVf, maxStress, ClaimStatus.SUPPORTED, assessment, hypothesis);
     }
 
-    // Inner precision: candidateBreadth controls r sample density across [0.001, 0.65].
-    // Primary = (bestEta - etaFCC)*100 — finer sampling finds the peak r more precisely.
-    private static ResearchResult binarySpherePacking(SearchParams sp) {
-        double etaFCC = Math.PI / (3 * Math.sqrt(2));
-        double bestR = 0, bestEta = etaFCC;
-        StringBuilder sb = new StringBuilder();
-        int samples = sp.candidateBreadth();
-        for (int i = 0; i < samples; i++) {
-            double r = 0.001 + (i / (double) Math.max(1, samples - 1)) * 0.649;
-            double voidVolOcta  = r <= 0.4142 ? (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
-            double voidVolTetra = r <= 0.2247 ? 2 * (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
-            double addedPacking = (voidVolOcta + voidVolTetra) * etaFCC / ((4.0 / 3) * Math.PI);
-            double etaTotal = Math.min(0.99, etaFCC + addedPacking);
-            if (etaTotal > bestEta) { bestEta = etaTotal; bestR = r; }
-            if (i % (samples / Math.min(6, samples)) == 0)
-                sb.append(spherePackingSweepSegment(r, etaTotal));
-        }
-        double improvement = (bestEta - etaFCC) * 100;
-        return composeBinarySpherePacking(etaFCC, bestEta, bestR, improvement, samples,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one binary-sphere-packing sweep segment (incl. trailing space). */
     static String spherePackingSweepSegment(double r, double eta) {
         return "r=%.2f→η=%.4f ".formatted(r, eta);
@@ -2336,21 +1469,6 @@ public class MathPhysicsEngine {
                         .formatted(etaFCC, samples, sweep, bestEta, bestR, improvement),
                 improvement, bestR, etaFCC)
                 .withHypothesis("In an FCC lattice, filling octahedral and tetrahedral voids with smaller hard spheres will improve packing beyond the 74.05% FCC baseline; sampled radius ratios will identify the peak improvement.");
-    }
-
-    // Outer search: try candidateBreadth Ef/Em ratios spaced by stepSize*5.
-    // Searches toward lower ratios (more surprising crossover behaviour further from 50%).
-    // Primary = crossoverVf - 0.5 (departure from the intuitive 50% guess).
-    private static ResearchResult compositeStiffnessCrossover(double seedRatio, double targetMultiple,
-                                                               SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double ratio = Math.max(2.0, seedRatio - i * sp.stepSize() * 5);
-            ResearchResult r = compositeStiffnessCrossoverAt(ratio, targetMultiple);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : compositeStiffnessCrossoverAt(seedRatio, targetMultiple);
     }
 
     static ResearchResult compositeStiffnessCrossoverAt(double EfOverEm, double targetMultiple) {
@@ -2372,19 +1490,6 @@ public class MathPhysicsEngine {
                 surprise, crossoverVf, EfOverEm)
                 .withHypothesis("For a composite with Ef/Em=%.0f, transverse stiffness under the Reuss bound will reach %.1f×Em at a fibre volume fraction well above 0.5."
                         .formatted(EfOverEm, targetMultiple));
-    }
-
-    // Outer search: try candidateBreadth temperatures spaced by stepSize*20 K.
-    // Primary = worst-case |ratio - 2.0| — larger when the Van't Hoff rule breaks down most severely.
-    private static ResearchResult arrheniusRuleValidity(double seedT, double maxEaKJ, SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(200.0, seedT + i * sp.stepSize() * 20);
-            ResearchResult r = arrheniusRuleValidityAt(T, maxEaKJ);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : arrheniusRuleValidityAt(seedT, maxEaKJ);
     }
 
     static ResearchResult arrheniusRuleValidityAt(double T, double maxEaKJ) {
@@ -2425,20 +1530,6 @@ public class MathPhysicsEngine {
                 lastValid > 0 ? lastValid : maxEaKJ, worstDev, status, assessment, hypothesis);
     }
 
-    // Outer search: try candidateBreadth deltaT values spaced by stepSize*20 K.
-    // Primary = failure fraction (materials exceeding yield) — rises with deltaT.
-    private static ResearchResult thermalStressSafety(double seedDeltaT, double sigmaYMPa,
-                                                       SearchParams sp) {
-        ResearchResult best = null;
-        double bestExtreme = -1;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double deltaT = Math.max(10.0, seedDeltaT + i * sp.stepSize() * 20);
-            ResearchResult r = thermalStressSafetyAt(deltaT, sigmaYMPa);
-            if (r.primaryValue() > bestExtreme) { bestExtreme = r.primaryValue(); best = r; }
-        }
-        return best != null ? best : thermalStressSafetyAt(seedDeltaT, sigmaYMPa);
-    }
-
     static ResearchResult thermalStressSafetyAt(double deltaT, double sigmaYMPa) {
         double E = 200e3;
         double critAlpha = sigmaYMPa / (E * deltaT) * 1e6;
@@ -2459,24 +1550,6 @@ public class MathPhysicsEngine {
                 failFraction, critAlpha, safe)
                 .withHypothesis("For a fully constrained steel member with ΔT=%.0f K and σ_Y=%.0f MPa, there is a critical CTE α_c below which thermal stress remains below yield."
                         .formatted(deltaT, sigmaYMPa));
-    }
-
-    // ---- Interdisciplinary (chained cross-domain computation) ----
-
-    private static ResearchResult computeInterdisciplinary(int topic, int param1, double param2,
-                                                            SearchParams sp) {
-        String eq = equationFor("INTERDISCIPLINARY", topic);
-        return switch (topic) {
-            case 0 -> collatzRlcDepthResonance(param1, param2, sp).withEquation(eq);
-            case 1 -> primeGapDefectThermal(param1, param2, sp).withEquation(eq);
-            case 2 -> resonantThermalFatigue(param1, param2, sp).withEquation(eq);
-            case 3 -> happyPackingAnomaly(param1, param2, sp).withEquation(eq);
-            case 4 -> vanDerWaalsCompositeStress(param1, param2, sp).withEquation(eq);
-            // Phase 7 F3.5 — new interdisciplinary topics.
-            case 5 -> hallEffectCarrierSign(param1, param2, sp).withEquation(eq);
-            case 6 -> schottkyThermionicEmission(param1, param2, sp).withEquation(eq);
-            default -> acousticDopplerShift(param1, param2, sp).withEquation(eq);
-        };
     }
 
     /**
@@ -2590,34 +1663,6 @@ public class MathPhysicsEngine {
         return equationFor(domain, idx);
     }
 
-    /**
-     * Math→Physics chain: Collatz stopping time at n=param1*3 determines inductance
-     * L = depth/10000 H; that L drives an RLC resonance survey.
-     * Cross-domain claim: number-theoretic trajectory depth has a measurable analogue
-     * in circuit resonance — deeper Collatz sequences produce lower-frequency RLC circuits.
-     */
-    private static ResearchResult collatzRlcDepthResonance(int param1, double param2,
-                                                            SearchParams sp) {
-        int best = 0;
-        double bestF0 = 0;
-        int bestDepth = 0, bestN = param1 * 3;
-        StringBuilder mathSb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int n = Math.max(2, param1 * 3 + (int)(i * sp.stepSize() * 10));
-            int depth = collatzSteps(n);
-            double L = Math.max(1e-5, depth / 10000.0);
-            double C = 1e-6 + param2 * 1e-7;
-            double f0 = 1.0 / (2 * Math.PI * Math.sqrt(L * C));
-            if (f0 > bestF0) { bestF0 = f0; bestDepth = depth; bestN = n; }
-            if (i < 4) mathSb.append(collatzRlcSweepSegment(n, depth, f0));
-        }
-        double L_best = Math.max(1e-5, bestDepth / 10000.0);
-        double C = 1e-6 + param2 * 1e-7;
-        double critR = 2 * Math.sqrt(L_best / C);
-        return composeCollatzRlcDepthResonance(param1, C, bestN, bestDepth, bestF0, L_best,
-                critR, mathSb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Collatz→RLC chain sweep segment (incl. trailing space). */
     static String collatzRlcSweepSegment(int n, int depth, double f0) {
         return "n=%d→depth=%d→f₀=%.0fHz ".formatted(n, depth, f0);
@@ -2638,36 +1683,6 @@ public class MathPhysicsEngine {
                 bestF0, bestDepth, critR, bestF0, status, assessment)
                 .withHypothesis("Collatz stopping depth at n=%d (depth=%d) maps to circuit inductance L=%.4f H; the resulting RLC resonance f₀=%.0f Hz quantifies how number-theoretic complexity translates to physical frequency."
                         .formatted(bestN, bestDepth, L_best, bestF0));
-    }
-
-    /**
-     * Math→Materials chain: prime constellation max gap in a window seeded by param1
-     * is interpreted as a crystal defect spacing (in µm), driving a thermal stress model.
-     */
-    private static ResearchResult primeGapDefectThermal(int param1, double param2,
-                                                         SearchParams sp) {
-        double bestStress = 0;
-        int bestGap = 0, bestStart = param1 * 10;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(2, param1 * 10 + (int)(i * sp.stepSize() * 50));
-            int end = start + 60;
-            int maxGap = 2;
-            int prev = -1;
-            for (int n = start; n < end; n++) {
-                if (isPrime(n)) { if (prev > 0) maxGap = Math.max(maxGap, n - prev); prev = n; }
-            }
-            // Defect spacing in µm = maxGap; CTE increases with defect density (1/spacing)
-            double alpha = 5.0 + 20.0 / maxGap;
-            double deltaT = 200 + param2 * 30;
-            double E = 200e3;
-            double stress = alpha * 1e-6 * E * deltaT;
-            if (stress > bestStress) { bestStress = stress; bestGap = maxGap; bestStart = start; }
-            if (i < 4) sb.append(primeGapSweepSegment(start, end, maxGap, stress));
-        }
-        double threshold = 200.0 + param2 * 30;
-        return composePrimeGapDefectThermal(param1, threshold, bestStress, bestGap, bestStart,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one prime-gap→thermal chain sweep segment (incl. trailing space). */
@@ -2693,44 +1708,6 @@ public class MathPhysicsEngine {
                         .formatted(param1 * 10));
     }
 
-    /**
-     * Physics→Materials chain: RLC resonant frequency for given L (param1-derived) and C
-     * becomes the thermal cycling frequency; materials are tested against fatigue failure.
-     * High-frequency cycling exhausts thermal fatigue allowance faster.
-     */
-    private static ResearchResult resonantThermalFatigue(int param1, double param2,
-                                                          SearchParams sp) {
-        // Use NEGATIVE_INFINITY so the very first candidate always wins, avoiding zero-sentinel defaults
-        // when no material fails (fatigueFrac=0 for every candidate is a valid null result, not a bug).
-        double bestFatigueFrac = Double.NEGATIVE_INFINITY;
-        double bestF0 = 0, bestL = 0;
-        StringBuilder sb = new StringBuilder();
-        double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50};
-        String[] labels = {"Invar", "Steel", "Cu", "Al", "Al(soft)", "Brass", "Al-alloy", "Zn", "PVC"};
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double L = Math.max(1e-5, (0.001 + param1 / 10000.0) / (1.0 + i * sp.stepSize() * 0.2));
-            double C = 1e-6 + param2 * 1e-7;
-            double f0 = 1.0 / (2 * Math.PI * Math.sqrt(L * C));
-            // Thermal cycling: each oscillation is one load cycle; material fatigue limit ~10^6 cycles
-            // Higher f0 → fatigue limit reached sooner; fatigue fraction = f0 / 1e6 (scaled)
-            double deltaT = 10.0 + f0 / 1000.0;
-            double E = 200e3;
-            int failed = 0;
-            for (double alpha : alphas) {
-                double stress = alpha * 1e-6 * E * deltaT;
-                if (stress > 200) failed++;
-            }
-            double fatigueFrac = (double) failed / alphas.length;
-            if (fatigueFrac > bestFatigueFrac) {
-                bestFatigueFrac = fatigueFrac; bestF0 = f0; bestL = L;
-            }
-            if (i < 4) sb.append(resonantFatigueSweepSegment(L, f0, failed));
-        }
-        if (bestFatigueFrac < 0) bestFatigueFrac = 0; // empty candidateBreadth guard
-        return composeResonantThermalFatigue(param1, bestFatigueFrac, bestF0, bestL,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one RLC→fatigue chain sweep segment (incl. trailing space). 9 fixed CTEs. */
     static String resonantFatigueSweepSegment(double L, double f0, int failed) {
         return "L=%.4fH→f₀=%.0fHz→fail=%d/%d ".formatted(L, f0, failed, 9);
@@ -2752,36 +1729,6 @@ public class MathPhysicsEngine {
                 bestFatigueFrac, bestF0, bestL, bestFatigueFrac, status, assessment)
                 .withHypothesis("RLC resonant frequency for L derived from param1=%d governs the thermal cycling rate; higher frequencies push more materials past their 200 MPa yield threshold."
                         .formatted(param1));
-    }
-
-    /**
-     * Math→Materials chain: happy number density in a window seeded by param1 modulates
-     * the small-sphere radius in binary FCC sphere packing.
-     * Happy density above the 14.3% asymptotic is mapped to a denser packing improvement.
-     */
-    private static ResearchResult happyPackingAnomaly(int param1, double param2, SearchParams sp) {
-        double bestImprovement = 0;
-        double bestDensity = 0.143;
-        int bestStart = param1 * 7;
-        StringBuilder sb = new StringBuilder();
-        double etaFCC = Math.PI / (3 * Math.sqrt(2));
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int start = Math.max(1, param1 * 7 + (int)(i * sp.stepSize() * 200));
-            int count = 80 + (int)(param2 * 20);
-            int happy = 0;
-            for (int n = start; n < start + count; n++) if (isHappy(n)) happy++;
-            double density = (double) happy / count;
-            // Density deviation drives the small-sphere radius: r = 0.2 + 0.3*(density/0.143)
-            double r = Math.min(0.45, 0.2 + 0.3 * (density / 0.143));
-            double voidVol = r <= 0.4142 ? (4.0 / 3) * Math.PI * Math.pow(r, 3) : 0;
-            double improvement = (voidVol * etaFCC / ((4.0 / 3) * Math.PI)) * 100;
-            if (improvement > bestImprovement) {
-                bestImprovement = improvement; bestDensity = density; bestStart = start;
-            }
-            if (i < 4) sb.append(happyPackingSweepSegment(start, density, r, improvement));
-        }
-        return composeHappyPackingAnomaly(param1, bestImprovement, bestDensity, bestStart,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one happy→packing chain sweep segment (incl. trailing space). */
@@ -2807,42 +1754,6 @@ public class MathPhysicsEngine {
                         .formatted(param1 * 7));
     }
 
-    /**
-     * Physics→Materials chain: Van der Waals crossover pressure (where CO₂ departs >1% from ideal)
-     * at temperature T derived from param1 is used as a proxy mechanical pressure loading a fibre composite.
-     */
-    private static ResearchResult vanDerWaalsCompositeStress(int param1, double param2,
-                                                              SearchParams sp) {
-        double bestStress = 0;
-        double bestCrossoverP = -1, bestT = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(150, 200 + param1 * 3.0 + i * sp.stepSize() * 20);
-            double a = 3.640, b = 0.04267, R = 0.08206;
-            double crossoverP = -1;
-            for (int p = 1; p <= 100; p++) {
-                double P = p, Videal = R * T / P, V = Videal;
-                for (int iter = 0; iter < 20; iter++) {
-                    double f  = (P + a / (V * V)) * (V - b) - R * T;
-                    double df = (P + a / (V * V)) - 2 * a * (V - b) / (V * V * V);
-                    if (Math.abs(df) < 1e-15) break;
-                    V -= f / df;
-                    if (V <= b) { V = b * 1.01; break; }
-                }
-                double dev = Math.abs(V - Videal) / Videal;
-                if (dev > 0.01 && crossoverP < 0) { crossoverP = p; break; }
-            }
-            // Treat crossover pressure (atm) as MPa loading on a composite
-            double Ef = 200e3, Em = 3e3, Vf = 0.3 + param2 * 0.05;
-            double EL = Vf * Ef + (1 - Vf) * Em;
-            double stress = crossoverP > 0 ? crossoverP * EL / 1000.0 : 0;
-            if (stress > bestStress) { bestStress = stress; bestCrossoverP = crossoverP; bestT = T; }
-            if (i < 4 && crossoverP > 0) sb.append(vdwCompositeSweepSegment(T, crossoverP, stress));
-        }
-        return composeVanDerWaalsCompositeStress(param2, bestStress, bestCrossoverP, bestT,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one VdW→composite chain sweep segment (incl. trailing space). */
     static String vdwCompositeSweepSegment(double T, double crossoverP, double stress) {
         return "T=%.0fK→P_c=%.0fatm→σ=%.0fMPa ".formatted(T, crossoverP, stress);
@@ -2865,41 +1776,6 @@ public class MathPhysicsEngine {
                 bestStress, pc, bestT, bestStress, status, assessment)
                 .withHypothesis("Van der Waals crossover pressure for CO₂ at T=%.0f K, treated as a mechanical loading analogue, drives longitudinal stress in a %.0f%% fibre-volume composite."
                         .formatted(bestT, (0.3 + param2 * 0.05) * 100));
-    }
-
-    // ---- Phase 7 F3.5: new INTERDISCIPLINARY topics ----
-
-    /**
-     * Hall-effect (Physics → Materials): V_H = (I·B)/(n·e·t). The sign of V_H
-     * recovers the carrier type — positive for holes, negative for electrons.
-     * Mechanism: Lorentz force F = qv×B deflects carriers to one face of the bar.
-     */
-    private static ResearchResult hallEffectCarrierSign(int param1, double param2, SearchParams sp) {
-        double e = 1.602176634e-19;   // C
-        // Geometry & current — chosen so V_H stays sub-1 V even at the lowest
-        // sampled n. F3 spec bound: |V_H| ≤ 1 V at reasonable I, B.
-        double I = 0.1;               // A
-        double t = 1e-4;              // m, 100 µm bar thickness
-        // Choose a "true" carrier charge sign from param2: +1 for holes, -1 for electrons.
-        double trueSign = (((int)(param2 * 10)) % 2 == 0) ? +1.0 : -1.0;
-        double bestAbsV = 0;
-        double bestB = 0;
-        double bestN = 0;
-        int correctSign = 0;
-        int totalSamples = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double B = 0.05 + (param1 + i * sp.stepSize() * 5) * 0.002;  // T
-            double n = 1e24 + i * sp.stepSize() * 1e23;                    // carriers/m³ (doped semi → metal range)
-            double V_H = trueSign * (I * B) / (n * e * t);
-            totalSamples++;
-            if (Math.signum(V_H) == trueSign) correctSign++;
-            if (Math.abs(V_H) > bestAbsV) { bestAbsV = Math.abs(V_H); bestB = B; bestN = n; }
-            if (i < 4) sb.append(hallSweepSegment(B, n, V_H));
-        }
-        double signRecovery = (double) correctSign / Math.max(1, totalSamples);
-        return composeHallEffectCarrierSign(param1, param2, trueSign, totalSamples, bestAbsV,
-                bestB, bestN, signRecovery, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Hall-effect sweep segment (incl. trailing space). */
@@ -2929,39 +1805,6 @@ public class MathPhysicsEngine {
                         .formatted(param1, param2));
     }
 
-    /**
-     * Schottky-barrier thermionic emission (Math → Physics): J = A*·T²·exp(−φ/(k·T)).
-     * The exponential structure is the mathematical content; the underlying mechanism
-     * is Boltzmann-statistics-mediated carrier injection over a metal/semiconductor
-     * barrier.
-     */
-    private static ResearchResult schottkyThermionicEmission(int param1, double param2, SearchParams sp) {
-        double k = 8.617333262e-5;   // eV/K
-        double Astar = 120.0;        // A/cm²/K², canonical Richardson constant
-        // param1 picks T near room-temp; param2 picks barrier height φ in eV.
-        double bestJ = 0;
-        double bestT = 0;
-        double bestPhi = 0;
-        int aboveLimit = 0;
-        int samples = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = 200.0 + (param1 + i * sp.stepSize() * 5) * 5.0;     // K
-            double phi = 0.4 + param2 / 10.0 + i * sp.stepSize() * 0.02;   // eV
-            double exponent = -phi / (k * T);
-            // Cap exponent to avoid overflow underflow noise; physically the result
-            // would just be effectively zero.
-            double expTerm = exponent > -60 ? Math.exp(exponent) : 0;
-            double J = Astar * T * T * expTerm;
-            samples++;
-            if (J > bestJ) { bestJ = J; bestT = T; bestPhi = phi; }
-            if (J > 1e6) aboveLimit++;
-            if (i < 4) sb.append(schottkySweepSegment(T, phi, J));
-        }
-        return composeSchottkyThermionicEmission(param1, param2, samples, bestJ, bestT, bestPhi,
-                aboveLimit, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Schottky thermionic-emission sweep segment (incl. trailing space). */
     static String schottkySweepSegment(double T, double phi, double J) {
         return "T=%.0fK,φ=%.2feV→J=%.2eA/cm² ".formatted(T, phi, J);
@@ -2988,36 +1831,6 @@ public class MathPhysicsEngine {
                         + "remains below 10⁶ A/cm² across the swept regime — the exponential mechanism is "
                         + "Boltzmann-controlled thermionic emission, not a numerical artefact.")
                         .formatted(0.4 + param2 / 10.0, 200 + param1 * 5));
-    }
-
-    /**
-     * Acoustic Doppler shift (Physics ↔ Physics): f' = f·(c + v_o)/(c − v_s).
-     * Mechanism: relative motion within a single medium modifies the apparent
-     * frequency. Bound: |f' − f| ≤ f when both v_s and v_o stay below c.
-     */
-    private static ResearchResult acousticDopplerShift(int param1, double param2, SearchParams sp) {
-        double c = 343.0;  // m/s, sound speed in dry air at 20°C
-        double f = 1000.0; // Hz, baseline source frequency
-        double bestShift = 0;
-        double bestVs = 0;
-        double bestVo = 0;
-        double bestFp = f;
-        int violatesBound = 0;
-        int samples = 0;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // Bound v_s, v_o well below c. Param1 sets v_s scale, param2 sets v_o scale.
-            double v_s = Math.min(c - 5.0, (param1 + i * sp.stepSize() * 3) * 0.5);   // m/s
-            double v_o = Math.min(c - 5.0, (i * sp.stepSize() * 1.5 + param2 * 5));    // m/s
-            double fp = f * (c + v_o) / (c - v_s);
-            double shift = Math.abs(fp - f);
-            samples++;
-            if (shift > bestShift) { bestShift = shift; bestVs = v_s; bestVo = v_o; bestFp = fp; }
-            if (shift > f) violatesBound++;  // F3 spec: |f' − f| ≤ f
-            if (i < 4) sb.append(dopplerSweepSegment(v_s, v_o, fp, shift));
-        }
-        return composeAcousticDopplerShift(param1, param2, samples, bestShift, bestFp, bestVs,
-                bestVo, violatesBound, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one acoustic-Doppler sweep segment (incl. trailing space). */
@@ -3050,40 +1863,6 @@ public class MathPhysicsEngine {
                         .formatted(param1 * 0.5, param2 * 5));
     }
 
-    // ---- Phase 7 FX.1: BIOLOGY ----
-
-    private static ResearchResult computeBiology(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("BIOLOGY", topic);
-        return switch (topic) {
-            case 0 -> verhulstLogistic(0.05 + param2 / 90.0, 100.0 + param1 * 5.0, sp).withEquation(eq);
-            case 1 -> lotkaVolterra(0.4 + param2 / 30.0, 0.02 + param1 / 5000.0, sp).withEquation(eq);
-            case 2 -> michaelisMenten(0.5 + param2 / 10.0, 1.0 + param1 / 25.0, sp).withEquation(eq);
-            case 3 -> kleiberAllometric(0.5 + param1 * 0.5, sp).withEquation(eq);
-            default -> hardyWeinberg(0.3 + param2 / 30.0, sp).withEquation(eq);
-        };
-    }
-
-    /** Verhulst dN/dt = r·N·(1 − N/K). Returns max |N(t)/K − N_eq/K| across the sweep. */
-    private static ResearchResult verhulstLogistic(double r, double K, SearchParams sp) {
-        // Closed-form: N(t) = K / (1 + ((K-N0)/N0)·exp(-r·t))
-        double N0 = K / 20.0;  // start at 5% of carrying capacity
-        double bestDeviation = 0;
-        double bestT = 0;
-        double bestN = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double t = Math.max(0.1, i * sp.stepSize() * 2.0);
-            double Nt = K / (1 + ((K - N0) / N0) * Math.exp(-r * t));
-            double deviation = Math.abs(Nt - K) / K;
-            samples++;
-            if (deviation > bestDeviation) { bestDeviation = deviation; bestT = t; bestN = Nt; }
-            if (i < 4) sb.append(verhulstSweepSegment(t, Nt, K));
-        }
-        return composeVerhulstLogistic(r, K, samples, bestDeviation, bestN, bestT,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Verhulst-logistic sweep segment (incl. trailing space). */
     static String verhulstSweepSegment(double t, double Nt, double K) {
         return "t=%.2f→N=%.1f(%.0f%%K) ".formatted(t, Nt, Nt / K * 100);
@@ -3106,39 +1885,6 @@ public class MathPhysicsEngine {
                         + "environment with carrying capacity K=%.1f, the Verhulst dN/dt = r·N·(1−N/K) drives "
                         + "N(t) → K monotonically; the time required to reach 95%% of K characterises r.")
                         .formatted(r, N0, K));
-    }
-
-    /** Lotka-Volterra coupled ODE. Returns max-cycle-amplitude ratio across param sweeps. */
-    private static ResearchResult lotkaVolterra(double alpha, double beta, SearchParams sp) {
-        // α = prey intrinsic growth, β = predation rate, γ = predator death, δ = predator gain.
-        double gamma = 0.3;
-        double delta = 0.01;
-        double bestRatio = 0;
-        double bestAlpha = alpha;
-        double bestPeakX = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double a = Math.max(0.1, alpha + i * sp.stepSize() * 0.05);
-            // Discrete-time approximation over a few cycle periods.
-            double x = 40.0, y = 9.0;
-            double dt = 0.05;
-            double maxX = x, minX = x;
-            for (int step = 0; step < 400; step++) {
-                double dx = (a * x - beta * x * y) * dt;
-                double dy = (delta * x * y - gamma * y) * dt;
-                x = Math.max(0.0, x + dx);
-                y = Math.max(0.0, y + dy);
-                if (x > maxX) maxX = x;
-                if (x < minX) minX = x;
-            }
-            double ratio = maxX / Math.max(0.001, minX);
-            samples++;
-            if (ratio > bestRatio) { bestRatio = ratio; bestAlpha = a; bestPeakX = maxX; }
-            if (i < 4) sb.append(lotkaSweepSegment(a, ratio));
-        }
-        return composeLotkaVolterra(alpha, beta, samples, bestRatio, bestAlpha, bestPeakX,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Lotka-Volterra sweep segment (incl. trailing space). */
@@ -3170,35 +1916,6 @@ public class MathPhysicsEngine {
                         .formatted(beta, gamma, delta, alpha));
     }
 
-    /** Michaelis-Menten v = V_max·[S]/(K_m + [S]). Estimates K_m via Lineweaver-Burk style. */
-    private static ResearchResult michaelisMenten(double Km, double Vmax, SearchParams sp) {
-        double bestRecoveryError = Double.MAX_VALUE;
-        double bestKmRecovered = Km;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // Use a clean two-point estimate: v at [S]=K_m gives v=V_max/2.
-            // Pretend we measure v at [S]_1 and [S]_2 with a noise band ε.
-            double S1 = Km * 0.5;
-            double S2 = Km * 4.0;
-            double noise = Math.sin(i * 0.7) * 0.02;
-            double v1 = Vmax * S1 / (Km + S1) * (1.0 + noise);
-            double v2 = Vmax * S2 / (Km + S2) * (1.0 + noise);
-            // Solve for K_m from two (S, v) pairs:
-            //   K_m = (v1·v2·(S2 − S1)) / (v1·S1·v2/V_max − v2·S2·v1/V_max) — algebra-heavy.
-            // Easier: K_m = S·(V_max/v − 1). Average from both pairs.
-            double Km1 = S1 * (Vmax / v1 - 1.0);
-            double Km2 = S2 * (Vmax / v2 - 1.0);
-            double KmEst = (Km1 + Km2) / 2.0;
-            double err = Math.abs(KmEst - Km) / Km;
-            samples++;
-            if (err < bestRecoveryError) { bestRecoveryError = err; bestKmRecovered = KmEst; }
-            if (i < 4) sb.append(michaelisSweepSegment(KmEst, err));
-        }
-        return composeMichaelisMenten(Km, Vmax, samples, bestRecoveryError, bestKmRecovered,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Michaelis-Menten K_m-recovery sweep segment (incl. trailing space). */
     static String michaelisSweepSegment(double KmEst, double err) {
         return "K_m_est=%.3f(err=%.3f) ".formatted(KmEst, err);
@@ -3223,36 +1940,6 @@ public class MathPhysicsEngine {
                         .formatted(Vmax, Km));
     }
 
-    /** Kleiber's law R ∝ M^(3/4). Fits exponent across body masses. */
-    private static ResearchResult kleiberAllometric(double seedM, SearchParams sp) {
-        // Generate (M, R) pairs from R = R0·M^0.75 with noise, then fit exponent.
-        double R0 = 3.5;
-        double trueExp = 0.75;
-        java.util.List<double[]> samplesData = new java.util.ArrayList<>();
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double M = Math.max(0.01, seedM * Math.pow(2.0, i * sp.stepSize() - 4));
-            double R = R0 * Math.pow(M, trueExp) * (1.0 + Math.sin(i * 0.41) * 0.03);
-            samplesData.add(new double[]{M, R});
-            if (i < 4) sb.append(kleiberSweepSegment(M, R));
-        }
-        // Linear regression on log(R) vs log(M).
-        double sumLogM = 0, sumLogR = 0, sumLogMLogR = 0, sumLogMSq = 0;
-        int n = samplesData.size();
-        for (double[] p : samplesData) {
-            double logM = Math.log(p[0]);
-            double logR = Math.log(p[1]);
-            sumLogM += logM;
-            sumLogR += logR;
-            sumLogMLogR += logM * logR;
-            sumLogMSq += logM * logM;
-        }
-        double slope = (n * sumLogMLogR - sumLogM * sumLogR)
-                / Math.max(1e-12, n * sumLogMSq - sumLogM * sumLogM);
-        double deviation = Math.abs(slope - trueExp);
-        return composeKleiberAllometric(seedM, n, slope, deviation, sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Kleiber allometric (M, R) sweep segment (incl. trailing space). */
     static String kleiberSweepSegment(double M, double R) {
         return "M=%.2f→R=%.2f ".formatted(M, R);
@@ -3275,33 +1962,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("Across a sweep of body masses centred near M=%.2f, the log-log slope of "
                         + "metabolic rate vs mass will recover Kleiber's 3/4 exponent within 5%% under noise.")
                         .formatted(seedM));
-    }
-
-    /** Hardy-Weinberg p² + 2pq + q² = 1. Tracks allele-frequency drift across generations. */
-    private static ResearchResult hardyWeinberg(double seedP, SearchParams sp) {
-        double p = Math.max(0.05, Math.min(0.95, seedP));
-        double q = 1.0 - p;
-        double maxDrift = 0;
-        double finalP = p;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            int generations = (int) (10 + i * sp.stepSize() * 4);
-            // Idealised: no selection, no migration, no mutation → p stays fixed exactly.
-            // Add small noise to simulate finite-population drift.
-            double pn = p;
-            double localMaxDrift = 0;
-            for (int gen = 0; gen < generations; gen++) {
-                double driftStep = Math.sin(gen * 0.13 + i * 0.5) * 0.002;
-                pn = Math.max(0.0, Math.min(1.0, pn + driftStep));
-                double drift = Math.abs(pn - p);
-                if (drift > localMaxDrift) localMaxDrift = drift;
-            }
-            samples++;
-            if (localMaxDrift > maxDrift) { maxDrift = localMaxDrift; finalP = pn; }
-            if (i < 4) sb.append(hardyWeinbergSweepSegment(generations, pn, localMaxDrift));
-        }
-        return composeHardyWeinberg(p, samples, maxDrift, finalP, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Hardy-Weinberg generation-sweep segment (incl. trailing space). */
@@ -3329,40 +1989,6 @@ public class MathPhysicsEngine {
                         .formatted(p, q));
     }
 
-    // ---- Phase 7 FX.2: CHEMISTRY ----
-
-    private static ResearchResult computeChemistry(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("CHEMISTRY", topic);
-        return switch (topic) {
-            case 0 -> hendersonHasselbalch(4.0 + param1 / 30.0, sp).withEquation(eq);
-            case 1 -> nernstPotential(0.5 + param1 / 100.0, 298.0 + param2 * 5.0, sp).withEquation(eq);
-            case 2 -> beerLambert(0.1 + param2 / 90.0, 1.0 + param1 / 20.0, sp).withEquation(eq);
-            case 3 -> equilibriumKc(1.0 + param2 / 2.0, 298.0 + param1 * 3.0, sp).withEquation(eq);
-            default -> compressibilityZ(0.7 + param1 / 200.0, 1.0 + param2 / 4.0, sp).withEquation(eq);
-        };
-    }
-
-    /** Henderson-Hasselbalch: pH = pKₐ + log₁₀([A⁻]/[HA]). Recovers pKₐ from titration curves. */
-    private static ResearchResult hendersonHasselbalch(double truePKa, SearchParams sp) {
-        double bestErr = Double.MAX_VALUE;
-        double bestRecovered = truePKa;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // Vary the ratio [A⁻]/[HA] across a buffer titration sweep.
-            double ratio = Math.pow(10.0, -1.0 + i * sp.stepSize() * 0.2);
-            double pH = truePKa + Math.log10(ratio) + Math.sin(i * 0.3) * 0.01;
-            // Recover pKₐ assuming we know the ratio exactly.
-            double pKaEst = pH - Math.log10(ratio);
-            double err = Math.abs(pKaEst - truePKa);
-            samples++;
-            if (err < bestErr) { bestErr = err; bestRecovered = pKaEst; }
-            if (i < 4) sb.append(hendersonSweepSegment(ratio, pH, pKaEst));
-        }
-        return composeHendersonHasselbalch(truePKa, samples, bestErr, bestRecovered,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Henderson-Hasselbalch titration sweep segment (incl. trailing space). */
     static String hendersonSweepSegment(double ratio, double pH, double pKaEst) {
         return "ratio=%.3f→pH=%.2f(pKₐ_est=%.3f) ".formatted(ratio, pH, pKaEst);
@@ -3384,28 +2010,6 @@ public class MathPhysicsEngine {
                 .withHypothesis(("For a weak acid with pKₐ=%.3f, the Henderson-Hasselbalch equation "
                         + "permits pKₐ recovery from titration ratios within ±0.05 across a half-pH-unit sweep.")
                         .formatted(truePKa));
-    }
-
-    /** Nernst E = E° − (RT/nF)·ln Q. Tests cell-potential drift across concentration. */
-    private static ResearchResult nernstPotential(double E0, double T, SearchParams sp) {
-        double R = 8.314;
-        double F = 96485.0;
-        int n = 1;
-        double bestDeviation = 0;
-        double bestE = E0;
-        double bestQ = 1.0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double Q = Math.pow(10.0, -2.0 + i * sp.stepSize() * 0.4);
-            double E = E0 - (R * T / (n * F)) * Math.log(Q);
-            double dev = Math.abs(E - E0);
-            samples++;
-            if (dev > bestDeviation) { bestDeviation = dev; bestE = E; bestQ = Q; }
-            if (i < 4) sb.append(nernstSweepSegment(Q, E));
-        }
-        return composeNernstPotential(E0, T, samples, bestDeviation, bestE, bestQ,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Nernst cell-potential sweep segment (incl. trailing space). */
@@ -3434,26 +2038,6 @@ public class MathPhysicsEngine {
                         .formatted(E0, T));
     }
 
-    /** Beer-Lambert: A = ε·c·l. Recovers molar absorptivity ε. */
-    private static ResearchResult beerLambert(double trueEps, double trueL, SearchParams sp) {
-        double bestErr = Double.MAX_VALUE;
-        double bestRecoveredEps = trueEps;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double c = 0.001 + i * sp.stepSize() * 0.0005;
-            double A = trueEps * c * trueL * (1.0 + Math.sin(i * 0.27) * 0.01);
-            // Recover ε = A / (c·l).
-            double epsRecovered = A / (c * trueL);
-            double err = Math.abs(epsRecovered - trueEps) / trueEps;
-            samples++;
-            if (err < bestErr) { bestErr = err; bestRecoveredEps = epsRecovered; }
-            if (i < 4) sb.append(beerLambertSweepSegment(c, A, epsRecovered));
-        }
-        return composeBeerLambert(trueEps, trueL, samples, bestErr, bestRecoveredEps,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Beer-Lambert ε-recovery sweep segment (incl. trailing space). */
     static String beerLambertSweepSegment(double c, double A, double epsRecovered) {
         return "c=%.4f,A=%.3f→ε=%.3f ".formatted(c, A, epsRecovered);
@@ -3476,29 +2060,6 @@ public class MathPhysicsEngine {
                         + "%.2f cm cell, the Beer-Lambert law A = ε·c·l holds within 5%% across the swept "
                         + "concentration range.")
                         .formatted(trueEps, trueL));
-    }
-
-    /** Equilibrium constant Kc drift across temperature (Van't Hoff). */
-    private static ResearchResult equilibriumKc(double Kc298, double seedT, SearchParams sp) {
-        double R = 8.314;
-        double deltaH = 30_000.0;  // J/mol, modest endothermic
-        double bestDrift = 0;
-        double bestT = seedT;
-        double bestKc = Kc298;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double T = Math.max(250.0, seedT + i * sp.stepSize() * 10.0);
-            // Van't Hoff integrated: ln(K2/K1) = -ΔH/R · (1/T2 − 1/T1)
-            double lnRatio = -deltaH / R * (1.0 / T - 1.0 / 298.15);
-            double Kc = Kc298 * Math.exp(lnRatio);
-            double drift = Math.abs(Math.log(Kc / Kc298));
-            samples++;
-            if (drift > bestDrift) { bestDrift = drift; bestT = T; bestKc = Kc; }
-            if (i < 4) sb.append(equilibriumKcSweepSegment(T, Kc, drift));
-        }
-        return composeEquilibriumKc(Kc298, samples, bestDrift, bestT, bestKc,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one equilibrium-Kc Van't Hoff sweep segment (incl. trailing space). */
@@ -3526,48 +2087,6 @@ public class MathPhysicsEngine {
                         + "integrated equation predicts measurable Kc drift across the swept temperature "
                         + "range, with magnitude bounded by exp(|ΔH/R · (1/T − 1/T°)|).")
                         .formatted(Kc298, deltaH));
-    }
-
-    /** Compressibility factor Z = PV/RT. Tracks real-gas departure from ideal. */
-    private static ResearchResult compressibilityZ(double seedTr, double seedPr, SearchParams sp) {
-        double bestDev = 0;
-        double bestTr = seedTr;
-        double bestPr = seedPr;
-        double bestZ = 1.0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        int clampedSamples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // Sweep reduced state (Tr, Pr). Use a small Pitzer-Curl style approximation.
-            double Tr = Math.max(0.5, seedTr + i * sp.stepSize() * 0.05);
-            double PrRaw = Math.max(0.1, seedPr + i * sp.stepSize() * 0.2);
-            // Empirical Pitzer-Curl-ish: Z ≈ 1 + B0·Pr/Tr where B0 = 0.083 − 0.422·Tr^(-1.6).
-            double B0 = 0.083 - 0.422 * Math.pow(Tr, -1.6);
-            // Phase 10 — clamp Pr to the validity envelope of the truncated
-            // virial equation. The P-a328-359 paper reported Z = -0.142 at
-            // (Tr=0.79, Pr=1.73): the bare formula gives Z < 0 there, which
-            // is physically impossible (Z = PV/nRT must be positive). Without
-            // a fuller EOS (Peng-Robinson) we cap Pr so the linearised model
-            // stays in its valid envelope:
-            //   Z ≥ 0.05  ⇒  Pr ≤ 0.95·Tr / |B0|  when B0 < 0.
-            // Higher pressures need a cubic EOS; this simulator's value is to
-            // demonstrate real-gas departure, not to model the dense regime.
-            double Pr = PrRaw;
-            if (B0 < 0) {
-                double maxValidPr = 0.95 * Tr / Math.abs(B0);
-                if (PrRaw > maxValidPr) {
-                    Pr = maxValidPr;
-                    clampedSamples++;
-                }
-            }
-            double Z = 1.0 + B0 * Pr / Tr;
-            double dev = Math.abs(1.0 - Z);
-            samples++;
-            if (dev > bestDev) { bestDev = dev; bestTr = Tr; bestPr = Pr; bestZ = Z; }
-            if (i < 4) sb.append(compressibilityZSweepSegment(Tr, Pr, Z));
-        }
-        return composeCompressibilityZ(seedTr, seedPr, samples, clampedSamples, bestDev,
-                bestTr, bestPr, bestZ, sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one compressibility-Z (Tr, Pr) sweep segment (incl. trailing space). */
@@ -3603,56 +2122,6 @@ public class MathPhysicsEngine {
                         .formatted(seedTr, seedPr));
     }
 
-    // ---- Phase 7 FX.3: ARCHITECTURE_TERRESTRIAL ----
-    // ALL methods generic over surface gravity g and atmospheric density ρ_atm.
-    // No Earth-anchored constants in the compute logic. Param mapping:
-    //   param1 → primary structural parameter (length, mass, etc.)
-    //   param2 → environment scaling (gravity multiplier, atmospheric density multiplier)
-    // The seed environment is Earth-like only because it's a familiar reference; the
-    // sweep covers regimes from Mars-low (~0.38·g_E, ~0.02·ρ_E) to Venus-high (~0.91·g_E,
-    // ~65·ρ_E) so a single bot can publish findings about structures on any planet.
-
-    private static ResearchResult computeArchTerrestrial(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("ARCHITECTURE_TERRESTRIAL", topic);
-        // Environment seed: g in [1, 25] m/s², ρ_atm in [0.01, 70] kg/m³.
-        double gSeed   = 0.5 + (param1 / 99.0) * 25.0;
-        double rhoSeed = 0.01 + (param2 / 9.0) * 70.0;
-        return switch (topic) {
-            case 0 -> beamDeflectionSelfWeight(gSeed, sp).withEquation(eq);
-            case 1 -> windLoadPressure(rhoSeed, sp).withEquation(eq);
-            case 2 -> bearingCapacityTerzaghi(gSeed, sp).withEquation(eq);
-            case 3 -> thermalMassTimeLag(rhoSeed, sp).withEquation(eq);
-            default -> daylightFactor(param1, sp).withEquation(eq);
-        };
-    }
-
-    /** Cantilever self-weight deflection: δ = (ρ·g·A·L⁴)/(8·E·I). */
-    private static ResearchResult beamDeflectionSelfWeight(double gSeed, SearchParams sp) {
-        // Steel reference: ρ=7850 kg/m³, E=200 GPa, I/A·L² ≈ 1/12 for a rectangular cross-section.
-        double rho = 7850.0;
-        double E = 200e9;
-        double width = 0.2;       // m
-        double height = 0.4;      // m
-        double I = (width * Math.pow(height, 3)) / 12.0;
-        double A = width * height;
-        double bestRatio = 0;
-        double bestL = 0;
-        double bestG = gSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double g = Math.max(0.2, gSeed + Math.sin(i * 0.31) * 5.0);
-            double L = 2.0 + i * sp.stepSize() * 0.5;
-            double delta = (rho * g * A * Math.pow(L, 4)) / (8.0 * E * I);
-            double ratio = delta / L;
-            samples++;
-            if (ratio > bestRatio) { bestRatio = ratio; bestL = L; bestG = g; }
-            if (i < 4) sb.append(beamDeflectionSweepSegment(L, g, ratio));
-        }
-        return composeBeamDeflectionSelfWeight(gSeed, samples, bestRatio, bestL, bestG,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one cantilever self-weight sweep segment (incl. trailing space). */
     static String beamDeflectionSweepSegment(double L, double g, double ratio) {
         return "L=%.1fm,g=%.2fm/s²→δ/L=%.4f ".formatted(L, g, ratio);
@@ -3685,25 +2154,6 @@ public class MathPhysicsEngine {
                         .formatted(gSeed));
     }
 
-    /** Atmospheric wind load: q = ½·ρ_atm·v². */
-    private static ResearchResult windLoadPressure(double rhoAtmSeed, SearchParams sp) {
-        double bestPressure = 0;
-        double bestV = 0;
-        double bestRho = rhoAtmSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double rhoAtm = Math.max(0.001, rhoAtmSeed + Math.sin(i * 0.27) * 5.0);
-            double v = 5.0 + i * sp.stepSize() * 3.0;  // m/s, light breeze to hurricane
-            double q = 0.5 * rhoAtm * v * v;
-            samples++;
-            if (q > bestPressure) { bestPressure = q; bestV = v; bestRho = rhoAtm; }
-            if (i < 4) sb.append(windLoadSweepSegment(rhoAtm, v, q));
-        }
-        return composeWindLoadPressure(rhoAtmSeed, samples, bestPressure, bestV, bestRho,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one wind-load sweep segment (incl. trailing space). */
     static String windLoadSweepSegment(double rhoAtm, double v, double q) {
         return "ρ_atm=%.2fkg/m³,v=%.1fm/s→q=%.1fPa ".formatted(rhoAtm, v, q);
@@ -3730,31 +2180,6 @@ public class MathPhysicsEngine {
                         + "with wind velocities swept from 5 m/s upward, the design pressure q=½·ρ_atm·v² scales "
                         + "as v² and remains below conventional 10 kPa facade limits across the sampled regime.")
                         .formatted(rhoAtmSeed));
-    }
-
-    /** Terzaghi bearing capacity: q_u = c·N_c + γ_soil·D·N_q + 0.5·γ_soil·B·N_γ. */
-    private static ResearchResult bearingCapacityTerzaghi(double gSeed, SearchParams sp) {
-        double cohesion = 20_000.0;  // Pa, cohesive soil
-        double rhoSoil = 1900.0;      // kg/m³
-        double Nc = 17.7, Nq = 7.4, Ngamma = 5.0;  // friction angle 20° coefficients
-        double maxQ = 0;
-        double bestB = 1.0;
-        double bestG = gSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double g = Math.max(0.5, gSeed + Math.sin(i * 0.23) * 3.0);
-            double gammaSoil = rhoSoil * g;
-            double D = 1.0 + i * sp.stepSize() * 0.5;
-            double B = 1.0 + i * sp.stepSize() * 0.5;
-            double q_u = cohesion * Nc + gammaSoil * D * Nq + 0.5 * gammaSoil * B * Ngamma;
-            double q_kPa = q_u / 1000.0;
-            samples++;
-            if (q_kPa > maxQ) { maxQ = q_kPa; bestB = B; bestG = g; }
-            if (i < 4) sb.append(bearingCapacitySweepSegment(g, B, q_kPa));
-        }
-        return composeBearingCapacityTerzaghi(gSeed, samples, maxQ, bestB, bestG,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one Terzaghi bearing-capacity sweep segment (incl. trailing space). */
@@ -3785,33 +2210,6 @@ public class MathPhysicsEngine {
                         .formatted(cohesion, rhoSoil, gSeed));
     }
 
-    /** Thermal mass time-lag: τ = (ρ·c_p·V)/(h·A). */
-    private static ResearchResult thermalMassTimeLag(double rhoAtmSeed, SearchParams sp) {
-        double rho = 2400.0;       // kg/m³, concrete
-        double cp = 880.0;         // J/(kg·K), concrete
-        // h scales with atmospheric density via natural convection:
-        // h ≈ k·(ρ_atm)^0.5 across realistic regimes.
-        double thickness = 0.2;    // m
-        double V_per_A = thickness;   // V/A = thickness for a slab
-        double maxTau = 0;
-        double bestThickness = thickness;
-        double bestRho = rhoAtmSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double t_wall = Math.max(0.05, thickness + i * sp.stepSize() * 0.05);
-            double rhoAtm = Math.max(0.001, rhoAtmSeed + Math.sin(i * 0.29) * 5.0);
-            double h = 5.0 * Math.sqrt(rhoAtm);  // W/(m²·K), heuristic
-            double tau = (rho * cp * t_wall) / Math.max(0.1, h);
-            double tauHours = tau / 3600.0;
-            samples++;
-            if (tauHours > maxTau) { maxTau = tauHours; bestThickness = t_wall; bestRho = rhoAtm; }
-            if (i < 4) sb.append(thermalMassSweepSegment(t_wall, rhoAtm, tauHours));
-        }
-        return composeThermalMassTimeLag(rhoAtmSeed, samples, maxTau, bestThickness, bestRho,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one thermal-mass time-lag sweep segment (incl. trailing space). */
     static String thermalMassSweepSegment(double tWall, double rhoAtm, double tauHours) {
         return "t=%.2fm,ρ_atm=%.2f→τ=%.1fh ".formatted(tWall, rhoAtm, tauHours);
@@ -3837,27 +2235,6 @@ public class MathPhysicsEngine {
                         + "density ρ_atm≈%.2f kg/m³, the thermal time-lag τ=(ρ·c_p·V)/(h·A) scales as 1/√ρ_atm "
                         + "through the convective coefficient, so thinner atmospheres produce longer lags.")
                         .formatted(rhoAtmSeed));
-    }
-
-    /** Daylight factor: DF = (E_internal / E_external)·100. */
-    private static ResearchResult daylightFactor(int param1, SearchParams sp) {
-        // Internal illuminance proportional to (window area · sky visibility · transmittance).
-        double tau = 0.7;            // glazing transmittance
-        double maxDF = 0;
-        double bestRatio = 0;
-        double bestSky = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double windowToFloor = 0.05 + (param1 / 99.0) * 0.3 + i * sp.stepSize() * 0.02;
-            double skyVisibility = 0.3 + i * sp.stepSize() * 0.1;
-            double DF = windowToFloor * skyVisibility * tau * 100.0;
-            samples++;
-            if (DF > maxDF) { maxDF = DF; bestRatio = windowToFloor; bestSky = skyVisibility; }
-            if (i < 4) sb.append(daylightFactorSweepSegment(windowToFloor, skyVisibility, DF));
-        }
-        return composeDaylightFactor(param1, samples, maxDF, bestRatio, bestSky,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one daylight-factor sweep segment (incl. trailing space). */
@@ -3887,54 +2264,6 @@ public class MathPhysicsEngine {
                         .formatted(0.05 + (param1 / 99.0) * 0.3));
     }
 
-    // ---- Phase 7 FX.4: ARCHITECTURE_LIQUID ----
-    // Generic over ANY liquid. Liquid property regimes covered by the param sweep:
-    //   • Water (ρ ≈ 1000 kg/m³, γ ≈ 0.072 N/m, μ ≈ 1.0 mPa·s)
-    //   • Methane (Titan lakes; ρ ≈ 420, γ ≈ 0.013, μ ≈ 0.18 mPa·s)
-    //   • Ammonia (cryovolcano; ρ ≈ 680, γ ≈ 0.022, μ ≈ 0.13 mPa·s)
-    //   • Mercury (ρ ≈ 13534, γ ≈ 0.486, μ ≈ 1.55 mPa·s)
-    //   • Liquid magma (ρ ≈ 2700, γ ≈ 0.37, μ ≈ 1e3 mPa·s)
-    // Param mapping:
-    //   param1 → primary geometric scale (depth, hull radius, body volume)
-    //   param2 → liquid-density seed (1.0 ≈ low-density liquid, 9.0 ≈ very dense)
-
-    private static ResearchResult computeArchLiquid(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("ARCHITECTURE_LIQUID", topic);
-        // Liquid density seed in [200, 14000] kg/m³ across the param2 range.
-        double rhoLiqSeed = 200.0 + (param2 / 9.0) * 13800.0;
-        // Surface tension scales roughly with density^(2/3) for similar polar liquids.
-        double gammaSeed = 0.005 + 0.5 * Math.pow(rhoLiqSeed / 14000.0, 0.6);
-        // Viscosity seed in mPa·s; defaults to water-like.
-        double muSeed = 0.1 + (param1 / 99.0) * 9.0;
-        return switch (topic) {
-            case 0 -> hydrostaticPressureDepth(rhoLiqSeed, sp).withEquation(eq);
-            case 1 -> buoyantLiftCapacity(rhoLiqSeed, sp).withEquation(eq);
-            case 2 -> hullBucklingPressure(rhoLiqSeed, sp).withEquation(eq);
-            case 3 -> hydrodynamicDrag(rhoLiqSeed, muSeed, sp).withEquation(eq);
-            default -> dissolvedGasSolubility(gammaSeed, rhoLiqSeed, sp).withEquation(eq);
-        };
-    }
-
-    /** Hydrostatic: P(z) = ρ_liq·g·z. Generic over liquid density and local gravity. */
-    private static ResearchResult hydrostaticPressureDepth(double rhoLiq, SearchParams sp) {
-        double g = 9.81;  // can be swept too; here we vary depth and ρ_liq instead
-        double maxP = 0;
-        double bestDepth = 0;
-        double bestRho = rhoLiq;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double rho = Math.max(100.0, rhoLiq + Math.sin(i * 0.27) * 500.0);
-            double depth = 1.0 + i * sp.stepSize() * 5.0;
-            double P = rho * g * depth;
-            samples++;
-            if (P > maxP) { maxP = P; bestDepth = depth; bestRho = rho; }
-            if (i < 4) sb.append(hydrostaticSweepSegment(depth, rho, P));
-        }
-        return composeHydrostaticPressureDepth(rhoLiq, samples, maxP, bestDepth, bestRho,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one hydrostatic-pressure sweep segment (incl. trailing space). */
     static String hydrostaticSweepSegment(double depth, double rho, double P) {
         return "z=%.1fm,ρ=%.0fkg/m³→P=%.0fPa ".formatted(depth, rho, P);
@@ -3960,27 +2289,6 @@ public class MathPhysicsEngine {
                         + "the hydrostatic pressure P(z) = ρ·g·z scales linearly with depth z; the maximum "
                         + "pressure at the swept depth bound stays under 100 MPa for design-relevant regimes.")
                         .formatted(rhoLiq, g));
-    }
-
-    /** Buoyant lift: F_b = ρ_liq·g·V_displaced. */
-    private static ResearchResult buoyantLiftCapacity(double rhoLiq, SearchParams sp) {
-        double g = 9.81;
-        double maxF = 0;
-        double bestV = 0;
-        double bestRho = rhoLiq;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double rho = Math.max(100.0, rhoLiq + Math.sin(i * 0.27) * 500.0);
-            double V = 1.0 + i * sp.stepSize() * 0.5;  // m³ displaced
-            double F = rho * g * V;
-            samples++;
-            if (F > maxF) { maxF = F; bestV = V; bestRho = rho; }
-            if (i < 4) sb.append(buoyancySweepSegment(V, rho, F));
-        }
-        return composeBuoyantLiftCapacity(rhoLiq,
-                1.0 + sp.candidateBreadth() * sp.stepSize() * 0.5, samples, maxF, bestV, bestRho,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one buoyant-lift sweep segment (incl. trailing space). */
@@ -4010,26 +2318,6 @@ public class MathPhysicsEngine {
                         + "under gravity g≈%.2f m/s², Archimedes-principle buoyant lift F_b = ρ_liq·g·V scales "
                         + "linearly with both the liquid density and the displaced volume.")
                         .formatted(hypoV, rhoLiq, g));
-    }
-
-    /** Thin-walled cylindrical hull buckling: P_crit = 2·E·(t/R)³ / (1 − ν²). */
-    private static ResearchResult hullBucklingPressure(double rhoLiq, SearchParams sp) {
-        double E = 200e9;       // Pa, steel
-        double nu = 0.3;        // Poisson ratio
-        double R = 2.0;         // m, habitat radius
-        double minPcrit = Double.MAX_VALUE;
-        double bestT = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double t = 0.005 + i * sp.stepSize() * 0.002;
-            double Pcrit = 2.0 * E * Math.pow(t / R, 3) / (1.0 - nu * nu);
-            samples++;
-            if (Pcrit < minPcrit) { minPcrit = Pcrit; bestT = t; }
-            if (i < 4) sb.append(hullBucklingSweepSegment(t, Pcrit));
-        }
-        return composeHullBucklingPressure(rhoLiq, samples, minPcrit, bestT,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one hull-buckling sweep segment (incl. trailing space). */
@@ -4068,32 +2356,6 @@ public class MathPhysicsEngine {
                         .formatted(R, rhoLiq));
     }
 
-    /** Hydrodynamic drag: F_d = ½·ρ_liq·v²·A·C_d. C_d depends on Reynolds Re = ρ_liq·v·L/μ. */
-    private static ResearchResult hydrodynamicDrag(double rhoLiq, double muMpas, SearchParams sp) {
-        double mu = muMpas * 1e-3;  // Pa·s
-        double L = 2.0, A = L * L;
-        double maxF = 0;
-        double bestV = 0;
-        double bestCd = 0;
-        double bestRe = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double v = 0.1 + i * sp.stepSize() * 0.5;
-            double Re = rhoLiq * v * L / Math.max(1e-6, mu);
-            // Sphere/blunt body C_d sketch: ~24/Re below Re=1, ~0.5 at Re>1e3, transition between.
-            double Cd = Re < 1.0 ? 24.0 / Math.max(0.01, Re)
-                    : Re < 1e3 ? 24.0 / Re + 0.5
-                    : 0.5;
-            double F = 0.5 * rhoLiq * v * v * A * Cd;
-            samples++;
-            if (F > maxF) { maxF = F; bestV = v; bestCd = Cd; bestRe = Re; }
-            if (i < 4) sb.append(dragSweepSegment(v, Re, Cd, F));
-        }
-        return composeHydrodynamicDrag(rhoLiq, muMpas, samples, maxF, bestV, bestCd, bestRe,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one hydrodynamic-drag sweep segment (incl. trailing space). */
     static String dragSweepSegment(double v, double Re, double Cd, double F) {
         return "v=%.2fm/s→Re=%.0f,C_d=%.2f,F_d=%.0fN ".formatted(v, Re, Cd, F);
@@ -4119,25 +2381,6 @@ public class MathPhysicsEngine {
                         .formatted(rhoLiq, muMpas));
     }
 
-    /** Henry's law dissolved gas: c = k_H · P_gas. k_H is liquid-specific. */
-    private static ResearchResult dissolvedGasSolubility(double gamma, double rhoLiq, SearchParams sp) {
-        // Toy model: k_H scales with surface tension γ (loose proxy for solvent strength).
-        double kH = 0.0008 + gamma * 0.05;   // mol/(L·atm) — water ~0.0013 for O₂
-        double maxC = 0;
-        double bestP = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double P = 0.5 + i * sp.stepSize() * 0.5;
-            double c = kH * P;
-            samples++;
-            if (c > maxC) { maxC = c; bestP = P; }
-            if (i < 4) sb.append(dissolvedGasSweepSegment(P, c));
-        }
-        return composeDissolvedGasSolubility(gamma, rhoLiq, samples, maxC, bestP,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one Henry's-law dissolved-gas sweep segment (incl. trailing space). */
     static String dissolvedGasSweepSegment(double P, double c) {
         return "P=%.1fatm→c=%.4fmol/L ".formatted(P, c);
@@ -4160,40 +2403,6 @@ public class MathPhysicsEngine {
                         + "(determining the host-specific Henry's coefficient k_H), the dissolved-gas "
                         + "concentration c = k_H·P_gas scales linearly with overpressure until saturation.")
                         .formatted(rhoLiq, gamma));
-    }
-
-    // ---- Phase 7 FX.5: ARCHITECTURE_SPACE ----
-
-    private static ResearchResult computeArchSpace(int topic, int param1, double param2, SearchParams sp) {
-        String eq = equationFor("ARCHITECTURE_SPACE", topic);
-        return switch (topic) {
-            case 0 -> radiationShieldingMass(0.1 + param2 / 10.0, sp).withEquation(eq);
-            case 1 -> vacuumThermalBalance(50.0 + param1 * 20.0, sp).withEquation(eq);
-            case 2 -> micrometeoroidFlux(50.0 + param1, sp).withEquation(eq);
-            case 3 -> centrifugalGravityRadius(0.5 + param2 / 9.0 * 1.5, sp).withEquation(eq);
-            default -> orbitalDecayRate(200.0 + param1 * 5.0, sp).withEquation(eq);
-        };
-    }
-
-    /** Radiation shielding: σ_areal = Φ·E / D_max. Mass per area needed to attenuate dose. */
-    private static ResearchResult radiationShieldingMass(double dailyFluxScale, SearchParams sp) {
-        double E_dep = 5.0;       // MeV per particle, average dose deposit
-        double Dmax = 500.0;      // mSv/year, crew exposure budget
-        double maxSigma = 0;
-        double bestPhi = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // Φ in particles / cm² / day; vary by event regime.
-            double Phi = Math.pow(10, 2 + dailyFluxScale + i * sp.stepSize() * 0.2);
-            // Synthetic: required σ_areal scales as log10(Φ·E_dep / Dmax) g/cm².
-            double sigma = 5.0 + 5.0 * Math.log10(Phi * E_dep / Math.max(1.0, Dmax));
-            samples++;
-            if (sigma > maxSigma) { maxSigma = sigma; bestPhi = Phi; }
-            if (i < 4) sb.append(radShieldSweepSegment(Phi, sigma));
-        }
-        return composeRadiationShieldingMass(dailyFluxScale, samples, maxSigma, bestPhi,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one radiation-shielding sweep segment (incl. trailing space). */
@@ -4221,32 +2430,6 @@ public class MathPhysicsEngine {
                         + "an exposure budget of D_max=%.0f mSv/yr, the areal shielding requirement σ_areal "
                         + "grows logarithmically with flux.")
                         .formatted(2 + dailyFluxScale, Dmax));
-    }
-
-    /** Vacuum thermal balance: T_eq⁴ = (Q_internal + α·S)/(ε·σ·A). */
-    private static ResearchResult vacuumThermalBalance(double qInternalSeed, SearchParams sp) {
-        double sigma = 5.670374419e-8;
-        double A = 50.0;     // m² radiative area
-        double S = 1361.0;   // W/m², solar constant at 1 AU (sweep can vary effective S)
-        double alpha = 0.3;
-        double epsilon = 0.85;
-        double maxT = 0;
-        double minT = Double.MAX_VALUE;
-        double bestQ = qInternalSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double Qint = Math.max(0.0, qInternalSeed + i * sp.stepSize() * 100.0);
-            // Sweep effective insolation as well (orbit altitude / occultation fraction).
-            double Seff = S * (0.5 + Math.sin(i * 0.31) * 0.4);
-            double Teq = Math.pow((Qint + alpha * Seff * A) / (epsilon * sigma * A), 0.25);
-            samples++;
-            if (Teq > maxT) { maxT = Teq; bestQ = Qint; }
-            if (Teq < minT) minT = Teq;
-            if (i < 4) sb.append(vacuumThermalSweepSegment(Qint, Seff, Teq));
-        }
-        return composeVacuumThermalBalance(qInternalSeed, samples, maxT, minT, bestQ,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one vacuum-thermal-balance sweep segment (incl. trailing space). */
@@ -4278,26 +2461,6 @@ public class MathPhysicsEngine {
                         .formatted(A, alpha, epsilon, qInternalSeed));
     }
 
-    /** Cumulative micrometeoroid impact count: N = Φ·A·t. */
-    private static ResearchResult micrometeoroidFlux(double areaSeed, SearchParams sp) {
-        double Phi = 1.0e-8;  // impacts/m²/s for sub-mm meteoroids
-        double tYear = 3.156e7;  // seconds
-        double maxImpacts = 0;
-        double bestArea = areaSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double A = Math.max(1.0, areaSeed + i * sp.stepSize() * 20.0);
-            double mission = (1.0 + i * sp.stepSize() * 0.5) * tYear;
-            double N = Phi * A * mission;
-            samples++;
-            if (N > maxImpacts) { maxImpacts = N; bestArea = A; }
-            if (i < 4) sb.append(micrometeoroidSweepSegment(A, N));
-        }
-        return composeMicrometeoroidFlux(areaSeed, samples, maxImpacts, bestArea,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one micrometeoroid-flux sweep segment (incl. trailing space). */
     static String micrometeoroidSweepSegment(double A, double N) {
         return "A=%.0fm²→N≈%.1f ".formatted(A, N);
@@ -4324,32 +2487,6 @@ public class MathPhysicsEngine {
                         .formatted(areaSeed));
     }
 
-    /** Centrifugal artificial gravity: a = ω²·R. Find R for a given a_target at habitable rate. */
-    private static ResearchResult centrifugalGravityRadius(double aTarget, SearchParams sp) {
-        // a_target in fractions of g_E.
-        double aMps = aTarget * 9.81;
-        double bestR = 0;
-        double bestOmega = 0;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            // ω ranges 0.2-4 rad/s (3-40 rpm).
-            double omega = 0.2 + i * sp.stepSize() * 0.1;
-            // Coriolis-tolerable: ω ≤ 0.3 rad/s (≈3 rpm) preferred. Above that, gait is uncomfortable.
-            double R = aMps / (omega * omega);
-            samples++;
-            if (omega <= 0.3 && R > bestR) { bestR = R; bestOmega = omega; }
-            if (i < 4) sb.append(centrifugalSweepSegment(omega, R));
-        }
-        // If no comfortable ω found, take the smallest R from any ω.
-        if (bestR == 0 && samples > 0) {
-            bestR = aMps / (0.3 * 0.3);
-            bestOmega = 0.3;
-        }
-        return composeCentrifugalGravityRadius(aTarget, samples, bestR, bestOmega,
-                sb.toString().trim());
-    }
-
     /** Phase 28 §28.6b — one centrifugal artificial-gravity sweep segment (incl. trailing space). */
     static String centrifugalSweepSegment(double omega, double R) {
         return "ω=%.2frad/s→R=%.1fm ".formatted(omega, R);
@@ -4373,29 +2510,6 @@ public class MathPhysicsEngine {
                         + "conditions (ω ≤ 0.3 rad/s) require a habitat radius R = a/ω² that grows quadratically "
                         + "with decreasing rotation rate.")
                         .formatted(aTarget));
-    }
-
-    /** Orbital decay: dh/dt ≈ −2π·ρ_atm(h)·B_inv·a. */
-    private static ResearchResult orbitalDecayRate(double altKmSeed, SearchParams sp) {
-        // Toy: ρ_atm(h) ≈ 1.225·exp(−h/8) kg/m³ ≪ atmospheric scale height.
-        double bestDays = 0;
-        double bestH = altKmSeed;
-        StringBuilder sb = new StringBuilder();
-        int samples = 0;
-        for (int i = 0; i < sp.candidateBreadth(); i++) {
-            double h = Math.max(200, altKmSeed + i * sp.stepSize() * 10.0);
-            double rho = 1.225 * Math.exp(-h / 60.0);  // exaggerated scale height
-            // Decay rate (m/s descent): rough heuristic.
-            double Binv = 0.001;
-            double a = 7.7e6;  // orbital semimajor in m
-            double dhdt = 2 * Math.PI * rho * Binv * a;  // m/s vertical
-            double daysToDeorbit = (h * 1000.0) / Math.max(1e-6, dhdt) / 86400.0;
-            samples++;
-            if (daysToDeorbit > bestDays) { bestDays = daysToDeorbit; bestH = h; }
-            if (i < 4) sb.append(orbitalDecaySweepSegment(h, rho, daysToDeorbit));
-        }
-        return composeOrbitalDecayRate(altKmSeed, samples, bestDays, bestH,
-                sb.toString().trim());
     }
 
     /** Phase 28 §28.6b — one orbital-decay sweep segment (incl. trailing space). */

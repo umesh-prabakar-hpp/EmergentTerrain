@@ -204,9 +204,11 @@ public class BotLifecycleService {
         if (genome == null) return 0.0;
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(genome);
         MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
-        MathPhysicsEngine.ResearchResult result = delegate != null
-                ? delegate.compute(domain, topicIndex, param1, param2, sp)
-                : MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
+        if (delegate == null) {
+            throw new IllegalStateException("physics-topic compute requires the sidecar-backed "
+                    + "MathPhysicsEngineDelegate; none wired (in-process engine removed in §28.6).");
+        }
+        MathPhysicsEngine.ResearchResult result = delegate.compute(domain, topicIndex, param1, param2, sp);
         double score = MathPhysicsEngine.scoreResult(domain, topicIndex, result.reviewValue(), sp);
         return Math.max(0.0, score + rng.nextGaussian() * 0.05);
     }

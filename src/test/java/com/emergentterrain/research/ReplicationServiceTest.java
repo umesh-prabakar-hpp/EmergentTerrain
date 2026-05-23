@@ -1,6 +1,7 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.domain.RoomBot;
+import com.emergentterrain.llm.JuliaMathClient;
 import com.emergentterrain.repo.ResearchPaperRepository;
 import com.emergentterrain.repo.RoomBotRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -42,6 +43,11 @@ class ReplicationServiceTest {
         botRepo    = mock(RoomBotRepository.class);
         mapper     = new ObjectMapper().findAndRegisterModules();
         service    = new ReplicationService(papersRepo, botRepo, mapper);
+        // §28.6 removed the in-process engine, so ReplicationService now computes
+        // the replica result through the sidecar-backed delegate. This unit test
+        // has no sidecar, so wire a deterministic stand-in; replicaScore() scores
+        // the same fixed result, keeping the dispute math under test.
+        service.setPhysicsEngineDelegate(new StubDelegate());
     }
 
     @Test
@@ -112,11 +118,13 @@ class ReplicationServiceTest {
         service.setDisputeListener(disputed::set);
 
         Researcher replicator = researcher("bot-replicator");
-        // Set originalScore far from what the replicator would actually produce so the
-        // diff exceeds the 0.15 threshold and the paper flips to DISPUTED.
+        // Set originalScore 0.5 away from what the replicator will actually produce so
+        // the diff exceeds the 0.15 threshold and the paper flips to DISPUTED.
+        double rep = replicaScore(replicator, "MATHEMATICS", 0, 50, 5.0);
+        double diverged = rep <= 0.5 ? rep + 0.5 : rep - 0.5;
         service.enqueue(new ReplicationService.ReplicationRequest(
                 room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0,
-                /* originalScore = */ 0.95));
+                /* originalScore = */ diverged));
 
         service.processOne(room, List.of(replicator), new Random(1), 0.5);
 
@@ -141,8 +149,10 @@ class ReplicationServiceTest {
         service.setReconciliationListener((p, r) -> { recPaper.set(p); recReplicator.set(r); });
 
         Researcher replicator = researcher("bot-replicator");
+        double rep = replicaScore(replicator, "MATHEMATICS", 0, 50, 5.0);
+        double diverged = rep <= 0.5 ? rep + 0.5 : rep - 0.5;
         service.enqueue(new ReplicationService.ReplicationRequest(
-                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0, /* originalScore = */ 0.95));
+                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0, /* originalScore = */ diverged));
 
         service.processOne(room, List.of(replicator), new Random(1), 0.5);
 
@@ -163,9 +173,10 @@ class ReplicationServiceTest {
         service.setReconciliationListener((p, r) -> recPaper.set(p));
 
         Researcher replicator = researcher("bot-replicator");
-        // originalScore close to what the replicator will produce — no dispute.
+        // originalScore equals what the replicator will produce — diff 0, no dispute.
         service.enqueue(new ReplicationService.ReplicationRequest(
-                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0, /* originalScore = */ 0.10));
+                room, "P-bbbb-1", "MATHEMATICS", 0, 50, 5.0,
+                /* originalScore = */ replicaScore(replicator, "MATHEMATICS", 0, 50, 5.0)));
 
         service.processOne(room, List.of(replicator), new Random(1), 0.5);
 
@@ -197,13 +208,41 @@ class ReplicationServiceTest {
                 room, paperId, "MATHEMATICS", 0, p1, p2, original);
     }
 
+    /**
+     * The score the replicator would record for {@code (domain, topic)} — scored
+     * from the same fixed result the {@link StubDelegate} serves, so a request
+     * whose originalScore equals this value lands diff=0 (within threshold) and
+     * one set 0.5 away lands a dispute, independent of the score's absolute value.
+     */
     private static double replicaScore(Researcher replicator, String domain, int topicIndex,
                                        int param1, double param2) {
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
                 replicator.getState().getGenome(), 0.5);
-        MathPhysicsEngine.ResearchResult result = MathPhysicsEngine.compute(
-                domain, topicIndex, param1, param2, sp);
-        return MathPhysicsEngine.scoreResult(domain, topicIndex, result.reviewValue(), sp);
+        return MathPhysicsEngine.scoreResult(domain, topicIndex,
+                deterministicResult().reviewValue(), sp);
+    }
+
+    /** Fixed MATHEMATICS:0 (prime-constellation) result the stub delegate serves. */
+    private static MathPhysicsEngine.ResearchResult deterministicResult() {
+        return MathPhysicsEngine.composePrimeConstellations(
+                2, 100, 25, 8, 7, 11, 8, 7.6, 0.18, 0.25, 0.08);
+    }
+
+    /**
+     * Sidecar-free {@link MathPhysicsEngineDelegate} stand-in — returns a fixed,
+     * deterministic result so the queue/dispute/reconciliation logic is testable
+     * without a live sidecar (the in-process engine was removed in §28.6).
+     */
+    private static final class StubDelegate extends MathPhysicsEngineDelegate {
+        StubDelegate() {
+            super((JuliaMathClient) null);
+        }
+
+        @Override
+        public MathPhysicsEngine.ResearchResult compute(String domain, int topicIndex,
+                int param1, double param2, MathPhysicsEngine.SearchParams sp) {
+            return deterministicResult();
+        }
     }
 
     private static Researcher researcher(String botId) {

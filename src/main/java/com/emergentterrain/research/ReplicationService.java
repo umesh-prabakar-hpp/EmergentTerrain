@@ -200,9 +200,12 @@ public class ReplicationService {
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.from(
                 replicator.getState().getGenome(), educationFactor);
         MathPhysicsEngineDelegate delegate = this.physicsEngineDelegate;
-        MathPhysicsEngine.ResearchResult replicaResult = delegate != null
-                ? delegate.compute(req.domain(), req.topicIndex(), req.param1(), req.param2(), sp)
-                : MathPhysicsEngine.compute(req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
+        if (delegate == null) {
+            throw new IllegalStateException("physics-topic compute requires the sidecar-backed "
+                    + "MathPhysicsEngineDelegate; none wired (in-process engine removed in §28.6).");
+        }
+        MathPhysicsEngine.ResearchResult replicaResult =
+                delegate.compute(req.domain(), req.topicIndex(), req.param1(), req.param2(), sp);
         double replicaScore = MathPhysicsEngine.scoreResult(req.domain(), req.topicIndex(),
                 replicaResult.reviewValue(), sp);
 
