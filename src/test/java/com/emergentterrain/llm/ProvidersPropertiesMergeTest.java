@@ -37,7 +37,8 @@ class ProvidersPropertiesMergeTest {
         return p;
     }
 
-    /** Mirrors the live config: groq has both, fast budget-only, openrouter rate-only. */
+    /** Exercises merge selectivity: each cap type has one entry that lacks it
+     *  (fast has no rate, openrouter has no budget) so inclusion + exclusion are both pinned. */
     private static ProvidersProperties liveShape() {
         Map<String, ProvidersProperties.Entry> m = new LinkedHashMap<>();
         m.put("groq",       entry(8.00, 6_800_000, 5_000_000, 270_000, 8_000));
