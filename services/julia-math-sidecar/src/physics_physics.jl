@@ -241,6 +241,7 @@ function physics_van_der_waals_deviation_at(T::Real, tolerance::Real)::Dict{Stri
     R = 0.08206
     crossover_P = -1.0
     max_dev = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — 6 sampled pressures for JVM sweep string
     for p in 1:100
         P = Float64(p)
         V_ideal = R * Float64(T) / P
@@ -266,6 +267,9 @@ function physics_van_der_waals_deviation_at(T::Real, tolerance::Real)::Dict{Stri
         if dev > Float64(tolerance) && crossover_P < 0
             crossover_P = Float64(p)
         end
+        if p in (1, 5, 10, 20, 50, 100)
+            push!(sample_sweep, Dict{String,Any}("p" => p, "dev" => dev))
+        end
     end
     crossover_observed = crossover_P > 0
     # JVM line 1413-1416: 4-arg ResearchResult (status defaults to
@@ -286,6 +290,8 @@ function physics_van_der_waals_deviation_at(T::Real, tolerance::Real)::Dict{Stri
         "maxDev"           => max_dev,
         "crossoverP"       => crossover_P,
         "crossoverObserved" => crossover_observed,
+        "tolerance"        => Float64(tolerance),   # §28.6b — JVM prose needs it
+        "sampleSweep"      => sample_sweep,          # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -558,6 +564,7 @@ function physics_schrodinger_infinite_well(seed_L_nm::Real, param2::Real,
     best_L = Float64(seed_L_nm)
     best_E1 = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 wells for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Lnm = max(0.1, Float64(seed_L_nm) - i * step_size * 0.05)
         Lm  = Lnm * 1e-9
@@ -568,6 +575,9 @@ function physics_schrodinger_infinite_well(seed_L_nm::Real, param2::Real,
             best_ratio = ratio
             best_L = Lnm
             best_E1 = E1
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Lnm" => Lnm, "E1" => E1, "ratio" => ratio))
         end
     end
     confinement_dominant = best_ratio > 1.0
@@ -587,6 +597,7 @@ function physics_schrodinger_infinite_well(seed_L_nm::Real, param2::Real,
         "T"                => T,
         "samples"          => samples,
         "seedLnm"          => Float64(seed_L_nm),
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
