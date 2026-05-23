@@ -6,6 +6,7 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.context.ApplicationContext;
 import org.springframework.stereotype.Component;
 
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -150,37 +151,57 @@ public class RunBudgetTracker {
         if (a.exhausted) return;
         a.exhausted = true;
         log.warn("Provider '{}' disabled — {}. Routing around it.", provider, why);
-        if (allUsedProvidersExhausted()) {
-            stop("every provider in use is exhausted");
+        if (allRelevantProvidersExhausted()) {
+            stop("every provider is exhausted");
         }
     }
 
     /**
-     * True once every provider that has actually been used is exhausted. An
-     * uncapped provider (e.g. a free OpenRouter tier) never exhausts, so the
-     * app keeps running on it; this returns true only when nothing routable
-     * remains.
+     * True once every <em>relevant</em> provider is exhausted, where relevant =
+     * providers configured with a cap ∪ providers already used. So:
+     * <ul>
+     *   <li>a capped provider not yet used keeps the run alive until it too
+     *       exhausts (no premature stop while it could still serve);</li>
+     *   <li>an uncapped provider that has been used (e.g. a free OpenRouter
+     *       tier) never exhausts, so the run stays alive on it indefinitely.</li>
+     * </ul>
      */
-    private boolean allUsedProvidersExhausted() {
-        if (byProvider.isEmpty()) return false;
-        boolean any = false;
-        for (Acc a : byProvider.values()) {
-            if (!a.exhausted) return false;
-            any = true;
+    private boolean allRelevantProvidersExhausted() {
+        java.util.Set<String> relevant = new java.util.HashSet<>(byProvider.keySet());
+        for (Map.Entry<String, BudgetProperties.Caps> e : props.getProviders().entrySet()) {
+            if (e.getValue().hasAnyCap()) relevant.add(e.getKey());
         }
-        return any;
+        if (relevant.isEmpty()) return false;
+        for (String p : relevant) {
+            Acc a = byProvider.get(p);
+            if (a == null || !a.exhausted) return false;
+        }
+        return true;
     }
 
     private void stop(String why) {
         if (!stopStarted.compareAndSet(false, true)) return;
         log.warn("Run budget reached ({}). Terminating application (exit code {}).", why, EXIT_CODE);
-        // Off the calling thread: the call hook runs inside TpmBudgetGate's
-        // synchronized region, and SpringApplication.exit closes the context.
+        terminate(EXIT_CODE);
+    }
+
+    /**
+     * Terminate the JVM. Runs off the calling thread because the call hook
+     * fires from inside the pools' call path and {@link SpringApplication#exit}
+     * closes the context. Overridable so tests can intercept termination
+     * instead of killing the test JVM.
+     */
+    protected void terminate(int exitCode) {
         Thread t = new Thread(() -> {
-            int code = SpringApplication.exit(ctx, () -> EXIT_CODE);
+            int code = SpringApplication.exit(ctx, () -> exitCode);
             System.exit(code);
         }, "run-budget-stop");
         t.start();
+    }
+
+    /** True once a global ceiling or all-providers-exhausted stop has fired. */
+    public boolean isStopRequested() {
+        return stopStarted.get();
     }
 
     // -- operator visibility / metrics ------------------------------------
