@@ -1,7 +1,9 @@
 package com.emergentterrain.research;
 
 import com.emergentterrain.llm.JuliaMathClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -193,6 +195,84 @@ class MathPhysicsEngineDelegateTest {
         assertThat(s.sidecarEmpty()).isEqualTo(1);
         assertThat(s.parityMatches()).isZero();
         assertThat(s.parityMismatches()).isZero();
+    }
+
+    // ── §28.6b primary-read cutover ──────────────────────────────────────
+
+    /** A sidecar detail envelope with a sentinel max_gap so the composed
+     *  result is unmistakably distinct from the real in-process result. */
+    private static ObjectNode sentinelMathTopic0Detail() {
+        ObjectNode d = new ObjectMapper().createObjectNode();
+        d.put("windowStart",  500);
+        d.put("windowEnd",    560);
+        d.put("primeCount",   9);
+        d.put("twinCount",    1);
+        d.put("cousinCount",  2);
+        d.put("sexyCount",    1);
+        d.put("maxGap",       999);          // sentinel — real windows never gap 999
+        d.put("hlPrediction", 1.5);
+        d.put("hlDeviation",  0.40);         // REFUTED band
+        d.put("primeDensity", 9.0 / 60.0);
+        d.put("twinDensity",  0.125);
+        return d;
+    }
+
+    @Test
+    void primaryEnabled_coveredTopic_returnsComposedResult_notInProcess() {
+        JuliaMathClient client = mock(JuliaMathClient.class);
+        when(client.isAvailable()).thenReturn(true);
+
+        ObjectNode detail = sentinelMathTopic0Detail();
+        JuliaMathClient.PhysicsTopicResultWire wire =
+                new JuliaMathClient.PhysicsTopicResultWire(
+                        0.40, 9.0 / 60.0, 999.0, 0.40, "REFUTED", true, detail);
+        when(client.physicsTopic(eq(DOMAIN), eq(TOPIC), eq(PARAM1), eq(PARAM2), any()))
+                .thenReturn(Optional.of(wire));
+
+        // Primary ON (shadow flag OFF — primary alone must still fetch + compose).
+        MathPhysicsEngineDelegate delegate =
+                new MathPhysicsEngineDelegate(false, true, client);
+        MathPhysicsEngine.ResearchResult result =
+                delegate.compute(DOMAIN, TOPIC, PARAM1, PARAM2,
+                        MathPhysicsEngine.SearchParams.neutral());
+
+        // The cutover served the sidecar-composed result, not the in-process one.
+        assertThat(result.tertiaryValue()).isEqualTo(999.0);
+        assertThat(result.findings()).contains("max_gap=999");
+        assertThat(result.claimStatus()).isEqualTo(MathPhysicsEngine.ClaimStatus.REFUTED);
+        // Composed prose is byte-identical to the shared template for this detail.
+        assertThat(result).isEqualTo(
+                SidecarResultComposer.composeFromDetail(DOMAIN, TOPIC, detail).get());
+        // Parity is still recorded during cutover (sentinel diverges from in-process).
+        MathPhysicsEngineDelegate.Stats s = delegate.stats();
+        assertThat(s.shadowCalls()).isEqualTo(1);
+        assertThat(s.parityMismatches()).isEqualTo(1);
+    }
+
+    @Test
+    void primaryEnabled_uncoveredTopic_fallsBackToInProcess() {
+        // PHYSICS:0 has no composer branch yet → primary read must fall back.
+        JuliaMathClient client = mock(JuliaMathClient.class);
+        when(client.isAvailable()).thenReturn(true);
+
+        MathPhysicsEngine.ResearchResult jvm = MathPhysicsEngine.compute(
+                "PHYSICS", 0, PARAM1, PARAM2, MathPhysicsEngine.SearchParams.neutral());
+        JuliaMathClient.PhysicsTopicResultWire wire =
+                new JuliaMathClient.PhysicsTopicResultWire(
+                        jvm.primaryValue(), jvm.secondaryValue(), jvm.tertiaryValue(),
+                        jvm.reviewValue(), jvm.claimStatus().name(), jvm.theoryConsistent(),
+                        new ObjectMapper().createObjectNode());
+        when(client.physicsTopic(any(), anyInt(), anyInt(), anyDouble(), any()))
+                .thenReturn(Optional.of(wire));
+
+        MathPhysicsEngineDelegate delegate =
+                new MathPhysicsEngineDelegate(false, true, client);
+        MathPhysicsEngine.ResearchResult result = delegate.compute(
+                "PHYSICS", 0, PARAM1, PARAM2, MathPhysicsEngine.SearchParams.neutral());
+
+        // Returned the in-process result unchanged — no composer for this topic.
+        assertThat(result.findings()).isEqualTo(jvm.findings());
+        assertThat(result.primaryValue()).isEqualTo(jvm.primaryValue());
     }
 
     @Test

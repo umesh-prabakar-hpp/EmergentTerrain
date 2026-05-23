@@ -1,0 +1,105 @@
+package com.emergentterrain.research;
+
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * Phase 28 §28.6b — pins the JVM-side wiring of {@link SidecarResultComposer}:
+ * that it reads the exact {@code detail} keys the sidecar emits, parses their
+ * types correctly, and stamps the per-topic equation — so the composed result
+ * is byte-identical to what {@link MathPhysicsEngine#composePrimeConstellations}
+ * (the shared prose template) produces.
+ *
+ * <p>This is the JVM half of the §28.6b parity story. The cross-language half —
+ * that the live sidecar actually emits these keys with byte-equal values — is
+ * pinned by {@link MathPhysicsEngineDelegateIntegrationTest} against a running
+ * sidecar. Together they close the loop without re-deriving any format string.
+ */
+class SidecarResultComposerTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** A representative MATHEMATICS:0 detail envelope (PARTIAL band, hlDeviation=0.22). */
+    private static ObjectNode mathTopic0Detail() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("windowStart",  100);
+        d.put("windowEnd",    160);
+        d.put("primeCount",   11);
+        d.put("twinCount",    2);
+        d.put("cousinCount",  1);
+        d.put("sexyCount",    3);
+        d.put("maxGap",       8);
+        d.put("hlPrediction", 2.5);
+        d.put("hlDeviation",  0.22);
+        d.put("primeDensity", 11.0 / 60.0);
+        d.put("twinDensity",  0.2);
+        return d;
+    }
+
+    @Test
+    void mathematics0_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = mathTopic0Detail();
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composePrimeConstellations(
+                        100, 160, 11, 2, 1, 3, 8, 2.5, 0.22, 11.0 / 60.0, 0.2)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 0));
+
+        Optional<MathPhysicsEngine.ResearchResult> actual =
+                SidecarResultComposer.composeFromDetail("MATHEMATICS", 0, d);
+
+        assertThat(actual).isPresent();
+        // Record equality covers all 11 fields — findings, theoryCheck,
+        // claimAssessment, hypothesis, equation prose plus the four scalars,
+        // theoryConsistent flag, and claimStatus — byte-for-byte.
+        assertThat(actual.get()).isEqualTo(expected);
+    }
+
+    @Test
+    void mathematics0_stampsTheClosedFormEquation() {
+        Optional<MathPhysicsEngine.ResearchResult> actual =
+                SidecarResultComposer.composeFromDetail("MATHEMATICS", 0, mathTopic0Detail());
+
+        assertThat(actual).isPresent();
+        assertThat(actual.get().equation())
+                .isEqualTo(MathPhysicsEngine.equationFor("MATHEMATICS", 0))
+                .contains("Hardy–Littlewood");
+        assertThat(actual.get().claimStatus())
+                .isEqualTo(MathPhysicsEngine.ClaimStatus.PARTIAL);
+    }
+
+    @Test
+    void uncoveredTopic_returnsEmptySoCallerFallsBack() {
+        // MATHEMATICS:1 (Collatz) has no composer branch yet — must signal
+        // fall-back rather than throw or return a wrong result.
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 1, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 0, mathTopic0Detail()))
+                .isEmpty();
+    }
+
+    @Test
+    void nullOrMissingDetail_returnsEmpty() {
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 0, null)).isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 0, NullNode.getInstance()))
+                .isEmpty();
+    }
+
+    @Test
+    void topicIndexIsModuloReduced_likeComputeDispatcher() {
+        // compute() floor-mods the topic index by topicCount; the composer must
+        // reduce identically so an out-of-range index maps to the same topic.
+        int wrapped = MathPhysicsEngine.topicCount("MATHEMATICS"); // == 0 after floorMod
+        Optional<MathPhysicsEngine.ResearchResult> actual =
+                SidecarResultComposer.composeFromDetail("MATHEMATICS", wrapped, mathTopic0Detail());
+        assertThat(actual).isPresent();
+        assertThat(actual.get())
+                .isEqualTo(SidecarResultComposer.composeFromDetail("MATHEMATICS", 0, mathTopic0Detail()).get());
+    }
+}

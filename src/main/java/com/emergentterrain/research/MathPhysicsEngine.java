@@ -769,12 +769,33 @@ public class MathPhysicsEngine {
             if (gap == 4) cousins++;
             if (gap == 6) sexy++;
         }
-        int pairs = Math.max(1, primes.size() - 1);
-        double twinDensity  = (double) twins / pairs;
+        double twinDensity  = (double) twins / Math.max(1, primes.size() - 1);
         double primeDensity = (double) primes.size() / (end - start);
         double lnN = Math.log(Math.max(2, start));
         double hlPrediction = 1.320323631693739 / (lnN * lnN) * width;
         double hlDeviation  = Math.abs(twins - hlPrediction) / Math.max(1.0, hlPrediction);
+        return composePrimeConstellations(start, end, primes.size(), twins, cousins, sexy,
+                maxGap, hlPrediction, hlDeviation, primeDensity, twinDensity);
+    }
+
+    /**
+     * Phase 28 §28.6 — shared prose composer for MATHEMATICS topic 0
+     * (primeConstellations). Both the in-process path
+     * ({@link #primeConstellationsAt}) and the sidecar-cutover path
+     * ({@link SidecarResultComposer#composeFromDetail}) call this with the
+     * same numeric inputs, so the {@code findings/assessment/hypothesis}
+     * prose is byte-identical by construction — there is no second copy of
+     * the {@code String.format} templates to drift. The numeric arguments
+     * are exactly the fields the sidecar emits in its {@code detail} map
+     * (windowStart, windowEnd, primeCount, twinCount, cousinCount,
+     * sexyCount, maxGap, hlPrediction, hlDeviation, primeDensity,
+     * twinDensity); the claim-status band is recomputed here from
+     * {@code hlDeviation} so this method is fully self-contained.
+     */
+    static ResearchResult composePrimeConstellations(int start, int end, int primeCount,
+            int twins, int cousins, int sexy, int maxGap,
+            double hlPrediction, double hlDeviation, double primeDensity, double twinDensity) {
+        int pairs = Math.max(1, primeCount - 1);
         // Phase 5 B5 — tightened bands for asymptotic predictions. The May 2026
         // corpus had four papers (P-a328-70, 71, 74, 78) report H-L deviations
         // of 29–35% under the old 35%-supports-the-hypothesis band; the report
@@ -791,7 +812,7 @@ public class MathPhysicsEngine {
                 .formatted(start, end);
         return new ResearchResult(
                 "Prime constellations [%d,%d): %d primes (density=%s), twin=%d, cousin=%d, sexy=%d, max_gap=%d. H-L predicted twins≈%.1f, deviation=%.1f%%. Twin density among pairs: %s."
-                        .formatted(start, end, primes.size(), fmtProp(primeDensity, end - start),
+                        .formatted(start, end, primeCount, fmtProp(primeDensity, end - start),
                                    twins, cousins, sexy, maxGap, hlPrediction, hlDeviation * 100,
                                    fmtProp(twinDensity, pairs)),
                 hlDeviation, primeDensity, maxGap, hlDeviation, status, assessment, hypothesis);

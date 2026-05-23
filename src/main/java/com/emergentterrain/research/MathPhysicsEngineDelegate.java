@@ -48,13 +48,17 @@ import java.util.concurrent.atomic.AtomicLong;
  * over without a burn-in window would regress on the first sidecar
  * outage. The delegate seam keeps the flip reversible.
  *
- * <h2>What this delegate does NOT do (yet)</h2>
+ * <h2>§28.6b — primary-read cutover</h2>
  *
- * Even when the flag is true, the returned ResearchResult is still
- * built by {@link MathPhysicsEngine#compute} in-process — the sidecar
- * call is shadow-only. The §28.6 step composes the JVM ResearchResult
- * directly from the sidecar's {@code detail} JsonNode, removing the
- * in-process compute call on the hot path.
+ * When {@code app.julia.physics.topic.primary=true}, the delegate returns the
+ * {@link SidecarResultComposer}-built ResearchResult for any topic the composer
+ * covers, instead of the in-process result — prose included, composed JVM-side
+ * from the sidecar's numeric {@code detail} (approach B). The in-process compute
+ * still runs and parity is still recorded during this transition, so the cutover
+ * is observable and reversible; dropping the in-process call from the hot path is
+ * the final legacy-removal step once prose-parity burn-in is clean. Topics
+ * without a composer branch fall back to the in-process result, so primary read
+ * lights up topic-by-topic rather than all-or-nothing.
  */
 @Service
 public class MathPhysicsEngineDelegate {
@@ -73,6 +77,16 @@ public class MathPhysicsEngineDelegate {
 
     private final JuliaMathClient juliaMathClient;
     private final boolean shadowReadEnabled;
+    /**
+     * Phase 28 §28.6b — sidecar-primary cutover. When true (and a
+     * JuliaMathClient bean is present), {@link #compute} returns the
+     * {@link SidecarResultComposer}-built result for any topic the composer
+     * covers, instead of the in-process result. The in-process compute still
+     * runs and parity is still recorded, so divergence stays visible during
+     * burn-in — flipping this flag is fully reversible and never silences the
+     * parity counters. Default OFF per the flag-gated-dormant convention.
+     */
+    private final boolean primaryReadEnabled;
 
     private final AtomicLong totalCalls       = new AtomicLong();
     private final AtomicLong shadowCalls      = new AtomicLong();
@@ -91,15 +105,29 @@ public class MathPhysicsEngineDelegate {
     @Autowired
     public MathPhysicsEngineDelegate(
             @Value("${app.julia.physics.topic.enabled:false}") boolean shadowReadEnabled,
+            @Value("${app.julia.physics.topic.primary:false}") boolean primaryReadEnabled,
             @Autowired(required = false) JuliaMathClient juliaMathClient) {
-        this.juliaMathClient   = juliaMathClient;
+        this.juliaMathClient    = juliaMathClient;
         // Shadow read activates only when the flag AND a JuliaMathClient
         // bean are both present — defends against partial wiring in
         // test slice contexts.
-        this.shadowReadEnabled = shadowReadEnabled && juliaMathClient != null;
+        this.shadowReadEnabled  = shadowReadEnabled && juliaMathClient != null;
+        // Primary read implies a sidecar fetch even if shadow read is off;
+        // same client-present guard.
+        this.primaryReadEnabled = primaryReadEnabled && juliaMathClient != null;
         log.info("MathPhysicsEngineDelegate: ready, shadowReadEnabled={} " +
-                "(flag={} client={})",
-                this.shadowReadEnabled, shadowReadEnabled, juliaMathClient != null);
+                "primaryReadEnabled={} (shadowFlag={} primaryFlag={} client={})",
+                this.shadowReadEnabled, this.primaryReadEnabled,
+                shadowReadEnabled, primaryReadEnabled, juliaMathClient != null);
+    }
+
+    /**
+     * Two-arg convenience constructor — primary read defaults OFF. Retained so
+     * the existing shadow-mode tests and call sites compile unchanged; the
+     * {@code @Autowired} three-arg constructor above is the one Spring uses.
+     */
+    public MathPhysicsEngineDelegate(boolean shadowReadEnabled, JuliaMathClient juliaMathClient) {
+        this(shadowReadEnabled, false, juliaMathClient);
     }
 
     /**
@@ -121,7 +149,10 @@ public class MathPhysicsEngineDelegate {
         MathPhysicsEngine.ResearchResult jvm =
                 MathPhysicsEngine.compute(domain, topicIndex, param1, param2, sp);
 
-        if (!shadowReadEnabled || !juliaMathClient.isAvailable()) {
+        // A sidecar fetch is needed for shadow-parity recording OR for the
+        // primary-read cutover. Skip it (return in-process) when neither flag
+        // is on or the sidecar is unreachable.
+        if ((!shadowReadEnabled && !primaryReadEnabled) || !juliaMathClient.isAvailable()) {
             return jvm;
         }
 
@@ -136,11 +167,25 @@ public class MathPhysicsEngineDelegate {
                 sidecarEmpty.incrementAndGet();
                 return jvm;
             }
+            // Always record parity when we have the wire — keeps the burn-in
+            // signal alive in primary mode too, so a regression after cutover
+            // is still logged rather than silently served.
             recordParity(jvm, wire.get(), domain, topicIndex);
+
+            if (primaryReadEnabled) {
+                Optional<MathPhysicsEngine.ResearchResult> composed =
+                        SidecarResultComposer.composeFromDetail(
+                                domain, topicIndex, wire.get().detail());
+                if (composed.isPresent()) {
+                    return composed.get();
+                }
+                // Composer has no branch for this topic yet — fall through to
+                // the in-process result. The cutover lights up topic-by-topic.
+            }
         } catch (RuntimeException e) {
             sidecarErrors.incrementAndGet();
             log.warn("MathPhysicsEngineDelegate: sidecar physicsTopic failed " +
-                    "(domain={} topic={}): {} — shadow read counted as error, " +
+                    "(domain={} topic={}): {} — counted as error, " +
                     "in-process result returned unchanged",
                     domain, topicIndex, e.getMessage());
         }
