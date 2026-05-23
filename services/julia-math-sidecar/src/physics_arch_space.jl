@@ -21,6 +21,7 @@ function physics_arch_space_radiation_shielding_mass(daily_flux_scale::Real,
     max_sigma = 0.0
     best_phi = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 flux samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Phi = 10.0^(2 + Float64(daily_flux_scale) + i * step_size * 0.2)
         sigma = 5.0 + 5.0 * log10(Phi * E_dep / max(1.0, Dmax))
@@ -28,6 +29,9 @@ function physics_arch_space_radiation_shielding_mass(daily_flux_scale::Real,
         if sigma > max_sigma
             max_sigma = sigma
             best_phi = Phi
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Phi" => Phi, "sigma" => sigma))
         end
     end
     status = max_sigma < 100.0 ? "SUPPORTED" :
@@ -44,6 +48,8 @@ function physics_arch_space_radiation_shielding_mass(daily_flux_scale::Real,
         "EDep"             => E_dep,
         "Dmax"             => Dmax,
         "samples"          => samples,
+        "dailyFluxScale"   => Float64(daily_flux_scale),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,                 # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -69,6 +75,7 @@ function physics_arch_space_vacuum_thermal_balance(q_internal_seed::Real,
     min_T = floatmax(Float64)
     best_Q = Float64(q_internal_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (Q, S_eff) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         Qint = max(0.0, Float64(q_internal_seed) + i * step_size * 100.0)
         Seff = S * (0.5 + sin(i * 0.31) * 0.4)
@@ -80,6 +87,9 @@ function physics_arch_space_vacuum_thermal_balance(q_internal_seed::Real,
         end
         if Teq < min_T
             min_T = Teq
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("Qint" => Qint, "Seff" => Seff, "Teq" => Teq))
         end
     end
     status = (max_T >= 273 && max_T <= 320) ? "SUPPORTED" :
@@ -95,6 +105,8 @@ function physics_arch_space_vacuum_thermal_balance(q_internal_seed::Real,
         "minT"             => min_T,
         "bestQ"            => best_Q,
         "samples"          => samples,
+        "qInternalSeed"    => Float64(q_internal_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,                # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -114,6 +126,7 @@ function physics_arch_space_micrometeoroid_flux(area_seed::Real,
     max_impacts = 0.0
     best_area = Float64(area_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 area samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         A = max(1.0, Float64(area_seed) + i * step_size * 20.0)
         mission = (1.0 + i * step_size * 0.5) * t_year
@@ -122,6 +135,9 @@ function physics_arch_space_micrometeoroid_flux(area_seed::Real,
         if N > max_impacts
             max_impacts = N
             best_area = A
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("A" => A, "N" => N))
         end
     end
     status = max_impacts < 100 ? "SUPPORTED" :
@@ -137,6 +153,8 @@ function physics_arch_space_micrometeoroid_flux(area_seed::Real,
         "bestArea"         => best_area,
         "Phi"              => Phi,
         "samples"          => samples,
+        "areaSeed"         => Float64(area_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,          # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -158,6 +176,7 @@ function physics_arch_space_centrifugal_gravity_radius(a_target::Real,
     best_R = 0.0
     best_omega = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (ω, R) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         omega = 0.2 + i * step_size * 0.1
         R = a_mps / (omega * omega)
@@ -165,6 +184,9 @@ function physics_arch_space_centrifugal_gravity_radius(a_target::Real,
         if omega <= 0.3 && R > best_R
             best_R = R
             best_omega = omega
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("omega" => omega, "R" => R))
         end
     end
     # JVM line 3581: fallback when no comfortable ω found.
@@ -186,6 +208,7 @@ function physics_arch_space_centrifugal_gravity_radius(a_target::Real,
         "aTarget"          => Float64(a_target),
         "aMps"             => a_mps,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -206,6 +229,7 @@ function physics_arch_space_orbital_decay_rate(alt_km_seed::Real,
     best_days = 0.0
     best_h = Float64(alt_km_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 altitude samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         h = max(200.0, Float64(alt_km_seed) + i * step_size * 10.0)
         rho = 1.225 * exp(-h / 60.0)
@@ -217,6 +241,10 @@ function physics_arch_space_orbital_decay_rate(alt_km_seed::Real,
         if days_to_deorbit > best_days
             best_days = days_to_deorbit
             best_h = h
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("h" => h, "rho" => rho,
+                                                 "daysToDeorbit" => days_to_deorbit))
         end
     end
     status = best_days > 30 ? "SUPPORTED" :
@@ -231,6 +259,8 @@ function physics_arch_space_orbital_decay_rate(alt_km_seed::Real,
         "bestDays"         => best_days,
         "bestH"            => best_h,
         "samples"          => samples,
+        "altKmSeed"        => Float64(alt_km_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,            # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
