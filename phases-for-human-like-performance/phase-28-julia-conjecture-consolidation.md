@@ -1,8 +1,9 @@
 # Phase 28 — Julia Sidecar Consolidation of Conjecture + Math Compute
 
 **Status (2026-05-23):** §28.1 → §28.5 SHIPPED, §28.6 PARTIAL (conjecture
-flag flipped; physics-topic cutover seam landed for MATHEMATICS:0, primary
-flag default OFF). Promoted from `reference-conjecture-engines.md` §
+flag flipped; physics-topic cutover seam landed and the **full MATHEMATICS
+domain (topics 0–9) is now cut-over-capable**, primary flag default OFF).
+Promoted from `reference-conjecture-engines.md` §
 "Decisions — Julia consolidation (2026-05-22)" Slice 1.
 
 **§28.6 prose decision (2026-05-23): approach B — JVM composes from
@@ -42,7 +43,8 @@ Sub-phase status:
   logs WARN and falls through to legacy on any sidecar exception.
   **Physics-topic read cutover seam landed (2026-05-23)** via
   approach B (`SidecarResultComposer` + `app.julia.physics.topic.primary`,
-  default OFF) — done for MATHEMATICS:0, 62 composer branches remain
+  default OFF) — the full MATHEMATICS domain (topics 0–9) is cut-over-
+  capable; 53 composer branches remain across the other 8 domains
   (see §28.6a/b below). Legacy removal across all six ported classes
   remains deferred until prose-parity burn-in is clean.
 
@@ -61,14 +63,17 @@ sidecar response doesn't carry the findings prose the JVM
 - **§28.6a — sidecar `detail` completeness** (per-topic). Under
   approach B, the sidecar emits *no* prose — it must instead carry
   every numeric value the JVM prose template consumes in its
-  `detail` map. MATHEMATICS:0 (primeConstellations) already does
-  (windowStart, windowEnd, primeCount, twin/cousin/sexyCount,
-  maxGap, hl{Prediction,Deviation}, prime/twinDensity). The
-  remaining 62 (domain, topicIdx) handlers need an audit: confirm
-  each emits the fields its JVM composer reads, adding any missing
-  ones. This is the bulk of the remaining work.
+  `detail` map. **MATHEMATICS done (topics 0–9):** topic 0 already
+  carried everything; the audit added `wM2` (collatz/goldbach) and
+  `happyM2` (happy) for the Welford `fmtMean`, `seedN` (divisor) for
+  a hypothesis, and `sampleSweep` arrays of the first ≤4 windows for
+  the topics that embed a sample-sweep string (mertens/riemann/
+  stern-brocot). Topics 6 (divisor) and 9 (squarefree) build a sweep
+  but never embed it, so they stay numeric-only. The remaining 53
+  (domain, topicIdx) handlers across the other 8 domains need the
+  same audit.
 - **§28.6b — JVM `composeFromSidecar` cutover** — **seam SHIPPED
-  (2026-05-23, MATHEMATICS:0).** New `SidecarResultComposer`
+  (2026-05-23, full MATHEMATICS domain).** New `SidecarResultComposer`
   parses the sidecar `detail` JsonNode and calls the same shared
   `MathPhysicsEngine.compose*` method the in-process path uses (so
   prose is byte-identical), then stamps `equationFor`. New
@@ -77,28 +82,33 @@ sidecar response doesn't carry the findings prose the JVM
   for any topic the composer covers, while still computing
   in-process + recording scalar parity so the cutover is observable
   and reversible. Topics without a composer branch fall back
-  in-process — the cutover lights up topic-by-topic. **Done for
-  MATHEMATICS:0; 62 composer branches remain** (one per topic,
-  mechanical: extract that topic's prose into a shared `compose*`
-  method, add the `detail`-key branch, extend the parity tests).
-  Dropping the in-process call from the hot path (the actual perf
-  win) is the final legacy-removal step, once prose-parity burn-in
-  is clean.
+  in-process — the cutover lights up topic-by-topic. **Done for the
+  full MATHEMATICS domain (topics 0–9); 53 composer branches remain**
+  across the other 8 domains (one per topic, mechanical: extract that
+  topic's prose into a shared `compose*` method, add the `detail`-key
+  branch, extend the parity tests). Three structural shapes recur and
+  are now templated by MATHEMATICS: inner-window prose (topics 0,1,2),
+  outer-overlay via `withFindingsAndClaim` (3,4), and aggregate +
+  optional sample-sweep (5–9). Dropping the in-process call from the
+  hot path (the actual perf win) is the final legacy-removal step,
+  once prose-parity burn-in is clean.
 
 Neither sub-phase is blocking burn-in — the existing shadow-read
 mode already drives parity counters, and the conjecture-side flag
 flip (above) is the genuinely operator-visible §28.6 step.
 
-**Tests (2026-05-23).** `SidecarResultComposerTest` (5 cases, pure
-JVM — pins the `detail`-key + equation wiring and the byte-identity
-to the shared template; all green). `MathPhysicsEngineDelegateTest`
-gains two primary-read cases (cutover serves the composed result;
-uncovered topics fall back). `MathPhysicsEngineDelegateIntegrationTest`
-gains a live-sidecar full-`ResearchResult` byte-parity assertion for
-MATHEMATICS:0. NB: the mock-based delegate cases don't run on this
-dev shell (JDK-25 / Mockito-inline can't mock `JuliaMathClient` — see
-[[project_dev_shell_jdk_state]]); the composer + regression suites
-(no Mockito) confirm the refactor is byte-identical in-process.
+**Tests (2026-05-23).** `SidecarResultComposerTest` (14 cases, pure
+JVM — one byte-identity case per MATHEMATICS topic 0–9 pinning the
+`detail`-key + equation wiring against the shared template, plus
+fall-back / null-detail / modulo-reduction cases; all green).
+`MathPhysicsEngineDelegateTest` gains two primary-read cases (cutover
+serves the composed result; uncovered topics fall back).
+`MathPhysicsEngineDelegateIntegrationTest` asserts live-sidecar
+full-`ResearchResult` byte-parity across all MATHEMATICS topics 0–9.
+`MathPhysicsEngineRegressionTest` (15, no Mockito) confirms every
+in-process `compose*` extraction is byte-identical. NB: the mock-based
+delegate cases don't run on this dev shell (JDK-25 / Mockito-inline
+can't mock `JuliaMathClient` — see [[project_dev_shell_jdk_state]]).
 
 **Motivation.** The JVM currently hosts six conjecture / math
 compute classes — `MathConjectureSubstrate`, `MathInvariants`,
