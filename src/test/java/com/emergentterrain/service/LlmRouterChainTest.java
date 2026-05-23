@@ -214,6 +214,53 @@ class LlmRouterChainTest {
     }
 
     @Test
+    void callFast_fallsBackToPrimary_whenFastTierBudgetExhausted() {
+        // Fast tier exists but every handle is budget-exhausted (the gate
+        // throws ProviderBudgetExhaustedException before any network call).
+        // callFast should spill over to the primary chain rather than throw.
+        FakePool groq   = new FakePool("groq",   true,  false, "primary-response");
+        FakePool ollama = new FakePool("ollama", false, false, "fast-response");
+        ollama.throwOnSync = new com.emergentterrain.llm.ProviderBudgetExhaustedException(
+                "ollama", "per-provider cap reached");
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        assertThat(router.callFast("ping")).isEqualTo("primary-response");
+        assertThat(ollama.syncCallCount).isEqualTo(1);   // fast tried once, threw
+        assertThat(groq.syncCallCount).isEqualTo(1);      // primary fallback
+    }
+
+    @Test
+    void callFast_rethrows_whenFastTierBudgetExhaustedAndNoPrimary() {
+        // Only a non-tool pool registered → primaryRegistry is empty, so there
+        // is nowhere to spill over: the budget exception must propagate.
+        FakePool ollama = new FakePool("ollama", false, false, "fast-response");
+        ollama.throwOnSync = new com.emergentterrain.llm.ProviderBudgetExhaustedException(
+                "ollama", "per-provider cap reached");
+        LlmRouter router = buildRouter("ollama", "ollama", ollama);
+
+        assertThatThrownBy(() -> router.callFast("ping"))
+                .isInstanceOf(com.emergentterrain.llm.ProviderBudgetExhaustedException.class);
+        assertThat(ollama.syncCallCount).isEqualTo(1);
+    }
+
+    @Test
+    void streamFast_fallsBackToPrimary_whenFastTierBudgetExhausted() {
+        FakePool groq   = new FakePool("groq",   true,  false, "primary-stream");
+        FakePool ollama = new FakePool("ollama", false, false, "fast-stream");
+        ollama.throwOnSync = new com.emergentterrain.llm.ProviderBudgetExhaustedException(
+                "ollama", "per-provider cap reached");
+        LlmRouter router = buildRouter("groq", "ollama", groq, ollama);
+
+        StringBuilder accumulated = new StringBuilder();
+        router.streamFast("ping", accumulated::append);
+        // Budget gate throws pre-stream, so the consumer only ever sees the
+        // primary stream — no partial fast tokens leaked in.
+        assertThat(accumulated.toString()).isEqualTo("primary-stream");
+        assertThat(ollama.syncCallCount).isEqualTo(1);
+        assertThat(groq.syncCallCount).isEqualTo(1);
+    }
+
+    @Test
     void chain_skipsUnknownProvidersInConfig() {
         FakePool groq   = new FakePool("groq", true, false, "x");
         FakePool ollama = new FakePool("ollama", false, false, "x");

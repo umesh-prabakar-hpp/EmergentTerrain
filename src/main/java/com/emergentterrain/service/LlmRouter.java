@@ -1,5 +1,6 @@
 package com.emergentterrain.service;
 
+import com.emergentterrain.llm.ProviderBudgetExhaustedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -328,7 +329,19 @@ public class LlmRouter {
             return callPrimary(prompt);
         }
         if (fastRegistry.totalModelCount() > 0) {
-            return fastRegistry.callSync(prompt);
+            try {
+                return fastRegistry.callSync(prompt);
+            } catch (ProviderBudgetExhaustedException e) {
+                // Every fast handle is budget-exhausted. The budget gate throws
+                // before any network call, so nothing was dispatched — spill
+                // over to the primary chain if it still has capacity.
+                if (primaryRegistry.totalModelCount() > 0) {
+                    log.warn("LlmRouter.callFast: fast tier budget-exhausted ({}) — "
+                            + "falling back to primary chain", e.getMessage());
+                    return callPrimary(prompt);
+                }
+                throw e;
+            }
         }
         return fastPool.callSync(prompt);
     }
@@ -378,8 +391,20 @@ public class LlmRouter {
             return;
         }
         if (fastRegistry.totalModelCount() > 0) {
-            fastRegistry.callStream(prompt, tokenConsumer);
-            return;
+            try {
+                fastRegistry.callStream(prompt, tokenConsumer);
+                return;
+            } catch (ProviderBudgetExhaustedException e) {
+                // Budget gate throws pre-stream, so no tokens reached the
+                // consumer — safe to restart on the primary chain.
+                if (primaryRegistry.totalModelCount() > 0) {
+                    log.warn("LlmRouter.streamFast: fast tier budget-exhausted ({}) — "
+                            + "falling back to primary chain", e.getMessage());
+                    streamPrimary(prompt, tokenConsumer);
+                    return;
+                }
+                throw e;
+            }
         }
         fastPool.callStream(prompt, tokenConsumer);
     }
