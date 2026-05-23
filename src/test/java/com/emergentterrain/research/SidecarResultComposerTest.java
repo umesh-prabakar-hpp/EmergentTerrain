@@ -438,14 +438,67 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 6, d)).contains(expected);
     }
 
+    // ── MATERIALS inner-window topics (0, 2, 3, 4) — recompute the winner ──
+
+    @Test
+    void materials0_compositeFailure_composesByteIdenticalToInnerMethod() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("sigmaYm", 120.0);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.compositeFailureModeAt(120.0)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 0, d)).contains(expected);
+    }
+
+    @Test
+    void materials2_stiffnessCrossover_composesByteIdenticalToInnerMethod() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("EfOverEm", 66.0);
+        d.put("targetMultiple", 2.0);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.compositeStiffnessCrossoverAt(66.0, 2.0)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 2, d)).contains(expected);
+    }
+
+    @Test
+    void materials3_arrhenius_composesByteIdenticalToInnerMethod() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("T", 300.0);
+        d.put("maxEaKJ", 90.0);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.arrheniusRuleValidityAt(300.0, 90.0)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 3, d)).contains(expected);
+    }
+
+    @Test
+    void materials4_thermalStress_composesByteIdenticalToInnerMethod() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("deltaT", 200.0);
+        d.put("sigmaYMPa", 250.0);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.thermalStressSafetyAt(200.0, 250.0)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (MATERIALS / INTERDISCIPLINARY stay
-        // uncovered through the MATHEMATICS + PHYSICS ports.)
-        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 0, mathTopic0Detail()))
-                .isEmpty();
+        // throw or return a wrong result. (INTERDISCIPLINARY / BIOLOGY stay
+        // uncovered through the MATHEMATICS + PHYSICS + MATERIALS ports.)
         assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 0, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 0, mathTopic0Detail()))
                 .isEmpty();
     }
 

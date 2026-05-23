@@ -2173,7 +2173,12 @@ public class MathPhysicsEngine {
         return best != null ? best : compositeFailureModeAt(clamp(seedSigmaYm, 10.0, 200.0));
     }
 
-    private static ResearchResult compositeFailureModeAt(double sigmaYm) {
+    // Phase 28 §28.6b — package-private so SidecarResultComposer can recompute
+    // the winning window's prose from the sidecar's emitted sigmaYm (this inner
+    // method is a cheap pure function of sigmaYm; the heavy part is the outer
+    // search, which the sidecar runs). Same for the other MATERIALS inner-window
+    // methods below.
+    static ResearchResult compositeFailureModeAt(double sigmaYm) {
         // Phase 10 — add the fibre-fracture criterion the original simulator
         // explicitly omitted. P-a328-343 reported 7.6 GPa at Vf=50%, P-a328-346
         // extrapolated to 9.4 GPa at Vf=70% — both impossible for a steel
@@ -2268,7 +2273,7 @@ public class MathPhysicsEngine {
         return best != null ? best : compositeStiffnessCrossoverAt(seedRatio, targetMultiple);
     }
 
-    private static ResearchResult compositeStiffnessCrossoverAt(double EfOverEm, double targetMultiple) {
+    static ResearchResult compositeStiffnessCrossoverAt(double EfOverEm, double targetMultiple) {
         double Em = 3e3, Ef = EfOverEm * Em;
         double crossoverVf = -1;
         StringBuilder sb = new StringBuilder();
@@ -2302,7 +2307,7 @@ public class MathPhysicsEngine {
         return best != null ? best : arrheniusRuleValidityAt(seedT, maxEaKJ);
     }
 
-    private static ResearchResult arrheniusRuleValidityAt(double T, double maxEaKJ) {
+    static ResearchResult arrheniusRuleValidityAt(double T, double maxEaKJ) {
         double R = 8.314;
         int valid = 0, total = 0;
         double firstValid = -1, lastValid = -1;
@@ -2354,7 +2359,7 @@ public class MathPhysicsEngine {
         return best != null ? best : thermalStressSafetyAt(seedDeltaT, sigmaYMPa);
     }
 
-    private static ResearchResult thermalStressSafetyAt(double deltaT, double sigmaYMPa) {
+    static ResearchResult thermalStressSafetyAt(double deltaT, double sigmaYMPa) {
         double E = 200e3;
         double critAlpha = sigmaYMPa / (E * deltaT) * 1e6;
         double[] alphas = {1, 5, 10, 12, 17, 23, 25, 30, 50};

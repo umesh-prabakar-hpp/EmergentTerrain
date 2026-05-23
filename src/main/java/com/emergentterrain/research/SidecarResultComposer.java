@@ -230,6 +230,21 @@ final class SidecarResultComposer {
                     d.path("bestSigma").asDouble(),
                     d.path("primaryValue").asDouble(),   // == bestDev
                     d.path("meanDev").asDouble());
+            // MATERIALS inner-window topics: the inner *At method is a cheap
+            // pure function of the winning window's param(s), so recompute it
+            // directly (the sidecar ran the heavy outer search and emitted the
+            // winning param). No sweep array needed.
+            case "MATERIALS:0" -> MathPhysicsEngine.compositeFailureModeAt(
+                    d.path("sigmaYm").asDouble());
+            case "MATERIALS:2" -> MathPhysicsEngine.compositeStiffnessCrossoverAt(
+                    d.path("EfOverEm").asDouble(),
+                    d.path("targetMultiple").asDouble());
+            case "MATERIALS:3" -> MathPhysicsEngine.arrheniusRuleValidityAt(
+                    d.path("T").asDouble(),
+                    d.path("maxEaKJ").asDouble());
+            case "MATERIALS:4" -> MathPhysicsEngine.thermalStressSafetyAt(
+                    d.path("deltaT").asDouble(),
+                    d.path("sigmaYMPa").asDouble());
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.
