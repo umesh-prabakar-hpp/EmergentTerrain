@@ -240,14 +240,99 @@ class SidecarResultComposerTest {
                 .contains(expected);
     }
 
+    // ── PHYSICS numeric-only topics (0, 5, 7, 8, 9) ──────────────────────
+
+    @Test
+    void physics0_projectile_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("v0", 30.0);
+        d.put("k", 0.01);
+        d.put("bestAngle", 38);
+        d.put("bestRange", 72.5);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeProjectileWithDragAt(30.0, 0.01, 38, 72.5)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 0, d)).contains(expected);
+    }
+
+    @Test
+    void physics5_wien_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedT", 2000.0);
+        d.put("bestT", 2300.0);
+        d.put("samples", 20);
+        d.put("bestLambda", 1.26e-6);
+        d.put("primaryValue", 0.004);   // bestDev → SUPPORTED
+        d.put("meanDev", 0.002);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeWienPeak(2000.0, 2300.0, 20, 1.26e-6, 0.004, 0.002)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 5));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 5, d)).contains(expected);
+    }
+
+    @Test
+    void physics7_kepler_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedAuAu", 0.5);
+        d.put("bestA", 2.0);
+        d.put("samples", 15);
+        d.put("primaryValue", 0.05);    // bestDev → SUPPORTED
+        d.put("bestT", 2.83);
+        d.put("meanDev", 0.02);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeKeplerThirdLaw(0.5, 2.0, 15, 0.05, 2.83, 0.02)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 7));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 7, d)).contains(expected);
+    }
+
+    @Test
+    void physics8_snell_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedN2", 1.0);
+        d.put("bestN2", 1.3);
+        d.put("samples", 18);
+        d.put("primaryValue", 1.4);     // bestErr → SUPPORTED
+        d.put("bestTheta", 60.0);
+        d.put("meanErr", 0.8);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeSnellCriticalAngle(1.0, 1.3, 18, 1.4, 60.0, 0.8)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 8));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 8, d)).contains(expected);
+    }
+
+    @Test
+    void physics9_stefanBoltzmann_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedT", 300.0);
+        d.put("bestT", 800.0);
+        d.put("samples", 12);
+        d.put("bestSigma", 5.8e-8);
+        d.put("primaryValue", 0.029);   // bestDev → SUPPORTED
+        d.put("meanDev", 0.015);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeStefanBoltzmann(300.0, 800.0, 12, 5.8e-8, 0.029, 0.015)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 9));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 9, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (PHYSICS / MATERIALS stay uncovered
-        // throughout the MATHEMATICS port.)
-        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 0, mathTopic0Detail()))
-                .isEmpty();
+        // throw or return a wrong result. (MATERIALS / INTERDISCIPLINARY stay
+        // uncovered through the MATHEMATICS + PHYSICS ports.)
         assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 0, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 0, mathTopic0Detail()))
                 .isEmpty();
     }
 

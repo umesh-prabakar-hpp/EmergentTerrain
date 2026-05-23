@@ -1467,6 +1467,18 @@ public class MathPhysicsEngine {
             }
             if (x > bestRange) { bestRange = x; bestAngle = a; }
         }
+        return composeProjectileWithDragAt(v0, k, bestAngle, bestRange);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for PHYSICS:0 (projectile drag).
+     * The derived scalars (vacuumRange, shift, loss) are recomputed from
+     * {@code v0/k/bestAngle/bestRange} so the composer is self-contained;
+     * {@code g} matches the in-process constant.
+     */
+    static ResearchResult composeProjectileWithDragAt(double v0, double k,
+            int bestAngle, double bestRange) {
+        double g = 9.81;
         double vacuumRange = v0 * v0 / g;
         double shift = 45 - bestAngle;
         double loss  = (vacuumRange - bestRange) / vacuumRange;
@@ -1669,6 +1681,12 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("T=%.0fK→λ_max=%.2fµm(dev=%.3f%%) ".formatted(T, observed * 1e6, dev * 100));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeWienPeak(seedT, bestT, samples, bestLambda, bestDev, meanDev);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:5 (Wien peak). */
+    static ResearchResult composeWienPeak(double seedT, double bestT, int samples,
+            double bestLambda, double bestDev, double meanDev) {
         ClaimStatus status = bestDev <= 0.05 ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Worst-case λ_max·T deviation from Wien's constant (b=2.898×10⁻³ m·K) is %.3f%% "
@@ -1750,6 +1768,12 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("a=%.2fAU→T=%.2fyr(T²/a³=%.3f) ".formatted(aAU, observedT, ratio));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeKeplerThirdLaw(seedAuAu, bestA, samples, bestDev, bestT, meanDev);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:7 (Kepler third law). */
+    static ResearchResult composeKeplerThirdLaw(double seedAuAu, double bestA, int samples,
+            double bestDev, double bestT, double meanDev) {
         ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Worst-case T²/a³ deviation from Kepler's constant (1 yr²/AU³ around Sol) is %.3f "
@@ -1787,6 +1811,13 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("n₂=%.3f→θ_c=%.1f°(err=%.2f°) ".formatted(n2, thetaC, err));
         }
         double meanErr = samples > 0 ? sumErr / samples : 0;
+        return composeSnellCriticalAngle(seedN2, bestN2, samples, bestErr, bestTheta, meanErr);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:8 (Snell critical angle). */
+    static ResearchResult composeSnellCriticalAngle(double seedN2, double bestN2, int samples,
+            double bestErr, double bestTheta, double meanErr) {
+        double n1 = 1.5;  // glass
         ClaimStatus status = bestErr <= 2.0 ? ClaimStatus.SUPPORTED
                 : bestErr <= 4.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Worst-case |θ_predicted − θ_observed| is %.2f° at n₂=%.3f; %s.")
@@ -1826,6 +1857,12 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("T=%.0fK→P=%.2eW(σ_obs=%.3e, dev=%.2f%%) ".formatted(T, observedP, sigmaObs, dev * 100));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeStefanBoltzmann(seedT, bestT, samples, bestSigma, bestDev, meanDev);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:9 (Stefan-Boltzmann). */
+    static ResearchResult composeStefanBoltzmann(double seedT, double bestT, int samples,
+            double bestSigma, double bestDev, double meanDev) {
         ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Worst-case σ-deviation from Stefan-Boltzmann's constant (5.670×10⁻⁸ W·m⁻²·K⁻⁴) "

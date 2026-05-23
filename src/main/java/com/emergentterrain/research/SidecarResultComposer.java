@@ -158,6 +158,39 @@ final class SidecarResultComposer {
                     d.path("samples").asInt(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.sternBrocotSweepSegment(
                             s.path("p").asInt(), s.path("q").asInt(), s.path("depth").asInt())));
+            case "PHYSICS:0" -> MathPhysicsEngine.composeProjectileWithDragAt(
+                    d.path("v0").asDouble(),
+                    d.path("k").asDouble(),
+                    d.path("bestAngle").asInt(),
+                    d.path("bestRange").asDouble());
+            case "PHYSICS:5" -> MathPhysicsEngine.composeWienPeak(
+                    d.path("seedT").asDouble(),
+                    d.path("bestT").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestLambda").asDouble(),
+                    d.path("primaryValue").asDouble(),   // == bestDev
+                    d.path("meanDev").asDouble());
+            case "PHYSICS:7" -> MathPhysicsEngine.composeKeplerThirdLaw(
+                    d.path("seedAuAu").asDouble(),
+                    d.path("bestA").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("primaryValue").asDouble(),   // == bestDev
+                    d.path("bestT").asDouble(),
+                    d.path("meanDev").asDouble());
+            case "PHYSICS:8" -> MathPhysicsEngine.composeSnellCriticalAngle(
+                    d.path("seedN2").asDouble(),
+                    d.path("bestN2").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("primaryValue").asDouble(),   // == bestErr
+                    d.path("bestTheta").asDouble(),
+                    d.path("meanErr").asDouble());
+            case "PHYSICS:9" -> MathPhysicsEngine.composeStefanBoltzmann(
+                    d.path("seedT").asDouble(),
+                    d.path("bestT").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestSigma").asDouble(),
+                    d.path("primaryValue").asDouble(),   // == bestDev
+                    d.path("meanDev").asDouble());
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.
