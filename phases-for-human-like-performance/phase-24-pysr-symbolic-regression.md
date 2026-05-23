@@ -362,9 +362,9 @@ budget; they compose.**
 
 | Lever | Cost | Fixes which class? | Resource-gated? | Status |
 |---|---|---|---|---|
-| 1 — Auto-normalize inputs/target | Cheap (~3-5 day code) | Algorithmic (scale) | No | Not landed |
+| 1 — Auto-normalize inputs/target | Cheap (~3-5 day code) | Algorithmic (scale) | No | Landed (sidecar ff4d40e + 4574f8e) |
 | 2 — Resource-adaptive ensemble | Expensive (cores ×K) | Both, probabilistically | Yes (≥4 cores) | Not landed |
-| 3 — Feedback loop on the fit | Cheap (~1-2 day code) | Both, opportunistically | No | Not landed |
+| 3 — Feedback loop on the fit | Cheap (~1-2 day code) | Both, opportunistically | No | Landed (sidecar 4574f8e) |
 
 **Lever 1 — auto-normalize in `handle_pysr`.** Compute per-variable
 robust scales `s_x[j] = median(|X[j,:]|)` and target `s_y = median(|y|)`

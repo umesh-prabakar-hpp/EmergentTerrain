@@ -628,10 +628,13 @@ Conditions 3 and 4 are the only remaining gates.
 This doc moves to `archive/` when:
 
 1. ✅ 22.1–22.5 land in commits and tests pass.
-2. ✅ A REVIEW_REPORT.md refresh shows acceptance rate ≥ 50% on at least
-   one corpus run after the Julia path goes live.
-3. ✅ A reproducibility test pins P-764-shape projectile, P-778-shape
-   prime density, and P-767-shape Kepler running cleanly through Julia.
+2. ⏳ A REVIEW_REPORT.md refresh shows acceptance rate ≥ 50% on at least
+   one corpus run after the Julia path goes live (operator-pending —
+   needs a corpus refresh; see §22.7).
+3. ⏳ A reproducibility test pins P-764-shape projectile, P-778-shape
+   prime density, and P-767-shape Kepler running cleanly through Julia
+   (operator-pending — the 5 end-to-end tests pass locally only, not yet
+   on the production host; see §22.7).
 
 If 22.6 / 22.7 are deferred indefinitely (e.g. operator decides the
 Java/Symja path is good enough after the upstream prompt-routing fixes

@@ -596,6 +596,15 @@ ascending-quirk order. Cerebras is the smallest; Groq is the largest
 (BODY-source retry-after, TPD/TPM split). OllamaPool stays — its
 `/api/tags` discovery diverges from OpenAI-compat.
 
+> **Update (2026-05-23): step 2b COMPLETE — all four per-pool deletes
+> DONE** (done ahead of the 2-week burn-in by operator direction).
+> NvidiaPool + CerebrasPool were removed ENTIRELY (the nvidia and
+> cerebras providers no longer exist) in commit `a2bec3c`. GroqPool +
+> OpenRouterPool had their hand-written classes deleted in commit
+> `aed11f1`; their `app.ai.<pool>` named blocks were folded into
+> `app.ai.providers.<name>`, so groq and openrouter REMAIN as generic
+> `GenericOpenAICompatPool` entries. OllamaPool still stays.
+
 **Status (step 3 OpenRouter scaffolding, 2026-05-20):** **LANDED**.
 - `ProviderConfig` gained `extraHeaders: Map<String,String>` to carry
   the OpenRouter `HTTP-Referer` / `X-Title` analytics headers (and any
@@ -640,6 +649,11 @@ the legacy `CerebrasPool: models=…` / `OpenRouterPool: models=…` lines
 should NOT appear. Two-week burn-in window opens at first restart;
 class-deletion PRs (step 2b for each pool) fire after burn-in
 confirms no regressions in the next REVIEW_REPORT refresh.
+
+> **Update (2026-05-23): step 2b DONE** — the class-deletion PRs fired
+> ahead of the burn-in by operator direction. CerebrasPool removed
+> entirely (provider deleted) in `a2bec3c`; OpenRouterPool deleted and
+> folded into `app.ai.providers.openrouter` in `aed11f1`.
 
 API keys remain defined once each (in the legacy
 `app.ai.cerebras.apiKey` / `app.ai.openrouter.apiKey` lines, which
@@ -751,6 +765,13 @@ and none of `CerebrasPool: …` / `OpenRouterPool: …` / `NvidiaPool: …`
 all four; step 2b deletion PRs fire individually after each burn-in
 confirms no regressions in the next REVIEW_REPORT refresh.
 
+> **Update (2026-05-23): step 2b COMPLETE for all four** — deletes
+> fired ahead of the burn-in by operator direction. NvidiaPool +
+> CerebrasPool removed ENTIRELY (providers deleted) in `a2bec3c`;
+> GroqPool + OpenRouterPool deleted and folded into
+> `app.ai.providers.<name>` (those two providers remain as generic
+> pools) in `aed11f1`.
+
 **Status (NVIDIA FLIPPED, 2026-05-20):** `app.ai.nvidia.legacy-pool`
 is now `false`. The `app.ai.providers.nvidia:` entry is live with
 all three NVIDIA-specific parity markers
@@ -765,7 +786,16 @@ GenericPoolsRegistrar(nvidia): registered bean=openAiCompatPool_nvidia …
 ```
 and none of `CerebrasPool: …` / `OpenRouterPool: …` / `NvidiaPool: …`.
 
-### 20.11 step 2b — Cerebras class-deletion checklist (pending operator burn-in)
+### 20.11 step 2b — Cerebras class-deletion checklist (✅ DONE 2026-05-23)
+
+> **Update (2026-05-23): step 2b COMPLETE for all four pools** — the
+> deletes fired ahead of the burn-in by operator direction.
+> CerebrasPool (and NvidiaPool) removed ENTIRELY — the cerebras and
+> nvidia providers no longer exist — in commit `a2bec3c`. GroqPool and
+> OpenRouterPool deleted and folded into `app.ai.providers.<name>`
+> (those two providers remain as generic `GenericOpenAICompatPool`
+> entries) in commit `aed11f1`. The pre-recorded checklist below is
+> retained as historical context; treat every row as ✅ DONE.
 
 Pre-recorded fire-when-ready checklist. After the operator has run the
 flipped `app.ai.cerebras.legacy-pool=false` setting against the corpus

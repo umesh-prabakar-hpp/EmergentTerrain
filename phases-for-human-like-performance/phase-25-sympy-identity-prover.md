@@ -1,10 +1,19 @@
 # Phase 25 — SymPy Combinatorial-Identity Prover (Gosper / WZ / Sister Celine)
 
-**Status (2026-05-22):** DRAFT. Not started. **Depends on Phase 22**
-(Julia sidecar) per the 2026-05-22 consolidation decision — see
-`reference-conjecture-engines.md` § "Decisions — Julia consolidation
-(2026-05-22)". Phase 24 (PySR) need not have shipped, but the sidecar
-must be live.
+**Status (2026-05-22):** **SHIPPED + FLAG ON (2026-05-22)** —
+dependency on Phase 22 sidecar satisfied (`julia.enabled: true`).
+`app.julia.sympy.enabled: true`.
+
+> **Update (2026-05-23):** Implemented and live. `SympyIdentityClient`
+> (JVM) + `prove_identity` tool + sidecar `/prove_identity` route
+> (SymPy embedded via `PyCall.jl`). Probe passed 10/10 (2026-05-22).
+> Original DRAFT framing below is retained as historical context.
+>
+> Prior status: DRAFT. Not started. **Depended on Phase 22**
+> (Julia sidecar) per the 2026-05-22 consolidation decision — see
+> `reference-conjecture-engines.md` § "Decisions — Julia consolidation
+> (2026-05-22)". Phase 24 (PySR) need not have shipped, but the sidecar
+> must be live.
 
 ---
 

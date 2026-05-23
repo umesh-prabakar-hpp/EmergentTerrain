@@ -1,11 +1,18 @@
 # Phase 18 — Pending Follow-Ups (consolidated)
 
-**Status (refreshed 2026-05-19 23:30 EDT):** Tracking doc, not a
-single-PR phase. **18.1 shipped; 18.2 shipped in `warn` mode (flag
-flip to `downgrade` still pending the next REVIEW_REPORT FP-rate
-check); 18.3 still deferred.** Phase 21 added a new tracker
-(`phase-21-run-quality-triage.md`) with 6 of 7 items landed; that doc
-is the right place for run-quality items uncovered after this one.
+**Status (2026-05-23):** **CLOSED (2026-05-23)** — all three closing
+conditions met: 18.1 P8c shipped (`ff2a0eb`); 18.2 `unsourced-claim.mode`
+flipped to `downgrade` and is live (`application.yml:779`, commit
+`4f5f6f4`, 2026-05-21); 18.3 resolved by `phase-4c-piece-3.md` (Piece-3
+epsilon-greedy mechanism shipped dormant, flags default OFF). This doc
+is now historical; new pending items get a successor doc.
+
+> **Prior status (refreshed 2026-05-19 23:30 EDT):** Tracking doc, not a
+> single-PR phase. 18.1 shipped; 18.2 shipped in `warn` mode (flag flip
+> to `downgrade` still pending the next REVIEW_REPORT FP-rate check);
+> 18.3 still deferred. Phase 21 added a new tracker
+> (`phase-21-run-quality-triage.md`) with 6 of 7 items landed; that doc
+> is the right place for run-quality items uncovered after this one.
 
 Originally created 2026-05-18 by walking every prior phase doc's
 unchecked items, cross-checking against the current code state, and
@@ -93,17 +100,21 @@ values; mitigation is the "final `result` only" scoping above.
 
 ### 18.2 — P8d: unsourced-claim validator ("math right, prose fabricated")
 
-**Status (2026-05-18):** **SHIPPED in warn mode** (commit forthcoming).
+**Status (2026-05-21):** **RESOLVED — `mode: downgrade` LIVE**
+(`application.yml:779`, flipped commit `4f5f6f4`, 2026-05-21).
 `UnsourcedClaimValidator.validate(findingsBlocks, conclusion)` returns
 `unsourced_claim:<type>` reasons for derivative / uncertainty / error /
 ±N triggers without a same-sentence `[call_N]` reference. Wired at the
 publish-time validator layer; `app.research.unsourced-claim.enabled` =
-true, `mode = warn`. Stamps the call_path with
-`publish:unsourced_claim:<type>:warn`; does not change status until
-`mode` is flipped to `downgrade` after one refresh confirms FP rate < 5%.
-The detail below is retained as historical context for the design
-decisions (sentence-scoped matching, sample-size deferral to
-SinglePointSweepValidator).
+true, `mode = downgrade` (Tier 6). Stamps the call_path and now routes
+status on a flagged claim. The detail below is retained as historical
+context for the design decisions (sentence-scoped matching, sample-size
+deferral to SinglePointSweepValidator).
+
+> **Prior status (2026-05-18):** SHIPPED in warn mode (commit
+> forthcoming). Stamped `publish:unsourced_claim:<type>:warn` without
+> changing status until `mode` flipped to `downgrade` after one refresh
+> confirmed FP rate < 5%.
 
 
 **Source:** former `phase-wishlist.md` (now `phase-wishlist-human-level.md` Migration table) P8d (refresh #2 evidence on P-a328-603 +
@@ -207,6 +218,9 @@ to the schema.
 - Piece 3 (persistence + epsilon-greedy selector): NOT shipped.
   The deferral window opened 2026-05-11; at 7 days from open today
   (2026-05-18), the 2-week minimum is one week away.
+  **Update (2026-05-23): RESOLVED — the Piece-3 epsilon-greedy
+  mechanism shipped dormant (flags default OFF) under its own phase
+  doc `phase-4c-piece-3.md`; see §18.3 status above.**
 
 **The decision needed:** Is the Piece 3 schema still the right shape
 given everything Phase 7 / 12 / 16 / 17 surfaced about prompt-quality
@@ -266,15 +280,16 @@ update this table rather than starting a new tracking doc.
 
 ## Closing condition for Phase 18
 
+**Update (2026-05-23): all three conditions met — phase CLOSED.**
+
 This phase closes when:
 1. ~~18.1 (P8c trace scan)~~ ✅ SHIPPED 2026-05-18 (commit `ff2a0eb`).
-2. 18.2 (P8d unsourced-claim validator) — ✅ **SHIPPED in warn mode**
-   2026-05-18; close fully when `mode` flips to `downgrade` after one
-   refresh confirms FP rate < 5%.
-3. 18.3 (Phase 4c Piece 3 decision) is either resolved by starting
-   Piece 3 implementation under its own phase doc OR explicitly
-   retired with a "Piece 3 deferred indefinitely — reason X" note in
-   `archive/phase-4c-piece-1-memo.md`.
+2. ~~18.2 (P8d unsourced-claim validator)~~ ✅ **RESOLVED** — `mode`
+   flipped to `downgrade` and is live (`application.yml:779`, commit
+   `4f5f6f4`, 2026-05-21).
+3. ~~18.3 (Phase 4c Piece 3 decision)~~ ✅ **RESOLVED** by
+   `phase-4c-piece-3.md` — the Piece-3 epsilon-greedy mechanism shipped
+   dormant (flags default OFF) under its own phase doc.
 
-When all three close, this doc becomes historical; new pending items
+All three are now closed; this doc is historical. New pending items
 get a successor doc rather than appending here.

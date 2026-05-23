@@ -1,10 +1,21 @@
 # Phase 26 — Constant Recognition Pass (PSLQ + OEIS Superseeker + LLL)
 
-**Status (2026-05-22):** DRAFT. Not started. Bundles three closely-
+**Status (2026-05-22):** **SHIPPED + FLAG ON (2026-05-22)** —
+`app.julia.recognise.enabled: true`. Bundles three closely-
 related engines from `reference-conjecture-engines.md` into one
 phase because they all answer variants of the same question:
 **"this number / sequence the refinement just produced — is it
 something already known?"**
+
+> **Update (2026-05-23):** Implemented and live. New `recognise/`
+> package: `PslqRecogniserClient`, `OeisRecogniserClient`,
+> `LllRecogniserClient`, `ConstantRecognitionService`; sidecar
+> `/recognise/sequence` route. Probe passed 30/30 constants + 30/30
+> sequences (2026-05-22). CAVEATS: `recognise.lll.enabled` stays OFF
+> (higher false-positive surface); the narration-side `recognise()`
+> invocation is still gated by a follow-on slice (orchestrator wired,
+> not yet driving narration). Original DRAFT framing below is retained
+> as historical context.
 
 ---
 
