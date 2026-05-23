@@ -1,5 +1,6 @@
 package com.emergentterrain.research;
 
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.NullNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -145,6 +146,97 @@ class SidecarResultComposerTest {
                         .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 9));
 
         assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 9, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics5_mertens_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("x", 120).put("M", -3L).put("ratio", 0.274);
+        sweep.addObject().put("x", 170).put("M", 2L).put("ratio", 0.153);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedStart", 100);
+        d.put("width", 20);
+        d.put("bestRatio", 0.41);
+        d.put("bestX", 350);
+        d.put("bestM", -5L);
+        d.put("samples", 20);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.mertensSweepSegment(120, -3L, 0.274)
+                + MathPhysicsEngine.mertensSweepSegment(170, 2L, 0.153)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeMertensPartialSums(100, 20, 0.41, 350, -5L, 20, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 5));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 5, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics6_divisorSum_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedN", 200);
+        d.put("width", 150);
+        d.put("primaryValue", 0.08);     // == bestDev → (0.05?] n/a; ≤0.10 SUPPORTED
+        d.put("bestN", 520);
+        d.put("bestAvg", 0.812);
+        d.put("secondaryValue", 0.04);   // == meanDev
+        d.put("samples", 18);
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeDivisorSumAverage(200, 150, 0.08, 520, 0.812, 0.04, 18)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 6));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 6, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics7_riemann_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("s", 1.5).put("ratio", 0.9988);
+        sweep.addObject().put("s", 1.7).put("ratio", 0.9995);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedS", 1.5);
+        d.put("primaryValue", 0.012);    // == bestDev
+        d.put("bestS", 1.5);
+        d.put("bestRatio", 0.9988);
+        d.put("meanDev", 0.006);
+        d.put("samples", 15);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.riemannSweepSegment(1.5, 0.9988)
+                + MathPhysicsEngine.riemannSweepSegment(1.7, 0.9995)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeRiemannEulerProduct(1.5, 0.012, 1.5, 0.9988, 0.006, 15, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 7));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 7, d))
+                .contains(expected);
+    }
+
+    @Test
+    void mathematics8_sternBrocot_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("p", 1).put("q", 5).put("depth", 3);
+        sweep.addObject().put("p", 8).put("q", 55).put("depth", 9);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedQ", 5);
+        d.put("maxDepth", 12);
+        d.put("bestP", 8);
+        d.put("bestQ", 55);
+        d.put("meanDepth", 6.5);
+        d.put("samples", 20);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.sternBrocotSweepSegment(1, 5, 3)
+                + MathPhysicsEngine.sternBrocotSweepSegment(8, 55, 9)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeSternBrocotDepth(5, 12, 8, 55, 6.5, 20, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 8));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 8, d))
                 .contains(expected);
     }
 

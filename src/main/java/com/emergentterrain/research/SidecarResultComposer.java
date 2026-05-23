@@ -123,6 +123,41 @@ final class SidecarResultComposer {
                     d.path("bestStart").asInt(),
                     d.path("bestDensity").asDouble(),
                     d.path("meanDev").asDouble());
+            case "MATHEMATICS:5" -> MathPhysicsEngine.composeMertensPartialSums(
+                    d.path("seedStart").asInt(),
+                    d.path("width").asInt(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("bestX").asInt(),
+                    d.path("bestM").asLong(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.mertensSweepSegment(
+                            s.path("x").asInt(), s.path("M").asLong(), s.path("ratio").asDouble())));
+            case "MATHEMATICS:6" -> MathPhysicsEngine.composeDivisorSumAverage(
+                    d.path("seedN").asInt(),
+                    d.path("width").asInt(),
+                    d.path("primaryValue").asDouble(),   // == bestDev
+                    d.path("bestN").asInt(),
+                    d.path("bestAvg").asDouble(),
+                    d.path("secondaryValue").asDouble(), // == meanDev
+                    d.path("samples").asInt());
+            case "MATHEMATICS:7" -> MathPhysicsEngine.composeRiemannEulerProduct(
+                    d.path("seedS").asDouble(),
+                    d.path("primaryValue").asDouble(),   // == bestDev
+                    d.path("bestS").asDouble(),
+                    d.path("bestRatio").asDouble(),
+                    d.path("meanDev").asDouble(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.riemannSweepSegment(
+                            s.path("s").asDouble(), s.path("ratio").asDouble())));
+            case "MATHEMATICS:8" -> MathPhysicsEngine.composeSternBrocotDepth(
+                    d.path("seedQ").asInt(),
+                    d.path("maxDepth").asInt(),
+                    d.path("bestP").asInt(),
+                    d.path("bestQ").asInt(),
+                    d.path("meanDepth").asDouble(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.sternBrocotSweepSegment(
+                            s.path("p").asInt(), s.path("q").asInt(), s.path("depth").asInt())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.
@@ -131,5 +166,27 @@ final class SidecarResultComposer {
         return r == null
                 ? Optional.empty()
                 : Optional.of(r.withEquation(MathPhysicsEngine.equationFor(domain, t)));
+    }
+
+    /** Formats one sample-sweep element of the {@code sampleSweep} detail array. */
+    @FunctionalInterface
+    private interface SegmentFmt {
+        String fmt(JsonNode sample);
+    }
+
+    /**
+     * Rebuild a sample-sweep string (topics 5, 7, 8) by formatting each element
+     * of the {@code sampleSweep} array through the topic's segment helper, then
+     * trimming the trailing space — exactly as the in-process loop does. Single-
+     * sources the per-segment format via the shared {@code *SweepSegment} helpers.
+     */
+    private static String sweep(JsonNode arr, SegmentFmt f) {
+        StringBuilder sb = new StringBuilder();
+        if (arr != null && arr.isArray()) {
+            for (JsonNode sample : arr) {
+                sb.append(f.fmt(sample));
+            }
+        }
+        return sb.toString().trim();
     }
 }

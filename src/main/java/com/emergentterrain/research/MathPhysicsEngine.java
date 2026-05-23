@@ -1123,8 +1123,25 @@ public class MathPhysicsEngine {
             double ratio = Math.abs(M) / Math.sqrt(Math.max(1.0, end));
             samples++;
             if (ratio > bestRatio) { bestRatio = ratio; bestX = end; bestM = M; }
-            if (i < 4) sb.append("x=%d→M=%d(|M|/√x=%.3f) ".formatted(end, M, ratio));
+            if (i < 4) sb.append(mertensSweepSegment(end, M, ratio));
         }
+        return composeMertensPartialSums(seedStart, width, bestRatio, bestX, bestM,
+                samples, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Mertens sample-sweep segment (incl. trailing space). */
+    static String mertensSweepSegment(int x, long M, double ratio) {
+        return "x=%d→M=%d(|M|/√x=%.3f) ".formatted(x, M, ratio);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:5 (mertens).
+     * {@code sweep} is the already-trimmed sample-sweep string (first ≤4
+     * windows), built from {@link #mertensSweepSegment} by both the in-process
+     * loop and the detail path.
+     */
+    static ResearchResult composeMertensPartialSums(int seedStart, int width,
+            double bestRatio, int bestX, long bestM, int samples, String sweep) {
         // Spec bound: |M(x)| ≤ 2·√x in the tested range.
         boolean withinBound = bestRatio <= 2.0;
         ClaimStatus status = withinBound ? ClaimStatus.SUPPORTED
@@ -1135,7 +1152,7 @@ public class MathPhysicsEngine {
                                 : "|M(x)| exceeds 2·√x — empirical Mertens conjecture stress test");
         return new ResearchResult(
                 "Mertens function (windows %d, width=%d): worst |M|/√x = %.3f at x=%d (M=%d). Sample sweep: %s"
-                        .formatted(samples, width, bestRatio, bestX, bestM, sb.toString().trim()),
+                        .formatted(samples, width, bestRatio, bestX, bestM, sweep),
                 bestRatio, bestM, bestX, bestRatio, status, assessment)
                 .withHypothesis(("Across Mertens partial sums starting near x=%d with windows of width %d, the "
                         + "ratio |M(x)|/√x will stay within the 2× heuristic envelope for the unconditional "
@@ -1166,6 +1183,18 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("N=%d→avg/N=%.3f(dev=%.2f%%) ".formatted(N, avgOverN, dev * 100));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeDivisorSumAverage(seedN, width, bestDev, bestN, bestAvg, meanDev, samples);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:6 (divisor-sum
+     * average). Like squarefree, the in-process method builds a sample-sweep
+     * string it never embeds in findings, so the detail is fully numeric; the
+     * π²/12 asymptotic is recomputed rather than carried.
+     */
+    static ResearchResult composeDivisorSumAverage(int seedN, int width, double bestDev,
+            int bestN, double bestAvg, double meanDev, int samples) {
+        double asymptotic = Math.PI * Math.PI / 12.0;
         ClaimStatus status = bestDev <= 0.10 ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.20 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Divisor-sum average max deviation %.3f from π²/12 ≈ %.4f at N=%d; mean dev %.3f. %s")
@@ -1204,9 +1233,21 @@ public class MathPhysicsEngine {
             sumDev += dev;
             samples++;
             if (dev > bestDev) { bestDev = dev; bestS = s; bestRatio = ratio; }
-            if (i < 4) sb.append("s=%.3f→ratio=%.4f ".formatted(s, ratio));
+            if (i < 4) sb.append(riemannSweepSegment(s, ratio));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeRiemannEulerProduct(seedS, bestDev, bestS, bestRatio, meanDev,
+                samples, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Riemann sample-sweep segment (incl. trailing space). */
+    static String riemannSweepSegment(double s, double ratio) {
+        return "s=%.3f→ratio=%.4f ".formatted(s, ratio);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATHEMATICS:7 (Riemann ζ). */
+    static ResearchResult composeRiemannEulerProduct(double seedS, double bestDev,
+            double bestS, double bestRatio, double meanDev, int samples, String sweep) {
         boolean withinBand = bestDev <= 0.05;
         ClaimStatus status = withinBand ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.15 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
@@ -1216,7 +1257,7 @@ public class MathPhysicsEngine {
                                 : "ratio band exceeded — truncation effect dominant or s too close to 1");
         return new ResearchResult(
                 "Riemann ζ Euler-product survey (%d s-values starting at %.3f): worst dev %.4f at s=%.3f. Sample sweep: %s"
-                        .formatted(samples, seedS, bestDev, bestS, sb.toString().trim()),
+                        .formatted(samples, seedS, bestDev, bestS, sweep),
                 bestDev, bestRatio, bestS, bestDev, status, assessment)
                 .withHypothesis(("Across s-values sampled near %.3f, the ratio of the truncated ζ-sum Σ 1/nˢ to the "
                         + "Euler product Π 1/(1 − p⁻ˢ) (over primes ≤ 200) will remain within 5%% of unity.")
@@ -1237,9 +1278,21 @@ public class MathPhysicsEngine {
             sumDepth += depth;
             samples++;
             if (depth > maxDepth) { maxDepth = depth; bestP = p; bestQ = q; }
-            if (i < 4) sb.append("%d/%d→depth=%d ".formatted(p, q, depth));
+            if (i < 4) sb.append(sternBrocotSweepSegment(p, q, depth));
         }
         double meanDepth = samples > 0 ? (double) sumDepth / samples : 0;
+        return composeSternBrocotDepth(seedQ, maxDepth, bestP, bestQ, meanDepth,
+                samples, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Stern-Brocot sample-sweep segment (incl. trailing space). */
+    static String sternBrocotSweepSegment(int p, int q, int depth) {
+        return "%d/%d→depth=%d ".formatted(p, q, depth);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATHEMATICS:8 (Stern-Brocot depth). */
+    static ResearchResult composeSternBrocotDepth(int seedQ, int maxDepth, int bestP,
+            int bestQ, double meanDepth, int samples, String sweep) {
         // Spec: max depth < 50 for q < 10⁶.
         boolean withinBound = maxDepth < 50 && bestQ < 1_000_000;
         ClaimStatus status = withinBound
@@ -1252,7 +1305,7 @@ public class MathPhysicsEngine {
                                         : "shallow rationals only — sweep did not hit deep continued fractions");
         return new ResearchResult(
                 "Stern-Brocot depth (%d samples starting q=%d): max depth %d at %d/%d; mean depth %.2f. Sample: %s"
-                        .formatted(samples, seedQ, maxDepth, bestP, bestQ, meanDepth, sb.toString().trim()),
+                        .formatted(samples, seedQ, maxDepth, bestP, bestQ, meanDepth, sweep),
                 maxDepth, meanDepth, bestQ, maxDepth, status, assessment)
                 .withHypothesis(("Across rationals p/q sampled with denominators near %d, the Stern-Brocot tree "
                         + "depth (equivalently the continued-fraction length) will stay below Fib⁻¹(max(p,q)) "

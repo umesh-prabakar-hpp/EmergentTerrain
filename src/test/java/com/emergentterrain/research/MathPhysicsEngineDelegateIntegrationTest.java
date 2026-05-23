@@ -159,29 +159,32 @@ class MathPhysicsEngineDelegateIntegrationTest {
     /**
      * Phase 28 §28.6b — the cross-language half of the prose-parity story.
      * With {@code app.julia.physics.topic.primary} on, the delegate serves the
-     * {@link SidecarResultComposer}-built result for MATHEMATICS:0. This asserts
-     * that result is byte-identical to the in-process compute across <em>every</em>
-     * ResearchResult field — findings, theoryCheck, claimAssessment, hypothesis,
-     * equation prose plus the four scalars and claimStatus — proving the sidecar
-     * emits the topic-0 {@code detail} keys with byte-equal values and that the
-     * JVM composes the same prose from them. As more composer branches land, add
-     * the corresponding (domain, topic) calls here.
+     * {@link SidecarResultComposer}-built result for every covered topic. This
+     * asserts that result is byte-identical to the in-process compute across
+     * <em>every</em> ResearchResult field — findings, theoryCheck,
+     * claimAssessment, hypothesis, equation prose plus the four scalars and
+     * claimStatus — proving the sidecar emits each topic's {@code detail} keys
+     * with byte-equal values (including Welford M2 and the sample-sweep arrays)
+     * and that the JVM composes the same prose from them. All of MATHEMATICS
+     * (topics 0–9) is covered; add other domains' calls as their composers land.
      */
     @Test
-    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_mathematics0() {
+    void primaryReadOnLiveSidecar_proseByteIdenticalToInProcess_allMathematics() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         JuliaMathClient client = liveClient();
         MathPhysicsEngineDelegate delegate =
                 new MathPhysicsEngineDelegate(/*shadow*/ false, /*primary*/ true, client);
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
-        for (TopicCall c : List.of(new TopicCall("MATHEMATICS", 0, 3, 0.0))) {
+        for (int topic = 0; topic <= 9; topic++) {
             MathPhysicsEngine.ResearchResult served =
-                    delegate.compute(c.domain(), c.topicIdx(), c.param1(), c.param2(), sp);
-            MathPhysicsEngine.ResearchResult jvm = MathPhysicsEngine.compute(
-                    c.domain(), c.topicIdx(), c.param1(), c.param2(), sp);
+                    delegate.compute("MATHEMATICS", topic, 3, 0.0, sp);
+            MathPhysicsEngine.ResearchResult jvm =
+                    MathPhysicsEngine.compute("MATHEMATICS", topic, 3, 0.0, sp);
             // Full-record equality — the §28.6b byte-exact acceptance bar.
-            assertThat(served).isEqualTo(jvm);
+            assertThat(served)
+                    .as("MATHEMATICS:%d prose+scalars byte-parity", topic)
+                    .isEqualTo(jvm);
         }
         // Zero divergence recorded on the scalar parity check too.
         assertThat(delegate.stats().parityMismatches()).isZero();
