@@ -28,6 +28,7 @@ function physics_interdisc_collatz_rlc_depth_resonance(param1::Integer, param2::
     best_f0 = 0.0
     best_depth = 0
     best_n = Int(param1) * 3
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 chain links for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         n = max(2, Int(param1) * 3 + Int(floor(i * step_size * 10)))
         depth = collatz_steps(n)
@@ -38,6 +39,9 @@ function physics_interdisc_collatz_rlc_depth_resonance(param1::Integer, param2::
             best_f0 = f0
             best_depth = depth
             best_n = n
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("n" => n, "depth" => depth, "f0" => f0))
         end
     end
     L_best = max(1e-5, Float64(best_depth) / 10000.0)
@@ -60,6 +64,8 @@ function physics_interdisc_collatz_rlc_depth_resonance(param1::Integer, param2::
         "bestL"            => L_best,
         "critR"            => crit_R,
         "C"                => C,
+        "param1"           => Int(param1),    # §28.6b — JVM findings prose
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -81,6 +87,7 @@ function physics_interdisc_prime_gap_defect_thermal(param1::Integer, param2::Rea
     best_stress = 0.0
     best_gap = 0
     best_start = Int(param1) * 10
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 prime windows for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         start = max(2, Int(param1) * 10 + Int(floor(i * step_size * 50)))
         end_  = start + 60
@@ -103,6 +110,10 @@ function physics_interdisc_prime_gap_defect_thermal(param1::Integer, param2::Rea
             best_gap = max_gap
             best_start = start
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("start" => start, "end" => end_,
+                                                 "gap" => max_gap, "stress" => stress))
+        end
     end
     threshold = 200.0 + Float64(param2) * 30.0
     yield_exceeded = best_stress > threshold
@@ -121,6 +132,8 @@ function physics_interdisc_prime_gap_defect_thermal(param1::Integer, param2::Rea
         "bestStart"        => best_start,
         "bestAlpha"        => best_alpha,
         "threshold"        => threshold,
+        "param1"           => Int(param1),    # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -146,6 +159,7 @@ function physics_interdisc_resonant_thermal_fatigue(param1::Integer, param2::Rea
     best_fatigue_frac = -Inf
     best_f0 = 0.0
     best_L = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 circuits for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         L = max(1e-5, (0.001 + Float64(param1) / 10000.0) /
                        (1.0 + i * step_size * 0.2))
@@ -166,6 +180,9 @@ function physics_interdisc_resonant_thermal_fatigue(param1::Integer, param2::Rea
             best_f0 = f0
             best_L = L
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("L" => L, "f0" => f0, "failed" => failed))
+        end
     end
     if best_fatigue_frac < 0
         best_fatigue_frac = 0.0
@@ -184,6 +201,8 @@ function physics_interdisc_resonant_thermal_fatigue(param1::Integer, param2::Rea
         "bestF0"           => best_f0,
         "bestL"            => best_L,
         "criticalFatigue"  => critical_fatigue,
+        "param1"           => Int(param1),    # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -206,6 +225,7 @@ function physics_interdisc_happy_packing_anomaly(param1::Integer, param2::Real,
     best_density = 0.143
     best_start = Int(param1) * 7
     eta_FCC = pi / (3 * sqrt(2))
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 happy windows for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         start = max(1, Int(param1) * 7 + Int(floor(i * step_size * 200)))
         count = 80 + Int(floor(Float64(param2) * 20))
@@ -225,6 +245,10 @@ function physics_interdisc_happy_packing_anomaly(param1::Integer, param2::Real,
             best_improvement = improvement
             best_density = density
             best_start = start
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("start" => start, "density" => density,
+                                                 "r" => r, "improvement" => improvement))
         end
     end
     r_best = min(0.45, 0.2 + 0.3 * (best_density / 0.143))
@@ -246,6 +270,8 @@ function physics_interdisc_happy_packing_anomaly(param1::Integer, param2::Real,
         "rBest"            => r_best,
         "etaFCC"           => eta_FCC,
         "anomalous"        => anomalous,
+        "param1"           => Int(param1),    # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
