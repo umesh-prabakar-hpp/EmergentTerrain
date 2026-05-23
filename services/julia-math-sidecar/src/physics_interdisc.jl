@@ -297,6 +297,7 @@ function physics_interdisc_van_der_waals_composite_stress(param1::Integer, param
     best_stress = 0.0
     best_crossover_P = -1.0
     best_T = 0.0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 crossover hits for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         T = max(150.0, 200.0 + Float64(param1) * 3.0 + i * step_size * 20.0)
         a = 3.640
@@ -337,6 +338,10 @@ function physics_interdisc_van_der_waals_composite_stress(param1::Integer, param
             best_crossover_P = crossover_P
             best_T = T
         end
+        if i < 4 && crossover_P > 0
+            push!(sample_sweep, Dict{String,Any}("T" => T, "crossoverP" => crossover_P,
+                                                 "stress" => stress))
+        end
     end
     high_stress = best_stress > 3000
     status = high_stress ? "SUPPORTED" : "OBSERVATIONAL"
@@ -354,6 +359,8 @@ function physics_interdisc_van_der_waals_composite_stress(param1::Integer, param
         "bestCrossoverP"   => best_crossover_P,
         "bestT"            => best_T,
         "highStress"       => high_stress,
+        "param2"           => Float64(param2),   # §28.6b — JVM Vf prose
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -384,6 +391,7 @@ function physics_interdisc_hall_effect_carrier_sign(param1::Integer, param2::Rea
     best_n = 0.0
     correct_sign = 0
     total_samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (B,n) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         B = 0.05 + (Float64(param1) + i * step_size * 5) * 0.002
         n = 1e24 + i * step_size * 1e23
@@ -398,6 +406,9 @@ function physics_interdisc_hall_effect_carrier_sign(param1::Integer, param2::Rea
             best_abs_V = abs(V_H)
             best_B = B
             best_n = n
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("B" => B, "n" => n, "V_H" => V_H))
         end
     end
     sign_recovery = Float64(correct_sign) / max(1, total_samples)
@@ -420,6 +431,9 @@ function physics_interdisc_hall_effect_carrier_sign(param1::Integer, param2::Rea
         "signRecovery"     => sign_recovery,
         "trueSign"         => true_sign,
         "physical"         => physical,
+        "param1"           => Int(param1),       # §28.6b — JVM hypothesis prose
+        "param2"           => Float64(param2),
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -446,6 +460,7 @@ function physics_interdisc_schottky_thermionic_emission(param1::Integer, param2:
     best_phi = 0.0
     above_limit = 0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (T,φ) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         T = 200.0 + (Float64(param1) + i * step_size * 5) * 5.0
         phi = 0.4 + Float64(param2) / 10.0 + i * step_size * 0.02
@@ -460,6 +475,9 @@ function physics_interdisc_schottky_thermionic_emission(param1::Integer, param2:
         end
         if J > 1e6
             above_limit += 1
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("T" => T, "phi" => phi, "J" => J))
         end
     end
     physical = above_limit == 0
@@ -478,6 +496,9 @@ function physics_interdisc_schottky_thermionic_emission(param1::Integer, param2:
         "aboveLimit"       => above_limit,
         "samples"          => samples,
         "physical"         => physical,
+        "param1"           => Int(param1),       # §28.6b — JVM hypothesis prose
+        "param2"           => Float64(param2),
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -504,6 +525,7 @@ function physics_interdisc_acoustic_doppler_shift(param1::Integer, param2::Real,
     best_fp = f
     violates_bound = 0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (v_s,v_o) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         v_s = min(c - 5.0, (Float64(param1) + i * step_size * 3) * 0.5)
         v_o = min(c - 5.0, (i * step_size * 1.5 + Float64(param2) * 5))
@@ -518,6 +540,10 @@ function physics_interdisc_acoustic_doppler_shift(param1::Integer, param2::Real,
         end
         if shift > f
             violates_bound += 1
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("v_s" => v_s, "v_o" => v_o,
+                                                 "fp" => fp, "shift" => shift))
         end
     end
     physical = violates_bound == 0
@@ -538,6 +564,9 @@ function physics_interdisc_acoustic_doppler_shift(param1::Integer, param2::Real,
         "violatesBound"    => violates_bound,
         "samples"          => samples,
         "physical"         => physical,
+        "param1"           => Int(param1),       # §28.6b — JVM hypothesis prose
+        "param2"           => Float64(param2),
+        "sampleSweep"      => sample_sweep,        # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
