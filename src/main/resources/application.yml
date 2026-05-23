@@ -1,4 +1,8 @@
 spring:
+  config:
+    # Per-model LLM price lookup lives in a separate file (optional so the app
+    # still boots if it's absent). Bound by the LlmPricing component.
+    import: optional:classpath:llm-pricing.yml
   datasource:
     url: ${PG_URL:jdbc:postgresql://localhost:5432/emergentterrain}
     driverClassName: org.postgresql.Driver
@@ -290,19 +294,34 @@ app:
     peerReviewEnabled: true
   ai:
     enabled: true
-    # Process-wide LLM budget. Default OFF (no cap → today's behaviour).
-    # When enabled the application terminates (exit code 42) as soon as EITHER
-    # cap is met: max-calls (number of provider calls) or max-tokens (prompt +
-    # completion summed across the run). Both are global odometers over the
-    # whole run, not per-paper, and each is active only when positive (<= 0 =
-    # unlimited). Calls are counted through the provider budget gate (Groq +
-    # the generic OpenAI-compatible pools) and tokens through TokenAccountant;
-    # local Ollama and startup model-discovery are not counted.
-    # See SessionCallLimit / CallLimitProperties.
-    call-limit:
+    # Run-scoped LLM budget. Default OFF (today's behaviour). When enabled, the
+    # app tracks calls / input tokens / output tokens / $cost per provider and
+    # globally ($cost from the per-model lookup in llm-pricing.yml). Behaviour:
+    #   - a per-provider cap reached  → that provider is dropped from routing
+    #   - a GLOBAL ceiling reached, OR every provider in use is exhausted
+    #                                  → the app terminates (exit code 42)
+    # Each cap is active only when > 0 (0 / negative = unlimited). NOTE: an
+    # uncapped provider (e.g. the free OpenRouter mirror) never exhausts, so to
+    # bound the whole run set a global ceiling or cap every provider.
+    # See BudgetProperties / RunBudgetTracker.
+    budget:
       enabled: false
-      max-calls: 1000
-      max-tokens: 2000000
+      global:
+        max-cost-usd: 5.00
+        max-calls: 0
+        max-input-tokens: 0
+        max-output-tokens: 0
+      providers:
+        groq:
+          max-cost-usd: 2.00
+          max-calls: 0
+          max-input-tokens: 0
+          max-output-tokens: 0
+        groq-fast:
+          max-cost-usd: 0.50
+        openrouter:
+          # free mirror ($0 spend); leave uncapped or set max-calls to bound it
+          max-calls: 0
     groq:
       enabled: true
       apiKey: ${GROQ_API_KEY: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}

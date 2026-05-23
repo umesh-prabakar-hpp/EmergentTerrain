@@ -2,7 +2,6 @@ package com.emergentterrain.llm;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
@@ -32,21 +31,12 @@ public class TokenAccountant {
     private final ConcurrentMap<String, ConcurrentLinkedDeque<Entry>> byProvider =
             new ConcurrentHashMap<>();
 
-    /**
-     * Optional process-wide token-budget enforcer. Injected by Spring; left
-     * {@code null} in unit tests that {@code new TokenAccountant()} directly,
-     * in which case the token cap is simply not enforced.
-     */
-    @Autowired(required = false)
-    private SessionCallLimit callLimit;
-
     public void record(TokenUsage usage) {
         if (usage == null) return;
         long total = usage.total();
         if (total <= 0) return;
         byProvider.computeIfAbsent(usage.provider(), k -> new ConcurrentLinkedDeque<>())
                 .add(new Entry(usage.instant().toEpochMilli(), total, usage.model()));
-        if (callLimit != null) callLimit.recordTokensAndEnforce(total);
         if (log.isTraceEnabled()) {
             log.trace("token-spend provider={} model={} prompt={} completion={}",
                     usage.provider(), usage.model(),

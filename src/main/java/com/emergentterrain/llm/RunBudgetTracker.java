@@ -1,0 +1,193 @@
+package com.emergentterrain.llm;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.SpringApplication;
+import org.springframework.context.ApplicationContext;
+import org.springframework.stereotype.Component;
+
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.DoubleAdder;
+
+/**
+ * Enforces the run-scoped LLM budget configured under {@code app.ai.budget}
+ * (see {@link BudgetProperties}). Default OFF.
+ *
+ * <p>Tracks, per provider and globally, four cumulative dimensions over the
+ * whole process run: calls, input tokens, output tokens, and dollar cost
+ * (computed per model via {@link LlmPricing}).
+ *
+ * <ul>
+ *   <li><b>Per-provider cap reached</b> → that provider is disabled; the pre-call
+ *       gate then throws {@link ProviderBudgetExhaustedException} for it so
+ *       {@code LlmRouter} routes around it to the other providers.</li>
+ *   <li><b>Global ceiling reached</b>, or <b>every provider in use is exhausted</b>
+ *       → the application is terminated (exit code {@value #EXIT_CODE}).</li>
+ * </ul>
+ *
+ * <p>Calls are recorded from {@link TpmBudgetGate#tryAcquireOrThrow} (pre-call);
+ * tokens/cost are recorded from the provider pools once a call completes (post-
+ * call), independently of {@link TokenAccountant}'s per-minute reserve/correct
+ * accounting so the two never double-count.
+ */
+@Component
+public class RunBudgetTracker {
+
+    private static final Logger log = LoggerFactory.getLogger(RunBudgetTracker.class);
+
+    /** Exit code reported to the OS when the budget stops the run. */
+    public static final int EXIT_CODE = 42;
+
+    private final BudgetProperties props;
+    private final LlmPricing pricing;
+    private final ApplicationContext ctx;
+
+    private static final class Acc {
+        final AtomicLong calls  = new AtomicLong();
+        final AtomicLong inTok  = new AtomicLong();
+        final AtomicLong outTok = new AtomicLong();
+        final DoubleAdder costUsd = new DoubleAdder();
+        volatile boolean exhausted;
+    }
+
+    private final ConcurrentMap<String, Acc> byProvider = new ConcurrentHashMap<>();
+    private final Acc global = new Acc();
+    private final AtomicBoolean stopStarted = new AtomicBoolean(false);
+    private final java.util.Set<String> warnedNoPrice = ConcurrentHashMap.newKeySet();
+
+    public RunBudgetTracker(BudgetProperties props, LlmPricing pricing, ApplicationContext ctx) {
+        this.props = props;
+        this.pricing = pricing;
+        this.ctx = ctx;
+    }
+
+    private Acc acc(String provider) {
+        return byProvider.computeIfAbsent(provider, k -> new Acc());
+    }
+
+    /**
+     * Pre-call gate, before any token reservation: throw if the provider is
+     * already disabled or a run-stop is underway, so routing skips it. No-op
+     * when the feature is disabled. Does not count.
+     */
+    public void checkProviderAvailable(String provider) {
+        if (!props.isEnabled() || provider == null) return;
+        if (stopStarted.get()) {
+            throw new ProviderBudgetExhaustedException(provider, "run budget reached, stopping");
+        }
+        Acc a = byProvider.get(provider);
+        if (a != null && a.exhausted) {
+            throw new ProviderBudgetExhaustedException(provider, "per-provider cap reached");
+        }
+    }
+
+    /**
+     * Pre-call, on the success path (the call is about to hit the network):
+     * count one dispatched call and enforce the call caps. Marks the provider
+     * exhausted on a per-provider cap, or stops the app on the global cap.
+     */
+    public void recordCall(String provider) {
+        if (!props.isEnabled() || provider == null) return;
+        long pc = acc(provider).calls.incrementAndGet();
+        long gc = global.calls.incrementAndGet();
+
+        BudgetProperties.Caps pcap = props.getProviders().get(provider);
+        if (pcap != null && pcap.getMaxCalls() > 0 && pc >= pcap.getMaxCalls()) {
+            disableProvider(provider, "calls " + pc + " >= " + pcap.getMaxCalls());
+        }
+        if (props.getGlobal().getMaxCalls() > 0 && gc >= props.getGlobal().getMaxCalls()) {
+            stop("global calls " + gc + " >= " + props.getGlobal().getMaxCalls());
+        }
+    }
+
+    /**
+     * Post-call: accumulate a completed call's tokens and dollar cost, then
+     * enforce the token/cost caps. Per-provider breach disables the provider;
+     * global breach stops the app. Does not throw — the call already happened.
+     */
+    public void recordUsageAndEnforce(String provider, String model, long inputTokens, long outputTokens) {
+        if (!props.isEnabled() || provider == null) return;
+
+        double cost = pricing.costUsd(provider, model, inputTokens, outputTokens);
+        if (!pricing.hasPrice(provider, model) && warnedNoPrice.add(provider + "/" + model)) {
+            log.warn("No price for {}/{} — counted as $0 toward the budget. Add it to llm-pricing.yml.",
+                    provider, model);
+        }
+
+        Acc a = acc(provider);
+        long pin  = a.inTok.addAndGet(inputTokens);
+        long pout = a.outTok.addAndGet(outputTokens);
+        a.costUsd.add(cost);
+        double pcost = a.costUsd.sum();
+
+        long gin  = global.inTok.addAndGet(inputTokens);
+        long gout = global.outTok.addAndGet(outputTokens);
+        global.costUsd.add(cost);
+        double gcost = global.costUsd.sum();
+
+        BudgetProperties.Caps pcap = props.getProviders().get(provider);
+        if (pcap != null) {
+            String why = breach(pcap, pin, pout, pcost);
+            if (why != null) disableProvider(provider, why);
+        }
+        String gwhy = breach(props.getGlobal(), gin, gout, gcost);
+        if (gwhy != null) stop("global " + gwhy);
+    }
+
+    /** Returns a human reason if any token/cost cap is met, else null. */
+    private static String breach(BudgetProperties.Caps c, long in, long out, double cost) {
+        if (c.getMaxInputTokens()  > 0 && in   >= c.getMaxInputTokens())  return "input tokens " + in + " >= " + c.getMaxInputTokens();
+        if (c.getMaxOutputTokens() > 0 && out  >= c.getMaxOutputTokens()) return "output tokens " + out + " >= " + c.getMaxOutputTokens();
+        if (c.getMaxCostUsd()      > 0 && cost >= c.getMaxCostUsd())      return String.format("cost $%.4f >= $%.4f", cost, c.getMaxCostUsd());
+        return null;
+    }
+
+    private void disableProvider(String provider, String why) {
+        Acc a = acc(provider);
+        if (a.exhausted) return;
+        a.exhausted = true;
+        log.warn("Provider '{}' disabled — {}. Routing around it.", provider, why);
+        if (allUsedProvidersExhausted()) {
+            stop("every provider in use is exhausted");
+        }
+    }
+
+    /**
+     * True once every provider that has actually been used is exhausted. An
+     * uncapped provider (e.g. a free OpenRouter tier) never exhausts, so the
+     * app keeps running on it; this returns true only when nothing routable
+     * remains.
+     */
+    private boolean allUsedProvidersExhausted() {
+        if (byProvider.isEmpty()) return false;
+        boolean any = false;
+        for (Acc a : byProvider.values()) {
+            if (!a.exhausted) return false;
+            any = true;
+        }
+        return any;
+    }
+
+    private void stop(String why) {
+        if (!stopStarted.compareAndSet(false, true)) return;
+        log.warn("Run budget reached ({}). Terminating application (exit code {}).", why, EXIT_CODE);
+        // Off the calling thread: the call hook runs inside TpmBudgetGate's
+        // synchronized region, and SpringApplication.exit closes the context.
+        Thread t = new Thread(() -> {
+            int code = SpringApplication.exit(ctx, () -> EXIT_CODE);
+            System.exit(code);
+        }, "run-budget-stop");
+        t.start();
+    }
+
+    // -- operator visibility / metrics ------------------------------------
+
+    public long callsFor(String provider)     { Acc a = byProvider.get(provider); return a == null ? 0L : a.calls.get(); }
+    public double costUsdFor(String provider)  { Acc a = byProvider.get(provider); return a == null ? 0.0 : a.costUsd.sum(); }
+    public boolean isExhausted(String provider){ Acc a = byProvider.get(provider); return a != null && a.exhausted; }
+    public double totalCostUsd()               { return global.costUsd.sum(); }
+    public long totalCalls()                   { return global.calls.get(); }
+}

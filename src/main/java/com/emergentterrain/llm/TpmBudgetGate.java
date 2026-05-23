@@ -67,26 +67,26 @@ public class TpmBudgetGate {
     private final TokenAccountant accountant;
     private final TokenBudgetProperties props;
     private final BudgetGateMetrics metrics;
-    /** Process-wide LLM call cap; {@code null} in tests (cap not enforced). */
-    private final SessionCallLimit callLimit;
+    /** Run-scoped $/call/token budget; {@code null} in tests (budget not enforced). */
+    private final RunBudgetTracker runBudget;
 
     @Autowired
     public TpmBudgetGate(TokenAccountant accountant,
                          TokenBudgetProperties props,
                          BudgetGateMetrics metrics,
-                         SessionCallLimit callLimit) {
+                         RunBudgetTracker runBudget) {
         this.accountant = accountant;
         this.props = props;
         this.metrics = metrics;
-        this.callLimit = callLimit;
+        this.runBudget = runBudget;
     }
 
-    /** Test constructor — metrics + call-limit are optional. */
+    /** Test constructor — metrics + run-budget are optional. */
     public TpmBudgetGate(TokenAccountant accountant, TokenBudgetProperties props, BudgetGateMetrics metrics) {
         this(accountant, props, metrics, null);
     }
 
-    /** Test constructor — metrics defaults to no-op and call-limit is disabled. */
+    /** Test constructor — metrics defaults to no-op and run-budget is disabled. */
     public TpmBudgetGate(TokenAccountant accountant, TokenBudgetProperties props) {
         this(accountant, props, BudgetGateMetrics.NOOP, null);
     }
@@ -148,11 +148,14 @@ public class TpmBudgetGate {
      * {@link #tryAcquire} would return false at the requested level.
      */
     public void tryAcquireOrThrow(String provider, String model, long estimate, GateLevel level) {
+        // Run-budget gate, before the per-minute reservation: throws
+        // ProviderBudgetExhaustedException if this provider is disabled (so the
+        // router skips it) or the run is stopping. No-op when budget is off.
+        if (runBudget != null) runBudget.checkProviderAvailable(provider);
         if (tryAcquire(provider, model, estimate, level)) {
             // Call cleared the budget — it will hit the network, so count it
-            // against the process-wide cap. Throws (and starts shutdown) if the
-            // cap is now exceeded, before any HTTP request is made.
-            if (callLimit != null) callLimit.recordCallAndEnforce();
+            // against the run budget (may disable the provider or stop the run).
+            if (runBudget != null) runBudget.recordCall(provider);
             return;
         }
         TokenBudgetProperties.Provider p = props.getProviders().get(provider);

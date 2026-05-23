@@ -112,6 +112,9 @@ public class GenericOpenAICompatPool implements LlmPool {
     private TpmBudgetGate budgetGate;
     @Autowired(required = false)
     private com.emergentterrain.llm.BudgetGateMetrics budgetGateMetrics;
+    /** Run-scoped $/token budget accounting; null-safe (off ⇒ no accounting). */
+    @Autowired(required = false)
+    private com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
     /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
@@ -556,6 +559,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             String content = message.path("content").asText("");
             if (content.isBlank()) content = message.path("reasoning").asText("");
             JsonNode usage = root.path("usage");
+            accountRunBudget(modelId, usage);
             if (reserved) {
                 budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
             } else {
@@ -707,6 +711,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                             // empty choices[] and a populated usage field.
                             JsonNode usage = chunk.path("usage");
                             if (!usage.isMissingNode() && !usage.isNull()) {
+                                accountRunBudget(modelId, usage);
                                 if (reserved) {
                                     budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
                                 } else {
@@ -868,6 +873,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 JsonNode message = choice.path("message");
                 String   reason  = choice.path("finish_reason").asText("stop");
                 JsonNode usage   = body.path("usage");
+                accountRunBudget(modelId, usage);
                 if (reserved) {
                     budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
                 } else {
@@ -1188,6 +1194,19 @@ public class GenericOpenAICompatPool implements LlmPool {
     private long totalFromUsage(JsonNode usage) {
         if (usage == null || usage.isMissingNode() || usage.isNull()) return 0L;
         return usage.path("prompt_tokens").asLong(0) + usage.path("completion_tokens").asLong(0);
+    }
+
+    /**
+     * Feed one completed call's token usage to the run-scoped $/token budget.
+     * Independent of {@link #recordUsage} / the budget-gate reserve-correct flow
+     * (which is entangled with the per-minute token deque) so the two never
+     * double-count. Safe to call on every call path, reserved or not.
+     */
+    private void accountRunBudget(String modelId, JsonNode usage) {
+        if (runBudgetTracker == null || usage == null || usage.isMissingNode() || usage.isNull()) return;
+        long prompt = usage.path("prompt_tokens").asLong(0);
+        long completion = usage.path("completion_tokens").asLong(0);
+        runBudgetTracker.recordUsageAndEnforce(cfg.providerKey(), modelId, prompt, completion);
     }
 
     /** Conservative pre-debit estimate: rough chars-per-token plus the output cap. */
