@@ -630,14 +630,104 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 9, d)).contains(expected);
     }
 
+    // ── INTERDISCIPLINARY chained-cross-domain topics (0–3) ──────────────
+
+    @Test
+    void interdisc0_collatzRlc_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("n", 30).put("depth", 18).put("f0", 1200.0);
+        sweep.addObject().put("n", 130).put("depth", 50).put("f0", 800.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 10);
+        d.put("C", 1.0e-6);
+        d.put("bestN", 130);
+        d.put("bestDepth", 50);
+        d.put("bestF0", 800.0);
+        d.put("bestL", 0.005);
+        d.put("critR", 141.4);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.collatzRlcSweepSegment(30, 18, 1200.0)
+                + MathPhysicsEngine.collatzRlcSweepSegment(130, 50, 800.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeCollatzRlcDepthResonance(10, 1.0e-6, 130, 50, 800.0, 0.005, 141.4, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 0, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc1_primeGapThermal_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("start", 100).put("end", 160).put("gap", 8).put("stress", 280.0);
+        sweep.addObject().put("start", 300).put("end", 360).put("gap", 14).put("stress", 240.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 10);
+        d.put("threshold", 230.0);
+        d.put("bestStress", 280.0);
+        d.put("bestGap", 8);
+        d.put("bestStart", 100);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.primeGapSweepSegment(100, 160, 8, 280.0)
+                + MathPhysicsEngine.primeGapSweepSegment(300, 360, 14, 240.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composePrimeGapDefectThermal(10, 230.0, 280.0, 8, 100, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 1, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc2_resonantFatigue_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("L", 0.005).put("f0", 1000.0).put("failed", 7);
+        sweep.addObject().put("L", 0.003).put("f0", 1300.0).put("failed", 8);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 5);
+        d.put("bestFatigueFrac", 0.78);
+        d.put("bestF0", 1300.0);
+        d.put("bestL", 0.003);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.resonantFatigueSweepSegment(0.005, 1000.0, 7)
+                + MathPhysicsEngine.resonantFatigueSweepSegment(0.003, 1300.0, 8)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeResonantThermalFatigue(5, 0.78, 1300.0, 0.003, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 2, d)).contains(expected);
+    }
+
+    @Test
+    void interdisc3_happyPacking_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("start", 70).put("density", 0.15).put("r", 0.5147).put("improvement", 8.0);
+        sweep.addObject().put("start", 270).put("density", 0.16).put("r", 0.5357).put("improvement", 9.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("param1", 10);
+        d.put("bestImprovement", 9.0);
+        d.put("bestDensity", 0.16);
+        d.put("bestStart", 270);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.happyPackingSweepSegment(70, 0.15, 0.5147, 8.0)
+                + MathPhysicsEngine.happyPackingSweepSegment(270, 0.16, 0.5357, 9.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHappyPackingAnomaly(10, 9.0, 0.16, 270, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("INTERDISCIPLINARY", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 3, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (INTERDISCIPLINARY / BIOLOGY stay
-        // uncovered through the MATHEMATICS + PHYSICS + MATERIALS ports.)
-        assertThat(SidecarResultComposer.composeFromDetail("INTERDISCIPLINARY", 0, mathTopic0Detail()))
-                .isEmpty();
+        // throw or return a wrong result. (BIOLOGY / CHEMISTRY stay uncovered
+        // through the MATHEMATICS + PHYSICS + MATERIALS + INTERDISCIPLINARY ports.)
         assertThat(SidecarResultComposer.composeFromDetail("BIOLOGY", 0, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("CHEMISTRY", 0, mathTopic0Detail()))
                 .isEmpty();
     }
 

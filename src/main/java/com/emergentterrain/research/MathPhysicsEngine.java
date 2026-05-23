@@ -2609,11 +2609,23 @@ public class MathPhysicsEngine {
             double C = 1e-6 + param2 * 1e-7;
             double f0 = 1.0 / (2 * Math.PI * Math.sqrt(L * C));
             if (f0 > bestF0) { bestF0 = f0; bestDepth = depth; bestN = n; }
-            if (i < 4) mathSb.append("n=%d→depth=%d→f₀=%.0fHz ".formatted(n, depth, f0));
+            if (i < 4) mathSb.append(collatzRlcSweepSegment(n, depth, f0));
         }
         double L_best = Math.max(1e-5, bestDepth / 10000.0);
         double C = 1e-6 + param2 * 1e-7;
         double critR = 2 * Math.sqrt(L_best / C);
+        return composeCollatzRlcDepthResonance(param1, C, bestN, bestDepth, bestF0, L_best,
+                critR, mathSb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Collatz→RLC chain sweep segment (incl. trailing space). */
+    static String collatzRlcSweepSegment(int n, int depth, double f0) {
+        return "n=%d→depth=%d→f₀=%.0fHz ".formatted(n, depth, f0);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:0 (Collatz→RLC). */
+    static ResearchResult composeCollatzRlcDepthResonance(int param1, double C, int bestN,
+            int bestDepth, double bestF0, double L_best, double critR, String sweep) {
         boolean deepMeansLow = bestDepth > 50 && bestF0 < 5000;
         ClaimStatus status = deepMeansLow ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = "Collatz depth %d at n=%d maps to L=%.4f H; resonant frequency f₀=%.0f Hz, R_crit=%.2f Ω. %s"
@@ -2622,7 +2634,7 @@ public class MathPhysicsEngine {
                                      : "Cross-domain relationship is suggestive but not monotone in the searched range.");
         return new ResearchResult(
                 "Collatz→RLC chain (param1=%d, C=%.2e F): best_n=%d depth=%d → L=%.4f H → f₀=%.0f Hz, R_crit=%.2f Ω. Sample chain: %s"
-                        .formatted(param1, C, bestN, bestDepth, L_best, bestF0, critR, mathSb.toString().trim()),
+                        .formatted(param1, C, bestN, bestDepth, L_best, bestF0, critR, sweep),
                 bestF0, bestDepth, critR, bestF0, status, assessment)
                 .withHypothesis("Collatz stopping depth at n=%d (depth=%d) maps to circuit inductance L=%.4f H; the resulting RLC resonance f₀=%.0f Hz quantifies how number-theoretic complexity translates to physical frequency."
                         .formatted(bestN, bestDepth, L_best, bestF0));
@@ -2651,20 +2663,32 @@ public class MathPhysicsEngine {
             double E = 200e3;
             double stress = alpha * 1e-6 * E * deltaT;
             if (stress > bestStress) { bestStress = stress; bestGap = maxGap; bestStart = start; }
-            if (i < 4) sb.append("[%d,%d)gap=%d→σ=%.0fMPa ".formatted(start, end, maxGap, stress));
+            if (i < 4) sb.append(primeGapSweepSegment(start, end, maxGap, stress));
         }
         double threshold = 200.0 + param2 * 30;
+        return composePrimeGapDefectThermal(param1, threshold, bestStress, bestGap, bestStart,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one prime-gap→thermal chain sweep segment (incl. trailing space). */
+    static String primeGapSweepSegment(int start, int end, int gap, double stress) {
+        return "[%d,%d)gap=%d→σ=%.0fMPa ".formatted(start, end, gap, stress);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:1 (prime-gap→thermal). */
+    static ResearchResult composePrimeGapDefectThermal(int param1, double threshold,
+            double bestStress, int bestGap, int bestStart, String sweep) {
+        double bestAlpha = 5.0 + 20.0 / bestGap;
         boolean yieldExceeded = bestStress > threshold;
         ClaimStatus status = yieldExceeded ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = "Best prime gap %d in range starting %d → effective CTE α=%.2f µm/(m·K) → stress=%.0f MPa (yield threshold ~%.0f MPa). %s"
-                .formatted(bestGap, bestStart, 5.0 + 20.0 / bestGap, bestStress, threshold,
+                .formatted(bestGap, bestStart, bestAlpha, bestStress, threshold,
                         yieldExceeded ? "Yield exceeded — prime-gap-derived defect spacing produces critical thermal loading."
                                       : "Stress below yield — this prime-gap spacing is a safe defect density.");
         return new ResearchResult(
                 "Prime-gap→Thermal chain: sample windows: %s Best: gap=%d → α=%.2f µm/(m·K) → σ=%.0f MPa at ΔT=%.0f K."
-                        .formatted(sb.toString().trim(), bestGap, 5.0 + 20.0 / bestGap, bestStress,
-                                200 + param2 * 30),
-                bestStress, bestGap, 5.0 + 20.0 / bestGap, bestStress, status, assessment)
+                        .formatted(sweep, bestGap, bestAlpha, bestStress, threshold),
+                bestStress, bestGap, bestAlpha, bestStress, status, assessment)
                 .withHypothesis("Prime constellation gaps near %d map to crystal defect spacings; wider gaps (rarer primes) produce lower effective CTE and safer thermal stress."
                         .formatted(param1 * 10));
     }
@@ -2700,9 +2724,21 @@ public class MathPhysicsEngine {
             if (fatigueFrac > bestFatigueFrac) {
                 bestFatigueFrac = fatigueFrac; bestF0 = f0; bestL = L;
             }
-            if (i < 4) sb.append("L=%.4fH→f₀=%.0fHz→fail=%d/%d ".formatted(L, f0, failed, alphas.length));
+            if (i < 4) sb.append(resonantFatigueSweepSegment(L, f0, failed));
         }
         if (bestFatigueFrac < 0) bestFatigueFrac = 0; // empty candidateBreadth guard
+        return composeResonantThermalFatigue(param1, bestFatigueFrac, bestF0, bestL,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one RLC→fatigue chain sweep segment (incl. trailing space). 9 fixed CTEs. */
+    static String resonantFatigueSweepSegment(double L, double f0, int failed) {
+        return "L=%.4fH→f₀=%.0fHz→fail=%d/%d ".formatted(L, f0, failed, 9);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:2 (RLC→fatigue). */
+    static ResearchResult composeResonantThermalFatigue(int param1, double bestFatigueFrac,
+            double bestF0, double bestL, String sweep) {
         boolean criticalFatigue = bestFatigueFrac >= 0.5;
         ClaimStatus status = criticalFatigue ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = "At f₀=%.0f Hz (L=%.4f H), %.0f%% of materials exceed 200 MPa yield under resonance-driven thermal loading. %s"
@@ -2711,7 +2747,7 @@ public class MathPhysicsEngine {
                                         : "Minority of materials fail — resonance-driven fatigue is material-selective.");
         return new ResearchResult(
                 "RLC→Fatigue chain: sample circuits: %s Best: f₀=%.0f Hz (L=%.4f H) → thermal ΔT=%.1f K/cycle → %.0f%% materials exceed yield."
-                        .formatted(sb.toString().trim(), bestF0, bestL, 10 + bestF0 / 1000.0,
+                        .formatted(sweep, bestF0, bestL, 10 + bestF0 / 1000.0,
                                 bestFatigueFrac * 100),
                 bestFatigueFrac, bestF0, bestL, bestFatigueFrac, status, assessment)
                 .withHypothesis("RLC resonant frequency for L derived from param1=%d governs the thermal cycling rate; higher frequencies push more materials past their 200 MPa yield threshold."
@@ -2742,8 +2778,20 @@ public class MathPhysicsEngine {
             if (improvement > bestImprovement) {
                 bestImprovement = improvement; bestDensity = density; bestStart = start;
             }
-            if (i < 4) sb.append("[%d]happy=%.3f→r=%.3f→+%.2f%% ".formatted(start, density, r, improvement));
+            if (i < 4) sb.append(happyPackingSweepSegment(start, density, r, improvement));
         }
+        return composeHappyPackingAnomaly(param1, bestImprovement, bestDensity, bestStart,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one happy→packing chain sweep segment (incl. trailing space). */
+    static String happyPackingSweepSegment(int start, double density, double r, double improvement) {
+        return "[%d]happy=%.3f→r=%.3f→+%.2f%% ".formatted(start, density, r, improvement);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for INTERDISCIPLINARY:3 (happy→packing). */
+    static ResearchResult composeHappyPackingAnomaly(int param1, double bestImprovement,
+            double bestDensity, int bestStart, String sweep) {
         double r_best = Math.min(0.45, 0.2 + 0.3 * (bestDensity / 0.143));
         boolean anomalous = bestDensity > 0.155 || bestDensity < 0.130;
         ClaimStatus status = anomalous ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
@@ -2753,7 +2801,7 @@ public class MathPhysicsEngine {
                                   : "Density near asymptotic — packing improvement follows expected baseline; no strong anomaly.");
         return new ResearchResult(
                 "Happy→Packing chain: sample windows: %s Best: density=%.3f at [%d] → r=%.3f → FCC improvement=%.3f%%."
-                        .formatted(sb.toString().trim(), bestDensity, bestStart, r_best, bestImprovement),
+                        .formatted(sweep, bestDensity, bestStart, r_best, bestImprovement),
                 bestImprovement / 100.0, bestDensity, r_best, bestImprovement / 100.0, status, assessment)
                 .withHypothesis("Happy number density near %d modulates small-sphere radius in binary FCC packing; windows with density anomalies above the 14.3%% asymptotic produce measurably different packing efficiency."
                         .formatted(param1 * 7));

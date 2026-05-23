@@ -298,6 +298,40 @@ final class SidecarResultComposer {
                     d.path("countAboveLimit").asInt(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.youngLaplaceSweepSegment(
                             s.path("r").asDouble(), s.path("h").asDouble())));
+            case "INTERDISCIPLINARY:0" -> MathPhysicsEngine.composeCollatzRlcDepthResonance(
+                    d.path("param1").asInt(),
+                    d.path("C").asDouble(),
+                    d.path("bestN").asInt(),
+                    d.path("bestDepth").asInt(),
+                    d.path("bestF0").asDouble(),
+                    d.path("bestL").asDouble(),
+                    d.path("critR").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.collatzRlcSweepSegment(
+                            s.path("n").asInt(), s.path("depth").asInt(), s.path("f0").asDouble())));
+            case "INTERDISCIPLINARY:1" -> MathPhysicsEngine.composePrimeGapDefectThermal(
+                    d.path("param1").asInt(),
+                    d.path("threshold").asDouble(),
+                    d.path("bestStress").asDouble(),
+                    d.path("bestGap").asInt(),
+                    d.path("bestStart").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.primeGapSweepSegment(
+                            s.path("start").asInt(), s.path("end").asInt(),
+                            s.path("gap").asInt(), s.path("stress").asDouble())));
+            case "INTERDISCIPLINARY:2" -> MathPhysicsEngine.composeResonantThermalFatigue(
+                    d.path("param1").asInt(),
+                    d.path("bestFatigueFrac").asDouble(),
+                    d.path("bestF0").asDouble(),
+                    d.path("bestL").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.resonantFatigueSweepSegment(
+                            s.path("L").asDouble(), s.path("f0").asDouble(), s.path("failed").asInt())));
+            case "INTERDISCIPLINARY:3" -> MathPhysicsEngine.composeHappyPackingAnomaly(
+                    d.path("param1").asInt(),
+                    d.path("bestImprovement").asDouble(),
+                    d.path("bestDensity").asDouble(),
+                    d.path("bestStart").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.happyPackingSweepSegment(
+                            s.path("start").asInt(), s.path("density").asDouble(),
+                            s.path("r").asDouble(), s.path("improvement").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.
