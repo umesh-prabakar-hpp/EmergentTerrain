@@ -499,6 +499,7 @@ function physics_happy_numbers_at(start::Integer, count::Integer)::Dict{String,A
         "density"          => density,
         "deviation"        => deviation,
         "avgSteps"         => avg_steps,
+        "happyM2"          => happy_m2,   # §28.6b — Welford M2 for JVM fmtMean
         "count"            => count,
     )
 end
