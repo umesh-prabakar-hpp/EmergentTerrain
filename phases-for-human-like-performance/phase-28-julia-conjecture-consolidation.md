@@ -1,11 +1,16 @@
 # Phase 28 — Julia Sidecar Consolidation of Conjecture + Math Compute
 
 **Status (2026-05-23):** §28.1 → §28.5 SHIPPED, §28.6 PARTIAL (conjecture
-flag flipped; physics-topic cutover seam landed and **all 9 domains / 63
-topics are now cut-over-capable — the §28.6b compose-from-detail work is
-code-complete**, primary flag default OFF; the remaining §28.6 work is the
-operational flag flip + legacy removal, deferred until prose-parity burn-in
-is clean). Promoted from `reference-conjecture-engines.md` §
+flag flipped; **§28.6b compose-from-detail code-complete across all 9 domains
+/ 63 topics AND the `app.julia.physics.topic.primary` flag flipped ON
+(2026-05-23)** — the delegate now serves the JVM-composed-from-sidecar-detail
+result on the hot path, validated byte-identical to in-process by 67 composer
+cases + a live-sidecar integration test across all 63 topics; shadow parity
+counters stay on as a guardrail and the flip is instantly reversible. The only
+remaining §28.6 work is **legacy removal** (deprecate + delete the in-process
+`MathPhysicsEngine.compute` numeric body + mirror for the conjecture stack),
+deferred one release so the rollback path stays open. Promoted from
+`reference-conjecture-engines.md` §
 "Decisions — Julia consolidation (2026-05-22)" Slice 1.
 
 **§28.6 prose decision (2026-05-23): approach B — JVM composes from
@@ -97,7 +102,8 @@ sidecar response doesn't carry the findings prose the JVM
   parses the sidecar `detail` JsonNode and calls the same shared
   `MathPhysicsEngine.compose*` method the in-process path uses (so
   prose is byte-identical), then stamps `equationFor`. New
-  `app.julia.physics.topic.primary` flag (default OFF): when on,
+  `app.julia.physics.topic.primary` flag (**flipped ON 2026-05-23**; code
+  default OFF): when on,
   `MathPhysicsEngineDelegate.compute` returns the composed result
   for any topic the composer covers, while still computing
   in-process + recording scalar parity so the cutover is observable
@@ -421,9 +427,10 @@ operator flips the per-feature flags to true by default and the
 legacy JVM implementations move to `@Deprecated`. Actual class
 removal waits one further release so the rollback path stays open.
 
-Feature flags to flip (default OFF today):
-- `app.julia.conjecture.enabled` — substrate + verify + seed/update
-- `app.julia.physics.topic.enabled` — physics topic + predicate scan
+Feature flags (status as of 2026-05-23 — all flipped ON):
+- `app.julia.conjecture.enabled` — substrate + verify + seed/update — **ON** (2026-05-22)
+- `app.julia.physics.topic.enabled` — physics-topic shadow read + predicate scan — **ON** (2026-05-22T21:25Z)
+- `app.julia.physics.topic.primary` — sidecar-primary read (serve composed result) — **ON** (2026-05-23)
 
 Cutover precondition for `app.julia.physics.topic.enabled`:
 - Operator runs production with the flag on for N days
