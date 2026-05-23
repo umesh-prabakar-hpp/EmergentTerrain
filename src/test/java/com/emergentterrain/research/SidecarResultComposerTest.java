@@ -491,6 +491,76 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 4, d)).contains(expected);
     }
 
+    // ── MATERIALS sample-sweep topics (1, 5, 6) ──────────────────────────
+
+    @Test
+    void materials1_spherePacking_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("r", 0.001).put("eta", 0.7405);
+        sweep.addObject().put("r", 0.21).put("eta", 0.78);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("etaFCC", 0.7405);
+        d.put("bestEta", 0.82);
+        d.put("bestR", 0.41);
+        d.put("improvement", 8.0);
+        d.put("samples", 40);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.spherePackingSweepSegment(0.001, 0.7405)
+                + MathPhysicsEngine.spherePackingSweepSegment(0.21, 0.78)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBinarySpherePacking(0.7405, 0.82, 0.41, 8.0, 40, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 1, d)).contains(expected);
+    }
+
+    @Test
+    void materials5_hallPetch_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("d", 50.0).put("sigmaY", 120.0);
+        sweep.addObject().put("d", 0.5).put("sigmaY", 600.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("sigma0", 80.0);
+        d.put("k", 350.0);
+        d.put("maxYield", 600.0);
+        d.put("bestD", 0.5);
+        d.put("samples", 30);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hallPetchSweepSegment(50.0, 120.0)
+                + MathPhysicsEngine.hallPetchSweepSegment(0.5, 600.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHallPetchStrengthening(80.0, 350.0, 600.0, 0.5, 30, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 5));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 5, d)).contains(expected);
+    }
+
+    @Test
+    void materials6_bragg_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("d", 0.1).put("t1", 50.3);
+        sweep.addObject().put("d", 0.2).put("t1", 22.6);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("lambdaNm", 0.154);
+        d.put("seedDnm", 0.05);
+        d.put("samples", 25);
+        d.put("bestAngle", 50.3);
+        d.put("bestD", 0.1);
+        d.put("bestN", 1);
+        d.put("meanOrders", 1.5);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.braggSweepSegment(0.1, 50.3)
+                + MathPhysicsEngine.braggSweepSegment(0.2, 22.6)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBraggDiffraction(0.154, 0.05, 25, 50.3, 0.1, 1, 1.5, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("MATERIALS", 6));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATERIALS", 6, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than

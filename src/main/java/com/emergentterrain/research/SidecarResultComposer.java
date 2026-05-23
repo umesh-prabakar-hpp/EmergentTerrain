@@ -245,6 +245,32 @@ final class SidecarResultComposer {
             case "MATERIALS:4" -> MathPhysicsEngine.thermalStressSafetyAt(
                     d.path("deltaT").asDouble(),
                     d.path("sigmaYMPa").asDouble());
+            case "MATERIALS:1" -> MathPhysicsEngine.composeBinarySpherePacking(
+                    d.path("etaFCC").asDouble(),
+                    d.path("bestEta").asDouble(),
+                    d.path("bestR").asDouble(),
+                    d.path("improvement").asDouble(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.spherePackingSweepSegment(
+                            s.path("r").asDouble(), s.path("eta").asDouble())));
+            case "MATERIALS:5" -> MathPhysicsEngine.composeHallPetchStrengthening(
+                    d.path("sigma0").asDouble(),
+                    d.path("k").asDouble(),
+                    d.path("maxYield").asDouble(),
+                    d.path("bestD").asDouble(),
+                    d.path("samples").asInt(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hallPetchSweepSegment(
+                            s.path("d").asDouble(), s.path("sigmaY").asDouble())));
+            case "MATERIALS:6" -> MathPhysicsEngine.composeBraggDiffraction(
+                    d.path("lambdaNm").asDouble(),
+                    d.path("seedDnm").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestAngle").asDouble(),
+                    d.path("bestD").asDouble(),
+                    d.path("bestN").asInt(),
+                    d.path("meanOrders").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.braggSweepSegment(
+                            s.path("d").asDouble(), s.path("t1").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

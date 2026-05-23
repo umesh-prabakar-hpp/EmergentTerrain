@@ -1965,8 +1965,20 @@ public class MathPhysicsEngine {
             double sigmaY = sigma0 + k / Math.sqrt(d_um);
             samples++;
             if (sigmaY > maxYield) { maxYield = sigmaY; bestD = d_um; }
-            if (i < 4) sb.append("d=%.2fµm→σ_y=%.0fMPa ".formatted(d_um, sigmaY));
+            if (i < 4) sb.append(hallPetchSweepSegment(d_um, sigmaY));
         }
+        return composeHallPetchStrengthening(sigma0, k, maxYield, bestD, samples,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Hall-Petch grain-size sweep segment (incl. trailing space). */
+    static String hallPetchSweepSegment(double dUm, double sigmaY) {
+        return "d=%.2fµm→σ_y=%.0fMPa ".formatted(dUm, sigmaY);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATERIALS:5 (Hall-Petch). */
+    static ResearchResult composeHallPetchStrengthening(double sigma0, double k,
+            double maxYield, double bestD, int samples, String sweep) {
         boolean physicalCeiling = maxYield < 5000;  // No steel exceeds 5 GPa
         ClaimStatus status = physicalCeiling
                 ? (maxYield > sigma0 * 2 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL)
@@ -1978,7 +1990,7 @@ public class MathPhysicsEngine {
                                         : "modest strengthening only — Hall-Petch effect is weak");
         return new ResearchResult(
                 "Hall-Petch sweep (σ_0=%.0f MPa, k=%.0f MPa·µm^½, %d grain samples): max σ_y=%.0fMPa at d=%.3f µm. Sample sweep: %s"
-                        .formatted(sigma0, k, samples, maxYield, bestD, sb.toString().trim()),
+                        .formatted(sigma0, k, samples, maxYield, bestD, sweep),
                 maxYield, sigma0, k, maxYield, status, assessment)
                 .withHypothesis(("Yield strength of a polycrystalline steel with friction stress σ_0=%.0f MPa and "
                         + "Hall-Petch coefficient k=%.0f MPa·µm^½ scales as σ_0 + k·d^(−1/2); fine grain regimes "
@@ -2011,10 +2023,22 @@ public class MathPhysicsEngine {
             if (i < 4) {
                 double sinT1 = lambdaNm / (2 * d);
                 double t1 = sinT1 <= 1.0 ? Math.toDegrees(Math.asin(sinT1)) : 90.0;
-                sb.append("d=%.3fnm→θ₁=%.1f° ".formatted(d, t1));
+                sb.append(braggSweepSegment(d, t1));
             }
         }
         double meanOrders = samples > 0 ? (double) validOrders / samples : 0;
+        return composeBraggDiffraction(lambdaNm, seedDnm, samples, bestAngle, bestD, bestN,
+                meanOrders, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Bragg first-order-angle sweep segment (incl. trailing space). */
+    static String braggSweepSegment(double d, double t1) {
+        return "d=%.3fnm→θ₁=%.1f° ".formatted(d, t1);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATERIALS:6 (Bragg diffraction). */
+    static ResearchResult composeBraggDiffraction(double lambdaNm, double seedDnm, int samples,
+            double bestAngle, double bestD, int bestN, double meanOrders, String sweep) {
         ClaimStatus status = bestAngle > 0.5 && bestAngle < 89.5 ? ClaimStatus.SUPPORTED
                 : bestAngle > 0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Bragg first-order θ=%.1f° at d=%.3f nm (λ=%.3f nm); mean visible orders = %.1f across %d samples. %s")
@@ -2023,7 +2047,7 @@ public class MathPhysicsEngine {
                                 : "first-order angle outside the [0.5°, 89.5°] band — extreme lattice/λ ratio");
         return new ResearchResult(
                 "Bragg diffraction (λ=%.3f nm, %d lattice samples): peak first-order θ=%.1f° at d=%.3f nm (n=%d). Sample sweep: %s"
-                        .formatted(lambdaNm, samples, bestAngle, bestD, bestN, sb.toString().trim()),
+                        .formatted(lambdaNm, samples, bestAngle, bestD, bestN, sweep),
                 bestAngle, bestD, meanOrders, bestAngle, status, assessment)
                 .withHypothesis(("For λ=%.3f nm X-rays and lattice spacings swept near d=%.3f nm, the first-order "
                         + "Bragg condition n·λ = 2·d·sin θ yields a recoverable diffraction angle in [0°, 90°].")
@@ -2248,12 +2272,24 @@ public class MathPhysicsEngine {
             double etaTotal = Math.min(0.99, etaFCC + addedPacking);
             if (etaTotal > bestEta) { bestEta = etaTotal; bestR = r; }
             if (i % (samples / Math.min(6, samples)) == 0)
-                sb.append("r=%.2f→η=%.4f ".formatted(r, etaTotal));
+                sb.append(spherePackingSweepSegment(r, etaTotal));
         }
         double improvement = (bestEta - etaFCC) * 100;
+        return composeBinarySpherePacking(etaFCC, bestEta, bestR, improvement, samples,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one binary-sphere-packing sweep segment (incl. trailing space). */
+    static String spherePackingSweepSegment(double r, double eta) {
+        return "r=%.2f→η=%.4f ".formatted(r, eta);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for MATERIALS:1 (binary sphere packing). */
+    static ResearchResult composeBinarySpherePacking(double etaFCC, double bestEta,
+            double bestR, double improvement, int samples, String sweep) {
         return new ResearchResult(
                 "Binary sphere packing (FCC base η=%.4f, %d r-samples): packing survey: %s. Peak packing η=%.4f at r≈%.3f (+%.2f%% over FCC). Octahedral void limit r<0.414; tetrahedral r<0.225."
-                        .formatted(etaFCC, samples, sb.toString().trim(), bestEta, bestR, improvement),
+                        .formatted(etaFCC, samples, sweep, bestEta, bestR, improvement),
                 improvement, bestR, etaFCC)
                 .withHypothesis("In an FCC lattice, filling octahedral and tetrahedral voids with smaller hard spheres will improve packing beyond the 74.05% FCC baseline; sampled radius ratios will identify the peak improvement.");
     }
