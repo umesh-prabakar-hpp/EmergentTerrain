@@ -1518,9 +1518,25 @@ public class MathPhysicsEngine {
             // pair so the narration LLM can't shift row labels by ignoring the small leading
             // entry. P-a328-60 / P-a328-87 misread the prior unprefixed format and produced
             // a 5°-shifted table (0.77% at 25° rather than 1.19%). Phase 5 C5.
-            sb.append("θ=%.0f°→%.2f%% ".formatted((double) deg, err));
+            sb.append(pendulumSweepSegment(deg, err));
             if (err > 1.0 && nearlyEqual(breakdownAngle, 80, 0.5)) breakdownAngle = deg;
         }
+        return composePendulumBreakdownAt(L, T0, breakdownAngle, sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one pendulum period-error sweep segment (incl. trailing space). */
+    static String pendulumSweepSegment(double deg, double err) {
+        return "θ=%.0f°→%.2f%% ".formatted(deg, err);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for PHYSICS:1 (pendulum
+     * breakdown). {@code breakdownAngle} is double-valued (matches the
+     * in-process local) and {@code sweep} is the trimmed 16-step amplitude
+     * sweep rebuilt from the sidecar's {@code sampleSweep} array.
+     */
+    static ResearchResult composePendulumBreakdownAt(double L, double T0,
+            double breakdownAngle, String sweep) {
         ClaimStatus status = breakdownAngle < 20 ? ClaimStatus.SUPPORTED
                 : nearlyEqual(breakdownAngle, 20, 0.5) ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = "The 1%% error threshold occurs at about %.0f°, so the θ_c < 20° expectation is %s."
@@ -1533,7 +1549,7 @@ public class MathPhysicsEngine {
         double primary = T0 * (80 - breakdownAngle);
         return new ResearchResult(
                 "Pendulum (L=%.2f m, T₀=%.3f s): period error by amplitude: %s. Small-angle error exceeds 1%% at θ≈%.0f°."
-                        .formatted(L, T0, sb.toString().trim(), breakdownAngle),
+                        .formatted(L, T0, sweep, breakdownAngle),
                 primary, T0, L, primary, status, assessment, hypothesis);
     }
 
@@ -1609,12 +1625,24 @@ public class MathPhysicsEngine {
             int orders = (int) (dMicrons * 1000 / lam);
             if (orders < minOrders) minOrders = orders;
             if (orders > maxOrders) maxOrders = orders;
-            sb.append("%.0fnm→%d ".formatted(lam, orders));
+            sb.append(diffractionSweepSegment(lam, orders));
         }
         double orderRatio = (double) maxOrders / Math.max(1, minOrders);
+        return composeDiffractionSurveyAt(dMicrons, lambdaNm, maxOrder, theta1, orderRatio,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one diffraction order-count sweep segment (incl. trailing space). */
+    static String diffractionSweepSegment(double lam, int orders) {
+        return "%.0fnm→%d ".formatted(lam, orders);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:3 (diffraction survey). */
+    static ResearchResult composeDiffractionSurveyAt(double dMicrons, double lambdaNm,
+            int maxOrder, double theta1, double orderRatio, String sweep) {
         return new ResearchResult(
                 "Diffraction grating (d=%.2f µm, λ_ref=%.0f nm): max_orders=%d, 1st_order_angle=%.1f°. Orders by wavelength: %s. Order ratio (max/min)=%.2f — blue light supports %.1f× more orders than red."
-                        .formatted(dMicrons, lambdaNm, maxOrder, theta1, sb.toString().trim(),
+                        .formatted(dMicrons, lambdaNm, maxOrder, theta1, sweep,
                                 orderRatio, orderRatio),
                 orderRatio, maxOrder, theta1)
                 .withHypothesis("For a grating with d=%.2f µm, the number of visible diffraction orders will vary across 400-700 nm wavelengths; shorter wavelengths will support more orders."
@@ -1645,12 +1673,27 @@ public class MathPhysicsEngine {
             double Q = omega0 * L / R;
             if (Q < minQ) minQ = Q;
             if (Q > maxQ) maxQ = Q;
-            String regime = mult < 1 ? "under" : mult > 1 ? "over" : "crit";
-            sb.append("%.2f×R_c→Q=%.2f(%s) ".formatted(mult, Q, regime));
+            sb.append(rlcSweepSegment(mult, Q));
         }
+        return composeRlcDampingTransitionAt(L, C, f0, critR, minQ, maxQ, sb.toString().trim());
+    }
+
+    /**
+     * Phase 28 §28.6b — one RLC Q-factor sweep segment (incl. trailing space).
+     * The damping regime label is derived from the R/R_crit multiplier, so it
+     * need not be carried in the sidecar detail.
+     */
+    static String rlcSweepSegment(double mult, double Q) {
+        String regime = mult < 1 ? "under" : mult > 1 ? "over" : "crit";
+        return "%.2f×R_c→Q=%.2f(%s) ".formatted(mult, Q, regime);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for PHYSICS:4 (RLC damping transition). */
+    static ResearchResult composeRlcDampingTransitionAt(double L, double C, double f0,
+            double critR, double minQ, double maxQ, String sweep) {
         return new ResearchResult(
                 "RLC circuit (L=%.4f H, C=%.2e F): f₀=%.2f Hz, R_crit=%.3f Ω. Q-factor sweep: %s. Q range: [%.2f, %.2f] — transition from oscillatory to exponential at R_crit."
-                        .formatted(L, C, f0, critR, sb.toString().trim(), minQ, maxQ),
+                        .formatted(L, C, f0, critR, sweep, minQ, maxQ),
                 f0, critR, maxQ / Math.max(minQ, 1e-10))
                 .withHypothesis("In an RLC circuit with L=%.4f H and C=%.2e F, R_c=2√(L/C) marks the transition between underdamped oscillation and overdamped decay."
                         .formatted(L, C));

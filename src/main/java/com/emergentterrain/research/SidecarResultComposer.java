@@ -163,6 +163,29 @@ final class SidecarResultComposer {
                     d.path("k").asDouble(),
                     d.path("bestAngle").asInt(),
                     d.path("bestRange").asDouble());
+            case "PHYSICS:1" -> MathPhysicsEngine.composePendulumBreakdownAt(
+                    d.path("L").asDouble(),
+                    d.path("T0").asDouble(),
+                    d.path("breakdownAngle").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.pendulumSweepSegment(
+                            s.path("deg").asDouble(), s.path("err").asDouble())));
+            case "PHYSICS:3" -> MathPhysicsEngine.composeDiffractionSurveyAt(
+                    d.path("dMicrons").asDouble(),
+                    d.path("lambdaNm").asDouble(),
+                    d.path("maxOrder").asInt(),
+                    d.path("theta1").asDouble(),
+                    d.path("orderRatio").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.diffractionSweepSegment(
+                            s.path("lam").asDouble(), s.path("orders").asInt())));
+            case "PHYSICS:4" -> MathPhysicsEngine.composeRlcDampingTransitionAt(
+                    d.path("L").asDouble(),
+                    d.path("C").asDouble(),
+                    d.path("f0").asDouble(),
+                    d.path("critR").asDouble(),
+                    d.path("minQ").asDouble(),
+                    d.path("maxQ").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.rlcSweepSegment(
+                            s.path("mult").asDouble(), s.path("Q").asDouble())));
             case "PHYSICS:5" -> MathPhysicsEngine.composeWienPeak(
                     d.path("seedT").asDouble(),
                     d.path("bestT").asDouble(),

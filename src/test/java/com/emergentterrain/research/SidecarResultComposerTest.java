@@ -325,6 +325,75 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 9, d)).contains(expected);
     }
 
+    // ── PHYSICS sample-sweep topics (1, 3, 4) ────────────────────────────
+
+    @Test
+    void physics1_pendulum_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("deg", 5).put("err", 0.02);
+        sweep.addObject().put("deg", 20).put("err", 1.19);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("L", 1.0);
+        d.put("T0", 2.006);
+        d.put("breakdownAngle", 20);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.pendulumSweepSegment(5.0, 0.02)
+                + MathPhysicsEngine.pendulumSweepSegment(20.0, 1.19)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composePendulumBreakdownAt(1.0, 2.006, 20.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 1, d)).contains(expected);
+    }
+
+    @Test
+    void physics3_diffraction_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("lam", 400.0).put("orders", 5);
+        sweep.addObject().put("lam", 700.0).put("orders", 2);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("dMicrons", 2.0);
+        d.put("lambdaNm", 550.0);
+        d.put("maxOrder", 3);
+        d.put("theta1", 15.9);
+        d.put("orderRatio", 2.5);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.diffractionSweepSegment(400.0, 5)
+                + MathPhysicsEngine.diffractionSweepSegment(700.0, 2)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeDiffractionSurveyAt(2.0, 550.0, 3, 15.9, 2.5, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 3, d)).contains(expected);
+    }
+
+    @Test
+    void physics4_rlc_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("mult", 0.1).put("Q", 25.0);
+        sweep.addObject().put("mult", 1.0).put("Q", 2.5);
+        sweep.addObject().put("mult", 4.0).put("Q", 0.625);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("L", 0.001);
+        d.put("C", 1e-6);
+        d.put("f0", 5032.9);
+        d.put("critR", 63.2);
+        d.put("minQ", 0.625);
+        d.put("maxQ", 25.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.rlcSweepSegment(0.1, 25.0)
+                + MathPhysicsEngine.rlcSweepSegment(1.0, 2.5)
+                + MathPhysicsEngine.rlcSweepSegment(4.0, 0.625)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeRlcDampingTransitionAt(0.001, 1e-6, 5032.9, 63.2, 0.625, 25.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("PHYSICS", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("PHYSICS", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
