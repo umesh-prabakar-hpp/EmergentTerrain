@@ -171,6 +171,7 @@ function physics_collatz_stopping_at(start::Integer, count::Integer)::Dict{Strin
         "maxSteps"         => max_steps,
         "maxStepsAt"       => max_steps_at,
         "avgSteps"         => w_mean,
+        "wM2"              => w_m2,   # §28.6b — Welford M2 for JVM fmtMean
         "longFraction"     => long_fraction,
         "allTerminated"    => all_terminated,
         "count"            => count,
@@ -256,6 +257,7 @@ function physics_goldbach_partitions_at(even_start::Integer, count::Integer)::Di
         "singleCount"      => single_count,
         "tested"           => tested,
         "avg"              => avg,
+        "wM2"              => w_m2,   # §28.6b — Welford M2 for JVM fmtMean
     )
 end
 
