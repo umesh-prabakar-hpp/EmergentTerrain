@@ -2,7 +2,7 @@ package com.emergentterrain.llm;
 
 /**
  * Thrown by {@link TpmBudgetGate#tryAcquireOrThrow} when the chosen provider has
- * exhausted one of its per-provider budget caps ({@code app.ai.budget.providers.<key>}).
+ * exhausted one of its per-provider budget caps ({@code app.ai.providers.<key>.budget}).
  *
  * <p>Unchecked, like {@link BudgetExceededException}, so {@code LlmRouter}'s
  * per-handle {@code catch (RuntimeException)} fall-through routes the call to

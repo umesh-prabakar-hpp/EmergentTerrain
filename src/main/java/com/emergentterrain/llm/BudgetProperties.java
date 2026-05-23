@@ -1,5 +1,7 @@
 package com.emergentterrain.llm;
 
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +38,10 @@ public class BudgetProperties {
     private Caps global = new Caps();
     private Map<String, Caps> providers = new LinkedHashMap<>();
 
+    /** Per-provider caps now live under app.ai.providers.<name>.budget; merged in at startup. */
+    @Autowired(required = false)
+    private ProvidersProperties providersProperties;
+
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
@@ -47,6 +53,25 @@ public class BudgetProperties {
 
     public Map<String, Caps> getProviders() { return providers; }
     public void setProviders(Map<String, Caps> providers) { this.providers = providers; }
+
+    /**
+     * Merge per-provider $ caps declared under {@code app.ai.providers.<name>.budget}
+     * into {@link #providers}. Runs after binding + autowiring, before this bean is
+     * injected into {@code RunBudgetTracker} et al. — so the enforcers read the
+     * merged map. Only entries with at least one positive cap are added.
+     */
+    @PostConstruct
+    void mergeProviderBudgets() { mergeProviderBudgets(providersProperties); }
+
+    /** Test seam: merge from an explicit source (no Spring context needed). */
+    void mergeProviderBudgets(ProvidersProperties src) {
+        if (src == null) return;
+        src.getProviders().forEach((name, entry) -> {
+            if (entry != null && entry.getBudget() != null && entry.getBudget().hasAnyCap()) {
+                providers.putIfAbsent(name, entry.getBudget());
+            }
+        });
+    }
 
     /** One set of caps. Each {@code <= 0} means "unlimited / don't enforce". */
     public static class Caps {

@@ -1,5 +1,7 @@
 package com.emergentterrain.llm;
 
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +38,10 @@ public class TokenBudgetProperties {
     private int resumeThresholdPct = 80;
     private Map<String, Provider> providers = new LinkedHashMap<>();
 
+    /** Per-provider TPM/TPD now live under app.ai.providers.<name>.rate; merged in at startup. */
+    @Autowired(required = false)
+    private ProvidersProperties providersProperties;
+
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
 
@@ -50,6 +56,27 @@ public class TokenBudgetProperties {
 
     public Map<String, Provider> getProviders() { return providers; }
     public void setProviders(Map<String, Provider> providers) { this.providers = providers; }
+
+    /**
+     * Merge per-provider TPM/TPD limits declared under
+     * {@code app.ai.providers.<name>.rate} into {@link #providers}. Runs after
+     * binding + autowiring, before this bean reaches {@link TpmBudgetGate} /
+     * {@code SimulationGate}. Only metered entries (a positive daily or minute
+     * limit) are added — unmetered providers stay absent (= unlimited).
+     */
+    @PostConstruct
+    void mergeProviderRates() { mergeProviderRates(providersProperties); }
+
+    /** Test seam: merge from an explicit source (no Spring context needed). */
+    void mergeProviderRates(ProvidersProperties src) {
+        if (src == null) return;
+        src.getProviders().forEach((name, entry) -> {
+            Provider rate = entry == null ? null : entry.getRate();
+            if (rate != null && (rate.getDailyLimit() > 0 || rate.getMinuteLimit() > 0)) {
+                providers.putIfAbsent(name, rate);
+            }
+        });
+    }
 
     public static class Provider {
         private long dailyLimit = 0;
