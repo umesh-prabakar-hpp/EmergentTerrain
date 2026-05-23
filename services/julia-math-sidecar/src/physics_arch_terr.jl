@@ -29,6 +29,7 @@ function physics_arch_terr_beam_deflection_self_weight(g_seed::Real,
     best_L = 0.0
     best_g = Float64(g_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (L, g) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         g = max(0.2, Float64(g_seed) + sin(i * 0.31) * 5.0)
         L = 2.0 + i * step_size * 0.5
@@ -40,6 +41,9 @@ function physics_arch_terr_beam_deflection_self_weight(g_seed::Real,
             best_ratio = ratio
             best_L = L
             best_g = g
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("L" => L, "g" => g, "ratio" => ratio))
         end
     end
     status = best_ratio < 0.005 ? "SUPPORTED" :
@@ -55,6 +59,8 @@ function physics_arch_terr_beam_deflection_self_weight(g_seed::Real,
         "bestL"            => best_L,
         "bestG"            => best_g,
         "samples"          => samples,
+        "gSeed"            => Float64(g_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,       # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -73,6 +79,7 @@ function physics_arch_terr_wind_load_pressure(rho_atm_seed::Real,
     best_v = 0.0
     best_rho = Float64(rho_atm_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (ρ_atm, v) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         rho_atm = max(0.001, Float64(rho_atm_seed) + sin(i * 0.27) * 5.0)
         v = 5.0 + i * step_size * 3.0
@@ -82,6 +89,9 @@ function physics_arch_terr_wind_load_pressure(rho_atm_seed::Real,
             best_pressure = q
             best_v = v
             best_rho = rho_atm
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("rhoAtm" => rho_atm, "v" => v, "q" => q))
         end
     end
     physical = best_pressure <= 10_000.0
@@ -99,6 +109,8 @@ function physics_arch_terr_wind_load_pressure(rho_atm_seed::Real,
         "bestRho"          => best_rho,
         "samples"          => samples,
         "physical"         => physical,
+        "rhoAtmSeed"       => Float64(rho_atm_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,             # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -122,6 +134,7 @@ function physics_arch_terr_bearing_capacity_terzaghi(g_seed::Real,
     best_B = 1.0
     best_g = Float64(g_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (g, B) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         g = max(0.5, Float64(g_seed) + sin(i * 0.23) * 3.0)
         gamma_soil = rho_soil * g
@@ -134,6 +147,9 @@ function physics_arch_terr_bearing_capacity_terzaghi(g_seed::Real,
             max_Q = q_kPa
             best_B = B
             best_g = g
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("g" => g, "B" => B, "qKPa" => q_kPa))
         end
     end
     status = max_Q < 2000 ? "SUPPORTED" :
@@ -149,6 +165,8 @@ function physics_arch_terr_bearing_capacity_terzaghi(g_seed::Real,
         "bestB"            => best_B,
         "bestG"            => best_g,
         "samples"          => samples,
+        "gSeed"            => Float64(g_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,       # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -170,6 +188,7 @@ function physics_arch_terr_thermal_mass_time_lag(rho_atm_seed::Real,
     best_thickness = thickness
     best_rho = Float64(rho_atm_seed)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (t, ρ_atm) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         t_wall = max(0.05, thickness + i * step_size * 0.05)
         rho_atm = max(0.001, Float64(rho_atm_seed) + sin(i * 0.29) * 5.0)
@@ -182,6 +201,10 @@ function physics_arch_terr_thermal_mass_time_lag(rho_atm_seed::Real,
             max_tau = tau_hours
             best_thickness = t_wall
             best_rho = rho_atm
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("tWall" => t_wall, "rhoAtm" => rho_atm,
+                                                 "tauHours" => tau_hours))
         end
     end
     status = max_tau < 24 ? "SUPPORTED" :
@@ -197,6 +220,8 @@ function physics_arch_terr_thermal_mass_time_lag(rho_atm_seed::Real,
         "bestThickness"    => best_thickness,
         "bestRho"          => best_rho,
         "samples"          => samples,
+        "rhoAtmSeed"       => Float64(rho_atm_seed),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,             # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -216,6 +241,7 @@ function physics_arch_terr_daylight_factor(param1::Integer,
     best_ratio = 0.0
     best_sky = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (WFR, sky) samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         window_to_floor = 0.05 + (Float64(param1) / 99.0) * 0.3 + i * step_size * 0.02
         sky_visibility = 0.3 + i * step_size * 0.1
@@ -225,6 +251,10 @@ function physics_arch_terr_daylight_factor(param1::Integer,
             max_DF = DF
             best_ratio = window_to_floor
             best_sky = sky_visibility
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("windowToFloor" => window_to_floor,
+                                                 "skyVisibility" => sky_visibility, "DF" => DF))
         end
     end
     status = (max_DF >= 2 && max_DF <= 20) ? "SUPPORTED" :
@@ -241,6 +271,8 @@ function physics_arch_terr_daylight_factor(param1::Integer,
         "bestSky"          => best_sky,
         "samples"          => samples,
         "tau"              => tau,
+        "param1"           => Int(param1),   # §28.6b — JVM hypothesis prose
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
