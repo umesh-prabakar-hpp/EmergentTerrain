@@ -50,7 +50,7 @@ class ModelRetestServiceTest {
 
     @Test
     void runOnceSkipsExceptionsAndProcessesOtherEntries() {
-        FakeRetestPool pool = new FakeRetestPool("nvidia");
+        FakeRetestPool pool = new FakeRetestPool("deepseek");
         pool.dropped.add("model-a");
         pool.dropped.add("model-b");
         // model-a throws on chat probe; model-b passes everything.

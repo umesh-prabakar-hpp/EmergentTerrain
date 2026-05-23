@@ -65,7 +65,7 @@ public class ReviewPanelService {
      * {@code app.research.review-panel.providers} CSV; a comma-separated subset
      * narrows the eligible providers.
      */
-    static final String DEFAULT_PROVIDERS = "groq,nvidia,openrouter,cerebras";
+    static final String DEFAULT_PROVIDERS = "groq,openrouter";
 
     /**
      * Default panel target size — number of distinct {@link ModelHandle}s that

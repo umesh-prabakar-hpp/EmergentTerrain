@@ -29,84 +29,84 @@ class LlmRouterChainTest {
     @Test
     void primaryChain_followsConfiguredOrder() {
         FakePool groq   = new FakePool("groq", true, false, "groq-response");
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-response");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-response");
         FakePool openrouter = new FakePool("openrouter", true, false, "or-response");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-response");
 
         LlmRouter router = buildRouter(
-                "nvidia,groq,openrouter", "ollama",
-                groq, nvidia, openrouter, ollama);
+                "deepseek,groq,openrouter", "ollama",
+                groq, deepseek, openrouter, ollama);
 
         assertThat(router.primaryProviderChain())
-                .containsExactly("nvidia", "groq", "openrouter");
-        assertThat(router.primaryModel()).isEqualTo("model-nvidia");
-        assertThat(router.callPrimary("hi")).isEqualTo("nvidia-response");
-        assertThat(nvidia.syncCallCount).isEqualTo(1);
+                .containsExactly("deepseek", "groq", "openrouter");
+        assertThat(router.primaryModel()).isEqualTo("model-deepseek");
+        assertThat(router.callPrimary("hi")).isEqualTo("deepseek-response");
+        assertThat(deepseek.syncCallCount).isEqualTo(1);
         assertThat(groq.syncCallCount).isEqualTo(0);
     }
 
     @Test
     void primaryChain_skipsBlockedPoolAndCallsNext() {
         FakePool groq   = new FakePool("groq", true, true,  "groq-response");      // blocked
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-response");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-response");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-response");
 
         LlmRouter router = buildRouter(
-                "groq,nvidia", "ollama",
-                groq, nvidia, ollama);
+                "groq,deepseek", "ollama",
+                groq, deepseek, ollama);
 
-        assertThat(router.callPrimary("hi")).isEqualTo("nvidia-response");
+        assertThat(router.callPrimary("hi")).isEqualTo("deepseek-response");
         assertThat(groq.syncCallCount).isEqualTo(0);
-        assertThat(nvidia.syncCallCount).isEqualTo(1);
+        assertThat(deepseek.syncCallCount).isEqualTo(1);
     }
 
     @Test
     void primaryChain_fallsThroughOnRuntimeException() {
         FakePool groq   = new FakePool("groq", true, false, null);  // throws
         groq.throwOnSync = new RuntimeException("groq-failed");
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-response");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-response");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-response");
 
         LlmRouter router = buildRouter(
-                "groq,nvidia", "ollama",
-                groq, nvidia, ollama);
+                "groq,deepseek", "ollama",
+                groq, deepseek, ollama);
 
-        assertThat(router.callPrimary("hi")).isEqualTo("nvidia-response");
+        assertThat(router.callPrimary("hi")).isEqualTo("deepseek-response");
         assertThat(groq.syncCallCount).isEqualTo(1);
-        assertThat(nvidia.syncCallCount).isEqualTo(1);
+        assertThat(deepseek.syncCallCount).isEqualTo(1);
     }
 
     @Test
     void primaryChain_throwsLastExceptionWhenAllPoolsFail() {
         FakePool groq   = new FakePool("groq", true, false, null);
         groq.throwOnSync   = new RuntimeException("groq-failed");
-        FakePool nvidia = new FakePool("nvidia", true, false, null);
-        nvidia.throwOnSync = new RuntimeException("nvidia-failed");
+        FakePool deepseek = new FakePool("deepseek", true, false, null);
+        deepseek.throwOnSync = new RuntimeException("deepseek-failed");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-response");
 
         LlmRouter router = buildRouter(
-                "groq,nvidia", "ollama",
-                groq, nvidia, ollama);
+                "groq,deepseek", "ollama",
+                groq, deepseek, ollama);
 
         assertThatThrownBy(() -> router.callPrimary("hi"))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("nvidia-failed");
+                .hasMessageContaining("deepseek-failed");
     }
 
     @Test
     void primaryFullyExhausted_trueOnlyWhenEveryPoolIsBlocked() {
         FakePool groq   = new FakePool("groq", true, true,  "x");
-        FakePool nvidia = new FakePool("nvidia", true, false, "x");
+        FakePool deepseek = new FakePool("deepseek", true, false, "x");
         FakePool ollama = new FakePool("ollama", false, false, "x");
 
         LlmRouter router = buildRouter(
-                "groq,nvidia", "ollama",
-                groq, nvidia, ollama);
+                "groq,deepseek", "ollama",
+                groq, deepseek, ollama);
 
-        // groq blocked, nvidia not blocked → chain isn't fully exhausted
+        // groq blocked, deepseek not blocked → chain isn't fully exhausted
         assertThat(router.primaryFullyExhausted()).isFalse();
 
-        nvidia.blocked = true;
+        deepseek.blocked = true;
         assertThat(router.primaryFullyExhausted()).isTrue();
     }
 
@@ -124,18 +124,18 @@ class LlmRouterChainTest {
     void callWithTools_skipsNonToolPoolsAndBlockedPools() {
         FakePool ollama = new FakePool("ollama", false, false, "x");
         FakePool groq   = new FakePool("groq", true, true,  "x"); // blocked
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-tools-response");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-tools-response");
 
         LlmRouter router = buildRouter(
-                "ollama,groq,nvidia", "ollama",
-                ollama, groq, nvidia);
+                "ollama,groq,deepseek", "ollama",
+                ollama, groq, deepseek);
 
         com.emergentterrain.llm.ToolCallResponse out =
                 router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
-        assertThat(out.synthesis()).isEqualTo("nvidia-tools-response");
+        assertThat(out.synthesis()).isEqualTo("deepseek-tools-response");
         assertThat(ollama.toolCallCount).isEqualTo(0);   // doesn't support tools
         assertThat(groq.toolCallCount).isEqualTo(0);     // blocked
-        assertThat(nvidia.toolCallCount).isEqualTo(1);
+        assertThat(deepseek.toolCallCount).isEqualTo(1);
     }
 
     @Test
@@ -283,42 +283,42 @@ class LlmRouterChainTest {
     @Test
     void callForRole_routesToTaggedPoolWhenAvailable() {
         FakePool ollama   = new FakePool("ollama", false, false, "ollama-response");
-        FakePool cerebras = new FakePool("cerebras", true, false, "cerebras-fast-response")
+        FakePool anthropic = new FakePool("anthropic", true, false, "anthropic-fast-response")
                 .withRole("fast-audit");
 
-        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+        LlmRouter router = buildRouter("groq", "ollama", ollama, anthropic);
 
         String out = router.callForRole("fast-audit", "audit this");
-        assertThat(out).isEqualTo("cerebras-fast-response");
-        assertThat(cerebras.syncCallCount).isEqualTo(1);
+        assertThat(out).isEqualTo("anthropic-fast-response");
+        assertThat(anthropic.syncCallCount).isEqualTo(1);
         assertThat(ollama.syncCallCount).isEqualTo(0);
     }
 
     @Test
     void callForRole_fallsBackToFastWhenRolePoolBlocked() {
         FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
-        FakePool cerebras = new FakePool("cerebras", true, true,  "cerebras-blocked")
+        FakePool anthropic = new FakePool("anthropic", true, true,  "anthropic-blocked")
                 .withRole("fast-audit");
 
-        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+        LlmRouter router = buildRouter("groq", "ollama", ollama, anthropic);
 
         String out = router.callForRole("fast-audit", "audit this");
         assertThat(out).isEqualTo("ollama-fallback");
-        assertThat(cerebras.syncCallCount).isEqualTo(0);  // skipped (blocked)
+        assertThat(anthropic.syncCallCount).isEqualTo(0);  // skipped (blocked)
         assertThat(ollama.syncCallCount).isEqualTo(1);
     }
 
     @Test
     void callForRole_fallsBackToFastWhenRolePoolThrows() {
         FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
-        FakePool cerebras = new FakePool("cerebras", true, false, null).withRole("fast-audit");
-        cerebras.throwOnSync = new RuntimeException("transient cerebras failure");
+        FakePool anthropic = new FakePool("anthropic", true, false, null).withRole("fast-audit");
+        anthropic.throwOnSync = new RuntimeException("transient anthropic failure");
 
-        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+        LlmRouter router = buildRouter("groq", "ollama", ollama, anthropic);
 
         String out = router.callForRole("fast-audit", "audit this");
         assertThat(out).isEqualTo("ollama-fallback");
-        assertThat(cerebras.syncCallCount).isEqualTo(1);   // tried, threw
+        assertThat(anthropic.syncCallCount).isEqualTo(1);   // tried, threw
         assertThat(ollama.syncCallCount).isEqualTo(1);     // fallback
     }
 
@@ -342,14 +342,14 @@ class LlmRouterChainTest {
         //
         // Case 1: role-tagged primary succeeds — primary pool observes role.
         FakePool ollama   = new FakePool("ollama", false, false, "ollama-fallback");
-        FakePool cerebras = new FakePool("cerebras", true, false, "cerebras-response")
+        FakePool anthropic = new FakePool("anthropic", true, false, "anthropic-response")
                 .withRole("fast-audit");
 
-        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+        LlmRouter router = buildRouter("groq", "ollama", ollama, anthropic);
 
         assertThat(com.emergentterrain.llm.LlmCallContext.currentRole()).isNull();
         router.callForRole("fast-audit", "audit this");
-        assertThat(cerebras.observedRole)
+        assertThat(anthropic.observedRole)
                 .as("primary pool sees the role during the call")
                 .isEqualTo("fast-audit");
         // Scope is cleared after return — no leak.
@@ -359,13 +359,13 @@ class LlmRouterChainTest {
         // must ALSO see the role (so its metrics increment under fast-audit,
         // not unknown).
         FakePool ollama2   = new FakePool("ollama", false, false, "ollama-fallback");
-        FakePool cerebras2 = new FakePool("cerebras", true, false, "cerebras-response")
+        FakePool anthropic2 = new FakePool("anthropic", true, false, "anthropic-response")
                 .withRole("fast-audit");
-        cerebras2.throwOnSync = new RuntimeException("transient cerebras failure");
-        LlmRouter router2 = buildRouter("groq", "ollama", ollama2, cerebras2);
+        anthropic2.throwOnSync = new RuntimeException("transient anthropic failure");
+        LlmRouter router2 = buildRouter("groq", "ollama", ollama2, anthropic2);
 
         router2.callForRole("fast-audit", "audit this");
-        assertThat(cerebras2.observedRole)
+        assertThat(anthropic2.observedRole)
                 .as("primary pool sees the role even on exception path")
                 .isEqualTo("fast-audit");
         assertThat(ollama2.observedRole)
@@ -376,14 +376,14 @@ class LlmRouterChainTest {
     @Test
     void roleAvailable_reportsCorrectly() {
         FakePool ollama   = new FakePool("ollama", false, false, "x");
-        FakePool cerebras = new FakePool("cerebras", true, false, "x").withRole("fast-audit");
+        FakePool anthropic = new FakePool("anthropic", true, false, "x").withRole("fast-audit");
 
-        LlmRouter router = buildRouter("groq", "ollama", ollama, cerebras);
+        LlmRouter router = buildRouter("groq", "ollama", ollama, anthropic);
 
         assertThat(router.roleAvailable("fast-audit")).isTrue();
         assertThat(router.roleAvailable("nonexistent-role")).isFalse();
 
-        cerebras.blocked = true;
+        anthropic.blocked = true;
         assertThat(router.roleAvailable("fast-audit")).isFalse();
     }
 
@@ -392,16 +392,16 @@ class LlmRouterChainTest {
     @Test
     void e3HasJsonPathPrimaryTracksPrimaryChainHealth() {
         FakePool groq   = new FakePool("groq", true, false, "x");
-        FakePool nvidia = new FakePool("nvidia", true, false, "x");
+        FakePool deepseek = new FakePool("deepseek", true, false, "x");
         FakePool ollama = new FakePool("ollama", false, false, "x");
 
-        LlmRouter router = buildRouter("groq,nvidia", "ollama", groq, nvidia, ollama);
+        LlmRouter router = buildRouter("groq,deepseek", "ollama", groq, deepseek, ollama);
         assertThat(router.hasJsonPathPrimary()).isTrue();
 
         groq.blocked = true;
-        assertThat(router.hasJsonPathPrimary()).isTrue();   // nvidia still up
+        assertThat(router.hasJsonPathPrimary()).isTrue();   // deepseek still up
 
-        nvidia.blocked = true;
+        deepseek.blocked = true;
         assertThat(router.hasJsonPathPrimary()).isFalse();  // chain exhausted
     }
 
@@ -422,12 +422,12 @@ class LlmRouterChainTest {
     @Test
     void e2DefaultToolProvidersGroqOnlyExcludesOtherPoolsFromToolCalls() {
         FakePool groq   = new FakePool("groq", true, false, "groq-x");
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-x");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-x");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-x");
 
         // Default opt-in list is "groq" only (the spec default).
-        LlmRouter router = buildRouter("groq,nvidia", "ollama", "groq",
-                groq, nvidia, ollama);
+        LlmRouter router = buildRouter("groq,deepseek", "ollama", "groq",
+                groq, deepseek, ollama);
 
         // supportsProfessorTools considers only models in the opt-in set.
         // Before any block: groq is available + in the opt-in set → true.
@@ -442,56 +442,56 @@ class LlmRouterChainTest {
         groq.blocked = true;
         assertThat(router.supportsProfessorTools()).isFalse();
         router.callPrimaryWithTools("sys", "user", "[]", args -> "tool-result");
-        // nvidia must NOT have been called with tools because it's not in the opt-in list.
-        // (The plain-primary degrade path may have called nvidia.callSync, but
-        // never nvidia.callWithTools.)
-        assertThat(nvidia.toolCallCount).isEqualTo(0);
+        // deepseek must NOT have been called with tools because it's not in the opt-in list.
+        // (The plain-primary degrade path may have called deepseek.callSync, but
+        // never deepseek.callWithTools.)
+        assertThat(deepseek.toolCallCount).isEqualTo(0);
     }
 
     @Test
     void e2WildcardToolProvidersAllowsEveryToolCapablePool() {
         FakePool groq   = new FakePool("groq", true, true,  "groq-x");  // blocked
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-x");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-x");
         FakePool ollama = new FakePool("ollama", false, false, "ollama-x");
 
-        LlmRouter router = buildRouter("groq,nvidia", "ollama", "*",
-                groq, nvidia, ollama);
+        LlmRouter router = buildRouter("groq,deepseek", "ollama", "*",
+                groq, deepseek, ollama);
 
         // With "*" the filter is disabled — Groq blocked, NVIDIA picks up the tool call.
         router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
-        assertThat(nvidia.toolCallCount).isEqualTo(1);
+        assertThat(deepseek.toolCallCount).isEqualTo(1);
     }
 
     @Test
     void e2ExplicitMultipleProvidersWhitelist() {
         FakePool groq       = new FakePool("groq", true, true,  "x");  // blocked
-        FakePool nvidia     = new FakePool("nvidia", true, false, "x");
+        FakePool deepseek     = new FakePool("deepseek", true, false, "x");
         FakePool openrouter = new FakePool("openrouter", true, false, "x");
-        FakePool cerebras   = new FakePool("cerebras", true, false, "x");
+        FakePool anthropic   = new FakePool("anthropic", true, false, "x");
         FakePool ollama     = new FakePool("ollama", false, false, "x");
 
-        // Opt in groq + nvidia only; openrouter and cerebras stay excluded.
+        // Opt in groq + deepseek only; openrouter and anthropic stay excluded.
         LlmRouter router = buildRouter(
-                "groq,nvidia,openrouter,cerebras", "ollama", "groq,nvidia",
-                groq, nvidia, openrouter, cerebras, ollama);
+                "groq,deepseek,openrouter,anthropic", "ollama", "groq,deepseek",
+                groq, deepseek, openrouter, anthropic, ollama);
 
         router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
-        // groq blocked → falls through to nvidia (in whitelist). openrouter/cerebras
+        // groq blocked → falls through to deepseek (in whitelist). openrouter/anthropic
         // are skipped even though they're earlier in the chain.
-        assertThat(nvidia.toolCallCount).isEqualTo(1);
+        assertThat(deepseek.toolCallCount).isEqualTo(1);
         assertThat(openrouter.toolCallCount).isEqualTo(0);
-        assertThat(cerebras.toolCallCount).isEqualTo(0);
+        assertThat(anthropic.toolCallCount).isEqualTo(0);
     }
 
     @Test
     void e2EmptyToolProvidersTreatedAsWildcard() {
         // Operator-side typo / blank → fall back to wildcard so the tool path doesn't dead-end.
         FakePool groq   = new FakePool("groq", true, false, "x");
-        FakePool nvidia = new FakePool("nvidia", true, false, "x");
+        FakePool deepseek = new FakePool("deepseek", true, false, "x");
         FakePool ollama = new FakePool("ollama", false, false, "x");
 
-        LlmRouter router = buildRouter("groq,nvidia", "ollama", "",
-                groq, nvidia, ollama);
+        LlmRouter router = buildRouter("groq,deepseek", "ollama", "",
+                groq, deepseek, ollama);
 
         assertThat(router.supportsProfessorTools()).isTrue();
         router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
@@ -518,15 +518,15 @@ class LlmRouterChainTest {
         FakePool ollama = new FakePool("ollama", false, false, "x");
         FakePool groq   = new FakePool("groq", true, false, null);
         groq.throwOnSync = new RuntimeException("budget exceeded for model-groq");
-        FakePool nvidia = new FakePool("nvidia", true, false, "nvidia-response");
+        FakePool deepseek = new FakePool("deepseek", true, false, "deepseek-response");
 
         LlmRouter router = buildRouter(
-                "ollama,groq,nvidia", "ollama",
-                ollama, groq, nvidia);
+                "ollama,groq,deepseek", "ollama",
+                ollama, groq, deepseek);
 
         com.emergentterrain.llm.ToolCallResponse out =
                 router.callPrimaryWithTools("sys", "user", "[]", args -> "ok");
-        assertThat(out.synthesis()).isEqualTo("nvidia-response");
+        assertThat(out.synthesis()).isEqualTo("deepseek-response");
         // Only groq is tool-capable AND failing; ollama is filtered upstream
         // because it doesn't supportsTools(). So skippedModels carries the
         // single failed handle.

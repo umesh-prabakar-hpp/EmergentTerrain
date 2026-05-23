@@ -25,7 +25,7 @@ import java.util.function.Function;
  *   <li><b>Primary chain</b> is an ordered list of high-quality pools. A call falls
  *       through the chain on {@code allBlocked()} or thrown exception until one pool
  *       succeeds. Order is controlled by {@code app.ai.primaryProviderOrder}
- *       (comma-separated, default {@code "groq,nvidia,openrouter,cerebras"}).</li>
+ *       (comma-separated, default {@code "groq,openrouter"}).</li>
  *   <li><b>Fast pool</b> stays a single pool (Ollama by default) for low-stakes
  *       high-frequency calls — refinement decisions, audit, formulation. Operators
  *       can override via {@code app.ai.fastProvider}.</li>
@@ -42,7 +42,7 @@ public class LlmRouter {
     private static final Logger log = LoggerFactory.getLogger(LlmRouter.class);
 
     /** Default provider order — first match found in the bean registry wins. */
-    private static final String DEFAULT_PRIMARY_ORDER = "groq,nvidia,openrouter,cerebras";
+    private static final String DEFAULT_PRIMARY_ORDER = "groq,openrouter";
     private static final String DEFAULT_FAST_PROVIDER = "ollama";
     /**
      * Phase 7 E2 — default opt-in list of providers allowed to receive tool-calling
@@ -454,7 +454,7 @@ public class LlmRouter {
     }
     public int    primaryPoolSize() { return Math.max(1, primaryRegistry.totalModelCount()); }
 
-    /** Provider-key chain (e.g. ["groq", "nvidia", "openrouter", "cerebras"]). */
+    /** Provider-key chain (e.g. ["groq", "openrouter"]). */
     public List<String> primaryProviderChain() {
         return primaryChain.stream().map(LlmPool::providerKey).toList();
     }

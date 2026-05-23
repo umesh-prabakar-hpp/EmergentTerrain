@@ -44,7 +44,7 @@ class PanelReviewTest {
     void parsesMinimalJsonWithEmptyCollectionsDefault() {
         // A reviewer who finds nothing wrong should still parse fine.
         String json = "{\"grades\":{\"honesty\":0.9,\"completeness\":0.8,\"rigor\":0.85,\"novelty\":0.5}}";
-        Optional<PanelReview> parsed = PanelReview.parse(json, "nvidia/nemotron");
+        Optional<PanelReview> parsed = PanelReview.parse(json, "groq/llama-3.3-70b");
         assertThat(parsed).isPresent();
         PanelReview r = parsed.get();
         assertThat(r.citedCalls()).isEmpty();
@@ -57,7 +57,7 @@ class PanelReviewTest {
     void clampsOutOfRangeGrades() {
         // A misbehaving reviewer cannot poison aggregation: 1.5 → 1.0, -0.3 → 0.0, NaN → 0.0.
         String json = "{\"grades\":{\"honesty\":1.5,\"completeness\":-0.3,\"rigor\":0.8,\"novelty\":\"NaN\"}}";
-        Optional<PanelReview> parsed = PanelReview.parse(json, "cerebras/qwen");
+        Optional<PanelReview> parsed = PanelReview.parse(json, "openrouter/gpt-oss-120b");
         assertThat(parsed).isPresent();
         PanelReview.Grades g = parsed.get().grades();
         assertThat(g.honesty()).isEqualTo(1.0);
