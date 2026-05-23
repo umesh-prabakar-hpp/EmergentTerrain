@@ -1269,14 +1269,121 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 4, d)).contains(expected);
     }
 
+    // ── ARCHITECTURE_SPACE topics (0–4) — final domain ───────────────────
+
+    @Test
+    void archSpace0_radiationShielding_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Phi", 1.3e2).put("sigma", 5.5);
+        sweep.addObject().put("Phi", 2.0e2).put("sigma", 6.4);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("dailyFluxScale", 0.1);
+        d.put("samples", 20);
+        d.put("maxSigma", 6.4);
+        d.put("bestPhi", 2.0e2);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.radShieldSweepSegment(1.3e2, 5.5)
+                + MathPhysicsEngine.radShieldSweepSegment(2.0e2, 6.4)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeRadiationShieldingMass(0.1, 20, 6.4, 2.0e2, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_SPACE", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, d)).contains(expected);
+    }
+
+    @Test
+    void archSpace1_vacuumThermal_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("Qint", 50.0).put("Seff", 680.5).put("Teq", 288.0);
+        sweep.addObject().put("Qint", 150.0).put("Seff", 900.0).put("Teq", 305.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("qInternalSeed", 50.0);
+        d.put("samples", 20);
+        d.put("maxT", 305.0);
+        d.put("minT", 250.0);
+        d.put("bestQ", 150.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.vacuumThermalSweepSegment(50.0, 680.5, 288.0)
+                + MathPhysicsEngine.vacuumThermalSweepSegment(150.0, 900.0, 305.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeVacuumThermalBalance(50.0, 20, 305.0, 250.0, 150.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_SPACE", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 1, d)).contains(expected);
+    }
+
+    @Test
+    void archSpace2_micrometeoroid_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("A", 50.0).put("N", 15.8);
+        sweep.addObject().put("A", 90.0).put("N", 42.6);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("areaSeed", 50.0);
+        d.put("samples", 18);
+        d.put("maxImpacts", 42.6);
+        d.put("bestArea", 90.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.micrometeoroidSweepSegment(50.0, 15.8)
+                + MathPhysicsEngine.micrometeoroidSweepSegment(90.0, 42.6)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeMicrometeoroidFlux(50.0, 18, 42.6, 90.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_SPACE", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 2, d)).contains(expected);
+    }
+
+    @Test
+    void archSpace3_centrifugal_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("omega", 0.2).put("R", 122.6);
+        sweep.addObject().put("omega", 0.3).put("R", 54.5);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("aTarget", 0.5);
+        d.put("samples", 20);
+        d.put("bestR", 122.6);
+        d.put("bestOmega", 0.2);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.centrifugalSweepSegment(0.2, 122.6)
+                + MathPhysicsEngine.centrifugalSweepSegment(0.3, 54.5)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeCentrifugalGravityRadius(0.5, 20, 122.6, 0.2, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_SPACE", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 3, d)).contains(expected);
+    }
+
+    @Test
+    void archSpace4_orbitalDecay_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("h", 200.0).put("rho", 4.5e-2).put("daysToDeorbit", 8.0);
+        sweep.addObject().put("h", 300.0).put("rho", 8.3e-3).put("daysToDeorbit", 35.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("altKmSeed", 200.0);
+        d.put("samples", 18);
+        d.put("bestDays", 35.0);
+        d.put("bestH", 300.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.orbitalDecaySweepSegment(200.0, 4.5e-2, 8.0)
+                + MathPhysicsEngine.orbitalDecaySweepSegment(300.0, 8.3e-3, 35.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeOrbitalDecayRate(200.0, 18, 35.0, 300.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_SPACE", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
-        // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (ARCHITECTURE_SPACE is the last domain
-        // still uncovered.)
-        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, mathTopic0Detail()))
+        // All 9 real domains are now covered (63/63 topics). An unknown domain
+        // must still signal fall-back rather than throw or return a wrong result.
+        assertThat(SidecarResultComposer.composeFromDetail("NONEXISTENT_DOMAIN", 0, mathTopic0Detail()))
                 .isEmpty();
-        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 2, mathTopic0Detail()))
+        assertThat(SidecarResultComposer.composeFromDetail("", 2, mathTopic0Detail()))
                 .isEmpty();
     }
 

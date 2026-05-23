@@ -538,6 +538,42 @@ final class SidecarResultComposer {
                     d.path("bestP").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.dissolvedGasSweepSegment(
                             s.path("P").asDouble(), s.path("c").asDouble())));
+            case "ARCHITECTURE_SPACE:0" -> MathPhysicsEngine.composeRadiationShieldingMass(
+                    d.path("dailyFluxScale").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxSigma").asDouble(),
+                    d.path("bestPhi").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.radShieldSweepSegment(
+                            s.path("Phi").asDouble(), s.path("sigma").asDouble())));
+            case "ARCHITECTURE_SPACE:1" -> MathPhysicsEngine.composeVacuumThermalBalance(
+                    d.path("qInternalSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxT").asDouble(),
+                    d.path("minT").asDouble(),
+                    d.path("bestQ").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.vacuumThermalSweepSegment(
+                            s.path("Qint").asDouble(), s.path("Seff").asDouble(), s.path("Teq").asDouble())));
+            case "ARCHITECTURE_SPACE:2" -> MathPhysicsEngine.composeMicrometeoroidFlux(
+                    d.path("areaSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxImpacts").asDouble(),
+                    d.path("bestArea").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.micrometeoroidSweepSegment(
+                            s.path("A").asDouble(), s.path("N").asDouble())));
+            case "ARCHITECTURE_SPACE:3" -> MathPhysicsEngine.composeCentrifugalGravityRadius(
+                    d.path("aTarget").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestR").asDouble(),
+                    d.path("bestOmega").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.centrifugalSweepSegment(
+                            s.path("omega").asDouble(), s.path("R").asDouble())));
+            case "ARCHITECTURE_SPACE:4" -> MathPhysicsEngine.composeOrbitalDecayRate(
+                    d.path("altKmSeed").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("bestDays").asDouble(),
+                    d.path("bestH").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.orbitalDecaySweepSegment(
+                            s.path("h").asDouble(), s.path("rho").asDouble(), s.path("daysToDeorbit").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

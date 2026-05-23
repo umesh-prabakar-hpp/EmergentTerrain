@@ -4190,8 +4190,22 @@ public class MathPhysicsEngine {
             double sigma = 5.0 + 5.0 * Math.log10(Phi * E_dep / Math.max(1.0, Dmax));
             samples++;
             if (sigma > maxSigma) { maxSigma = sigma; bestPhi = Phi; }
-            if (i < 4) sb.append("Φ=%.1e/cm²/d→σ=%.1fg/cm² ".formatted(Phi, sigma));
+            if (i < 4) sb.append(radShieldSweepSegment(Phi, sigma));
         }
+        return composeRadiationShieldingMass(dailyFluxScale, samples, maxSigma, bestPhi,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one radiation-shielding sweep segment (incl. trailing space). */
+    static String radShieldSweepSegment(double Phi, double sigma) {
+        return "Φ=%.1e/cm²/d→σ=%.1fg/cm² ".formatted(Phi, sigma);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_SPACE:0 (radiation shielding). */
+    static ResearchResult composeRadiationShieldingMass(double dailyFluxScale, int samples,
+            double maxSigma, double bestPhi, String sweep) {
+        double E_dep = 5.0;       // MeV per particle, average dose deposit
+        double Dmax = 500.0;      // mSv/year, crew exposure budget
         ClaimStatus status = maxSigma < 100.0 ? ClaimStatus.SUPPORTED
                 : maxSigma < 300.0 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Shielding: max σ_areal=%.1f g/cm² at Φ=%.1e particles/cm²/day. %s")
@@ -4201,7 +4215,7 @@ public class MathPhysicsEngine {
                                         : "extreme solar-event flux — shielding mass impractical");
         return new ResearchResult(
                 "Radiation shielding (%d Φ-samples, E_dep=%.1f MeV, D_max=%.0f mSv/yr): max σ_areal=%.1f g/cm² at Φ=%.1e/cm²/d. Sample: %s"
-                        .formatted(samples, E_dep, Dmax, maxSigma, bestPhi, sb.toString().trim()),
+                        .formatted(samples, E_dep, Dmax, maxSigma, bestPhi, sweep),
                 maxSigma, bestPhi, E_dep, maxSigma, status, assessment)
                 .withHypothesis(("For a crewed module exposed to particle flux scaled near 10^%.1f /cm²/day with "
                         + "an exposure budget of D_max=%.0f mSv/yr, the areal shielding requirement σ_areal "
@@ -4229,8 +4243,23 @@ public class MathPhysicsEngine {
             samples++;
             if (Teq > maxT) { maxT = Teq; bestQ = Qint; }
             if (Teq < minT) minT = Teq;
-            if (i < 4) sb.append("Q=%.0fW,Sₑff=%.0fW/m²→T=%.0fK ".formatted(Qint, Seff, Teq));
+            if (i < 4) sb.append(vacuumThermalSweepSegment(Qint, Seff, Teq));
         }
+        return composeVacuumThermalBalance(qInternalSeed, samples, maxT, minT, bestQ,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one vacuum-thermal-balance sweep segment (incl. trailing space). */
+    static String vacuumThermalSweepSegment(double Qint, double Seff, double Teq) {
+        return "Q=%.0fW,Sₑff=%.0fW/m²→T=%.0fK ".formatted(Qint, Seff, Teq);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_SPACE:1 (vacuum thermal balance). */
+    static ResearchResult composeVacuumThermalBalance(double qInternalSeed, int samples,
+            double maxT, double minT, double bestQ, String sweep) {
+        double A = 50.0;     // m² radiative area
+        double alpha = 0.3;
+        double epsilon = 0.85;
         ClaimStatus status = maxT >= 273 && maxT <= 320 ? ClaimStatus.SUPPORTED
                 : maxT >= 200 && maxT <= 350 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Vacuum thermal: T range [%.0f, %.0f] K at α=%.2f, ε=%.2f, A=%.0f m². %s")
@@ -4240,7 +4269,7 @@ public class MathPhysicsEngine {
                                         : "module trends hot — additional radiators required");
         return new ResearchResult(
                 "Vacuum thermal (α=%.2f, ε=%.2f, A=%.0f m², %d Q+S samples): max T=%.0f K at Q=%.0f W. Sample: %s"
-                        .formatted(alpha, epsilon, A, samples, maxT, bestQ, sb.toString().trim()),
+                        .formatted(alpha, epsilon, A, samples, maxT, bestQ, sweep),
                 maxT, minT, bestQ, maxT, status, assessment)
                 .withHypothesis(("For a habitat with A=%.0f m² radiating surface, α=%.2f absorptivity, ε=%.2f "
                         + "emissivity, and Q_internal swept near %.0f W, the equilibrium temperature "
@@ -4263,8 +4292,21 @@ public class MathPhysicsEngine {
             double N = Phi * A * mission;
             samples++;
             if (N > maxImpacts) { maxImpacts = N; bestArea = A; }
-            if (i < 4) sb.append("A=%.0fm²→N≈%.1f ".formatted(A, N));
+            if (i < 4) sb.append(micrometeoroidSweepSegment(A, N));
         }
+        return composeMicrometeoroidFlux(areaSeed, samples, maxImpacts, bestArea,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one micrometeoroid-flux sweep segment (incl. trailing space). */
+    static String micrometeoroidSweepSegment(double A, double N) {
+        return "A=%.0fm²→N≈%.1f ".formatted(A, N);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_SPACE:2 (micrometeoroid flux). */
+    static ResearchResult composeMicrometeoroidFlux(double areaSeed, int samples,
+            double maxImpacts, double bestArea, String sweep) {
+        double Phi = 1.0e-8;  // impacts/m²/s for sub-mm meteoroids
         ClaimStatus status = maxImpacts < 100 ? ClaimStatus.SUPPORTED
                 : maxImpacts < 1000 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Impact flux: max %.1f sub-mm impacts on A=%.0f m² over the sweep. %s")
@@ -4274,7 +4316,7 @@ public class MathPhysicsEngine {
                                         : "impact density requires re-evaluation of mission orbit");
         return new ResearchResult(
                 "Micrometeoroid flux (Φ=%.0e /m²/s, %d (A, mission) samples): max impacts=%.1f at A=%.0f m². Sample: %s"
-                        .formatted(Phi, samples, maxImpacts, bestArea, sb.toString().trim()),
+                        .formatted(Phi, samples, maxImpacts, bestArea, sweep),
                 maxImpacts, bestArea, Phi, maxImpacts, status, assessment)
                 .withHypothesis(("For habitat surfaces A swept near %.0f m² over mission durations spanning one "
                         + "to several years, the expected sub-mm meteoroid impact count scales linearly with "
@@ -4297,13 +4339,25 @@ public class MathPhysicsEngine {
             double R = aMps / (omega * omega);
             samples++;
             if (omega <= 0.3 && R > bestR) { bestR = R; bestOmega = omega; }
-            if (i < 4) sb.append("ω=%.2frad/s→R=%.1fm ".formatted(omega, R));
+            if (i < 4) sb.append(centrifugalSweepSegment(omega, R));
         }
         // If no comfortable ω found, take the smallest R from any ω.
         if (bestR == 0 && samples > 0) {
             bestR = aMps / (0.3 * 0.3);
             bestOmega = 0.3;
         }
+        return composeCentrifugalGravityRadius(aTarget, samples, bestR, bestOmega,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one centrifugal artificial-gravity sweep segment (incl. trailing space). */
+    static String centrifugalSweepSegment(double omega, double R) {
+        return "ω=%.2frad/s→R=%.1fm ".formatted(omega, R);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_SPACE:3 (centrifugal gravity radius). */
+    static ResearchResult composeCentrifugalGravityRadius(double aTarget, int samples,
+            double bestR, double bestOmega, String sweep) {
         ClaimStatus status = bestR < 100 ? ClaimStatus.SUPPORTED
                 : bestR < 500 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Spin habitat: comfortable R=%.1f m at ω=%.2f rad/s for a_target=%.2f g. %s")
@@ -4313,7 +4367,7 @@ public class MathPhysicsEngine {
                                         : "kilometer-scale radius — beyond near-term feasibility");
         return new ResearchResult(
                 "Centrifugal (a_target=%.2f g, %d ω-samples): comfort-R=%.1f m at ω=%.2f rad/s. Sample: %s"
-                        .formatted(aTarget, samples, bestR, bestOmega, sb.toString().trim()),
+                        .formatted(aTarget, samples, bestR, bestOmega, sweep),
                 bestR, bestOmega, aTarget, bestR, status, assessment)
                 .withHypothesis(("For a target artificial gravity a_target≈%.2f g, comfortable Coriolis "
                         + "conditions (ω ≤ 0.3 rad/s) require a habitat radius R = a/ω² that grows quadratically "
@@ -4338,8 +4392,20 @@ public class MathPhysicsEngine {
             double daysToDeorbit = (h * 1000.0) / Math.max(1e-6, dhdt) / 86400.0;
             samples++;
             if (daysToDeorbit > bestDays) { bestDays = daysToDeorbit; bestH = h; }
-            if (i < 4) sb.append("h=%.0fkm→ρ=%.2eρ_atm→t_deorbit=%.1fd ".formatted(h, rho, daysToDeorbit));
+            if (i < 4) sb.append(orbitalDecaySweepSegment(h, rho, daysToDeorbit));
         }
+        return composeOrbitalDecayRate(altKmSeed, samples, bestDays, bestH,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one orbital-decay sweep segment (incl. trailing space). */
+    static String orbitalDecaySweepSegment(double h, double rho, double daysToDeorbit) {
+        return "h=%.0fkm→ρ=%.2eρ_atm→t_deorbit=%.1fd ".formatted(h, rho, daysToDeorbit);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_SPACE:4 (orbital decay rate). */
+    static ResearchResult composeOrbitalDecayRate(double altKmSeed, int samples,
+            double bestDays, double bestH, String sweep) {
         ClaimStatus status = bestDays > 30 ? ClaimStatus.SUPPORTED
                 : bestDays > 5 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Orbital decay: max time-to-reentry %.1f days at h=%.0f km. %s")
@@ -4349,7 +4415,7 @@ public class MathPhysicsEngine {
                                         : "rapid decay — orbit too low for sustained mission");
         return new ResearchResult(
                 "Orbital decay (%d h-samples starting %.0f km): max t_deorbit=%.1f days at h=%.0f km. Sample: %s"
-                        .formatted(samples, altKmSeed, bestDays, bestH, sb.toString().trim()),
+                        .formatted(samples, altKmSeed, bestDays, bestH, sweep),
                 bestDays, bestH, 0.001, bestDays, status, assessment)
                 .withHypothesis(("For a satellite swept from altitude h≈%.0f km with ballistic inverse-coefficient "
                         + "B⁻¹≈0.001, the orbital decay rate dh/dt = 2π·ρ_atm(h)·B⁻¹·a falls exponentially "
