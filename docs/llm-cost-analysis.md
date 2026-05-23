@@ -2,6 +2,8 @@
 
 Analysis performed 2026-05-21. Source data: trace archive `research/llm-traces/archive/20260521-183906/` and log archive `logs/archive/et-app-*.log`.
 
+> **Note (2026-05-23) — provider set has since changed.** Acting on this analysis, the **nvidia** and **cerebras** slots were removed entirely; the `openrouter`/`groq` named blocks were folded into `app.ai.providers.<name>`, and the `groq-fast` tier was renamed `fast`. The tables below are preserved as the run looked at analysis time (they reference the now-removed providers). Current provider slots: `groq`, `fast`, `openrouter`.
+
 ## Per-run LLM activity (last full simulation)
 
 Run window: 2026-05-21 16:12–17:16 EDT (64 min 20 s of LLM-active trace time). 27 papers, 142 total calls.
