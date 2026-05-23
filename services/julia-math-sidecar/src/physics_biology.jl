@@ -26,6 +26,7 @@ function physics_biology_verhulst_logistic(r::Real, K::Real,
     best_t = 0.0
     best_N = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 time points for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         t = max(0.1, i * step_size * 2.0)
         Nt = Float64(K) / (1 + ((Float64(K) - N0) / N0) * exp(-Float64(r) * t))
@@ -35,6 +36,9 @@ function physics_biology_verhulst_logistic(r::Real, K::Real,
             best_dev = deviation
             best_t = t
             best_N = Nt
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("t" => t, "Nt" => Nt))
         end
     end
     status = best_dev < 0.99 ? "SUPPORTED" : "OBSERVATIONAL"
@@ -51,6 +55,7 @@ function physics_biology_verhulst_logistic(r::Real, K::Real,
         "bestT"            => best_t,
         "bestN"            => best_N,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -76,6 +81,7 @@ function physics_biology_lotka_volterra(alpha::Real, beta::Real,
     best_alpha = Float64(alpha)
     best_peak_x = 0.0
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 α-samples for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         a = max(0.1, Float64(alpha) + i * step_size * 0.05)
         x = 40.0
@@ -98,6 +104,9 @@ function physics_biology_lotka_volterra(alpha::Real, beta::Real,
             best_alpha = a
             best_peak_x = max_x
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("a" => a, "ratio" => ratio))
+        end
     end
     physical = best_ratio < 1e6 && isfinite(best_peak_x)
     status = !physical ? "REFUTED" :
@@ -113,11 +122,13 @@ function physics_biology_lotka_volterra(alpha::Real, beta::Real,
         "bestRatio"        => best_ratio,
         "bestAlpha"        => best_alpha,
         "bestPeakX"        => best_peak_x,
+        "alpha"            => Float64(alpha),   # §28.6b — JVM hypothesis prose
         "beta"             => Float64(beta),
         "gamma"            => gamma,
         "delta"            => delta,
         "samples"          => samples,
         "physical"         => physical,
+        "sampleSweep"      => sample_sweep,      # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -138,6 +149,7 @@ function physics_biology_michaelis_menten(Km::Real, Vmax::Real,
     best_recovery_err = floatmax(Float64)
     best_Km_recovered = Float64(Km)
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 K_m estimates for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         S1 = Float64(Km) * 0.5
         S2 = Float64(Km) * 4.0
@@ -152,6 +164,9 @@ function physics_biology_michaelis_menten(Km::Real, Vmax::Real,
         if err < best_recovery_err
             best_recovery_err = err
             best_Km_recovered = Km_est
+        end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("KmEst" => Km_est, "err" => err))
         end
     end
     status = best_recovery_err < 0.10 ? "SUPPORTED" :
@@ -169,6 +184,7 @@ function physics_biology_michaelis_menten(Km::Real, Vmax::Real,
         "bestRecoveryErr"  => best_recovery_err,
         "bestKmRecovered"  => best_Km_recovered,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -192,6 +208,7 @@ function physics_biology_kleiber_allometric(seed_M::Real, sp::Dict{String,Any}):
     # JVM's two-pass shape — generate then regress).
     Ms = Vector{Float64}(undef, candidate_breadth)
     Rs = Vector{Float64}(undef, candidate_breadth)
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 (M, R) pairs for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         # JVM line 2744: `seedM * Math.pow(2.0, i*stepSize - 4)`.
         # Fractional pow — same case as basquin/riemann.
@@ -199,6 +216,9 @@ function physics_biology_kleiber_allometric(seed_M::Real, sp::Dict{String,Any}):
         R = R0 * M^true_exp * (1.0 + sin(i * 0.41) * 0.03)
         Ms[i + 1] = M
         Rs[i + 1] = R
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("M" => M, "R" => R))
+        end
     end
     n = length(Ms)
     sum_logM = 0.0
@@ -232,6 +252,7 @@ function physics_biology_kleiber_allometric(seed_M::Real, sp::Dict{String,Any}):
         "deviation"        => deviation,
         "n"                => n,
         "seedM"            => Float64(seed_M),
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
@@ -254,6 +275,7 @@ function physics_biology_hardy_weinberg(seed_p::Real, sp::Dict{String,Any})::Dic
     max_drift = 0.0
     final_p = p
     samples = 0
+    sample_sweep = Dict{String,Any}[]   # §28.6b — first ≤4 generation sweeps for JVM sweep string
     for i in 0:(candidate_breadth - 1)
         # JVM line 2787: `(int)(10 + i*stepSize*4)` — truncation.
         generations = trunc(Int, 10.0 + i * step_size * 4.0)
@@ -272,6 +294,10 @@ function physics_biology_hardy_weinberg(seed_p::Real, sp::Dict{String,Any})::Dic
             max_drift = local_max_drift
             final_p = pn
         end
+        if i < 4
+            push!(sample_sweep, Dict{String,Any}("generations" => generations,
+                                                 "pn" => pn, "drift" => local_max_drift))
+        end
     end
     status = max_drift < 0.05 ? "SUPPORTED" :
              max_drift < 0.10 ? "PARTIAL" : "REFUTED"
@@ -287,6 +313,7 @@ function physics_biology_hardy_weinberg(seed_p::Real, sp::Dict{String,Any})::Dic
         "maxDrift"         => max_drift,
         "finalP"           => final_p,
         "samples"          => samples,
+        "sampleSweep"      => sample_sweep,   # §28.6b — JVM rebuilds the sweep prose
     )
 end
 
