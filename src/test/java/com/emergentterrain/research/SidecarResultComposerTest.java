@@ -128,6 +128,27 @@ class SidecarResultComposerTest {
     }
 
     @Test
+    void mathematics9_squarefree_composesByteIdenticalToSharedTemplate() {
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("seedStart", 1000);
+        d.put("width", 200);
+        d.put("samples", 30);
+        d.put("bestDev", 0.07);       // (0.05, 0.10] → PARTIAL
+        d.put("bestStart", 4200);
+        d.put("bestDensity", 0.6779);
+        d.put("meanDev", 0.031);
+        // asymptotic + sample-sweep are not carried (recomputed / unused).
+
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeSquarefreeDensity(
+                        1000, 200, 30, 0.07, 4200, 0.6779, 0.031)
+                        .withEquation(MathPhysicsEngine.equationFor("MATHEMATICS", 9));
+
+        assertThat(SidecarResultComposer.composeFromDetail("MATHEMATICS", 9, d))
+                .contains(expected);
+    }
+
+    @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
         // throw or return a wrong result. (PHYSICS / MATERIALS stay uncovered

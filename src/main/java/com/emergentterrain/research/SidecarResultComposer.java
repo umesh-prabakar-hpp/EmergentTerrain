@@ -115,6 +115,14 @@ final class SidecarResultComposer {
                             d.path("deviation").asDouble()),
                     d.path("maxDeviation").asDouble(),
                     d.path("sampled").asInt());
+            case "MATHEMATICS:9" -> MathPhysicsEngine.composeSquarefreeDensity(
+                    d.path("seedStart").asInt(),
+                    d.path("width").asInt(),
+                    d.path("samples").asInt(),
+                    d.path("bestDev").asDouble(),
+                    d.path("bestStart").asInt(),
+                    d.path("bestDensity").asDouble(),
+                    d.path("meanDev").asDouble());
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

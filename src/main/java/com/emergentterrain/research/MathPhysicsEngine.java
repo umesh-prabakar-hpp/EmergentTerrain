@@ -1282,6 +1282,19 @@ public class MathPhysicsEngine {
             if (i < 4) sb.append("[%d,%d)→density=%.4f(dev=%.4f) ".formatted(start, end, density, dev));
         }
         double meanDev = samples > 0 ? sumDev / samples : 0;
+        return composeSquarefreeDensity(seedStart, width, samples, bestDev, bestStart,
+                bestDensity, meanDev);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for MATHEMATICS:9 (squarefree
+     * density). No sample-sweep string here (the in-process method builds one
+     * but never embeds it in findings), so the detail is fully numeric. The
+     * asymptotic 6/π² is recomputed rather than carried.
+     */
+    static ResearchResult composeSquarefreeDensity(int seedStart, int width, int samples,
+            double bestDev, int bestStart, double bestDensity, double meanDev) {
+        double asymptotic = 6.0 / (Math.PI * Math.PI);
         ClaimStatus status = bestDev <= 0.05 ? ClaimStatus.SUPPORTED
                 : bestDev <= 0.10 ? ClaimStatus.PARTIAL : ClaimStatus.REFUTED;
         String assessment = ("Squarefree density max dev %.4f from 6/π²≈%.4f at start=%d (density=%.4f); mean dev %.4f. %s")
