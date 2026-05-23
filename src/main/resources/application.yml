@@ -290,6 +290,19 @@ app:
     peerReviewEnabled: true
   ai:
     enabled: true
+    # Process-wide LLM budget. Default OFF (no cap → today's behaviour).
+    # When enabled the application terminates (exit code 42) as soon as EITHER
+    # cap is met: max-calls (number of provider calls) or max-tokens (prompt +
+    # completion summed across the run). Both are global odometers over the
+    # whole run, not per-paper, and each is active only when positive (<= 0 =
+    # unlimited). Calls are counted through the provider budget gate (Groq +
+    # the generic OpenAI-compatible pools) and tokens through TokenAccountant;
+    # local Ollama and startup model-discovery are not counted.
+    # See SessionCallLimit / CallLimitProperties.
+    call-limit:
+      enabled: false
+      max-calls: 1000
+      max-tokens: 2000000
     groq:
       enabled: true
       apiKey: ${GROQ_API_KEY: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}

@@ -67,19 +67,28 @@ public class TpmBudgetGate {
     private final TokenAccountant accountant;
     private final TokenBudgetProperties props;
     private final BudgetGateMetrics metrics;
+    /** Process-wide LLM call cap; {@code null} in tests (cap not enforced). */
+    private final SessionCallLimit callLimit;
 
     @Autowired
     public TpmBudgetGate(TokenAccountant accountant,
                          TokenBudgetProperties props,
-                         BudgetGateMetrics metrics) {
+                         BudgetGateMetrics metrics,
+                         SessionCallLimit callLimit) {
         this.accountant = accountant;
         this.props = props;
         this.metrics = metrics;
+        this.callLimit = callLimit;
     }
 
-    /** Test constructor — metrics is optional and defaults to no-op. */
+    /** Test constructor — metrics + call-limit are optional. */
+    public TpmBudgetGate(TokenAccountant accountant, TokenBudgetProperties props, BudgetGateMetrics metrics) {
+        this(accountant, props, metrics, null);
+    }
+
+    /** Test constructor — metrics defaults to no-op and call-limit is disabled. */
     public TpmBudgetGate(TokenAccountant accountant, TokenBudgetProperties props) {
-        this(accountant, props, BudgetGateMetrics.NOOP);
+        this(accountant, props, BudgetGateMetrics.NOOP, null);
     }
 
     /**
@@ -139,7 +148,13 @@ public class TpmBudgetGate {
      * {@link #tryAcquire} would return false at the requested level.
      */
     public void tryAcquireOrThrow(String provider, String model, long estimate, GateLevel level) {
-        if (tryAcquire(provider, model, estimate, level)) return;
+        if (tryAcquire(provider, model, estimate, level)) {
+            // Call cleared the budget — it will hit the network, so count it
+            // against the process-wide cap. Throws (and starts shutdown) if the
+            // cap is now exceeded, before any HTTP request is made.
+            if (callLimit != null) callLimit.recordCallAndEnforce();
+            return;
+        }
         TokenBudgetProperties.Provider p = props.getProviders().get(provider);
         long pauseAt = (p != null && p.getMinuteLimit() > 0) ? pauseAtFor(p, level) : 0L;
         throw new BudgetExceededException(provider, estimate, accountant.minuteTotal(provider), pauseAt);
