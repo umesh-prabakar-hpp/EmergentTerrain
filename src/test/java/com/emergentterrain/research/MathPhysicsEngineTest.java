@@ -265,6 +265,7 @@ class MathPhysicsEngineTest {
                 /* scalingSweepDepthMode         */ "warn",
                 /* srEvidenceEnabled             */ false,
                 /* srEvidenceMode                */ "warn",
+                /* hypothesisRangeCoverageEnabled */ false,
                 mapper);
 
         // Files must be staged AFTER the UniversityService constructor: as of

@@ -173,6 +173,7 @@ class PublishPaperTest {
                 /* scalingSweepDepthMode         */ "warn",
                 /* srEvidenceEnabled             */ false,
                 /* srEvidenceMode                */ "warn",
+                /* hypothesisRangeCoverageEnabled */ false,
                 mapper);
         roomId = UUID.randomUUID();
     }

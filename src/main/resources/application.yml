@@ -761,6 +761,15 @@ app:
     # P-507 / P-512. Flipped ON 2026-05-17.
     single-point-sweep:
       enabled: true
+    # Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
+    # declares a parameter range (e.g. "from 400nm to 700nm") but whose
+    # tool-call trace covers less than half of it. Ships warn-only: logs
+    # + stamps `publish:range_coverage_under:warn` in the call path, does
+    # NOT route to NEEDS_REVISION. Flip on after one refresh shows the
+    # would-be-route rate is acceptable. Worked example: P-a328-900
+    # (single-λ test of a 400-700 nm sweep).
+    hypothesis-range-coverage:
+      enabled: false
     # Phase 14 F4 — when on, papers whose Conclusion polarity (within /
     # outside / confirmed / refuted) contradicts the Findings number vs
     # Hypothesis bound publish as NEEDS_REVISION. Conservative: returns

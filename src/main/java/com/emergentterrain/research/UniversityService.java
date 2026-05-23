@@ -179,6 +179,15 @@ public class UniversityService {
     private final boolean unsourcedClaimEnabled;
     private final String  unsourcedClaimMode;
     /**
+     * Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
+     * declares a parameter range (e.g. "from 400nm to 700nm") but
+     * whose persisted tool-call trace covers less than half of it.
+     * Ships in warn mode: stamps {@code range_coverage_under}, logs
+     * a WARN, does NOT route the paper to NEEDS_REVISION. Worked
+     * examples: P-a328-900 (single-λ test of a 400-700 nm sweep).
+     */
+    private final boolean hypothesisRangeCoverageEnabled;
+    /**
      * 2026-05-21 review §1 rec #4 follow-up — flags hypothesis prose that
      * declares a baseline value not matching any run_predicate_scan call
      * in the trace. Mode escalation matches the unsourced-claim pattern:
@@ -380,6 +389,7 @@ public class UniversityService {
             @Value("${app.research.scaling-sweep-depth.mode:warn}") String scalingSweepDepthMode,
             @Value("${app.research.sr-evidence.enabled:false}") boolean srEvidenceEnabled,
             @Value("${app.research.sr-evidence.mode:warn}") String srEvidenceMode,
+            @Value("${app.research.hypothesis-range-coverage.enabled:false}") boolean hypothesisRangeCoverageEnabled,
             ObjectMapper objectMapper) {
         this.researchIntervalMs       = researchIntervalMs;
         this.researchOutputDir        = Paths.get(researchOutputDir);
@@ -425,6 +435,7 @@ public class UniversityService {
         this.blockCountGuardEnabled       = blockCountGuardEnabled;
         this.unsourcedClaimEnabled        = unsourcedClaimEnabled;
         this.unsourcedClaimMode           = normalizeMode(unsourcedClaimMode);
+        this.hypothesisRangeCoverageEnabled = hypothesisRangeCoverageEnabled;
         this.proseBaselineDriftEnabled    = proseBaselineDriftEnabled;
         this.proseBaselineDriftMode       = normalizeMode(proseBaselineDriftMode);
         this.citationCorpusEnabled        = citationCorpusEnabled;
@@ -901,6 +912,20 @@ public class UniversityService {
             log.warn("single-point-sweep check failed paperId={} reasons={}",
                     draft.paperId(), singlePointSweepFailures);
         }
+        // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
+        // Warn-only: stamps the call path + logs, never routes the paper.
+        // Sibling check to SinglePointSweep but operates on the hypothesis
+        // side (declared range) rather than the findings side (claimed
+        // sample count). P-a328-900: hypothesis "from 400nm to 700nm"
+        // tested at single λ=654nm — caught here.
+        List<String> hypothesisRangeFailures = hypothesisRangeCoverageEnabled
+                ? HypothesisRangeCoverageValidator.validate(
+                        hypothesis, narration.toolCallTrace())
+                : List.of();
+        if (!hypothesisRangeFailures.isEmpty()) {
+            log.warn("hypothesis-range-coverage check failed paperId={} reasons={}",
+                    draft.paperId(), hypothesisRangeFailures);
+        }
         // Phase 14 F4 — flag Conclusion polarity inversions against the
         // Findings number vs Hypothesis bound. Refresh #2 §1 rec #3 named
         // P-491 (0.694% well within 5% but Conclusion "rules out"), P-496
@@ -1318,6 +1343,15 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:single_point_sweep→needs_revision"
                     : persistedCallPath + " → publish:single_point_sweep→needs_revision";
+        }
+        // Paper-review 2026-05-22 fix 4 — additive stamp for hypothesis
+        // range under-coverage. Warn-only (no routing), so the stamp
+        // carries a `:warn` suffix so operators can grep for the
+        // would-be route rate before promoting to downgrade.
+        if (!hypothesisRangeFailures.isEmpty()) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:range_coverage_under:warn"
+                    : persistedCallPath + " → publish:range_coverage_under:warn";
         }
         // Phase 14 F4 — additive stamp for polarity inversions.
         if (directionOfFindingInverted) {
