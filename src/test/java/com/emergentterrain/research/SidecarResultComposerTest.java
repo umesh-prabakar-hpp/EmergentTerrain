@@ -1155,14 +1155,128 @@ class SidecarResultComposerTest {
         assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_TERRESTRIAL", 4, d)).contains(expected);
     }
 
+    // ── ARCHITECTURE_LIQUID topics (0–4) ─────────────────────────────────
+
+    @Test
+    void archLiquid0_hydrostatic_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("depth", 1.0).put("rho", 1000.0).put("P", 9810.0);
+        sweep.addObject().put("depth", 6.0).put("rho", 1050.0).put("P", 61803.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoLiq", 1000.0);
+        d.put("samples", 20);
+        d.put("maxP", 61803.0);
+        d.put("bestDepth", 6.0);
+        d.put("bestRho", 1050.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hydrostaticSweepSegment(1.0, 1000.0, 9810.0)
+                + MathPhysicsEngine.hydrostaticSweepSegment(6.0, 1050.0, 61803.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHydrostaticPressureDepth(1000.0, 20, 61803.0, 6.0, 1050.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_LIQUID", 0));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 0, d)).contains(expected);
+    }
+
+    @Test
+    void archLiquid1_buoyancy_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("V", 1.0).put("rho", 1000.0).put("F", 9810.0);
+        sweep.addObject().put("V", 1.5).put("rho", 1050.0).put("F", 15450.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoLiq", 1000.0);
+        d.put("hypoV", 11.0);
+        d.put("samples", 20);
+        d.put("maxF", 15450.0);
+        d.put("bestV", 1.5);
+        d.put("bestRho", 1050.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.buoyancySweepSegment(1.0, 1000.0, 9810.0)
+                + MathPhysicsEngine.buoyancySweepSegment(1.5, 1050.0, 15450.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeBuoyantLiftCapacity(1000.0, 11.0, 20, 15450.0, 1.5, 1050.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_LIQUID", 1));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 1, d)).contains(expected);
+    }
+
+    @Test
+    void archLiquid2_hullBuckling_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("t", 0.005).put("Pcrit", 8590.0);
+        sweep.addObject().put("t", 0.011).put("Pcrit", 91000.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoLiq", 1000.0);
+        d.put("samples", 18);
+        d.put("minPcrit", 8590.0);
+        d.put("bestT", 0.005);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.hullBucklingSweepSegment(0.005, 8590.0)
+                + MathPhysicsEngine.hullBucklingSweepSegment(0.011, 91000.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHullBucklingPressure(1000.0, 18, 8590.0, 0.005, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_LIQUID", 2));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 2, d)).contains(expected);
+    }
+
+    @Test
+    void archLiquid3_drag_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("v", 0.1).put("Re", 200.0).put("Cd", 0.62).put("F", 6.2);
+        sweep.addObject().put("v", 1.6).put("Re", 3200.0).put("Cd", 0.5).put("F", 1280.0);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("rhoLiq", 1000.0);
+        d.put("muMpas", 1.0);
+        d.put("samples", 20);
+        d.put("maxF", 1280.0);
+        d.put("bestV", 1.6);
+        d.put("bestCd", 0.5);
+        d.put("bestRe", 3200.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.dragSweepSegment(0.1, 200.0, 0.62, 6.2)
+                + MathPhysicsEngine.dragSweepSegment(1.6, 3200.0, 0.5, 1280.0)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeHydrodynamicDrag(1000.0, 1.0, 20, 1280.0, 1.6, 0.5, 3200.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_LIQUID", 3));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 3, d)).contains(expected);
+    }
+
+    @Test
+    void archLiquid4_dissolvedGas_composesByteIdenticalToSharedTemplate() {
+        ArrayNode sweep = MAPPER.createArrayNode();
+        sweep.addObject().put("P", 0.5).put("c", 0.0004);
+        sweep.addObject().put("P", 2.0).put("c", 0.0016);
+        ObjectNode d = MAPPER.createObjectNode();
+        d.put("gamma", 0.072);
+        d.put("rhoLiq", 1000.0);
+        d.put("samples", 18);
+        d.put("maxC", 0.0016);
+        d.put("bestP", 2.0);
+        d.set("sampleSweep", sweep);
+
+        String expectedSweep = (MathPhysicsEngine.dissolvedGasSweepSegment(0.5, 0.0004)
+                + MathPhysicsEngine.dissolvedGasSweepSegment(2.0, 0.0016)).trim();
+        MathPhysicsEngine.ResearchResult expected =
+                MathPhysicsEngine.composeDissolvedGasSolubility(0.072, 1000.0, 18, 0.0016, 2.0, expectedSweep)
+                        .withEquation(MathPhysicsEngine.equationFor("ARCHITECTURE_LIQUID", 4));
+
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 4, d)).contains(expected);
+    }
+
     @Test
     void uncoveredTopic_returnsEmptySoCallerFallsBack() {
         // Topics with no composer branch yet must signal fall-back rather than
-        // throw or return a wrong result. (ARCHITECTURE_LIQUID / _SPACE stay
-        // uncovered through the ARCHITECTURE_TERRESTRIAL port.)
-        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_LIQUID", 0, mathTopic0Detail()))
-                .isEmpty();
+        // throw or return a wrong result. (ARCHITECTURE_SPACE is the last domain
+        // still uncovered.)
         assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 0, mathTopic0Detail()))
+                .isEmpty();
+        assertThat(SidecarResultComposer.composeFromDetail("ARCHITECTURE_SPACE", 2, mathTopic0Detail()))
                 .isEmpty();
     }
 

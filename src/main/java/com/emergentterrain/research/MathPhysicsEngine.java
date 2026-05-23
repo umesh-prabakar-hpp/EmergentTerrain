@@ -3929,8 +3929,21 @@ public class MathPhysicsEngine {
             double P = rho * g * depth;
             samples++;
             if (P > maxP) { maxP = P; bestDepth = depth; bestRho = rho; }
-            if (i < 4) sb.append("z=%.1fm,ρ=%.0fkg/m³→P=%.0fPa ".formatted(depth, rho, P));
+            if (i < 4) sb.append(hydrostaticSweepSegment(depth, rho, P));
         }
+        return composeHydrostaticPressureDepth(rhoLiq, samples, maxP, bestDepth, bestRho,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one hydrostatic-pressure sweep segment (incl. trailing space). */
+    static String hydrostaticSweepSegment(double depth, double rho, double P) {
+        return "z=%.1fm,ρ=%.0fkg/m³→P=%.0fPa ".formatted(depth, rho, P);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_LIQUID:0 (hydrostatic pressure). */
+    static ResearchResult composeHydrostaticPressureDepth(double rhoLiq, int samples,
+            double maxP, double bestDepth, double bestRho, String sweep) {
+        double g = 9.81;
         boolean physical = maxP < 1.0e8;  // 100 MPa bound — deep ocean limit
         ClaimStatus status = !physical ? ClaimStatus.REFUTED
                 : maxP > 1.0e4 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
@@ -3941,7 +3954,7 @@ public class MathPhysicsEngine {
                                         : "shallow-depth regime — low hydrostatic loading");
         return new ResearchResult(
                 "Hydrostatic pressure (%d samples): max P=%.0f Pa at z=%.1f m, ρ_liq=%.0f kg/m³. Sample: %s"
-                        .formatted(samples, maxP, bestDepth, bestRho, sb.toString().trim()),
+                        .formatted(samples, maxP, bestDepth, bestRho, sweep),
                 maxP, bestDepth, bestRho, maxP, status, assessment)
                 .withHypothesis(("For a column of a liquid with density ρ_liq≈%.0f kg/m³ under gravity g≈%.2f m/s², "
                         + "the hydrostatic pressure P(z) = ρ·g·z scales linearly with depth z; the maximum "
@@ -3963,8 +3976,27 @@ public class MathPhysicsEngine {
             double F = rho * g * V;
             samples++;
             if (F > maxF) { maxF = F; bestV = V; bestRho = rho; }
-            if (i < 4) sb.append("V=%.1fm³,ρ=%.0fkg/m³→F_b=%.0fN ".formatted(V, rho, F));
+            if (i < 4) sb.append(buoyancySweepSegment(V, rho, F));
         }
+        return composeBuoyantLiftCapacity(rhoLiq,
+                1.0 + sp.candidateBreadth() * sp.stepSize() * 0.5, samples, maxF, bestV, bestRho,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one buoyant-lift sweep segment (incl. trailing space). */
+    static String buoyancySweepSegment(double V, double rho, double F) {
+        return "V=%.1fm³,ρ=%.0fkg/m³→F_b=%.0fN ".formatted(V, rho, F);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for ARCH_LIQUID:1 (buoyant lift).
+     * {@code hypoV} is the search-derived volume bound the hypothesis prose
+     * formats ({@code 1 + candidateBreadth·stepSize·0.5}); the sidecar computes
+     * and emits it so the composer needs no SearchParams.
+     */
+    static ResearchResult composeBuoyantLiftCapacity(double rhoLiq, double hypoV, int samples,
+            double maxF, double bestV, double bestRho, String sweep) {
+        double g = 9.81;
         ClaimStatus status = maxF > 1.0e3 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
         String assessment = ("Buoyancy: max F_b=%.0f N at V=%.1f m³, ρ_liq=%.0f kg/m³. %s")
                 .formatted(maxF, bestV, bestRho,
@@ -3972,12 +4004,12 @@ public class MathPhysicsEngine {
                                 : "low-displacement regime — small lift");
         return new ResearchResult(
                 "Buoyant lift (%d samples): max F_b=%.0f N at V=%.1f m³, ρ_liq=%.0f kg/m³. Sample: %s"
-                        .formatted(samples, maxF, bestV, bestRho, sb.toString().trim()),
+                        .formatted(samples, maxF, bestV, bestRho, sweep),
                 maxF, bestV, bestRho, maxF, status, assessment)
                 .withHypothesis(("For a structure displacing V≈%.1f m³ of a liquid with density ρ_liq≈%.0f kg/m³ "
                         + "under gravity g≈%.2f m/s², Archimedes-principle buoyant lift F_b = ρ_liq·g·V scales "
                         + "linearly with both the liquid density and the displaced volume.")
-                        .formatted(1.0 + sp.candidateBreadth() * sp.stepSize() * 0.5, rhoLiq, g));
+                        .formatted(hypoV, rhoLiq, g));
     }
 
     /** Thin-walled cylindrical hull buckling: P_crit = 2·E·(t/R)³ / (1 − ν²). */
@@ -3994,8 +4026,26 @@ public class MathPhysicsEngine {
             double Pcrit = 2.0 * E * Math.pow(t / R, 3) / (1.0 - nu * nu);
             samples++;
             if (Pcrit < minPcrit) { minPcrit = Pcrit; bestT = t; }
-            if (i < 4) sb.append("t=%.3fm→P_crit=%.0fPa ".formatted(t, Pcrit));
+            if (i < 4) sb.append(hullBucklingSweepSegment(t, Pcrit));
         }
+        return composeHullBucklingPressure(rhoLiq, samples, minPcrit, bestT,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one hull-buckling sweep segment (incl. trailing space). */
+    static String hullBucklingSweepSegment(double t, double Pcrit) {
+        return "t=%.3fm→P_crit=%.0fPa ".formatted(t, Pcrit);
+    }
+
+    /**
+     * Phase 28 §28.6b — shared prose composer for ARCH_LIQUID:2 (hull buckling).
+     * The R/E/ν constants and the design-hydrostatic safety margin are
+     * recomputed from {@code minPcrit} + {@code rhoLiq}, matching the in-process path.
+     */
+    static ResearchResult composeHullBucklingPressure(double rhoLiq, int samples,
+            double minPcrit, double bestT, String sweep) {
+        double E = 200e9;       // Pa, steel
+        double R = 2.0;         // m, habitat radius
         // Express minPcrit as P_crit ÷ a "design hydrostatic" at depth depth_max for the seed liquid.
         double designDepth = 100.0;
         double designP = rhoLiq * 9.81 * designDepth;
@@ -4009,7 +4059,7 @@ public class MathPhysicsEngine {
                                         : "thinnest wall fails before reaching design depth");
         return new ResearchResult(
                 "Hull buckling (E=%.0e Pa, R=%.1f m, %d t-samples): min P_crit=%.0f Pa at t=%.3f m. Sample: %s"
-                        .formatted(E, R, samples, minPcrit, bestT, sb.toString().trim()),
+                        .formatted(E, R, samples, minPcrit, bestT, sweep),
                 minPcrit, bestT, safetyMargin, minPcrit, status, assessment)
                 .withHypothesis(("For a thin-walled cylindrical hull of radius R=%.1f m submerged in a liquid of "
                         + "density ρ_liq≈%.0f kg/m³, the critical buckling pressure P_crit = 2·E·(t/R)³/(1−ν²) "
@@ -4038,8 +4088,20 @@ public class MathPhysicsEngine {
             double F = 0.5 * rhoLiq * v * v * A * Cd;
             samples++;
             if (F > maxF) { maxF = F; bestV = v; bestCd = Cd; bestRe = Re; }
-            if (i < 4) sb.append("v=%.2fm/s→Re=%.0f,C_d=%.2f,F_d=%.0fN ".formatted(v, Re, Cd, F));
+            if (i < 4) sb.append(dragSweepSegment(v, Re, Cd, F));
         }
+        return composeHydrodynamicDrag(rhoLiq, muMpas, samples, maxF, bestV, bestCd, bestRe,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one hydrodynamic-drag sweep segment (incl. trailing space). */
+    static String dragSweepSegment(double v, double Re, double Cd, double F) {
+        return "v=%.2fm/s→Re=%.0f,C_d=%.2f,F_d=%.0fN ".formatted(v, Re, Cd, F);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_LIQUID:3 (hydrodynamic drag). */
+    static ResearchResult composeHydrodynamicDrag(double rhoLiq, double muMpas, int samples,
+            double maxF, double bestV, double bestCd, double bestRe, String sweep) {
         ClaimStatus status = maxF > 1.0 ? ClaimStatus.SUPPORTED : ClaimStatus.OBSERVATIONAL;
         String assessment = ("Drag: max F_d=%.0f N at v=%.2f m/s (Re=%.0f, C_d=%.2f). %s")
                 .formatted(maxF, bestV, bestRe, bestCd,
@@ -4048,7 +4110,7 @@ public class MathPhysicsEngine {
                                         : "creeping flow — Stokes drag dominates");
         return new ResearchResult(
                 "Hydrodynamic drag (ρ_liq=%.0f kg/m³, μ=%.2f mPa·s, %d v-samples): max F_d=%.0f N at v=%.2f m/s, Re=%.0f. Sample: %s"
-                        .formatted(rhoLiq, muMpas, samples, maxF, bestV, bestRe, sb.toString().trim()),
+                        .formatted(rhoLiq, muMpas, samples, maxF, bestV, bestRe, sweep),
                 maxF, bestV, bestCd, maxF, status, assessment)
                 .withHypothesis(("For a body of characteristic length L≈2 m submerged in a liquid with density "
                         + "ρ_liq≈%.0f kg/m³ and viscosity μ≈%.2f mPa·s, the hydrodynamic drag F_d = ½·ρ·v²·A·C_d "
@@ -4070,8 +4132,21 @@ public class MathPhysicsEngine {
             double c = kH * P;
             samples++;
             if (c > maxC) { maxC = c; bestP = P; }
-            if (i < 4) sb.append("P=%.1fatm→c=%.4fmol/L ".formatted(P, c));
+            if (i < 4) sb.append(dissolvedGasSweepSegment(P, c));
         }
+        return composeDissolvedGasSolubility(gamma, rhoLiq, samples, maxC, bestP,
+                sb.toString().trim());
+    }
+
+    /** Phase 28 §28.6b — one Henry's-law dissolved-gas sweep segment (incl. trailing space). */
+    static String dissolvedGasSweepSegment(double P, double c) {
+        return "P=%.1fatm→c=%.4fmol/L ".formatted(P, c);
+    }
+
+    /** Phase 28 §28.6b — shared prose composer for ARCH_LIQUID:4 (dissolved gas). */
+    static ResearchResult composeDissolvedGasSolubility(double gamma, double rhoLiq, int samples,
+            double maxC, double bestP, String sweep) {
+        double kH = 0.0008 + gamma * 0.05;   // mol/(L·atm) — water ~0.0013 for O₂
         ClaimStatus status = maxC < 1.0 ? ClaimStatus.SUPPORTED : ClaimStatus.PARTIAL;
         String assessment = ("Dissolved gas: max c=%.4f mol/L at P=%.1f atm (k_H≈%.4f mol/L·atm). %s")
                 .formatted(maxC, bestP, kH,
@@ -4079,7 +4154,7 @@ public class MathPhysicsEngine {
                                 : "c approaches saturation — Henry's law breaks down");
         return new ResearchResult(
                 "Henry's-law dissolution (k_H=%.4f mol/L·atm, ρ_liq=%.0f kg/m³, γ=%.3f N/m, %d P-samples): max c=%.4f mol/L. Sample: %s"
-                        .formatted(kH, rhoLiq, gamma, samples, maxC, sb.toString().trim()),
+                        .formatted(kH, rhoLiq, gamma, samples, maxC, sweep),
                 maxC, bestP, kH, maxC, status, assessment)
                 .withHypothesis(("For a liquid with density ρ_liq≈%.0f kg/m³ and surface tension γ≈%.3f N/m "
                         + "(determining the host-specific Henry's coefficient k_H), the dissolved-gas "

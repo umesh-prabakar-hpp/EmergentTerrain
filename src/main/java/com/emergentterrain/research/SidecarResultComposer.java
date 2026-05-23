@@ -495,6 +495,49 @@ final class SidecarResultComposer {
                     d.path("bestSky").asDouble(),
                     sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.daylightFactorSweepSegment(
                             s.path("windowToFloor").asDouble(), s.path("skyVisibility").asDouble(), s.path("DF").asDouble())));
+            case "ARCHITECTURE_LIQUID:0" -> MathPhysicsEngine.composeHydrostaticPressureDepth(
+                    d.path("rhoLiq").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxP").asDouble(),
+                    d.path("bestDepth").asDouble(),
+                    d.path("bestRho").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hydrostaticSweepSegment(
+                            s.path("depth").asDouble(), s.path("rho").asDouble(), s.path("P").asDouble())));
+            case "ARCHITECTURE_LIQUID:1" -> MathPhysicsEngine.composeBuoyantLiftCapacity(
+                    d.path("rhoLiq").asDouble(),
+                    d.path("hypoV").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxF").asDouble(),
+                    d.path("bestV").asDouble(),
+                    d.path("bestRho").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.buoyancySweepSegment(
+                            s.path("V").asDouble(), s.path("rho").asDouble(), s.path("F").asDouble())));
+            case "ARCHITECTURE_LIQUID:2" -> MathPhysicsEngine.composeHullBucklingPressure(
+                    d.path("rhoLiq").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("minPcrit").asDouble(),
+                    d.path("bestT").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.hullBucklingSweepSegment(
+                            s.path("t").asDouble(), s.path("Pcrit").asDouble())));
+            case "ARCHITECTURE_LIQUID:3" -> MathPhysicsEngine.composeHydrodynamicDrag(
+                    d.path("rhoLiq").asDouble(),
+                    d.path("muMpas").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxF").asDouble(),
+                    d.path("bestV").asDouble(),
+                    d.path("bestCd").asDouble(),
+                    d.path("bestRe").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.dragSweepSegment(
+                            s.path("v").asDouble(), s.path("Re").asDouble(),
+                            s.path("Cd").asDouble(), s.path("F").asDouble())));
+            case "ARCHITECTURE_LIQUID:4" -> MathPhysicsEngine.composeDissolvedGasSolubility(
+                    d.path("gamma").asDouble(),
+                    d.path("rhoLiq").asDouble(),
+                    d.path("samples").asInt(),
+                    d.path("maxC").asDouble(),
+                    d.path("bestP").asDouble(),
+                    sweep(d.path("sampleSweep"), s -> MathPhysicsEngine.dissolvedGasSweepSegment(
+                            s.path("P").asDouble(), s.path("c").asDouble())));
             // §28.6b continuations: remaining (domain, topicIdx) composers land
             // here as each topic's detail map is confirmed complete against the
             // in-process prose. Until then the delegate falls back in-process.

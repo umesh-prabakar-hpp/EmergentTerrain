@@ -178,7 +178,8 @@ class MathPhysicsEngineDelegateIntegrationTest {
 
         MathPhysicsEngine.SearchParams sp = MathPhysicsEngine.SearchParams.neutral();
         for (String domain : new String[]{"MATHEMATICS", "PHYSICS", "MATERIALS",
-                "INTERDISCIPLINARY", "BIOLOGY", "CHEMISTRY", "ARCHITECTURE_TERRESTRIAL"}) {
+                "INTERDISCIPLINARY", "BIOLOGY", "CHEMISTRY", "ARCHITECTURE_TERRESTRIAL",
+                "ARCHITECTURE_LIQUID"}) {
             int topicCount = MathPhysicsEngine.topicCount(domain);
             for (int topic = 0; topic < topicCount; topic++) {
                 MathPhysicsEngine.ResearchResult served =
