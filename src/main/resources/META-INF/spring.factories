@@ -1,0 +1,11 @@
+# Registers the external-secrets loader as a Spring Boot EnvironmentPostProcessor.
+#
+# IMPORTANT: EnvironmentPostProcessor implementations are discovered via
+# SpringFactoriesLoader reading THIS file (META-INF/spring.factories) — the same
+# way Spring Boot registers its own (ConfigData…, SystemEnvironmentPropertySource…,
+# RandomValuePropertySource…, etc.). The META-INF/spring/<fqn>.imports convention
+# is ONLY for @AutoConfiguration, NOT for EnvironmentPostProcessor. The loader was
+# previously registered solely in an .imports file, which Spring silently ignored,
+# so it never ran and provider API keys never injected (every LLM call 401'd).
+org.springframework.boot.env.EnvironmentPostProcessor=\
+com.emergentterrain.secrets.ExternalSecretsEnvironmentPostProcessor
