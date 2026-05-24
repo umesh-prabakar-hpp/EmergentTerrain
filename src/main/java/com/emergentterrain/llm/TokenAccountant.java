@@ -138,7 +138,12 @@ public class TokenAccountant {
         for (Entry e : d) {
             if (e.t >= cutoff) sum += e.tokens;
         }
-        return sum;
+        // Clamp at 0: a reservation (+estimate) and its correction (delta,
+        // recorded a moment later) age out of a short window at slightly
+        // different times, so the sum can dip transiently negative near the
+        // window edge. A window's token total is conceptually >= 0; a negative
+        // would make burnRatePerMin negative and slightly skew the gate.
+        return Math.max(0L, sum);
     }
 
     private static final class Entry {
