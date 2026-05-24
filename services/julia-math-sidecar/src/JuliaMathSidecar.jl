@@ -47,8 +47,8 @@ using HTTP
 using JSON3
 using Logging
 
-# Public surface — entry point from the module-loader script.
-export start_server!
+# Public surface — entry points from the module-loader scripts.
+export start_server!, start_py_server!
 
 # Internal submodules. Each owns one slice of the HTTP surface.
 include("safety.jl")       # Safety filter for incoming expressions.
