@@ -519,6 +519,8 @@ public class GenericOpenAICompatPool implements LlmPool {
             budgetGate.tryAcquireOrThrow(cfg.providerKey(), modelId, estimate);
             reserved = true;
         }
+        boolean settled = false;   // reservation reconciled via correct()
+        boolean http200 = false;   // provider returned 200 (tokens likely consumed)
         String outcome = "ok";
         String payload = buildPayload(modelId, prompt, tokenLimit);
         try {
@@ -552,6 +554,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
+            http200 = true;
             JsonNode root = mapper.readTree(resp.body());
             // Phase 20.11 §migration — post-200 backend-blacklist check.
             checkBackendExclusion(modelId, root);
@@ -562,6 +565,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             accountRunBudget(modelId, usage);
             if (reserved) {
                 budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
+                settled = true;
             } else {
                 recordUsage(modelId, usage);
             }
@@ -573,6 +577,13 @@ public class GenericOpenAICompatPool implements LlmPool {
             outcome = "io_error";
             throw new RuntimeException(cfg.providerKey() + " sync call failed", e);
         } finally {
+            // #3 — refund a reservation when the call failed before a 200
+            // (non-200 / network error ⇒ ~0 tokens consumed) so it doesn't
+            // linger debited and amplify throttling. A 200 that then threw is
+            // left debited (tokens were consumed; amount unknown).
+            if (reserved && !settled && !http200 && budgetGate != null) {
+                budgetGate.correct(cfg.providerKey(), modelId, estimate, 0L);
+            }
             if (callMetrics != null) {
                 callMetrics.record(cfg.providerKey(), modelId, "sync", outcome);
             }
@@ -669,6 +680,8 @@ public class GenericOpenAICompatPool implements LlmPool {
         } else {
             reserved = false;
         }
+        final boolean[] settled = {false};   // set in the SSE lambda after correct()
+        boolean http200 = false;             // provider returned 200 (tokens likely consumed)
         String outcome = "ok";
         String payload = buildPayload(modelId, prompt, tokenLimit, true);
         long t0 = System.currentTimeMillis();
@@ -702,6 +715,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 }
                 throw new RuntimeException(cfg.providerKey() + " stream API error " + respStatus + ": " + body);
             }
+            http200 = true;
             sresp.body()
                     .filter(line -> line.startsWith("data: ") && !line.equals("data: [DONE]"))
                     .forEach(line -> {
@@ -714,6 +728,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                                 accountRunBudget(modelId, usage);
                                 if (reserved) {
                                     budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
+                                    settled[0] = true;
                                 } else {
                                     recordUsage(modelId, usage);
                                 }
@@ -739,6 +754,11 @@ public class GenericOpenAICompatPool implements LlmPool {
             outcome = "io_error";
             throw new RuntimeException(cfg.providerKey() + " stream call failed", e);
         } finally {
+            // #3 — refund a reservation that failed before a 200 (~0 tokens).
+            // A 200 stream without a usage chunk is left debited (conservative).
+            if (reserved && !settled[0] && !http200 && budgetGate != null) {
+                budgetGate.correct(cfg.providerKey(), modelId, estimate, 0L);
+            }
             if (callMetrics != null) {
                 callMetrics.record(cfg.providerKey(), modelId, "stream", outcome);
             }
@@ -840,6 +860,9 @@ public class GenericOpenAICompatPool implements LlmPool {
                     }
                 } catch (RuntimeException e) {
                     if ("ok".equals(roundOutcome)) roundOutcome = "io_error";
+                    // #3 — round failed before a 200 (~0 tokens); refund its reservation.
+                    if (reserved && budgetGate != null)
+                        budgetGate.correct(cfg.providerKey(), modelId, estimate, 0L);
                     if (callMetrics != null)
                         callMetrics.record(cfg.providerKey(), modelId, "tools", roundOutcome);
                     if (traceWriter != null) {
@@ -849,6 +872,9 @@ public class GenericOpenAICompatPool implements LlmPool {
                     }
                     throw e;
                 } catch (Exception e) {
+                    // #3 — round failed before a 200 (~0 tokens); refund its reservation.
+                    if (reserved && budgetGate != null)
+                        budgetGate.correct(cfg.providerKey(), modelId, estimate, 0L);
                     if (callMetrics != null)
                         callMetrics.record(cfg.providerKey(), modelId, "tools", "io_error");
                     if (traceWriter != null) {
