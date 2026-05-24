@@ -131,14 +131,15 @@ end
 """
     warmup!(; host, port)
 
-Best-effort startup warmup for the endpoints PrecompileTools can't safely
-bake in: the PyCall paths (SymPy → `/prove_identity`, mpmath →
-`/recognise/constant`) and the outbound-HTTP path (`/recognise/sequence`).
+Best-effort startup warmup for the outbound-HTTP client path
+(`/recognise/sequence`'s OEIS fetch), compiled via a loopback GET to
+`/healthz` so OEIS is never hit at boot.
 
-Each step is isolated in its own try/catch — a failure (Python or PyCall
-not installed, the loopback not yet accepting, etc.) is logged and skipped,
-never fatal. Set `SIDECAR_WARMUP=0` to skip entirely for faster dev
-restarts. Pure-Julia compute paths are intentionally not warmed here.
+PyCall warmup (SymPy/mpmath) was removed: under JULIA_NUM_THREADS>1 it left
+PyObjects that crash in off-thread GC finalizers during /pysr (see note in
+the body). The step is isolated in try/catch — a failure (loopback not yet
+accepting, etc.) is logged and skipped, never fatal. Set `SIDECAR_WARMUP=0`
+to skip. Pure-Julia compute paths are baked in via PrecompileTools instead.
 """
 function warmup!(; host::AbstractString, port::Integer)
     if get(ENV, "SIDECAR_WARMUP", "1") != "1"
@@ -146,21 +147,16 @@ function warmup!(; host::AbstractString, port::Integer)
         return nothing
     end
     t0 = time_ns()
-    @info "warmup starting (PyCall + outbound-HTTP paths)"
+    @info "warmup starting (outbound-HTTP path)"
 
-    # SymPy import — the dominant first-call cost of /prove_identity.
-    try
-        get_sympy()
-    catch e
-        @warn "warmup: SymPy import skipped" error=sprint(showerror, e)
-    end
-
-    # mpmath import — the dominant first-call cost of /recognise/constant.
-    try
-        pyimport("mpmath")
-    catch e
-        @warn "warmup: mpmath import skipped" error=sprint(showerror, e)
-    end
+    # NOTE (2026-05-24): PyCall imports (SymPy/mpmath) were intentionally REMOVED
+    # from warmup. With JULIA_NUM_THREADS>1, eagerly loading PyCall left live
+    # PyObjects that Julia's GC could finalize (pydecref → _Py_Dealloc) on a
+    # non-main worker thread during a later multithreaded /pysr run → SIGSEGV
+    # (observed crash). Keeping the server PyCall-free at startup means a sidecar
+    # doing only /pysr + physics never touches Python. The PyCall endpoints
+    # (/prove_identity, /recognise/constant) lazy-load Python on first use and
+    # carry a documented threads-vs-PyCall hazard until they're isolated.
 
     # Outbound HTTP client — what /recognise/sequence pays on its first OEIS
     # fetch. Compile HTTP.get + response handling via a loopback GET to our
