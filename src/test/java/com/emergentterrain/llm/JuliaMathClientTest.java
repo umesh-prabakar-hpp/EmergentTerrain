@@ -577,6 +577,31 @@ class JuliaMathClientTest {
         assertThat(body.path("targetName").asText()).isEqualTo("f");
         assertThat(body.path("samples").isArray()).isTrue();
         assertThat(body.path("varNames").isArray()).isTrue();
+        // Phase 24 §24.6 Lever 2 is dormant: autoEnsemble defaults OFF on
+        // the wire when neither the client flag nor the request sets it.
+        assertThat(body.path("autoEnsemble").asBoolean(true)).isFalse();
+    }
+
+    @Test
+    void pysr_autoEnsembleOverride_sentOnWire() {
+        nextResponse.set(new CannedResponse(200,
+                "{\"ok\":true,\"pareto\":[],\"evaluated\":0,\"elapsed_ms\":1,"
+                + "\"ensemble\":true,\"variants\":[\"normalized\",\"raw\"]}"));
+        JuliaMathClient client = buildPysrClient();
+        double[][] samples = {{1.0, 2.0, 2.0}, {2.0, 3.0, 6.0}};
+        // Per-request override (Lever 2) flips autoEnsemble on even though
+        // the client default is off. Uses the 12-arg PysrRequest carrying
+        // all three §24.6 toggles.
+        JuliaMathClient.PysrRequest req = new JuliaMathClient.PysrRequest(
+                samples, java.util.List.of("x", "y"), "f",
+                java.util.List.of("+", "-", "*"),
+                0, 0, 0, 0, null,
+                /*autoNormalize*/ null, /*autoRetry*/ null,
+                /*autoEnsemble*/ Boolean.TRUE);
+        client.pysr(req);
+
+        JsonNode body = readBody();
+        assertThat(body.path("autoEnsemble").asBoolean(false)).isTrue();
     }
 
     @Test

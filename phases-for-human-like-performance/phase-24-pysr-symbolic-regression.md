@@ -7,10 +7,15 @@
 = unit/integration passes; pre-existing Mockito/Java-25 friction in
 `MathToolSuiteToolDescriptionTest` unrelated to this work). §24.5's
 offline recovery probe shipped at `scripts/pysr-probe/`. Sidecar-side
-follow-up §24.6 landed three remediation levers:
+follow-up §24.6 landed all three remediation levers:
 - Per-endpoint timeout split (`/pysr` ceiling 120s vs `/eval`-family 30s)
 - **Lever 1** auto-normalize (sidecar `ff4d40e` + hotfix `4574f8e`)
 - **Lever 3** lazy autoRetry on stuck fits (sidecar `4574f8e`)
+- **Lever 2** resource-adaptive ensemble — **landed dormant**
+  (2026-05-23): sidecar fan-out gated by `autoEnsemble` (default off),
+  Java flag `app.julia.pysr.autoEnsemble` (default off). Stays off
+  until a ≥4-core sidecar is in scope; see §24.6 for the as-built
+  notes and why the `PYSR_LOCK` lift wasn't needed.
 - Probe upgrades: `--auto-normalize` / `--auto-retry` flags, NRMSE
   pass criterion, full-pareto scan (probe `64399e9`)
 
@@ -363,7 +368,7 @@ budget; they compose.**
 | Lever | Cost | Fixes which class? | Resource-gated? | Status |
 |---|---|---|---|---|
 | 1 — Auto-normalize inputs/target | Cheap (~3-5 day code) | Algorithmic (scale) | No | Landed (sidecar ff4d40e + 4574f8e) |
-| 2 — Resource-adaptive ensemble | Expensive (cores ×K) | Both, probabilistically | Yes (≥4 cores) | Not landed |
+| 2 — Resource-adaptive ensemble | Expensive (cores ×K) | Both, probabilistically | Yes (≥4 cores) | **Landed dormant** (sidecar; request flag `autoEnsemble` + Java `app.julia.pysr.autoEnsemble`, both default OFF) |
 | 3 — Feedback loop on the fit | Cheap (~1-2 day code) | Both, opportunistically | No | Landed (sidecar 4574f8e) |
 
 **Lever 1 — auto-normalize in `handle_pysr`.** Compute per-variable
@@ -392,6 +397,42 @@ SymbolicRegression.jl mutates per-population state on a shared
 `Options` object. Per-variant timeout becomes `MAX_PYSR_TIMEOUT_MS / K`
 on the same core or the full budget if K cores are dedicated. Only
 worth building once a multi-core cloud sidecar is in scope.
+
+**Lever 2 — as landed (sidecar, dormant).** Implemented in
+`julia-math-sidecar/src/handlers.jl` and gated behind the per-request
+`autoEnsemble` field (default off), with `ensembleCores` to pin the
+fan-out width for tests / fixed deployments. Java side mirrors the
+Lever 1/3 pattern: `app.julia.pysr.autoEnsemble` (`@Value`, default
+false) plus a nullable `PysrRequest.autoEnsemble` per-request override.
+Key decisions that diverged from the sketch above:
+
+- **The `Options`-per-call refactor already existed.** `run_pysr_pass`
+  (shipped with Lever 1) builds a *fresh* `Options` per call, and the
+  "parallel equation_search safety" test proved K disjoint `Options`
+  run concurrently without cross-contamination. So the ensemble fans
+  out under a *single* hold of `PYSR_LOCK` (K islands inside one
+  in-flight request) rather than lifting the lock entirely — the lock
+  still serialises *separate* requests, preserving the busy/queue
+  contract. Fully lifting it for multi-tenant throughput stays a
+  separate later concern.
+- **Variants:** `:normalized` reuses Lever 1's rescale + unscaling
+  round-trip; `:raw` is the data as-is; `:log` log-transforms
+  inputs+target (recovering power/multiplicative laws via the
+  `exp(·)∘log` round-trip, with an all-positive applicability guard
+  that drops the island on sign-spanning sweeps); `:opsubset` searches
+  the arithmetic/power core with transcendental ops dropped.
+- **Tiering** rounds down to the 1/2/4/8/16-core thresholds; the
+  ensemble collapses to the single normalized island below 4 cores, so
+  enabling the flag on small hardware is never worse than Lever 1.
+- **Fan-out** is one `Threads.@spawn` per island, each behind its own
+  `timed_evaluate` budget; a timed-out/errored island contributes
+  nothing and the merge (`merge_pareto_fronts`, generalised to N
+  fronts, dedup by printed-expr) unions whatever finished. Each island
+  gets a seed offset so the GP populations are decorrelated.
+
+Acceptance left as an operator task per the resource gate: turning
+`autoEnsemble` on only pays off on a ≥4-core sidecar, so the in-corpus
+recovery-rate comparison runs when that hardware is in scope.
 
 **Lever 3 — feedback loop on the fit.** After a first search, check
 the best Pareto entry for stuck-search markers: constants pinned at

@@ -111,6 +111,15 @@ public class JuliaMathClient {
     // still work for tests and the probe.
     private final boolean pysrAutoNormalize;
     private final boolean pysrAutoRetry;
+    // ── Phase 24 §24.6 — Lever 2 (resource-adaptive ensemble) default ──
+    // Default OFF. The sidecar fans out K search islands sized to its
+    // own CPU_THREADS only when this is set; on a 1-2 core box the
+    // ensemble collapses to the normalized island, so flipping it on is
+    // never worse than Lever 1 alone. Kept dormant per phase-24 §24.6
+    // ("only worth building once a multi-core cloud sidecar is in
+    // scope") — an operator flips app.julia.pysr.autoEnsemble to true
+    // once that hardware exists, no code change required.
+    private final boolean pysrAutoEnsemble;
 
     // ── Phase 28 §28.1 — conjecture-substrate consolidation flag.
     // Independent of the main `enabled` flag so the operator can keep
@@ -180,6 +189,7 @@ public class JuliaMathClient {
              /*pysrComplexityCeiling*/ 30,
              /*pysrAutoNormalize*/ false,
              /*pysrAutoRetry*/ true,
+             /*pysrAutoEnsemble*/ false,
              /*conjectureEnabled*/ false,
              /*conjectureTimeoutMs*/ 5_000L,
              mapper);
@@ -201,6 +211,7 @@ public class JuliaMathClient {
              pysrComplexityCeiling,
              /*pysrAutoNormalize*/ false,
              /*pysrAutoRetry*/ true,
+             /*pysrAutoEnsemble*/ false,
              /*conjectureEnabled*/ false,
              /*conjectureTimeoutMs*/ 5_000L,
              mapper);
@@ -224,6 +235,7 @@ public class JuliaMathClient {
              pysrComplexityCeiling,
              /*pysrAutoNormalize*/ false,
              /*pysrAutoRetry*/ true,
+             /*pysrAutoEnsemble*/ false,
              conjectureEnabled, conjectureTimeoutMs,
              mapper);
     }
@@ -241,6 +253,7 @@ public class JuliaMathClient {
             @Value("${app.julia.pysr.complexityCeiling:30}") int pysrComplexityCeiling,
             @Value("${app.julia.pysr.autoNormalize:false}") boolean pysrAutoNormalize,
             @Value("${app.julia.pysr.autoRetry:true}") boolean pysrAutoRetry,
+            @Value("${app.julia.pysr.autoEnsemble:false}") boolean pysrAutoEnsemble,
             @Value("${app.julia.conjecture.enabled:false}") boolean conjectureEnabled,
             @Value("${app.julia.conjecture.timeoutMs:5000}") long conjectureTimeoutMs,
             ObjectMapper mapper) {
@@ -258,6 +271,7 @@ public class JuliaMathClient {
         this.pysrComplexityCeiling = pysrComplexityCeiling;
         this.pysrAutoNormalize = pysrAutoNormalize;
         this.pysrAutoRetry = pysrAutoRetry;
+        this.pysrAutoEnsemble = pysrAutoEnsemble;
         this.conjectureEnabled = conjectureEnabled;
         this.conjectureTimeoutMs = conjectureTimeoutMs;
         this.mapper = mapper;
@@ -627,8 +641,13 @@ public class JuliaMathClient {
                 ? request.autoNormalize() : pysrAutoNormalize;
         boolean useAutoRetry = request.autoRetry() != null
                 ? request.autoRetry() : pysrAutoRetry;
+        // Phase 24 §24.6 Lever 2. Same override precedence. Dormant by
+        // default; the sidecar sizes the fan-out to its own cores.
+        boolean useAutoEnsemble = request.autoEnsemble() != null
+                ? request.autoEnsemble() : pysrAutoEnsemble;
         body.put("autoNormalize", useAutoNormalize);
         body.put("autoRetry",     useAutoRetry);
+        body.put("autoEnsemble",  useAutoEnsemble);
 
         long t0 = System.nanoTime();
         JsonNode resp = post("/pysr", body);
@@ -1366,9 +1385,17 @@ public class JuliaMathClient {
              * the client's configured {@code app.julia.pysr.autoRetry}
              * default. Non-null → per-request override.
              */
-            Boolean autoRetry) {
+            Boolean autoRetry,
+            /**
+             * Phase 24 §24.6 Lever 2 toggle (resource-adaptive ensemble).
+             * {@code null} → fall back to the client's configured
+             * {@code app.julia.pysr.autoEnsemble} default (off). Non-null
+             * → per-request override. When on, the sidecar supersedes the
+             * single-pass + autoRetry path with a cores-sized fan-out.
+             */
+            Boolean autoEnsemble) {
         /**
-         * Back-compat constructor pre-dating phase-24 §24.6. Leaves both
+         * Back-compat constructor pre-dating phase-24 §24.6. Leaves all
          * Lever toggles at the client's configured defaults.
          */
         public PysrRequest(double[][] samples,
@@ -1382,7 +1409,29 @@ public class JuliaMathClient {
                            Long seed) {
             this(samples, varNames, targetName, operators, populations,
                  iterations, complexityCeiling, timeoutMs, seed,
-                 /*autoNormalize*/ null, /*autoRetry*/ null);
+                 /*autoNormalize*/ null, /*autoRetry*/ null,
+                 /*autoEnsemble*/ null);
+        }
+
+        /**
+         * Back-compat constructor pre-dating phase-24 §24.6 Lever 2.
+         * Carries the Lever 1 + 3 toggles but leaves autoEnsemble at the
+         * client default.
+         */
+        public PysrRequest(double[][] samples,
+                           java.util.List<String> varNames,
+                           String targetName,
+                           java.util.List<String> operators,
+                           int populations,
+                           int iterations,
+                           int complexityCeiling,
+                           long timeoutMs,
+                           Long seed,
+                           Boolean autoNormalize,
+                           Boolean autoRetry) {
+            this(samples, varNames, targetName, operators, populations,
+                 iterations, complexityCeiling, timeoutMs, seed,
+                 autoNormalize, autoRetry, /*autoEnsemble*/ null);
         }
     }
 
