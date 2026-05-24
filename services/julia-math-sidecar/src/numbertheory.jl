@@ -9,11 +9,11 @@
 #
 # Why a module-level sieve
 # ------------------------
-# The SPF table for n ≤ 1_050_000 is ~4 MB (Int32-sized) / ~8 MB
-# (Int64). It builds in ~50 ms single-threaded. Building it on every
-# /numbertheory/window call would dominate the request latency; caching
-# it process-wide is the right move. Concurrent requests share the
-# read-only table after the one-time build.
+# The SPF table for n ≤ 2_000_000 is ~8 MB (Int32-sized). It builds in
+# ~100 ms single-threaded. Building it on every /numbertheory/window call
+# would dominate the request latency; caching it process-wide is the right
+# move. Concurrent requests share the read-only table after the one-time
+# build.
 #
 # Lazy build
 # ----------
@@ -36,10 +36,12 @@
 using JSON3
 using Base.Threads: ReentrantLock
 
-# Sieve ceiling. Matches `MAX_N` in `ConjectureVerifier.java` (1_050_000).
-# Bump in tandem with the JVM constant if mining ever needs larger
-# windows; see phase-28 §"Open architecture questions" item 2.
-const NT_MAX_N = 1_050_000
+# Sieve ceiling. Covers `ConjectureVerifier.MAX_N` (2_000_000) in full —
+# raised from 1_050_000 in phase-28 §28.6 (conjecture legacy removal) so the
+# sidecar is the SOLE number-theory-window compute path: the JVM's in-process
+# MathConjectureSubstrate (which previously covered the 1.05M–2M range via
+# fallback) was deleted, so the sidecar must serve the verifier's whole range.
+const NT_MAX_N = 2_000_000
 
 # Module-state holders. `Ref` so we can lazily set them under a lock
 # without making the sieve a `const` (which would force build-at-load).

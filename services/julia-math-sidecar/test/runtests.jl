@@ -811,7 +811,7 @@ end
     @test !JuliaMathSidecar.isprime(1)
     @test !JuliaMathSidecar.isprime(100)
     @test !JuliaMathSidecar.isprime(1_000_002)
-    # Above NT_MAX_N (1_050_000) — exercises the trial-division branch.
+    # Above NT_MAX_N (2_000_000) — exercises the trial-division branch.
     @test JuliaMathSidecar.isprime(2_000_003)            # large prime
     @test !JuliaMathSidecar.isprime(2_000_004)           # large composite
 end
