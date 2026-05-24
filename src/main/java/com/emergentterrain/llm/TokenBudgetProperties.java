@@ -79,6 +79,16 @@ public class TokenBudgetProperties {
     }
 
     public static class Provider {
+        /**
+         * Token ceilings, enforced over ROLLING windows by {@link TokenAccountant}
+         * (max tokens in any trailing 24h / 60s), NOT calendar-day / clock-minute
+         * buckets. Deliberate: a rolling cap is the stricter, safer self-protection
+         * — it can't be defeated by a burst straddling a reset. It can therefore
+         * diverge from a provider whose quota resets at a fixed clock time, erring
+         * conservative (it may still count spend the provider has already forgiven).
+         * Switch to a provider-aligned calendar reset only if you need to reclaim
+         * headroom immediately after the provider's reset. 0 = unmetered.
+         */
         private long dailyLimit = 0;
         private long minuteLimit = 0;
         /** Optional per-provider override. -1 = inherit the global default. */
