@@ -50,7 +50,16 @@ fi
 # fine, but Maven needs JAVA_HOME exported (env-only `java -version`
 # works because /usr/bin/java symlinks to JDK 25, but Maven reads
 # JAVA_HOME directly).
-export JAVA_HOME="${JAVA_HOME:-/usr/lib/jvm/java-25-openjdk}"
+# Trust a pre-set JAVA_HOME only if it actually contains a runnable java.
+# A stale ~/.bashrc here exports java-21-openjdk, which Fedora 44 reduced to
+# an empty husk (no bin/java), and Maven rejects it with "JAVA_HOME is not
+# defined correctly" — the plain ${JAVA_HOME:-default} can't catch that
+# because the var IS set, just broken. Fall back to JDK 25 (the only
+# dnf-installable JDK on this shell) when JAVA_HOME is unset or invalid.
+if [ -z "${JAVA_HOME:-}" ] || [ ! -x "${JAVA_HOME}/bin/java" ]; then
+    JAVA_HOME=/usr/lib/jvm/java-25-openjdk
+fi
+export JAVA_HOME
 
 mkdir -p "$REPO_ROOT/logs"
 STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
