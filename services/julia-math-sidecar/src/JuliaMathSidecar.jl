@@ -75,4 +75,61 @@ include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 
 include("handlers.jl")     # Endpoint implementations.
 include("server.jl")       # HTTP route table + server loop.
 
+# ---------------------------------------------------------------------
+# Precompile workload (Lever B). Bakes the pure-Julia /physics/topic
+# compute paths into the package precompile cache so the FIRST call per
+# topic shape is already JIT-warm — removing the cold-start cliff where
+# an unwarmed topic exceeds the JVM's app.julia.timeoutMs (5s), flips
+# JuliaMathClient to "unreachable", and cascades a few fail-fast ticks
+# until it warms. Runs during package precompilation (i.e. on the next
+# start after any source change — the recompile already happens, this
+# just lengthens it once), then every subsequent boot loads warm.
+#
+# PyCall (/prove_identity, /recognise/constant) and network
+# (/recognise/sequence) paths are deliberately NOT here — they can't run
+# safely at build time; they stay on the runtime `warmup!` (Lever A).
+# ---------------------------------------------------------------------
+using PrecompileTools: @setup_workload, @compile_workload
+
+@setup_workload begin
+    # Cheap, valid representative inputs. Only argument TYPES and the
+    # executed topic branches drive what gets cached — iteration count is
+    # irrelevant to what's compiled, so keep every knob TINY. This matters:
+    # the workload calls physics_compute directly (no server-side timeout),
+    # and some topics (e.g. MATHEMATICS 0/5) run an unbounded search whose
+    # cost scales with param1/candidateBreadth — a large value hangs the
+    # precompile. searchParams carries only the two keys every impl reads.
+    param1 = 4
+    param2 = 1.0
+    sp = Dict{String,Any}("candidateBreadth" => 2, "stepSize" => 1.0)
+    # (domain, topic-range): ranges run one past the last explicit topic so
+    # the documented `default`/N+ fall-through branch compiles too.
+    workload = [
+        ("MATHEMATICS", 0:10), ("PHYSICS", 0:10), ("MATERIALS", 0:10),
+        ("INTERDISCIPLINARY", 0:8),
+        ("BIOLOGY", 0:5), ("CHEMISTRY", 0:5),
+        ("ARCHITECTURE_TERRESTRIAL", 0:5), ("ARCHITECTURE_LIQUID", 0:5),
+        ("ARCHITECTURE_SPACE", 0:5),
+    ]
+
+    @compile_workload begin
+        for (domain, topics) in workload, t in topics
+            try
+                physics_compute(domain, t, param1, param2, sp)
+            catch
+                # A topic needing inputs we didn't supply still compiles the
+                # path it ran before throwing; never fail precompile over it.
+            end
+        end
+        # Also warm the JVM's real entry shape: JSON body → handler → dispatch.
+        try
+            req = HTTP.Request("POST", "/physics/topic", [],
+                JSON3.write((domain="MATHEMATICS", topicIdx=0,
+                             param1=param1, param2=param2, searchParams=sp)))
+            handle_physics_topic(req)
+        catch
+        end
+    end
+end
+
 end  # module

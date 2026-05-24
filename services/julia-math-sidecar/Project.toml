@@ -7,6 +7,7 @@ version = "0.1.0"
 # sysimage support is stable. Bump when 1.12 LTS lands.
 [compat]
 julia = "1.10"
+PrecompileTools = "1"
 
 # Runtime dependencies. Kept minimal for 22.1 bootstrap — SymPy.jl is
 # deliberately deferred per phase-22 §22.1 "ship without SymPy.jl initially;
@@ -23,6 +24,7 @@ SymbolicRegression = "8254be44-1295-4e6a-a16d-46603ac705cb"  # PySR backend (pha
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"  # stdlib
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"  # stdlib — median for Lever 1 auto-normalize
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"  # Python bridge for SymPy (phase-25)
+PrecompileTools = "aea7be01-6a6a-4083-8856-8a6e6704d82a"  # Lever B — bake physics-topic compiles into the package image (already a transitive dep)
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
