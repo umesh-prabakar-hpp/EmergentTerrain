@@ -784,6 +784,112 @@ end
 end
 
 # ---------------------------------------------------------------------
+# Lever 2 — resource-adaptive ensemble (phase-24 §24.6)
+# ---------------------------------------------------------------------
+
+@testset "select_ensemble_variants tiering (Lever 2, phase-24 §24.6)" begin
+    ops = String["+","-","*","/","^","exp","log"]
+    vnames(c) = [v.name for v in JuliaMathSidecar.select_ensemble_variants(c, ops)]
+    # §24.6 tier table — tiers round DOWN to 1/2/4/8/16-core thresholds.
+    @test vnames(1)  == ["normalized"]
+    @test vnames(2)  == ["normalized"]
+    @test vnames(3)  == ["normalized"]                          # below 4 → 1-2 tier
+    @test vnames(4)  == ["normalized","raw"]
+    @test vnames(7)  == ["normalized","raw"]
+    @test vnames(8)  == ["normalized","raw","log"]
+    @test vnames(15) == ["normalized","raw","log"]
+    @test vnames(16) == ["normalized","raw","log","opsubset"]
+    @test vnames(64) == ["normalized","raw","log","opsubset"]
+    # The opsubset island drops transcendental ops, keeps the arithmetic core.
+    v16 = JuliaMathSidecar.select_ensemble_variants(16, ops)
+    opsub = v16[findfirst(v -> v.kind == :opsubset, v16)]
+    @test "exp" ∉ opsub.operators && "log" ∉ opsub.operators
+    @test "*" in opsub.operators && "^" in opsub.operators
+end
+
+@testset "ensemble_operator_subset (Lever 2, phase-24 §24.6)" begin
+    @test JuliaMathSidecar.ensemble_operator_subset(
+        String["+","*","^","exp","log","sqrt","sin"]) == ["+","*","^"]
+    # No arithmetic core → fall back to the full set so the island still runs.
+    @test JuliaMathSidecar.ensemble_operator_subset(String["exp","log"]) == ["exp","log"]
+end
+
+@testset "run_pysr_log_pass recovers a power law (Lever 2, phase-24 §24.6)" begin
+    # y = 3·x²  log-linearises to  log y = log 3 + 2·log x — a relation
+    # the GP can find with +/* alone. Proves the exp(·)∘log round-trip
+    # produces an expression whose mse on the ORIGINAL (unlogged) data is
+    # small, not just in log-space.
+    n = 16
+    x = collect(range(1.2, 6.0; length=n))
+    y = 3.0 .* x .^ 2
+    X = reshape(x, 1, n)
+    front, evaluated = JuliaMathSidecar.run_pysr_log_pass(X, y;
+        ops_strs=String["+","-","*"], binary_ops=Function[(+),(-),(*)],
+        unary_ops=Function[], var_names_str=String["x"],
+        populations=8, iterations=30, max_complexity=12, seed=11)
+    @test evaluated > 0
+    @test !isempty(front)
+    @test !JuliaMathSidecar.fit_looks_stuck(front, y)  # genuine recovery, not noise
+end
+
+@testset "run_pysr_log_pass skips non-positive data (Lever 2, phase-24 §24.6)" begin
+    # log needs strictly positive X and y; a sign-spanning sweep makes the
+    # island inapplicable — it returns an empty front rather than erroring,
+    # and the ensemble merge just drops it.
+    n = 8
+    x = collect(range(-2.0, 5.0; length=n))
+    y = x .^ 2 .+ 1.0
+    X = reshape(x, 1, n)
+    front, evaluated = JuliaMathSidecar.run_pysr_log_pass(X, y;
+        ops_strs=String["+","-","*"], binary_ops=Function[(+),(-),(*)],
+        unary_ops=Function[], var_names_str=String["x"],
+        populations=4, iterations=8, max_complexity=10, seed=3)
+    @test isempty(front)
+    @test evaluated == 0
+end
+
+@testset "run_pysr_ensemble unions islands (Lever 2, phase-24 §24.6)" begin
+    n = 14
+    x = collect(range(1.0, 5.0; length=n))
+    y = 2.0 .* x                       # all islands (incl. log) can fit this
+    X = reshape(x, 1, n)
+    variants = JuliaMathSidecar.select_ensemble_variants(8, String["+","-","*"])
+    @test length(variants) == 3
+    merged, total_eval, ran = JuliaMathSidecar.run_pysr_ensemble(X, y;
+        variants=variants, var_names_str=String["x"],
+        populations=4, iterations=12, max_complexity=10, seed=5,
+        per_variant_timeout_ms=60_000)
+    @test total_eval > 0
+    @test !isempty(merged)
+    @test !isempty(ran)                              # at least one island returned
+    @test !JuliaMathSidecar.fit_looks_stuck(merged, y)
+    # merged front is deduped by expr and sorted by complexity ascending.
+    comps = [Int(e["complexity"]) for e in merged]
+    @test issorted(comps)
+    exprs = [String(e["expr"]) for e in merged]
+    @test length(exprs) == length(unique(exprs))     # union deduped
+end
+
+@testset "handle_pysr autoEnsemble path (Lever 2, phase-24 §24.6)" begin
+    n = 12
+    rows = [[x, 2.0 * x] for x in range(1.0, 5.0; length=n)]
+    body = Dict("samples"=>rows, "varNames"=>["x"], "targetName"=>"y",
+                "operators"=>["+","-","*"], "autoEnsemble"=>true,
+                "ensembleCores"=>8, "populations"=>4, "iterations"=>12,
+                "complexityCeiling"=>10, "seed"=>5)
+    req = HTTP.Request("POST", "/pysr",
+        ["Content-Type"=>"application/json"], Vector{UInt8}(JSON3.write(body)))
+    resp = JuliaMathSidecar.handle_pysr(req)
+    @test resp.status == 200
+    payload = JSON3.read(String(copy(resp.body)))
+    @test payload["ok"] == true
+    @test payload["ensemble"] == true
+    @test payload["retried"] == false                # ensemble supersedes autoRetry
+    @test !isempty(payload["pareto"])
+    @test !isempty(payload["variants"])
+end
+
+# ---------------------------------------------------------------------
 # Integration — HTTP surface
 # ---------------------------------------------------------------------
 # Number-theory primitives — unit tests (phase-28 §28.1)

@@ -1028,26 +1028,24 @@ function fit_looks_stuck(front::Vector{Dict{String,Any}}, y::AbstractVector{Floa
 end
 
 """
-    merge_pareto_fronts(front_a, front_b) -> merged
+    merge_pareto_fronts(fronts::Vector{Vector{Dict}}) -> merged
 
-Concatenate two fronts and dedup by the printed `expr` string,
-keeping the entry with the smallest `mse` within each duplicate
-group. Result is sorted by complexity ascending. Used to combine
-the first pass and the autoRetry pass without returning two
-parallel fronts to the caller.
+Concatenate any number of Pareto fronts and dedup by the printed
+`expr` string (a cheap proxy for structural equivalence — two trees
+that print identically are the same law), keeping the entry with the
+smallest `mse` within each duplicate group. Result is sorted by
+complexity ascending. Used by both the Lever 3 autoRetry path (two
+fronts) and the Lever 2 ensemble path (K fronts).
 """
-function merge_pareto_fronts(front_a::Vector{Dict{String,Any}},
-                              front_b::Vector{Dict{String,Any}})::Vector{Dict{String,Any}}
+function merge_pareto_fronts(fronts::Vector{Vector{Dict{String,Any}}})::Vector{Dict{String,Any}}
     by_expr = Dict{String, Dict{String,Any}}()
-    for entry in Iterators.flatten((front_a, front_b))
+    for front in fronts, entry in front
         key = String(get(entry, "expr", ""))
         existing = get(by_expr, key, nothing)
         if existing === nothing
             by_expr[key] = entry
         else
-            mse_existing = Float64(get(existing, "mse", Inf))
-            mse_new      = Float64(get(entry,    "mse", Inf))
-            if mse_new < mse_existing
+            if Float64(get(entry, "mse", Inf)) < Float64(get(existing, "mse", Inf))
                 by_expr[key] = entry
             end
         end
@@ -1055,6 +1053,320 @@ function merge_pareto_fronts(front_a::Vector{Dict{String,Any}},
     merged = collect(values(by_expr))
     sort!(merged, by = e -> Int(get(e, "complexity", 0)))
     return merged
+end
+
+"""
+    merge_pareto_fronts(front_a, front_b) -> merged
+
+Two-front convenience for the Lever 3 autoRetry path; delegates to
+the N-front merge above.
+"""
+merge_pareto_fronts(front_a::Vector{Dict{String,Any}},
+                    front_b::Vector{Dict{String,Any}})::Vector{Dict{String,Any}} =
+    merge_pareto_fronts(Vector{Dict{String,Any}}[front_a, front_b])
+
+# ─────────────────────────────────────────────────────────────────────
+# Lever 2 (phase-24 §24.6): resource-adaptive PySR ensemble
+# ─────────────────────────────────────────────────────────────────────
+#
+# Levers 1 and 3 attack the *algorithmic* failure class (BFGS precision
+# floor) by rescaling. Lever 2 attacks both classes *probabilistically*
+# by running several independent search strategies in parallel and
+# unioning their Pareto fronts. The intuition from §24.6: GP escape from
+# a local optimum is cheaper with K decorrelated islands than with one
+# island run K× longer, and different *representations* (raw vs
+# normalized vs log-space) reshape the fitness landscape so a basin that
+# traps one variant isn't a basin for another.
+#
+# Resource gating
+# ---------------
+# The fan-out width K is sized to available cores, read once at module
+# load (`SIDECAR_CPU_THREADS`). The §24.6 tier table:
+#   1–2 cores → normalized only          (K=1)
+#   4         → + raw                     (K=2)
+#   8         → + log-input/log-target    (K=3)
+#   16+       → + operator-subset island  (K=4)
+# On a 1–2 core box the ensemble collapses to a single normalized pass,
+# i.e. Lever 1 behaviour — so turning the flag on is never *worse* than
+# Lever 1 alone, it just can't do more without cores to spend.
+#
+# Concurrency / the PYSR_LOCK question
+# ------------------------------------
+# §24.6 framed Lever 2 as requiring "lifting PYSR_LOCK to permit K
+# independent Options instances per request". The refactor that made
+# this safe already landed: `run_pysr_pass` builds a *fresh* `Options`
+# per call and the "parallel equation_search safety" test proves K
+# disjoint Options can run concurrently without cross-contamination. So
+# the ensemble fans out under a *single* hold of PYSR_LOCK (one request
+# in flight at a time, K islands inside it) rather than lifting the lock
+# entirely — the lock still serialises *separate* requests, which is the
+# property the busy/queue path depends on. Lifting it for multi-tenant
+# throughput is a separate, later concern (§24.6 "PYSR_LOCK becomes the
+# throughput bottleneck").
+#
+# Flag-gated dormant
+# ------------------
+# Activated per-request by `autoEnsemble: true` (default off, like
+# autoNormalize/autoRetry). The capability ships ready; flipping it on
+# is an operator decision once a multi-core sidecar is in scope. Tests
+# and callers may pin the core count via `ensembleCores` so behaviour is
+# deterministic regardless of the host.
+
+# Logical-core count, read once at load. `Sys.CPU_THREADS` counts
+# hyperthreads; we size the fan-out off it. A request's `ensembleCores`
+# overrides this for deterministic tests / pinned deployments.
+const SIDECAR_CPU_THREADS = Sys.CPU_THREADS
+
+# One ensemble member: a named search strategy over the same (X, y).
+#   :normalized — Lever 1 robust-median rescale + unscaling round-trip
+#   :raw        — search on the data exactly as supplied
+#   :log        — log-transform inputs+target, round-trip via exp(·)∘log
+#   :opsubset   — raw search restricted to the multiplicative/power core
+struct PysrVariant
+    name::String
+    kind::Symbol
+    operators::Vector{String}
+end
+
+"""
+    ensemble_operator_subset(base_ops) -> ops
+
+The operator subset for the `:opsubset` island: the arithmetic /
+power core (`+ - * / ^`) with transcendental unary ops (exp, log,
+sqrt, sin, cos) dropped, biasing this island toward polynomial /
+rational laws over a smaller search space. Falls back to the full set
+if the intersection would be empty (so the island always has
+something to search).
+"""
+function ensemble_operator_subset(base_ops::Vector{String})::Vector{String}
+    core = String[op for op in base_ops if op in ("+", "-", "*", "/", "^")]
+    return isempty(core) ? copy(base_ops) : core
+end
+
+"""
+    select_ensemble_variants(cores, base_ops_strs) -> Vector{PysrVariant}
+
+Build the ensemble plan for a given core budget per the §24.6 tier
+table. Always includes the `:normalized` island; wider core budgets
+append `:raw`, `:log`, then `:opsubset`. Tiers round down — a 6-core
+box gets the 4-core plan, a 12-core box the 8-core plan.
+"""
+function select_ensemble_variants(cores::Integer, base_ops_strs)::Vector{PysrVariant}
+    base = String[String(o) for o in base_ops_strs]
+    variants = PysrVariant[PysrVariant("normalized", :normalized, base)]
+    cores >= 4  && push!(variants, PysrVariant("raw",      :raw, base))
+    cores >= 8  && push!(variants, PysrVariant("log",      :log, base))
+    cores >= 16 && push!(variants, PysrVariant("opsubset", :opsubset,
+                                               ensemble_operator_subset(base)))
+    return variants
+end
+
+"""
+    _find_or_append_unary!(unary_ops, fn) -> Int
+
+Locate `fn` in `unary_ops`, appending it if absent. Returns its
+index. The log-space round-trip needs `log` and `exp` available as
+unary callables to construct the substitution / wrap nodes even when
+the caller's operator set omitted them.
+"""
+function _find_or_append_unary!(unary_ops::Vector{Function}, fn::Function)::Int
+    for (i, op) in enumerate(unary_ops)
+        op === fn && return i
+    end
+    push!(unary_ops, fn)
+    return length(unary_ops)
+end
+
+"""
+    substitute_variables_with_log(tree, log_op_idx) -> new tree
+
+Non-mutating rebuild: each variable leaf `x_j` becomes `log(x_j)`.
+Constants and operator nodes pass through. Translates an expression
+learned on log-transformed inputs back to one that consumes the
+original (unlogged) inputs.
+"""
+function substitute_variables_with_log(tree::Node{T}, log_op_idx::Int)::Node{T} where T
+    if tree.degree == 0
+        if tree.constant
+            return Node{T}(; val=tree.val)
+        else
+            return Node{T}(log_op_idx, Node{T}(; feature=tree.feature))
+        end
+    elseif tree.degree == 1
+        return Node{T}(tree.op, substitute_variables_with_log(tree.l, log_op_idx))
+    else
+        return Node{T}(tree.op,
+                       substitute_variables_with_log(tree.l, log_op_idx),
+                       substitute_variables_with_log(tree.r, log_op_idx))
+    end
+end
+
+"""
+    wrap_root_with_exp(tree, exp_op_idx) -> Node
+
+Wrap the root in `exp(·)` so a model fit to `log(y)` predicts `y`
+after the round-trip. The two halves compose to
+`y ≈ exp( f( log(x_1), …, log(x_n) ) )`.
+"""
+function wrap_root_with_exp(tree::Node{T}, exp_op_idx::Int)::Node{T} where T
+    return Node{T}(exp_op_idx, tree)
+end
+
+"""
+    run_pysr_log_pass(X, y; …) -> (front, evaluated)
+
+The `:log` ensemble island. Log-linearises multiplicative / power
+laws (`y = a·x^b` ⇒ `log y = log a + b·log x`) so the GP can find them
+with `+`/`*` alone. Searches on `(log X, log y)`, then rewrites each
+Pareto tree back to original space via `exp(·)∘log` and re-evaluates
+`mse` on the unlogged data so returned numbers are caller-meaningful.
+
+Applicability: log needs strictly positive inputs *and* target. If any
+entry is ≤ 0 the island is inapplicable and returns an empty front —
+the ensemble merge just drops it, so a mixed-sign sweep degrades to the
+other islands rather than erroring.
+"""
+function run_pysr_log_pass(X::AbstractMatrix{Float64}, y::AbstractVector{Float64};
+                           ops_strs::AbstractVector,
+                           binary_ops::Vector{Function},
+                           unary_ops::Vector{Function},
+                           var_names_str::Vector{String},
+                           populations::Integer,
+                           iterations::Integer,
+                           max_complexity::Integer,
+                           seed::Integer)::Tuple{Vector{Dict{String,Any}}, Int}
+    if any(<=(0.0), X) || any(<=(0.0), y)
+        return Vector{Dict{String,Any}}(), 0
+    end
+
+    X_search = log.(X)
+    y_search = log.(y)
+
+    search_options = SymbolicRegression.Options(;
+        binary_operators = binary_ops,
+        unary_operators  = unary_ops,
+        populations      = populations,
+        maxsize          = max_complexity,
+        seed             = seed,
+        verbosity        = 0,
+    )
+    hof = SymbolicRegression.equation_search(
+        X_search, y_search;
+        niterations = iterations,
+        options     = search_options,
+        variable_names = var_names_str,
+        parallelism = :serial,
+    )
+    members = SymbolicRegression.calculate_pareto_frontier(hof)
+
+    # Rewrite/eval options: same binary ops in the same order (so search
+    # trees' op indices stay valid) plus log + exp appended as unary ops
+    # so the round-trip nodes are constructible even if the search set
+    # omitted them.
+    rw_unary = copy(unary_ops)
+    log_idx = _find_or_append_unary!(rw_unary, log)
+    exp_idx = _find_or_append_unary!(rw_unary, exp)
+    rewrite_options = SymbolicRegression.Options(;
+        binary_operators = binary_ops,
+        unary_operators  = rw_unary,
+        populations      = populations,
+        maxsize          = max_complexity,
+        seed             = seed,
+        verbosity        = 0,
+    )
+
+    front = Vector{Dict{String,Any}}()
+    for m in members
+        raw_node = SymbolicRegression.get_tree(m.tree)
+        subbed = substitute_variables_with_log(raw_node, log_idx)
+        wrapped = wrap_root_with_exp(subbed, exp_idx)
+        folded = fold_constants(wrapped, binary_ops, rw_unary)
+        mse = eval_mse_on(folded, X, y, rewrite_options)
+        expr_str = SymbolicRegression.string_tree(
+            folded, rewrite_options; variable_names=var_names_str)
+        push!(front, Dict(
+            "expr"       => expr_str,
+            "mse"        => mse,
+            "complexity" => Int(SymbolicRegression.compute_complexity(folded, rewrite_options)),
+        ))
+    end
+    sort!(front, by = e -> e["complexity"])
+    return front, length(members)
+end
+
+"""
+    run_one_variant(v, X, y; …) -> (front, evaluated)
+
+Dispatch a single ensemble member to the right pass. `:normalized`,
+`:raw`, `:opsubset` route through `run_pysr_pass` (auto_normalize
+on only for `:normalized`); `:log` routes through `run_pysr_log_pass`.
+Each variant gets its own freshly-split operator vectors so nothing
+is shared across the parallel islands.
+"""
+function run_one_variant(v::PysrVariant, X::AbstractMatrix{Float64},
+                          y::AbstractVector{Float64};
+                          var_names_str::Vector{String},
+                          populations::Integer, iterations::Integer,
+                          max_complexity::Integer,
+                          seed::Integer)::Tuple{Vector{Dict{String,Any}}, Int}
+    bin, un = split_pysr_operators(v.operators)
+    if v.kind === :log
+        return run_pysr_log_pass(X, y;
+            ops_strs=v.operators, binary_ops=bin, unary_ops=un,
+            var_names_str=var_names_str, populations=populations,
+            iterations=iterations, max_complexity=max_complexity, seed=seed)
+    else
+        return run_pysr_pass(X, y;
+            auto_normalize = (v.kind === :normalized),
+            ops_strs=v.operators, binary_ops=bin, unary_ops=un,
+            var_names_str=var_names_str, populations=populations,
+            iterations=iterations, max_complexity=max_complexity, seed=seed)
+    end
+end
+
+"""
+    run_pysr_ensemble(X, y; variants, …) -> (merged_front, total_evaluated, variants_run)
+
+Fan out the variants concurrently (one `Threads.@spawn` per island,
+each behind its own `per_variant_timeout_ms` budget via
+`timed_evaluate`), then union their Pareto fronts. A variant that
+times out or errors contributes nothing — the ensemble degrades
+gracefully to whatever islands finished. Each island gets a
+seed offset so the GP populations are decorrelated rather than K
+identical searches. `variants_run` names the islands that returned a
+non-empty front, for the response's diagnostics.
+"""
+function run_pysr_ensemble(X::AbstractMatrix{Float64}, y::AbstractVector{Float64};
+                           variants::Vector{PysrVariant},
+                           var_names_str::Vector{String},
+                           populations::Integer, iterations::Integer,
+                           max_complexity::Integer, seed::Integer,
+                           per_variant_timeout_ms::Int)
+    tasks = Vector{Task}(undef, length(variants))
+    for (i, v) in enumerate(variants)
+        variant_seed = Int(seed) + i   # decorrelate islands
+        tasks[i] = Threads.@spawn timed_evaluate(per_variant_timeout_ms) do
+            run_one_variant(v, X, y;
+                var_names_str=var_names_str, populations=populations,
+                iterations=iterations, max_complexity=max_complexity,
+                seed=variant_seed)
+        end
+    end
+
+    all_fronts = Vector{Vector{Dict{String,Any}}}()
+    total_eval = 0
+    variants_run = String[]
+    for (i, t) in enumerate(tasks)
+        outcome, value = fetch(t)
+        if outcome === :ok
+            front, ev = value
+            push!(all_fronts, front)
+            total_eval += ev
+            isempty(front) || push!(variants_run, variants[i].name)
+        end
+    end
+    merged = merge_pareto_fronts(all_fronts)
+    return merged, total_eval, variants_run
 end
 
 function handle_pysr(req::HTTP.Request)
@@ -1162,6 +1474,16 @@ function handle_pysr(req::HTTP.Request)
     auto_normalize = get(body, :autoNormalize, false) === true
     auto_retry     = get(body, :autoRetry,     false) === true
 
+    # Lever 2 (phase-24 §24.6): resource-adaptive ensemble. Default off.
+    # When on, supersedes the single-pass + autoRetry logic — the
+    # ensemble already runs a normalized island, which is what the
+    # autoRetry path falls back to. `ensembleCores` pins the fan-out
+    # width for tests / fixed deployments; absent, we read the box.
+    auto_ensemble = get(body, :autoEnsemble, false) === true
+    ensemble_cores_raw = get(body, :ensembleCores, nothing)
+    ensemble_cores = ensemble_cores_raw isa Integer && ensemble_cores_raw > 0 ?
+        Int(ensemble_cores_raw) : SIDECAR_CPU_THREADS
+
     # --- 4. Search parameters ---------------------------------------
     populations = get(body, :populations,       DEFAULT_PYSR_POPULATIONS)
     iterations  = get(body, :iterations,        DEFAULT_PYSR_ITERATIONS)
@@ -1209,6 +1531,22 @@ function handle_pysr(req::HTTP.Request)
     value = "uninitialised"
     try
         outcome, value = timed_evaluate(timeout_ms) do
+            if auto_ensemble
+                # Lever 2: fan out K islands sized to cores, union fronts.
+                variants = select_ensemble_variants(ensemble_cores, ops_strs)
+                merged, evaluated_total, variants_run = run_pysr_ensemble(X, y;
+                    variants       = variants,
+                    var_names_str  = var_names_str,
+                    populations    = populations,
+                    iterations     = iterations,
+                    max_complexity = max_complexity,
+                    seed           = seed,
+                    per_variant_timeout_ms = timeout_ms,
+                )
+                return (pareto = merged, evaluated = evaluated_total,
+                        retried = false, ensemble = true, variants = variants_run)
+            end
+
             front_1, eval_1 = run_pysr_pass(X, y;
                 auto_normalize = auto_normalize,
                 ops_strs       = ops_strs,
@@ -1239,7 +1577,8 @@ function handle_pysr(req::HTTP.Request)
                 evaluated_total = eval_1 + eval_2
                 retried = true
             end
-            (pareto = merged, evaluated = evaluated_total, retried = retried)
+            (pareto = merged, evaluated = evaluated_total, retried = retried,
+             ensemble = false, variants = String[])
         end
     finally
         unlock(PYSR_LOCK)
@@ -1259,6 +1598,8 @@ function handle_pysr(req::HTTP.Request)
             "pareto"    => value.pareto,
             "evaluated" => value.evaluated,
             "retried"   => value.retried,
+            "ensemble"  => value.ensemble,
+            "variants"  => value.variants,
         ))
     end
 end

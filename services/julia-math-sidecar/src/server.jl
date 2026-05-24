@@ -98,7 +98,7 @@ real traffic hits.
 function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     init_metrics!()
     router = build_router()
-    @info "julia-math-sidecar starting" host port julia_version=string(VERSION)
+    @info "julia-math-sidecar starting" host port julia_version=string(VERSION) cpu_threads=SIDECAR_CPU_THREADS julia_threads=Threads.nthreads()
     # `server=` is the listener — assigning to a local lets us close
     # cleanly on signal. `HTTP.serve!` (note the bang) is the
     # non-blocking form that returns the server immediately; we then
