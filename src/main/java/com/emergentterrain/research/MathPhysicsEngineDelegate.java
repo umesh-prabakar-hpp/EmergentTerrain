@@ -75,9 +75,12 @@ public class MathPhysicsEngineDelegate {
                             + "): " + e.getMessage(), e);
         }
         if (wire.isEmpty()) {
+            // physicsTopic returns empty ONLY for a not_ported (domain, topic);
+            // real failures (transport / sidecar-side eval_error) are rethrown
+            // and surface above via the catch block with the actual reason.
             throw new IllegalStateException(
-                    "sidecar returned no result for (domain=" + domain + ", topic=" + topicIndex
-                            + ") — not-ported or transport error; no in-process fallback.");
+                    "(domain=" + domain + ", topic=" + topicIndex + ") is not ported by the Julia "
+                            + "sidecar; no in-process fallback (removed in phase-28 §28.6).");
         }
         Optional<MathPhysicsEngine.ResearchResult> composed =
                 SidecarResultComposer.composeFromDetail(domain, topicIndex, wire.get().detail());

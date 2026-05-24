@@ -1006,15 +1006,14 @@ public class JuliaMathClient {
     /**
      * Phase 28 §28.5b — POST /physics/topic. Vertical-slice port of
      * {@link com.emergentterrain.research.MathPhysicsEngine#compute}.
-     * Returns {@link Optional#empty()} on two signals:
-     * <ul>
-     *   <li>The sidecar reports {@code error: "not_ported"} (HTTP 404)
-     *       — the (domain, topicIdx) pair isn't yet in the sidecar's
-     *       {@code physics_compute} dispatch. JVM caller falls back to
-     *       in-process MathPhysicsEngine.compute transparently.</li>
-     *   <li>Any sidecar reachability / parse failure. Verification /
-     *       computation never blocks on a sidecar outage.</li>
-     * </ul>
+     * Returns {@link Optional#empty()} ONLY when the sidecar reports
+     * {@code error: "not_ported"} (HTTP 404) — the (domain, topicIdx) pair
+     * isn't in the sidecar's {@code physics_compute} dispatch. Any other
+     * failure (transport, or a sidecar-side {@code eval_error} /
+     * {@code parse_error} / {@code timeout}) is RETHROWN as a
+     * {@link JuliaMathException} carrying the sidecar's reason: there is no
+     * in-process fallback after the §28.6 cutover, so the caller must surface
+     * the real cause rather than mistake it for "not ported".
      *
      * <p>Same wire contract as §28.5a /predicate/scan: numeric scalars
      * + ClaimStatus name only. The JVM caller layers on the findings /
@@ -1047,20 +1046,21 @@ public class JuliaMathClient {
         try {
             resp = post("/physics/topic", body);
         } catch (JuliaMathException e) {
-            // not_ported comes back as a JuliaMathException with the
-            // error code in the message. Surface as Optional.empty()
-            // so callers fall back; any other failure (transport,
-            // eval_error) also falls back rather than propagating.
+            // not_ported (HTTP 404) means the (domain, topicIdx) pair isn't in
+            // the sidecar's physics_compute dispatch — a defined "no result"
+            // signal, returned as Optional.empty(). Any OTHER failure (transport,
+            // or a sidecar-side eval_error / parse_error / timeout) is a real
+            // error: log it and RETHROW so the caller surfaces the actual reason.
+            // There is no in-process fallback after the §28.6 cutover.
             if (e.getMessage() != null && e.getMessage().contains("not_ported")) {
                 org.slf4j.LoggerFactory.getLogger(JuliaMathClient.class)
-                        .debug("/physics/topic not ported for domain={} topicIdx={}; " +
-                               "falling back to legacy", domain, topicIdx);
-            } else {
-                org.slf4j.LoggerFactory.getLogger(JuliaMathClient.class)
-                        .warn("/physics/topic failed (domain={} topicIdx={}): {} — " +
-                              "falling back to legacy", domain, topicIdx, e.getMessage());
+                        .debug("/physics/topic not ported (domain={} topicIdx={})", domain, topicIdx);
+                return java.util.Optional.empty();
             }
-            return java.util.Optional.empty();
+            org.slf4j.LoggerFactory.getLogger(JuliaMathClient.class)
+                    .warn("/physics/topic failed (domain={} topicIdx={}): {}",
+                          domain, topicIdx, e.getMessage());
+            throw e;
         }
 
         return java.util.Optional.of(new PhysicsTopicResultWire(
