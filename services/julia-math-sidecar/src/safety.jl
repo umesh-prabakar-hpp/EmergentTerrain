@@ -105,22 +105,50 @@ end
 
 const SAFETY_OK = SafetyOk()
 
+# An identifier char (Julia identifiers: letters incl. unicode like π, digits,
+# underscore).
+_ident_char(c::Char) = isletter(c) || isdigit(c) || c == '_'
+
+# True if `pattern` occurs in `expr` at a LEFT identifier boundary. Patterns
+# that begin with an identifier char (e.g. "rm(", "read(", "Pkg.add") must not
+# be the tail of a longer identifier — so "norm(" doesn't trip "rm(" and
+# "spread(" doesn't trip "read(". Patterns starting with a non-identifier char
+# (backtick, "@ccall", …) are matched plainly: they can't be embedded in an
+# identifier. Still pure string scanning — no regex, no AST walk.
+function _forbidden_match(expr::AbstractString, pattern::AbstractString)
+    isempty(pattern) && return false
+    needs_boundary = _ident_char(first(pattern))
+    pos = firstindex(expr)
+    while true
+        r = findnext(pattern, expr, pos)
+        r === nothing && return false
+        needs_boundary || return true
+        s = first(r)
+        if s == firstindex(expr) || !_ident_char(expr[prevind(expr, s)])
+            return true   # token starts at a left boundary → a real match
+        end
+        pos = nextind(expr, s)   # false hit inside a longer identifier; keep scanning
+    end
+end
+
 """
     safety_check(expr::AbstractString) -> SafetyOk | SafetyReject
 
 Scan `expr` for any forbidden pattern. Returns `SAFETY_OK` if none
 matches; otherwise a `SafetyReject` naming the offending pattern.
 
-The check is plain substring matching (no regex compilation, no AST
-walk). This is deliberately the cheapest possible defense — the
-authoritative defense is OS-level confinement of the running process.
+The check is identifier-boundary-aware string scanning (no regex, no AST
+walk): a forbidden call-token like `rm(` matches only at the start of an
+identifier, so legitimate math such as `norm(` / `spread(` is NOT rejected
+while a standalone `rm(` / `read(` still is. This is deliberately a cheap
+first layer — the authoritative defense is OS-level confinement.
 
 Order of patterns is "obvious first" so the most common forbidden
 patterns (package management, shell exec) fail fast.
 """
 function safety_check(expr::AbstractString)
     for pattern in FORBIDDEN_PATTERNS
-        if occursin(pattern, expr)
+        if _forbidden_match(expr, pattern)
             return SafetyReject(
                 pattern,
                 "Expression contains forbidden token '$pattern'. " *
