@@ -14,10 +14,10 @@ import java.util.concurrent.atomic.AtomicReference;
  * region, evaluates one or more disjoint windows, reports per-window
  * margins, and returns held/refuted overall.
  *
- * <p>Reuses {@link MathConjectureSubstrate} from 23.1J — verification is
- * cheaper than mining (a single window per call, no engine state), and
- * the SPF sieve is lazy-built on first use so deployments without the
- * conjecture miner enabled don't pay the startup cost.
+ * <p>Phase 28 §28.6 — window scalars come from the sidecar via
+ * {@link MathConjectureSubstrateDelegate} (the in-process
+ * {@code MathConjectureSubstrate} was removed). The sidecar's sieve covers
+ * the full {@link #MAX_N} range; there is no in-process fallback.
  *
  * <p>"Held out" is an LLM-prompt-level discipline (it should pick a
  * starting window the miner didn't see, e.g. an offset outside
@@ -29,7 +29,7 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class ConjectureVerifier {
 
-    /** Maximum integer the lazy-built sieve covers. Held-out windows further out are rejected. */
+    /** Maximum integer the sidecar's sieve covers (NT_MAX_N). Held-out windows further out are rejected. */
     public static final int MAX_N = 2_000_000;
     /** Default number of disjoint windows evaluated per call. */
     public static final int DEFAULT_NUM_WINDOWS = 5;
@@ -37,11 +37,10 @@ public class ConjectureVerifier {
     public static final int MAX_WORK = 100_000;
 
     /**
-     * Phase 28 §28.2 — substrate calls go through the delegate so the
-     * sidecar's {@code /numbertheory/window} path serves them when
-     * the conjecture-sidecar flag is on. Lazy-fetched via the
-     * Spring application context to keep this class's existing
-     * @Component construction zero-arg (legacy verifier wiring).
+     * Phase 28 §28.6 — the sidecar-only delegate is the sole source of window
+     * scalars and the wrapped JuliaMathClient for the batched verify path.
+     * Autowired (kept field-injected to preserve this class's zero-arg
+     * @Component construction); tests wire one via {@link #setSubstrateDelegate}.
      */
     @org.springframework.beans.factory.annotation.Autowired
     private MathConjectureSubstrateDelegate substrateDelegate;
@@ -111,9 +110,10 @@ public class ConjectureVerifier {
         // Phase 28 §28.4 — try the sidecar batched verify path first.
         // One round trip instead of `numWindows` calls to
         // /numbertheory/window. Any failure (transport, bad_request,
-        // eval_error) falls back to the legacy per-window path below,
-        // logged at WARN. Recognition / verification never blocks on
-        // a sidecar outage.
+        // eval_error) falls back to the per-window path below (also
+        // sidecar-backed via the delegate after the §28.6 legacy removal),
+        // logged at WARN. There is no in-process fallback: if the sidecar is
+        // unavailable the per-window path throws and verify aborts.
         com.emergentterrain.llm.JuliaMathClient sidecarClient = juliaMathClientOrNull();
         if (sidecarClient != null && sidecarClient.isConjectureAvailable()) {
             try {
@@ -127,9 +127,9 @@ public class ConjectureVerifier {
                 org.slf4j.LoggerFactory.getLogger(ConjectureVerifier.class).warn(
                         "ConjectureVerifier: sidecar /conjecture/verify failed " +
                         "(lhs={} rhs={} numWindows={}): {} — falling back to " +
-                        "per-window legacy path",
+                        "per-window /numbertheory/window path",
                         lhs, rhs, numWindows, e.getMessage());
-                // Fall through to the legacy path below.
+                // Fall through to the per-window path below.
             }
         }
 
@@ -162,11 +162,10 @@ public class ConjectureVerifier {
     }
 
     /**
-     * Returns the optional sidecar client used by the §28.4 dispatch.
-     * Resolved through the delegate so a single Spring-wired bean
-     * powers both 28.2 (substrate) and 28.4 (verify). Returns null
-     * when no sidecar client is configured — production keeps the
-     * legacy path live until the conjecture flag flips.
+     * Returns the sidecar client used by the §28.4 batched-verify dispatch.
+     * Resolved through the delegate so a single Spring-wired bean powers both
+     * the per-window scalars (§28.2) and the batched verify (§28.4). Returns
+     * null only when no delegate/client is wired (test slices).
      */
     private com.emergentterrain.llm.JuliaMathClient juliaMathClientOrNull() {
         if (substrateDelegate == null) return null;
@@ -174,9 +173,7 @@ public class ConjectureVerifier {
     }
 
     /**
-     * Phase 28 §28.2: returns the delegate. Used to be a lazy
-     * {@code MathConjectureSubstrate} factory; the delegate now
-     * owns the legacy substrate eagerly + the sidecar dispatch.
+     * Returns the sidecar-only delegate that serves per-window scalars.
      *
      * <p>Package-private + non-final so tests that don't wire the
      * Spring context can inject a delegate directly:

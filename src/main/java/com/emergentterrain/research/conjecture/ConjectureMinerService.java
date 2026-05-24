@@ -58,7 +58,6 @@ public class ConjectureMinerService implements ConjectureQueue {
             new Run("W50k_high",  50_000, new int[]{50_000, 500_000, 1_000_000})
     );
 
-    private static final int MAX_N = 1_050_000;
     private static final double KNOB_FILTER_THRESHOLD = 0.95;
     private static final int KNOB_FILTER_MIN_CONFIGS = 3;
 
@@ -66,11 +65,11 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final ConjectureMapper mapper;
     private final OeisAnnotator oeisAnnotator;
     /**
-     * Phase 28 §28.2 — substrate calls go through the delegate so the
-     * sidecar's {@code /numbertheory/window} path can serve them when
-     * {@code app.julia.conjecture.enabled=true}. Legacy in-process
-     * substrate stays the default; sidecar failures fall back
-     * transparently.
+     * Phase 28 §28.6 — number-theory-window calls go through the sidecar-only
+     * delegate (the in-process MathConjectureSubstrate was removed). The miner
+     * therefore requires {@code app.julia.conjecture.enabled=true} and a
+     * reachable sidecar; {@code evaluateWindow} throws otherwise and the mining
+     * pass aborts as a recoverable per-cycle error.
      */
     private final MathConjectureSubstrateDelegate substrate;
 
@@ -83,25 +82,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
-        log.info("conjecture miner ready — substrate via delegate ({} OEIS catalog entries)",
+        log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries)",
                 OeisCatalog.size());
-    }
-
-    /**
-     * Back-compat constructor pre-dating phase 28 §28.2's substrate
-     * delegate. Builds a delegate that wraps an in-process legacy
-     * substrate sized for the miner's MAX_N — no sidecar dispatch.
-     * Used by pre-§28.2 test code that constructs the miner without
-     * the Spring application context.
-     */
-    public ConjectureMinerService(
-            ConjectureRepository repo,
-            ConjectureMapper mapper,
-            OeisAnnotator oeisAnnotator) {
-        this(repo, mapper, oeisAnnotator,
-                new MathConjectureSubstrateDelegate(
-                        new MathConjectureSubstrate(MAX_N),
-                        /*juliaMathClient*/ null));
     }
 
     /**

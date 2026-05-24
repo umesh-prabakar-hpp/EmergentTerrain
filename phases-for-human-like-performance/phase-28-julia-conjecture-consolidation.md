@@ -1,22 +1,33 @@
 # Phase 28 — Julia Sidecar Consolidation of Conjecture + Math Compute
 
-**Status (2026-05-23):** §28.1 → §28.5 SHIPPED, §28.6 physics-topic
-SHIPPED — **legacy removal DONE (hard-cut, 2026-05-23): the in-process
-`MathPhysicsEngine.compute` numeric body (84 methods, ~1.9k lines) is
-DELETED and the Julia sidecar is now the SOLE physics-topic compute path**.
-The delegate fires `/physics/topic` and composes the `ResearchResult` JVM-side
-from the sidecar's numeric `detail` (`SidecarResultComposer`), with no flag and
-no in-process fallback — if the sidecar is unreachable, compute throws and the
-research loop treats it as a recoverable per-cycle error. Validated by 67
-composer byte-identity cases + a rewritten live-sidecar integration test that
-serves a well-formed composed result for all 63 topics (3/3 green, 2026-05-23),
-plus the rewired delegate/replication/classification unit suites (99 tests
-green). The §28.5 shadow/primary flags, parity counters, and the three legacy
-numeric-engine test suites (`MathPhysicsEngineTest`,
-`MathPhysicsEngineRegressionTest`, `PhysicsTopicParityTest`) were removed with
-the engine. **Remaining §28.6 work:** the conjecture-stack legacy-removal mirror
-(deprecate + delete the in-process `MathConjectureSubstrate` path) — a separate
-follow-up, not yet started. Promoted from `reference-conjecture-engines.md` §
+**Status (2026-05-23):** §28.1 → §28.6 SHIPPED — **phase complete. Both
+legacy-removal hard-cuts are done; the Julia sidecar is the SOLE compute path
+for physics-topic research AND conjecture number-theory windows, with no flag
+and no in-process fallback.**
+
+- **Physics-topic legacy removal (§28.6c, 2026-05-23):** the in-process
+  `MathPhysicsEngine.compute` numeric body (84 methods, ~1.9k lines) is DELETED.
+  The delegate fires `/physics/topic` and composes the `ResearchResult` JVM-side
+  from the sidecar's numeric `detail` (`SidecarResultComposer`). Validated by 67
+  composer byte-identity cases + a rewritten live-sidecar integration test across
+  all 63 topics (3/3 green), plus rewired delegate/replication/classification
+  unit suites (99 tests green). The §28.5 shadow/primary flags, parity counters,
+  and three numeric-engine test suites (`MathPhysicsEngineTest`,
+  `MathPhysicsEngineRegressionTest`, `PhysicsTopicParityTest`) were removed.
+- **Conjecture-stack legacy removal (§28.6d, 2026-05-23):** the in-process
+  `MathConjectureSubstrate` (SPF sieve + per-integer predicates) is DELETED.
+  `MathConjectureSubstrateDelegate` is now sidecar-only; the sidecar's `NT_MAX_N`
+  sieve ceiling was raised 1.05M → 2M (separate sidecar commit) so it covers
+  `ConjectureVerifier.MAX_N` in full — no range gap, no fallback. The miner,
+  verifier, and `MathInvariants` rewired through the sidecar-only delegate;
+  `MathConjectureSubstrateParityTest` + `ConjectureVerifierParityTest` +
+  `MathMiningParityTest` removed (compared against the deleted in-process path);
+  the miner/verifier tests that need real window data were converted to
+  sidecar-backed integration tests. 37 conjecture tests green against a live 2M
+  sidecar. (Also fixed `ConjectureVerifierTest`, which had been silently NPE-ing
+  on `main` since the §28.2 delegate refactor — it never wired a delegate.)
+
+Promoted from `reference-conjecture-engines.md` §
 "Decisions — Julia consolidation (2026-05-22)" Slice 1.
 
 **§28.6 prose decision (2026-05-23): approach B — JVM composes from
@@ -47,8 +58,9 @@ Sub-phase status:
   `ResearchNarrationService`, `MathToolSuite`) wired through the seam.
   Live integration test (`MathPhysicsEngineDelegateIntegrationTest`,
   rewritten in §28.6c) now validates the sidecar-only composed path.
-- ◐ §28.6 — physics-topic SHIPPED incl. legacy removal (§28.6c hard-cut,
-  2026-05-23); conjecture-stack legacy mirror still pending. `app.julia.conjecture.enabled`
+- ✅ §28.6 — SHIPPED. Physics-topic legacy removal (§28.6c) + conjecture-stack
+  legacy removal (§28.6d) both hard-cut 2026-05-23; sidecar is the sole compute
+  path for both. `app.julia.conjecture.enabled`
   flipped `false → true` ahead of the full N-day burn-in due to
   runtime-availability constraints. Justification: 19/19 parity tests
   green on the live sidecar (`numbertheory_window`,
@@ -63,8 +75,10 @@ Sub-phase status:
   domains / 63 topics — are cut-over-capable; the §28.6b composer work is
   code-complete (see §28.6a/b below). **Physics-topic legacy removal is now
   DONE (hard-cut, 2026-05-23, §28.6c): the in-process `MathPhysicsEngine.compute`
-  numeric body is deleted and the delegate is sidecar-only.** The conjecture-stack
-  legacy removal (`MathConjectureSubstrate`) remains a separate follow-up.
+  numeric body is deleted and the delegate is sidecar-only. The conjecture-stack
+  legacy removal (§28.6d) is also DONE — `MathConjectureSubstrate` deleted, its
+  delegate sidecar-only, the sidecar's sieve raised to 2M to cover the verifier's
+  full range.**
 
 **§28.6 physics-topic — wire-contract finding (2026-05-22).** An
 attempt to implement primary-read cutover for `/physics/topic`
@@ -144,9 +158,22 @@ sidecar response doesn't carry the findings prose the JVM
   unit tests were rewritten Mockito-free (the delegate unit test now runs on the
   JDK-25 dev shell, where Mockito couldn't mock `JuliaMathClient`). **No rollback
   path: the sidecar is a hard runtime dependency for physics-topic research.**
+- **§28.6d — conjecture-stack legacy removal — DONE (hard-cut, 2026-05-23).**
+  The in-process `MathConjectureSubstrate` is deleted and
+  `MathConjectureSubstrateDelegate` is sidecar-only (throws if the conjecture
+  sidecar is unavailable — no in-process fallback). The blocker was a range gap:
+  the legacy sieve covered `maxN=2M` while the sidecar capped at `NT_MAX_N=1.05M`
+  and the delegate fell back to legacy for windows in (1.05M, 2M]. Closed by
+  raising the sidecar's `NT_MAX_N` to 2M (separate sidecar commit, ~8MB sieve) so
+  it covers `ConjectureVerifier.MAX_N` in full. The miner dropped its in-process
+  back-compat constructor; the verifier + `MathInvariants` rewired through the
+  delegate. Tests: the two legacy-vs-sidecar parity suites + the substrate-vs-Python
+  mining-parity suite deleted; the miner/verifier tests that need real window data
+  converted to sidecar-backed integration (37 conjecture tests green on a live 2M
+  sidecar). **No rollback path: the sidecar is a hard runtime dependency for
+  conjecture mining + verification.**
 
-The only remaining §28.6 work is the conjecture-stack legacy-removal mirror
-(`MathConjectureSubstrate` in-process path) — a separate follow-up.
+Phase 28 is complete — both legacy-removal hard-cuts shipped.
 
 **Tests (2026-05-23).** `SidecarResultComposerTest` (67 cases, pure
 JVM — one byte-identity case per topic across all 9 domains (63 topics),
@@ -443,31 +470,28 @@ stay JVM-side; per-call HTTP would be prohibitive given the inner
 loops over millions of integers (architecture question #1 in this
 doc).
 
-### 28.6 — Flag flip + legacy removal (operational)
+### 28.6 — Flag flip + legacy removal (operational) — COMPLETE
 
-**Physics-topic: DONE (hard-cut, 2026-05-23, §28.6c).** The originally-planned
-one-release `@Deprecated` grace window was skipped by explicit decision once
-prose parity was proven: the in-process `MathPhysicsEngine.compute` body was
-deleted outright and the delegate made sidecar-only (no flag, no fallback). See
-the §28.6c entry above. The conjecture-stack legacy removal still follows the
-deprecate-then-remove plan below.
-
-Originally planned (still applies to the conjecture stack): after burn-in passes
-(N papers green on the Julia path, parity tests stable for one release), the
-operator flips the per-feature flags to true by default and the legacy JVM
-implementations move to `@Deprecated`, with class removal one further release
-later so the rollback path stays open.
+**Both hard-cuts done (2026-05-23).** The originally-planned one-release
+`@Deprecated` grace window was skipped by explicit decision once parity was
+proven, for both stacks:
+- **Physics-topic (§28.6c):** in-process `MathPhysicsEngine.compute` deleted, the
+  delegate made sidecar-only (no flag, no fallback). See the §28.6c entry above.
+- **Conjecture-stack (§28.6d):** in-process `MathConjectureSubstrate` deleted, its
+  delegate made sidecar-only; the sidecar's `NT_MAX_N` sieve ceiling raised
+  1.05M → 2M to cover `ConjectureVerifier.MAX_N` so there is no range gap and no
+  fallback. See the §28.6d entry above.
 
 Feature flags (status as of 2026-05-23):
-- `app.julia.conjecture.enabled` — substrate + verify + seed/update — **ON** (2026-05-22)
+- `app.julia.conjecture.enabled` — gates the sidecar conjecture surface (window +
+  verify + seed/update) — **ON** (2026-05-22). After §28.6d this is no longer a
+  sidecar-vs-legacy toggle: there is no legacy path, so turning it off disables
+  conjecture compute (the delegate throws) rather than degrading gracefully.
 - `app.julia.physics.topic.{enabled,primary}` — **REMOVED in §28.6c**
   (2026-05-23). Physics-topic compute is unconditionally sidecar-only now;
   there is no flag to gate it and no in-process path to fall back to.
 
-Physics-topic cutover is complete (§28.6c). The remaining conjecture-stack
-work mirrors the original sequence:
-- Deprecate + then remove the in-process `MathConjectureSubstrate` path
-  once its sidecar parity has burned in for a release
+Both cutovers are complete; no further legacy-removal work remains in phase 28.
 
 
 ---

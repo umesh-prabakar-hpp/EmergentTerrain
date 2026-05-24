@@ -127,7 +127,11 @@ class ConjectureQueueTest {
 
     private static ConjectureMinerService buildService(ConjectureRepository repo) {
         ObjectMapper om = new ObjectMapper();
-        return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om));
+        // §28.6: the miner takes a sidecar-only substrate delegate. These tests
+        // exercise only the queue (next/nextN), never mine(), so the delegate's
+        // evaluateWindow is never called — a null-client delegate is inert here.
+        return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null));
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,

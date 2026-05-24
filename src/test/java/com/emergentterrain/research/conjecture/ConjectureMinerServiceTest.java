@@ -1,10 +1,18 @@
 package com.emergentterrain.research.conjecture;
 
+import com.emergentterrain.llm.JuliaMathClient;
 import com.emergentterrain.repo.ConjectureRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -15,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.mock;
@@ -23,19 +32,60 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link ConjectureMinerService} that exercise the full
- * mine() pass against an in-memory mock repository. No Spring context,
- * no real DB — the service is instantiated directly.
+ * Tests for {@link ConjectureMinerService}'s full mine() pass against an
+ * in-memory mock repository (no Spring, no real DB).
  *
- * <p>Together with {@link MathMiningParityTest} (which validates the
- * engine + substrate against the Python prototype) and
- * {@link ConjectureMapperTest} (which validates the entity round-trip),
- * these three tests cover the full Phase 23.1J slice.
+ * <p>Phase 28 §28.6 — the in-process {@code MathConjectureSubstrate} was
+ * removed, so the per-window scalars now come from the sidecar via
+ * {@link MathConjectureSubstrateDelegate}. The three mine() tests are therefore
+ * {@code @Tag("integration")} and {@code assumeTrue} the sidecar is up. The
+ * pinned survivor counts + c-values still hold: §28.2 proved the sidecar's
+ * {@code /numbertheory/window} scalars are byte-identical to the former
+ * in-process substrate, so {@link ConjectureEngine} mines the same conjectures.
+ *
+ * <p>Engine seed/update parity is separately pinned by
+ * {@link ConjectureEngineParityTest}; entity round-trip by
+ * {@link ConjectureMapperTest}.
  */
 class ConjectureMinerServiceTest {
 
+    private static final String SIDECAR_URL =
+            System.getenv().getOrDefault("JULIA_SIDECAR_URL", "http://localhost:8088");
+
+    private static boolean sidecarUp;
+
+    @BeforeAll
+    static void probeSidecar() {
+        try {
+            HttpClient http = HttpClient.newBuilder()
+                    .connectTimeout(Duration.ofSeconds(2))
+                    .build();
+            HttpResponse<String> resp = http.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(SIDECAR_URL + "/healthz"))
+                            .timeout(Duration.ofSeconds(3))
+                            .GET().build(),
+                    HttpResponse.BodyHandlers.ofString());
+            sidecarUp = resp.statusCode() == 200;
+        } catch (Exception e) {
+            sidecarUp = false;
+        }
+    }
+
+    private static MathConjectureSubstrateDelegate sidecarDelegate() {
+        JuliaMathClient client = new JuliaMathClient(
+                /*enabled*/ true, SIDECAR_URL, 10_000, 3_000,
+                /*pysrEnabled*/ false, 20_000, 8, 40, 30,
+                /*conjectureEnabled*/ true, 10_000,
+                new ObjectMapper());
+        client.probeHealth();
+        return new MathConjectureSubstrateDelegate(client);
+    }
+
     @Test
+    @Tag("integration")
     void firstMinePassSeedsAndPersistsKnownBounds() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         ConjectureRepository repo = mock(ConjectureRepository.class);
         when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
         // save() echoes its argument back (real JPA assigns an ID; we don't need one for assertions)
@@ -43,7 +93,8 @@ class ConjectureMinerServiceTest {
 
         ObjectMapper om = new ObjectMapper();
         ConjectureMapper mapper = new ConjectureMapper(om);
-        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper, new OeisAnnotator(om));
+        ConjectureMinerService svc = new ConjectureMinerService(
+                repo, mapper, new OeisAnnotator(om), sidecarDelegate());
 
         svc.mine();
 
@@ -83,7 +134,9 @@ class ConjectureMinerServiceTest {
     }
 
     @Test
+    @Tag("integration")
     void survivorAcceptanceThreshold() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         // Acceptance for phase 23.1J: with the flag on, a fresh app produces
         // >= 50 surviving conjectures after one mine pass.
         ConjectureRepository repo = mock(ConjectureRepository.class);
@@ -92,7 +145,7 @@ class ConjectureMinerServiceTest {
 
         ObjectMapper om = new ObjectMapper();
         ConjectureMinerService svc = new ConjectureMinerService(
-                repo, new ConjectureMapper(om), new OeisAnnotator(om));
+                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate());
         svc.mine();
 
         ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
@@ -105,18 +158,22 @@ class ConjectureMinerServiceTest {
     }
 
     @Test
+    @Tag("integration")
     void secondPassDoesNotDuplicateExistingConjectures() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         // Simulate the state after a first pass: repo returns the conjectures
         // that the first mine() saved. The second call should update those
         // in place (not insert duplicates).
         ConjectureRepository repo = mock(ConjectureRepository.class);
         ObjectMapper om = new ObjectMapper();
         ConjectureMapper mapper = new ConjectureMapper(om);
+        MathConjectureSubstrateDelegate delegate = sidecarDelegate();
 
         // First pass — capture what got saved
         when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
         when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
-        ConjectureMinerService svc = new ConjectureMinerService(repo, mapper, new OeisAnnotator(om));
+        ConjectureMinerService svc = new ConjectureMinerService(
+                repo, mapper, new OeisAnnotator(om), delegate);
         svc.mine();
         ArgumentCaptor<Conjecture> firstPassSaves = ArgumentCaptor.forClass(Conjecture.class);
         verify(repo, atLeast(50)).save(firstPassSaves.capture());
@@ -155,7 +212,7 @@ class ConjectureMinerServiceTest {
         // disabled (by directly constructing — Spring's bean lookup would
         // return null, not call this constructor). Verifies the contract
         // through code path: with a disabled config, the service is never
-        // constructed by Spring, so the SPF table is never built.
+        // constructed by Spring, so no mining happens.
         //
         // (Direct construction is a developer error; we don't try to defend
         // against it at runtime. This test exists to document the design.)

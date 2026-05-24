@@ -11,7 +11,8 @@ import java.util.function.Function;
  * {@code scripts/conjecture-miner/math/invariants.py}.
  *
  * <p>{@link #BASE} = scalars produced directly by
- * {@link MathConjectureSubstrate#evaluateWindow}. {@link #DERIVED} =
+ * {@link MathConjectureSubstrateDelegate#evaluateWindow} (the sidecar's
+ * {@code /numbertheory/window} response). {@link #DERIVED} =
  * compositions that read both BASE values and window metadata
  * ({@code _window_start}, {@code _window_size}).
  *

@@ -3,8 +3,8 @@ package com.emergentterrain.service;
 import com.emergentterrain.research.PaperDraft;
 import com.emergentterrain.research.PreRegistration;
 import com.emergentterrain.research.ResultClassification;
+import com.emergentterrain.llm.JuliaMathClient;
 import com.emergentterrain.research.conjecture.ConjectureVerifier;
-import com.emergentterrain.research.conjecture.MathConjectureSubstrate;
 import com.emergentterrain.research.conjecture.MathConjectureSubstrateDelegate;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -136,22 +136,36 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     /**
-     * Build a ConjectureVerifier with a delegate wired through the
-     * test-only seam. The §28.2 refactor moved substrate ownership to
-     * MathConjectureSubstrateDelegate (Spring-autowired in production);
-     * tests that construct ConjectureVerifier directly must inject the
-     * delegate or {@code substrate.evaluateWindow} NPEs at line 145.
+     * Build a ConjectureVerifier with a stub delegate wired through the
+     * test-only seam. §28.6 made the delegate sidecar-only (the in-process
+     * MathConjectureSubstrate was deleted), so this stub returns a fixed,
+     * realistic per-window scalar map instead — no sidecar needed. With a
+     * null sidecar client the verifier skips the batched /conjecture/verify
+     * path and runs the per-window path against this stub.
      *
-     * <p>SPF sieve sized to cover the test's window range
-     * (windowStart=200_000, numWindows × windowSize ≤ 1_500) with
-     * headroom — keeps the per-test cost under 50 ms.
+     * <p>{@code abundant_density=0.247} is the key value the two dispatcher
+     * tests pivot on: it holds under the loose 0.30 bound and is refuted by
+     * the tight 0.05 bound, matching the real density at these windows.
      */
     private static ConjectureVerifier verifierWithSubstrate() {
-        MathConjectureSubstrate substrate = new MathConjectureSubstrate(210_000);
-        MathConjectureSubstrateDelegate delegate =
-                new MathConjectureSubstrateDelegate(substrate, /* juliaMathClient */ null);
+        MathConjectureSubstrateDelegate stub =
+                new MathConjectureSubstrateDelegate((JuliaMathClient) null) {
+                    @Override
+                    public Map<String, Double> evaluateWindow(int start, int size) {
+                        return Map.of(
+                                "abundant_density",   0.247,
+                                "deficient_density",  0.748,
+                                "prime_density",      0.080,
+                                "happy_density",      0.140,
+                                "mean_omega",         2.90,
+                                "mean_Omega",         3.70,
+                                "mean_divisor_count", 15.0,
+                                "max_divisor_count",  80.0,
+                                "mertens_delta",     -3.0);
+                    }
+                };
         ConjectureVerifier verifier = new ConjectureVerifier();
-        verifier.setSubstrateDelegate(delegate);
+        verifier.setSubstrateDelegate(stub);
         return verifier;
     }
 
