@@ -118,6 +118,13 @@ single-threaded py-sidecar (see `start_py_server!`).
 """
 function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     init_metrics!()
+    # Expose the safe numeric stdlibs in the eval namespace (Main — where
+    # handle_eval runs `Main.eval`) so /eval expressions can use
+    # norm/det/dot/cross/tr/eigvals (LinearAlgebra) and mean/median/std/var
+    # (Statistics). The LLM reaches for these and they were previously
+    # UndefVarError. Pure numeric math; the safety filter still blocks
+    # I/O / FFI / eval. (The py-sidecar doesn't serve /eval, so this lives here.)
+    Core.eval(Main, :(using LinearAlgebra, Statistics))
     router = build_router()
     @info "julia-math-sidecar starting" host port julia_version=string(VERSION) cpu_threads=SIDECAR_CPU_THREADS julia_threads=Threads.nthreads()
     # `server=` is the listener — assigning to a local lets us close
