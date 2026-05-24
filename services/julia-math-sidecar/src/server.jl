@@ -31,7 +31,20 @@ function build_router()
     # PY_SIDECAR_ENABLED=true they proxy to the single-threaded py-sidecar
     # (scripts/start-py-sidecar.sh); default false → served in-process as before.
     py_proxy = get(ENV, "PY_SIDECAR_ENABLED", "false") == "true"
-    pyroute(path, h) = py_proxy ? (req::HTTP.Request -> proxy_to_py(req, path)) : h
+    # Route the PyCall endpoints safely. They segfault in-process under >1 thread
+    # (Julia GC runs pydecref off the GIL-holding thread), so:
+    #   PY_SIDECAR_ENABLED=true   → proxy to the single-threaded py-sidecar
+    #   single-threaded            → serve in-process (safe)
+    #   multithreaded + no proxy   → FAIL SAFE with 503, rather than load PyCall
+    #                                here and crash the whole process.
+    pyroute(path, h) =
+        if py_proxy
+            (req::HTTP.Request -> proxy_to_py(req, path))
+        elseif Threads.nthreads() == 1
+            h
+        else
+            (req::HTTP.Request -> py_unavailable_response(path))
+        end
     # Liveness / readiness.
     HTTP.register!(router, "GET",  "/healthz",  handle_healthz)
     # Metrics surface — call counts + latency per endpoint.
@@ -206,6 +219,23 @@ function proxy_to_py(req::HTTP.Request, path::AbstractString)
         return HTTP.Response(503, ["Content-Type" => "application/json"];
                              body = "{\"ok\":false,\"error\":\"py_sidecar_unreachable\"}")
     end
+end
+
+"""
+    py_unavailable_response(path) -> HTTP.Response
+
+503 returned for a PyCall-backed route when the main (multithreaded) server is
+asked to serve it in-process with the py-sidecar disabled. Refusing here is the
+safe choice: loading PyCall in a >1-thread process risks an off-thread
+`pydecref` finalizer SIGSEGV that takes down the whole server.
+"""
+function py_unavailable_response(path::AbstractString)
+    @warn "PyCall endpoint refused in-process (multithreaded, PY_SIDECAR_ENABLED=false)" path nthreads=Threads.nthreads()
+    body = string("{\"ok\":false,\"error\":\"pycall_endpoint_requires_py_sidecar\",\"path\":\"",
+                  path,
+                  "\",\"detail\":\"PyCall endpoints are unsafe in the multithreaded server; ",
+                  "start scripts/start-py-sidecar.sh and restart with PY_SIDECAR_ENABLED=true\"}")
+    return HTTP.Response(503, ["Content-Type" => "application/json"]; body = body)
 end
 
 # Minimal router for the py-sidecar: only the PyCall-backed routes (served
