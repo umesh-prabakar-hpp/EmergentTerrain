@@ -15,6 +15,14 @@
 # Cost for one call = inTok/1e6 * inUsdPerMtok + outTok/1e6 * outUsdPerMtok.
 # A model with no entry here (and not free) is counted as $0 with a WARN — add
 # its real price here to make the $ budget accurate.
+#
+# IMPORTANT — model keys under `models:` are wrapped in [brackets]. Spring's
+# relaxed Map binding otherwise splits a key on '.' (and mishandles '/'), so a
+# bare key like "llama-3.3-70b-versatile" silently fails to bind into the map:
+# the lookup misses, the model is priced at $0, and you get a "No price for ..."
+# WARN even though the entry is right here. The [..] escape binds each key as
+# one literal string. Keep any new model keys bracketed too. (`free-models` is a
+# list, not a map, so its entries are NOT bracketed.)
 # ---------------------------------------------------------------------------
 llm-pricing:
   free-models:
@@ -23,30 +31,30 @@ llm-pricing:
   providers:
     groq:
       models:
-        "llama-3.3-70b-versatile":
+        "[llama-3.3-70b-versatile]":
           in-usd-per-mtok: 0.59
           out-usd-per-mtok: 0.79
-        "openai/gpt-oss-120b":
+        "[openai/gpt-oss-120b]":
           in-usd-per-mtok: 0.15
           out-usd-per-mtok: 0.60
 
     fast:
       models:
-        "llama-3.1-8b-instant":
+        "[llama-3.1-8b-instant]":
           in-usd-per-mtok: 0.05
           out-usd-per-mtok: 0.08
-        "allam-2-7b":
+        "[allam-2-7b]":
           # Not on Groq's public price table (May 2026); estimated at the
           # 8b-instant rate. Replace if Groq publishes a list price.
           in-usd-per-mtok: 0.05
           out-usd-per-mtok: 0.08
-        "meta-llama/llama-4-scout-17b-16e-instruct":
+        "[meta-llama/llama-4-scout-17b-16e-instruct]":
           in-usd-per-mtok: 0.11
           out-usd-per-mtok: 0.34
 
     openrouter:
       models:
-        "openai/gpt-oss-120b:free":
+        "[openai/gpt-oss-120b:free]":
           # Listed for completeness; overridden to $0 by free-models above.
           in-usd-per-mtok: 0.0
           out-usd-per-mtok: 0.0
