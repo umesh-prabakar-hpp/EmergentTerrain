@@ -90,10 +90,13 @@ public interface. Production deployment binds to a Unix socket or
 keeps it localhost-only behind a reverse proxy.
 
 JIT warmup: the first request to each shape (e.g. the first `/eval`,
-the first `/solve`) takes 200ms-2s while Julia compiles the call path.
-Subsequent calls are sub-millisecond. Run `scripts/warmup.jl` against
-a freshly-started server if you want to pre-warm common paths before
-real traffic hits.
+the first `/solve`) takes 200ms-2s while Julia compiles the call path;
+subsequent calls are sub-millisecond. Once the listener is up we call
+`warmup!`, which pre-pays the first-call costs that can't be baked into
+precompile — the PyCall imports (SymPy for `/prove_identity`, mpmath for
+`/recognise/constant`) and the outbound-HTTP client path
+(`/recognise/sequence`). Pure-Julia compute paths are left to first-call
+here; bake those into the precompile cache with PrecompileTools instead.
 """
 function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     init_metrics!()
@@ -104,6 +107,12 @@ function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     # non-blocking form that returns the server immediately; we then
     # `wait(server)` so the script blocks until the server exits.
     server = HTTP.serve!(router, host, port)
+    # Listener is accepting now; pre-pay the first-call costs precompile
+    # can't cover (PyCall imports + outbound-HTTP). Best-effort and
+    # synchronous on this task — with ≥2 threads the server keeps serving
+    # /healthz on other threads while this runs, and delaying `wait` has no
+    # effect since the listener task is already independent. See `warmup!`.
+    warmup!(; host=host, port=port)
     try
         # Block until the listener task exits (SIGINT or explicit close).
         wait(server)
@@ -116,5 +125,55 @@ function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     finally
         close(server)
     end
+    return nothing
+end
+
+"""
+    warmup!(; host, port)
+
+Best-effort startup warmup for the endpoints PrecompileTools can't safely
+bake in: the PyCall paths (SymPy → `/prove_identity`, mpmath →
+`/recognise/constant`) and the outbound-HTTP path (`/recognise/sequence`).
+
+Each step is isolated in its own try/catch — a failure (Python or PyCall
+not installed, the loopback not yet accepting, etc.) is logged and skipped,
+never fatal. Set `SIDECAR_WARMUP=0` to skip entirely for faster dev
+restarts. Pure-Julia compute paths are intentionally not warmed here.
+"""
+function warmup!(; host::AbstractString, port::Integer)
+    if get(ENV, "SIDECAR_WARMUP", "1") != "1"
+        @info "warmup skipped (SIDECAR_WARMUP=0)"
+        return nothing
+    end
+    t0 = time_ns()
+    @info "warmup starting (PyCall + outbound-HTTP paths)"
+
+    # SymPy import — the dominant first-call cost of /prove_identity.
+    try
+        get_sympy()
+    catch e
+        @warn "warmup: SymPy import skipped" error=sprint(showerror, e)
+    end
+
+    # mpmath import — the dominant first-call cost of /recognise/constant.
+    try
+        pyimport("mpmath")
+    catch e
+        @warn "warmup: mpmath import skipped" error=sprint(showerror, e)
+    end
+
+    # Outbound HTTP client — what /recognise/sequence pays on its first OEIS
+    # fetch. Compile HTTP.get + response handling via a loopback GET to our
+    # own /healthz so we never touch OEIS at boot. 0.0.0.0 is a bind address,
+    # not a connect target, so dial 127.0.0.1 when bound to all interfaces.
+    try
+        connect_host = host == "0.0.0.0" ? "127.0.0.1" : host
+        HTTP.get("http://$(connect_host):$(port)/healthz";
+                 readtimeout=2, retry=false, status_exception=false)
+    catch e
+        @warn "warmup: HTTP-client warmup skipped" error=sprint(showerror, e)
+    end
+
+    @info "warmup complete" elapsed_ms=round(Int, (time_ns() - t0) / 1_000_000)
     return nothing
 end

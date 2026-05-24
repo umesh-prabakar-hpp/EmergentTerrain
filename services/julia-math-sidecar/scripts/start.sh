@@ -12,12 +12,12 @@
 #   ./scripts/start.sh                       # 127.0.0.1:8088, default threads
 #   PORT=9000 ./scripts/start.sh             # override port
 #   HOST=0.0.0.0 ./scripts/start.sh          # bind all interfaces (NOT for prod)
-#   JULIA_NUM_THREADS=4 ./scripts/start.sh   # parallel request handling
+#   JULIA_NUM_THREADS=1 ./scripts/start.sh   # force single-thread (default is 4)
 #
 # Environment knobs:
 #   HOST                — interface to bind (default 127.0.0.1)
 #   PORT                — TCP port (default 8088)
-#   JULIA_NUM_THREADS   — Julia worker threads (default 1; recommend 4)
+#   JULIA_NUM_THREADS   — Julia worker threads (default 4; set 1 for single-thread dev)
 #   JULIA_DEPOT_PATH    — where Julia installs deps (default ~/.julia)
 # =====================================================================
 set -euo pipefail
@@ -29,7 +29,12 @@ cd "$REPO_ROOT"
 
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-8088}"
-JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-1}"
+# Default 4, not 1: with a single thread a heavy compute or cold-JIT
+# request monopolises the thread and starves /healthz, so the JVM's probe
+# times out and marks the sidecar unreachable. 4 keeps liveness responsive
+# while work runs (cpu_threads is 4 on this box). Override to 1 for fast
+# single-thread dev.
+JULIA_NUM_THREADS="${JULIA_NUM_THREADS:-4}"
 export JULIA_NUM_THREADS
 
 # Logging — by default tee stdout+stderr to logs/sidecar.log under the
