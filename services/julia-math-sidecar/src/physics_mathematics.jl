@@ -889,9 +889,11 @@ function physics_compute_mathematics(topic_idx::Integer,
         return physics_collatz_stopping_times(param1 * 3, 60, sp)
     elseif topic_idx == 2
         # JVM line 735: goldbachPartitions(max(4, param1*4),
-        # (int) param2 * 10 + 20). Cast to int matches JVM truncation.
+        # (int) param2 * 10 + 20). Java's (int) TRUNCATES toward zero; the Julia
+        # equivalent is trunc(Int, …), NOT Int(…) — the latter throws
+        # InexactError on a fractional param2 (e.g. 3.6686 from the live sim).
         seed_even = max(4, param1 * 4)
-        count = Int(param2) * 10 + 20
+        count = trunc(Int, param2) * 10 + 20
         return physics_goldbach_partitions(seed_even, count, sp)
     elseif topic_idx == 3
         return physics_aliquot_sequences(max(2, param1), 40, sp)
