@@ -103,6 +103,25 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                 log.warn("GenericPoolsRegistrar({}): api-key-env={} and api-key both empty — pool will register but every call will 401. "
                         + "Set the env var or fill api-key in app.ai.providers.{}.",
                         providerKey, raw.apiKeyEnv(), providerKey);
+                // DIAGNOSTIC (2026-05-24): why is the key empty? Surface whether the
+                // external-secrets loader injected its property source and which source
+                // (if any) defines this key — distinguishes "loader never ran/injected"
+                // from "value present but empty/shadowed". Remove once secrets injection
+                // is resolved.
+                if (environment instanceof org.springframework.core.env.ConfigurableEnvironment ce) {
+                    boolean extSecretsPresent = ce.getPropertySources().contains("externalSecrets");
+                    String definedBy = "(none)";
+                    StringBuilder srcNames = new StringBuilder();
+                    for (org.springframework.core.env.PropertySource<?> ps : ce.getPropertySources()) {
+                        if (srcNames.length() > 0) srcNames.append(", ");
+                        srcNames.append(ps.getName());
+                        if (raw.apiKeyEnv() != null && definedBy.equals("(none)") && ps.containsProperty(raw.apiKeyEnv())) {
+                            definedBy = ps.getName();
+                        }
+                    }
+                    log.warn("GenericPoolsRegistrar({}) key-diag: externalSecrets-source-present={}, key '{}' defined-by={}, all-sources=[{}]",
+                            providerKey, extSecretsPresent, raw.apiKeyEnv(), definedBy, srcNames);
+                }
             }
             ProviderConfig cfg = raw.toProviderConfig(providerKey, apiKey);
             int parallelism = raw.parallelism() == null ? 3 : raw.parallelism();
