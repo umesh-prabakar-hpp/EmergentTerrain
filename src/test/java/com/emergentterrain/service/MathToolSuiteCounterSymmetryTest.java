@@ -243,4 +243,48 @@ class MathToolSuiteCounterSymmetryTest {
         // doesn't start with whitespace.
         assertThat(MathToolSuite.isSuccessResult("   ")).isFalse();
     }
+
+    // ── run_predicate_scan metric aliasing (P-a328-934/936 friction) ─────────
+
+    @Test
+    void normalizeMetric_densityAliasesToFractionSatisfying() {
+        // P-a328-936 burned 3 calls on "density". For a Boolean predicate,
+        // density over [start,end) IS count/total == fraction_satisfying.
+        assertThat(MathToolSuite.normalizeMetric("density")).isEqualTo("fraction_satisfying");
+        assertThat(MathToolSuite.normalizeMetric("Density")).isEqualTo("fraction_satisfying");
+        assertThat(MathToolSuite.normalizeMetric("fraction")).isEqualTo("fraction_satisfying");
+        assertThat(MathToolSuite.normalizeMetric("proportion")).isEqualTo("fraction_satisfying");
+    }
+
+    @Test
+    void normalizeMetric_collatzSpokenFormsAliasToCanonical() {
+        // P-a328-934 burned 3 calls on "mean collatz steps".
+        assertThat(MathToolSuite.normalizeMetric("mean collatz steps")).isEqualTo("mean_of:collatzSteps");
+        assertThat(MathToolSuite.normalizeMetric("mean collatz depth")).isEqualTo("mean_of:collatzSteps");
+        assertThat(MathToolSuite.normalizeMetric("max collatz depth")).isEqualTo("max_of:collatzSteps");
+        assertThat(MathToolSuite.normalizeMetric("mean sigma sum")).isEqualTo("mean_of:sigmaSum");
+    }
+
+    @Test
+    void normalizeMetric_canonicalValuesPassThroughUnchanged() {
+        for (String m : new String[]{
+                "fraction_satisfying", "mean_of:collatzSteps",
+                "max_of:collatzSteps", "mean_of:sigmaSum"}) {
+            assertThat(MathToolSuite.normalizeMetric(m)).isEqualTo(m);
+        }
+    }
+
+    @Test
+    void normalizeMetric_unknownReturnedVerbatimSoRejectStillFires() {
+        // Anything that isn't a known alias is returned unchanged, so the
+        // caller's valid-set rejection still surfaces the full metric list.
+        assertThat(MathToolSuite.normalizeMetric("entropy")).isEqualTo("entropy");
+        assertThat(MathToolSuite.normalizeMetric("mean_of:nthPrime")).isEqualTo("mean_of:nthPrime");
+    }
+
+    @Test
+    void normalizeMetric_blankDefaultsToFractionSatisfying() {
+        assertThat(MathToolSuite.normalizeMetric(null)).isEqualTo("fraction_satisfying");
+        assertThat(MathToolSuite.normalizeMetric("  ")).isEqualTo("fraction_satisfying");
+    }
 }

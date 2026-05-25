@@ -724,7 +724,8 @@ public class MathToolSuite {
         String predicate  = args.path("predicate").asText(null);
         int    rangeStart = args.path("range_start").asInt(-1);
         int    rangeEnd   = args.path("range_end").asInt(-1);
-        String metric     = args.path("metric").asText("fraction_satisfying");
+        String rawMetric  = args.path("metric").asText("fraction_satisfying");
+        String metric     = normalizeMetric(rawMetric);
         double baseline   = args.path("baseline").asDouble(0.0);
         String hypothesis = args.path("hypothesis").asText("");
         if (predicate == null || rangeStart < 1 || rangeEnd <= rangeStart
@@ -736,7 +737,9 @@ public class MathToolSuite {
                 return "Invalid predicate token: '" + token.trim() + "'. Use: " + VALID_PREDICATES;
         }
         if (!VALID_METRICS.contains(metric))
-            return "Invalid metric '" + metric + "'. Use: " + VALID_METRICS;
+            return "Invalid metric '" + rawMetric + "'. Use: " + VALID_METRICS;
+        if (!rawMetric.equals(metric))
+            log.info("MathToolSuite: run_predicate_scan metric alias '{}' → '{}'", rawMetric, metric);
         // 2026-05-21 review §1 rec #4 — baseline shape vs metric type. Catches
         // the P-a328-871 family where the narrator picks a probability-shaped
         // baseline (≈ 0.3) against a magnitude metric (mean_of:sigmaSum). LLM
@@ -923,6 +926,49 @@ public class MathToolSuite {
         // <=, >=, !=, ==, := . Negative lookahead excludes = so we don't
         // double-substitute ==.
         return expr.replaceAll("(?<![<>!=:])=(?!=)", "==");
+    }
+
+    /**
+     * Map a natural-language {@code run_predicate_scan} metric name to its
+     * canonical {@link #VALID_METRICS} identifier. The LLM repeatedly emits the
+     * spoken form and burns professor rounds discovering the exact token from
+     * the rejection — P-a328-936 wasted 3 calls on {@code "density"} and
+     * P-a328-934 wasted 3 on {@code "mean collatz steps"}, the same friction
+     * class as the {@code range_start=0} clamp.
+     *
+     * <p>{@code density} ≡ {@code fraction_satisfying}: for a Boolean membership
+     * predicate the natural density over {@code [start,end)} is exactly
+     * count/total, which is what {@code computeFraction} returns — so the alias
+     * is exact, not approximate. Already-canonical values (including any
+     * {@code mean_of:}/{@code max_of:} form) pass through untouched; an unknown
+     * name is returned verbatim so the caller's valid-set rejection still fires
+     * with the full list.
+     */
+    static String normalizeMetric(String raw) {
+        if (raw == null || raw.isBlank()) return "fraction_satisfying";
+        String m = raw.trim();
+        if (VALID_METRICS.contains(m)) return m;                 // already canonical
+        // Collapse spaces / underscores / colons / parens / hyphens to single
+        // spaces and lowercase, so "mean_of:collatzSteps", "mean of collatz
+        // steps" and "Mean Collatz Steps" all reduce to one key.
+        String key = m.toLowerCase().replaceAll("[\\s_:()\\-]+", " ").trim();
+        return switch (key) {
+            case "density", "densities", "fraction", "proportion", "frequency",
+                 "relative frequency", "fraction satisfying", "satisfying fraction" ->
+                    "fraction_satisfying";
+            case "mean collatz steps", "mean collatz depth", "average collatz steps",
+                 "average collatz depth", "mean of collatz steps", "mean of collatzsteps",
+                 "mean collatzsteps", "collatz steps", "collatz depth" ->
+                    "mean_of:collatzSteps";
+            case "max collatz steps", "max collatz depth", "maximum collatz steps",
+                 "maximum collatz depth", "max of collatz steps", "max of collatzsteps",
+                 "max collatzsteps" ->
+                    "max_of:collatzSteps";
+            case "mean sigma", "mean sigma sum", "mean of sigma sum", "mean of sigmasum",
+                 "mean sigmasum", "sigma sum", "sigmasum" ->
+                    "mean_of:sigmaSum";
+            default -> m;                                        // unknown — let the valid-set reject fire
+        };
     }
 
     private String runSymbolic(JsonNode args) {
