@@ -60,14 +60,6 @@ public class ReviewPanelService {
     private static final Logger log = LoggerFactory.getLogger(ReviewPanelService.class);
 
     /**
-     * Default provider filter — every provider that ships a 70B+ tools-capable
-     * pool per the May 2026 provider survey. Operator opt-in via the
-     * {@code app.research.review-panel.providers} CSV; a comma-separated subset
-     * narrows the eligible providers.
-     */
-    static final String DEFAULT_PROVIDERS = "groq,openrouter";
-
-    /**
      * Default panel target size — number of distinct {@link ModelHandle}s that
      * grade each paper. With NVIDIA contributing 5 models, Groq 2, OpenRouter
      * 2, Cerebras 1 — the aggregate registry holds ~10 70B+ models — capping at
@@ -89,7 +81,7 @@ public class ReviewPanelService {
             PromptTemplateRegistry promptRegistry,
             ObjectMapper mapper,
             @Value("${app.research.review-panel.enabled:true}") boolean enabled,
-            @Value("${app.research.review-panel.providers:" + DEFAULT_PROVIDERS + "}") String providersCsv,
+            @Value("${app.research.review-panel.providers:}") String providersCsv,
             @Value("${app.research.review-panel.size:" + DEFAULT_PANEL_SIZE + "}") int panelSize) {
         this.primaryRegistry = primaryRegistry;
         this.promptRegistry  = promptRegistry;

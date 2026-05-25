@@ -41,17 +41,12 @@ public class LlmRouter {
 
     private static final Logger log = LoggerFactory.getLogger(LlmRouter.class);
 
-    /** Default provider order — first match found in the bean registry wins. */
-    private static final String DEFAULT_PRIMARY_ORDER = "groq,openrouter";
-    private static final String DEFAULT_FAST_PROVIDER = "ollama";
-    /**
-     * Phase 7 E2 — default opt-in list of providers allowed to receive tool-calling
-     * professor-stage calls. Only "groq" by default — the spec requires operator
-     * opt-in for non-Groq tool calls after the ≥3-day E1 soak demonstrates the
-     * non-Groq pools are stable. Set to {@code "*"} (or include every key) to allow
-     * the full primary chain.
-     */
-    private static final String DEFAULT_TOOL_PROVIDERS = "groq";
+    // Routing provider keys are fully externalized to application.yml (2026-05-24);
+    // no provider name is baked into this class. Each defaults to blank, which the
+    // constructor reads as a provider-neutral fallback:
+    //   app.ai.primaryProviderOrder   — primary chain order (blank → registry/bean order)
+    //   app.ai.fastProvider           — fast-tier pool key (blank → first non-primary pool)
+    //   app.ai.tool-calling.providers — tool-call opt-in CSV (blank → unrestricted)
 
     /**
      * Phase 20.11 fixup — prompt-size threshold (estimated tokens) above
@@ -118,13 +113,13 @@ public class LlmRouter {
                      PrimaryModelRegistry primaryRegistry,
                      FastModelRegistry fastRegistry,
                      @org.springframework.beans.factory.annotation.Value(
-                             "${app.ai.primaryProviderOrder:" + DEFAULT_PRIMARY_ORDER + "}")
+                             "${app.ai.primaryProviderOrder:}")
                      String primaryOrder,
                      @org.springframework.beans.factory.annotation.Value(
-                             "${app.ai.fastProvider:" + DEFAULT_FAST_PROVIDER + "}")
+                             "${app.ai.fastProvider:}")
                      String fastProvider,
                      @org.springframework.beans.factory.annotation.Value(
-                             "${app.ai.tool-calling.providers:" + DEFAULT_TOOL_PROVIDERS + "}")
+                             "${app.ai.tool-calling.providers:}")
                      String toolProvidersCsv) {
         this.primaryRegistry = primaryRegistry;
         this.fastRegistry    = fastRegistry;
@@ -454,7 +449,7 @@ public class LlmRouter {
     }
     public int    primaryPoolSize() { return Math.max(1, primaryRegistry.totalModelCount()); }
 
-    /** Provider-key chain (e.g. ["groq", "openrouter"]). */
+    /** Provider-key chain in configured primary order (from app.ai.primaryProviderOrder). */
     public List<String> primaryProviderChain() {
         return primaryChain.stream().map(LlmPool::providerKey).toList();
     }
