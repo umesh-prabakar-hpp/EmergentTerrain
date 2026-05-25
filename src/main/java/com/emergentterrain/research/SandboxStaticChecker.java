@@ -935,6 +935,18 @@ public final class SandboxStaticChecker {
                 return "Quick fix: use `var` for all declarations. `let` and `const` "
                         + "are not in the sandbox grammar.";
             }
+            // Bare/uninitialized declarations and bare expression statements.
+            // `var x;` and a lone `x;` both fail here because the grammar expects
+            // `= expr` after the name (P-a328-933 sank its final sweep on a
+            // `var n2;` declaration). The `got ','` case above is handled by its
+            // own more-specific hint, so this only catches the remaining
+            // Expected-EQ shapes (`got ';'`, end-of-input, etc.).
+            if (pf.contains("Expected EQ")) {
+                return "Quick fix: every declaration must be initialized and every "
+                        + "statement must assign or return — write `var x = 0;` (not a "
+                        + "bare `var x;`) and `x = expr;` (not a bare `x;`). The sandbox "
+                        + "grammar has no uninitialized declarations.";
+            }
         }
 
         if (r.startsWith("non-whitelisted function(s):")) {

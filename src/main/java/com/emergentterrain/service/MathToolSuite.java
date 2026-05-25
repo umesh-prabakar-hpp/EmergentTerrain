@@ -703,7 +703,17 @@ public class MathToolSuite {
             MathPhysicsEngine.ResearchResult result = delegate.compute(draft.domain(), topicIdx, param1, param2);
             log.info("MathToolSuite: run_param_sweep domain={} topic={} param1={} param2={} ms={}",
                     draft.domain(), draft.topicName(), param1, param2, System.currentTimeMillis() - t);
-            return "Param sweep (param1=%d, param2=%.1f): %s [Rationale: %s]"
+            // param1/param2 are abstract sweep knobs the engine maps to a physical
+            // configuration internally; the model tends to pass its hypothesis's
+            // physical values here and then cite the swept config as if it matched
+            // (P-a328-931 cited a d=2.64µm sweep as support for a d=2.42µm claim).
+            // Spell out that the resolved configuration in `findings` — not the
+            // hypothesis — is what was computed. Keep the "Param sweep (" prefix
+            // verbatim: isSuccessResult() classifies on it.
+            return ("Param sweep (param1=%d, param2=%.1f — abstract knobs, NOT physical inputs): "
+                    + "%s [NOTE: the configuration reported above is what was actually swept and "
+                    + "may differ from the hypothesis's parameters; cite these resolved values, "
+                    + "not the hypothesis. Rationale: %s]")
                     .formatted(param1, param2, result.findings(), rationale);
         } catch (Exception e) {
             return "Param sweep failed: " + e.getMessage();
@@ -1529,6 +1539,14 @@ public class MathToolSuite {
         int    rangeStart  = args.path("range_start").asInt(-1);
         int    rangeEnd    = args.path("range_end").asInt(-1);
         if (code == null || code.isBlank()) return "Missing code.";
+        // Auto-clamp range_start up to 1 rather than hard-rejecting a 0. The
+        // model repeatedly emits range_start=0 (P-a328-930/931/933 lost 5 tool
+        // calls to this in a single batch); these scans are 1-indexed so index 0
+        // carries no meaning, and the result echoes the actual [start,end) used
+        // (see the "over [%d,%d)" below), so the clamp stays visible to the
+        // narrator. Only clamp when a sane end exists — a missing/zero end still
+        // falls through to the rejection so genuinely empty ranges are caught.
+        if (rangeStart < 1 && rangeEnd > 1) rangeStart = 1;
         if (rangeStart < 1 || rangeEnd <= rangeStart || rangeEnd - rangeStart > MAX_SANDBOX_RANGE)
             return "Invalid range: must be ≥1 and span ≤ " + MAX_SANDBOX_RANGE;
 

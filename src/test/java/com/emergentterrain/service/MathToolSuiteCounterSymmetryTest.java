@@ -33,6 +33,16 @@ class MathToolSuiteCounterSymmetryTest {
     }
 
     @Test
+    void paramSweepSuccessRecognizedWithAbstractKnobsNote() {
+        // The "abstract knobs" reformatting (P-a328-931 fix) must keep the
+        // "Param sweep (" success prefix so isSuccessResult still classifies it.
+        assertThat(MathToolSuite.isSuccessResult(
+                "Param sweep (param1=40, param2=6.0 — abstract knobs, NOT physical inputs): "
+                + "VdW result: η=0.788 ... [NOTE: cite these resolved values, not the "
+                + "hypothesis. Rationale: test]")).isTrue();
+    }
+
+    @Test
     void predicateScanSuccessRecognized() {
         assertThat(MathToolSuite.isSuccessResult(
                 "Predicate scan: Dynamic [50,100) \"professor predicate scan\": Mean of collatzSteps over 50 = 42")).isTrue();

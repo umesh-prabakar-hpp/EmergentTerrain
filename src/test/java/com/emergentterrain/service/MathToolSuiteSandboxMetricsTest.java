@@ -101,6 +101,59 @@ class MathToolSuiteSandboxMetricsTest {
         assertThat(metrics.sandboxRejectCount()).isZero();
     }
 
+    @Test
+    void rangeStartZeroIsClampedToOneInsteadOfRejected() throws Exception {
+        // The model repeatedly emits range_start=0 (P-a328-930/931/933 lost 5
+        // tool calls to this). Instead of "Invalid range:", the call now clamps
+        // to [1,end) and runs; the echoed range proves the clamp.
+        LlmRouter router = mock(LlmRouter.class); // callPrimary unstubbed → intent check fails open
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(router, mapper);
+
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String toolCall = mapper.writeValueAsString(java.util.Map.of(
+                "name", "run_sandboxed_code",
+                "arguments", java.util.Map.of(
+                        "code",        "var s = 0; for (var n = start; n < end; n++) { s += 1; } return s;",
+                        "description", "count integers in range",
+                        "range_start", 0,     // ← previously hard-rejected
+                        "range_end",   10
+                )));
+
+        String result = executor.apply(toolCall);
+
+        assertThat(result).startsWith("Sandboxed computation");
+        assertThat(result).contains("over [1,10)");      // clamped from 0 → 1
+        assertThat(result).doesNotContain("Invalid range");
+        assertThat(metrics.sandboxSuccessCount()).isEqualTo(1);
+    }
+
+    @Test
+    void missingRangeStillRejects() throws Exception {
+        // The clamp must not paper over a genuinely empty/absent range: with no
+        // sane end, the call still returns the Invalid-range refusal.
+        LlmRouter router = mock(LlmRouter.class);
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(router, mapper);
+
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String toolCall = mapper.writeValueAsString(java.util.Map.of(
+                "name", "run_sandboxed_code",
+                "arguments", java.util.Map.of(
+                        "code",        "var s = 0; return s;",
+                        "description", "no range supplied",
+                        "range_start", 0,
+                        "range_end",   0
+                )));
+
+        String result = executor.apply(toolCall);
+        assertThat(result).startsWith("Invalid range");
+    }
+
     // ── Phase 10 — success counters + normalizeEqualHead ────────────────────
 
     @Test

@@ -279,6 +279,28 @@ class SandboxStaticCheckerTest {
     }
 
     @Test
+    void rewriteHint_uninitializedVar_pointsAtInitializer() {
+        // P-a328-933 sank its final sweep on a bare `var n2;` (line 15 →
+        // "Expected EQ got ';'"). The hint must steer to `var x = 0;`.
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Expected EQ got ';' line 15");
+        assertThat(hint).startsWith("Quick fix:");
+        assertThat(hint).contains("var x = 0;");
+        assertThat(hint).contains("uninitialized");
+    }
+
+    @Test
+    void rewriteHint_commaCaseStillWinsOverEqHint() {
+        // `Expected EQ got ','` is the comma-separated-declaration case and must
+        // keep its own more-specific hint, not fall through to the generic
+        // Expected-EQ (uninitialized) hint added alongside it.
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Expected EQ got ',' line 7");
+        assertThat(hint).contains("one variable per statement");
+        assertThat(hint).doesNotContain("uninitialized");
+    }
+
+    @Test
     void rewriteHint_breakOutsideBlock_pointsAtBraces() {
         String hint = SandboxStaticChecker.rewriteHintFor(
                 "REJECTED (static): parse failed: Expected LBRACE got 'break' line 14");
