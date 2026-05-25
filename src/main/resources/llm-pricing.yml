@@ -58,3 +58,24 @@ llm-pricing:
           # Listed for completeness; overridden to $0 by free-models above.
           in-usd-per-mtok: 0.0
           out-usd-per-mtok: 0.0
+
+    # Claude *subscription* provider (scripts/legacy-ai-gateway). The
+    # subscription is a flat plan, not metered API — but per operator decision
+    # (2026-05-25) its usage is priced at Anthropic's generally-available API
+    # list rates so the run-budget tracks an API-equivalent $ cost AND enforces
+    # the global ceiling against it: a subscription call draws down the same $10
+    # global stop as a metered call. Same pattern for ANY subscription / fixed-
+    # cost provider — list its API-equivalent prices here and it's tracked +
+    # capped like a metered one. Rates: Anthropic public pricing (standard
+    # ≤200K-context tier), USD per 1,000,000 tokens, verified May 2026.
+    legacy-ai:
+      models:
+        "[claude-sonnet-4-6]":          # the model the provider is configured to use
+          in-usd-per-mtok: 3.00
+          out-usd-per-mtok: 15.00
+        "[claude-opus-4-7]":            # priced for if it's added to the provider's models list
+          in-usd-per-mtok: 15.00
+          out-usd-per-mtok: 75.00
+        "[claude-haiku-4-5]":
+          in-usd-per-mtok: 1.00
+          out-usd-per-mtok: 5.00
