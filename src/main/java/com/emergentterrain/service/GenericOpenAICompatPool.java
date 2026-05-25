@@ -563,11 +563,12 @@ public class GenericOpenAICompatPool implements LlmPool {
             if (content.isBlank()) content = message.path("reasoning").asText("");
             JsonNode usage = root.path("usage");
             accountRunBudget(modelId, usage);
+            recordTokenMetrics(modelId, usage);          // always — metrics/per-paper independent of reserve flow
             if (reserved) {
                 budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
                 settled = true;
             } else {
-                recordUsage(modelId, usage);
+                recordAccountantUsage(modelId, usage);
             }
             return content;
         } catch (RuntimeException e) {
@@ -726,11 +727,12 @@ public class GenericOpenAICompatPool implements LlmPool {
                             JsonNode usage = chunk.path("usage");
                             if (!usage.isMissingNode() && !usage.isNull()) {
                                 accountRunBudget(modelId, usage);
+                                recordTokenMetrics(modelId, usage);   // always — independent of reserve flow
                                 if (reserved) {
                                     budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
                                     settled[0] = true;
                                 } else {
-                                    recordUsage(modelId, usage);
+                                    recordAccountantUsage(modelId, usage);
                                 }
                             }
                             JsonNode choices = chunk.path("choices");
@@ -900,10 +902,11 @@ public class GenericOpenAICompatPool implements LlmPool {
                 String   reason  = choice.path("finish_reason").asText("stop");
                 JsonNode usage   = body.path("usage");
                 accountRunBudget(modelId, usage);
+                recordTokenMetrics(modelId, usage);   // always — independent of reserve flow
                 if (reserved) {
                     budgetGate.correct(cfg.providerKey(), modelId, estimate, totalFromUsage(usage));
                 } else {
-                    recordUsage(modelId, usage);
+                    recordAccountantUsage(modelId, usage);
                 }
 
                 if ("tool_calls".equals(reason) && !lastRound) {
@@ -1203,7 +1206,16 @@ public class GenericOpenAICompatPool implements LlmPool {
 
     // ── Token + budget accounting ──────────────────────────────────────────
 
-    private void recordUsage(String model, JsonNode usage) {
+    /**
+     * Per-paper token accumulation + the {@code llm.tokens} metric (the
+     * {@code llm-calls … tokens-in/out} reporter). Independent of the per-minute
+     * {@link #budgetGate} reserve/correct flow, so this is called on EVERY call
+     * path — reserved or not. Previously it lived inside {@link #recordUsage} and
+     * only ran on the non-reserved branch; since the gate always reserves, the
+     * metric (and per-paper totals) read 0. Splitting it out fixes that without
+     * double-counting (the gate's correct() touches neither sink).
+     */
+    private void recordTokenMetrics(String model, JsonNode usage) {
         if (usage == null || usage.isMissingNode() || usage.isNull()) return;
         long prompt = usage.path("prompt_tokens").asLong(0);
         long completion = usage.path("completion_tokens").asLong(0);
@@ -1211,10 +1223,21 @@ public class GenericOpenAICompatPool implements LlmPool {
         // Phase 20.4 step 2b-2 — per-paper accumulator (no-op outside scope).
         LlmCallContext.recordTokenUsage(prompt, completion);
         if (callMetrics != null) callMetrics.recordTokens(cfg.providerKey(), model, prompt, completion);
-        if (tokenAccountant != null) {
-            tokenAccountant.record(new TokenUsage(
-                    cfg.providerKey(), model, prompt, completion, Instant.now()));
-        }
+    }
+
+    /**
+     * Feed the {@link TokenAccountant}'s per-minute deque. Only called on the
+     * NON-reserved path: when the call was reserved, {@link #budgetGate}'s
+     * reserve/correct flow already owns the deque entry, so recording here too
+     * would double-count.
+     */
+    private void recordAccountantUsage(String model, JsonNode usage) {
+        if (tokenAccountant == null || usage == null || usage.isMissingNode() || usage.isNull()) return;
+        long prompt = usage.path("prompt_tokens").asLong(0);
+        long completion = usage.path("completion_tokens").asLong(0);
+        if (prompt + completion <= 0) return;
+        tokenAccountant.record(new TokenUsage(
+                cfg.providerKey(), model, prompt, completion, Instant.now()));
     }
 
     private long totalFromUsage(JsonNode usage) {

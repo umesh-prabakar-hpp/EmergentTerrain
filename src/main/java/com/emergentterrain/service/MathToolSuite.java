@@ -27,7 +27,7 @@ import java.util.function.Function;
  *   run_param_sweep      — MathPhysicsEngine at professor-chosen param1/param2
  *   run_predicate_scan   — DynamicComputeEngine number-theoretic predicate scan
  *   evaluate_symbolic    — evaluate f(n) over a range, return statistics (numeric)
- *   run_sandboxed_code   — run LLM pseudocode reviewed by 4b before execution
+ *   run_sandboxed_code   — run LLM pseudocode (static check + primary-model intent review) before execution
  *   run_symbolic         — Phase 8 Tier 3: Symja symbolic evaluation
  *                          (Integrate, D, Solve, Simplify, Series, ...)
  *   run_gpu_eval         — Phase 8 Tier 4: dispatch f(n) over a large range
@@ -1532,10 +1532,10 @@ public class MathToolSuite {
         if (rangeStart < 1 || rangeEnd <= rangeStart || rangeEnd - rangeStart > MAX_SANDBOX_RANGE)
             return "Invalid range: must be ≥1 and span ≤ " + MAX_SANDBOX_RANGE;
 
-        // 4b safety review before execution
-        String reviewVerdict = reviewCodeWith4b(code, description);
+        // Static check + primary-model intent review before execution.
+        String reviewVerdict = reviewCodeIntent(code, description);
         if (!reviewVerdict.startsWith("APPROVED")) {
-            log.warn("MathToolSuite: sandbox code rejected by 4b review: {} code=\"{}\"",
+            log.warn("MathToolSuite: sandbox code rejected by intent review: {} code=\"{}\"",
                     reviewVerdict, code);
             // Phase 10 — append the grammar reference for static-stage
             // rejections so the LLM doesn't burn another 3 retries discovering
@@ -1618,8 +1618,16 @@ public class MathToolSuite {
      * sandbox enforces {@link com.emergentterrain.research.SandboxEngine#MAX_ITERATIONS}
      * and {@link com.emergentterrain.research.SandboxEngine#MAX_STMTS} as the
      * load-bearing safety boundary.
+     *
+     * <p>2026-05-25 — the intent check routes to the <b>primary</b> provider
+     * ({@link LlmRouter#callPrimary}), not the fast tier. The small fast-tier
+     * model kept false-rejecting valid code (e.g. flagging a fine-grained
+     * threshold search as "not a series expansion") — the same hallucinated-
+     * rejection failure mode the static stage was added to contain. A stronger
+     * primary model judges intent far more reliably; the advisory + default-
+     * approve contract still caps the blast radius if it errs.
      */
-    private String reviewCodeWith4b(String code, String description) {
+    private String reviewCodeIntent(String code, String description) {
         // Stage 1 — deterministic static check (parse + whitelist).
         com.emergentterrain.research.SandboxStaticChecker.Result staticResult =
                 com.emergentterrain.research.SandboxStaticChecker.check(code);
@@ -1644,7 +1652,7 @@ public class MathToolSuite {
                 REJECTED: <one-sentence reason explaining how the code is unrelated to the description>
                 """.formatted(description, code);
         try {
-            String response = router.callFast(prompt).trim();
+            String response = router.callPrimary(prompt).trim();
             if (response.toUpperCase().startsWith("REJECTED")) return response;
             return "APPROVED";
         } catch (Exception e) {
