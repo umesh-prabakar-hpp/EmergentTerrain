@@ -452,14 +452,22 @@ class SandboxEngineWhitelistTest {
 
     @Test
     void arrayLengthCap_rejected() {
-        // 1025 elements > MAX_ARRAY_LEN (1024). Bound at declaration so user
-        // code can't accidentally OOM the JVM via a tabulated dataset.
-        StringBuilder sb = new StringBuilder("var xs = [");
-        for (int i = 0; i < 1025; i++) { if (i > 0) sb.append(','); sb.append(i); }
-        sb.append("]; return xs[0];");
-        assertThatThrownBy(() -> SandboxEngine.run(sb.toString(), 1, 2, 0, 0.0))
-                .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("exceeds cap");
+        // An array literal larger than the cap is bound at declaration so user
+        // code can't accidentally OOM the JVM via a tabulated dataset. The cap
+        // is configurable (app.research.sandbox.max-array-len), so pin it small
+        // here for a fast, default-independent test, then restore it.
+        int saved = SandboxEngine.MAX_ARRAY_LEN;
+        try {
+            SandboxEngine.setMaxArrayLen(8);
+            StringBuilder sb = new StringBuilder("var xs = [");
+            for (int i = 0; i < 9; i++) { if (i > 0) sb.append(','); sb.append(i); } // 9 > cap 8
+            sb.append("]; return xs[0];");
+            assertThatThrownBy(() -> SandboxEngine.run(sb.toString(), 1, 2, 0, 0.0))
+                    .isInstanceOf(RuntimeException.class)
+                    .hasMessageContaining("exceeds cap");
+        } finally {
+            SandboxEngine.setMaxArrayLen(saved);
+        }
     }
 
     @Test

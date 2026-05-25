@@ -173,10 +173,11 @@ public final class SandboxStaticChecker {
                   Operators:   + - * / % **   ==  !=  <  >  <=  >=   &&  ||  !   ?:
                                (=== and !== are accepted as aliases for == and !=)
                   Arrays:      var xs = [1, 2, 3];   xs[i] = v;   xs[i] += v;
-                               len(xs)  — max 1024 elements per array, no resize,
-                                          no push/pop/splice. `xs.length` is
-                                          auto-rewritten to `len(xs)`, so the JS
-                                          reflex is fine to emit.
+                               len(xs);  xs.push(v) appends within a preallocated
+                                          element cap (default 16384, operator-
+                                          configurable; no resize/splice/pop).
+                                          `xs.length` auto-rewrites to `len(xs)`,
+                                          so the JS reflex is fine to emit.
                   Multi-value: `return {a: x, b: y};` and `return [x, y, z];`
                                are both auto-rewritten to a sequence of
                                `recordSample(value)` calls plus a scalar return

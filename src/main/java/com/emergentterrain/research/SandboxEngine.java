@@ -32,12 +32,25 @@ public class SandboxEngine {
     static final int MAX_ITERATIONS  = 5_000;
     static final int MAX_STMTS       = 50_000;
     /**
-     * Phase 10 — array length cap. Fixed at allocation time; arrays have no
-     * resize, push, or splice. The cap bounds memory per run (≤ 8 kB per
-     * array, ≤ MAX_STMTS allocations of them) so the existing time-based
-     * limits remain the dominant safety surface.
+     * Array element cap. Each {@link SandboxArr} eagerly allocates a
+     * {@code double[MAX_ARRAY_LEN]} backing (so {@code push} grows without a
+     * resize), so the cap directly sets per-array memory: 8 bytes × cap
+     * (≈ 128 kB/array at the default {@value #DEFAULT_MAX_ARRAY_LEN}). With
+     * {@link #MAX_STMTS} allocations possible per run, keep it bounded — the
+     * time/statement limits stay the dominant safety surface.
+     *
+     * <p>2026-05-25 — raised from the original 1024 to {@value #DEFAULT_MAX_ARRAY_LEN}
+     * and made configurable at startup via {@code app.research.sandbox.max-array-len}
+     * (wired by {@link SandboxFlagConfig}). Not {@code final} so the config can
+     * override it; read at array-allocation time, so the value applies process-wide.
      */
-    static final int MAX_ARRAY_LEN   = 1_024;
+    static final int DEFAULT_MAX_ARRAY_LEN = 16_384;
+    static volatile int MAX_ARRAY_LEN = DEFAULT_MAX_ARRAY_LEN;
+
+    /** Override the array element cap (clamped to ≥ 1). Called by {@link SandboxFlagConfig}. */
+    static void setMaxArrayLen(int n) { MAX_ARRAY_LEN = Math.max(1, n); }
+    /** Current array element cap. */
+    public static int maxArrayLen() { return MAX_ARRAY_LEN; }
     /**
      * Phase 8 Tier 2 — user-defined function recursion depth. 64 frames covers
      * factorial(64), Newton-Raphson up to ~64 iters, mutual-recursion
