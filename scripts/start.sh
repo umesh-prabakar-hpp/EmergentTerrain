@@ -64,6 +64,34 @@ export JAVA_HOME
 mkdir -p "$REPO_ROOT/logs"
 STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
 
+# ---------------------------------------------------------------------
+# legacy-ai-gateway (scripts/legacy-ai-gateway).
+# OpenAI-compat shim fronting the Claude Agent SDK on the locally
+# logged-in Pro/Max subscription. The `legacy-ai` provider in
+# application.yml points at http://127.0.0.1:8787 and is first in
+# primaryProviderOrder, so first-pass narration runs on the subscription
+# (tool-calling stays on groq/openrouter). Skipped — the provider just
+# falls through to groq/openrouter — when node is missing, deps aren't
+# installed, it's already up, or ET_DISABLE_CLAUDE_PROXY=1.
+# ---------------------------------------------------------------------
+PROXY_DIR="$REPO_ROOT/scripts/legacy-ai-gateway"
+PROXY_PATTERN="legacy-ai-gateway/server.mjs"
+if [ "${ET_DISABLE_CLAUDE_PROXY:-0}" = "1" ]; then
+    echo "legacy-ai-gateway: disabled (ET_DISABLE_CLAUDE_PROXY=1)"
+elif pgrep -f "$PROXY_PATTERN" >/dev/null 2>&1; then
+    echo "legacy-ai-gateway: already running (PID $(pgrep -f "$PROXY_PATTERN" | tr '\n' ' '))"
+elif ! command -v node >/dev/null 2>&1; then
+    echo "legacy-ai-gateway: node not on PATH — skipping (provider falls through to groq/openrouter)" >&2
+elif [ ! -d "$PROXY_DIR/node_modules" ]; then
+    echo "legacy-ai-gateway: deps missing — run 'npm install' in $PROXY_DIR — skipping" >&2
+else
+    PROXY_LOG="$REPO_ROOT/logs/claude-proxy.log"
+    # env -u ANTHROPIC_API_KEY: never let a stray API key bill the subscription path.
+    # Absolute script path so stop.sh's pgrep pattern matches the command line.
+    nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" > "$PROXY_LOG" 2>&1 &
+    echo "legacy-ai-gateway: started on http://127.0.0.1:8787 (PID $!), log → $PROXY_LOG"
+fi
+
 if [ "$FOREGROUND" = "1" ]; then
     echo "EmergentTerrain: starting in foreground (Ctrl-C to stop)"
     exec mvn spring-boot:run
