@@ -1059,4 +1059,82 @@ class SandboxStaticCheckerTest {
             SandboxStaticChecker.setRelaxedGrammarEnabled(prior);
         }
     }
+
+    // ── Phase 20 Layer 1d — labelled string-concat return auto-rewrite ─────
+    // The dominant static-parse rejection in the 2026-05-25 corpus: the LLM
+    // returns a human-readable summary string, which the string-free grammar
+    // killed at the lexer ("Unexpected char '\"'"). It should now rewrite to
+    // recordSample(...) + scalar return and approve.
+
+    @Test
+    void labelledStringConcatReturn_isApproved() {
+        // Verbatim shape from P-a328-928 (twin-prime constellation search).
+        String code = """
+                var totalPrimes = 0;
+                var density = 0.0;
+                for (var n = start; n < end; n++) { if (isPrime(n)) { totalPrimes = totalPrimes + 1; } }
+                density = totalPrimes / (end - start);
+                return "totalPrimes=" + totalPrimes + " density=" + density;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void labelledStringConcatReturn_rewritesToRecordSampleAndScalar() {
+        String rewritten = SandboxStaticChecker.rewriteReturnStringConcat(
+                "return \"max_dev=\" + maxDev + \" at a=\" + maxA + \" mean_dev=\" + meanDev;");
+        assertThat(rewritten)
+                .contains("recordSample(maxDev);")
+                .contains("recordSample(maxA);")
+                .contains("recordSample(meanDev);")
+                .contains("return maxDev;")
+                .doesNotContain("\"");
+    }
+
+    @Test
+    void labelledStringConcatReturn_capturesLabelsAsNamedKeys() {
+        SandboxStaticChecker.Normalized norm = SandboxStaticChecker.normalizeWithMetadata(
+                "return \"totalPrimes=\" + totalPrimes + \" density=\" + density;");
+        assertThat(norm.namedKeys()).containsExactly("totalPrimes", "density");
+    }
+
+    @Test
+    void stringConcatReturn_withStringValuedTernary_isLeftToReject() {
+        // A value segment that itself yields a string (ternary returning
+        // quoted text) is ambiguous — the rewrite bails and the lexer reject
+        // + Layer-2 hint fires, rather than recordSample()-ing a string.
+        String code =
+                "return \"ok? \" + (Math.abs(x - y) < 1 ? \"YES\" : \"NO\");";
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+    }
+
+    @Test
+    void returnOfBarePureString_isStillRejected() {
+        // No numeric value to surface — nothing to rewrite, stays rejected.
+        String code = "return \"done\";";
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Rejected.class);
+    }
+
+    @Test
+    void quoteInsideLineComment_doesNotTriggerRewriteAndStillApproves() {
+        // A quote inside a // comment must not be treated as a string literal;
+        // the comment is stripped by the lexer and the real return is numeric.
+        String code = """
+                // returns the body's "characteristic" ratio
+                var r = end / start;
+                return r;
+                """;
+        assertThat(SandboxStaticChecker.check(code))
+                .isInstanceOf(SandboxStaticChecker.Result.Approved.class);
+    }
+
+    @Test
+    void rewriteHint_stringLiteral_pointsAtRecordSampleForLabelledReturn() {
+        String hint = SandboxStaticChecker.rewriteHintFor(
+                "REJECTED (static): parse failed: Unexpected char '\"' line 4");
+        assertThat(hint).contains("recordSample");
+    }
 }

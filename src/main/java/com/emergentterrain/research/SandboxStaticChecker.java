@@ -178,12 +178,16 @@ public final class SandboxStaticChecker {
                                           configurable; no resize/splice/pop).
                                           `xs.length` auto-rewrites to `len(xs)`,
                                           so the JS reflex is fine to emit.
-                  Multi-value: `return {a: x, b: y};` and `return [x, y, z];`
-                               are both auto-rewritten to a sequence of
+                  Multi-value: `return {a: x, b: y};`, `return [x, y, z];`, and
+                               labelled string summaries like
+                               `return "a=" + x + " b=" + y;` are all
+                               auto-rewritten to a sequence of
                                `recordSample(value)` calls plus a scalar return
                                of the first value, so the harness's
-                               n/mean/std/min/max aggregates surface every
-                               returned value to the caller.
+                               n/mean/std/min/max aggregates (and the labels)
+                               surface every returned value to the caller. Even
+                               so, prefer calling `recordSample(value)` yourself
+                               and returning a single number.
                   Stats:       recordSample(v)  accumulates n/mean/std/min/max
                                                 across the run; the harness sees
                                                 them alongside your return value.
@@ -479,6 +483,253 @@ public final class SandboxStaticChecker {
     }
 
     /**
+     * Phase 20 Layer 1d — rewrites a return-position string concatenation
+     * used as a labelled multi-value report into a sequence of
+     * {@code recordSample(v_i);} calls plus a scalar return of the first
+     * numeric value. This targets the single most common static-parse
+     * rejection in the 2026-05-25 corpus (P-a328-928/-929/-927): the LLM
+     * reflexively summarises several computed numbers as a human-readable
+     * string —
+     * <pre>return "totalPrimes=" + totalPrimes + " density=" + density;</pre>
+     * which the string-free safe grammar rejects at the lexer with
+     * {@code Unexpected char '"'}. Functionally the LLM wanted exactly what
+     * {@code recordSample} already provides, so the rewrite recovers the
+     * intent rather than failing the call.
+     *
+     * <p>The quoted label segments become named keys (the trailing
+     * identifier of each label, e.g. {@code " density="} → {@code density}),
+     * so the harness surfaces each value under its label in
+     * {@link SandboxEngine.SandboxResult#namedValues()} — same contract as
+     * the object-literal rewrite.
+     *
+     * <p>Conservative scoping — the rewrite only fires when every non-string
+     * {@code +}-segment is quote-free. A value segment that itself contains
+     * a quote (e.g. a ternary {@code (cond ? "YES" : "NO")}) is ambiguous
+     * (it yields a string, not a number), so the whole return is left
+     * untouched and falls through to the existing reject + Layer-2 hint.
+     * String/line-comment-aware scanning means a {@code ;} or the word
+     * {@code return} inside a literal or {@code //} comment does not trip
+     * the rewrite.
+     *
+     * <p>Package-private for {@link SandboxEngine} runtime use and tests.
+     */
+    static String rewriteReturnStringConcat(String code) {
+        return rewriteReturnStringConcatWithKeys(code, null);
+    }
+
+    /** Parsed shape of a rewritable labelled-string return. */
+    private record StringConcatReturn(List<String> values, List<String> keys) { }
+
+    private static String rewriteReturnStringConcatWithKeys(
+            String code, java.util.List<String> keySink) {
+        if (code == null) return code;
+        // Cheap pre-filter: a return statement and at least one quote char.
+        if (code.indexOf("return") < 0
+                || (code.indexOf('"') < 0 && code.indexOf('\'') < 0)) {
+            return code;
+        }
+        StringBuilder out = new StringBuilder(code.length());
+        boolean keysCaptured = keySink != null && !keySink.isEmpty();
+        int n = code.length();
+        int i = 0;
+        while (i < n) {
+            char c = code.charAt(i);
+            // Pass `//` line comments through verbatim — a `return`/`;`/quote
+            // inside a comment must not be interpreted as code.
+            if (c == '/' && i + 1 < n && code.charAt(i + 1) == '/') {
+                int eol = code.indexOf('\n', i);
+                if (eol < 0) eol = n;
+                out.append(code, i, eol);
+                i = eol;
+                continue;
+            }
+            // Pass string literals through verbatim (a value-position string
+            // we deliberately don't rewrite still has to survive intact).
+            if (c == '"' || c == '\'') {
+                int j = scanStringLiteral(code, i);
+                out.append(code, i, j);
+                i = j;
+                continue;
+            }
+            if (c == 'r' && matchesKeywordAt(code, i, "return")) {
+                int bodyStart = i + "return".length();
+                int end = scanToStatementEnd(code, bodyStart);
+                if (end >= 0) {
+                    StringConcatReturn rw =
+                            parseLabelledStringConcat(code.substring(bodyStart, end));
+                    if (rw != null) {
+                        if (keySink != null && !keysCaptured) {
+                            keySink.addAll(rw.keys());
+                            keysCaptured = true;
+                        }
+                        for (String v : rw.values()) {
+                            out.append("recordSample(").append(v).append("); ");
+                        }
+                        out.append("return ").append(rw.values().get(0)).append(";");
+                        i = end + 1;
+                        continue;
+                    }
+                }
+                // Not a rewritable labelled-string return — emit the keyword
+                // verbatim and resume scanning from just after it.
+                out.append("return");
+                i = bodyStart;
+                continue;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    /**
+     * True if {@code kw} occurs at {@code pos} as a whole word (no
+     * identifier char immediately before or after).
+     */
+    private static boolean matchesKeywordAt(String code, int pos, String kw) {
+        if (!code.regionMatches(pos, kw, 0, kw.length())) return false;
+        if (pos > 0 && isIdentChar(code.charAt(pos - 1))) return false;
+        int after = pos + kw.length();
+        return after >= code.length() || !isIdentChar(code.charAt(after));
+    }
+
+    private static boolean isIdentChar(char c) {
+        return Character.isLetterOrDigit(c) || c == '_' || c == '$';
+    }
+
+    /**
+     * Given an index pointing at a quote char, returns the index just past
+     * the matching closing quote, honouring backslash escapes (so
+     * {@code "a\"b"} and {@code "x\n"} scan as one literal). An unterminated
+     * literal scans to end-of-string.
+     */
+    private static int scanStringLiteral(String code, int start) {
+        char quote = code.charAt(start);
+        int i = start + 1;
+        int n = code.length();
+        while (i < n) {
+            char c = code.charAt(i);
+            if (c == '\\') { i += 2; continue; }
+            if (c == quote) return i + 1;
+            i++;
+        }
+        return n;
+    }
+
+    /**
+     * Scans from {@code start} to the index of the first {@code ;} that sits
+     * at bracket depth zero and outside any string literal or {@code //}
+     * comment. Returns {@code -1} if no such terminator exists.
+     */
+    private static int scanToStatementEnd(String code, int start) {
+        int depth = 0;
+        int n = code.length();
+        for (int i = start; i < n; ) {
+            char c = code.charAt(i);
+            if (c == '/' && i + 1 < n && code.charAt(i + 1) == '/') {
+                int eol = code.indexOf('\n', i);
+                i = (eol < 0) ? n : eol;
+                continue;
+            }
+            if (c == '"' || c == '\'') { i = scanStringLiteral(code, i); continue; }
+            if (c == '(' || c == '[' || c == '{') depth++;
+            else if (c == ')' || c == ']' || c == '}') depth--;
+            else if (c == ';' && depth == 0) return i;
+            i++;
+        }
+        return -1;
+    }
+
+    /**
+     * Parses a return body that concatenates quoted labels with numeric
+     * expressions ({@code "a=" + x + " b=" + y}) into ordered value
+     * expressions plus derived key names. Returns {@code null} when the body
+     * is not a clean label+value concat (no quotes, no values, a value
+     * segment that itself contains a quote, or malformed {@code +} splitting)
+     * so the caller leaves the return untouched.
+     */
+    private static StringConcatReturn parseLabelledStringConcat(String body) {
+        if (body == null || (body.indexOf('"') < 0 && body.indexOf('\'') < 0)) {
+            return null;
+        }
+        java.util.List<String> segments = splitTopLevelPlus(body);
+        if (segments == null || segments.isEmpty()) return null;
+
+        java.util.List<String> values = new ArrayList<>();
+        java.util.List<String> keys = new ArrayList<>();
+        String pendingLabel = null;
+        for (String seg : segments) {
+            String s = seg.trim();
+            if (s.isEmpty()) return null;
+            if (s.charAt(0) == '"' || s.charAt(0) == '\'') {
+                // A label segment must be a single string literal end-to-end.
+                if (scanStringLiteral(s, 0) != s.length()) return null;
+                pendingLabel = s;
+            } else {
+                // A value segment must be quote-free (else it yields a string).
+                if (s.indexOf('"') >= 0 || s.indexOf('\'') >= 0) return null;
+                values.add(s);
+                keys.add(keyFromLabel(pendingLabel, values.size() - 1));
+                pendingLabel = null;
+            }
+        }
+        if (values.isEmpty()) return null;
+        return new StringConcatReturn(values, keys);
+    }
+
+    /**
+     * Derives a key name from a quoted label like {@code " density="} (→
+     * {@code density}) by taking the last identifier run inside the quotes.
+     * Falls back to the positional index when the label is null or has no
+     * identifier (e.g. a bare {@code "="} or {@code ", "}).
+     */
+    private static String keyFromLabel(String label, int positionalIndex) {
+        if (label != null && label.length() >= 2) {
+            String inner = label.substring(1, label.length() - 1);
+            java.util.regex.Matcher m =
+                    java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]*").matcher(inner);
+            String last = null;
+            while (m.find()) last = m.group();
+            if (last != null) return last;
+        }
+        return Integer.toString(positionalIndex);
+    }
+
+    /**
+     * Splits {@code body} at top-level {@code +} operators, respecting
+     * parenthesis/bracket depth and string literals. Returns {@code null}
+     * when a {@code ++} is encountered (unexpected in a concat — bail rather
+     * than mis-split) or brackets are unbalanced.
+     */
+    private static java.util.List<String> splitTopLevelPlus(String body) {
+        java.util.List<String> parts = new ArrayList<>();
+        int depth = 0;
+        int start = 0;
+        int n = body.length();
+        for (int i = 0; i < n; ) {
+            char c = body.charAt(i);
+            if (c == '"' || c == '\'') { i = scanStringLiteral(body, i); continue; }
+            if (c == '(' || c == '[' || c == '{') { depth++; i++; continue; }
+            if (c == ')' || c == ']' || c == '}') {
+                if (--depth < 0) return null;
+                i++;
+                continue;
+            }
+            if (c == '+' && depth == 0) {
+                if (i + 1 < n && body.charAt(i + 1) == '+') return null; // ++
+                parts.add(body.substring(start, i));
+                start = i + 1;
+                i++;
+                continue;
+            }
+            i++;
+        }
+        if (depth != 0) return null;
+        parts.add(body.substring(start));
+        return parts;
+    }
+
+    /**
      * Splits a comma-separated body into a list of expressions, respecting
      * parenthesis/bracket depth so commas inside function calls or index
      * expressions don't split values. Returns {@code null} on malformed
@@ -586,7 +837,10 @@ public final class SandboxStaticChecker {
         java.util.List<String> keys = new ArrayList<>();
         String afterObj = rewriteReturnObjectLiteralWithKeys(afterScalar, keys);
         String afterArr = rewriteReturnArrayLiteralWithKeys(afterObj, keys);
-        return new Normalized(afterArr, java.util.List.copyOf(keys));
+        // Layer 1d (Phase 20) — labelled string-concat returns last, after the
+        // object/array shapes have had first claim on the named-key sink.
+        String afterStr = rewriteReturnStringConcatWithKeys(afterArr, keys);
+        return new Normalized(afterStr, java.util.List.copyOf(keys));
     }
 
     // ── Phase 19 Layer 2: per-rejection rewrite hint ──────────────────────
@@ -665,8 +919,11 @@ public final class SandboxStaticChecker {
                         + "`if (cond) break;`.";
             }
             if (pf.contains("Unexpected char '\"'") || pf.contains("Unexpected char '\\''")) {
-                return "Quick fix: the sandbox has no strings. Drop the quoted literal — "
-                        + "if it was a comment label, use `//` line comments instead.";
+                return "Quick fix: the sandbox has no strings. If you were returning a "
+                        + "labelled summary like `return \"a=\" + a + \" b=\" + b;`, call "
+                        + "`recordSample(a); recordSample(b); return a;` instead — the "
+                        + "harness reports every recorded value. If it was a comment label, "
+                        + "use `//` line comments instead.";
             }
             if (pf.contains("Unexpected char '['")) {
                 return "Quick fix: array literals must appear on the right-hand side of a "
