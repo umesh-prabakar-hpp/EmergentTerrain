@@ -140,8 +140,22 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     1, new org.springframework.beans.factory.config.RuntimeBeanReference(
                             ObjectMapper.class));
             def.getConstructorArgumentValues().addIndexedArgumentValue(2, parallelism);
+            // Per-request HTTP timeout: the global default
+            // (app.ai.http.requestTimeoutSeconds — previously hard-coded here and
+            // therefore unread) with an optional per-provider override
+            // (app.ai.http.provider-timeout-seconds.<provider>). The peer-review
+            // panel runs its reviewers sequentially on groq/openrouter; capping
+            // those tight lets a slow/congested reviewer call fail fast so the
+            // panel degrades-and-proceeds, instead of parking a draft in the
+            // post-narration pipeline until the stuck-draft reaper reclaims it
+            // (2026-05-25: drafts stalled ~7 min entering the panel, reaped at the
+            // 10-min TTL → 1 paper of ~7). legacy-ai keeps the long
+            // default: its local proxy's own turn timeout is 180s
+            // (LEGACY_AI_GATEWAY_TURN_TIMEOUT_MS), so ET must wait past that for one
+            // full tool turn.
+            int requestTimeoutSec = resolveRequestTimeoutSeconds(environment, providerKey);
             def.getConstructorArgumentValues().addIndexedArgumentValue(
-                    3, Duration.ofSeconds(420)); // matches app.ai.http.requestTimeoutSeconds default
+                    3, Duration.ofSeconds(requestTimeoutSec));
             // Phase 9 U5 parity — Selection tests on by default; same key the
             // legacy pools + OllamaPool read so a single global toggle still
             // works across every pool implementation.
@@ -151,9 +165,24 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                     4, selectionTestsEnabled);
             registry.registerBeanDefinition(beanName, def);
 
-            log.info("GenericPoolsRegistrar({}): registered bean={} baseUrl={} models={} contextWindow={} supportsTools={}",
-                    providerKey, beanName, cfg.baseUrl(), cfg.models(), cfg.contextWindow(), cfg.supportsTools());
+            log.info("GenericPoolsRegistrar({}): registered bean={} baseUrl={} models={} contextWindow={} supportsTools={} requestTimeoutSec={}",
+                    providerKey, beanName, cfg.baseUrl(), cfg.models(), cfg.contextWindow(), cfg.supportsTools(), requestTimeoutSec);
         }
+    }
+
+    /**
+     * Per-request HTTP timeout (seconds) for a provider pool: the global default
+     * {@code app.ai.http.requestTimeoutSeconds} (420 if unset), overridden per
+     * provider by {@code app.ai.http.provider-timeout-seconds.<provider>}. The
+     * override caps the panel-reviewer providers (groq/openrouter) so a slow
+     * reviewer fails fast; legacy-ai is left on the default because its
+     * proxy turn timeout (180s) needs ET to wait past it for a full tool turn.
+     * Package-private + static for unit testing against a MockEnvironment.
+     */
+    static int resolveRequestTimeoutSeconds(org.springframework.core.env.Environment env, String providerKey) {
+        int global = env.getProperty("app.ai.http.requestTimeoutSeconds", Integer.class, 420);
+        return env.getProperty(
+                "app.ai.http.provider-timeout-seconds." + providerKey, Integer.class, global);
     }
 
     @Override
