@@ -21,6 +21,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Phase 7 F7.2 + Phase 9 U3a — runs a multi-reviewer panel against a paper's
@@ -35,9 +39,12 @@ import java.util.Set;
  * (operator direction 2026-05-15) — the first N healthy handles win
  * regardless of provider diversity.
  *
- * <p>Reviewers still run <b>sequentially</b> — per the 2026-05-14 operator
- * direction the panel intentionally trades latency for cheaper quota usage
- * and clearer telemetry. Each reviewer's raw response is parsed via
+ * <p>Reviewers run <b>provider-aware parallel</b> (2026-05-25): each provider's
+ * reviewers run concurrently with other providers', but reviewers sharing a
+ * provider run sequentially on one worker so they don't burst that provider's
+ * per-minute token budget together. This keeps the quota-pacing the 2026-05-14
+ * fully-sequential panel bought while recovering the latency that was stalling
+ * drafts in the panel. Each reviewer's raw response is parsed via
  * {@link PanelReview#parse(String, String)}; if parsing fails the reviewer is
  * retried once, then dropped.
  *
@@ -75,6 +82,15 @@ public class ReviewPanelService {
     /** Lower-cased opt-in set of providers. Empty = no filter. */
     private final Set<String> providerFilter;
     private final int panelSize;
+
+    /**
+     * Provider-aware panel execution: each provider's reviewers run on their own
+     * virtual thread (so different providers' calls overlap), while reviewers that
+     * share a provider run sequentially on that thread (so two handles on one
+     * provider can't burst its per-minute token budget together — the quota-pacing
+     * the old fully-sequential panel bought, kept, while recovering the latency).
+     */
+    private final ExecutorService panelExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
     public ReviewPanelService(
             PrimaryModelRegistry primaryRegistry,
@@ -194,26 +210,49 @@ public class ReviewPanelService {
                     narratorModelId, narratorBudget, picks.size(), picks.size() - narratorBudget);
         }
 
-        long start = System.currentTimeMillis();
-        List<PanelReview> reviews = new ArrayList<>();
-        for (ModelHandle handle : picks) {
-            try {
-                Optional<PanelReview> result = callReviewer(handle, prompt);
-                result.ifPresent(reviews::add);
-            } catch (RuntimeException e) {
-                // Defensive: callReviewer already converts call failures to
-                // Optional.empty(); this catches anything else (e.g. a thread
-                // interrupt from upstream shutdown).
-                log.warn("ReviewPanelService: reviewer={} dropped ({})",
-                        handle.reviewerId(), e.getClass().getSimpleName());
-            }
+        // Group picks by provider, preserving discovery order. Providers run
+        // concurrently; handles within a provider run sequentially so they pace
+        // that provider's per-minute token budget (a parallel burst of same-
+        // provider reviewers was what tripped groq's TPM gate).
+        Map<String, List<ModelHandle>> byProvider = new LinkedHashMap<>();
+        for (ModelHandle h : picks) {
+            byProvider.computeIfAbsent(h.providerKey(), k -> new ArrayList<>()).add(h);
         }
+
+        // Reviewer calls run on fresh virtual threads, so the ambient
+        // LlmCallContext (paperId, set by the narration task's withPaperId scope)
+        // does not propagate automatically — capture it and re-establish it per
+        // worker so LlmTraceWriter still attributes panel calls to this paper.
+        // (The panel-review role is re-scoped inside callReviewer itself.)
+        String paperId = com.emergentterrain.llm.LlmCallContext.currentPaperId();
+
+        long start = System.currentTimeMillis();
+        List<PanelReview> reviews = new CopyOnWriteArrayList<>(); // aggregate() is order-independent
+        List<CompletableFuture<Void>> futures = new ArrayList<>(byProvider.size());
+        for (List<ModelHandle> group : byProvider.values()) {
+            futures.add(CompletableFuture.runAsync(() -> {
+                for (ModelHandle handle : group) {
+                    try {
+                        com.emergentterrain.llm.LlmCallContext.withPaperId(paperId,
+                                () -> callReviewer(handle, prompt)).ifPresent(reviews::add);
+                    } catch (RuntimeException e) {
+                        // Defensive: callReviewer already converts call failures to
+                        // Optional.empty(); this catches anything else (e.g. a thread
+                        // interrupt from upstream shutdown).
+                        log.warn("ReviewPanelService: reviewer={} dropped ({})",
+                                handle.reviewerId(), e.getClass().getSimpleName());
+                    }
+                }
+            }, panelExecutor));
+        }
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         long ms = System.currentTimeMillis() - start;
 
-        PanelOutcome outcome = PanelOutcome.aggregate(reviews);
-        log.info("ReviewPanelService: paperId={} reviewers={}/{} target={} agreement={} ms={} mode=sequential",
+        PanelOutcome outcome = PanelOutcome.aggregate(new ArrayList<>(reviews));
+        log.info("ReviewPanelService: paperId={} reviewers={}/{} target={} agreement={} ms={} "
+                        + "mode=provider-parallel providers={}",
                 draft != null ? draft.paperId() : "?", reviews.size(), picks.size(),
-                panelSize, String.format("%.2f", outcome.agreementScore()), ms);
+                panelSize, String.format("%.2f", outcome.agreementScore()), ms, byProvider.size());
         return outcome;
     }
 

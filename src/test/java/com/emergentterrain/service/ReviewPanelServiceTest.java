@@ -55,21 +55,22 @@ class ReviewPanelServiceTest {
     }
 
     @Test
-    void reviewersAreCalledSequentiallyInConfiguredOrder() {
-        // Each pool records the order in which it was invoked. Sequential mode
-        // means pool[i] must finish before pool[i+1] starts.
-        java.util.concurrent.atomic.AtomicInteger globalOrder = new java.util.concurrent.atomic.AtomicInteger();
-        FakePool a = panelistReturningWithOrder("groq",   cleanReviewJson(0.8), globalOrder);
-        FakePool b = panelistReturningWithOrder("nvidia", cleanReviewJson(0.7), globalOrder);
-        FakePool c = panelistReturningWithOrder("openrouter", cleanReviewJson(0.9), globalOrder);
+    void allProviderReviewersAreInvokedAcrossProviders() {
+        // Provider-aware parallel (2026-05-25): distinct providers run concurrently,
+        // so call ORDER across providers is no longer guaranteed. The contract is
+        // now "every configured reviewer is invoked exactly once and aggregated",
+        // which must hold regardless of scheduling.
+        FakePool a = panelistReturning("groq",       cleanReviewJson(0.8));
+        FakePool b = panelistReturning("nvidia",     cleanReviewJson(0.7));
+        FakePool c = panelistReturning("openrouter", cleanReviewJson(0.9));
 
         ReviewPanelService svc = build("groq,nvidia,openrouter", a, b, c);
-        svc.runPanel(draftFixture(), narrationWithTrace(1));
+        PanelOutcome out = svc.runPanel(draftFixture(), narrationWithTrace(1));
 
-        // Sequential: a invoked first, b second, c third — strict monotonic order.
-        assertThat(a.invocationOrder.get()).isEqualTo(0);
-        assertThat(b.invocationOrder.get()).isEqualTo(1);
-        assertThat(c.invocationOrder.get()).isEqualTo(2);
+        assertThat(out.reviewerCount()).isEqualTo(3);
+        assertThat(a.syncCallCount.get()).isEqualTo(1);
+        assertThat(b.syncCallCount.get()).isEqualTo(1);
+        assertThat(c.syncCallCount.get()).isEqualTo(1);
     }
 
     @Test
@@ -281,13 +282,6 @@ class ReviewPanelServiceTest {
         return new FakePool(key, List.of(response));
     }
 
-    private static FakePool panelistReturningWithOrder(String key, String response,
-                                                         AtomicInteger sharedCounter) {
-        FakePool p = new FakePool(key, List.of(response));
-        p.sharedOrder = sharedCounter;
-        return p;
-    }
-
     private static ReviewPanelService build(String providersCsv, FakePool... pools) {
         return build(true, providersCsv, ReviewPanelService.DEFAULT_PANEL_SIZE, pools);
     }
@@ -354,10 +348,6 @@ class ReviewPanelServiceTest {
         final String providerKey;
         final List<String> scriptedResponses;
         final AtomicInteger syncCallCount = new AtomicInteger();
-        /** Set by panelistReturningWithOrder so we can pin sequential ordering. */
-        AtomicInteger sharedOrder;
-        /** Records the value of {@code sharedOrder} at the moment this pool was first invoked. */
-        final AtomicInteger invocationOrder = new AtomicInteger(-1);
         RuntimeException throwOnSync;
         /** Phase 9 U3a — flips isModelBlocked so the registry's availability filter excludes this fake. */
         boolean isBlocked;
@@ -379,9 +369,6 @@ class ReviewPanelServiceTest {
         @Override public String callSync(String prompt) {
             observedRole = com.emergentterrain.llm.LlmCallContext.currentRole();
             int idx = syncCallCount.getAndIncrement();
-            if (idx == 0 && sharedOrder != null) {
-                invocationOrder.set(sharedOrder.getAndIncrement());
-            }
             if (throwOnSync != null) throw throwOnSync;
             if (idx >= scriptedResponses.size()) {
                 return scriptedResponses.isEmpty()
