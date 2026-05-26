@@ -1532,11 +1532,20 @@ public class UniversityService {
 
         addPaper(draft.roomId(), paper);
         researchCycleService.decrementDraftQueue(draft.paperId());
-        log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={} path=[{}]",
+        // Surface BOTH the scientific classification and the post-audit workflow
+        // status. draft.resultClassification() is the peer-review label (e.g.
+        // SUPPORTED) assigned BEFORE the Phase-5 B-series audit can override the
+        // disposition to REJECTED; paperStatus is the persisted, post-audit
+        // verdict. Logging classification alone made the line read
+        // "classification=SUPPORTED" for papers the document stamps REJECTED
+        // (P-a328-953, -954, -967) — the status was invisible. persistedCallPath
+        // (vs narration.callPath()) carries the "→ audit:…→REJECTED" suffix
+        // appended above, so the path now explains the status.
+        log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={} status={} path=[{}]",
                 draft.paperId(), draft.domain(), draft.topicName(),
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
-                draft.resultClassification(),
-                narration.callPath() != null ? narration.callPath() : "none");
+                draft.resultClassification(), paperStatus,
+                persistedCallPath != null ? persistedCallPath : "none");
 
         // Phase 1 Iter 4: attach the paper to a research program (no-op when the
         // app.research.programs.enabled flag is off).

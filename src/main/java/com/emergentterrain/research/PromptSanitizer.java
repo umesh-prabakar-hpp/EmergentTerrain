@@ -129,6 +129,13 @@ public final class PromptSanitizer {
      */
     private static final Pattern EMDASH_HARNESS_CLAUSE =
             Pattern.compile("\\s*—[^—]*?(?:starting\\s+(?:cycle\\s+)?index\\s+of|"
+                    // Phase 22 (2026-05-26) — P-a328-951 wrapped "starting position
+                    // index 30 and scale factor 2.1" in an em-dash aside; the
+                    // "position index N" + bare "scale factor N" forms (no "of")
+                    // dodged every prior trigger. Add the bare-digit variants so
+                    // the whole aside is stripped instead of leaving "— —" debris.
+                    + "starting\\s+position(?:\\s+index)?\\s+\\d|"
+                    + "depth\\s+index\\s+\\d|"
                     + "starts?\\s+(?:at|near)\\s+position|"
                     + "scal(?:e|ing)\\s+factor\\s+of)[^—]*—\\s*",
                     Pattern.CASE_INSENSITIVE);
@@ -194,6 +201,41 @@ public final class PromptSanitizer {
             Pattern.compile(CONNECTOR_PREFIX
                     + "starting\\s+(?:cycle\\s+)?index\\s+\\d+"
                     + "(?:\\s*,\\s*scale\\s+factor\\s+[\\d.]+)?",
+                    Pattern.CASE_INSENSITIVE);
+
+    // Phase 22 (2026-05-26) — research/a3289005 refresh. Four position/scale
+    // phrasings the prior family missed (all anchored to harness-specific
+    // wording so legitimate physics prose is untouched):
+    //   P-951 "starting position index 30 and scale factor 2.1"  ("position INDEX")
+    //   P-954 "starting position 10 with scale factor 1.4"        ("WITH scale", no "and")
+    //   P-960 "the scale parameter of 2.5"                        ("scale PARAMETER of")
+    //   P-967 "depth index 14 with scale factor 2.0"              ("DEPTH index")
+
+    /** "starting position index N (and scale (factor) M.M)?" — P-a328-951. */
+    private static final Pattern STARTING_POSITION_INDEX =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "starting\\s+position\\s+index\\s+\\d+"
+                    + "(?:\\s+and\\s+scale\\s+(?:factor\\s+)?[\\d.]+)?",
+                    Pattern.CASE_INSENSITIVE);
+
+    /** "(swept from )?starting position N with scale (factor) M.M" — P-a328-954. */
+    private static final Pattern STARTING_POSITION_WITH_SCALE =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:swept\\s+from\\s+)?starting\\s+position\\s+\\d+"
+                    + "\\s+with\\s+scal(?:e|ing)(?:\\s+factor)?\\s+[\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /** "(near )?(the )?scale parameter of N" — P-a328-960. */
+    private static final Pattern SCALE_PARAMETER_OF =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:near\\s+)?(?:the\\s+)?scale\\s+parameter\\s+of\\s+[\\d.]+",
+                    Pattern.CASE_INSENSITIVE);
+
+    /** "(beginning at )?depth index N (with scale (factor) M.M)?" — P-a328-967. */
+    private static final Pattern DEPTH_INDEX_WITH_SCALE =
+            Pattern.compile(CONNECTOR_PREFIX
+                    + "(?:beginning\\s+at\\s+)?depth\\s+index\\s+\\d+"
+                    + "(?:\\s+with\\s+scal(?:e|ing)(?:\\s+factor)?\\s+[\\d.]+)?",
                     Pattern.CASE_INSENSITIVE);
 
     // Phase 10 — literal `paramN=N` leaks from the refinement-loop accumulator.
@@ -444,6 +486,13 @@ public final class PromptSanitizer {
         // out of "starting position 15 and scale 8.5" first.
         cleaned = STARTING_POSITION_BARE_AND_SCALE.matcher(cleaned).replaceAll("");
         cleaned = STARTING_INDEX_BARE.matcher(cleaned).replaceAll("");
+        // Phase 22 (2026-05-26) — position/scale phrasings from research/a3289005.
+        // STARTING_POSITION_INDEX before STARTING_POSITION_WITH_SCALE so the
+        // "position index N" form isn't half-carved by the "position N" matcher.
+        cleaned = STARTING_POSITION_INDEX.matcher(cleaned).replaceAll("");
+        cleaned = STARTING_POSITION_WITH_SCALE.matcher(cleaned).replaceAll("");
+        cleaned = DEPTH_INDEX_WITH_SCALE.matcher(cleaned).replaceAll("");
+        cleaned = SCALE_PARAMETER_OF.matcher(cleaned).replaceAll("");
         // Phase 16 P5b — number-words leaks. Strip the parenthesised pair
         // form first (longest match) before the bare form. Both run BEFORE
         // the digit-form PARAM_PARENTHESIZED_* patterns so a hypothetical
@@ -688,6 +737,10 @@ public final class PromptSanitizer {
                 || STARTING_INDEX_OF.matcher(text).find()
                 || STARTING_POSITION_BARE_AND_SCALE.matcher(text).find()
                 || STARTING_INDEX_BARE.matcher(text).find()
+                || STARTING_POSITION_INDEX.matcher(text).find()
+                || STARTING_POSITION_WITH_SCALE.matcher(text).find()
+                || DEPTH_INDEX_WITH_SCALE.matcher(text).find()
+                || SCALE_PARAMETER_OF.matcher(text).find()
                 || PARAM_PARENTHESIZED_PAIR.matcher(text).find()
                 || PARAM_PARENTHESIZED_SINGLE.matcher(text).find()
                 || PARAM_PARENTHESIZED_LABEL.matcher(text).find()

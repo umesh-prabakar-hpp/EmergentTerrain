@@ -169,48 +169,85 @@ public final class PremiseValidator {
                     + "(?:\\s+(?:of|near|approximately|about|≈|~))?\\s+(\\d+(?:\\.\\d+)?)",
             Pattern.CASE_INSENSITIVE);
 
-    static Result validateSnell(String hypothesis) {
-        Matcher m1 = N1_PAT.matcher(hypothesis);
-        Matcher m2 = N2_PAT.matcher(hypothesis);
-        boolean hasSubscriptPair = m1.find() && m2.find();
-        double n1;
-        double n2;
-        if (hasSubscriptPair) {
-            try {
-                n1 = Double.parseDouble(m1.group(1));
-                n2 = Double.parseDouble(m2.group(1));
-            } catch (NumberFormatException nf) {
-                return OK;  // can't parse, can't reject
-            }
-        } else {
-            // Fall through to prose form. Added 2026-05-20 after P-a328-736
-            // shipped with "incident medium has refractive index 1.50 ...
-            // adjoining medium has a refractive index near 1.565" — no
-            // subscript tokens to match, so the original regex pair missed
-            // it and the paper proceeded with zero tool calls.
-            Matcher p1 = N1_PROSE_PAT.matcher(hypothesis);
-            Matcher p2 = N2_PROSE_PAT.matcher(hypothesis);
-            if (!p1.find() || !p2.find()) return OK;  // no extractable pair
-            try {
-                n1 = Double.parseDouble(p1.group(1));
-                n2 = Double.parseDouble(p2.group(1));
-            } catch (NumberFormatException nf) {
-                return OK;
-            }
+    // Swept-n₂ fallback (added 2026-05-26 after P-a328-953). That hypothesis
+    // wrote "n₂ varying from approximately 1.534 down to 1.490 across 56
+    // samples" — no "n₂=" token and no "…medium…refractive index" prose, so
+    // both single-value patterns above missed it and the inverted upper end
+    // (1.534 > n₁=1.50, no real critical angle) shipped. N2_SWEEP_CLAUSE grabs
+    // the sentence following an n₂ token; SWEEP_WORD confirms it is a range;
+    // INDEX_LIKE harvests refractive-index-shaped values (1.x / 2.x only, so
+    // the "scale 4.8" / "position 52" / "56 samples" knobs in the same clause
+    // are excluded). TIR fails if ANY sample has n₂ ≥ n₁, so we test the max.
+    // The window stops at a true sentence boundary (period-then-whitespace) but
+    // must NOT stop at the decimal point inside an index like "1.534" — hence
+    // the (?!\.\s) lookahead rather than a plain [^.] class, which truncated the
+    // clause at "approximately 1" and hid the swept values.
+    private static final Pattern N2_SWEEP_CLAUSE = Pattern.compile(
+            "n(?:[_]?\\{?2\\}?|₂)(?:(?!\\.\\s).){0,160}", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SWEEP_WORD = Pattern.compile(
+            "\\b(?:from|to|down\\s+to|varying|sweep|swept|across|between|range)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern INDEX_LIKE = Pattern.compile("\\b([12]\\.\\d+)\\b");
+
+    private static Double firstDouble(Pattern p, String s) {
+        Matcher m = p.matcher(s);
+        if (!m.find()) return null;
+        try {
+            return Double.parseDouble(m.group(1));
+        } catch (NumberFormatException nf) {
+            return null;
         }
-        // Total Internal Reflection only occurs when light goes from the
-        // denser to the rarer medium (n₁ > n₂). With n₂ ≥ n₁, n₂/n₁ ≥ 1,
-        // arcsin(n₂/n₁) is undefined (no real critical angle). This is
-        // the P-a328-693 (subscript-form) and P-a328-736 (prose-form)
+    }
+
+    /** Largest plausible refractive index in a swept-n₂ clause, or null. */
+    private static Double maxSweptN2(String hypothesis) {
+        Matcher clause = N2_SWEEP_CLAUSE.matcher(hypothesis);
+        if (!clause.find()) return null;
+        String c = clause.group();
+        if (!SWEEP_WORD.matcher(c).find()) return null;
+        Matcher v = INDEX_LIKE.matcher(c);
+        double max = Double.NEGATIVE_INFINITY;
+        while (v.find()) {
+            double d = Double.parseDouble(v.group(1));
+            if (d > max) max = d;
+        }
+        return max == Double.NEGATIVE_INFINITY ? null : max;
+    }
+
+    static Result validateSnell(String hypothesis) {
+        // Extract n₁ (incident/denser medium) from subscript or prose form.
+        Double n1 = firstDouble(N1_PAT, hypothesis);
+        if (n1 == null) n1 = firstDouble(N1_PROSE_PAT, hypothesis);
+        if (n1 == null) return OK;  // no extractable n₁, can't reject
+
+        // Extract n₂: prefer a single named value, then take the larger of that
+        // and any swept-range maximum. The swept fallback can only raise n₂
+        // (never lower it), so it never flips a prior reject into an OK — it can
+        // only catch the inverted upper end of a sweep the old code waved through.
+        Double n2 = firstDouble(N2_PAT, hypothesis);
+        if (n2 == null) n2 = firstDouble(N2_PROSE_PAT, hypothesis);
+        String n2Basis = "n₂";
+        Double sweptMax = maxSweptN2(hypothesis);
+        if (sweptMax != null && (n2 == null || sweptMax > n2)) {
+            n2 = sweptMax;
+            n2Basis = "max swept n₂";
+        }
+        if (n2 == null) return OK;  // no extractable n₂
+
+        // Total Internal Reflection only occurs when light goes from the denser
+        // to the rarer medium (n₁ > n₂). With n₂ ≥ n₁, n₂/n₁ ≥ 1 and
+        // arcsin(n₂/n₁) is undefined (no real critical angle). This is the
+        // P-a328-693 (subscript), P-a328-736 (prose), and P-a328-953 (swept)
         // signature.
         if (n2 >= n1) {
             return new Result.Reject(
                     "tir_indices_inverted",
                     "TIR requires n₁ > n₂ (light goes from denser to rarer medium); "
-                            + "the hypothesis names n₁=" + format(n1) + ", n₂=" + format(n2)
-                            + ". arcsin(n₂/n₁)=arcsin(" + format(n2 / n1) + ") has no real "
-                            + "solution. Either swap the indices, or change the geometry so "
-                            + "light enters the denser medium first.");
+                            + "the hypothesis names n₁=" + format(n1) + ", " + n2Basis + "="
+                            + format(n2) + ". arcsin(n₂/n₁)=arcsin(" + format(n2 / n1)
+                            + ") has no real solution. Either swap the indices, keep the "
+                            + "n₂ sweep below n₁, or change the geometry so light enters the "
+                            + "denser medium first.");
         }
         return OK;
     }

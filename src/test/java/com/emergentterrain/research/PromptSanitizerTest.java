@@ -867,4 +867,78 @@ class PromptSanitizerTest {
         assertThat(PromptSanitizer.verdictTagFor("rejected")).contains("REJECTED");
         assertThat(PromptSanitizer.verdictTagFor("Disputed")).contains("DISPUTED");
     }
+
+    // ---- Phase 22 (2026-05-26) — research/a3289005 position/scale leaks ----
+
+    @Test
+    void p22_stripsEmdashStartingPositionIndex_P951() {
+        // Exact shape from P-a328-951: em-dash aside with "position index" and a
+        // bare "scale factor N" (no "of"). The whole aside must vanish — no
+        // "— —" debris, no leaked knob.
+        String input = "The computation parameters — starting position index 30 and "
+                + "scale factor 2.1 — determine the mapping from sample indices to widths.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("starting position index")
+                .doesNotContain("scale factor 2.1")
+                .doesNotContain("—")
+                .startsWith("The computation parameters")
+                .endsWith("to widths.");
+    }
+
+    @Test
+    void p22_stripsStartingPositionWithScale_P954() {
+        // P-a328-954: "swept from starting position 10 with scale factor 1.4".
+        String input = "k_H will remain near 0.01 across the pressure range swept from "
+                + "starting position 10 with scale factor 1.4, such that concentration rises.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("starting position 10")
+                .doesNotContain("scale factor 1.4")
+                .contains("k_H will remain near 0.01")
+                .endsWith("such that concentration rises.");
+    }
+
+    @Test
+    void p22_stripsScaleParameterOf_P960() {
+        // P-a328-960: "near the scale parameter of 2.5".
+        String input = "the maximum ratio occurs at the shortest well length surveyed near "
+                + "the scale parameter of 2.5 used in this computation series.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output).doesNotContain("scale parameter of 2.5");
+    }
+
+    @Test
+    void p22_stripsDepthIndexWithScale_P967() {
+        // P-a328-967: "beginning at depth index 14 with scale factor 2.0".
+        String input = "For a liquid column sampled beginning at depth index 14 with scale "
+                + "factor 2.0, the hydrostatic pressure will increase linearly with depth.";
+        String output = PromptSanitizer.sanitize(input);
+        assertThat(output)
+                .doesNotContain("depth index 14")
+                .doesNotContain("scale factor 2.0")
+                .contains("hydrostatic pressure will increase linearly with depth.");
+    }
+
+    @Test
+    void p22_detectsNewLeakForms() {
+        assertThat(PromptSanitizer.detects("starting position index 30 and scale factor 2.1")).isTrue();
+        assertThat(PromptSanitizer.detects("starting position 10 with scale factor 1.4")).isTrue();
+        assertThat(PromptSanitizer.detects("the scale parameter of 2.5")).isTrue();
+        assertThat(PromptSanitizer.detects("depth index 14 with scale factor 2.0")).isTrue();
+    }
+
+    @Test
+    void p22_leavesLegitimatePhysicsProseUntouched() {
+        // None of the new patterns should fire on ordinary physics text that
+        // happens to mention positions, depth, or scale in non-knob phrasing.
+        String[] clean = {
+            "The pressure increases with depth in the liquid column.",
+            "At a depth of 14 metres the pressure reaches 2.88 MPa.",
+            "The characteristic length scale of the system is 2.5 nm.",
+        };
+        for (String c : clean) {
+            assertThat(PromptSanitizer.sanitize(c)).as("'%s'", c).isEqualTo(c);
+        }
+    }
 }

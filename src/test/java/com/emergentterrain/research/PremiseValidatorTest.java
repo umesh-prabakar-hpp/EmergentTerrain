@@ -115,6 +115,41 @@ class PremiseValidatorTest {
         assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
     }
 
+    @Test
+    void tirRule_sweptN2_P953_rejected() {
+        // Exact prose from research/a3289005/…_P-a328-953.md. The n₂ is swept
+        // "from approximately 1.534 down to 1.490" — no "n₂=" token, so the
+        // single-value patterns miss it. The upper end 1.534 > n₁=1.50 has no
+        // critical angle, but the paper shipped because the old code never
+        // tested the swept maximum.
+        String hypothesis = "For a glass-air interface with n₁=1.50 and n₂ varying from "
+                + "approximately 1.534 down to 1.490 across 56 samples beginning at "
+                + "computational position 52 with scale 4.8, the Snell-law critical angle "
+                + "θ_c=arcsin(n₂/n₁) will predict the observed total-internal-reflection "
+                + "onset to within 2° across the full sampled range.";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Snell Critical Angle Dispersion", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Reject.class);
+        var reject = (PremiseValidator.Result.Reject) r;
+        assertThat(reject.reasonCode()).isEqualTo("tir_indices_inverted");
+        assertThat(reject.explanation()).contains("n₁ > n₂").contains("1.534");
+        // The "scale 4.8" / "position 52" / "56 samples" knobs in the same
+        // clause must NOT be mistaken for the swept index.
+        assertThat(reject.explanation()).doesNotContain("4.8").doesNotContain("56");
+    }
+
+    @Test
+    void tirRule_sweptN2_belowN1_accepted() {
+        // Correct direction: the entire n₂ sweep stays below n₁, so every
+        // sample has a real critical angle. Must NOT reject.
+        String hypothesis = "At a glass interface with n₁=1.50 and n₂ varying from 1.45 "
+                + "down to 1.30 across 40 samples, the critical angle is well-defined "
+                + "throughout the sweep.";
+        PremiseValidator.Result r = PremiseValidator.validate(
+                "Snell Critical Angle Dispersion", hypothesis);
+        assertThat(r).isInstanceOf(PremiseValidator.Result.Ok.class);
+    }
+
     // ────────────── hypothesis completeness (2026-05-20) ──────────────
 
     @Test

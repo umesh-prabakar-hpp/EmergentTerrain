@@ -685,11 +685,30 @@ public class MathToolSuite {
     // ── Tool implementations ──────────────────────────────────────────────────
 
     private String runParamSweep(PaperDraft draft, JsonNode args) {
-        int    param1   = args.path("param1").asInt(-1);
-        double param2   = args.path("param2").asDouble(-1.0);
+        // Read both as doubles so the transpose test sees the true scale value
+        // (asInt would truncate 4.9→4 and hide that it belongs in param2).
+        double raw1     = args.path("param1").asDouble(-1.0);
+        double raw2     = args.path("param2").asDouble(-1.0);
+        int    param1   = (int) Math.round(raw1);
+        double param2   = raw2;
         String rationale = args.path("rationale").asText("(no rationale)");
-        if (param1 < 10 || param1 > 99 || param2 < 1.0 || param2 > 9.0) {
-            return "Invalid params: param1 must be 10–99, param2 must be 1.0–9.0.";
+        boolean inRange = param1 >= 10 && param1 <= 99 && param2 >= 1.0 && param2 <= 9.0;
+        if (!inRange) {
+            // Auto-orient obviously transposed args. The model routinely puts the
+            // scale (1.0–9.0) in param1 and the integer position (10–99) in param2
+            // — P-a328-961 sent param1=4.9, param2=53 and was hard-rejected. Swap
+            // only when the *opposite* assignment is the valid one; genuinely
+            // out-of-range inputs (e.g. P-a328-967's param1=7) still reject.
+            int    swap1 = (int) Math.round(raw2);
+            double swap2 = raw1;
+            boolean swapInRange = swap1 >= 10 && swap1 <= 99 && swap2 >= 1.0 && swap2 <= 9.0;
+            if (!swapInRange) {
+                return "Invalid params: param1 must be 10–99, param2 must be 1.0–9.0.";
+            }
+            log.info("MathToolSuite: run_param_sweep auto-oriented transposed params "
+                    + "param1={}→{} param2={}→{}", raw1, swap1, raw2, swap2);
+            param1 = swap1;
+            param2 = swap2;
         }
         int topicIdx = MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName());
         if (topicIdx < 0) return "Topic not computable via MathPhysicsEngine.";

@@ -152,6 +152,37 @@ public class CitationValidator {
             NarrationResult narration,
             List<ToolInvocation> trace,
             Set<Double> sweepParamWhitelist) {
+        return validate(narration, trace, sweepParamWhitelist, false);
+    }
+
+    /**
+     * Validate with reconciliation control (2026-05-26 — recommendation #1 of
+     * the research/a3289005 review). When {@code reconcileTraceable} is true,
+     * any uncited / unmatched prose number, or any claim citing a missing /
+     * wrong {@code call_N}, whose value nonetheless <em>appears somewhere in
+     * the tool-call trace</em> is reclassified as traceable rather than counted
+     * as a failure. The narrator simply failed to attach the right
+     * {@code [call_N]} marker; the value is real.
+     *
+     * <p>This is the fix for the dominant batch defect: papers whose tool calls
+     * produced correct results (E₁/k_BT=2.07 in P-a328-960's call_4; 9 happy
+     * primes in P-a328-968's call_4; 1/ln(530)=0.159 in P-a328-969's call_4)
+     * but whose narrator dropped the citation, so the gate stripped the numbers,
+     * downgraded to NULL_RESULT, and rewrote the prose to claim "the hypothesis
+     * remains untested" — directly contradicting the trace.
+     *
+     * <p>Reconciliation is strictly more rigorous than the pre-existing
+     * hypothesis-source exemption (which trusts every hypothesis number with no
+     * trace check at all): a value is reconciled only when it is demonstrably
+     * present in a real tool result, so it cannot launder a fabricated number.
+     * A value present in NO trace result (e.g. P-a328-960's hallucinated "3.25"
+     * borrowed from a sibling paper) still fails.
+     */
+    public CitationValidationResult validate(
+            NarrationResult narration,
+            List<ToolInvocation> trace,
+            Set<Double> sweepParamWhitelist,
+            boolean reconcileTraceable) {
         if (narration == null) return CitationValidationResult.clean();
         if (trace == null || trace.isEmpty()) {
             // No tool calls happened (first-pass-only paper). The validator
@@ -168,6 +199,9 @@ public class CitationValidator {
         for (ToolInvocation inv : trace) {
             if (inv.callId() != null) traceById.put(inv.callId(), inv.resultJson());
         }
+        // Reconciliation corpus: all tool-result text, scanned when a prose
+        // number lacks a clean citation but may still be present in the trace.
+        java.util.Collection<String> allResults = traceById.values();
 
         List<String> issues = new ArrayList<>();
         int uncited = 0;
@@ -175,6 +209,7 @@ public class CitationValidator {
         int outOfTolerance = 0;
         int exemptSweep = 0;
         int hypothesisParamExempt = 0;
+        int autoReconciled = 0;
         Set<Double> whitelist = sweepParamWhitelist == null ? Set.of() : sweepParamWhitelist;
 
         // Collect (number, sourceLocation, citedCallId) tuples from every prose block.
@@ -204,6 +239,9 @@ public class CitationValidator {
         // marker. The trace-conformance check (Check 3) still catches any
         // value the LLM later *claims* is a derived result, so suppressing
         // hypothesis uncited-flags here doesn't open a fabrication hole.
+        //
+        // 2026-05-26 — reconcile-before-null (Check 1c): a findings/conclusion
+        // number with no marker but a value present in the trace is traceable.
         for (ProseNumber pn : proseNumbers) {
             if (pn.citedCallId == null) {
                 if (isWhitelisted(pn.value, whitelist)) {
@@ -213,6 +251,10 @@ public class CitationValidator {
                 if (pn.sourceLocation != null
                         && pn.sourceLocation.startsWith("hypothesis")) {
                     hypothesisParamExempt++;
+                    continue;
+                }
+                if (reconcileTraceable && appearsInAnyResult(pn.value, allResults)) {
+                    autoReconciled++;
                     continue;
                 }
                 uncited++;
@@ -231,6 +273,10 @@ public class CitationValidator {
             boolean covered = claims.stream()
                     .anyMatch(c -> withinTolerance(pn.value, c.value()));
             if (!covered) {
+                if (reconcileTraceable && appearsInAnyResult(pn.value, allResults)) {
+                    autoReconciled++;
+                    continue;
+                }
                 unmatched++;
                 issues.add(String.format(
                         "prose number %s in %s has no matching numeric_claims entry",
@@ -242,6 +288,10 @@ public class CitationValidator {
         for (NarrationResult.NumericClaim c : claims) {
             String callId = c.toolCallId();
             if (callId == null || callId.isBlank()) {
+                if (reconcileTraceable && appearsInAnyResult(c.value(), allResults)) {
+                    autoReconciled++;
+                    continue;
+                }
                 outOfTolerance++;
                 issues.add(String.format(
                         "numeric_claim value=%s has no tool_call_id", c.value()));
@@ -249,12 +299,23 @@ public class CitationValidator {
             }
             String resultJson = traceById.get(callId);
             if (resultJson == null) {
+                // Claim cites a call_N that isn't in the trace. If the value is
+                // present in some *other* call's result, the narrator mis-attributed
+                // the marker but the value is real — reconcile rather than fail.
+                if (reconcileTraceable && appearsInAnyResult(c.value(), allResults)) {
+                    autoReconciled++;
+                    continue;
+                }
                 outOfTolerance++;
                 issues.add(String.format(
                         "%s referenced by claim value=%s is not in trace", callId, c.value()));
                 continue;
             }
             if (!valueAppearsInResult(c.value(), resultJson)) {
+                if (reconcileTraceable && appearsInAnyResult(c.value(), allResults)) {
+                    autoReconciled++;
+                    continue;
+                }
                 outOfTolerance++;
                 issues.add(String.format(
                         "%s result does not contain value %s (claimed in %s)",
@@ -262,14 +323,29 @@ public class CitationValidator {
             }
         }
 
+        if (autoReconciled > 0) {
+            log.info("CitationValidator: reconcile-before-null reclassified {} traceable "
+                    + "value(s) that lacked a clean [call_N] citation (remaining uncited={} "
+                    + "unmatched={} out_of_tolerance={})",
+                    autoReconciled, uncited, unmatched, outOfTolerance);
+        }
         if (!issues.isEmpty() || exemptSweep > 0 || hypothesisParamExempt > 0) {
             log.debug("CitationValidator: uncited={} unmatched={} out_of_tolerance={} "
-                            + "exempt_sweep={} exempt_hyp={} issues={}",
+                            + "exempt_sweep={} exempt_hyp={} reconciled={} issues={}",
                     uncited, unmatched, outOfTolerance,
-                    exemptSweep, hypothesisParamExempt, issues);
+                    exemptSweep, hypothesisParamExempt, autoReconciled, issues);
         }
         return new CitationValidationResult(uncited, unmatched, outOfTolerance,
                 exemptSweep, hypothesisParamExempt, List.copyOf(issues));
+    }
+
+    /** True when {@code value} appears (within tolerance) in any tool result. */
+    private static boolean appearsInAnyResult(double value, java.util.Collection<String> results) {
+        if (results == null) return false;
+        for (String r : results) {
+            if (valueAppearsInResult(value, r)) return true;
+        }
+        return false;
     }
 
     /**

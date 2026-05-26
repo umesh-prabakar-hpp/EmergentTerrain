@@ -156,6 +156,20 @@ public class ResearchNarrationService {
     private int moderateMismatchThreshold = MODERATE_MISMATCH_THRESHOLD_DEFAULT;
 
     /**
+     * Paper-review 2026-05-26 recommendation #1 — reconcile traceable numbers
+     * before downgrading to NULL_RESULT. When true, a findings/conclusion
+     * number (or a mis-attributed claim) whose value is present somewhere in
+     * the tool-call trace is treated as traceable rather than as a citation
+     * failure, so a correct-but-mis-cited computation no longer forces the
+     * "hypothesis remains untested" rewrite that contradicts the trace
+     * (P-a328-952/957/960/968/969). Default on; set false to restore the
+     * strict pre-2026-05-26 marker-only behaviour.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.citations.reconcile-before-null:true}")
+    private boolean citationsReconcileBeforeNull = true;
+
+    /**
      * Phase 16 P6a — cross-citation verdict propagation. Controls how the
      * narration prompt assembles the {@code priorPapers} context block for
      * papers in the room with the same domain + topic as the draft.
@@ -396,7 +410,9 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.max-computations:2}")
             int maxComputationsCfg,
             @org.springframework.beans.factory.annotation.Value("${app.research.panel-degradation-demote.enabled:false}")
-            boolean panelDegradationDemoteEnabled) {
+            boolean panelDegradationDemoteEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.narration-concurrency-cap:0}")
+            int narrationConcurrencyCap) {
         this.router                    = router;
         // Phase 8 Tier 4 — GpuEngineAdapter is @Autowired(required=false) so
         // tests and configurations without the GPU engine wired still construct
@@ -423,7 +439,19 @@ public class ResearchNarrationService {
                 ? Math.max(1, maxComputationsCfg)
                 : 1;
         this.panelDegradationDemoteEnabled = panelDegradationDemoteEnabled;
-        this.narrationSlot             = new Semaphore(router.primaryPoolSize());
+        // Narration parallelism defaults to the primary LLM pool size, but that
+        // can outrun the most-constrained provider's token-per-minute ceiling
+        // (Groq: 12k TPM on llama-3.3-70b, 8k on gpt-oss-120b). When parallel
+        // narrations collide with that floor the batch starves: budget_fallback
+        // chains exhaust and papers publish with empty traces or hit the
+        // narration timeout — the 2026-05-26 batch lost 7 papers (955-964) this
+        // way. A positive narration-concurrency-cap throttles below the pool
+        // size; 0 (default) preserves the historical pool-sized behaviour.
+        int narrationPoolSize = router.primaryPoolSize();
+        int narrationSlots = narrationConcurrencyCap > 0
+                ? Math.min(narrationPoolSize, narrationConcurrencyCap)
+                : narrationPoolSize;
+        this.narrationSlot             = new Semaphore(narrationSlots);
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
                 + "discussionSectionEnabled={} ollamaFallbackEnabled={} "
                 + "structuredFindingsEnabled={} maxComputations={} (cfg={}) "
@@ -1422,7 +1450,8 @@ public class ResearchNarrationService {
         java.util.Set<Double> sweepWhitelist = sweepWhitelistFor(draft);
         com.emergentterrain.research.CitationValidator.CitationValidationResult cv;
         try {
-            cv = citationValidator.validate(narration, trace, sweepWhitelist);
+            cv = citationValidator.validate(narration, trace, sweepWhitelist,
+                    citationsReconcileBeforeNull);
         } catch (RuntimeException ex) {
             // Defensive — the validator must never break the pipeline. If a
             // regex or numeric parse blows up, stamp it and continue.

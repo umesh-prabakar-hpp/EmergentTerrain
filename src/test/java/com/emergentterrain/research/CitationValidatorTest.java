@@ -432,4 +432,65 @@ class CitationValidatorTest {
         assertThat(result.exemptSweepCount()).isEqualTo(2);
         assertThat(result.uncitedCount()).isZero();
     }
+
+    // ───────── reconcile-before-null (2026-05-26, recommendation #1) ─────────
+
+    @Test
+    void reconcile_uncitedButTraceable_notFailedWhenEnabled() {
+        // P-a328-960 shape: findings states the computed ratio without a
+        // [call_N] marker, but the value IS in the trace. Strict mode flags it
+        // uncited (→ null downgrade); reconcile mode treats it as traceable.
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "E1/kBT reaches 2.07168 at the narrowest sampled width."),
+                "c",
+                List.of());
+        List<ToolInvocation> trace = List.of(call("call_4", "result=2.07168 iters_used=20"));
+
+        var strict = validator.validate(n, trace, java.util.Set.of(), false);
+        assertThat(strict.uncitedCount()).isEqualTo(1);
+        assertThat(strict.hasFailures()).isTrue();
+
+        var reconciled = validator.validate(n, trace, java.util.Set.of(), true);
+        assertThat(reconciled.uncitedCount()).isZero();
+        assertThat(reconciled.hasFailures()).isFalse();
+    }
+
+    @Test
+    void reconcile_misAttributedClaim_reconciledWhenEnabled() {
+        // The claim cites call_2 (absent from the trace), but its value is
+        // present in call_4 — a mis-attributed marker, not a fabrication.
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "The ratio is 2.07168 [call_2]."),
+                "c",
+                List.of(claim(2.07168, "call_2", "findings:1")));
+        List<ToolInvocation> trace = List.of(call("call_4", "result=2.07168"));
+
+        var strict = validator.validate(n, trace, java.util.Set.of(), false);
+        assertThat(strict.outOfToleranceCount()).isEqualTo(1);
+
+        var reconciled = validator.validate(n, trace, java.util.Set.of(), true);
+        assertThat(reconciled.outOfToleranceCount()).isZero();
+        assertThat(reconciled.hasFailures()).isFalse();
+    }
+
+    @Test
+    void reconcile_valueAbsentFromTrace_stillFails() {
+        // The load-bearing safety property: reconcile must NOT launder a
+        // hallucinated value. P-a328-960 cited "3.25" (borrowed from a sibling
+        // paper) which is in NO trace result — it must still fail even with
+        // reconcile enabled.
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "The crossover is near 3.25 nm."),
+                "c",
+                List.of());
+        List<ToolInvocation> trace = List.of(call("call_4", "result=2.07168"));
+
+        var reconciled = validator.validate(n, trace, java.util.Set.of(), true);
+        assertThat(reconciled.uncitedCount()).isEqualTo(1);
+        assertThat(reconciled.issues()).anyMatch(s -> s.contains("3.25"));
+        assertThat(reconciled.hasFailures()).isTrue();
+    }
 }
