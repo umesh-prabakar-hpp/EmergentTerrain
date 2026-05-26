@@ -691,6 +691,16 @@ public class UniversityService {
         this.narratingCallback = callback;
     }
 
+    /**
+     * Release the backlog slot for a draft once its narration task settles —
+     * success, suppression, exception, or reap. Called from the narration task's
+     * {@code finally} so a throw/hang before {@link #publishPaper} can't leak the
+     * slot. Idempotent with publishPaper's own release.
+     */
+    public void releaseDraftSlot(String paperId) {
+        researchCycleService.decrementDraftQueue(paperId);
+    }
+
     public void setFormulationCallback(java.util.function.Function<Object[], Object> callback) {
         this.formulationCallback = callback;
     }
@@ -707,7 +717,7 @@ public class UniversityService {
         // cost) to the log line without changing the publish-or-suppress
         // decision.
         if (narration == null || narration.isSuppressed()) {
-            researchCycleService.decrementDraftQueue();
+            researchCycleService.decrementDraftQueue(draft.paperId());
             if (narration == null) {
                 log.warn("university draft suppressed (blank professor synthesis) paperId={} domain={} topic={}",
                         draft.paperId(), draft.domain(), draft.topicName());
@@ -1173,7 +1183,7 @@ public class UniversityService {
                 && "suppress".equals(numericalConsistencyMode)) {
             log.warn("numeric_inconsistent→suppressed paperId={} reasons={} (Phase 12 D2)",
                     draft.paperId(), consistencyFailures);
-            researchCycleService.decrementDraftQueue();
+            researchCycleService.decrementDraftQueue(draft.paperId());
             return;
         }
         // 2026-05-21 — when missing-methods mode is `suppress`, drop the
@@ -1185,7 +1195,7 @@ public class UniversityService {
         if (noMethods && "suppress".equals(missingMethodsGateMode)) {
             log.warn("missing-methods→suppressed paperId={} (toolCallTrace null/empty)",
                     draft.paperId());
-            researchCycleService.decrementDraftQueue();
+            researchCycleService.decrementDraftQueue(draft.paperId());
             return;
         }
         // Phase 12 D2 — when mode is `downgrade`, override findings + conclusion
@@ -1521,7 +1531,7 @@ public class UniversityService {
         }
 
         addPaper(draft.roomId(), paper);
-        researchCycleService.decrementDraftQueue();
+        researchCycleService.decrementDraftQueue(draft.paperId());
         log.info("university paper published paperId={} domain={} topic={} score={} confidence={} classification={} path=[{}]",
                 draft.paperId(), draft.domain(), draft.topicName(),
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),

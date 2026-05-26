@@ -58,7 +58,21 @@ public class ResearchCycleService {
     private final AnomalyTracker anomalyTracker = new AnomalyTracker();
     private final ConcurrentHashMap<UUID, Integer> papersSinceTerm = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, Integer> totalRejected   = new ConcurrentHashMap<>();
-    private final AtomicInteger draftQueueSize = new AtomicInteger(0);
+    /**
+     * In-flight drafts, keyed by paperId → enqueue timestamp (ms). Replaces a raw
+     * counter so release is <em>idempotent</em>: {@code remove} of an absent paperId
+     * is a no-op, letting the same draft be released by {@code publishPaper}, the
+     * narration task's {@code finally}, and the stuck-draft reaper without ever
+     * double-counting. {@link #draftQueueSize()} = {@code size()} is the backlog the
+     * {@code maybeTick} gate reads. A leaked draft (narration threw or hung before
+     * {@code publishPaper}) no longer pins its slot forever — the {@code finally}
+     * releases it on task end and {@link #reapStuckDrafts()} reclaims true hangs.
+     */
+    private final ConcurrentHashMap<String, Long> inFlightDrafts = new ConcurrentHashMap<>();
+
+    /** Age (ms) after which an in-flight draft is presumed hung and its slot reclaimed. */
+    @org.springframework.beans.factory.annotation.Value("${app.research.stuckDraftTtlMs:600000}")
+    private long stuckDraftTtlMs;
 
     /** Phase 2 Iter 5 — optional planner. Null when no Spring bean is wired. */
     private volatile ExperimentPlannerService planner;
@@ -191,8 +205,51 @@ public class ResearchCycleService {
 
     // ---- State accessors used by UniversityService.maybeTick / getStats / publishPaper ----
 
-    public int draftQueueSize()                  { return draftQueueSize.get(); }
-    public void decrementDraftQueue()            { draftQueueSize.decrementAndGet(); }
+    public int draftQueueSize()                  { return inFlightDrafts.size(); }
+
+    /** Record a draft as in-flight (occupying a backlog slot) at enqueue time. */
+    void markDraftInFlight(String paperId) {
+        if (paperId != null) inFlightDrafts.put(paperId, System.currentTimeMillis());
+    }
+
+    /**
+     * Release a draft's backlog slot. Idempotent — removing an absent paperId is a
+     * no-op — so this is safe to call from every settle path (publishPaper success
+     * / suppression / reject, the narration task's finally, and the reaper) without
+     * risk of double-counting the backlog negative.
+     */
+    public void decrementDraftQueue(String paperId) {
+        if (paperId != null) inFlightDrafts.remove(paperId);
+    }
+
+    /**
+     * Stuck-draft watchdog. A narration task that hangs (an LLM call that never
+     * returns) never runs its finally, so without this its slot would be pinned
+     * forever and — once maxDraftBacklog of them accumulate — silently dead-lock
+     * all future research (P-a328 room, 2026-05-25: 3 drafts narrated then hung
+     * post-audit, draftQueue stuck at 3, zero new cycles for 25+ min). Reap any
+     * draft in-flight longer than the TTL so the backlog self-heals.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            fixedDelayString = "${app.research.stuckDraftScanMs:60000}")
+    public void reapStuckDrafts() {
+        reapStuckDrafts(stuckDraftTtlMs);
+    }
+
+    /** Reap drafts in-flight longer than {@code ttlMs}; returns the count reclaimed. */
+    int reapStuckDrafts(long ttlMs) {
+        long now = System.currentTimeMillis();
+        int reaped = 0;
+        for (var e : inFlightDrafts.entrySet()) {
+            long ageMs = now - e.getValue();
+            if (ageMs > ttlMs && inFlightDrafts.remove(e.getKey(), e.getValue())) {
+                reaped++;
+                log.warn("research: reaped stuck draft paperId={} ageMs={} (narration hung/never settled) — "
+                        + "released backlog slot, draftQueue={}", e.getKey(), ageMs, inFlightDrafts.size());
+            }
+        }
+        return reaped;
+    }
     public int papersSinceTerm(UUID roomId)      { return papersSinceTerm.getOrDefault(roomId, 0); }
     public void resetPapersSinceTerm(UUID roomId) { papersSinceTerm.put(roomId, 0); }
     public int totalRejected(UUID roomId)        { return totalRejected.getOrDefault(roomId, 0); }
@@ -400,7 +457,7 @@ public class ResearchCycleService {
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
-                draftQueueSize.incrementAndGet();
+                markDraftInFlight(draft.paperId());
                 narratingCallback.accept(draft);
             } else {
                 ctx.publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(),
@@ -489,7 +546,7 @@ public class ResearchCycleService {
 
         Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
         if (narratingCallback != null) {
-            draftQueueSize.incrementAndGet();
+            markDraftInFlight(draft.paperId());
             narratingCallback.accept(draft);
         } else {
             ctx.publishPaper(draft, new NarrationResult(
@@ -615,7 +672,7 @@ public class ResearchCycleService {
 
             Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
             if (narratingCallback != null) {
-                draftQueueSize.incrementAndGet();
+                markDraftInFlight(draft.paperId());
                 narratingCallback.accept(draft);
             } else {
                 ctx.publishPaper(draft, new NarrationResult(templateHypothesis, result.findings(),

@@ -323,6 +323,14 @@ public class ResearchNarrationService {
     /** Set during wireUniversityCallback — calls university.publishPaper on completion. */
     private volatile java.util.function.BiConsumer<PaperDraft, NarrationResult> narrationPublisher;
 
+    /**
+     * Set during wireUniversityCallback — releases a draft's backlog slot when its
+     * narration task settles. Invoked from {@link #refineAndNarrate}'s {@code finally}
+     * so a throw or hang before {@code publishPaper} can't leak the slot and
+     * dead-lock the research backlog. Idempotent with publishPaper's own release.
+     */
+    private volatile java.util.function.Consumer<String> draftSettledCallback;
+
     public ResearchNarrationService(
             LlmRouter router,
             ObjectMapper objectMapper,
@@ -475,6 +483,7 @@ public class ResearchNarrationService {
         if (university != null) {
             university.setNarratingCallback(this::enqueueNarration);
             this.narrationPublisher = university::publishPaper;
+            this.draftSettledCallback = university::releaseDraftSlot;
             log.info("ResearchNarrationService: narration callback wired to UniversityService");
         }
         // Phase 17 — wire the gate-retry queue. retryDispatch goes through the
@@ -505,25 +514,38 @@ public class ResearchNarrationService {
     }
 
     private void refineAndNarrate(PaperDraft draft) {
-        refinementSlot.acquireUninterruptibly();
-        PaperDraft enrichedDraft;
         try {
-            enrichedDraft = maybeRefineComputation(draft);
+            refinementSlot.acquireUninterruptibly();
+            PaperDraft enrichedDraft;
+            try {
+                enrichedDraft = maybeRefineComputation(draft);
+            } finally {
+                refinementSlot.release();
+            }
+            // Statistical framing — fast call between refinement and narration; best-effort
+            PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
+            narrationSlot.acquireUninterruptibly();
+            try {
+                // Scope the paperId so any LLM call made during narration (primary
+                // stream, critique tool loop, MathToolSuite sandbox safety review on
+                // the same virtual thread) is captured per-paper by LlmTraceWriter.
+                com.emergentterrain.llm.LlmCallContext.withPaperId(
+                        framedDraft.paperId(),
+                        () -> runNarration(framedDraft));
+            } finally {
+                narrationSlot.release();
+            }
         } finally {
-            refinementSlot.release();
-        }
-        // Statistical framing — fast call between refinement and narration; best-effort
-        PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
-        narrationSlot.acquireUninterruptibly();
-        try {
-            // Scope the paperId so any LLM call made during narration (primary
-            // stream, critique tool loop, MathToolSuite sandbox safety review on
-            // the same virtual thread) is captured per-paper by LlmTraceWriter.
-            com.emergentterrain.llm.LlmCallContext.withPaperId(
-                    framedDraft.paperId(),
-                    () -> runNarration(framedDraft));
-        } finally {
-            narrationSlot.release();
+            // Guarantee the backlog slot is released on every task outcome — normal
+            // completion, suppression, or (the leak that dead-locked research on
+            // 2026-05-25) an exception thrown anywhere above before publishPaper ran.
+            // Keyed by the original draft's paperId — the same key the increment used
+            // — so it matches even if refinement/framing returned a new draft object.
+            // Idempotent with publishPaper's own release; the reaper covers true hangs
+            // where this finally never runs.
+            if (draftSettledCallback != null) {
+                draftSettledCallback.accept(draft.paperId());
+            }
         }
     }
 
