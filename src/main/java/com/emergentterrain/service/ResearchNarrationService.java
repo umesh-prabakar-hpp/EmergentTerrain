@@ -29,9 +29,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * Paper narration pipeline: refinement → statistical framing → first-pass narration →
@@ -71,7 +75,23 @@ public class ResearchNarrationService {
     private final com.emergentterrain.research.recognise.ConstantRecognitionService
             constantRecognitionService;
     private final PromptTemplateRegistry promptRegistry;
-    private final Executor executor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+
+    /**
+     * Wall-clock cap for a whole narration task (refinement → framing → first-pass
+     * → audit → professor tools → panel). A stage that hangs on an unresponsive
+     * provider (observed in the professor-tools tool loop) otherwise parks the
+     * draft until the stuck-draft reaper reclaims it ~10 min later — and the
+     * reaper only frees the backlog slot, it never interrupts the hung thread or
+     * its HTTP connection. On timeout we cancel(true) the work, which interrupts
+     * the in-flight (interruptible) HTTP call so the thread + connection unwind,
+     * then release the slot. Set below the reaper TTL so it fires first; the
+     * reaper remains the backstop for a truly un-interruptible hang. A healthy
+     * pipeline runs ~3.5 min on the congested fast tier, so the default leaves
+     * roughly 2× headroom.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.research.narrationTimeoutMs:420000}")
+    private long narrationTimeoutMs;
     private final Semaphore narrationSlot;
     private final Semaphore refinementSlot = new Semaphore(2);
     /** Phase 6 D1.3 — optional. Null when the literature service bean isn't on the context. */
@@ -513,39 +533,76 @@ public class ResearchNarrationService {
         executor.execute(() -> refineAndNarrate(draft));
     }
 
+    /**
+     * Supervises {@link #doRefineAndNarrate} with a wall-clock timeout
+     * ({@code app.research.narrationTimeoutMs}). The work runs on its own virtual
+     * thread; if it exceeds the budget we cancel(true) it — interrupting the hung
+     * (interruptible) HTTP call so the thread and connection unwind — rather than
+     * letting the draft sit until the stuck-draft reaper reclaims it. The backlog
+     * slot is released in the finally on every outcome (completion, timeout, or
+     * failure), keyed by the original draft's paperId (idempotent with
+     * publishPaper's own release).
+     */
     private void refineAndNarrate(PaperDraft draft) {
+        runSupervised(executor, () -> doRefineAndNarrate(draft), narrationTimeoutMs,
+                draft.paperId(), draftSettledCallback);
+    }
+
+    /**
+     * Run {@code work} on {@code exec} with a wall-clock {@code timeoutMs}. On
+     * timeout we cancel(true) it — interrupting the in-flight (interruptible) HTTP
+     * call so the thread and connection unwind — instead of letting the draft hang
+     * until the stuck-draft reaper reclaims it. {@code onSettle} is invoked exactly
+     * once with {@code paperId} on <em>every</em> outcome (completion, timeout, or
+     * failure) to release the backlog slot — keyed by the original draft's paperId,
+     * idempotent with publishPaper's own release. Package-private + static so the
+     * supervision is unit-testable without standing up the full service.
+     */
+    static void runSupervised(ExecutorService exec, Runnable work, long timeoutMs,
+                              String paperId, java.util.function.Consumer<String> onSettle) {
+        Future<?> f = exec.submit(work);
         try {
-            refinementSlot.acquireUninterruptibly();
-            PaperDraft enrichedDraft;
-            try {
-                enrichedDraft = maybeRefineComputation(draft);
-            } finally {
-                refinementSlot.release();
+            if (timeoutMs <= 0) {
+                f.get();                 // disabled: wait indefinitely (reaper remains the backstop)
+            } else {
+                f.get(timeoutMs, TimeUnit.MILLISECONDS);
             }
-            // Statistical framing — fast call between refinement and narration; best-effort
-            PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
-            narrationSlot.acquireUninterruptibly();
-            try {
-                // Scope the paperId so any LLM call made during narration (primary
-                // stream, critique tool loop, MathToolSuite sandbox safety review on
-                // the same virtual thread) is captured per-paper by LlmTraceWriter.
-                com.emergentterrain.llm.LlmCallContext.withPaperId(
-                        framedDraft.paperId(),
-                        () -> runNarration(framedDraft));
-            } finally {
-                narrationSlot.release();
-            }
+        } catch (TimeoutException te) {
+            f.cancel(true); // interrupt the hung call; the stuck-draft reaper is the backstop
+            log.warn("narration timed out after {}ms — abandoning paperId={} (interrupted; slot released)",
+                    timeoutMs, paperId);
+        } catch (ExecutionException ee) {
+            log.warn("narration task failed paperId={}: {}", paperId,
+                    ee.getCause() != null ? ee.getCause().toString() : ee.toString());
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            f.cancel(true);
         } finally {
-            // Guarantee the backlog slot is released on every task outcome — normal
-            // completion, suppression, or (the leak that dead-locked research on
-            // 2026-05-25) an exception thrown anywhere above before publishPaper ran.
-            // Keyed by the original draft's paperId — the same key the increment used
-            // — so it matches even if refinement/framing returned a new draft object.
-            // Idempotent with publishPaper's own release; the reaper covers true hangs
-            // where this finally never runs.
-            if (draftSettledCallback != null) {
-                draftSettledCallback.accept(draft.paperId());
-            }
+            if (onSettle != null) onSettle.accept(paperId);
+        }
+    }
+
+    /** The narration pipeline proper; supervised by {@link #refineAndNarrate}. */
+    private void doRefineAndNarrate(PaperDraft draft) {
+        refinementSlot.acquireUninterruptibly();
+        PaperDraft enrichedDraft;
+        try {
+            enrichedDraft = maybeRefineComputation(draft);
+        } finally {
+            refinementSlot.release();
+        }
+        // Statistical framing — fast call between refinement and narration; best-effort
+        PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
+        narrationSlot.acquireUninterruptibly();
+        try {
+            // Scope the paperId so any LLM call made during narration (primary
+            // stream, critique tool loop, MathToolSuite sandbox safety review on
+            // the same virtual thread) is captured per-paper by LlmTraceWriter.
+            com.emergentterrain.llm.LlmCallContext.withPaperId(
+                    framedDraft.paperId(),
+                    () -> runNarration(framedDraft));
+        } finally {
+            narrationSlot.release();
         }
     }
 
