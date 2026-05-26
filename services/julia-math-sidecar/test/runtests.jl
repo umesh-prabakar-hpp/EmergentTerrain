@@ -22,6 +22,12 @@ using JuliaMathSidecar
 using SymbolicRegression
 using Statistics: median
 
+# PyCall-backed endpoints (/prove_identity, /recognise/{constant,minpoly}) live
+# in src/pycall_sidecar.jl — NOT loaded by the package, so the production main
+# server stays PyCall-free. Load it here to exercise those handlers in-process
+# (the test process is single-threaded, so PyCall finalizers are safe).
+include(joinpath(@__DIR__, "..", "src", "pycall_sidecar.jl"))
+
 # Reach into the module to test private functions. `Base.@invokelatest`
 # isn't needed because we're loaded at the same world-age.
 const Safety  = JuliaMathSidecar
@@ -415,7 +421,7 @@ function _prove(algorithm, summand, var, lower, upper)
     req = HTTP.Request("POST", "/prove_identity",
                        ["Content-Type"=>"application/json"],
                        Vector{UInt8}(JSON3.write(body)))
-    resp = JuliaMathSidecar.handle_prove_identity(req)
+    resp = PyCallSidecar.handle_prove_identity(req)
     return resp.status, JSON3.read(String(copy(resp.body)))
 end
 
@@ -527,7 +533,7 @@ function _recognise_constant(value, basis="BASIC", precision=200)
     req = HTTP.Request("POST", "/recognise/constant",
                        ["Content-Type"=>"application/json"],
                        Vector{UInt8}(JSON3.write(body)))
-    resp = JuliaMathSidecar.handle_recognise_constant(req)
+    resp = PyCallSidecar.handle_recognise_constant(req)
     return resp.status, JSON3.read(String(copy(resp.body)))
 end
 
@@ -638,7 +644,7 @@ function _recognise_minpoly(value, degreeBound=4, precision=200)
     req = HTTP.Request("POST", "/recognise/minpoly",
                        ["Content-Type"=>"application/json"],
                        Vector{UInt8}(JSON3.write(body)))
-    resp = JuliaMathSidecar.handle_recognise_minpoly(req)
+    resp = PyCallSidecar.handle_recognise_minpoly(req)
     return resp.status, JSON3.read(String(copy(resp.body)))
 end
 
@@ -722,26 +728,26 @@ end
 end
 
 @testset "render_polynomial (phase-26 §26.3)" begin
-    @test JuliaMathSidecar.render_polynomial([1, 0, -10, 0, 1]) == "x^4 - 10*x^2 + 1"
-    @test JuliaMathSidecar.render_polynomial([-2, 0, 1]) == "x^2 - 2"
-    @test JuliaMathSidecar.render_polynomial([-1, -1, 1]) == "x^2 - x - 1"
-    @test JuliaMathSidecar.render_polynomial([-2, 0, 0, 1]) == "x^3 - 2"
-    @test JuliaMathSidecar.render_polynomial([5]) == "5"
-    @test JuliaMathSidecar.render_polynomial([0, 0, 1]) == "x^2"
-    @test JuliaMathSidecar.render_polynomial([1, -3, 0, 2]) == "2*x^3 - 3*x + 1"
+    @test PyCallSidecar.render_polynomial([1, 0, -10, 0, 1]) == "x^4 - 10*x^2 + 1"
+    @test PyCallSidecar.render_polynomial([-2, 0, 1]) == "x^2 - 2"
+    @test PyCallSidecar.render_polynomial([-1, -1, 1]) == "x^2 - x - 1"
+    @test PyCallSidecar.render_polynomial([-2, 0, 0, 1]) == "x^3 - 2"
+    @test PyCallSidecar.render_polynomial([5]) == "5"
+    @test PyCallSidecar.render_polynomial([0, 0, 1]) == "x^2"
+    @test PyCallSidecar.render_polynomial([1, -3, 0, 2]) == "2*x^3 - 3*x + 1"
 end
 
 @testset "estimate_input_precision (phase-26 §26.2)" begin
     # Helper directly — verifies the tolerance heuristic.
-    @test JuliaMathSidecar.estimate_input_precision("3.14159") == 6
-    @test JuliaMathSidecar.estimate_input_precision("3.14159e0") == 6
-    @test JuliaMathSidecar.estimate_input_precision("0.5") == 1
-    @test JuliaMathSidecar.estimate_input_precision("100") == 3
-    @test JuliaMathSidecar.estimate_input_precision("0.0001") == 4
-    @test JuliaMathSidecar.estimate_input_precision("-1.234") == 4
+    @test PyCallSidecar.estimate_input_precision("3.14159") == 6
+    @test PyCallSidecar.estimate_input_precision("3.14159e0") == 6
+    @test PyCallSidecar.estimate_input_precision("0.5") == 1
+    @test PyCallSidecar.estimate_input_precision("100") == 3
+    @test PyCallSidecar.estimate_input_precision("0.0001") == 4
+    @test PyCallSidecar.estimate_input_precision("-1.234") == 4
     # 99-digit value used in the classical-constants tests
     big = "1.20205690315959428539973816151144999076498629234049888179227155534183820578631309018645587360933525"
-    @test JuliaMathSidecar.estimate_input_precision(big) == 99
+    @test PyCallSidecar.estimate_input_precision(big) == 99
 end
 
 @testset "parallel equation_search safety (Lever 2 prep, phase-24 §24.6)" begin

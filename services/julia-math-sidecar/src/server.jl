@@ -26,22 +26,17 @@ using Logging
 # of the handlers defined in handlers.jl.
 function build_router()
     router = HTTP.Router()
-    # PyCall-backed endpoints (sympy/mpmath) are unsafe in THIS process under
-    # JULIA_NUM_THREADS>1 (off-thread pydecref → SIGSEGV). When
-    # PY_SIDECAR_ENABLED=true they proxy to the single-threaded py-sidecar
-    # (scripts/start-py-sidecar.sh); default false → served in-process as before.
+    # PyCall-backed endpoints (sympy/mpmath) are NOT served in this process.
+    # The main server is PyCall-free by construction — it never loads
+    # pycall_sidecar.jl — so libpython is never initialised here and the
+    # off-thread `pydecref` SIGSEGV that struck /pysr cannot occur. These
+    # routes always go to the single-threaded py-sidecar:
+    #   PY_SIDECAR_ENABLED=true → proxy to scripts/start-py-sidecar.sh
+    #   otherwise               → 503 (start the py-sidecar to enable them)
     py_proxy = get(ENV, "PY_SIDECAR_ENABLED", "false") == "true"
-    # Route the PyCall endpoints safely. They segfault in-process under >1 thread
-    # (Julia GC runs pydecref off the GIL-holding thread), so:
-    #   PY_SIDECAR_ENABLED=true   → proxy to the single-threaded py-sidecar
-    #   single-threaded            → serve in-process (safe)
-    #   multithreaded + no proxy   → FAIL SAFE with 503, rather than load PyCall
-    #                                here and crash the whole process.
-    pyroute(path, h) =
+    pyroute(path) =
         if py_proxy
             (req::HTTP.Request -> proxy_to_py(req, path))
-        elseif Threads.nthreads() == 1
-            h
         else
             (req::HTTP.Request -> py_unavailable_response(path))
         end
@@ -61,7 +56,7 @@ function build_router()
     # SymPy Gosper / WZ identity proofs via PyCall.jl (phase-25 §25.1).
     # Per-call lock — PyCall + GIL means concurrent calls already
     # serialise; the explicit lock gives a deterministic 503 surface.
-    HTTP.register!(router, "POST", "/prove_identity", pyroute("/prove_identity", handle_prove_identity))
+    HTTP.register!(router, "POST", "/prove_identity", pyroute("/prove_identity"))
     # Number-theory window aggregator — port of `MathConjectureSubstrate`
     # (phase-28 §28.1). Numeric input only; no safety filter exposure.
     HTTP.register!(router, "POST", "/numbertheory/window", handle_numbertheory_window)
@@ -70,11 +65,11 @@ function build_router()
     HTTP.register!(router, "POST", "/recognise/sequence", handle_recognise_sequence)
     # PSLQ integer-relation search (phase-26 §26.2). PyCall→mpmath at
     # caller-configured precision against named basis sets.
-    HTTP.register!(router, "POST", "/recognise/constant", pyroute("/recognise/constant", handle_recognise_constant))
+    HTTP.register!(router, "POST", "/recognise/constant", pyroute("/recognise/constant"))
     # Minimal polynomial recovery (phase-26 §26.3). PSLQ on the polynomial
     # basis [1, α, α², ..., α^d] — equivalent to single-row LLL for this
     # narrow use case; no Nemo.jl dep required.
-    HTTP.register!(router, "POST", "/recognise/minpoly", pyroute("/recognise/minpoly", handle_recognise_minpoly))
+    HTTP.register!(router, "POST", "/recognise/minpoly", pyroute("/recognise/minpoly"))
     # Dalmatian-style conjecture seed/update (phase-28 §28.3). Pure numeric
     # compute; the §28.3 parity test pins byte-identical output against the
     # JVM ConjectureEngine.
@@ -114,7 +109,7 @@ subsequent calls are sub-millisecond. Once the listener is up we call
 `warmup!`, which pre-pays the outbound-HTTP client path
 (`/recognise/sequence`). Pure-Julia compute paths are baked into the
 precompile cache via PrecompileTools; PyCall endpoints are isolated to the
-single-threaded py-sidecar (see `start_py_server!`).
+single-threaded py-sidecar (see scripts/start-py-sidecar.sh).
 """
 function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     init_metrics!()
@@ -203,8 +198,9 @@ end
 # PyCall's pydecref finalizer crashes when Julia's GC runs it off the
 # GIL-holding thread, which happens under JULIA_NUM_THREADS>1. Rather than
 # give up the multithreading the main server needs, the PyCall endpoints are
-# moved to a single-threaded companion process (start_py_server!) and the main
-# server proxies to it (gated by PY_SIDECAR_ENABLED, default off).
+# moved to a single-threaded companion process (PyCallSidecar.start_py_server!
+# in pycall_sidecar.jl, loaded only there) and the main server proxies to it
+# (gated by PY_SIDECAR_ENABLED, default off).
 
 """
     proxy_to_py(req, path) -> HTTP.Response
@@ -245,57 +241,3 @@ function py_unavailable_response(path::AbstractString)
     return HTTP.Response(503, ["Content-Type" => "application/json"]; body = body)
 end
 
-# Minimal router for the py-sidecar: only the PyCall-backed routes (served
-# LOCALLY here — this IS the PyCall process) plus liveness/metrics. Never
-# proxies, so it can't loop back on itself.
-function build_py_router()
-    router = HTTP.Router()
-    HTTP.register!(router, "GET",  "/healthz", handle_healthz)
-    HTTP.register!(router, "GET",  "/metrics", handle_metrics)
-    HTTP.register!(router, "POST", "/prove_identity",     handle_prove_identity)
-    HTTP.register!(router, "POST", "/recognise/constant", handle_recognise_constant)
-    HTTP.register!(router, "POST", "/recognise/minpoly",  handle_recognise_minpoly)
-    return router
-end
-
-"""
-    start_py_server!(; host="127.0.0.1", port=8089)
-
-Companion process that owns ALL PyCall (sympy/mpmath) work, serving only the
-PyCall-backed endpoints. MUST run single-threaded (`JULIA_NUM_THREADS=1`, via
-scripts/start-py-sidecar.sh): PyCall's `pydecref` finalizers segfault when run
-off the GIL-holding thread, which is exactly what Julia's GC does under >1
-thread. With one thread every finalizer runs on it → safe. The main sidecar
-(4 threads) stays PyCall-free and proxies here when PY_SIDECAR_ENABLED=true.
-"""
-function start_py_server!(; host::AbstractString="127.0.0.1", port::Integer=8089)
-    if Threads.nthreads() > 1
-        @warn "start_py_server!: >1 thread is UNSAFE for PyCall (off-thread \
-               pydecref segfaults). Start with JULIA_NUM_THREADS=1." nthreads=Threads.nthreads()
-    end
-    init_metrics!()
-    router = build_py_router()
-    @info "julia-math-sidecar PY-SIDECAR starting" host port julia_threads=Threads.nthreads()
-    # Warm sympy + mpmath now — safe here because single-threaded. (This is the
-    # warmup that had to be removed from the main server.)
-    try
-        get_sympy()
-        pyimport("mpmath")
-        @info "py-sidecar: PyCall (sympy + mpmath) warmed"
-    catch e
-        @warn "py-sidecar: PyCall warmup skipped" error=sprint(showerror, e)
-    end
-    server = HTTP.serve!(router, host, port)
-    try
-        wait(server)
-    catch e
-        if e isa InterruptException
-            @info "py-sidecar received SIGINT, shutting down"
-        else
-            rethrow()
-        end
-    finally
-        close(server)
-    end
-    return nothing
-end

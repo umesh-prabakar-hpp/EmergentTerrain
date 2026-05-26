@@ -47,8 +47,10 @@ using HTTP
 using JSON3
 using Logging
 
-# Public surface — entry points from the module-loader scripts.
-export start_server!, start_py_server!
+# Public surface — entry point from the module-loader script (scripts/start.sh).
+# start_py_server! moved to the PyCallSidecar module (src/pycall_sidecar.jl),
+# loaded only by the py-sidecar process, so this package never pulls in PyCall.
+export start_server!
 
 # Internal submodules. Each owns one slice of the HTTP surface.
 include("safety.jl")       # Safety filter for incoming expressions.

@@ -48,11 +48,13 @@ fi
 if [ "$LOG_FILE" = "-" ]; then
     exec julia --project=. -e "
         using JuliaMathSidecar
-        start_py_server!(host=\"$HOST\", port=$PORT)
+        include(joinpath(pkgdir(JuliaMathSidecar), \"src\", \"pycall_sidecar.jl\"))
+        PyCallSidecar.start_py_server!(host=\"$HOST\", port=$PORT)
     "
 else
     exec julia --project=. -e "
         using JuliaMathSidecar
-        start_py_server!(host=\"$HOST\", port=$PORT)
+        include(joinpath(pkgdir(JuliaMathSidecar), \"src\", \"pycall_sidecar.jl\"))
+        PyCallSidecar.start_py_server!(host=\"$HOST\", port=$PORT)
     " 2>&1 | tee -a "$LOG_FILE"
 fi
