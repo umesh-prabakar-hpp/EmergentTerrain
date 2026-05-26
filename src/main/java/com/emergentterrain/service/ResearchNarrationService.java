@@ -572,8 +572,25 @@ public class ResearchNarrationService {
      * publishPaper's own release).
      */
     private void refineAndNarrate(PaperDraft draft) {
-        runSupervised(executor, () -> doRefineAndNarrate(draft), narrationTimeoutMs,
-                draft.paperId(), draftSettledCallback);
+        // Acquire the narration concurrency permit BEFORE the wall-clock
+        // supervisor starts. Time spent queueing for a slot must NOT count
+        // against narrationTimeoutMs: otherwise a low narration-concurrency-cap
+        // would let a queued paper exhaust its 420s budget and be abandoned
+        // before any work ran (and acquireUninterruptibly would leave it a
+        // zombie that narrates after the supervisor gave up and released the
+        // backlog slot). Acquiring here parks the cheap enqueue virtual thread
+        // until a permit is free; the permit is held for the whole supervised
+        // task and released on every outcome. The 10-min stuck-draft reaper
+        // remains the only backstop for a paper parked here under sustained
+        // overload — 14× the narration budget, and reclaiming a long-queued
+        // draft at a deliberately throttled cap is the correct overload signal.
+        narrationSlot.acquireUninterruptibly();
+        try {
+            runSupervised(executor, () -> doRefineAndNarrate(draft), narrationTimeoutMs,
+                    draft.paperId(), draftSettledCallback);
+        } finally {
+            narrationSlot.release();
+        }
     }
 
     /**
@@ -621,17 +638,15 @@ public class ResearchNarrationService {
         }
         // Statistical framing — fast call between refinement and narration; best-effort
         PaperDraft framedDraft = applyStatisticalFraming(enrichedDraft);
-        narrationSlot.acquireUninterruptibly();
-        try {
-            // Scope the paperId so any LLM call made during narration (primary
-            // stream, critique tool loop, MathToolSuite sandbox safety review on
-            // the same virtual thread) is captured per-paper by LlmTraceWriter.
-            com.emergentterrain.llm.LlmCallContext.withPaperId(
-                    framedDraft.paperId(),
-                    () -> runNarration(framedDraft));
-        } finally {
-            narrationSlot.release();
-        }
+        // The narration concurrency permit is acquired by refineAndNarrate
+        // BEFORE the wall-clock supervisor starts (so queue-wait doesn't burn
+        // narrationTimeoutMs); it is held across this whole supervised task.
+        // Scope the paperId so any LLM call made during narration (primary
+        // stream, critique tool loop, MathToolSuite sandbox safety review on
+        // the same virtual thread) is captured per-paper by LlmTraceWriter.
+        com.emergentterrain.llm.LlmCallContext.withPaperId(
+                framedDraft.paperId(),
+                () -> runNarration(framedDraft));
     }
 
     record RefinementDecision(int param1, double param2, String rationale) {}
