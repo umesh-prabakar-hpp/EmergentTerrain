@@ -1,6 +1,6 @@
 package com.emergentterrain.research.recognise;
 
-import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -55,7 +55,7 @@ public class LllRecogniserClient {
     private final int defaultDegreeBound;
     private final int defaultPrecisionDigits;
 
-    private final JuliaMathClient juliaMathClient;
+    private final PySidecarHealth pySidecarHealth;
     private final ObjectMapper mapper;
     private final HttpClient http;
 
@@ -68,21 +68,19 @@ public class LllRecogniserClient {
     public LllRecogniserClient(
             @Value("${app.julia.recognise.enabled:false}") boolean enabled,
             @Value("${app.julia.recognise.lll.enabled:false}") boolean lllEnabled,
-            @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.julia.recognise.timeoutMs:5000}") long timeoutMs,
             @Value("${app.julia.recognise.lll.degreeBound:4}") int defaultDegreeBound,
             @Value("${app.julia.recognise.pslqPrecisionDigits:200}") int defaultPrecisionDigits,
-            JuliaMathClient juliaMathClient,
+            PySidecarHealth pySidecarHealth,
             ObjectMapper mapper) {
         this.enabled = enabled;
         this.lllEnabled = lllEnabled;
-        this.baseUrl = baseUrl.endsWith("/")
-                ? baseUrl.substring(0, baseUrl.length() - 1)
-                : baseUrl;
+        // py-sidecar URL owned by PySidecarHealth (already slash-stripped).
+        this.baseUrl = pySidecarHealth.baseUrl();
         this.timeoutMs = timeoutMs;
         this.defaultDegreeBound = defaultDegreeBound;
         this.defaultPrecisionDigits = defaultPrecisionDigits;
-        this.juliaMathClient = juliaMathClient;
+        this.pySidecarHealth = pySidecarHealth;
         this.mapper = mapper;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -91,7 +89,7 @@ public class LllRecogniserClient {
 
     public boolean isEnabled()   { return enabled && lllEnabled; }
     public boolean isAvailable() {
-        return isEnabled() && juliaMathClient.isAvailable();
+        return isEnabled() && pySidecarHealth.isReachable();
     }
 
     /**

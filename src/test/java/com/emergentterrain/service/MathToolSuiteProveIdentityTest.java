@@ -1,6 +1,6 @@
 package com.emergentterrain.service;
 
-import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.emergentterrain.llm.SympyIdentityClient;
 import com.emergentterrain.llm.SympyIdentityException;
 import com.emergentterrain.research.PaperDraft;
@@ -238,17 +238,17 @@ class MathToolSuiteProveIdentityTest {
 
     // ── Stub builders ────────────────────────────────────────────────
 
-    private static JuliaMathClient availableSidecarStub() {
-        return new JuliaMathClient(true, "http://stub", 1_000, 500, MAPPER) {
-            @Override public boolean isAvailable() { return true; }
+    private static PySidecarHealth availablePyHealth() {
+        return new PySidecarHealth("http://stub", 500) {
+            @Override public boolean isReachable() { return true; }
         };
     }
 
     private static SympyIdentityClient stubSympyClient(
             SympyIdentityClient.IdentityProof cannedProof) {
         return new SympyIdentityClient(
-                /*enabled*/ true, "http://stub", /*timeoutMs*/ 5_000,
-                availableSidecarStub(), MAPPER) {
+                /*enabled*/ true, /*timeoutMs*/ 5_000,
+                availablePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public IdentityProof prove(String algorithm, String summand,
                     String var, String lower, String upper, Optional<String> target) {
@@ -259,7 +259,7 @@ class MathToolSuiteProveIdentityTest {
 
     private static SympyIdentityClient throwingSympyClient(SympyIdentityException toThrow) {
         return new SympyIdentityClient(
-                true, "http://stub", 5_000, availableSidecarStub(), MAPPER) {
+                true, 5_000, availablePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public IdentityProof prove(String algorithm, String summand,
                     String var, String lower, String upper, Optional<String> target) {
@@ -270,7 +270,7 @@ class MathToolSuiteProveIdentityTest {
 
     private static SympyIdentityClient unavailableSympyClient() {
         return new SympyIdentityClient(
-                false, "http://stub", 5_000, availableSidecarStub(), MAPPER) {
+                false, 5_000, availablePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return false; }
         };
     }
@@ -278,7 +278,7 @@ class MathToolSuiteProveIdentityTest {
     private static SympyIdentityClient countingSympyClient(
             java.util.concurrent.atomic.AtomicInteger calls) {
         return new SympyIdentityClient(
-                true, "http://stub", 5_000, availableSidecarStub(), MAPPER) {
+                true, 5_000, availablePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public IdentityProof prove(String algorithm, String summand,
                     String var, String lower, String upper, Optional<String> target) {

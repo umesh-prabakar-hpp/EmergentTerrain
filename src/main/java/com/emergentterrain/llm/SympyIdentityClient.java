@@ -34,10 +34,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *   <li>{@code app.julia.sympy.enabled} (default false) — operator
  *       opt-in. When false, every call short-circuits with
  *       {@code "not_enabled"}.</li>
- *   <li>Sidecar reachability — delegated to {@link JuliaMathClient}'s
- *       probe so we don't run a parallel /healthz loop. If the
- *       JuliaMathClient says the sidecar is up, we can call
- *       /prove_identity on it.</li>
+ *   <li>py-sidecar reachability — delegated to {@link PySidecarHealth}'s
+ *       probe (the PyCall endpoints live only in the single-threaded
+ *       py-sidecar, not the PyCall-free main server). If it reports the
+ *       py-sidecar up, we can call /prove_identity on it.</li>
  * </ol>
  *
  * <h2>Safety</h2>
@@ -65,11 +65,12 @@ public class SympyIdentityClient {
     private final long timeoutMs;
 
     /**
-     * Shared reachability with {@link JuliaMathClient} — we hit the
-     * same sidecar, so the JuliaMathClient's probe is authoritative.
-     * Avoids two beans doing parallel /healthz loops.
+     * Reachability authority for the py-sidecar that actually serves
+     * {@code /prove_identity} (the main server is PyCall-free). One shared
+     * probe loop across the PyCall clients; also the source of the base URL
+     * we POST to.
      */
-    private final JuliaMathClient juliaMathClient;
+    private final PySidecarHealth pySidecarHealth;
 
     private final ObjectMapper mapper;
     private final HttpClient http;
@@ -94,16 +95,15 @@ public class SympyIdentityClient {
     @org.springframework.beans.factory.annotation.Autowired
     public SympyIdentityClient(
             @Value("${app.julia.sympy.enabled:false}") boolean enabled,
-            @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.julia.sympy.timeoutMs:10000}") long timeoutMs,
-            JuliaMathClient juliaMathClient,
+            PySidecarHealth pySidecarHealth,
             ObjectMapper mapper) {
         this.enabled = enabled;
-        this.baseUrl = baseUrl.endsWith("/")
-                ? baseUrl.substring(0, baseUrl.length() - 1)
-                : baseUrl;
+        // The py-sidecar URL is owned by PySidecarHealth (already slash-stripped),
+        // so the URL we POST to and the URL we health-probe can't diverge.
+        this.baseUrl = pySidecarHealth.baseUrl();
         this.timeoutMs = timeoutMs;
-        this.juliaMathClient = juliaMathClient;
+        this.pySidecarHealth = pySidecarHealth;
         this.mapper = mapper;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -116,11 +116,11 @@ public class SympyIdentityClient {
     }
 
     /**
-     * Whether prove_identity can be called: flag on AND the sidecar
-     * (per JuliaMathClient's probe) is up.
+     * Whether prove_identity can be called: flag on AND the py-sidecar
+     * (per PySidecarHealth's probe) is up.
      */
     public boolean isAvailable() {
-        return enabled && juliaMathClient.isAvailable();
+        return enabled && pySidecarHealth.isReachable();
     }
 
     /**

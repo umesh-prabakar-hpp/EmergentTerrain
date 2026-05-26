@@ -1,6 +1,6 @@
 package com.emergentterrain.research.recognise;
 
-import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -64,19 +64,17 @@ class LllRecogniserClientTest {
         ex.close();
     }
 
-    private JuliaMathClient buildSidecar() {
-        JuliaMathClient sidecar = new JuliaMathClient(
-                true, "http://127.0.0.1:" + port, 2_000, 1_000, mapper);
-        sidecar.probeHealth();
-        return sidecar;
+    private PySidecarHealth buildPyHealth() {
+        PySidecarHealth health = new PySidecarHealth("http://127.0.0.1:" + port, 1_000);
+        health.probeHealth();
+        return health;
     }
 
     private LllRecogniserClient buildClient(boolean recogniseEnabled, boolean lllEnabled) {
         return new LllRecogniserClient(
                 recogniseEnabled, lllEnabled,
-                "http://127.0.0.1:" + port,
                 5_000, 4, 200,
-                buildSidecar(), mapper);
+                buildPyHealth(), mapper);
     }
 
     // ── Two-flag gate ────────────────────────────────────────────────
@@ -230,8 +228,8 @@ class LllRecogniserClientTest {
     @Test
     void recognise_sidecarUnreachable_throwsTransport() {
         LllRecogniserClient client = new LllRecogniserClient(
-                true, true, "http://127.0.0.1:1", 1_000, 4, 200,
-                buildSidecar(), mapper);
+                true, true, 1_000, 4, 200,
+                new PySidecarHealth("http://127.0.0.1:1", 1_000), mapper);
         assertThatThrownBy(() -> client.recognise("1.414"))
                 .isInstanceOf(LllRecogniserException.class)
                 .satisfies(e -> assertThat(((LllRecogniserException) e).errorCode())

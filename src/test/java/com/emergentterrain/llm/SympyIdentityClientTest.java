@@ -71,21 +71,19 @@ class SympyIdentityClientTest {
         ex.close();
     }
 
-    /** Build a JuliaMathClient pointing at the stub; serves as the sidecar
-     * reachability authority for SympyIdentityClient. */
-    private JuliaMathClient buildSidecar(boolean enabled) {
-        JuliaMathClient client = new JuliaMathClient(
-                enabled, "http://127.0.0.1:" + port, 2_000, 1_000, mapper);
-        if (enabled) client.probeHealth();
-        return client;
+    /** Build a PySidecarHealth pointing at the stub; it is both the py-sidecar
+     * reachability authority and the base-URL source for SympyIdentityClient. */
+    private PySidecarHealth buildPyHealth() {
+        PySidecarHealth health = new PySidecarHealth("http://127.0.0.1:" + port, 1_000);
+        health.probeHealth();
+        return health;
     }
 
     private SympyIdentityClient buildClient(boolean enabled) {
         return new SympyIdentityClient(
                 enabled,
-                "http://127.0.0.1:" + port,
                 /*timeoutMs*/ 5_000,
-                buildSidecar(true),
+                buildPyHealth(),
                 mapper);
     }
 

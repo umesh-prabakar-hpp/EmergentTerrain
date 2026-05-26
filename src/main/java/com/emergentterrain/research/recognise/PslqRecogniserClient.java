@@ -1,6 +1,6 @@
 package com.emergentterrain.research.recognise;
 
-import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -62,7 +62,7 @@ public class PslqRecogniserClient {
     private final long timeoutMs;
     private final int defaultPrecisionDigits;
 
-    private final JuliaMathClient juliaMathClient;
+    private final PySidecarHealth pySidecarHealth;
     private final ObjectMapper mapper;
     private final HttpClient http;
 
@@ -74,18 +74,16 @@ public class PslqRecogniserClient {
     @org.springframework.beans.factory.annotation.Autowired
     public PslqRecogniserClient(
             @Value("${app.julia.recognise.enabled:false}") boolean enabled,
-            @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.julia.recognise.timeoutMs:5000}") long timeoutMs,
             @Value("${app.julia.recognise.pslqPrecisionDigits:200}") int defaultPrecisionDigits,
-            JuliaMathClient juliaMathClient,
+            PySidecarHealth pySidecarHealth,
             ObjectMapper mapper) {
         this.enabled = enabled;
-        this.baseUrl = baseUrl.endsWith("/")
-                ? baseUrl.substring(0, baseUrl.length() - 1)
-                : baseUrl;
+        // py-sidecar URL owned by PySidecarHealth (already slash-stripped).
+        this.baseUrl = pySidecarHealth.baseUrl();
         this.timeoutMs = timeoutMs;
         this.defaultPrecisionDigits = defaultPrecisionDigits;
-        this.juliaMathClient = juliaMathClient;
+        this.pySidecarHealth = pySidecarHealth;
         this.mapper = mapper;
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
@@ -94,7 +92,7 @@ public class PslqRecogniserClient {
 
     public boolean isEnabled() { return enabled; }
     public boolean isAvailable() {
-        return enabled && juliaMathClient.isAvailable();
+        return enabled && pySidecarHealth.isReachable();
     }
 
     /**

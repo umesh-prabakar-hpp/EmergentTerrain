@@ -1,6 +1,6 @@
 package com.emergentterrain.research.recognise;
 
-import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -63,17 +63,16 @@ class PslqRecogniserClientTest {
         ex.close();
     }
 
-    private JuliaMathClient buildSidecar() {
-        JuliaMathClient sidecar = new JuliaMathClient(
-                true, "http://127.0.0.1:" + port, 2_000, 1_000, mapper);
-        sidecar.probeHealth();
-        return sidecar;
+    private PySidecarHealth buildPyHealth() {
+        PySidecarHealth health = new PySidecarHealth("http://127.0.0.1:" + port, 1_000);
+        health.probeHealth();
+        return health;
     }
 
     private PslqRecogniserClient buildClient(boolean enabled) {
         return new PslqRecogniserClient(
-                enabled, "http://127.0.0.1:" + port, 5_000, 200,
-                buildSidecar(), mapper);
+                enabled, 5_000, 200,
+                buildPyHealth(), mapper);
     }
 
     // ── Enablement ───────────────────────────────────────────────────
@@ -243,8 +242,8 @@ class PslqRecogniserClientTest {
     @Test
     void recognise_sidecarUnreachable_throwsTransport() {
         PslqRecogniserClient client = new PslqRecogniserClient(
-                true, "http://127.0.0.1:1", 1_000, 200,
-                buildSidecar(), mapper);
+                true, 1_000, 200,
+                new PySidecarHealth("http://127.0.0.1:1", 1_000), mapper);
         assertThatThrownBy(() -> client.recognise("3.14159", "BASIC"))
                 .isInstanceOf(PslqRecogniserException.class)
                 .satisfies(e -> assertThat(((PslqRecogniserException) e).errorCode())

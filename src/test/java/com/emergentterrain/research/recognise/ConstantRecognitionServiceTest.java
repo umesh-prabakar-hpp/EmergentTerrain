@@ -1,6 +1,7 @@
 package com.emergentterrain.research.recognise;
 
 import com.emergentterrain.llm.JuliaMathClient;
+import com.emergentterrain.llm.PySidecarHealth;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -29,6 +30,16 @@ class ConstantRecognitionServiceTest {
     private static JuliaMathClient liveSidecar() {
         return new JuliaMathClient(true, "http://stub", 1_000, 500, MAPPER) {
             @Override public boolean isAvailable() { return true; }
+        };
+    }
+
+    /** py-sidecar health stub that always reports reachable — the
+     *  reachability + base-URL dependency for the PyCall engine clients
+     *  (Pslq/Lll) we subclass. OeisRecogniserClient still uses liveSidecar()
+     *  above (its /recognise/sequence endpoint lives on the main server). */
+    private static PySidecarHealth livePyHealth() {
+        return new PySidecarHealth("http://stub", 500) {
+            @Override public boolean isReachable() { return true; }
         };
     }
 
@@ -145,7 +156,7 @@ class ConstantRecognitionServiceTest {
         PslqRecogniserClient pslq = pslqMissStub();
         AtomicInteger lllCalls = new AtomicInteger();
         LllRecogniserClient lll = new LllRecogniserClient(
-                true, false, "http://stub", 5_000, 4, 200, liveSidecar(), MAPPER) {
+                true, false, 5_000, 4, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return false; }
             @Override public Optional<MinPolyHit> recognise(String v) {
                 lllCalls.incrementAndGet();
@@ -195,7 +206,7 @@ class ConstantRecognitionServiceTest {
                         "BASIC", 200));
         AtomicInteger lllCalls = new AtomicInteger();
         LllRecogniserClient lll = new LllRecogniserClient(
-                true, true, "http://stub", 5_000, 4, 200, liveSidecar(), MAPPER) {
+                true, true, 5_000, 4, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<MinPolyHit> recognise(String v) {
                 lllCalls.incrementAndGet();
@@ -214,7 +225,7 @@ class ConstantRecognitionServiceTest {
     @Test
     void recogniseConstant_pslqTransportFail_skipsLllOnSameSidecar() {
         PslqRecogniserClient pslq = new PslqRecogniserClient(
-                true, "http://stub", 5_000, 200, liveSidecar(), MAPPER) {
+                true, 5_000, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<PslqHit> recognise(
                     String value, String basis, Integer precisionDigits) {
@@ -223,7 +234,7 @@ class ConstantRecognitionServiceTest {
         };
         AtomicInteger lllCalls = new AtomicInteger();
         LllRecogniserClient lll = new LllRecogniserClient(
-                true, true, "http://stub", 5_000, 4, 200, liveSidecar(), MAPPER) {
+                true, true, 5_000, 4, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<MinPolyHit> recognise(String v) {
                 lllCalls.incrementAndGet();
@@ -294,7 +305,7 @@ class ConstantRecognitionServiceTest {
             @Override public boolean isAvailable() { return false; }
         };
         PslqRecogniserClient pslqDown = new PslqRecogniserClient(
-                false, "http://stub", 5_000, 200, liveSidecar(), MAPPER) {
+                false, 5_000, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return false; }
         };
         ConstantRecognitionService svc =
@@ -379,7 +390,7 @@ class ConstantRecognitionServiceTest {
 
     private static PslqRecogniserClient pslqHitStub(PslqRecogniserClient.PslqHit hit) {
         return new PslqRecogniserClient(
-                true, "http://stub", 5_000, 200, liveSidecar(), MAPPER) {
+                true, 5_000, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<PslqHit> recognise(
                     String value, String basis, Integer precisionDigits) {
@@ -390,7 +401,7 @@ class ConstantRecognitionServiceTest {
 
     private static PslqRecogniserClient pslqMissStub() {
         return new PslqRecogniserClient(
-                true, "http://stub", 5_000, 200, liveSidecar(), MAPPER) {
+                true, 5_000, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<PslqHit> recognise(
                     String value, String basis, Integer precisionDigits) {
@@ -401,7 +412,7 @@ class ConstantRecognitionServiceTest {
 
     private static LllRecogniserClient lllHitStub(LllRecogniserClient.MinPolyHit hit) {
         return new LllRecogniserClient(
-                true, true, "http://stub", 5_000, 4, 200, liveSidecar(), MAPPER) {
+                true, true, 5_000, 4, 200, livePyHealth(), MAPPER) {
             @Override public boolean isAvailable() { return true; }
             @Override public Optional<MinPolyHit> recognise(String v) {
                 return Optional.of(hit);
