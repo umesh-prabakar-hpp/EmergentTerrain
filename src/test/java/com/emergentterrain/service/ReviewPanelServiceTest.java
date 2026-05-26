@@ -227,6 +227,56 @@ class ReviewPanelServiceTest {
                 + "\"recommendations\":[]}";
     }
 
+    // ── narration model barred from a panel majority ────────────────────────
+
+    @Test
+    void narrationModelId_parsesFpHead() {
+        assertThat(ReviewPanelService.narrationModelId("fp:claude-sonnet-4-6 → audit:4b → rev:ok"))
+                .isEqualTo("claude-sonnet-4-6");
+        assertThat(ReviewPanelService.narrationModelId("fp:model-groq")).isEqualTo("model-groq");
+        assertThat(ReviewPanelService.narrationModelId(null)).isNull();
+        assertThat(ReviewPanelService.narrationModelId("audit:4b → rev:ok")).isNull(); // no fp:
+    }
+
+    @Test
+    void narrationModelDroppedWhenItWouldBeTheSoleReviewer() {
+        // Only the narration model is eligible. Barred from a majority → with no
+        // independent reviewer it is dropped entirely (no self-graded panel).
+        FakePool claude = panelistReturning("claude", cleanReviewJson(0.9));
+        ReviewPanelService svc = build("claude", claude);
+        PanelOutcome out = svc.runPanel(draftFixture(),
+                narrationWithTraceAndPath(1, "fp:model-claude → rev:ok"));
+        assertThat(out.reviewerCount()).isZero();
+        assertThat(claude.syncCallCount.get()).isZero();
+    }
+
+    @Test
+    void narrationModelAllowedOnlyUpToHalfNotMajority() {
+        // 1 independent + the narration model → narrator rides as 1 of 2 (≤ half,
+        // not a majority). It is never allowed to outnumber the independents.
+        FakePool groq   = panelistReturning("groq",   cleanReviewJson(0.7)); // independent
+        FakePool claude = panelistReturning("claude", cleanReviewJson(0.9)); // narrator
+        ReviewPanelService svc = build("groq,claude", groq, claude);
+        PanelOutcome out = svc.runPanel(draftFixture(),
+                narrationWithTraceAndPath(1, "fp:model-claude → rev:ok"));
+        assertThat(out.reviewerCount()).isEqualTo(2);
+        assertThat(groq.syncCallCount.get()).isEqualTo(1);
+        assertThat(claude.syncCallCount.get()).isEqualTo(1);
+    }
+
+    @Test
+    void narrationModelIsAClearMinorityWithEnoughIndependents() {
+        // 2 independents + narrator → narrator is 1 of 3 (a clear minority).
+        FakePool groq       = panelistReturning("groq",       cleanReviewJson(0.7));
+        FakePool openrouter = panelistReturning("openrouter", cleanReviewJson(0.8));
+        FakePool claude     = panelistReturning("claude",     cleanReviewJson(0.9));
+        ReviewPanelService svc = build("groq,openrouter,claude", groq, openrouter, claude);
+        PanelOutcome out = svc.runPanel(draftFixture(),
+                narrationWithTraceAndPath(1, "fp:model-claude → rev:ok"));
+        assertThat(out.reviewerCount()).isEqualTo(3);
+        assertThat(claude.syncCallCount.get()).isEqualTo(1);
+    }
+
     private static FakePool panelistReturning(String key, String response) {
         return new FakePool(key, List.of(response));
     }
@@ -284,6 +334,18 @@ class ReviewPanelServiceTest {
                     "{\"steps\":10}", "{\"peak_q\":42.3}", i));
         }
         return new NarrationResult("hyp", "find", "concl", null, "ai-x", 0.5, List.of())
+                .withToolCallTrace(trace);
+    }
+
+    /** As {@link #narrationWithTrace} but stamps a call path so the panel can
+     *  identify the narration model (parsed from its {@code fp:<model>} head). */
+    private static NarrationResult narrationWithTraceAndPath(int callCount, String callPath) {
+        List<ToolInvocation> trace = new ArrayList<>();
+        for (int i = 0; i < callCount; i++) {
+            trace.add(new ToolInvocation("run_param_sweep",
+                    "{\"steps\":10}", "{\"peak_q\":42.3}", i));
+        }
+        return new NarrationResult("hyp", "find", "concl", null, "ai-x", 0.5, List.of(), callPath)
                 .withToolCallTrace(trace);
     }
 

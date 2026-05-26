@@ -115,6 +115,25 @@ public class ReviewPanelService {
         return Collections.unmodifiableSet(out);
     }
 
+    /**
+     * The model that generated the paper's prose, parsed from the {@code fp:<model>}
+     * token at the head of the narration call path (e.g.
+     * {@code "fp:claude-sonnet-4-6 → audit:4b:… → …"} → {@code "claude-sonnet-4-6"}).
+     * Returns null when the call path is absent or has no {@code fp:} prefix — in
+     * which case no handle is treated as the narrator and the panel is unchanged.
+     * Matched against {@link ModelHandle#modelId()} to bar the narrator from a
+     * panel majority.
+     */
+    static String narrationModelId(String callPath) {
+        if (callPath == null) return null;
+        int i = callPath.indexOf("fp:");
+        if (i < 0) return null;
+        String[] tokens = callPath.substring(i + 3).trim().split("\\s+");
+        if (tokens.length == 0) return null;
+        String id = tokens[0].replace("→", "").trim();
+        return id.isEmpty() ? null : id;
+    }
+
     /** True when the panel is enabled AND the registry has at least one model. */
     public boolean isActive() {
         return enabled && primaryRegistry.totalModelCount() > 0;
@@ -137,13 +156,42 @@ public class ReviewPanelService {
         String prompt = renderPrompt(draft, narration, trace);
 
         // Pick the panel: walk the registry's available models, filter by
-        // providerFilter, take the first panelSize handles. Pure availability —
-        // no diversity bonus.
-        List<ModelHandle> picks = new ArrayList<>();
+        // providerFilter. Partition into the narration model (the model that
+        // generated the prose under review) and independent reviewers, so the
+        // narrator can be barred from a panel majority below.
+        String narratorModelId = narrationModelId(narration.callPath());
+        List<ModelHandle> independents = new ArrayList<>();
+        List<ModelHandle> narratorHandles = new ArrayList<>();
         for (ModelHandle h : primaryRegistry.availableModels()) {
             if (!providerFilter.isEmpty() && !providerFilter.contains(h.providerKey())) continue;
-            picks.add(h);
+            if (narratorModelId != null && narratorModelId.equals(h.modelId())) narratorHandles.add(h);
+            else independents.add(h);
+        }
+
+        // Fill the panel with independent reviewers first.
+        List<ModelHandle> picks = new ArrayList<>();
+        for (ModelHandle h : independents) {
             if (picks.size() >= panelSize) break;
+            picks.add(h);
+        }
+        // Add the narration model only as a strict minority — never a majority of
+        // the panel. It wrote the text under review, so letting it be ≥ half the
+        // reviewers would let it swing the median grade and the "≥2 reviewers"
+        // contradiction signal (self-review). Cap its slots at the number of
+        // independent reviewers already picked (so narrator ≤ half), bounded by
+        // the remaining panel budget and how many narrator handles exist. With no
+        // independent reviewer available, the narrator is dropped entirely (an
+        // empty/degraded panel beats a self-graded one). No-op under the default
+        // config, where the narrator (claude) isn't in providerFilter at all.
+        int narratorBudget = Math.min(picks.size(),
+                Math.min(panelSize - picks.size(), narratorHandles.size()));
+        for (int k = 0; k < narratorBudget; k++) {
+            picks.add(narratorHandles.get(k));
+        }
+        if (!narratorHandles.isEmpty()) {
+            log.info("ReviewPanelService: narration model '{}' capped to {}/{} panel slots "
+                            + "(independent reviewers={}) — barred from majority",
+                    narratorModelId, narratorBudget, picks.size(), picks.size() - narratorBudget);
         }
 
         long start = System.currentTimeMillis();
