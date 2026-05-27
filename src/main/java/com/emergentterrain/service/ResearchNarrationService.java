@@ -127,6 +127,18 @@ public class ResearchNarrationService {
     private final boolean panelDegradationDemoteEnabled;
 
     /**
+     * Phase 29 §29.1.1 — best-of-N narration. When {@code bestOfNEnabled} and
+     * {@code bestOfNCandidates > 1}, {@link #runNarration} produces N
+     * panel-scored candidate narrations for the same draft and publishes the
+     * highest-graded one (DGM/STOP generate-many-keep-best). Default off /
+     * candidates=1 ⇒ a single candidate is produced and published, identical
+     * to the pre-29 behaviour. The loser candidates are discarded; only the
+     * winner reaches {@code narrationPublisher}.
+     */
+    private final boolean bestOfNEnabled;
+    private final int bestOfNCandidates;
+
+    /**
      * Phase 11 C4 — citations-as-schema validator. Runs after the student-revision
      * stage produces a NarrationResult with {@code numericClaims} and a tool-call
      * trace with stable {@code call_N} IDs. Operates in three modes via
@@ -412,7 +424,17 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.panel-degradation-demote.enabled:false}")
             boolean panelDegradationDemoteEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.narration-concurrency-cap:0}")
-            int narrationConcurrencyCap) {
+            int narrationConcurrencyCap,
+            // Phase 29 §29.1.1 — best-of-N narration. When enabled with
+            // candidates>1, runNarration produces N panel-scored candidate
+            // narrations for the same draft and publishes the highest-graded
+            // one (DGM/STOP generate-many-keep-best + HGM tie-breaker). Default
+            // OFF / candidates=1 ⇒ exactly one candidate, bit-identical to the
+            // pre-29 single-trajectory behaviour.
+            @org.springframework.beans.factory.annotation.Value("${app.research.best-of-n.enabled:false}")
+            boolean bestOfNEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.best-of-n.candidates:1}")
+            int bestOfNCandidates) {
         this.router                    = router;
         // Phase 8 Tier 4 — GpuEngineAdapter is @Autowired(required=false) so
         // tests and configurations without the GPU engine wired still construct
@@ -439,6 +461,11 @@ public class ResearchNarrationService {
                 ? Math.max(1, maxComputationsCfg)
                 : 1;
         this.panelDegradationDemoteEnabled = panelDegradationDemoteEnabled;
+        // Phase 29 §29.1.1 — clamp to 1 when disabled so every downstream read
+        // of bestOfNCandidates is the single-candidate path regardless of the
+        // configured value; flag-off is then bit-identical to pre-29.
+        this.bestOfNEnabled    = bestOfNEnabled;
+        this.bestOfNCandidates = bestOfNEnabled ? Math.max(1, bestOfNCandidates) : 1;
         // Narration parallelism defaults to the primary LLM pool size, but that
         // can outrun the most-constrained provider's token-per-minute ceiling
         // (Groq: 12k TPM on llama-3.3-70b, 8k on gpt-oss-120b). When parallel
@@ -455,10 +482,10 @@ public class ResearchNarrationService {
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
                 + "discussionSectionEnabled={} ollamaFallbackEnabled={} "
                 + "structuredFindingsEnabled={} maxComputations={} (cfg={}) "
-                + "panelDegradationDemoteEnabled={}",
+                + "panelDegradationDemoteEnabled={} bestOfNEnabled={} bestOfNCandidates={}",
                 narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled,
                 ollamaFallbackEnabled, structuredFindingsEnabled, maxComputations, maxComputationsCfg,
-                panelDegradationDemoteEnabled);
+                panelDegradationDemoteEnabled, this.bestOfNEnabled, this.bestOfNCandidates);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
@@ -715,17 +742,13 @@ public class ResearchNarrationService {
             return;
         }
 
-        List<String> callPath = new java.util.ArrayList<>();
-        // Phase 20.4 — first-pass success tracker drives the OK vs PARTIAL split
-        // at the normal-completion emission site. PARTIAL = first-pass threw but
-        // the critique/revise path salvaged a usable result; OK = clean success.
-        boolean firstPassFailed = false;
-
         // Pre-emptive: SimulationGate budget tripped. Suppress before spending any
         // primary tokens on first-pass narration. Same publisher contract as
-        // primaryFullyExhausted (null result → queue counter decrements).
-        if (gateClosed("first-pass", draft, callPath)) {
-            log.info("LLM call path paperId={}: {}", draft.paperId(), String.join(" → ", callPath));
+        // primaryFullyExhausted (null result → queue counter decrements). This
+        // gate is checked ONCE before any best-of-N candidate is produced.
+        List<String> gateCallPath = new java.util.ArrayList<>();
+        if (gateClosed("first-pass", draft, gateCallPath)) {
+            log.info("LLM call path paperId={}: {}", draft.paperId(), String.join(" → ", gateCallPath));
             // Phase 20.4 — BUDGET_EXHAUSTED stamped via timing-only log line
             // (same null-publish contract as ALL_MODELS_BLOCKED above; the
             // step-2b sentinel work will carry the envelope here too).
@@ -743,6 +766,124 @@ public class ResearchNarrationService {
             }
             return;
         }
+
+        // Phase 29 §29.1.1 — produce one (default) or N panel-scored candidate
+        // narrations for this draft and publish the highest-graded one. With
+        // best-of-N off (bestOfNCandidates==1) this is a single
+        // produceNarrationCandidate call — same call order, envelope, and
+        // metrics emission as pre-29.
+        NarrationResult result = produceBestCandidate(draft, orchestrationStartedAt);
+
+        if (narrationPublisher != null) {
+            narrationPublisher.accept(draft, result);
+        }
+        // Phase 17 — clear the retry queue entry on a successful retry publish.
+        // No-op for non-retry papers (the common case) and for retries that
+        // re-hit the gate (result is a suppression sentinel then; the queue
+        // entry stays for the next tick). markCompleted itself is null-safe
+        // on missing entries.
+        // Phase 20.4 step 2b-3 — `result` is now never null (suppression
+        // emits a sentinel), so the null check shifts to isSuppressed()
+        // to preserve the "re-hit gate keeps queue entry" semantics.
+        if (gateRetryQueue != null && !result.isSuppressed()) {
+            gateRetryQueue.markCompleted(draft.paperId());
+        }
+    }
+
+    /**
+     * Phase 29 §29.1.1 — best-of-N driver. Produces {@code bestOfNCandidates}
+     * panel-scored candidate narrations for the same draft and returns the
+     * highest-graded one (DGM/STOP generate-many-keep-best). With best-of-N off
+     * the field is clamped to 1, so this is a single {@link
+     * #produceNarrationCandidate} call — bit-identical to pre-29. Loser
+     * candidates are discarded; only the returned winner reaches the publisher.
+     *
+     * <p>Each candidate is a full first-pass + critique/revise + panel cycle, so
+     * they run serially inside the one {@code withPaperId} scope. Between
+     * candidates we stop early if the primary pool has fully exhausted rather
+     * than burning a doomed cycle; the first candidate always runs (the
+     * exhaustion guard at the top of {@link #runNarration} already covered the
+     * pre-first-candidate case).
+     */
+    private NarrationResult produceBestCandidate(PaperDraft draft,
+                                                 java.time.Instant orchestrationStartedAt) {
+        if (bestOfNCandidates <= 1) {
+            return produceNarrationCandidate(draft, orchestrationStartedAt);
+        }
+        NarrationResult best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (int i = 0; i < bestOfNCandidates; i++) {
+            if (i > 0 && router.primaryFullyExhausted()) {
+                log.info("best-of-n paperId={} stopping after {}/{} candidates — primary exhausted",
+                        draft.paperId(), i, bestOfNCandidates);
+                break;
+            }
+            NarrationResult candidate = produceNarrationCandidate(draft, orchestrationStartedAt);
+            double score = scoreCandidate(candidate);
+            log.info("best-of-n paperId={} candidate {}/{} score={} suppressed={}",
+                    draft.paperId(), i + 1, bestOfNCandidates, String.format("%.4f", score),
+                    candidate.isSuppressed());
+            if (best == null || score > bestScore) {
+                best = candidate;
+                bestScore = score;
+            }
+        }
+        log.info("best-of-n paperId={} selected winner score={}",
+                draft.paperId(), String.format("%.4f", bestScore));
+        return best;
+    }
+
+    /**
+     * Phase 29 §29.1.1 — best-of-N selection key; higher is better.
+     *
+     * <ul>
+     *   <li>Suppressed candidate (professor blank / all-TPD sentinel) → {@code
+     *       -∞}, so a real candidate always wins over a suppressed one.</li>
+     *   <li>Panel ran → composite = mean of the four median grades (honesty,
+     *       completeness, rigor, novelty) plus a small {@code 0.001 ×
+     *       agreementScore} consensus tiebreak so a unanimous panel beats a
+     *       contested one at equal grades.</li>
+     *   <li>Panel did not run (disabled / empty outcome) → fall back to the
+     *       narrator's self-assessed {@code confidenceScore} so best-of-N still
+     *       discriminates when the panel is off.</li>
+     * </ul>
+     *
+     * Static + package-private: pure function of the candidate, unit-testable
+     * without constructing the service.
+     */
+    static double scoreCandidate(NarrationResult candidate) {
+        if (candidate == null || candidate.isSuppressed()) {
+            return Double.NEGATIVE_INFINITY;
+        }
+        com.emergentterrain.research.PanelOutcome panel = candidate.panelOutcome();
+        if (panel == null || panel.isEmpty()) {
+            return candidate.confidenceScore();
+        }
+        com.emergentterrain.research.PanelReview.Grades g = panel.aggregateGrades();
+        double composite = (g.honesty() + g.completeness() + g.rigor() + g.novelty()) / 4.0;
+        return composite + 0.001 * panel.agreementScore();
+    }
+
+    /**
+     * Phase 29 §29.1.1 — produce one complete candidate narration: first-pass
+     * stream → critique/revise (which runs the professor tool loop and the
+     * review panel) → terminal-status classification → built {@link
+     * NarrationResult} with its envelope, plus the per-candidate envelope
+     * metric. Does NOT publish and does NOT touch the gate-retry queue — the
+     * caller ({@link #produceBestCandidate}) selects the winner and {@link
+     * #runNarration} publishes it once.
+     *
+     * <p>This is the pre-29 body of {@code runNarration} extracted verbatim;
+     * {@code callPath} and {@code firstPassFailed} are now per-candidate so each
+     * best-of-N attempt carries its own call path.
+     */
+    private NarrationResult produceNarrationCandidate(PaperDraft draft,
+                                                      java.time.Instant orchestrationStartedAt) {
+        List<String> callPath = new java.util.ArrayList<>();
+        // Phase 20.4 — first-pass success tracker drives the OK vs PARTIAL split
+        // at the normal-completion emission site. PARTIAL = first-pass threw but
+        // the critique/revise path salvaged a usable result; OK = clean success.
+        boolean firstPassFailed = false;
 
         // First-pass narration (Groq/primary stream)
         String prompt = buildNarrationPrompt(draft);
@@ -806,6 +947,11 @@ public class ResearchNarrationService {
         // accumulated by the pools during this paper's withPaperId scope.
         // Zero when no pool recorded usage (e.g. all suppressed branches —
         // those publish null and don't reach here anyway).
+        // Phase 29 §29.1.1 — under best-of-N the withPaperId scope spans all
+        // candidates, so these totals are cumulative across candidates produced
+        // so far; the published winner's envelope therefore reports cumulative
+        // best-of-N spend (RunBudgetTracker accounts all spend at the pool layer
+        // regardless). Per-candidate token attribution is a documented follow-up.
         long paperInputTokens = com.emergentterrain.llm.LlmCallContext.currentInputTokens();
         long paperOutputTokens = com.emergentterrain.llm.LlmCallContext.currentOutputTokens();
 
@@ -846,22 +992,10 @@ public class ResearchNarrationService {
         }
         // Phase 20.4 step 3 — rollup metric. Fires for every reachable
         // terminal status, so the 30s activity row sees a moving
-        // distribution of narration outcomes.
+        // distribution of narration outcomes. Under best-of-N this fires once
+        // per candidate (each candidate is real narration work).
         emitNarrationEnvelopeMetrics(terminalStatus, paperInputTokens, paperOutputTokens);
-        if (narrationPublisher != null) {
-            narrationPublisher.accept(draft, result);
-        }
-        // Phase 17 — clear the retry queue entry on a successful retry publish.
-        // No-op for non-retry papers (the common case) and for retries that
-        // re-hit the gate (result is a suppression sentinel then; the queue
-        // entry stays for the next tick). markCompleted itself is null-safe
-        // on missing entries.
-        // Phase 20.4 step 2b-3 — `result` is now never null (suppression
-        // emits a sentinel), so the null check shifts to isSuppressed()
-        // to preserve the "re-hit gate keeps queue entry" semantics.
-        if (gateRetryQueue != null && !result.isSuppressed()) {
-            gateRetryQueue.markCompleted(draft.paperId());
-        }
+        return result;
     }
 
     // --- Self-critique + revision ---
