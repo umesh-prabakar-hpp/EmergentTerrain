@@ -1,13 +1,28 @@
 # Phase 29 — Self-Improving Paper Creation (patterns ported from DGM / HGM / STOP / Live-SWE)
 
-**Status (2026-05-27):** SCOPING + **Tier 1.1 code-started**. This phase
-catalogs feature/mechanism patterns mined from four self-improving agent
-frameworks and ports the highest-leverage ones into EmergentTerrain's
-paper-creation pipeline. The patterns are organised into three
-implementation tiers by leverage and dependency. **Tier 1.1 (best-of-N
-narration) ships in this commit behind `app.research.best-of-n.*`, default
-OFF (candidates=1 ⇒ bit-identical to today).** Tiers 1.2–3.4 are scoped
-below, not yet coded.
+**Status (2026-05-27):** SCOPING + **Tier 1.1 + 1.2 implemented (default OFF)**.
+This phase catalogs feature/mechanism patterns mined from four self-improving
+agent frameworks and ports the highest-leverage ones into EmergentTerrain's
+paper-creation pipeline. The patterns are organised into three implementation
+tiers by leverage and dependency.
+
+- **Tier 1.1 (best-of-N narration)** ships behind `app.research.best-of-n.*`,
+  default OFF (candidates=1 ⇒ bit-identical to today). Winner selection
+  confirmed deterministically via the static `selectBest` /  `scoreCandidate`
+  tests (a live "real paper" run was deferred — the whole stack was down and a
+  live run is nondeterministic, so it can't *assert* the best was chosen).
+- **Tier 1.2 (eval cascade)** ships behind `app.research.eval-cascade.*`,
+  default OFF. **Key as-built finding:** the review panel runs *inside*
+  candidate production (`maybeCritiqueAndRevise` → `runPanelAndStamp`), so
+  naive best-of-N pays N full panels. Rather than refactor the shared
+  every-paper panel/revision flow (high regression risk), 1.2 splits candidate
+  production into a cheap `produceFirstPass` half and an expensive
+  `finishCandidate` half (critique/revise + panel), screens the N first-passes,
+  and finishes only the top-M — bounding panel cost to M while leaving the
+  panel flow itself untouched. v1 screens on first-pass self-confidence (free);
+  a fast-tier Ollama screen grade is the documented follow-up.
+
+Tiers 1.3 + 2.x + 3.x are scoped below, not yet coded.
 
 **Source repos** (clones under
 `/opt/apps/ide/vscode/ai/reference-from-github/self-improving-frameworks/`,
@@ -145,7 +160,7 @@ published paper carrying the highest-graded panel of the three.
 
 **Effort:** ~1.5 days.
 
-### 29.1.2 — Staged evaluation cascade (cheap → expensive panel)
+### 29.1.2 — Staged evaluation cascade (cheap → expensive)  *(IMPLEMENTED, default OFF)*
 
 **Source:** DGM evaluates on `small.json` first and only pays for
 `medium/big.json` if a node clears `test_more_threshold`
@@ -155,23 +170,50 @@ published paper carrying the highest-graded panel of the three.
 regardless of promise. With best-of-N this multiplies — N candidates × a
 full panel each is the budget worst case.
 
-**Change:** a cheap fast-tier (Ollama) **pre-panel** screens each candidate;
-only candidates clearing a threshold spend frontier-model panel calls. Two
-modes that compose with 1.1:
-- **best-of-N pre-screen:** fast-tier scores all N candidates, the top-M
-  (default M=2) go to the full panel, the winner is selected among those.
-- **single-paper gate:** below the screen threshold, publish on the
-  fast-tier grade with status reflecting the reduced review (reuse the
-  existing `PUBLISHED_NO_PROFESSOR`-style degraded marker convention).
+**As-built finding — the panel is embedded in candidate production.** The
+panel runs only through `runPanelAndStamp` (`ResearchNarrationService.java`),
+which is called *inside* `maybeCritiqueAndRevise`. So a candidate is already
+fully paneled by the time it is produced; there is no "pre-panel" seam to
+screen at without either (a) suppressing the in-flow panel (which is tangled
+with `panelRevisionEnabled`, panel-degradation-demote, grade-floor, and the
+validators that read `panelOutcome`) or (b) splitting production so the panel
+is simply *run fewer times*. (a) is a high-risk refactor of the shared
+every-paper flow; **(b) is what shipped.**
 
-**Files:** `ReviewPanelService.java` (add `screenCandidates(...)` using
-`router.callFast`/`streamFast`), `ResearchNarrationService` (call screen
-before full panel when best-of-N on), `application.yml`
-(`app.research.eval-cascade.{enabled,screen-top-m,screen-threshold}`).
+**Change (as built):** split candidate production into a cheap
+`produceFirstPass` half (primary stream + parse) and an expensive
+`finishCandidate` half (critique/revise + panel). The cascade (`produceWithCascade`):
+1. produce N cheap first-passes (early-stop on primary exhaustion);
+2. **screen** them with `topM(firstPasses, scoreCandidate, M)` — with no panel
+   yet, `scoreCandidate` ranks on the narrator's first-pass self-confidence, a
+   free signal (no extra LLM call);
+3. run `finishCandidate` (→ the panel) on only the **top-M** (default 2);
+4. `selectBest` among those M panel-graded candidates.
 
-**Acceptance:** with cascade on, frontier panel calls per published paper
-drop vs. naive best-of-N while the published panel grade distribution does
-not regress over a 20-paper window. **Effort:** ~2 days. **Depends on:** 1.1.
+Panel runs M× instead of N× per paper; the panel flow itself is **unchanged**.
+`produceNarrationCandidate` (non-cascade) = `finishCandidate(produceFirstPass())`,
+so the default path is bit-identical.
+
+**v1 limitation / follow-up:** the screen signal is first-pass self-confidence,
+not a dedicated fast-tier grade. A fast-tier (Ollama) screen call
+(`router.callFast`) is the richer signal — deferred so v1 adds zero LLM calls
+and stays deterministically testable. The `single-paper gate` mode (publish on
+a reduced review below threshold) is also deferred — it changes the every-paper
+review path and deserves its own slice.
+
+**Files (as built):**
+`ResearchNarrationService.java` — `FirstPass` record, `produceFirstPass`,
+`finishCandidate`, `produceWithCascade`, static `topM`; constructor `@Value`
+flags. `application.yml` — `app.research.eval-cascade.{enabled,screen-top-m}`
+(default off / 2). `ResearchNarrationBestOfNTest` — `topM` ranking/ties/edges
++ a cascade-screen-by-confidence test.
+
+**Acceptance:** flag-off bit-identical (orchestration tests green); `topM`
+unit tests pass; with cascade on, the cascade log line reports the panel
+running M× not N×. The corpus check (frontier panel calls/paper drop while the
+published panel-grade distribution holds over 20 papers) remains an operator
+task once a live run with `candidates>1, eval-cascade.enabled=true` ships.
+**Effort (actual):** ~0.5 day. **Depends on:** 1.1.
 
 ### 29.1.3 — LLM tie-breaker on near-ties
 

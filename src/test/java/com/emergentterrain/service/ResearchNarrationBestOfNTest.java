@@ -162,4 +162,52 @@ class ResearchNarrationBestOfNTest {
         assertThat(ResearchNarrationService.selectBest(List.of())).isNull();
         assertThat(ResearchNarrationService.selectBest(null)).isNull();
     }
+
+    // ---- §29.1.2 eval cascade: topM screen (which candidates get the panel) ----
+
+    @Test
+    void topMKeepsHighestScoredAndDropsTheRest() {
+        // 4 first-pass-style screen values; top-2 by score are kept (the panel
+        // would then run only on these 2, not all 4).
+        List<Double> items = List.of(0.10, 0.90, 0.50, 0.70);
+        List<Double> top2 = ResearchNarrationService.topM(items, d -> d, 2);
+        assertThat(top2).containsExactly(0.90, 0.70);
+    }
+
+    @Test
+    void topMStableOnTies() {
+        // equal scores keep original relative order (deterministic screen)
+        record Item(String id, double score) {}
+        List<Item> items = List.of(
+                new Item("a", 0.5), new Item("b", 0.5), new Item("c", 0.9), new Item("d", 0.5));
+        List<Item> top3 = ResearchNarrationService.topM(items, Item::score, 3);
+        assertThat(top3).extracting(Item::id).containsExactly("c", "a", "b");
+    }
+
+    @Test
+    void topMEdgeCases() {
+        List<Double> items = List.of(0.3, 0.1, 0.2);
+        // m >= size → all, score-sorted descending
+        assertThat(ResearchNarrationService.topM(items, d -> d, 9))
+                .containsExactly(0.3, 0.2, 0.1);
+        // m <= 0 → empty
+        assertThat(ResearchNarrationService.topM(items, d -> d, 0)).isEmpty();
+        // empty / null input → empty
+        assertThat(ResearchNarrationService.topM(List.<Double>of(), d -> d, 2)).isEmpty();
+        assertThat(ResearchNarrationService.topM((List<Double>) null, d -> d, 2)).isEmpty();
+    }
+
+    @Test
+    void cascadeScreensCandidatesByFirstPassConfidence() {
+        // The cascade screen ranks first-passes by scoreCandidate (confidence,
+        // since a first-pass carries no panel yet). Confirm the highest-
+        // confidence first-passes are the ones selected to be finished/paneled.
+        NarrationResult fpLow  = candidate(0.20, null);
+        NarrationResult fpMid  = candidate(0.55, null);
+        NarrationResult fpHigh = candidate(0.95, null);
+        List<NarrationResult> top2 = ResearchNarrationService.topM(
+                List.of(fpLow, fpHigh, fpMid),
+                ResearchNarrationService::scoreCandidate, 2);
+        assertThat(top2).containsExactly(fpHigh, fpMid);
+    }
 }

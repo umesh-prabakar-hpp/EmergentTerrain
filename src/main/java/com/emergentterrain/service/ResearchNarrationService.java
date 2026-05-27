@@ -139,6 +139,17 @@ public class ResearchNarrationService {
     private final int bestOfNCandidates;
 
     /**
+     * Phase 29 §29.1.2 — eval cascade. When {@code evalCascadeEnabled} and
+     * best-of-N is producing {@code >1} candidates, the candidates' cheap
+     * first-passes are screened and only the top-{@code evalCascadeScreenTopM}
+     * are finished through the expensive critique/revise + panel half. This
+     * bounds the per-paper panel cost to M instead of N. Default off ⇒ every
+     * candidate is finished (the §29.1.1 behaviour).
+     */
+    private final boolean evalCascadeEnabled;
+    private final int evalCascadeScreenTopM;
+
+    /**
      * Phase 11 C4 — citations-as-schema validator. Runs after the student-revision
      * stage produces a NarrationResult with {@code numericClaims} and a tool-call
      * trace with stable {@code call_N} IDs. Operates in three modes via
@@ -434,7 +445,16 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Value("${app.research.best-of-n.enabled:false}")
             boolean bestOfNEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.best-of-n.candidates:1}")
-            int bestOfNCandidates) {
+            int bestOfNCandidates,
+            // Phase 29 §29.1.2 — eval cascade. When enabled alongside best-of-N,
+            // the N candidates' cheap first-passes are screened and only the
+            // top-M get the expensive critique/revise + panel half — bounding the
+            // N× panel cost (DGM cheap→expensive eval). Default OFF; with it off
+            // every candidate is finished (the §29.1.1 behaviour).
+            @org.springframework.beans.factory.annotation.Value("${app.research.eval-cascade.enabled:false}")
+            boolean evalCascadeEnabled,
+            @org.springframework.beans.factory.annotation.Value("${app.research.eval-cascade.screen-top-m:2}")
+            int evalCascadeScreenTopM) {
         this.router                    = router;
         // Phase 8 Tier 4 — GpuEngineAdapter is @Autowired(required=false) so
         // tests and configurations without the GPU engine wired still construct
@@ -466,6 +486,10 @@ public class ResearchNarrationService {
         // configured value; flag-off is then bit-identical to pre-29.
         this.bestOfNEnabled    = bestOfNEnabled;
         this.bestOfNCandidates = bestOfNEnabled ? Math.max(1, bestOfNCandidates) : 1;
+        // Phase 29 §29.1.2 — the cascade is meaningful only when best-of-N
+        // produces >1 candidate; clamp top-M to >=1.
+        this.evalCascadeEnabled   = evalCascadeEnabled;
+        this.evalCascadeScreenTopM = Math.max(1, evalCascadeScreenTopM);
         // Narration parallelism defaults to the primary LLM pool size, but that
         // can outrun the most-constrained provider's token-per-minute ceiling
         // (Groq: 12k TPM on llama-3.3-70b, 8k on gpt-oss-120b). When parallel
@@ -482,10 +506,12 @@ public class ResearchNarrationService {
         log.info("ResearchNarrationService: narrationSlots={} literatureSearchEnabled={} "
                 + "discussionSectionEnabled={} ollamaFallbackEnabled={} "
                 + "structuredFindingsEnabled={} maxComputations={} (cfg={}) "
-                + "panelDegradationDemoteEnabled={} bestOfNEnabled={} bestOfNCandidates={}",
+                + "panelDegradationDemoteEnabled={} bestOfNEnabled={} bestOfNCandidates={} "
+                + "evalCascadeEnabled={} evalCascadeScreenTopM={}",
                 narrationSlot.availablePermits(), literatureSearchEnabled, discussionSectionEnabled,
                 ollamaFallbackEnabled, structuredFindingsEnabled, maxComputations, maxComputationsCfg,
-                panelDegradationDemoteEnabled, this.bestOfNEnabled, this.bestOfNCandidates);
+                panelDegradationDemoteEnabled, this.bestOfNEnabled, this.bestOfNCandidates,
+                this.evalCascadeEnabled, this.evalCascadeScreenTopM);
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
@@ -810,10 +836,13 @@ public class ResearchNarrationService {
         if (bestOfNCandidates <= 1) {
             return produceNarrationCandidate(draft, orchestrationStartedAt);
         }
-        // Produce candidates serially (each is a full narration+panel cycle with
-        // side effects), stopping early if the primary pool fully exhausts. The
-        // first candidate always runs — the exhaustion guard at the top of
-        // runNarration covers the pre-first-candidate case.
+        if (evalCascadeEnabled) {
+            return produceWithCascade(draft, orchestrationStartedAt);
+        }
+        // No cascade: produce N full candidates serially (each is a full
+        // narration+panel cycle with side effects), stopping early if the
+        // primary pool fully exhausts. The first candidate always runs — the
+        // exhaustion guard at the top of runNarration covers the pre-first case.
         List<NarrationResult> candidates = new java.util.ArrayList<>();
         for (int i = 0; i < bestOfNCandidates; i++) {
             if (i > 0 && router.primaryFullyExhausted()) {
@@ -831,6 +860,67 @@ public class ResearchNarrationService {
         log.info("best-of-n paperId={} selected winner score={}",
                 draft.paperId(), String.format("%.4f", scoreCandidate(best)));
         return best;
+    }
+
+    /**
+     * Phase 29 §29.1.2 — eval-cascade best-of-N. Produce N cheap first-passes,
+     * screen them by {@link #scoreCandidate} (which, with no panel yet, scores
+     * on the narrator's first-pass self-confidence — a free signal, no extra LLM
+     * call), then run the expensive {@link #finishCandidate} half (critique/
+     * revise + panel) on only the top-{@code evalCascadeScreenTopM}. The winner
+     * is selected among those finished, panel-graded candidates. This bounds the
+     * per-paper panel cost to M instead of N while keeping the panel flow itself
+     * unchanged. Early-stops first-pass production on primary exhaustion.
+     *
+     * <p>v1 screen signal is first-pass self-confidence; a dedicated fast-tier
+     * (Ollama) screen grade is the documented richer follow-up (§29.1.2).
+     */
+    private NarrationResult produceWithCascade(PaperDraft draft,
+                                               java.time.Instant orchestrationStartedAt) {
+        List<FirstPass> firstPasses = new java.util.ArrayList<>();
+        for (int i = 0; i < bestOfNCandidates; i++) {
+            if (i > 0 && router.primaryFullyExhausted()) {
+                log.info("cascade paperId={} stopping first-pass production after {}/{} — primary exhausted",
+                        draft.paperId(), i, bestOfNCandidates);
+                break;
+            }
+            firstPasses.add(produceFirstPass(draft));
+        }
+        int m = Math.min(evalCascadeScreenTopM, firstPasses.size());
+        List<FirstPass> screened = topM(firstPasses, fp -> scoreCandidate(fp.firstPass()), m);
+        log.info("cascade paperId={} screened {} first-passes → finishing top {} (panel runs {}x not {}x)",
+                draft.paperId(), firstPasses.size(), screened.size(), screened.size(), bestOfNCandidates);
+
+        List<NarrationResult> finished = new java.util.ArrayList<>();
+        for (FirstPass fp : screened) {
+            NarrationResult candidate = finishCandidate(draft, orchestrationStartedAt, fp);
+            log.info("cascade paperId={} finished candidate score={} suppressed={}",
+                    draft.paperId(), String.format("%.4f", scoreCandidate(candidate)),
+                    candidate.isSuppressed());
+            finished.add(candidate);
+        }
+        NarrationResult best = selectBest(finished);
+        log.info("cascade paperId={} selected winner score={}",
+                draft.paperId(), String.format("%.4f", scoreCandidate(best)));
+        return best;
+    }
+
+    /**
+     * Phase 29 §29.1.2 — return the {@code m} highest-scored items (descending),
+     * stable on ties (original order preserved among equal scores). Used to pick
+     * which screened first-passes get the expensive finish. Static + package-
+     * private for unit testing. {@code m <= 0} → empty; {@code m >= size} → a
+     * score-sorted copy of all items.
+     */
+    static <T> List<T> topM(List<T> items, java.util.function.ToDoubleFunction<T> score, int m) {
+        if (items == null || items.isEmpty() || m <= 0) {
+            return List.of();
+        }
+        List<T> sorted = new java.util.ArrayList<>(items);
+        // Stable sort by score descending; Collections.sort is stable, so equal
+        // scores keep their original relative order.
+        sorted.sort(java.util.Comparator.comparingDouble(score).reversed());
+        return new java.util.ArrayList<>(sorted.subList(0, Math.min(m, sorted.size())));
     }
 
     /**
@@ -904,8 +994,17 @@ public class ResearchNarrationService {
      * {@code callPath} and {@code firstPassFailed} are now per-candidate so each
      * best-of-N attempt carries its own call path.
      */
-    private NarrationResult produceNarrationCandidate(PaperDraft draft,
-                                                      java.time.Instant orchestrationStartedAt) {
+    /**
+     * Phase 29 §29.1.2 — the cheap half of candidate production: the first-pass
+     * primary stream + parse, with its call path and failure flag. Split out so
+     * the eval cascade can produce N cheap first-passes, screen them, and pay
+     * for the expensive {@link #finishCandidate} half (critique/revise + panel)
+     * only on the top-M.
+     */
+    private record FirstPass(NarrationResult firstPass, List<String> callPath,
+                             boolean firstPassFailed) {}
+
+    private FirstPass produceFirstPass(PaperDraft draft) {
         List<String> callPath = new java.util.ArrayList<>();
         // Phase 20.4 — first-pass success tracker drives the OK vs PARTIAL split
         // at the normal-completion emission site. PARTIAL = first-pass threw but
@@ -933,8 +1032,35 @@ public class ResearchNarrationService {
         }
 
         NarrationResult firstPass = parseNarrationResult(response.toString());
+        return new FirstPass(firstPass, callPath, firstPassFailed);
+    }
+
+    /**
+     * Phase 29 §29.1.1 — produce one complete candidate narration: cheap
+     * first-pass then the expensive finish. Bit-identical to the pre-29 inline
+     * body. Does NOT publish — see {@link #runNarration}.
+     */
+    private NarrationResult produceNarrationCandidate(PaperDraft draft,
+                                                      java.time.Instant orchestrationStartedAt) {
+        return finishCandidate(draft, orchestrationStartedAt, produceFirstPass(draft));
+    }
+
+    /**
+     * Phase 29 §29.1.2 — the expensive half: critique/revise (professor tool
+     * loop + review panel) onward, then terminal-status classification and the
+     * built {@link NarrationResult} with envelope + per-candidate metric. Run on
+     * every candidate without the cascade; only on the top-M screened first-
+     * passes with it. The panel flow inside {@code maybeCritiqueAndRevise} is
+     * unchanged — the cascade bounds cost by calling this fewer times, not by
+     * altering the panel.
+     */
+    private NarrationResult finishCandidate(PaperDraft draft,
+                                            java.time.Instant orchestrationStartedAt,
+                                            FirstPass fp) {
+        List<String> callPath = fp.callPath();
+        boolean firstPassFailed = fp.firstPassFailed();
         List<String> auditGapDimensions = new java.util.ArrayList<>();
-        NarrationResult finalResult = maybeCritiqueAndRevise(draft, firstPass, callPath, auditGapDimensions);
+        NarrationResult finalResult = maybeCritiqueAndRevise(draft, fp.firstPass(), callPath, auditGapDimensions);
 
         String pathStr = String.join(" → ", callPath);
         log.info("LLM call path paperId={}: {}", draft.paperId(), pathStr);
