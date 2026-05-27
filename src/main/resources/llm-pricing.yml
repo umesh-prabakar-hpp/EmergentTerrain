@@ -54,10 +54,21 @@ llm-pricing:
 
     openrouter:
       models:
-        "[openai/gpt-oss-120b:free]":
-          # Listed for completeness; overridden to $0 by free-models above.
-          in-usd-per-mtok: 0.0
-          out-usd-per-mtok: 0.0
+        # 2026-05-26 — frontier paid slot (promoted above groq; replaces the
+        # gpt-oss-120b:free mirror). OpenRouter passes through upstream pricing,
+        # so these can drift — rates per the OpenRouter API on 2026-05-26;
+        # VERIFY at https://openrouter.ai/models. Cost tracking + the $8
+        # openrouter budget cap derive from these, so a stale rate skews the
+        # run-budget accounting (not catastrophic, but worth keeping current).
+        "[deepseek/deepseek-v4-pro]":
+          in-usd-per-mtok: 0.44
+          out-usd-per-mtok: 0.87
+        "[x-ai/grok-4.20]":
+          in-usd-per-mtok: 1.25
+          out-usd-per-mtok: 2.50
+        "[openai/gpt-5.4]":
+          in-usd-per-mtok: 2.50
+          out-usd-per-mtok: 15.00
 
     # Claude *subscription* provider (scripts/legacy-ai-gateway). The
     # subscription is a flat plan, not metered API — but per operator decision
