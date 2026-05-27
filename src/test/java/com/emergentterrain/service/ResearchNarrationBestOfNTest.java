@@ -105,4 +105,61 @@ class ResearchNarrationBestOfNTest {
         assertThat(ResearchNarrationService.scoreCandidate(poorButReal))
                 .isGreaterThan(ResearchNarrationService.scoreCandidate(suppressed));
     }
+
+    // ---- selectBest: the winner-selection contract (the "candidates=3" smoke) ----
+
+    @Test
+    void selectBestPicksHighestGradedOfThree() {
+        // Mirrors a candidates=3 run: three panel-scored candidates, the
+        // best-graded one is selected for publish regardless of list order.
+        NarrationResult weak    = candidate(0.5, panel(0.30, 0.30, 0.30, 0.30, 1.0));
+        NarrationResult strong  = candidate(0.5, panel(0.90, 0.90, 0.90, 0.90, 1.0));
+        NarrationResult middle  = candidate(0.5, panel(0.60, 0.60, 0.60, 0.60, 1.0));
+        assertThat(ResearchNarrationService.selectBest(List.of(weak, strong, middle)))
+                .isSameAs(strong);
+        // order-independent
+        assertThat(ResearchNarrationService.selectBest(List.of(strong, weak, middle)))
+                .isSameAs(strong);
+    }
+
+    @Test
+    void selectBestUsesPanelGradeNotConfidenceWhenPanelRan() {
+        // A high-confidence but low-panel-grade candidate must LOSE to a
+        // low-confidence high-panel-grade one — the panel is the fitness, not
+        // the narrator's self-assessment.
+        NarrationResult confidentButWeak = candidate(0.99, panel(0.20, 0.20, 0.20, 0.20, 1.0));
+        NarrationResult humbleButStrong  = candidate(0.10, panel(0.85, 0.85, 0.85, 0.85, 1.0));
+        assertThat(ResearchNarrationService.selectBest(List.of(confidentButWeak, humbleButStrong)))
+                .isSameAs(humbleButStrong);
+    }
+
+    @Test
+    void selectBestPrefersRealCandidateOverSuppressed() {
+        NarrationResult suppressed = NarrationResult.suppressed(
+                NarrationResult.OutcomeStatus.ERROR, null, null, 0L, 0L);
+        NarrationResult real = candidate(0.5, panel(0.5, 0.5, 0.5, 0.5, 1.0));
+        // suppressed produced first; the real candidate must still win
+        assertThat(ResearchNarrationService.selectBest(List.of(suppressed, real)))
+                .isSameAs(real);
+    }
+
+    @Test
+    void selectBestAllSuppressedReturnsFirstSentinel() {
+        // Degenerate run where every candidate suppressed — publish the first
+        // sentinel (pre-29 publish-the-sentinel behaviour, queue counter still
+        // decrements downstream).
+        NarrationResult s1 = NarrationResult.suppressed(
+                NarrationResult.OutcomeStatus.BUDGET_EXHAUSTED, null, null, 0L, 0L);
+        NarrationResult s2 = NarrationResult.suppressed(
+                NarrationResult.OutcomeStatus.ALL_MODELS_BLOCKED, null, null, 0L, 0L);
+        assertThat(ResearchNarrationService.selectBest(List.of(s1, s2))).isSameAs(s1);
+    }
+
+    @Test
+    void selectBestSingleAndEmpty() {
+        NarrationResult only = candidate(0.7, null);
+        assertThat(ResearchNarrationService.selectBest(List.of(only))).isSameAs(only);
+        assertThat(ResearchNarrationService.selectBest(List.of())).isNull();
+        assertThat(ResearchNarrationService.selectBest(null)).isNull();
+    }
 }

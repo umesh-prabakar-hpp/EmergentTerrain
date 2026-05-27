@@ -810,8 +810,11 @@ public class ResearchNarrationService {
         if (bestOfNCandidates <= 1) {
             return produceNarrationCandidate(draft, orchestrationStartedAt);
         }
-        NarrationResult best = null;
-        double bestScore = Double.NEGATIVE_INFINITY;
+        // Produce candidates serially (each is a full narration+panel cycle with
+        // side effects), stopping early if the primary pool fully exhausts. The
+        // first candidate always runs — the exhaustion guard at the top of
+        // runNarration covers the pre-first-candidate case.
+        List<NarrationResult> candidates = new java.util.ArrayList<>();
         for (int i = 0; i < bestOfNCandidates; i++) {
             if (i > 0 && router.primaryFullyExhausted()) {
                 log.info("best-of-n paperId={} stopping after {}/{} candidates — primary exhausted",
@@ -819,17 +822,41 @@ public class ResearchNarrationService {
                 break;
             }
             NarrationResult candidate = produceNarrationCandidate(draft, orchestrationStartedAt);
-            double score = scoreCandidate(candidate);
             log.info("best-of-n paperId={} candidate {}/{} score={} suppressed={}",
-                    draft.paperId(), i + 1, bestOfNCandidates, String.format("%.4f", score),
-                    candidate.isSuppressed());
+                    draft.paperId(), i + 1, bestOfNCandidates,
+                    String.format("%.4f", scoreCandidate(candidate)), candidate.isSuppressed());
+            candidates.add(candidate);
+        }
+        NarrationResult best = selectBest(candidates);
+        log.info("best-of-n paperId={} selected winner score={}",
+                draft.paperId(), String.format("%.4f", scoreCandidate(best)));
+        return best;
+    }
+
+    /**
+     * Phase 29 §29.1.1 — winner selection: the highest-{@link
+     * #scoreCandidate(NarrationResult) scored} candidate (argmax, first wins on
+     * exact ties via strict {@code >}). The single source of truth for "which
+     * candidate gets published"; {@link #produceBestCandidate} only adds the
+     * produce-N loop + early-stop around it. Static + package-private so the
+     * selection contract is unit-testable on real {@link NarrationResult}
+     * objects without standing up the full service. An all-suppressed list
+     * returns the first element (a suppression sentinel), preserving the pre-29
+     * publish-the-sentinel behaviour. Empty/null input returns null.
+     */
+    static NarrationResult selectBest(List<NarrationResult> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        NarrationResult best = null;
+        double bestScore = Double.NEGATIVE_INFINITY;
+        for (NarrationResult candidate : candidates) {
+            double score = scoreCandidate(candidate);
             if (best == null || score > bestScore) {
                 best = candidate;
                 bestScore = score;
             }
         }
-        log.info("best-of-n paperId={} selected winner score={}",
-                draft.paperId(), String.format("%.4f", bestScore));
         return best;
     }
 
