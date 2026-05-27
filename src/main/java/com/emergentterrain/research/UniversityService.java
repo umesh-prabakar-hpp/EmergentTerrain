@@ -2504,10 +2504,11 @@ public class UniversityService {
      * <pre>
      *   1. **run_param_sweep** (round 0)
      *      Args: {"param1":"L","range":[5e-4,5e-3],"steps":10}
-     *      Result: peak_q=42.3 at L=2.1e-3 …
+     *      Result: peak_q=42.3 at L=2.1e-3
      * </pre>
-     * Results are truncated to {@value #METHODS_RESULT_PREVIEW_CHARS} characters
-     * so the appendix stays scannable even when the LLM ran a large sweep.
+     * The full tool result is rendered (inline whitespace collapsed) so the
+     * appendix is a complete, reproducible record even when the LLM ran a
+     * large sweep.
      */
     String renderMethodsSection(ResearchPaper paper) {
         String raw = paper.toolCallTrace();
@@ -2530,9 +2531,6 @@ public class UniversityService {
                 sb.append("    - Args: `").append(args).append("`\n");
             }
             String result = inv.resultJson() != null ? inv.resultJson() : "";
-            if (result.length() > METHODS_RESULT_PREVIEW_CHARS) {
-                result = result.substring(0, METHODS_RESULT_PREVIEW_CHARS) + " …";
-            }
             result = result.replaceAll("\\s+", " ").trim();
             if (!result.isBlank()) {
                 sb.append("    - Result: `").append(result).append("`\n");
@@ -2540,8 +2538,6 @@ public class UniversityService {
         }
         return sb.toString();
     }
-
-    private static final int METHODS_RESULT_PREVIEW_CHARS = 240;
 
     /**
      * Phase 7 F7.2 — render the {@code ## Panel Review} section from the persisted
