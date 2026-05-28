@@ -493,4 +493,63 @@ class CitationValidatorTest {
         assertThat(reconciled.issues()).anyMatch(s -> s.contains("3.25"));
         assertThat(reconciled.hasFailures()).isTrue();
     }
+
+    @Test
+    void reconcile_scaledPhysicalValue_matchesUnscaledTraceValue() {
+        // P-a328-987 shape (the dominant false-NULL cause): the sandbox records
+        // SCALED values for readability — recordSample(kT*1e21) → 6.95847,
+        // recordSample(E1*1e21) → 1.35014 — while the prose reports the physical
+        // quantities 6.958e-21 J and 1.350e-21 J. Strict matching misses them by
+        // 21 orders of magnitude and the paper is wrongly nulled. Reconcile mode
+        // must recognise them as the same computed values.
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "kBT = 6.958e-21 J and the ground-state energy E1 = 1.350e-21 J."),
+                "c",
+                List.of());
+        List<ToolInvocation> trace = List.of(call("call_5",
+                "result=6.95847 named={kT_1e21=6.95847, E1_min_1e21=1.35014, ratio_at_Lmin=0.194029}"));
+
+        var strict = validator.validate(n, trace, java.util.Set.of(), false);
+        assertThat(strict.uncitedCount()).isEqualTo(2);
+        assertThat(strict.hasFailures()).isTrue();
+
+        var reconciled = validator.validate(n, trace, java.util.Set.of(), true);
+        assertThat(reconciled.uncitedCount()).isZero();
+        assertThat(reconciled.hasFailures()).isFalse();
+    }
+
+    @Test
+    void reconcile_scaleTolerant_doesNotRescueWrongMantissa() {
+        // Safety: the scale-invariant fallback matches significant digits, not
+        // magnitude alone. A prose value whose mantissa is absent from the trace
+        // stays flagged even though a same-magnitude number exists. Here prose
+        // 8.337e-22 (E1 at the wide well, never recorded) must NOT be rescued by
+        // the trace's 1.35014 / 6.95847 (different mantissas).
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "The wide-well energy was 8.337e-22 J."),
+                "c",
+                List.of());
+        List<ToolInvocation> trace = List.of(call("call_5",
+                "named={kT_1e21=6.95847, E1_min_1e21=1.35014, ratio_at_Lmin=0.194029}"));
+
+        var reconciled = validator.validate(n, trace, java.util.Set.of(), true);
+        assertThat(reconciled.uncitedCount()).isEqualTo(1);
+        assertThat(reconciled.issues()).anyMatch(s -> s.contains("8.337e-22"));
+        assertThat(reconciled.hasFailures()).isTrue();
+    }
+
+    @Test
+    void valueAppearsInResultScaleTolerant_unit() {
+        // Direct digit/scale checks on the matcher.
+        assertThat(CitationValidator.valueAppearsInResultScaleTolerant(
+                6.958e-21, "named={kT_1e21=6.95847}")).isTrue();          // ×1e21 scale
+        assertThat(CitationValidator.valueAppearsInResultScaleTolerant(
+                2.94e-9, "L_threshold_nm=2.94245")).isTrue();            // nm→m scale
+        assertThat(CitationValidator.valueAppearsInResultScaleTolerant(
+                8.337e-22, "kT_1e21=6.95847, E1_min_1e21=1.35014")).isFalse(); // wrong digits
+        assertThat(CitationValidator.valueAppearsInResultScaleTolerant(
+                3.25, "result=2.07168")).isFalse();                     // hallucinated value
+    }
 }

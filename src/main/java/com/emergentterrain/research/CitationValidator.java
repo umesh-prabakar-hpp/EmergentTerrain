@@ -92,6 +92,14 @@ public class CitationValidator {
     private static final double REL_TOLERANCE = 0.005;
     private static final double ABS_FLOOR = 1e-9;
 
+    /**
+     * Maximum power-of-ten gap tolerated by the scale-invariant reconcile match
+     * ({@link #valueAppearsInResultScaleTolerant}). Covers scaling a Planck-scale
+     * quantity (~1e-34) up to O(1) for readability; gaps beyond this are treated
+     * as coincidental and not reconciled.
+     */
+    private static final int MAX_SCALE_DECADES = 40;
+
     /** Aggregate result of one paper's validation pass. */
     public record CitationValidationResult(
             int uncitedCount,
@@ -339,11 +347,59 @@ public class CitationValidator {
                 exemptSweep, hypothesisParamExempt, List.copyOf(issues));
     }
 
-    /** True when {@code value} appears (within tolerance) in any tool result. */
+    /**
+     * True when {@code value} appears in any tool result — first by a direct
+     * within-tolerance match, then by a scale-invariant fallback that ignores a
+     * power-of-ten unit difference. Used only by the reconcile-before-null
+     * rescue path; the strict Check-3 conformance check
+     * ({@link #valueAppearsInResult} against the specifically cited call) is
+     * left unchanged, so this looser match cannot launder a mis-cited claim.
+     */
     private static boolean appearsInAnyResult(double value, java.util.Collection<String> results) {
         if (results == null) return false;
         for (String r : results) {
-            if (valueAppearsInResult(value, r)) return true;
+            if (valueAppearsInResult(value, r)
+                    || valueAppearsInResultScaleTolerant(value, r)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Scale-invariant ("same significant digits, different unit scale") match,
+     * used ONLY in the reconcile-before-null rescue path. Sandbox code routinely
+     * records a scaled value for readability — e.g. {@code recordSample(kT * 1e21)}
+     * emits {@code 6.95847} — while the prose reports the physical quantity
+     * {@code 6.958e-21 J}. A raw numeric compare misses it by 21 orders of
+     * magnitude even though it is the same computed value (this was the dominant
+     * false-NULL cause in the research/a3289005 batch — P-a328-987 et al.).
+     *
+     * <p>Matches when the mantissas agree within {@link #REL_TOLERANCE} — which
+     * forces the ratio to a clean power of ten — and the decade gap is within
+     * {@link #MAX_SCALE_DECADES}. Because it lives only in the reconcile corpus
+     * scan and never in the strict per-call conformance check, it can only
+     * rescue a paper from a false NULL downgrade, not validate a fabricated or
+     * mis-attributed claim.
+     */
+    static boolean valueAppearsInResultScaleTolerant(double target, String resultJson) {
+        if (resultJson == null || resultJson.isEmpty()) return false;
+        if (target == 0.0 || !Double.isFinite(target)) return false;
+        int targetExp = (int) Math.floor(Math.log10(Math.abs(target)));
+        double targetMantissa = Math.abs(target) / Math.pow(10.0, targetExp);
+        Matcher m = NUMBER.matcher(resultJson);
+        while (m.find()) {
+            double v;
+            try {
+                v = Double.parseDouble(m.group());
+            } catch (NumberFormatException ignore) {
+                continue;
+            }
+            if (v == 0.0 || !Double.isFinite(v)) continue;
+            int vExp = (int) Math.floor(Math.log10(Math.abs(v)));
+            if (Math.abs(targetExp - vExp) > MAX_SCALE_DECADES) continue;
+            double vMantissa = Math.abs(v) / Math.pow(10.0, vExp);
+            if (withinTolerance(targetMantissa, vMantissa)) return true;
         }
         return false;
     }
