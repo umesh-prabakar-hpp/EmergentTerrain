@@ -75,6 +75,76 @@ public class ReviewPanelService {
      */
     static final int DEFAULT_PANEL_SIZE = 4;
 
+    /** Phase 29 §2.B — the tool a schema-pinned reviewer calls to submit its review. */
+    static final String SUBMIT_REVIEW_TOOL_NAME = "submit_review";
+
+    /**
+     * Phase 29 §2.B — system steer for the tool-call review path. Tells the model
+     * to submit via the tool, not as prose/JSON text.
+     */
+    private static final String SUBMIT_REVIEW_SYSTEM =
+            "You are an expert, skeptical peer reviewer. Read the paper and its tool-call "
+            + "trace in the user message, then submit your assessment by calling the "
+            + "submit_review tool exactly once with the structured fields. Do not write the "
+            + "review as prose or JSON text — use the submit_review tool.";
+
+    /**
+     * Phase 29 §2.B — single-tool spec (a JSON array, the shape the pools'
+     * {@code callWithToolsOnModel} expects). The argument shape mirrors exactly
+     * what {@link PanelReview#parse} reads (grades.{honesty,completeness,rigor,
+     * novelty}, cited_calls, omitted_relevant, contradictions[].{trace_idx,
+     * vs_prose}, recommendations, evidence_label). Deliberately uses NO JSON-schema
+     * {@code enum} anywhere — xAI/grok rejects tool schemas whose enum values
+     * contain '/', and the §1.A operators fix removed the last such enum; the
+     * allowed evidence labels live in the field description instead.
+     */
+    static final String SUBMIT_REVIEW_TOOLS_JSON = """
+            [
+              {
+                "type":"function",
+                "function":{
+                  "name":"submit_review",
+                  "description":"Submit your structured peer review of the paper under review. Call this exactly ONCE with all fields filled in; do not also write the review as prose.",
+                  "parameters":{
+                    "type":"object",
+                    "properties":{
+                      "grades":{
+                        "type":"object",
+                        "description":"Four-axis grades, each a number in [0,1].",
+                        "properties":{
+                          "honesty":{"type":"number","description":"0..1 — does the prose faithfully represent the tool-call evidence?"},
+                          "completeness":{"type":"number","description":"0..1 — are the relevant computations covered?"},
+                          "rigor":{"type":"number","description":"0..1 — soundness of method and reasoning."},
+                          "novelty":{"type":"number","description":"0..1 — does the result add something non-trivial?"}
+                        },
+                        "required":["honesty","completeness","rigor","novelty"]
+                      },
+                      "cited_calls":{"type":"array","items":{"type":"integer"},"description":"1-based trace indices the prose correctly cites."},
+                      "omitted_relevant":{"type":"array","items":{"type":"integer"},"description":"1-based trace indices that were relevant but the prose omitted."},
+                      "contradictions":{"type":"array","items":{"type":"object","properties":{"trace_idx":{"type":"integer"},"vs_prose":{"type":"string"}},"required":["trace_idx","vs_prose"]},"description":"Trace entries that contradict the synthesis."},
+                      "recommendations":{"type":"array","items":{"type":"string"},"description":"Concrete, actionable recommendations."},
+                      "evidence_label":{"type":"string","description":"Proposed evidence label — one of THEOREM, EMPIRICAL_RESULT, CONJECTURE, UNEXPLAINED_OBSERVATION. Omit if unsure."}
+                    },
+                    "required":["grades"]
+                  }
+                }
+              }
+            ]""";
+
+    /**
+     * Phase 29 §2.B — repair suffix appended on the text path's retry: tells a
+     * model that returned prose exactly what JSON to emit. Catches the common
+     * "prose preamble + JSON" / fenced-JSON failures without a tool call.
+     */
+    private static final String REPAIR_SUFFIX =
+            "\n\nIMPORTANT: your previous response could not be parsed. Respond with ONLY a "
+            + "single JSON object — no prose, no markdown code fences — matching exactly this "
+            + "shape:\n"
+            + "{\"grades\":{\"honesty\":0.0,\"completeness\":0.0,\"rigor\":0.0,\"novelty\":0.0},"
+            + "\"cited_calls\":[],\"omitted_relevant\":[],"
+            + "\"contradictions\":[{\"trace_idx\":1,\"vs_prose\":\"...\"}],"
+            + "\"recommendations\":[\"...\"],\"evidence_label\":\"EMPIRICAL_RESULT\"}";
+
     private final PrimaryModelRegistry primaryRegistry;
     private final PromptTemplateRegistry promptRegistry;
     private final ObjectMapper mapper;
@@ -82,6 +152,16 @@ public class ReviewPanelService {
     /** Lower-cased opt-in set of providers. Empty = no filter. */
     private final Set<String> providerFilter;
     private final int panelSize;
+
+    /**
+     * Phase 29 §2.B — schema-pinned reviewers. When on, tool-capable reviewer
+     * models submit their review by calling the {@code submit_review} tool, so
+     * the provider enforces the JSON shape and {@link PanelReview#parse} can't
+     * fail on prose. Non-tool models (or any tool-path miss) fall back to the
+     * text path, whose retry is now a repair prompt (parse error + exact schema)
+     * rather than a verbatim re-send. Default off — rollout-gated per wishlist P3.
+     */
+    private final boolean toolCallSchemaEnabled;
 
     /**
      * Provider-aware panel execution: each provider's reviewers run on their own
@@ -98,19 +178,23 @@ public class ReviewPanelService {
             ObjectMapper mapper,
             @Value("${app.research.review-panel.enabled:true}") boolean enabled,
             @Value("${app.research.review-panel.providers:}") String providersCsv,
-            @Value("${app.research.review-panel.size:" + DEFAULT_PANEL_SIZE + "}") int panelSize) {
+            @Value("${app.research.review-panel.size:" + DEFAULT_PANEL_SIZE + "}") int panelSize,
+            @Value("${app.research.review-panel.tool-call-schema.enabled:false}")
+            boolean toolCallSchemaEnabled) {
         this.primaryRegistry = primaryRegistry;
         this.promptRegistry  = promptRegistry;
         this.mapper          = mapper;
         this.enabled         = enabled;
         this.providerFilter  = parseProviderFilter(providersCsv);
         this.panelSize       = Math.max(1, panelSize);
+        this.toolCallSchemaEnabled = toolCallSchemaEnabled;
 
         log.info("ReviewPanelService: enabled={} mode=sequential providers={} panelSize={} "
-                        + "registryHandles={}",
+                        + "toolCallSchemaEnabled={} registryHandles={}",
                 enabled,
                 providerFilter.isEmpty() ? "* (all)" : providerFilter,
                 this.panelSize,
+                toolCallSchemaEnabled,
                 primaryRegistry.totalModelCount());
     }
 
@@ -277,22 +361,95 @@ public class ReviewPanelService {
         // Without this scope, panel calls landed under role=unknown.
         return com.emergentterrain.llm.LlmCallContext.withRole("panel-review", () -> {
             String reviewerId = handle.reviewerId();
-            for (int attempt = 0; attempt < 2; attempt++) {
-                String raw;
-                try {
-                    raw = handle.pool().callSyncOnModel(handle.modelId(), prompt);
-                } catch (RuntimeException e) {
-                    log.warn("ReviewPanelService: reviewer={} attempt={} call failed: {}",
-                            reviewerId, attempt, e.getMessage());
-                    return Optional.<PanelReview>empty();
-                }
-                Optional<PanelReview> parsed = PanelReview.parse(raw, reviewerId);
-                if (parsed.isPresent()) return parsed;
-                log.info("ReviewPanelService: reviewer={} attempt={} parse failed, retrying",
-                        reviewerId, attempt);
+            // Phase 29 §2.B — schema-pinned path for tool-capable reviewers. On
+            // any miss (model didn't call the tool, args unparseable, tool-call
+            // exception) fall through to the text path, which is the unchanged
+            // reliable contract plus a repair retry.
+            if (toolCallSchemaEnabled && handle.pool().supportsTools()) {
+                Optional<PanelReview> viaTool = callReviewerViaTool(handle, prompt, reviewerId);
+                if (viaTool.isPresent()) return viaTool;
+                log.info("ReviewPanelService: reviewer={} submit_review tool path yielded nothing "
+                        + "— falling back to text", reviewerId);
             }
-            return Optional.<PanelReview>empty();
+            return callReviewerViaText(handle, prompt, reviewerId);
         });
+    }
+
+    /**
+     * Phase 29 §2.B — call a tool-capable reviewer with the {@code submit_review}
+     * tool so the provider enforces the review shape. The executor captures the
+     * tool-call arguments (and returns a terminal ack); we read the arguments
+     * back — preferring the live capture, falling back to the response trace —
+     * and parse them as a {@link PanelReview}. Returns empty on any miss so the
+     * caller falls through to the text path.
+     */
+    private Optional<PanelReview> callReviewerViaTool(ModelHandle handle, String prompt,
+                                                      String reviewerId) {
+        java.util.concurrent.atomic.AtomicReference<String> capturedArgs =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.function.Function<String, String> executor = callJson -> {
+            try {
+                com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(callJson);
+                if (SUBMIT_REVIEW_TOOL_NAME.equals(node.path("name").asText())) {
+                    capturedArgs.compareAndSet(null, node.path("arguments").toString());
+                }
+            } catch (Exception ignore) {
+                // malformed tool-call payload — leave capture null; trace fallback handles it
+            }
+            return "{\"status\":\"received\",\"done\":true}";
+        };
+        com.emergentterrain.llm.ToolCallResponse resp;
+        try {
+            resp = handle.pool().callWithToolsOnModel(
+                    handle.modelId(), SUBMIT_REVIEW_SYSTEM, prompt, SUBMIT_REVIEW_TOOLS_JSON, executor);
+        } catch (RuntimeException e) {
+            log.warn("ReviewPanelService: reviewer={} submit_review tool-call failed: {}",
+                    reviewerId, e.getMessage());
+            return Optional.empty();
+        }
+        String args = capturedArgs.get();
+        if ((args == null || args.isBlank()) && resp != null && resp.trace() != null) {
+            for (ToolInvocation inv : resp.trace()) {
+                if (SUBMIT_REVIEW_TOOL_NAME.equals(inv.functionName()) && inv.argsJson() != null) {
+                    args = inv.argsJson();
+                    break;
+                }
+            }
+        }
+        if (args == null || args.isBlank()) return Optional.empty();
+        Optional<PanelReview> parsed = PanelReview.parse(args, reviewerId);
+        if (parsed.isEmpty()) {
+            log.info("ReviewPanelService: reviewer={} submit_review args present but unparseable", reviewerId);
+        }
+        return parsed;
+    }
+
+    /**
+     * Phase 29 §2.B — the text path (the pre-29 contract). Two attempts: the
+     * second is a REPAIR prompt (parse error reminder + exact schema) rather than
+     * a verbatim re-send, so a model that wrapped its JSON in prose is told what
+     * to fix. Used for non-tool models, when the tool path misses, or when the
+     * tool-call flag is off.
+     */
+    private Optional<PanelReview> callReviewerViaText(ModelHandle handle, String prompt,
+                                                      String reviewerId) {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            String attemptPrompt = attempt == 0 ? prompt : prompt + REPAIR_SUFFIX;
+            String raw;
+            try {
+                raw = handle.pool().callSyncOnModel(handle.modelId(), attemptPrompt);
+            } catch (RuntimeException e) {
+                log.warn("ReviewPanelService: reviewer={} attempt={} call failed: {}",
+                        reviewerId, attempt, e.getMessage());
+                return Optional.<PanelReview>empty();
+            }
+            Optional<PanelReview> parsed = PanelReview.parse(raw, reviewerId);
+            if (parsed.isPresent()) return parsed;
+            log.info("ReviewPanelService: reviewer={} attempt={} parse failed, {}",
+                    reviewerId, attempt,
+                    attempt == 0 ? "retrying with repair prompt" : "giving up");
+        }
+        return Optional.<PanelReview>empty();
     }
 
     private String renderPrompt(PaperDraft draft, NarrationResult narration,

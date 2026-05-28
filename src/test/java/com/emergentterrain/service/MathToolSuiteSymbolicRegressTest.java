@@ -68,6 +68,21 @@ class MathToolSuiteSymbolicRegressTest {
     }
 
     @Test
+    void operatorsSchemaHasNoSlashBearingEnum_grokCompat() {
+        // Phase 29 §1.A — xAI/grok rejects tool schemas whose enum string values
+        // contain '/'. The operators property previously carried
+        // enum:["+","-","*","/",...]; it must no longer ship a '/'-bearing enum
+        // (the allowlist moved to the description; the sidecar enforces it).
+        ObjectMapper mapper = new ObjectMapper();
+        JuliaMathClient client = stubPysrClient(new java.util.ArrayList<>());
+        MathToolSuite suite = new MathToolSuite((LlmRouter) null, mapper, null, client, null);
+
+        String schema = suite.toolsJson(true);
+        assertThat(schema).contains("symbolic_regress");
+        assertThat(schema).doesNotContain("[\"+\",\"-\",\"*\",\"/\"");
+    }
+
+    @Test
     void dispatcherFormatsParetoFront() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         // Stub returns two Pareto entries; expect them rendered as a

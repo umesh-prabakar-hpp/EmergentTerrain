@@ -521,7 +521,7 @@ public class MathToolSuite {
                     "samples":{"type":"array","items":{"type":"array","items":{"type":"number"}},"description":"Rows of [v1, ..., vN, target]. Length(row) must equal length(var_names) + 1."},
                     "var_names":{"type":"array","items":{"type":"string"},"description":"Variable names in order matching the first N entries of each row. Each must match [A-Za-z_][A-Za-z0-9_]*."},
                     "target_name":{"type":"string","description":"Cosmetic name for the target variable (the last column of each row). Defaults to 'f' if omitted."},
-                    "operators":{"type":"array","items":{"type":"string","enum":["+","-","*","/","^","exp","log","sqrt","abs","sin","cos"]},"description":"Optional. Subset of operators the search is allowed to compose. Default: arithmetic + exp/log."},
+                    "operators":{"type":"array","items":{"type":"string"},"description":"Optional. Subset of operators the search is allowed to compose, drawn from the allowlist {+, -, *, /, ^, exp, log, sqrt, abs, sin, cos}. Operators outside the allowlist are rejected sidecar-side. Default: arithmetic + exp/log. (Phase 29: no JSON-schema enum here — xAI/grok rejects tool schemas whose enum values contain '/'; the allowlist is enforced by JuliaSafetyFilter, not the schema.)"},
                     "rationale":{"type":"string","description":"Why a closed-form fit addresses a specific weakness in the paper (e.g. 'paper observes k between 0.03 and 0.05 across a temperature sweep; check whether a clean Arrhenius form fits')."}
                   },
                   "required":["samples","var_names","rationale"]
@@ -1066,6 +1066,22 @@ public class MathToolSuite {
             log.warn("MathToolSuite: run_symbolic static-rejected: {} expr=\"{}\"",
                     r.reason(),
                     expression.length() > 80 ? expression.substring(0, 80) + "…" : expression);
+            // Phase 29 §4a — a parse/syntax rejection (unbalanced parens, missing
+            // operator) is malformed input, NOT a disallowed head. Echo the exact
+            // error and a fix hint so the next attempt corrects the expression
+            // rather than bouncing through budget_fallback retries against the
+            // misleading "only calculus/algebra/trig heads are allowed" message.
+            String reasonLower = r.reason() == null ? "" : r.reason().toLowerCase();
+            if (reasonLower.startsWith("parse failed")
+                    || reasonLower.contains("syntax error")
+                    || reasonLower.contains("expected")) {
+                return "REJECTED — the expression could not be parsed: " + r.reason()
+                        + ". This is a SYNTAX error, not a disallowed function. Most common "
+                        + "cause: unbalanced parentheses — count '(' vs ')' — or a missing "
+                        + "operator between operands. Re-send run_symbolic with the "
+                        + "parentheses balanced and an explicit operator between every "
+                        + "operand (e.g. '2*(x+1)', not '2(x+1)' or '(x+1').";
+            }
             // 2026-05-21 follow-on — when the rejected head is a known
             // sandbox primitive (isPrime, sigmaSum, collatzSteps, …), the
             // LLM got the right primitive but the wrong tool. Surface a

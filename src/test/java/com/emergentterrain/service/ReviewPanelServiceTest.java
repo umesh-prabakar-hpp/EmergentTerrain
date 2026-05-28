@@ -306,7 +306,8 @@ class ReviewPanelServiceTest {
         promptRegistry.seedDefaults();
         ObjectMapper mapper = new ObjectMapper();
         return new ReviewPanelService(primaryRegistry, promptRegistry, mapper,
-                enabled, providersCsv, panelSize);
+                enabled, providersCsv, panelSize,
+                /*toolCallSchemaEnabled*/ false);
     }
 
     private static PaperDraft draftFixture() {
