@@ -32,6 +32,17 @@ public class SandboxEngine {
     static final int MAX_ITERATIONS  = 5_000;
     static final int MAX_STMTS       = 50_000;
     /**
+     * When a run records at most this many samples, the individual values are
+     * echoed verbatim in the result text (a small set of distinct recorded
+     * quantities — e.g. E₁, kT, a ratio — that the prose will cite by value).
+     * Above this count the samples are treated as a population sweep and only
+     * the n/mean/std/min/max aggregates are surfaced. Closes the
+     * recordSample-echo traceability gap: a prose value equal to a <em>middle</em>
+     * sample (neither min nor max) was previously absent from the result text,
+     * so the citation validator nulled correct papers (P-a328-988's 2.245e-21).
+     */
+    static final int MAX_ECHOED_SAMPLES = 24;
+    /**
      * Array element cap. Each {@link SandboxArr} eagerly allocates a
      * {@code double[MAX_ARRAY_LEN]} backing (so {@code push} grows without a
      * resize), so the cap directly sets per-array memory: 8 bytes × cap
@@ -852,6 +863,10 @@ public class SandboxEngine {
         double recSqSum = 0.0;
         double recMin  = Double.POSITIVE_INFINITY;
         double recMax  = Double.NEGATIVE_INFINITY;
+        // First up-to-MAX_ECHOED_SAMPLES individual values, echoed verbatim when
+        // the run records a small set of distinct quantities (see MAX_ECHOED_SAMPLES).
+        final double[] recSamples = new double[MAX_ECHOED_SAMPLES];
+        int recSamplesLen = 0;
 
         Interpreter(int start, int end, int param1, double param2) {
             env.put("start",  (double) start);
@@ -1173,6 +1188,7 @@ public class SandboxEngine {
                 recSqSum += v * v;
                 if (v < recMin) recMin = v;
                 if (v > recMax) recMax = v;
+                if (recSamplesLen < recSamples.length) recSamples[recSamplesLen++] = v;
                 // Phase 19 Open Q1 — keep the last namedKeys.size() values
                 // in a ring buffer so buildResult can pair them with
                 // namedKeys at end-of-run. No-op when no multi-value rewrite
@@ -1353,10 +1369,24 @@ public class SandboxEngine {
                 b.append('}');
                 namedClause = b.toString();
             }
+            // Echo each individual value when the set is small enough to be
+            // distinct recorded quantities (not a population sweep). This makes a
+            // prose value equal to a *middle* sample traceable in the result text,
+            // which the min/max/mean aggregates alone could not express.
+            String valuesClause = "";
+            if (recN <= MAX_ECHOED_SAMPLES) {
+                StringBuilder vb = new StringBuilder("  values=[");
+                for (int i = 0; i < recSamplesLen; i++) {
+                    if (i > 0) vb.append(", ");
+                    vb.append("%.6g".formatted(recSamples[i]));
+                }
+                vb.append(']');
+                valuesClause = vb.toString();
+            }
             String summary = ("result=%.6g  iters_used=%d  "
                     + "recorded n=%d mean=%.4g std=%.4g min=%.4g max=%.4g")
                     .formatted(value, iterCount, recN, mean, std, recMin, recMax)
-                    + namedClause;
+                    + valuesClause + namedClause;
             return new SandboxResult(value, summary, recN, mean, std, recMin, recMax,
                     outKeys, outValues);
         }
