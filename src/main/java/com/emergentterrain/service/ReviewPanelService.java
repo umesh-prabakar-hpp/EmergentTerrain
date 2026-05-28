@@ -337,7 +337,46 @@ public class ReviewPanelService {
                         + "mode=provider-parallel providers={}",
                 draft != null ? draft.paperId() : "?", reviews.size(), picks.size(),
                 panelSize, String.format("%.2f", outcome.agreementScore()), ms, byProvider.size());
+        // rec #9 reviewer-acquisition outcome — name the unfilled seats when the
+        // panel came back short. The downstream D4 demotion (and its rec #7
+        // relaxation) hinges on reviewer count, so quantifying which provider's
+        // seats went unfilled — cross-referenced with LlmRouter's "trying next:
+        // interrupted acquiring slot" lines — is what sizes the acquisition fix.
+        if (reviews.size() < picks.size()) {
+            java.util.LinkedHashMap<String, String> pickedIdToLabel = new java.util.LinkedHashMap<>();
+            for (ModelHandle h : picks) {
+                pickedIdToLabel.put(h.reviewerId(), h.reviewerId() + "@" + h.providerKey());
+            }
+            java.util.Set<String> filledIds = new java.util.HashSet<>();
+            for (PanelReview r : reviews) filledIds.add(r.reviewerId());
+            log.info("ReviewPanelService: paperId={} panel DEGRADED filled={}/{} target={} "
+                            + "unfilled_seats={} — reviewer-acquisition shortfall (rec #9)",
+                    draft != null ? draft.paperId() : "?", reviews.size(), picks.size(),
+                    panelSize, unfilledSeats(pickedIdToLabel, filledIds));
+        }
         return outcome;
+    }
+
+    /**
+     * rec #9 — display labels of the picked reviewer seats that did not produce a
+     * review (i.e. unfilled seats), preserving picked-seat order. A produced
+     * review always carries its handle's {@code reviewerId}
+     * ({@link PanelReview#parse} stamps it), so a picked id absent from
+     * {@code filledIds} is a seat that failed to seat — typically an
+     * acquisition/slot or call failure logged separately by the router.
+     *
+     * <p>Package-private and static for unit tests (no service/pool wiring).
+     */
+    static java.util.List<String> unfilledSeats(
+            java.util.LinkedHashMap<String, String> pickedIdToLabel,
+            java.util.Set<String> filledIds) {
+        if (pickedIdToLabel == null || pickedIdToLabel.isEmpty()) return java.util.List.of();
+        java.util.Set<String> filled = filledIds == null ? java.util.Set.of() : filledIds;
+        java.util.List<String> out = new ArrayList<>();
+        for (java.util.Map.Entry<String, String> e : pickedIdToLabel.entrySet()) {
+            if (!filled.contains(e.getKey())) out.add(e.getValue());
+        }
+        return java.util.List.copyOf(out);
     }
 
     /**
