@@ -336,6 +336,35 @@ public class ResearchNarrationService {
     private double panelGradeFloorThreshold;
 
     /**
+     * Phase 12 D4 relaxation (research/a3289005 review rec #7) — when enabled, a
+     * degraded panel (n ∈ {2, 3} of configured 4) keeps PUBLISHED instead of being
+     * demoted purely on reviewer count, provided it converged strongly
+     * (agreement ≥ {@link #panelDegradationAgreementFloor}) AND clears
+     * {@link #panelGradeFloorThreshold} on its grades. The batch showed nearly
+     * every paper demoted by D4 because the panel could not seat 4 reviewers
+     * (LlmRouter slot contention) — an infrastructure artifact, not a quality
+     * signal — so demoting discarded correct results.
+     *
+     * <p>Default off, matching the rollout discipline of {@link #panelGradeFloorEnabled}
+     * and the D4 gate itself: ship the code dormant and flip after one refresh
+     * confirms the kept-PUBLISHED papers are genuinely sound. Low-agreement or
+     * low-grade degraded panels still demote, and the orthogonal grade-floor gate
+     * is unaffected, so enabling this cannot publish a paper the panel judged weak.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.panel-degradation-demote.agreement-relax.enabled:false}")
+    private boolean panelDegradationAgreementRelaxEnabled;
+
+    /**
+     * Agreement floor for the rec #7 relaxation above. A degraded panel must
+     * converge at least this tightly to be trusted without a full reviewer count.
+     * Only consulted when {@link #panelDegradationAgreementRelaxEnabled} is true.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.panel-degradation-demote.agreement-floor:0.80}")
+    private double panelDegradationAgreementFloor;
+
+    /**
      * SimulationGate consult before each Groq-spending stage (first-pass, professor
      * tools, student revision, refinement-loop iteration). Optional: null in tests
      * that don't wire it. When closed, the affected stage short-circuits to a
@@ -1969,10 +1998,26 @@ public class ResearchNarrationService {
             // reflects what actually happened in review.
             if (panelDegradationDemoteEnabled
                     && got >= 2 && got < configuredSize) {
-                callPath.add("panel:n=" + got + ":degraded:demoted_to_needs_revision");
-                log.info("ReviewPanelService: paperId={} panel n={} of configured {} — "
-                                + "demoting PUBLISHED → NEEDS_REVISION (Phase 12 D4).",
-                        draft != null ? draft.paperId() : "?", got, configuredSize);
+                if (panelDegradationAgreementRelaxEnabled
+                        && degradedPanelClearedForPublish(
+                            outcome, panelDegradationAgreementFloor, panelGradeFloorThreshold)) {
+                    // rec #7 — a degraded panel that converged strongly and
+                    // clears the grade floor carries a real signal; the shortfall
+                    // is reviewer-acquisition infra, not quality. Keep PUBLISHED;
+                    // the orthogonal grade-floor gate below still guards quality.
+                    callPath.add("panel:n=" + got + ":degraded:agreement_ok→published");
+                    log.info("ReviewPanelService: paperId={} panel n={} of configured {} but "
+                                    + "agreement={} ≥ {} and grades clear floor — keeping PUBLISHED "
+                                    + "(Phase 12 D4 rec#7 relaxation).",
+                            draft != null ? draft.paperId() : "?", got, configuredSize,
+                            String.format("%.2f", outcome.agreementScore()),
+                            String.format("%.2f", panelDegradationAgreementFloor));
+                } else {
+                    callPath.add("panel:n=" + got + ":degraded:demoted_to_needs_revision");
+                    log.info("ReviewPanelService: paperId={} panel n={} of configured {} — "
+                                    + "demoting PUBLISHED → NEEDS_REVISION (Phase 12 D4).",
+                            draft != null ? draft.paperId() : "?", got, configuredSize);
+                }
             }
             // Phase 17 panel-grade-floor — orthogonal to D4. Even a full panel
             // can return rock-bottom grades AND specific consensus
@@ -2286,6 +2331,34 @@ public class ResearchNarrationService {
         if (avg >= threshold) return false;
         return outcome.consensusContradictions() != null
                 && !outcome.consensusContradictions().isEmpty();
+    }
+
+    /**
+     * Phase 12 D4 relaxation (research/a3289005 review rec #7) — may a degraded
+     * panel (n ∈ {2, 3} of configured) keep its PUBLISHED status instead of being
+     * demoted on reviewer count alone? Yes, when both hold:
+     * <ol>
+     *   <li>agreement ≥ {@code agreementFloor} — the small panel converged, so
+     *       its signal is informative (unlike n=1, whose agreement is trivially
+     *       1.00 and which is suppressed separately); and</li>
+     *   <li>median(honesty, completeness, rigor) ≥ {@code gradeFloorThreshold} —
+     *       the reviewers did not judge the paper weak.</li>
+     * </ol>
+     *
+     * <p>This shifts the demotion rationale for degraded panels from reviewer
+     * <em>count</em> (an infrastructure artifact when providers fail to seat
+     * reviewers) to <em>quality</em>. A low-agreement or low-grade degraded panel
+     * still demotes here, and the orthogonal grade-floor gate still fires
+     * independently, so no quality hole opens.
+     *
+     * <p>Package-private for unit tests.
+     */
+    static boolean degradedPanelClearedForPublish(
+            com.emergentterrain.research.PanelOutcome outcome,
+            double agreementFloor, double gradeFloorThreshold) {
+        if (outcome == null || outcome.isEmpty()) return false;
+        if (outcome.agreementScore() < agreementFloor) return false;
+        return honestyCompletenessRigorAverage(outcome) >= gradeFloorThreshold;
     }
 
     /**
