@@ -93,6 +93,39 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.narrationTimeoutMs:420000}")
     private long narrationTimeoutMs;
     private final Semaphore narrationSlot;
+
+    /**
+     * rec #8 — when on, a narration that hits the wall-clock timeout publishes its
+     * already-produced first-pass (routed to NEEDS_REVISION) instead of abandoning
+     * the paper. The a3289005 batch lost papers (981, 986, 988, 990–993) this way:
+     * the timeout cancelled the thread after a usable first pass existed, so the
+     * content was discarded and the draft sat for the reaper. Default off, matching
+     * the rollout discipline of the other behaviour-changing gates — flip after a
+     * refresh confirms the salvaged first-pass papers are worth persisting.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.narration-firstpass-checkpoint.enabled:false}")
+    private boolean narrationFirstPassCheckpointEnabled;
+
+    /**
+     * rec #8 — bounded LRU of the latest usable first-pass per in-flight paper, so
+     * {@link #publishFirstPassCheckpoint} can salvage it on timeout. Bounded well
+     * above the narration concurrency cap; eldest-eviction is the only cleanup for
+     * the rare non-timeout exception path (a finally-remove would race the
+     * cross-thread timeout publish, since the interrupt flag is unreliable once an
+     * interruptible call has thrown). The synchronized map makes {@code remove}
+     * atomic, so exactly one of {normal publish, timeout publish} claims the entry.
+     */
+    private static final int FIRSTPASS_CHECKPOINT_CAP = 512;
+    private final java.util.Map<String, NarrationResult> firstPassCheckpoints =
+            java.util.Collections.synchronizedMap(
+                    new java.util.LinkedHashMap<String, NarrationResult>(64, 0.75f, false) {
+                        @Override
+                        protected boolean removeEldestEntry(
+                                java.util.Map.Entry<String, NarrationResult> eldest) {
+                            return size() > FIRSTPASS_CHECKPOINT_CAP;
+                        }
+                    });
     private final Semaphore refinementSlot = new Semaphore(2);
     /** Phase 6 D1.3 — optional. Null when the literature service bean isn't on the context. */
     private final LiteratureSearchService literatureSearch;
@@ -669,10 +702,32 @@ public class ResearchNarrationService {
         narrationSlot.acquireUninterruptibly();
         try {
             runSupervised(executor, () -> doRefineAndNarrate(draft), narrationTimeoutMs,
-                    draft.paperId(), draftSettledCallback);
+                    draft.paperId(), draftSettledCallback,
+                    narrationFirstPassCheckpointEnabled
+                            ? () -> publishFirstPassCheckpoint(draft) : null);
         } finally {
             narrationSlot.release();
         }
+    }
+
+    /**
+     * rec #8 — on a narration wall-clock timeout, salvage the paper by publishing
+     * the latest checkpointed first-pass instead of abandoning it. The first-pass
+     * lacks the professor/critique stage, so it is stamped
+     * {@code critique:skip:incomplete_firstpass} (which UniversityService routes to
+     * NEEDS_REVISION) — the content is surfaced for revision rather than discarded
+     * and left for the stuck-draft reaper. {@link java.util.Map#remove} is atomic,
+     * so if the (interrupted) worker also reached its normal publish, only one of
+     * the two claims the checkpoint and publishes.
+     */
+    private void publishFirstPassCheckpoint(PaperDraft draft) {
+        NarrationResult cp = firstPassCheckpoints.remove(draft.paperId());
+        if (cp == null || narrationPublisher == null) return;
+        String base = (cp.callPath() == null || cp.callPath().isBlank()) ? "fp:?" : cp.callPath();
+        NarrationResult stamped = cp.withCallPath(base + " → critique:skip:incomplete_firstpass");
+        log.warn("narration timeout-checkpoint paperId={} — publishing first-pass as "
+                + "NEEDS_REVISION instead of abandoning (rec #8)", draft.paperId());
+        narrationPublisher.accept(draft, stamped);
     }
 
     /**
@@ -687,6 +742,19 @@ public class ResearchNarrationService {
      */
     static void runSupervised(ExecutorService exec, Runnable work, long timeoutMs,
                               String paperId, java.util.function.Consumer<String> onSettle) {
+        runSupervised(exec, work, timeoutMs, paperId, onSettle, null);
+    }
+
+    /**
+     * As {@link #runSupervised(ExecutorService, Runnable, long, String, java.util.function.Consumer)},
+     * plus an {@code onTimeout} hook invoked on the supervisor thread in the
+     * timeout branch only (rec #8 — publishing the first-pass checkpoint instead
+     * of abandoning the paper). It runs after the cancel and before {@code onSettle};
+     * any throw from it is logged and swallowed so the slot is still released.
+     */
+    static void runSupervised(ExecutorService exec, Runnable work, long timeoutMs,
+                              String paperId, java.util.function.Consumer<String> onSettle,
+                              Runnable onTimeout) {
         Future<?> f = exec.submit(work);
         try {
             if (timeoutMs <= 0) {
@@ -696,8 +764,15 @@ public class ResearchNarrationService {
             }
         } catch (TimeoutException te) {
             f.cancel(true); // interrupt the hung call; the stuck-draft reaper is the backstop
-            log.warn("narration timed out after {}ms — abandoning paperId={} (interrupted; slot released)",
+            log.warn("narration timed out after {}ms — paperId={} (interrupted; slot released)",
                     timeoutMs, paperId);
+            if (onTimeout != null) {
+                try {
+                    onTimeout.run();
+                } catch (RuntimeException ex) {
+                    log.warn("narration timeout hook failed paperId={}: {}", paperId, ex.toString());
+                }
+            }
         } catch (ExecutionException ee) {
             log.warn("narration task failed paperId={}: {}", paperId,
                     ee.getCause() != null ? ee.getCause().toString() : ee.toString());
@@ -829,6 +904,9 @@ public class ResearchNarrationService {
         // metrics emission as pre-29.
         NarrationResult result = produceBestCandidate(draft, orchestrationStartedAt);
 
+        // rec #8 — the full result supersedes any first-pass checkpoint; drop it
+        // before publishing so a racing timeout hook can't re-publish the partial.
+        firstPassCheckpoints.remove(draft.paperId());
         if (narrationPublisher != null) {
             narrationPublisher.accept(draft, result);
         }
@@ -1061,6 +1139,14 @@ public class ResearchNarrationService {
         }
 
         NarrationResult firstPass = parseNarrationResult(response.toString());
+        // rec #8 — checkpoint the latest usable first pass so a wall-clock timeout
+        // can salvage it (see publishFirstPassCheckpoint). Skip empty parses: a
+        // checkpoint with no hypothesis AND no findings would publish junk.
+        if (narrationFirstPassCheckpointEnabled
+                && (firstPass.hypothesis() != null || firstPass.findings() != null)) {
+            firstPassCheckpoints.put(draft.paperId(),
+                    firstPass.withCallPath(String.join(" → ", callPath)));
+        }
         return new FirstPass(firstPass, callPath, firstPassFailed);
     }
 

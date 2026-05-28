@@ -88,4 +88,54 @@ class NarrationTimeoutTest {
         ResearchNarrationService.runSupervised(ex, ran::incrementAndGet, 5_000, "P-4", null);
         assertThat(ran.get()).isEqualTo(1);
     }
+
+    // ── rec #8: first-pass checkpoint hook on timeout ──────────────────────────
+
+    @Test
+    void onTimeoutHookFiresOnTimeoutAndSlotStillReleased() throws Exception {
+        // rec #8 — on timeout the hook runs (publishing the first-pass checkpoint),
+        // and the backlog slot is still released exactly once.
+        ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor();
+        AtomicInteger timeoutHook = new AtomicInteger();
+        var settled = new CopyOnWriteArrayList<String>();
+        Runnable hang = () -> {
+            try { Thread.sleep(30_000); } catch (InterruptedException ignored) { /* cancelled */ }
+        };
+
+        ResearchNarrationService.runSupervised(ex, hang, 200, "P-T", settled::add,
+                timeoutHook::incrementAndGet);
+
+        assertThat(timeoutHook.get()).isEqualTo(1);
+        assertThat(settled).containsExactly("P-T");
+    }
+
+    @Test
+    void onTimeoutHookDoesNotFireOnNormalCompletion() {
+        // The hook is timeout-only — a paper that completes normally publishes
+        // its real result and must never trigger the checkpoint republish.
+        ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor();
+        AtomicInteger timeoutHook = new AtomicInteger();
+        var settled = new CopyOnWriteArrayList<String>();
+
+        ResearchNarrationService.runSupervised(ex, () -> { }, 5_000, "P-OK", settled::add,
+                timeoutHook::incrementAndGet);
+
+        assertThat(timeoutHook.get()).isZero();
+        assertThat(settled).containsExactly("P-OK");
+    }
+
+    @Test
+    void onTimeoutHookThrowIsSwallowedAndSlotReleased() {
+        // A publish failure inside the hook must not break slot release.
+        ExecutorService ex = Executors.newVirtualThreadPerTaskExecutor();
+        var settled = new CopyOnWriteArrayList<String>();
+        Runnable hang = () -> {
+            try { Thread.sleep(30_000); } catch (InterruptedException ignored) { /* cancelled */ }
+        };
+
+        ResearchNarrationService.runSupervised(ex, hang, 200, "P-X", settled::add,
+                () -> { throw new RuntimeException("publish boom"); });
+
+        assertThat(settled).containsExactly("P-X");
+    }
 }
