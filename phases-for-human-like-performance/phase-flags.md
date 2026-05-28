@@ -72,6 +72,8 @@ Per-flag rollout history lives in the "Recently flipped" sections below.
 | 29   | `app.research.best-of-n.enabled` (candidates=3)       | on      | 2026-05-27 — Phase 29 §1.1 rollout |
 | 29   | `app.research.eval-cascade.enabled` (screen-top-m=2)  | on      | 2026-05-27 — Phase 29 §1.2, bounds panel cost to M |
 | 29   | `app.research.review-panel.tool-call-schema.enabled`  | on      | 2026-05-28 — Phase 29 §2.B, operator-directed pre-smoke-check |
+| a3-b3 | `app.research.panel-degradation-demote.agreement-relax.enabled` | on | 2026-05-28 — rec #7, operator-directed (code `b42b559`) |
+| a3-b3 | `app.research.narration-firstpass-checkpoint.enabled` | on    | 2026-05-28 — rec #8, operator-directed (code `48f7ffa`) |
 
 **Deployment status (2026-05-18 07:30 EDT):** Running JVM PID 3881 started
 06:50 EDT — picks up Tier 3 and Tier 4 commits but **not** the Tier 5 flips
@@ -119,6 +121,49 @@ already published keep their status.
    reach n=4 more often (fewer D4 demotions).
 3. Cost: run stops on `max-cost-usd` ($5), not the 1000-call cap; ~half the
    papers/run vs. pre-29 — raise `max-cost-usd` if more volume is needed.
+
+---
+
+## Recently flipped — a3289005 batch-3 (2026-05-28, review-driven)
+
+The 2026-05-28 `research/a3289005/` paper-review (batch P-a328-981 … 992)
+identified three stacked harness gates suppressing correct papers and a
+narration-timeout abandon path. The Java fixes shipped this session
+(`26909cc` P0 reconcile, `fd516a0` sandbox echo, `b42b559` rec #7,
+`48f7ffa` rec #8, `4380bb0`/`e637bf2`/`58bd9a8` rec #9 diagnostics). Two of
+those are behaviour-changing gates that shipped **default OFF** in code and
+are flipped here at operator direction (ahead of a confirming refresh, like
+the Phase 29 tool-call-schema flip).
+
+| Flag | Current | Flip | What it does / note |
+|------|---------|------|---------------------|
+| `app.research.panel-degradation-demote.agreement-relax.enabled` (`agreement-floor=0.80`) | on | 2026-05-28 | rec #7. A degraded panel (n ∈ {2,3} of 4) that converged (agreement ≥ 0.80) AND clears the grade floor keeps PUBLISHED instead of demoting on reviewer count. The batch demoted nearly every paper here because reviewers couldn't be seated (LlmRouter slot contention) — infra, not quality. The grade-floor gate still guards quality. **Operator-directed.** |
+| `app.research.narration-firstpass-checkpoint.enabled` | on | 2026-05-28 | rec #8. A narration that still hits `narrationTimeoutMs` publishes its first-pass (stamped `critique:skip:incomplete_firstpass` → NEEDS_REVISION) instead of abandoning the paper. Atomic checkpoint-map `remove()` guarantees exactly one publish vs. the worker's normal path. **Operator-directed.** |
+
+**Why operator-directed (trigger NOT yet met):** both are relaxations/salvage
+paths whose risk profile is *inverted* from a demotion gate — a false "keep
+PUBLISHED"/"salvage" is lower-stakes than a false demote, and each is guarded
+(rec #7 by the orthogonal grade-floor gate; rec #8 publishes to NEEDS_REVISION,
+which blocks hypothesis carryover). Acceptance is now a **post-flip observation**.
+
+**Acceptance (observe next refresh):**
+1. rec #7: ≥1 paper carrying `panel:n=N:degraded:agreement_ok→published` on the
+   call_path with `status == PUBLISHED`; degraded-but-low-agreement papers still
+   carry `:degraded:demoted_to_needs_revision`.
+2. rec #8: ≥1 paper carrying `narration timeout-checkpoint` in the log +
+   `critique:skip:incomplete_firstpass → NEEDS_REVISION` on a timed-out paper that
+   pre-flip would have been abandoned (absent from the corpus entirely).
+3. No double-published paperId (the atomic `remove()` handoff holds).
+
+**Rollback:** each flag → `false` in `application.yml` (takes effect next paper;
+no state cleanup — published papers keep their status).
+
+**Related (not a flag):** the PySR `rewrite_for_unscaling` MethodError in the
+batch's sidecar log is **already fixed in committed code** (commit `4574f8e`,
+2026-05-22 — all `rewrite_for_unscaling` paths now unwrap via `get_tree`);
+the live errors were a **stale sidecar process** predating that commit.
+Operational follow-up: restart the Julia sidecar so it loads current code, then
+confirm the MethodErrors stop in `sidecar.log`. No code change.
 
 ---
 
