@@ -190,6 +190,32 @@ function warmup!(; host::AbstractString, port::Integer)
         @warn "warmup: HTTP-client warmup skipped" error=sprint(showerror, e)
     end
 
+    # Symbolic-regression (/pysr) path — the heaviest cold-JIT in the sidecar:
+    # equation_search + the Lever-1 auto-normalize rewrite (rewrite_for_unscaling).
+    # Left uncompiled, the FIRST real /pysr call JITs under the 20 s per-call cap
+    # and transport-times-out (observed: P-a328-994 / -982 symbolic_regress
+    # transport failures). A throwaway y=7x search pre-pays that JIT here so the
+    # first client call returns fast. auto_normalize=true so the rewrite path is
+    # compiled too. Held under PYSR_LOCK so a real /pysr arriving mid-warmup
+    # serialises behind it (SymbolicRegression's per-population state is not safe
+    # across concurrent searches). Tiny + best-effort.
+    try
+        lock(PYSR_LOCK) do
+            run_pysr_pass(reshape(Float64[1, 2, 3, 4], 1, 4), Float64[7, 14, 21, 28];
+                auto_normalize = true,
+                ops_strs       = String["+", "-", "*"],
+                binary_ops     = Function[(+), (-), (*)],
+                unary_ops      = Function[],
+                var_names_str  = String["x"],
+                populations    = 2,
+                iterations     = 2,
+                max_complexity = 8,
+                seed           = 0)
+        end
+    catch e
+        @warn "warmup: /pysr warmup skipped" error=sprint(showerror, e)
+    end
+
     @info "warmup complete" elapsed_ms=round(Int, (time_ns() - t0) / 1_000_000)
     return nothing
 end
