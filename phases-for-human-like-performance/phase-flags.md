@@ -69,12 +69,58 @@ Per-flag rollout history lives in the "Recently flipped" sections below.
 | 5    | `app.research.audit-cherry-picked-rejects.enabled`    | **off** | rolled back 2026-05-20 — FP-rate regression (see §F7.3) |
 | 5    | `app.research.gate-retry.enabled`                     | on      | (this commit) 2026-05-18 |
 | 6    | `app.research.unsourced-claim.mode = downgrade`       | downgrade | (this commit) 2026-05-21 — 0/8 FP on a3289005 821–860 spot-check |
+| 29   | `app.research.best-of-n.enabled` (candidates=3)       | on      | 2026-05-27 — Phase 29 §1.1 rollout |
+| 29   | `app.research.eval-cascade.enabled` (screen-top-m=2)  | on      | 2026-05-27 — Phase 29 §1.2, bounds panel cost to M |
+| 29   | `app.research.review-panel.tool-call-schema.enabled`  | on      | 2026-05-28 — Phase 29 §2.B, operator-directed pre-smoke-check |
 
 **Deployment status (2026-05-18 07:30 EDT):** Running JVM PID 3881 started
 06:50 EDT — picks up Tier 3 and Tier 4 commits but **not** the Tier 5 flips
 in this same commit. App restart required to deploy Tier 5. The previous
 PID-87679 deployment-gap note (it was the prior session's running JVM)
 is obsolete and was cleared from STATUS.md in the same commit as Tier 5.
+
+## Recently flipped — Phase 29 (2026-05-27 / 28, best-of-N rollout)
+
+Phase 29 (`phase-29-self-improving-paper-creation.md`) shipped best-of-N
+narration + an eval cascade, and pulled wishlist P3 (schema-pinned reviewers)
+forward as a log-review fix. All three flags default OFF in code; flipped during
+the rollout. The first two are operator-directed rollout steps; the third was
+flipped ahead of its smoke check (operator-directed).
+
+| Flag | Current | Flip | Trigger / note |
+|------|---------|------|----------------|
+| `app.research.best-of-n.enabled` (`candidates=3`) | on | 2026-05-27 | §1.1. Produces 3 candidate narrations/paper, publishes the highest panel-graded (`selectBest`). Real ~2× LLM-spend/paper. |
+| `app.research.eval-cascade.enabled` (`screen-top-m=2`) | on | 2026-05-27 | §1.2. Screens the 3 first-passes, panels only the top 2 — bounds panel cost to M not N. Flipped first (cascade-first) so it was armed before candidates rose. |
+| `app.research.review-panel.tool-call-schema.enabled` | on | 2026-05-28 | §2.B. Tool-capable reviewers submit via `submit_review` (parse can't fail); text path gets a repair-retry. **Operator-directed, ahead of the smoke check.** |
+
+**Supporting config (not flags) flipped in the same rollout:**
+`narrationTimeoutMs 420000→1080000` (18 min) and `stuckDraftTtlMs 600000→1320000`
+(22 min) — the 420 s per-paper timeout abandoned 100% of candidates=3 papers
+(professor loop 176–329 s × 2 + 3 first-passes don't fit). `budget.global.max-calls
+300→1000` (`max-cost-usd` left at $5, so cost is now the binding cap).
+
+**Trigger condition for tool-call-schema (NOT met at flip — operator-directed):**
+the documented trigger was one refresh showing `rev:parse_failed` ≈ 0 on
+tool-capable reviewers without a panel-cost blowup. Flipped early at operator
+direction; **acceptance is now a post-flip observation** — the next REVIEW_REPORT
+refresh should show `rev:parse_failed` collapse on tool-capable reviewers and
+panel call-count within budget. If parse failures persist or panel cost spikes,
+revert.
+
+**Rollback:** each flag → `false` in `application.yml` (takes effect next paper).
+The timeout/budget numbers revert independently. No state cleanup — papers
+already published keep their status.
+
+**Acceptance (post-flip, observe next refresh):**
+1. best-of-N: `best-of-n … selected winner` + `cascade … panel runs 2x not 3x`
+   log lines present; published panel-grade distribution shifts up vs. the
+   pre-29 single-trajectory baseline.
+2. tool-call-schema: `rev:parse_failed` → ~0 on tool-capable reviewers; panels
+   reach n=4 more often (fewer D4 demotions).
+3. Cost: run stops on `max-cost-usd` ($5), not the 1000-call cap; ~half the
+   papers/run vs. pre-29 — raise `max-cost-usd` if more volume is needed.
+
+---
 
 ## Recently flipped — Tier 6 (2026-05-21, FP-rate gated)
 

@@ -1,28 +1,29 @@
 # Phase 29 — Self-Improving Paper Creation (patterns ported from DGM / HGM / STOP / Live-SWE)
 
-**Status (2026-05-27):** SCOPING + **Tier 1.1 + 1.2 implemented (default OFF)**.
-This phase catalogs feature/mechanism patterns mined from four self-improving
-agent frameworks and ports the highest-leverage ones into EmergentTerrain's
+**Status (2026-05-28):** **Tier 1.1 + 1.2 implemented and ROLLED OUT live
+(candidates=3); three log-review fixes shipped (§Rollout log).** This phase
+catalogs feature/mechanism patterns mined from four self-improving agent
+frameworks and ports the highest-leverage ones into EmergentTerrain's
 paper-creation pipeline. The patterns are organised into three implementation
 tiers by leverage and dependency.
 
-- **Tier 1.1 (best-of-N narration)** ships behind `app.research.best-of-n.*`,
-  default OFF (candidates=1 ⇒ bit-identical to today). Winner selection
-  confirmed deterministically via the static `selectBest` /  `scoreCandidate`
-  tests (a live "real paper" run was deferred — the whole stack was down and a
-  live run is nondeterministic, so it can't *assert* the best was chosen).
-- **Tier 1.2 (eval cascade)** ships behind `app.research.eval-cascade.*`,
-  default OFF. **Key as-built finding:** the review panel runs *inside*
-  candidate production (`maybeCritiqueAndRevise` → `runPanelAndStamp`), so
-  naive best-of-N pays N full panels. Rather than refactor the shared
-  every-paper panel/revision flow (high regression risk), 1.2 splits candidate
-  production into a cheap `produceFirstPass` half and an expensive
-  `finishCandidate` half (critique/revise + panel), screens the N first-passes,
-  and finishes only the top-M — bounding panel cost to M while leaving the
-  panel flow itself untouched. v1 screens on first-pass self-confidence (free);
-  a fast-tier Ollama screen grade is the documented follow-up.
+- **Tier 1.1 (best-of-N narration)** behind `app.research.best-of-n.*`. Winner
+  selection confirmed deterministically via the static `selectBest` /
+  `scoreCandidate` tests. **Now LIVE: `enabled=true, candidates=3`** (2026-05-27).
+- **Tier 1.2 (eval cascade)** behind `app.research.eval-cascade.*`. **Key
+  as-built finding:** the review panel runs *inside* candidate production
+  (`maybeCritiqueAndRevise` → `runPanelAndStamp`), so naive best-of-N pays N
+  full panels. Rather than refactor the shared every-paper panel/revision flow
+  (high regression risk), 1.2 splits candidate production into a cheap
+  `produceFirstPass` half and an expensive `finishCandidate` half (critique/
+  revise + panel), screens the N first-passes, and finishes only the top-M —
+  bounding panel cost to M while leaving the panel flow itself untouched. v1
+  screens on first-pass self-confidence (free); a fast-tier Ollama screen grade
+  is the documented follow-up. **Now LIVE: `enabled=true, screen-top-m=2`**.
 
-Tiers 1.3 + 2.x + 3.x are scoped below, not yet coded.
+Flag flips and config changes from the rollout are tracked in `phase-flags.md`
+("Recently flipped — Phase 29"). Tiers 1.3 + 2.x + 3.x are scoped below; 2.B
+(schema-pinned reviewers) shipped early as a log-review fix (§Rollout log).
 
 **Source repos** (clones under
 `/opt/apps/ide/vscode/ai/reference-from-github/self-improving-frameworks/`,
@@ -228,6 +229,76 @@ an LLM ranks candidate diffs when numeric scores are within a margin.
 `ResearchNarrationService.scoreCandidate` caller + a `breakTie(...)` helper.
 **Acceptance:** tie-breaker only fires within the margin; deterministic
 argmax outside it. **Effort:** ~0.5 day. **Depends on:** 1.1.
+
+---
+
+## Rollout log & operational fixes (2026-05-27 / 28)
+
+The candidates=3 rollout and a review of `logs/et-app.log` surfaced a timeout
+interaction and four findings; three of the four were fixed. Flag flips are
+also recorded in `phase-flags.md`.
+
+### Rollout config (flags + timeouts)
+
+- `best-of-n.enabled=true, candidates=3`; `eval-cascade.enabled=true,
+  screen-top-m=2` — so each paper produces 3 first-passes, screens them, and
+  panels only the top 2.
+- **Timeout interaction (found + fixed):** the first candidates=3 run abandoned
+  **100%** of papers — the 420 s per-paper `narrationTimeoutMs` can't wrap 3
+  first-passes + 2 `finishCandidate` halves, and the professor tool loop alone
+  ran 176–329 s (it dominates ~58% of per-paper time). Fix: `narrationTimeoutMs
+  420000→1080000` (18 min), `stuckDraftTtlMs 600000→1320000` (22 min, stays >
+  timeout), `budget.global.max-calls 300→1000`. `max-cost-usd` left at $5
+  (operator: calls-only) — so cost, not calls, is now the binding cap, and
+  best-of-N ~2× $/paper means ~half the papers per run.
+- **Open follow-up (§29.1.4):** a per-candidate / per-professor-stage timeout
+  would let the 18-min per-paper blanket shrink back and cap the 5.5-min tail.
+
+### §1.A — grok `/`-in-enum tool-schema rejection *(SHIPPED, always-on)*
+
+xAI/grok rejected the `symbolic_regress` tool **schema** ("'/' in 'enum' string
+value is currently not supported"), silently dropping grok (cheapest-frontier
+OpenRouter slot) from the professor-tools rotation. Fix: drop the `enum` on
+`operators` (`MathToolSuite.java`) — the allowlist already lives in the
+description and `JuliaSafetyFilter` enforces it sidecar-side. Provider-agnostic,
+no flag. Guard test asserts the schema ships no `/`-bearing enum.
+
+### §2.B — schema-pinned reviewers *(SHIPPED, flag ON 2026-05-28)*
+
+deepseek-v4-pro reviewers returned prose, not JSON; `PanelReview.parse` requires
+a whole-response JSON object and the retry re-sent the same prompt, so the
+reviewer was dropped → panel degraded → D4 demotions. Best-of-N (panel runs 2×/
+paper) amplified it. This is wishlist **P3**, pulled forward. Fix
+(`ReviewPanelService`): tool-capable reviewers submit via a `submit_review`
+tool (provider-enforced shape — parse can't fail; args round-trip through
+`PanelReview.parse`); non-tool models / tool-path misses / flag-off use the text
+path, whose retry is now a **repair prompt** (parse error + exact schema), not a
+verbatim re-send. The `submit_review` schema uses **no enum** (the §1.A grok
+lesson). Flag `app.research.review-panel.tool-call-schema.enabled` — **flipped
+true 2026-05-28, operator-directed ahead of the smoke check**; watch the next
+refresh for `rev:parse_failed`→~0 on tool-capable reviewers and panel
+call-count. Costs 1–2 LLM rounds/reviewer vs 1.
+
+### §4.a — run_symbolic syntax-correction hint *(SHIPPED, always-on)*
+
+A parse/syntax rejection (unbalanced parens) returned the misleading "only
+calculus/algebra/trig heads are allowed" message, so the professor bounced
+through budget_fallback retries. Fix (`MathToolSuite.runSymbolic`): detect
+parse-error reasons (`SymbolicStaticChecker` "parse failed: …") and return a
+targeted "SYNTAX error … balance the parentheses … re-send" correction. No flag.
+
+### Finding 3 (dispute orphans) — NO fix, working as designed
+
+`scanOrphanedDisputes` already abandons at `dispute-max-attempts` (6) →
+`DISPUTE_ABANDONED`, and the orphan re-fire is cheap (`recordOpenQuestion` DB
+upserts, no LLM). Only nit: up to 36 h carry before abandonment. Optional config
+(`dispute-max-attempts`/`disputeOrphanAgeHours` ↓) or a fast-abandon for
+deterministic divergences — deferred, not urgent.
+
+### legacy-ai tool-loop io error — NO fix, deferred
+
+`GenericOpenAICompatPool` wraps a proxy `IOException` and fails over fine. A
+single same-handle retry before failover is the optional fix; low priority.
 
 ---
 
