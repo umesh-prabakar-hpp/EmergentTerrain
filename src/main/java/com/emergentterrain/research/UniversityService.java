@@ -1546,6 +1546,14 @@ public class UniversityService {
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
                 draft.resultClassification(), paperStatus,
                 persistedCallPath != null ? persistedCallPath : "none");
+        // rec #9 gate-attribution — one parseable line naming the gate(s) behind a
+        // non-clean terminal status, so a refresh can quantify which of the
+        // overlapping demotion gates was load-bearing per paper.
+        java.util.List<String> firedGates = attributedGates(persistedCallPath);
+        if (!firedGates.isEmpty()) {
+            log.info("UniversityService: gate-attribution paperId={} terminal={} gates={}",
+                    draft.paperId(), paperStatus, firedGates);
+        }
 
         // Phase 1 Iter 4: attach the paper to a research program (no-op when the
         // app.research.programs.enabled flag is off).
@@ -2758,6 +2766,41 @@ public class UniversityService {
             case "PUBLISHED", "PUBLISHED_NO_PROFESSOR", "NULL_RESULT" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * rec #9 gate-attribution — extract the demotion / audit gate stamps from a
+     * fully-assembled call path. A non-clean terminal status is frequently the
+     * product of several gates firing on the same paper (citation downgrade,
+     * panel-degrade, numerical-consistency, the publish-ladder gates), which
+     * masks the load-bearing cause in aggregate logs. Listing the gate stamps
+     * per paper lets a refresh quantify which gate actually drove the status.
+     *
+     * <p>The call path joins stamps with {@code " → "} (spaced arrow); stamps may
+     * contain an unspaced {@code →} internally (e.g. {@code citations:downgrade→null_result}),
+     * so the split is on the spaced separator only. A segment is a gate when it
+     * carries a demotion / suppression / rejection suffix or a known degraded /
+     * incomplete-first-pass marker. Returned verbatim so no brittle name mapping
+     * drifts from the stamps the pipeline actually emits.
+     *
+     * <p>Package-private for unit tests.
+     */
+    static java.util.List<String> attributedGates(String callPath) {
+        if (callPath == null || callPath.isBlank()) return java.util.List.of();
+        java.util.List<String> gates = new java.util.ArrayList<>();
+        for (String seg : callPath.split(" → ")) {
+            String s = seg.trim();
+            if (s.endsWith("→null_result")
+                    || s.endsWith("→needs_revision")
+                    || s.endsWith("→suppressed")
+                    || s.endsWith("→REJECTED")
+                    || s.contains(":demoted_to_needs_revision")
+                    || s.contains("critique:skip:incomplete_firstpass")
+                    || s.contains("prof:error→fp")) {
+                gates.add(s);
+            }
+        }
+        return java.util.List.copyOf(gates);
     }
 
     /**
