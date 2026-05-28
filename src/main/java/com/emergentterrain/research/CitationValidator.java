@@ -218,6 +218,10 @@ public class CitationValidator {
         int exemptSweep = 0;
         int hypothesisParamExempt = 0;
         int autoReconciled = 0;
+        // rec #9 — raw values of every flagged number, paired with their nearest
+        // trace token at end-of-run so a residual false-null can be triaged
+        // (mantissa/scale mismatch vs genuinely-absent) without re-running the paper.
+        List<Double> rejectedValues = new ArrayList<>();
         Set<Double> whitelist = sweepParamWhitelist == null ? Set.of() : sweepParamWhitelist;
 
         // Collect (number, sourceLocation, citedCallId) tuples from every prose block.
@@ -266,6 +270,7 @@ public class CitationValidator {
                     continue;
                 }
                 uncited++;
+                rejectedValues.add(pn.value);
                 issues.add(String.format("uncited number %s in %s", pn.text, pn.sourceLocation));
             }
         }
@@ -286,6 +291,7 @@ public class CitationValidator {
                     continue;
                 }
                 unmatched++;
+                rejectedValues.add(pn.value);
                 issues.add(String.format(
                         "prose number %s in %s has no matching numeric_claims entry",
                         pn.text, pn.sourceLocation));
@@ -301,6 +307,7 @@ public class CitationValidator {
                     continue;
                 }
                 outOfTolerance++;
+                rejectedValues.add(c.value());
                 issues.add(String.format(
                         "numeric_claim value=%s has no tool_call_id", c.value()));
                 continue;
@@ -315,6 +322,7 @@ public class CitationValidator {
                     continue;
                 }
                 outOfTolerance++;
+                rejectedValues.add(c.value());
                 issues.add(String.format(
                         "%s referenced by claim value=%s is not in trace", callId, c.value()));
                 continue;
@@ -325,6 +333,7 @@ public class CitationValidator {
                     continue;
                 }
                 outOfTolerance++;
+                rejectedValues.add(c.value());
                 issues.add(String.format(
                         "%s result does not contain value %s (claimed in %s)",
                         callId, c.value(), c.sourceLocation()));
@@ -343,8 +352,69 @@ public class CitationValidator {
                     uncited, unmatched, outOfTolerance,
                     exemptSweep, hypothesisParamExempt, autoReconciled, issues);
         }
+        // rec #9 — per-rejection diagnostics. For every flagged value, log its
+        // nearest trace token and relative gap so a residual false-null is
+        // triageable from the log alone: a tiny gap (≈ REL_TOLERANCE) points at a
+        // formatting/precision miss, a clean power-of-ten gap at a unit-scale miss
+        // (handled by the scale-tolerant reconcile), and a large gap at a value
+        // genuinely absent from the trace.
+        if (!rejectedValues.isEmpty()) {
+            StringBuilder diag = new StringBuilder();
+            for (double rv : rejectedValues) {
+                if (diag.length() > 0) diag.append("; ");
+                java.util.OptionalDouble near = nearestTraceValue(rv, allResults);
+                if (near.isPresent()) {
+                    diag.append("%.6g→nearest %.6g (relΔ=%.3g)".formatted(
+                            rv, near.getAsDouble(), relativeGap(rv, near.getAsDouble())));
+                } else {
+                    diag.append("%.6g→no trace tokens".formatted(rv));
+                }
+            }
+            log.info("CitationValidator: rejection diagnostics (rec#9) rel_tol={} "
+                            + "uncited={} unmatched={} out_of_tolerance={} | {}",
+                    REL_TOLERANCE, uncited, unmatched, outOfTolerance, diag);
+        }
         return new CitationValidationResult(uncited, unmatched, outOfTolerance,
                 exemptSweep, hypothesisParamExempt, List.copyOf(issues));
+    }
+
+    /**
+     * Relative gap between two values: {@code |a-b| / max(|a|,|b|)}, 0 when both
+     * are within the absolute floor of zero. Used for rec #9 rejection diagnostics.
+     */
+    static double relativeGap(double a, double b) {
+        double denom = Math.max(Math.abs(a), Math.abs(b));
+        return denom < ABS_FLOOR ? 0.0 : Math.abs(a - b) / denom;
+    }
+
+    /**
+     * Nearest numeric token to {@code target} (by {@link #relativeGap}) across
+     * all tool-result texts, for rec #9 rejection diagnostics. Empty when no
+     * parseable number is present in any result.
+     */
+    static java.util.OptionalDouble nearestTraceValue(
+            double target, java.util.Collection<String> results) {
+        Double best = null;
+        double bestGap = Double.POSITIVE_INFINITY;
+        if (results != null) {
+            for (String r : results) {
+                if (r == null) continue;
+                Matcher m = NUMBER.matcher(r);
+                while (m.find()) {
+                    try {
+                        double v = Double.parseDouble(m.group());
+                        double gap = relativeGap(target, v);
+                        if (gap < bestGap) {
+                            bestGap = gap;
+                            best = v;
+                        }
+                    } catch (NumberFormatException ignore) {
+                        // skip
+                    }
+                }
+            }
+        }
+        return best == null ? java.util.OptionalDouble.empty() : java.util.OptionalDouble.of(best);
     }
 
     /**

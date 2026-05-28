@@ -540,6 +540,35 @@ class CitationValidatorTest {
         assertThat(reconciled.hasFailures()).isTrue();
     }
 
+    // ───────── rec #9: rejection diagnostics ─────────
+
+    @Test
+    void nearestTraceValue_picksClosestByRelativeGap() {
+        var near = CitationValidator.nearestTraceValue(9471,
+                java.util.List.of("computed a=100, b=9500, c=40"));
+        assertThat(near).isPresent();
+        assertThat(near.getAsDouble()).isEqualTo(9500.0);  // relΔ 0.003 beats 100 and 40
+    }
+
+    @Test
+    void nearestTraceValue_emptyWhenNoNumbers() {
+        assertThat(CitationValidator.nearestTraceValue(1.0, java.util.List.of("no numbers here")))
+                .isEmpty();
+        assertThat(CitationValidator.nearestTraceValue(1.0, java.util.List.of())).isEmpty();
+    }
+
+    @Test
+    void relativeGap_zeroForEqual_oneForOrderOfMagnitude() {
+        assertThat(CitationValidator.relativeGap(5.0, 5.0)).isZero();
+        assertThat(CitationValidator.relativeGap(0.0, 0.0)).isZero();
+        // A genuinely-absent hallucinated value sits far from its nearest token.
+        assertThat(CitationValidator.relativeGap(3.25, 2.07168)).isGreaterThan(0.3);
+        // A scale miss (same digits, ×1e21) is near-1 on raw gap — the signature
+        // the scale-tolerant reconcile catches and this diagnostic makes visible.
+        assertThat(CitationValidator.relativeGap(6.958e-21, 6.95847)).isCloseTo(
+                1.0, org.assertj.core.data.Offset.offset(1e-6));
+    }
+
     @Test
     void valueAppearsInResultScaleTolerant_unit() {
         // Direct digit/scale checks on the matcher.
