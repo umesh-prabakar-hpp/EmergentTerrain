@@ -235,8 +235,17 @@ public class ConjectureMinerService implements ConjectureQueue {
     private List<Map<String, Double>> materialize(Run run) {
         List<Map<String, Double>> samples = new ArrayList<>(run.offsets().length);
         for (int offset : run.offsets()) {
-            Map<String, Double> raw = substrate.evaluateWindow(offset, run.windowSize());
-            samples.add(MathInvariants.extract(raw, offset, run.windowSize()));
+            try {
+                Map<String, Double> raw = substrate.evaluateWindow(offset, run.windowSize());
+                samples.add(MathInvariants.extract(raw, offset, run.windowSize()));
+            } catch (RuntimeException e) {
+                // 2026-05-29 — a single window failing (e.g. sidecar timeout on a large
+                // number-theory window, or contention on the single-thread 8088) must NOT
+                // crash the whole @Scheduled mine pass. Skip it and continue with the
+                // windows that did evaluate; the pass mines from the remaining samples.
+                log.warn("conjecture mine: skipping window offset={} size={} — {}",
+                        offset, run.windowSize(), e.getMessage());
+            }
         }
         return samples;
     }
