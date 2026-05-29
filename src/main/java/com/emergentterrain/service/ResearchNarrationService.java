@@ -624,6 +624,10 @@ public class ResearchNarrationService {
             @org.springframework.beans.factory.annotation.Autowired(required = false)
             com.emergentterrain.research.recognise.ConstantRecognitionService
                     constantRecognitionService,
+            // 2026-05-29 — optional conjecture verifier; wired into MathToolSuite so the
+            // verify_conjecture tool is available for CONJECTURE_INVESTIGATION adversarial checks.
+            @org.springframework.beans.factory.annotation.Autowired(required = false)
+            com.emergentterrain.research.conjecture.ConjectureVerifier conjectureVerifier,
             @org.springframework.beans.factory.annotation.Value("${app.research.literature-search.enabled:false}")
             boolean literatureSearchEnabled,
             @org.springframework.beans.factory.annotation.Value("${app.research.discussion-section.enabled:false}")
@@ -665,7 +669,7 @@ public class ResearchNarrationService {
         // null (or disabled, or unreachable), the sidecar delegation in
         // MathToolSuite short-circuits and Symja stays the default.
         this.toolSuite                 = new MathToolSuite(router, objectMapper,
-                gpuEngineAdapter, juliaMathClient, /*conjectureVerifier*/ null,
+                gpuEngineAdapter, juliaMathClient, conjectureVerifier,
                 sympyIdentityClient);
         // Lever 2 — wire the literature corpus into the tool suite (post-construction
         // setter; MathToolSuite isn't a Spring bean). literatureSearch may be null;
@@ -3076,7 +3080,35 @@ public class ResearchNarrationService {
         params.put("findings",            formatFindingsForPrompt(narration));
         params.put("conclusion",          narration.conclusion());
         params.put("experimentSpec",      experimentSpec);
-        return registry.render(PromptTemplateIds.NARRATION_CRITIQUE_ID, params);
+        return registry.render(PromptTemplateIds.NARRATION_CRITIQUE_ID, params)
+                + conjectureDirective(draft);
+    }
+
+    /**
+     * 2026-05-29 — appended to every refine-stage prompt (professor / critique /
+     * revision / refinement) for CONJECTURE_INVESTIGATION drafts so the catalog-
+     * oriented templates don't restructure the paper away from its conjecture
+     * form (the first-pass uses the conjecture template; without this the refine
+     * stages overwrite the ## Mechanism / ## Adversarial Check sections). Empty
+     * for every other kind — no behaviour change to the catalog path.
+     */
+    private static String conjectureDirective(PaperDraft draft) {
+        if (draft == null
+                || draft.kind() != com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            return "";
+        }
+        return "\n\n=== CONJECTURE INVESTIGATION — STRUCTURE CONTRACT (mandatory) ===\n"
+            + "This paper investigates a mined mathematical conjecture (a number-theoretic "
+            + "inequality), NOT a physics/materials experiment. You MUST:\n"
+            + "1. Keep a '## Mechanism' section giving a structural argument for WHY the "
+            + "bound should hold (not a paraphrase of the inequality).\n"
+            + "2. Keep a '## Adversarial Check' section that invokes the verify_conjecture "
+            + "tool on a held-out slice and reports held/refuted + the worst-margin witness.\n"
+            + "3. NOT restructure into generic physics sections, and NOT invent a physical "
+            + "mechanism — there is none; this is pure number theory (so do not claim, nor "
+            + "let a reviewer demand, a physical mechanism).\n"
+            + "4. Keep every numeric claim traceable to the conjecture's mining history or "
+            + "to verify_conjecture output.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
@@ -3363,10 +3395,11 @@ public class ResearchNarrationService {
         if (literatureContext != null && !literatureContext.isEmpty()) {
             params.put("literatureContext", literatureContext);
             return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
-                    "v2-with-literature", params);
+                    "v2-with-literature", params) + conjectureDirective(draft);
         }
         return registry.render(PromptTemplateIds.NARRATION_PROFESSOR_USER_ID,
-                PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION, params);
+                PromptTemplateIds.NARRATION_PROFESSOR_USER_VERSION, params)
+                + conjectureDirective(draft);
     }
 
     /**
@@ -3570,10 +3603,11 @@ public class ResearchNarrationService {
         if (literatureContext != null && !literatureContext.isEmpty()) {
             params.put("literatureContext", literatureContext);
             return registry.render(PromptTemplateIds.NARRATION_REVISION_ID,
-                    "v2-from-synthesis-with-literature", params) + CITATION_RULE_ADDENDUM;
+                    "v2-from-synthesis-with-literature", params) + CITATION_RULE_ADDENDUM
+                    + conjectureDirective(draft);
         }
         return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params)
-                + CITATION_RULE_ADDENDUM;
+                + CITATION_RULE_ADDENDUM + conjectureDirective(draft);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -3613,7 +3647,8 @@ public class ResearchNarrationService {
         params.put("weaknessList",       weaknessList);
         params.put("experimentSection",  experimentSection);
         params.put("conclusionSpec",     conclusionSpec);
-        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-critique", params);
+        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-critique", params)
+                + conjectureDirective(draft);
     }
 
     private List<String> parseCritiqueWeaknesses(String response) {
@@ -3884,7 +3919,8 @@ public class ResearchNarrationService {
         params.put("accumulatedFindings",  compact);
         params.put("remainingIterations",  String.valueOf(maxIterations - iteration + 1));
         params.put("maxIterations",        String.valueOf(maxIterations));
-        return promptRegistry.render(PromptTemplateIds.NARRATION_REFINEMENT_ID, params);
+        return promptRegistry.render(PromptTemplateIds.NARRATION_REFINEMENT_ID, params)
+                + conjectureDirective(draft);
     }
 
     private RefinementDecision parseRefinementDecision(String response) {

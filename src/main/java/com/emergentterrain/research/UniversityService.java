@@ -1178,9 +1178,16 @@ public class UniversityService {
         // prime-gap→CTE, Collatz→RLC, happy-number→packing non-sequitur clusters.
         List<String> auditGapDimensions = narration.auditGapDimensions() != null
                 ? narration.auditGapDimensions() : List.of();
+        // 2026-05-29 — exempt CONJECTURE_INVESTIGATION papers: they are pure-math
+        // (number-theoretic) by construction (math substrate only) and make no
+        // physical claim, so a "physical_mechanism" gap on them is a false flag,
+        // not a cross-domain non-sequitur. (Catalog MATHEMATICS papers that drift
+        // into physics vocabulary are still caught — only the conjecture kind is
+        // exempt.)
         boolean physicalMechanismAuditFailed = auditPhysicalMechanismRejectsEnabled
                 && draft.resultClassification() == ResultClassification.SUPPORTED
-                && auditGapDimensions.contains("physical_mechanism");
+                && auditGapDimensions.contains("physical_mechanism")
+                && draft.kind() != PaperKind.CONJECTURE_INVESTIGATION;
         if (physicalMechanismAuditFailed) {
             log.warn("audit:physical_mechanism→REJECTED paperId={} dimensions={}",
                     draft.paperId(), auditGapDimensions);
