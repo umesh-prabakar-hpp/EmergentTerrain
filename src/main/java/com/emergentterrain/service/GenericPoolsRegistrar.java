@@ -230,6 +230,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private Boolean fastTier;
         /** Phase 20.11 fixup — output-token cap sent as max_tokens. See ProviderConfig.maxOutputTokens. */
         private Integer maxOutputTokens;
+        /** Lever 1 — provider honors response_format json_schema (strict). See ProviderConfig.supportsJsonSchema. */
+        private Boolean supportsJsonSchema;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -267,6 +269,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setFastTier(Boolean v) { this.fastTier = v; }
         public Integer getMaxOutputTokens() { return maxOutputTokens; }
         public void setMaxOutputTokens(Integer v) { this.maxOutputTokens = v; }
+        public Boolean getSupportsJsonSchema() { return supportsJsonSchema; }
+        public void setSupportsJsonSchema(Boolean v) { this.supportsJsonSchema = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
@@ -296,7 +300,8 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
                             : java.util.Set.copyOf(longBlockBodyMarkers),
                     longBlockMs == null ? 0L : longBlockMs,
                     fastTier != null && fastTier,
-                    maxOutputTokens == null ? 4096 : maxOutputTokens);
+                    maxOutputTokens == null ? 4096 : maxOutputTokens,
+                    supportsJsonSchema != null && supportsJsonSchema);
         }
     }
 }

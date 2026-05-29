@@ -1,5 +1,6 @@
 package com.emergentterrain.llm;
 
+import java.util.Optional;
 import java.util.OptionalDouble;
 import java.util.function.Supplier;
 
@@ -49,6 +50,17 @@ public final class LlmCallContext {
 
     private static final ThreadLocal<Double>  TEMPERATURE      = new ThreadLocal<>();
     private static final ThreadLocal<Boolean> JSON_OUTPUT_MODE = new ThreadLocal<>();
+    /**
+     * Lever 1 — optional JSON schema (a serialized JSON object string) the
+     * next LLM call should constrain its output to via
+     * {@code response_format: {"type":"json_schema","json_schema":{...,
+     * "strict":true}}}. Stronger than {@link #JSON_OUTPUT_MODE}: the provider
+     * enforces the field shape, not just "valid JSON". Pools emit it only when
+     * the schema is set AND {@code ProviderConfig.supportsJsonSchema()} is true,
+     * otherwise they fall back to the {@code json_object} branch. Null when
+     * unset (today's behaviour).
+     */
+    private static final ThreadLocal<String>  JSON_SCHEMA      = new ThreadLocal<>();
     private static final ThreadLocal<String>  PAPER_ID         = new ThreadLocal<>();
     /**
      * Phase 20.4 step 2b-2 — per-paper-scope cumulative token totals.
@@ -168,6 +180,48 @@ public final class LlmCallContext {
         } finally {
             if (prior == null) JSON_OUTPUT_MODE.remove();
             else JSON_OUTPUT_MODE.set(prior);
+        }
+    }
+
+    /**
+     * Lever 1 — the JSON schema (a serialized JSON object string) the next
+     * LLM call should be constrained to, or {@link Optional#empty()} when no
+     * caller set one. Pools read this just before serialising the request and
+     * emit {@code response_format: json_schema} only when present AND the
+     * provider's {@code supportsJsonSchema()} is true; otherwise they fall
+     * back to {@link #isJsonOutputMode()}.
+     */
+    public static Optional<String> currentJsonSchema() {
+        return Optional.ofNullable(JSON_SCHEMA.get());
+    }
+
+    /**
+     * Run {@code body} with {@code schema} set as the structured-output
+     * contract for any LLM call this thread makes within the scope. Auto-clears
+     * on completion AND on exception — same finally discipline as
+     * {@link #withJsonOutputMode}. Typically paired with
+     * {@link #withTemperature}(0.0) on revision-class calls.
+     */
+    public static void withJsonSchema(String schema, Runnable body) {
+        String prior = JSON_SCHEMA.get();
+        JSON_SCHEMA.set(schema);
+        try {
+            body.run();
+        } finally {
+            if (prior == null) JSON_SCHEMA.remove();
+            else JSON_SCHEMA.set(prior);
+        }
+    }
+
+    /** Supplier overload — see {@link #withJsonSchema(String, Runnable)}. */
+    public static <T> T withJsonSchema(String schema, Supplier<T> body) {
+        String prior = JSON_SCHEMA.get();
+        JSON_SCHEMA.set(schema);
+        try {
+            return body.get();
+        } finally {
+            if (prior == null) JSON_SCHEMA.remove();
+            else JSON_SCHEMA.set(prior);
         }
     }
 
@@ -309,6 +363,7 @@ public final class LlmCallContext {
     public static void clear() {
         TEMPERATURE.remove();
         JSON_OUTPUT_MODE.remove();
+        JSON_SCHEMA.remove();
         PAPER_ID.remove();
         TOKEN_TOTALS.remove();
         CURRENT_ROLE.remove();

@@ -987,6 +987,44 @@ public class GenericOpenAICompatPool implements LlmPool {
         }
     }
 
+    /**
+     * Lever 1 — set the request's {@code response_format} from the per-thread
+     * {@link LlmCallContext} hints. Precedence:
+     * <ol>
+     *   <li>A caller-set JSON schema AND a provider that supports it
+     *       ({@code cfg.supportsJsonSchema()}) → emit
+     *       {@code {type:"json_schema", json_schema:{name, strict:true, schema}}}
+     *       so the provider enforces the field shape.</li>
+     *   <li>Otherwise, if JSON-output mode is on → emit
+     *       {@code {type:"json_object"}} (the pre-Lever-1 behaviour).</li>
+     *   <li>Otherwise → no {@code response_format} (free text).</li>
+     * </ol>
+     * A malformed schema string degrades to the {@code json_object} branch
+     * rather than failing the request, so a bad schema constant can never take
+     * the pipeline down.
+     */
+    private void applyResponseFormat(ObjectNode node) {
+        java.util.Optional<String> schema = LlmCallContext.currentJsonSchema();
+        if (schema.isPresent() && cfg.supportsJsonSchema()) {
+            try {
+                JsonNode schemaNode = mapper.readTree(schema.get());
+                ObjectNode rf = node.putObject("response_format");
+                rf.put("type", "json_schema");
+                ObjectNode js = rf.putObject("json_schema");
+                js.put("name", "structured_output");
+                js.put("strict", true);
+                js.set("schema", schemaNode);
+                return;
+            } catch (Exception e) {
+                log.warn("GenericOpenAICompatPool({}) json_schema parse failed, "
+                        + "falling back to json_object: {}", cfg.providerKey(), e.getMessage());
+            }
+        }
+        if (LlmCallContext.isJsonOutputMode()) {
+            node.putObject("response_format").put("type", "json_object");
+        }
+    }
+
     private String buildConversationPayload(String modelId, JsonNode messages,
                                              JsonNode tools, int tokenLimit) {
         try {
@@ -996,9 +1034,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             node.put(cfg.maxTokensField(), tokenLimit);
             node.put("temperature",
                     LlmCallContext.currentTemperature().orElse(0.7));
-            if (LlmCallContext.isJsonOutputMode()) {
-                node.putObject("response_format").put("type", "json_object");
-            }
+            applyResponseFormat(node);
             node.set("messages", messages);
             if (tools != null && tools.isArray() && !tools.isEmpty()) {
                 node.set("tools", tools);
@@ -1022,9 +1058,7 @@ public class GenericOpenAICompatPool implements LlmPool {
             node.put(cfg.maxTokensField(), tokenLimit);
             node.put("temperature",
                     LlmCallContext.currentTemperature().orElse(0.7));
-            if (LlmCallContext.isJsonOutputMode()) {
-                node.putObject("response_format").put("type", "json_object");
-            }
+            applyResponseFormat(node);
             if (stream) {
                 // OpenAI-compat: stream_options.include_usage emits a final
                 // SSE chunk with usage.{prompt,completion}_tokens after [DONE].

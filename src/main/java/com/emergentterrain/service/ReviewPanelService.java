@@ -132,6 +132,46 @@ public class ReviewPanelService {
             ]""";
 
     /**
+     * Lever 1 — strict {@code response_format: json_schema} for the TEXT path
+     * (non-tool reviewers, tool-path misses). Describes the same review shape as
+     * the {@code submit_review} tool above, but is deliberately a SEPARATE
+     * constant because the two have different validity rules: the tool's
+     * {@code parameters} is non-strict (only {@code grades} required), whereas
+     * OpenAI/Groq strict {@code response_format} demands every property in
+     * {@code required} + {@code additionalProperties:false} at every level
+     * (optional fields expressed as nullable / empty-array). {@link PanelReview#parse}
+     * is tolerant of empty arrays and a null {@code evidence_label}, so this
+     * all-required shape parses cleanly. No enums (xAI/grok '/'-in-enum
+     * rejection — see the {@code submit_review} note above); allowed evidence
+     * labels live in the description.
+     */
+    static final String PANEL_REVIEW_SCHEMA = """
+            {
+              "type":"object",
+              "additionalProperties":false,
+              "required":["grades","cited_calls","omitted_relevant","contradictions","recommendations","evidence_label"],
+              "properties":{
+                "grades":{
+                  "type":"object",
+                  "additionalProperties":false,
+                  "required":["honesty","completeness","rigor","novelty"],
+                  "description":"Four-axis grades, each a number in [0,1].",
+                  "properties":{
+                    "honesty":{"type":"number","description":"0..1 — does the prose faithfully represent the tool-call evidence?"},
+                    "completeness":{"type":"number","description":"0..1 — are the relevant computations covered?"},
+                    "rigor":{"type":"number","description":"0..1 — soundness of method and reasoning."},
+                    "novelty":{"type":"number","description":"0..1 — does the result add something non-trivial?"}
+                  }
+                },
+                "cited_calls":{"type":"array","items":{"type":"integer"},"description":"1-based trace indices the prose correctly cites; empty array if none."},
+                "omitted_relevant":{"type":"array","items":{"type":"integer"},"description":"1-based trace indices relevant but omitted by the prose; empty array if none."},
+                "contradictions":{"type":"array","description":"Trace entries that contradict the synthesis; empty array if none.","items":{"type":"object","additionalProperties":false,"required":["trace_idx","vs_prose"],"properties":{"trace_idx":{"type":"integer"},"vs_prose":{"type":"string"}}}},
+                "recommendations":{"type":"array","items":{"type":"string"},"description":"Concrete, actionable recommendations; empty array if none."},
+                "evidence_label":{"type":["string","null"],"description":"Proposed evidence label — one of THEOREM, EMPIRICAL_RESULT, CONJECTURE, UNEXPLAINED_OBSERVATION. Null if unsure."}
+              }
+            }""";
+
+    /**
      * Phase 29 §2.B — repair suffix appended on the text path's retry: tells a
      * model that returned prose exactly what JSON to emit. Catches the common
      * "prose preamble + JSON" / fenced-JSON failures without a tool call.
@@ -476,7 +516,16 @@ public class ReviewPanelService {
             String attemptPrompt = attempt == 0 ? prompt : prompt + REPAIR_SUFFIX;
             String raw;
             try {
-                raw = handle.pool().callSyncOnModel(handle.modelId(), attemptPrompt);
+                // Lever 1 — when schema-pinning is on, pin the text path to the
+                // strict PANEL_REVIEW_SCHEMA too. json_schema-capable providers
+                // then return shape-valid JSON (the pool's applyResponseFormat
+                // gates on supportsJsonSchema); others are unchanged and lean on
+                // PanelReview.parse + the repair-prompt retry.
+                final String ap = attemptPrompt;
+                raw = toolCallSchemaEnabled
+                        ? com.emergentterrain.llm.LlmCallContext.withJsonSchema(PANEL_REVIEW_SCHEMA,
+                                () -> handle.pool().callSyncOnModel(handle.modelId(), ap))
+                        : handle.pool().callSyncOnModel(handle.modelId(), attemptPrompt);
             } catch (RuntimeException e) {
                 log.warn("ReviewPanelService: reviewer={} attempt={} call failed: {}",
                         reviewerId, attempt, e.getMessage());

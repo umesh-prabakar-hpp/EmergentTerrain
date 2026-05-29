@@ -339,6 +339,22 @@ public class ResearchNarrationService {
     private boolean panelRevisionEnabled;
 
     /**
+     * Lever 1 — provider-enforced structured output. When on, every
+     * NarrationResult-shaped LLM call (first-pass narration + the three
+     * revision sites) is wrapped with
+     * {@link com.emergentterrain.llm.LlmCallContext#withJsonSchema} so a
+     * json_schema-capable provider returns output already matching
+     * {@link #NARRATION_RESPONSE_SCHEMA}. Closes the {@code rev:parse_failed→fp}
+     * fallback (≈39% of papers — see {@link com.emergentterrain.research.LenientJsonParser}).
+     * Default off; per-provider {@code supports-json-schema} also gates emission,
+     * and {@code LenientJsonParser} stays the post-parse safety net for flag-off
+     * / non-supporting providers.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.narration.structured-output.enabled:false}")
+    private boolean narrationStructuredOutputEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -1189,6 +1205,90 @@ public class ResearchNarrationService {
     private record FirstPass(NarrationResult firstPass, List<String> callPath,
                              boolean firstPassFailed) {}
 
+    /**
+     * Lever 1 — the strict json_schema the NarrationResult-shaped calls
+     * constrain their output to when {@link #narrationStructuredOutputEnabled}
+     * is on and the provider advertises {@code supports-json-schema}. Mirrors
+     * exactly the fields {@link #parseNarrationResult(ObjectMapper, String)}
+     * consumes, so the parser is the contract.
+     *
+     * <p>Design notes:
+     * <ul>
+     *   <li><b>OpenAI strict mode</b> requires every property in {@code required}
+     *       and {@code additionalProperties:false} at every object level —
+     *       optional fields are therefore expressed as nullable unions
+     *       ({@code ["string","null"]}), not by omission.</li>
+     *   <li><b>No enums</b> — xAI/grok rejects schema enums whose values contain
+     *       {@code '/'} (see {@code ReviewPanelService}); allowed values live in
+     *       descriptions.</li>
+     *   <li><b>{@code findings} is a string</b> — the F1 baseline shape. The
+     *       per-computation map ({@code structured-findings}) and typed
+     *       {@code cited_papers} / {@code formal_findings} variants stay on the
+     *       {@code json_object} path; combining them with structured-output is a
+     *       documented follow-on. {@code numeric_claims} and {@code followUp}
+     *       ARE included so {@code additionalProperties:false} doesn't silently
+     *       disable them.</li>
+     * </ul>
+     */
+    static final String NARRATION_RESPONSE_SCHEMA = """
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["hypothesis","findings","conclusion","confidenceScore","cited_paper_ids","discussion","related_work","numeric_claims","followUp"],
+              "properties": {
+                "hypothesis": {"type":"string","description":"The hypothesis under test, one or two sentences."},
+                "findings": {"type":"string","description":"What the computations showed, grounded in the tool-call results."},
+                "conclusion": {"type":"string","description":"Whether the hypothesis was supported and the takeaway."},
+                "confidenceScore": {"type":"number","description":"Confidence in [0,1] that the conclusion follows from the evidence."},
+                "discussion": {"type":["string","null"],"description":"Optional Discussion-section prose; null if none."},
+                "related_work": {"type":["string","null"],"description":"Optional Related-Work-section prose; null if none."},
+                "cited_paper_ids": {"type":"array","description":"IDs of prior papers cited; empty array if none.","items":{"type":"string"}},
+                "numeric_claims": {
+                  "type":"array",
+                  "description":"Every numeric value asserted in the prose, each tied to the tool call that produced it. Empty array if none.",
+                  "items":{
+                    "type":"object",
+                    "additionalProperties": false,
+                    "required":["value","tool_call_id","units","context","source_location"],
+                    "properties":{
+                      "value":{"type":"number","description":"The numeric value as stated."},
+                      "tool_call_id":{"type":"string","description":"The call_N id of the tool result this value came from."},
+                      "units":{"type":["string","null"],"description":"Units, or null if dimensionless."},
+                      "context":{"type":["string","null"],"description":"Short phrase describing what the value measures."},
+                      "source_location":{"type":["string","null"],"description":"Where in the prose it appears, e.g. findings:1."}
+                    }
+                  }
+                },
+                "followUp": {
+                  "type":["object","null"],
+                  "description":"Optional next-experiment parameters, or null. param1 is an integer in [10,99]; param2 a number in [1.0,9.0].",
+                  "additionalProperties": false,
+                  "required":["param1","param2","predictedScore"],
+                  "properties":{
+                    "param1":{"type":"integer","description":"First sweep parameter, integer in [10,99]."},
+                    "param2":{"type":"number","description":"Second sweep parameter, number in [1.0,9.0]."},
+                    "predictedScore":{"type":["number","null"],"description":"Predicted peer score in [0,1], or null."}
+                  }
+                }
+              }
+            }""";
+
+    /**
+     * Lever 1 — run {@code body} with {@link #NARRATION_RESPONSE_SCHEMA} pinned
+     * as the structured-output contract when the feature flag is on; otherwise
+     * run it unchanged. The provider-capability gate
+     * ({@code ProviderConfig.supportsJsonSchema}) is applied downstream in the
+     * pool, so flag-on + non-supporting-provider still falls back to today's
+     * {@code json_object} + {@code LenientJsonParser} path.
+     */
+    private void withNarrationSchema(Runnable body) {
+        if (narrationStructuredOutputEnabled) {
+            com.emergentterrain.llm.LlmCallContext.withJsonSchema(NARRATION_RESPONSE_SCHEMA, body);
+        } else {
+            body.run();
+        }
+    }
+
     private FirstPass produceFirstPass(PaperDraft draft) {
         List<String> callPath = new java.util.ArrayList<>();
         // Phase 20.4 — first-pass success tracker drives the OK vs PARTIAL split
@@ -1204,8 +1304,10 @@ public class ResearchNarrationService {
             // Phase 20.5 — tag the first-pass narration with role="narration" so
             // RoleRouterPolicy can apply per-role overrides (e.g., avoid-models
             // for a specific role without affecting fast-audit / professor-tools).
-            com.emergentterrain.llm.LlmCallContext.withRole("narration", () ->
-                    router.streamPrimary(prompt, response::append));
+            // Lever 1 — pin the narration json_schema when structured-output is on.
+            withNarrationSchema(() ->
+                    com.emergentterrain.llm.LlmCallContext.withRole("narration", () ->
+                            router.streamPrimary(prompt, response::append)));
             callPath.add("fp:" + abbrev(router.primaryModel()));
             log.info("LLM narration first-pass done paperId={} ms={}", draft.paperId(),
                     System.currentTimeMillis() - start);
@@ -1636,11 +1738,12 @@ public class ResearchNarrationService {
             // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
-                    com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
-                            router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
-                                            professorSynthesis, literatureContext),
-                                    revised::append)));
+            withNarrationSchema(() ->
+                    com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
+                            com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
+                                    router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
+                                                    professorSynthesis, literatureContext),
+                                            revised::append))));
             // Phase 13 E2 — pre-parse repair of common malformed-JSON cases
             // (code-fence wrappers, prose preamble, trailing commas, unclosed
             // strings, unbalanced braces). REVIEW_REPORT refresh #1 §1 rec #3
@@ -2264,9 +2367,10 @@ public class ResearchNarrationService {
             // prompt's "Return ONLY valid JSON" line was sometimes
             // ignored by the previous-temperature default; JSON mode
             // makes the provider drop any non-JSON prose.
-            com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
-                    com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
-                            router.streamPrimary(prompt, buf::append)));
+            withNarrationSchema(() ->
+                    com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
+                            com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
+                                    router.streamPrimary(prompt, buf::append))));
             com.emergentterrain.research.LenientJsonParser.RepairResult repair =
                     com.emergentterrain.research.LenientJsonParser.repair(buf.toString());
             NarrationResult parsed = parseNarrationResult(repair.text());
@@ -2617,9 +2721,10 @@ public class ResearchNarrationService {
 
             long revisionStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamPrimary(
-                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), professorExperiment),
-                    revised::append);
+            final String profExp = professorExperiment;
+            withNarrationSchema(() -> router.streamPrimary(
+                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                    revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
                 callPath.add("json_rev:" + abbrev(router.primaryModel()) + ":ok");
@@ -2691,9 +2796,10 @@ public class ResearchNarrationService {
 
             long revisionStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            router.streamFast(
-                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), professorExperiment),
-                    revised::append);
+            final String profExp = professorExperiment;
+            withNarrationSchema(() -> router.streamFast(
+                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                    revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
                 callPath.add("rev:ollama:ok");

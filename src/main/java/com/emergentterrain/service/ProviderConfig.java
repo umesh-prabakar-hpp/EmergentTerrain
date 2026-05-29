@@ -122,6 +122,18 @@ import java.util.Set;
  *                          OpenAI-compat model. Bump per-provider when
  *                          longer outputs are needed (legacy GroqPool
  *                          used 2000 for primary narration).
+ * @param supportsJsonSchema Lever 1 — true when the provider honors
+ *                          OpenAI's {@code response_format:
+ *                          {type:"json_schema", strict:true}}. When a
+ *                          caller sets a schema via
+ *                          {@link com.emergentterrain.llm.LlmCallContext#withJsonSchema}
+ *                          AND this is true, the pool emits the schema so
+ *                          the provider enforces the output shape; otherwise
+ *                          it falls back to the {@code json_object} branch
+ *                          (today's behaviour). Default {@code false} —
+ *                          opt-in per provider so a provider that 400s on an
+ *                          unknown {@code response_format.type} is never sent
+ *                          one.
  */
 public record ProviderConfig(
         String providerKey,
@@ -140,15 +152,16 @@ public record ProviderConfig(
         Set<String> longBlockBodyMarkers,
         long longBlockMs,
         boolean fastTier,
-        int maxOutputTokens) {
+        int maxOutputTokens,
+        boolean supportsJsonSchema) {
 
     public enum RetryAfterSource { HEADER, BODY }
 
-    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers, primary-tier, conservative 4096 output cap). */
+    /** Defaults convenience for the common case (OpenAI-compat, sticky tools, header retry-after, no role, no extra headers, no exclusions, no NVIDIA-style parity markers, primary-tier, conservative 4096 output cap, json_schema off). */
     public static ProviderConfig openAiCompat(String providerKey, String baseUrl, String apiKey, List<String> models) {
         return new ProviderConfig(
                 providerKey, baseUrl, apiKey, models, null,
                 true, 32_000, "max_tokens", RetryAfterSource.HEADER, "", Map.of(),
-                Set.of(), Set.of(), Set.of(), 0L, false, 4096);
+                Set.of(), Set.of(), Set.of(), 0L, false, 4096, false);
     }
 }
