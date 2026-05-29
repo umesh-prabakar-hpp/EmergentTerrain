@@ -110,6 +110,65 @@ public class MathToolSuite {
                 .formatted(rangeStart, rangeEnd, rangeEnd - rangeStart, cap, cap, rangeStart, clampedEnd);
     }
 
+    /**
+     * rec #5 (2026-05-28) — outcome of resolving a run_param_sweep's
+     * {@code (param1, param2)} args into the engine's abstract sweep knobs:
+     * either an accepted (possibly transpose-corrected) pair, or a rejection
+     * with a clear error.
+     */
+    record SweepParams(boolean ok, int param1, double param2, boolean swapped, String error) {}
+
+    /**
+     * Epsilon within which a transposed param1-candidate counts as integer-like.
+     * Sweep positions are integers 10–99, so a clean transpose has an integer in
+     * the param2 slot; a materially-fractional value there is a physical quantity,
+     * not a transposed knob.
+     */
+    private static final double SWEEP_INTEGER_EPSILON = 0.05;
+
+    /**
+     * rec #5 — resolve run_param_sweep's two args. param1 is an abstract integer
+     * sweep position (10–99); param2 is an abstract scale (1.0–9.0). The engine
+     * maps the knob pair to a physical configuration internally — they are NOT
+     * physical inputs.
+     *
+     * <p>The model frequently transposes the two (scale in param1, position in
+     * param2): that is auto-oriented (P-a328-961 sent 4.9/53). But it ALSO passes
+     * the hypothesis's physical values straight in (P-a328-1000 sent AU 3.5/15.8),
+     * which the prior guard silently swapped to param1=16/param2=3.5 and swept
+     * a=1.30–2.05 AU — a domain the paper never intended. The distinguishing
+     * signal: a legitimate transposed position is an INTEGER, so we auto-orient
+     * only a clean integer transpose; a fractional param1-candidate (15.8) is a
+     * physical value and is rejected with a clear error rather than mangled.
+     */
+    static SweepParams resolveSweepParams(double raw1, double raw2) {
+        int    param1 = (int) Math.round(raw1);
+        double param2 = raw2;
+        if (param1 >= 10 && param1 <= 99 && param2 >= 1.0 && param2 <= 9.0) {
+            return new SweepParams(true, param1, param2, false, null);
+        }
+        int    swap1 = (int) Math.round(raw2);
+        double swap2 = raw1;
+        boolean swapInRange = swap1 >= 10 && swap1 <= 99 && swap2 >= 1.0 && swap2 <= 9.0;
+        boolean cleanIntegerTranspose = swapInRange
+                && Math.abs(raw2 - swap1) < SWEEP_INTEGER_EPSILON;
+        if (cleanIntegerTranspose) {
+            return new SweepParams(true, swap1, swap2, true, null);
+        }
+        return new SweepParams(false, 0, 0.0, false,
+                ("Invalid params: param1 (sweep position) must be an integer 10–99 and "
+                + "param2 (scale) must be 1.0–9.0. These are ABSTRACT sweep knobs, NOT "
+                + "physical quantities — do not pass physical values (AU, K, nm, etc.) here; "
+                + "the engine maps the knobs to a physical configuration internally. "
+                + "Got param1=%s, param2=%s.").formatted(trimNum(raw1), trimNum(raw2)));
+    }
+
+    /** Format a sweep arg for the error message: drop a trailing {@code .0}. */
+    private static String trimNum(double v) {
+        return (v == Math.rint(v) && !Double.isInfinite(v))
+                ? Long.toString((long) v) : Double.toString(v);
+    }
+
     public static final class ToolMetrics {
         private int sandboxRejectCount  = 0;
         private int symbolicRejectCount = 0;
@@ -713,26 +772,14 @@ public class MathToolSuite {
         // (asInt would truncate 4.9→4 and hide that it belongs in param2).
         double raw1     = args.path("param1").asDouble(-1.0);
         double raw2     = args.path("param2").asDouble(-1.0);
-        int    param1   = (int) Math.round(raw1);
-        double param2   = raw2;
         String rationale = args.path("rationale").asText("(no rationale)");
-        boolean inRange = param1 >= 10 && param1 <= 99 && param2 >= 1.0 && param2 <= 9.0;
-        if (!inRange) {
-            // Auto-orient obviously transposed args. The model routinely puts the
-            // scale (1.0–9.0) in param1 and the integer position (10–99) in param2
-            // — P-a328-961 sent param1=4.9, param2=53 and was hard-rejected. Swap
-            // only when the *opposite* assignment is the valid one; genuinely
-            // out-of-range inputs (e.g. P-a328-967's param1=7) still reject.
-            int    swap1 = (int) Math.round(raw2);
-            double swap2 = raw1;
-            boolean swapInRange = swap1 >= 10 && swap1 <= 99 && swap2 >= 1.0 && swap2 <= 9.0;
-            if (!swapInRange) {
-                return "Invalid params: param1 must be 10–99, param2 must be 1.0–9.0.";
-            }
+        SweepParams resolved = resolveSweepParams(raw1, raw2);
+        if (!resolved.ok()) return resolved.error();
+        int    param1 = resolved.param1();
+        double param2 = resolved.param2();
+        if (resolved.swapped()) {
             log.info("MathToolSuite: run_param_sweep auto-oriented transposed params "
-                    + "param1={}→{} param2={}→{}", raw1, swap1, raw2, swap2);
-            param1 = swap1;
-            param2 = swap2;
+                    + "param1={}→{} param2={}→{}", raw1, param1, raw2, param2);
         }
         int topicIdx = MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName());
         if (topicIdx < 0) return "Topic not computable via MathPhysicsEngine.";
