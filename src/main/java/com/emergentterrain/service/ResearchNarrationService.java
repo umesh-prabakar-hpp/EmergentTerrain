@@ -54,6 +54,8 @@ public class ResearchNarrationService {
 
     private final LlmRouter router;
     private final MathToolSuite toolSuite;
+    /** Lever 2 — read-only check_* tools for the revision self-check loop. */
+    private final RevisionSelfCheckTools selfCheckTools;
     private final ObjectMapper objectMapper;
     /**
      * Phase 24 §24.4 — held for {@link #buildSymbolicRegressHint} so the
@@ -355,6 +357,29 @@ public class ResearchNarrationService {
     private boolean narrationStructuredOutputEnabled;
 
     /**
+     * Lever 2 — citation grounding. When on (and a literature corpus is wired),
+     * the professor stage advertises the {@code search_literature} tool and is
+     * instructed to cite prior work ONLY via that tool, so citations are
+     * retrieved (and land in the tool-call trace) rather than invented. Default
+     * off. See [[project_tool_calling_levers]].
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.citation-tool.enabled:false}")
+    private boolean citationToolEnabled;
+
+    /**
+     * Lever 2 — revision self-check tools. When on, the prof→student revision
+     * runs as a tool loop ({@link RevisionSelfCheckTools}) so the reviser checks
+     * its draft against the direction-of-finding / uncertainty-disclosure /
+     * single-point-sweep validators and self-corrects BEFORE publish, instead of
+     * being demoted to NEEDS_REVISION after the fact. Default off; when off the
+     * revision uses the unchanged streamPrimary path.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.revision-self-check.enabled:false}")
+    private boolean revisionSelfCheckEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -583,6 +608,11 @@ public class ResearchNarrationService {
         this.toolSuite                 = new MathToolSuite(router, objectMapper,
                 gpuEngineAdapter, juliaMathClient, /*conjectureVerifier*/ null,
                 sympyIdentityClient);
+        // Lever 2 — wire the literature corpus into the tool suite (post-construction
+        // setter; MathToolSuite isn't a Spring bean). literatureSearch may be null;
+        // the search_literature tool is then omitted regardless of the flag.
+        this.toolSuite.setLiteratureSearch(literatureSearch);
+        this.selfCheckTools            = new RevisionSelfCheckTools(objectMapper);
         this.objectMapper              = objectMapper;
         this.juliaMathClient           = juliaMathClient;
         this.constantRecognitionService = constantRecognitionService;
@@ -1622,7 +1652,9 @@ public class ResearchNarrationService {
             long start = System.currentTimeMillis();
             boolean includeDynamic = "MATHEMATICS".equalsIgnoreCase(draft.domain())
                     || "INTERDISCIPLINARY".equalsIgnoreCase(draft.domain());
-            String toolsJson    = toolSuite.toolsJson(includeDynamic);
+            // Lever 2 — advertise the search_literature citation tool when the flag
+            // is on (the suite still omits it unless a corpus was wired).
+            String toolsJson    = toolSuite.toolsJson(includeDynamic, citationToolEnabled);
             // Phase 6 D1.3 — fetch curated literature for this (domain, topic).
             // Empty / null context means the prompts render their v1 variants
             // verbatim; non-empty context switches to v2-with-literature.
@@ -1634,7 +1666,8 @@ public class ResearchNarrationService {
             // empty and the template reads as it did pre-phase-24.
             String srHint = buildSymbolicRegressHint(juliaMathClient, draft.domain());
             String systemPrompt = buildProfessorSystemPrompt(
-                    promptRegistry, auditSummary, literatureContext, srHint);
+                    promptRegistry, auditSummary, literatureContext, srHint)
+                    + ((citationToolEnabled && literatureSearch != null) ? CITATION_GROUNDING_RULE : "");
             String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass, literatureContext);
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
@@ -1738,12 +1771,35 @@ public class ResearchNarrationService {
             // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
+            final String revisionUserPrompt = buildRevisionPromptFromSynthesis(
+                    promptRegistry, draft, firstPass, professorSynthesis, literatureContext);
+            // Lever 2 — snapshot the professor trace as effectively-final for the
+            // self-check executor; the revision's OWN check calls are not part of
+            // this trace and must never be appended to it.
+            final java.util.List<com.emergentterrain.llm.ToolInvocation> selfCheckTrace = profTrace;
             withNarrationSchema(() ->
                     com.emergentterrain.llm.LlmCallContext.withTemperature(0.0, () ->
-                            com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() ->
-                                    router.streamPrimary(buildRevisionPromptFromSynthesis(promptRegistry, draft, firstPass,
-                                                    professorSynthesis, literatureContext),
-                                            revised::append))));
+                            com.emergentterrain.llm.LlmCallContext.withJsonOutputMode(() -> {
+                                if (revisionSelfCheckEnabled) {
+                                    // Revision self-check tool loop: the reviser calls the
+                                    // read-only check_* tools on its draft and fixes FAILs
+                                    // before emitting final JSON. Only the synthesis is used;
+                                    // the loop's tool trace is discarded so the professor
+                                    // trace that feeds publish-stage validators stays clean.
+                                    com.emergentterrain.llm.ToolCallResponse revResp =
+                                            com.emergentterrain.llm.LlmCallContext.withRole("revision-self-check", () ->
+                                                    router.callPrimaryWithTools(
+                                                            RevisionSelfCheckTools.SELF_CHECK_SYSTEM_PROMPT,
+                                                            revisionUserPrompt,
+                                                            selfCheckTools.toolsJson(),
+                                                            selfCheckTools.buildExecutor(selfCheckTrace)));
+                                    revised.append(revResp.synthesis() == null ? "" : revResp.synthesis());
+                                    callPath.add("rev:self-check:n="
+                                            + (revResp.trace() == null ? 0 : revResp.trace().size()));
+                                } else {
+                                    router.streamPrimary(revisionUserPrompt, revised::append);
+                                }
+                            })));
             // Phase 13 E2 — pre-parse repair of common malformed-JSON cases
             // (code-fence wrappers, prose preamble, trailing commas, unclosed
             // strings, unbalanced braces). REVIEW_REPORT refresh #1 §1 rec #3
@@ -3096,6 +3152,18 @@ public class ResearchNarrationService {
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry, String auditSummary) {
         return buildProfessorSystemPrompt(registry, auditSummary, null, null);
     }
+
+    /**
+     * Lever 2 — appended to the professor system prompt when the
+     * {@code search_literature} citation tool is active. Instructs the model to
+     * ground every prior-work citation in a tool result rather than inventing
+     * author-year references.
+     */
+    static final String CITATION_GROUNDING_RULE =
+            "\n\nCITATION GROUNDING: To cite prior work, you MUST first call the "
+            + "search_literature tool and cite ONLY the exact citation strings it "
+            + "returns. Never invent author-year references. If search_literature "
+            + "returns no references for this topic, make no prior-work citations.";
 
     static String buildProfessorSystemPrompt(PromptTemplateRegistry registry,
                                               String auditSummary, String literatureContext) {

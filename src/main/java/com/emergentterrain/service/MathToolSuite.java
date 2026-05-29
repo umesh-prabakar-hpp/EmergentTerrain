@@ -348,6 +348,20 @@ public class MathToolSuite {
         this.physicsEngineDelegate = delegate;
     }
 
+    /**
+     * Lever 2 — curated-literature corpus for the {@code search_literature}
+     * tool. Wired post-construction by {@link ResearchNarrationService} (same
+     * pattern as {@link #physicsEngineDelegate}; MathToolSuite isn't a Spring
+     * bean). Null when no corpus is available — the tool is then omitted from
+     * {@link #toolsJson(boolean, boolean)} and the executor case short-circuits.
+     */
+    private volatile com.emergentterrain.research.LiteratureSearchService literatureSearch;
+
+    public void setLiteratureSearch(
+            com.emergentterrain.research.LiteratureSearchService literatureSearch) {
+        this.literatureSearch = literatureSearch;
+    }
+
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
     /**
@@ -452,6 +466,18 @@ public class MathToolSuite {
     }
 
     public String toolsJson(boolean includeDynamic) {
+        return toolsJson(includeDynamic, false);
+    }
+
+    /**
+     * Lever 2 — overload that additionally advertises the
+     * {@code search_literature} citation-grounding tool when
+     * {@code includeLiterature} is true AND a corpus is wired. The flag is
+     * supplied by the caller (the field-injected {@code citationToolEnabled} in
+     * {@link ResearchNarrationService}) so MathToolSuite stays free of Spring
+     * config; absent a corpus the tool is omitted regardless.
+     */
+    public String toolsJson(boolean includeDynamic, boolean includeLiterature) {
         // Phase 22 §22.4 — pick syntax-flavour descriptions based on
         // whether the Julia sidecar will actually serve the call.
         // Computed once at the top of the method so the text block
@@ -577,12 +603,14 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
-                        ? PROVE_IDENTITY_TOOL_JSON : "");
+                        ? PROVE_IDENTITY_TOOL_JSON : "",
+                (includeLiterature && literatureSearch != null)
+                        ? SEARCH_LITERATURE_TOOL_JSON : "");
     }
 
     /**
@@ -592,6 +620,30 @@ public class MathToolSuite {
      * sees a tool it can't call, which is cheaper (token-wise) than
      * advertising + rejecting.
      */
+    /**
+     * Lever 2 — citation-grounding tool. Advertised only when a
+     * {@link com.emergentterrain.research.LiteratureSearchService} is wired AND
+     * the caller passes {@code includeLiterature=true}. Returns curated
+     * references from the corpus so the professor cites retrieved work (and the
+     * citations land in the tool-call trace) rather than inventing author-year
+     * references. No JSON-schema enum (xAI/grok rejects '/'-in-enum).
+     */
+    private static final String SEARCH_LITERATURE_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"search_literature",
+                "description":"Look up curated, citable prior work for this paper's domain/topic. Call this to GROUND any reference to prior work: cite ONLY the exact citation strings this tool returns, and never invent author-year references. Returns each reference's citation, closed-form law, valid region, and magnitude estimate. An empty result means no curated prior work exists for this topic — in that case make no author-year citations.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "topic":{"type":"string","description":"Optional topic override; defaults to the paper's own topic. Use the paper's topic unless you have a specific reason to look up an adjacent one."}
+                  },
+                  "required":[]
+                }
+              }
+            }""";
+
     private static final String SYMBOLIC_REGRESS_TOOL_JSON = """
             ,{
               "type":"function",
@@ -698,6 +750,7 @@ public class MathToolSuite {
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
+                    case "search_literature"  -> searchLiterature(draft, args);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -766,6 +819,47 @@ public class MathToolSuite {
     }
 
     // ── Tool implementations ──────────────────────────────────────────────────
+
+    /**
+     * Lever 2 — citation grounding. Returns curated references for the paper's
+     * (domain, topic) so the professor cites retrieved work. Defaults the topic
+     * to the draft's own; honours an optional {@code topic} override. The result
+     * deliberately carries NO {@link #SUCCESS_PREFIXES} marker — a literature
+     * lookup is not a computational success and must not feed the
+     * zero-successes→suppressed gate.
+     */
+    private String searchLiterature(PaperDraft draft, JsonNode args) {
+        if (literatureSearch == null) {
+            return "search_literature not configured: no literature corpus wired.";
+        }
+        String domain = draft != null ? draft.domain() : null;
+        String argTopic = args.path("topic").asText("");
+        String topic = !argTopic.isBlank() ? argTopic
+                : (draft != null ? draft.topicName() : null);
+        if (domain == null || topic == null || topic.isBlank()) {
+            return "search_literature: missing domain/topic — cannot search.";
+        }
+        java.util.List<com.emergentterrain.research.LiteratureReference> refs =
+                literatureSearch.findFor(domain, topic);
+        if (refs.isEmpty()) {
+            return "search_literature: no references found for domain=" + domain
+                    + " topic=" + topic + ". Make no author-year citations.";
+        }
+        StringBuilder sb = new StringBuilder("search_literature: ")
+                .append(refs.size()).append(" reference(s) for ")
+                .append(domain).append('/').append(topic).append(":\n");
+        for (com.emergentterrain.research.LiteratureReference r : refs) {
+            sb.append("- ").append(r.citation());
+            if (r.closedForm() != null && !r.closedForm().isBlank())
+                sb.append(" | closed-form: ").append(r.closedForm());
+            if (r.validRegion() != null && !r.validRegion().isBlank())
+                sb.append(" | valid: ").append(r.validRegion());
+            if (r.magnitudeEstimate() != null && !r.magnitudeEstimate().isBlank())
+                sb.append(" | magnitude: ").append(r.magnitudeEstimate());
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
 
     private String runParamSweep(PaperDraft draft, JsonNode args) {
         // Read both as doubles so the transpose test sees the true scale value
