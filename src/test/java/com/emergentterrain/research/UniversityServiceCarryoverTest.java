@@ -77,4 +77,44 @@ class UniversityServiceCarryoverTest {
     void emptyStatusBlocksCarryover() {
         assertThat(UniversityService.isCarryoverAllowed("")).isFalse();
     }
+
+    // ---- 2026-05-29: INCOMPLETE re-queue score-improvement guard ----
+
+    @Test
+    void reworkThatFinishedSupersedesIncompleteEvenAtLowerScore() {
+        // The whole point of the re-queue: a completed, peer-reviewed rework
+        // replaces the unfinished original even if its score is lower — the
+        // INCOMPLETE original's score was never reliably reviewed.
+        assertThat(UniversityService.reworkIsImprovement(
+                /* oldIncomplete */ true, /* newIncomplete */ false,
+                /* oldScore */ 0.90, /* newScore */ 0.50)).isTrue();
+    }
+
+    @Test
+    void stillIncompleteReworkReplacesOnlyWhenStrictlyHigherScore() {
+        // Re-narration came out INCOMPLETE again (e.g. timed out once more).
+        // Replace only if it at least scored higher; otherwise keep the original.
+        assertThat(UniversityService.reworkIsImprovement(
+                true, true, 0.40, 0.60)).isTrue();    // higher → replace
+        assertThat(UniversityService.reworkIsImprovement(
+                true, true, 0.60, 0.60)).isFalse();    // equal → keep original
+        assertThat(UniversityService.reworkIsImprovement(
+                true, true, 0.60, 0.40)).isFalse();    // lower → keep original
+    }
+
+    @Test
+    void finishedReworkWithHigherScoreIsObviouslyAnImprovement() {
+        assertThat(UniversityService.reworkIsImprovement(
+                true, false, 0.30, 0.85)).isTrue();
+    }
+
+    @Test
+    void bothCompleteRepublishNeedsStrictlyHigherScore() {
+        // Defensive: if the original was somehow already complete, a re-publish
+        // only wins on a strictly higher score (no free pass).
+        assertThat(UniversityService.reworkIsImprovement(
+                false, false, 0.70, 0.71)).isTrue();
+        assertThat(UniversityService.reworkIsImprovement(
+                false, false, 0.70, 0.70)).isFalse();
+    }
 }

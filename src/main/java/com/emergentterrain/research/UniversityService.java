@@ -1532,14 +1532,49 @@ public class UniversityService {
         // 2026-05-29 — persist the pipeline/quality-health axis decided in the
         // status ladder above (orthogonal to status; see ReviewState).
         paper.setReviewState(reviewState.name());
-        // 2026-05-29 — INCOMPLETE re-queue. Carry the rework-attempt count forward
-        // across an in-place re-publish (the rework reuses the same paperId), so a
-        // rework that comes out INCOMPLETE again lands at the cap and is not
-        // re-queued. Fresh papers have no prior row → 0. Then persist a faithful
-        // draft snapshot for INCOMPLETE papers so IncompleteReworkService can
-        // re-narrate from the true seed inputs; the cap is enforced by that
-        // service's candidate query, so we always snapshot when INCOMPLETE.
-        paper.setReworkAttempts(priorReworkAttempts(draft.paperId()));
+        // 2026-05-29 — INCOMPLETE re-queue. Read any existing row for this paperId
+        // once: a row with reworkAttempts>=1 means this publish is the in-place
+        // RE-publish of a paper the rework sweep already dispatched (the sweep
+        // bumps the count before dispatching), so the score-improvement guard
+        // below applies. Fresh papers have no prior row.
+        ResearchPaper priorRow = draft.paperId() == null
+                ? null
+                : papersRepository.findByPaperId(draft.paperId()).orElse(null);
+        boolean reworkRePublish = priorRow != null && priorRow.reworkAttempts() >= 1;
+
+        // Score-improvement guard: a rework must not clobber the original with a
+        // result that is no better. "Better" = it actually finished (the original
+        // was INCOMPLETE and the rework is not) OR it scored strictly higher. If
+        // neither, keep the original untouched — the source row already had its
+        // attempt count bumped by the sweep, so it will not be re-queued.
+        if (reworkRePublish) {
+            boolean better = reworkIsImprovement(
+                    "INCOMPLETE".equals(priorRow.reviewState()),
+                    reviewState == ReviewState.INCOMPLETE,
+                    priorRow.peerScore(), adjustedScore);
+            if (!better) {
+                log.info("incomplete-rework: keeping original paperId={} (reviewState={} "
+                        + "score={}) — rework was not an improvement (reviewState={} score={})",
+                        draft.paperId(), priorRow.reviewState(),
+                        String.format("%.4f", priorRow.peerScore()),
+                        reviewState, String.format("%.4f", adjustedScore));
+                researchCycleService.decrementDraftQueue(draft.paperId());
+                return;
+            }
+            log.info("incomplete-rework: replacing paperId={} — rework improved it "
+                    + "(reviewState {} → {}, score {} → {})",
+                    draft.paperId(), priorRow.reviewState(), reviewState,
+                    String.format("%.4f", priorRow.peerScore()),
+                    String.format("%.4f", adjustedScore));
+        }
+
+        // Carry the rework-attempt count forward across the in-place re-publish so
+        // a rework that comes out INCOMPLETE again lands at the cap and is not
+        // re-queued. Then persist a faithful draft snapshot for INCOMPLETE papers
+        // so IncompleteReworkService can re-narrate from the true seed inputs; the
+        // cap is enforced by that service's candidate query, so we always snapshot
+        // when INCOMPLETE.
+        paper.setReworkAttempts(priorRow != null ? priorRow.reworkAttempts() : 0);
         if (reviewState == ReviewState.INCOMPLETE) {
             try {
                 paper.setReworkDraftJson(objectMapper.writeValueAsString(
@@ -2815,16 +2850,21 @@ public class UniversityService {
      * service. Parallel to {@code normalizeMode} below.
      */
     /**
-     * 2026-05-29 — rework-attempt count already recorded for this paperId, or 0
-     * when no row exists yet (a fresh paper). Read before each publish so the
-     * count survives the in-place re-publish that the INCOMPLETE re-queue does
-     * (same paperId), capping the number of automated finish attempts.
+     * 2026-05-29 — INCOMPLETE re-queue score-improvement guard. A rework may
+     * replace the original in place only when it is an improvement:
+     * <ul>
+     *   <li>it actually <b>finished</b> — the original was INCOMPLETE and the
+     *       rework is not (a completed, peer-reviewed paper supersedes an
+     *       unfinished one regardless of the unfinished one's unreliable score);
+     *       or</li>
+     *   <li>it scored <b>strictly higher</b> ({@code newScore > oldScore}).</li>
+     * </ul>
+     * Otherwise the original is kept untouched. Pure + package-private so the
+     * decision is unit-testable without the publish machinery.
      */
-    private int priorReworkAttempts(String paperId) {
-        if (paperId == null) return 0;
-        return papersRepository.findByPaperId(paperId)
-                .map(ResearchPaper::reworkAttempts)
-                .orElse(0);
+    static boolean reworkIsImprovement(boolean oldIncomplete, boolean newIncomplete,
+                                       double oldScore, double newScore) {
+        return (oldIncomplete && !newIncomplete) || newScore > oldScore;
     }
 
     static boolean isCarryoverAllowed(String paperStatus) {
