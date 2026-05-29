@@ -416,6 +416,29 @@ public class ResearchNarrationService {
     private boolean firstPassMetricGuardEnabled;
 
     /**
+     * Novelty-lens follow-up (2026-05-29) — revision-stage novelty preservation.
+     * The critique→revise loop is a one-way SUBTRACTIVE ratchet: every standing
+     * instruction ("qualify over-claims", "do not introduce new claims", "keep
+     * correct content unchanged", "address the weaknesses") removes or hedges,
+     * and the critique it consumes surfaces "overclaiming / missing
+     * qualifications". But this room's stated goal (phase-30) is genuinely novel
+     * structure — the reproducible RESIDUAL after subtracting a known reference
+     * relation, the exception to a regularity — which a naive honesty pass reads
+     * as the boldest, most "over-claimed" sentence and sands into "broadly
+     * consistent with expectations". Revision can thus destroy the contribution
+     * while passing every honesty gate. When ON, {@link #NOVELTY_PRESERVATION_RULE}
+     * is appended to the revision prompt: it reframes "qualify" as calibrating the
+     * claim's STRENGTH to its honest evidence label (CONJECTURE /
+     * UNEXPLAINED_OBSERVATION) rather than deleting a supported surprise. All the
+     * existing honesty guards stay verbatim — this only stops the ratchet from
+     * over-cutting. Default off; flip after an A/B against the subtractive-only
+     * state (cf. [[feedback_flag_gated_dormant]]).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.revision-novelty-preservation.enabled:false}")
+    private boolean revisionNoveltyPreservationEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -1810,8 +1833,10 @@ public class ResearchNarrationService {
             // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            String revisionPromptBase = buildRevisionPromptFromSynthesis(
-                    promptRegistry, draft, firstPass, professorSynthesis, literatureContext);
+            String revisionPromptBase = appendNoveltyPreservation(
+                    buildRevisionPromptFromSynthesis(
+                            promptRegistry, draft, firstPass, professorSynthesis, literatureContext),
+                    revisionNoveltyPreservationEnabled);
             // rec #4 follow-up — ground the [call_N] contract by appending the real
             // tagged trace, so the reviser cites real IDs instead of inventing them
             // (P-a328-993/994). Flag-gated for A/B against the instruction-only state.
@@ -2845,7 +2870,9 @@ public class ResearchNarrationService {
             StringBuilder revised = new StringBuilder();
             final String profExp = professorExperiment;
             withNarrationSchema(() -> router.streamPrimary(
-                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                    appendNoveltyPreservation(
+                            buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                            revisionNoveltyPreservationEnabled),
                     revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -2920,7 +2947,9 @@ public class ResearchNarrationService {
             StringBuilder revised = new StringBuilder();
             final String profExp = professorExperiment;
             withNarrationSchema(() -> router.streamFast(
-                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                    appendNoveltyPreservation(
+                            buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                            revisionNoveltyPreservationEnabled),
                     revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -3443,6 +3472,41 @@ public class ResearchNarrationService {
      */
     static String appendFirstPassMetricGuard(String prompt, boolean enabled) {
         return enabled ? prompt + FIRST_PASS_METRIC_GUARD_RULE : prompt;
+    }
+
+    /**
+     * Novelty-lens follow-up (2026-05-29) — appended to a revision prompt when
+     * {@code revisionNoveltyPreservationEnabled}. Counterweights the revision
+     * stage's subtractive bias so qualification calibrates a claim's strength to
+     * its honest evidence label instead of erasing the genuinely novel residual
+     * the room (phase-30) exists to surface. Adds NO output field, so it is
+     * compatible with the pinned {@link #NARRATION_RESPONSE_SCHEMA}
+     * ({@code additionalProperties:false}). See
+     * {@link #revisionNoveltyPreservationEnabled}.
+     */
+    static final String NOVELTY_PRESERVATION_RULE = """
+
+
+            NOVELTY PRESERVATION: this room's goal is genuinely novel structure, not safe \
+            prose. Before you cut or soften anything, name the paper's single most surprising \
+            result — the part that is NOT a restatement of a known relationship, but the \
+            residual left after subtracting what was already expected (an exception to a \
+            regularity, an unexplained deviation, reproducible structure the baseline does \
+            not predict). That residual is the contribution: keep it, and state it as plainly \
+            as the evidence allows. "Qualifying an over-claim" means lowering its STRENGTH to \
+            the honest evidence label (a calibrated CONJECTURE or UNEXPLAINED_OBSERVATION) — \
+            it does NOT mean deleting a supported surprise or hedging it into "broadly \
+            consistent with expectations". Cut a claim only when it merely restates known work \
+            or the data does not support it; a correctly-labeled bold conjecture beats a timid \
+            non-claim.""";
+
+    /**
+     * Append {@link #NOVELTY_PRESERVATION_RULE} to a revision prompt iff the
+     * guard is enabled. Package-private + static to mirror
+     * {@link #appendFirstPassMetricGuard} and stay unit-testable without a router.
+     */
+    static String appendNoveltyPreservation(String prompt, boolean enabled) {
+        return enabled ? prompt + NOVELTY_PRESERVATION_RULE : prompt;
     }
 
     static final String CITATION_RULE_ADDENDUM = """

@@ -404,6 +404,26 @@ class ResearchNarrationServiceCallPathTest {
                 .isEqualTo("BASE PROMPT");
     }
 
+    // ---- Novelty-lens follow-up: revision-stage novelty preservation ----
+
+    @Test
+    void noveltyPreservation_appendsRuleWhenEnabled() {
+        String guarded = ResearchNarrationService.appendNoveltyPreservation("BASE PROMPT", true);
+        assertThat(guarded).startsWith("BASE PROMPT");
+        assertThat(guarded).contains("NOVELTY PRESERVATION");
+        // Reframes "qualify" as calibrating strength to the honest label, not deleting.
+        assertThat(guarded).contains("residual");
+        assertThat(guarded).contains("UNEXPLAINED_OBSERVATION");
+        // Must not silently introduce a new JSON field (schema is additionalProperties:false).
+        assertThat(guarded).doesNotContain("\"novelty");
+    }
+
+    @Test
+    void noveltyPreservation_noOpWhenDisabled() {
+        assertThat(ResearchNarrationService.appendNoveltyPreservation("BASE PROMPT", false))
+                .isEqualTo("BASE PROMPT");
+    }
+
     // ---- Phase 17 panel-grade-floor demote gate ----
 
     private static PanelOutcome panelOutcomeWithGrades(
