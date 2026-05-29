@@ -1504,9 +1504,16 @@ public class MathToolSuite {
                 result.worstMargin(), result.worstWindowStart()));
         sb.append("\nPer-window:");
         for (var w : result.windows()) {
-            sb.append(String.format("\n  start=%d  lhs=%+.5f  rhs=%+.5f  margin=%+.5f  %s",
-                    w.windowStart(), w.lhsValue(), w.rhsValue(), w.margin(),
-                    w.holds() ? "holds" : "REFUTED"));
+            // 2026-05-29 — label the rhs *scalar* explicitly and print the evaluated
+            // bound (k·rhs+c) alongside it. The bare "rhs=" column was the rhs scalar
+            // (e.g. log_window_start), NOT the inequality ceiling, which a narrator
+            // (P-b72c-9) misread as a tool bug ("constant-bound test returned a
+            // non-constant rhs") and hedged its whole Findings on. margin is, and
+            // always was, lhs − (k·rhs + c); bound= now makes that ceiling explicit.
+            sb.append(String.format(
+                    "\n  start=%d  lhs=%+.5f  rhs_scalar=%+.5f  bound=%+.5f  margin=%+.5f  %s",
+                    w.windowStart(), w.lhsValue(), w.rhsValue(), k * w.rhsValue() + c,
+                    w.margin(), w.holds() ? "holds" : "REFUTED"));
         }
         return sb.toString();
     }
