@@ -287,6 +287,24 @@ public class UniversityService {
     private final ExplorationTuningService explorationTuningService;
     private final ObjectMapper  objectMapper;
 
+    /**
+     * 2026-05-29 review §1 rec #4 — when on, {@code [call_N]} citation markers whose
+     * index is outside {@code [1, trace.size()]} are stripped from the published
+     * prose before persistence (the "hard cap at trace.size()"). The narrator
+     * invents indices beyond the trace (P-a328-993 cited call_18/19 when ~5 calls
+     * ran); such markers reference calls that cannot exist, so removing them leaves
+     * the number to be assessed on its own merits by the citation/numeric gates.
+     * Field-level {@code @Value} so existing constructor call sites (and the
+     * publish tests) are unchanged; default OFF, flip after a refresh confirms.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.citation-trace-cap.enabled:false}")
+    private boolean citationTraceCapEnabled;
+
+    /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
+    private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
+            java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
+
     /** Adapter that lets the cycle call back into this orchestrator. */
     private final ResearchCycleService.Context cycleContext = new ResearchCycleService.Context() {
         @Override public String nextPaperId(UUID roomId) { return UniversityService.this.nextPaperId(roomId); }
@@ -742,6 +760,18 @@ public class UniversityService {
                 resolveFindingsBlocks(narration.findingsMap(), draft.rawFindings());
         String conclusion = (narration.conclusion() != null && !narration.conclusion().isBlank())
                 ? narration.conclusion() : draft.templateConclusion();
+
+        // 2026-05-29 review §1 rec #4 — hard cap at trace.size(): drop hallucinated
+        // [call_N] markers whose index can't exist (N>trace size or <1) from the
+        // prose before it flows through the sanitizer / validators / persistence,
+        // so a fabricated [call_18] on a 5-call paper doesn't reach the reader. Runs
+        // first so the stripped prose is what everything downstream sees.
+        if (citationTraceCapEnabled) {
+            int traceSize = narration.toolCallTrace() != null ? narration.toolCallTrace().size() : 0;
+            hypothesis = stripOutOfRangeCallMarkers(hypothesis, traceSize);
+            findingsBlocks = stripOutOfRangeCallMarkers(findingsBlocks, traceSize);
+            conclusion = stripOutOfRangeCallMarkers(conclusion, traceSize);
+        }
 
         // Phase 5 A4 — strip harness-parameter leak phrases (≥11 papers in the May 2026
         // corpus had simulator coords or internal peer-score values bleed into prose).
@@ -2865,6 +2895,49 @@ public class UniversityService {
     static boolean reworkIsImprovement(boolean oldIncomplete, boolean newIncomplete,
                                        double oldScore, double newScore) {
         return (oldIncomplete && !newIncomplete) || newScore > oldScore;
+    }
+
+    /**
+     * 2026-05-29 review §1 rec #4 — strip {@code [call_N]} markers whose index is
+     * outside {@code [1, traceSize]} (a hallucinated reference to a call that
+     * cannot exist), leaving the surrounding number in place. In-range markers —
+     * including ones pointing at a call that ran but errored — are left untouched;
+     * the {@code NumericalConsistencyValidator.findCitationsToErroredCalls} gate
+     * handles those (it needs per-call success status this deterministic strip
+     * doesn't). Pure + package-private so the logic is unit-testable.
+     */
+    static String stripOutOfRangeCallMarkers(String text, int traceSize) {
+        if (text == null || text.isEmpty()) return text;
+        java.util.regex.Matcher m = CALL_MARKER_INDEXED.matcher(text);
+        StringBuilder sb = new StringBuilder();
+        while (m.find()) {
+            int idx;
+            try {
+                idx = Integer.parseInt(m.group(2));
+            } catch (NumberFormatException e) {
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group()));
+                continue;
+            }
+            if (idx < 1 || idx > traceSize) {
+                // Out of range → drop the marker (and its leading space).
+                m.appendReplacement(sb, "");
+            } else {
+                // In range → keep verbatim (restore the leading space group).
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(m.group()));
+            }
+        }
+        m.appendTail(sb);
+        return sb.toString();
+    }
+
+    /** rec #4 — {@link #stripOutOfRangeCallMarkers} applied to every findings block. */
+    static Map<Integer, String> stripOutOfRangeCallMarkers(Map<Integer, String> blocks, int traceSize) {
+        if (blocks == null || blocks.isEmpty()) return blocks;
+        Map<Integer, String> out = new java.util.LinkedHashMap<>();
+        for (Map.Entry<Integer, String> e : blocks.entrySet()) {
+            out.put(e.getKey(), stripOutOfRangeCallMarkers(e.getValue(), traceSize));
+        }
+        return out;
     }
 
     static boolean isCarryoverAllowed(String paperStatus) {

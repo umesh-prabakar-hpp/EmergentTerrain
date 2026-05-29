@@ -117,4 +117,59 @@ class UniversityServiceCarryoverTest {
         assertThat(UniversityService.reworkIsImprovement(
                 false, false, 0.70, 0.70)).isFalse();
     }
+
+    // ---- 2026-05-29 review §1 rec #4: citation hard-cap (trace.size strip) ----
+
+    @Test
+    void stripsCallMarkersBeyondTraceSize() {
+        // P-a328-993 signature: cites call_18/19 on a ~5-call paper. Out-of-range
+        // markers are dropped; the number stays.
+        String prose = "The crossover is ~4 atm [call_3] and the peak 0.499% [call_18].";
+        String out = UniversityService.stripOutOfRangeCallMarkers(prose, 5);
+        assertThat(out).contains("[call_3]");          // in range → kept
+        assertThat(out).doesNotContain("[call_18]");    // beyond trace → stripped
+        assertThat(out).contains("0.499%");             // the number survives
+    }
+
+    @Test
+    void keepsAllMarkersWhenAllInRange() {
+        String prose = "a [call_1] b [call_2] c [call_5].";
+        assertThat(UniversityService.stripOutOfRangeCallMarkers(prose, 5)).isEqualTo(prose);
+    }
+
+    @Test
+    void emptyTraceStripsEveryCitation() {
+        // No tool calls ran → any [call_N] is fabricated.
+        String prose = "Result 42 [call_1] confirmed [call_2].";
+        String out = UniversityService.stripOutOfRangeCallMarkers(prose, 0);
+        assertThat(out).doesNotContain("[call_");
+        assertThat(out).contains("Result 42").contains("confirmed");
+    }
+
+    @Test
+    void stripsZeroIndexedAndLeadingSpace() {
+        // call_0 is invalid (1-based); the leading space is removed too so no
+        // double-space is left behind.
+        String out = UniversityService.stripOutOfRangeCallMarkers("value 5.2 [call_0] holds", 3);
+        assertThat(out).isEqualTo("value 5.2 holds");
+    }
+
+    @Test
+    void stripAcrossFindingsBlocks() {
+        java.util.Map<Integer, String> blocks = new java.util.LinkedHashMap<>();
+        blocks.put(1, "block one [call_2] ok");
+        blocks.put(2, "block two [call_9] bad");
+        java.util.Map<Integer, String> out =
+                UniversityService.stripOutOfRangeCallMarkers(blocks, 3);
+        assertThat(out.get(1)).contains("[call_2]");
+        assertThat(out.get(2)).doesNotContain("[call_9]");
+    }
+
+    @Test
+    void stripHandlesNullAndEmpty() {
+        assertThat(UniversityService.stripOutOfRangeCallMarkers((String) null, 3)).isNull();
+        assertThat(UniversityService.stripOutOfRangeCallMarkers("", 3)).isEmpty();
+        assertThat(UniversityService.stripOutOfRangeCallMarkers("no markers here", 3))
+                .isEqualTo("no markers here");
+    }
 }
