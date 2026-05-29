@@ -69,27 +69,45 @@ STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
 # OpenAI-compat shim fronting the Claude Agent SDK on the locally
 # logged-in Pro/Max subscription. The `legacy-ai` provider in
 # application.yml points at http://127.0.0.1:8787 and is first in
-# primaryProviderOrder, so first-pass narration runs on the subscription
-# (tool-calling stays on groq/openrouter). Skipped — the provider just
-# falls through to groq/openrouter — when node is missing, deps aren't
-# installed, it's already up, or ET_DISABLE_CLAUDE_PROXY=1.
+# primaryProviderOrder, so first-pass narration AND tool-calling run on the
+# subscription first (tool-call.providers="legacy-ai,openrouter,groq"),
+# with openrouter/groq as fallover. Skipped — the provider just falls through to
+# groq/openrouter — when node is missing or deps aren't installed, or
+# ET_DISABLE_CLAUDE_PROXY=1. When it's already up it's LEFT AS-IS unless
+# ET_RESTART_CLAUDE_PROXY=1, which kills + relaunches it (use this to pick up new
+# LEGACY_AI_GATEWAY_* timeout/debug env or tool-bridge.mjs changes — they load at
+# proxy startup).
 # ---------------------------------------------------------------------
 PROXY_DIR="$REPO_ROOT/scripts/legacy-ai-gateway"
 PROXY_PATTERN="legacy-ai-gateway/server.mjs"
+PROXY_LOG="$REPO_ROOT/logs/claude-proxy.log"
+start_claude_proxy() {
+    # env -u ANTHROPIC_API_KEY: never let a stray API key bill the subscription path.
+    # Absolute script path so stop.sh's pgrep pattern matches the command line.
+    nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" > "$PROXY_LOG" 2>&1 &
+    echo "legacy-ai-gateway: started on http://127.0.0.1:8787 (PID $!), log → $PROXY_LOG"
+}
 if [ "${ET_DISABLE_CLAUDE_PROXY:-0}" = "1" ]; then
     echo "legacy-ai-gateway: disabled (ET_DISABLE_CLAUDE_PROXY=1)"
 elif pgrep -f "$PROXY_PATTERN" >/dev/null 2>&1; then
-    echo "legacy-ai-gateway: already running (PID $(pgrep -f "$PROXY_PATTERN" | tr '\n' ' '))"
+    if [ "${ET_RESTART_CLAUDE_PROXY:-0}" = "1" ]; then
+        echo "legacy-ai-gateway: restarting (ET_RESTART_CLAUDE_PROXY=1, was PID $(pgrep -f "$PROXY_PATTERN" | tr '\n' ' '))"
+        pkill -f "$PROXY_PATTERN"
+        for _ in 1 2 3 4 5 6 7 8; do pgrep -f "$PROXY_PATTERN" >/dev/null 2>&1 || break; sleep 1; done
+        if command -v node >/dev/null 2>&1 && [ -d "$PROXY_DIR/node_modules" ]; then
+            start_claude_proxy
+        else
+            echo "legacy-ai-gateway: cannot restart — node missing or deps not installed" >&2
+        fi
+    else
+        echo "legacy-ai-gateway: already running (PID $(pgrep -f "$PROXY_PATTERN" | tr '\n' ' ')) — set ET_RESTART_CLAUDE_PROXY=1 to reload"
+    fi
 elif ! command -v node >/dev/null 2>&1; then
     echo "legacy-ai-gateway: node not on PATH — skipping (provider falls through to groq/openrouter)" >&2
 elif [ ! -d "$PROXY_DIR/node_modules" ]; then
     echo "legacy-ai-gateway: deps missing — run 'npm install' in $PROXY_DIR — skipping" >&2
 else
-    PROXY_LOG="$REPO_ROOT/logs/claude-proxy.log"
-    # env -u ANTHROPIC_API_KEY: never let a stray API key bill the subscription path.
-    # Absolute script path so stop.sh's pgrep pattern matches the command line.
-    nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" > "$PROXY_LOG" 2>&1 &
-    echo "legacy-ai-gateway: started on http://127.0.0.1:8787 (PID $!), log → $PROXY_LOG"
+    start_claude_proxy
 fi
 
 if [ "$FOREGROUND" = "1" ]; then

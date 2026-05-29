@@ -253,6 +253,32 @@ also recorded in `phase-flags.md`.
   best-of-N ~2× $/paper means ~half the papers per run.
 - **Open follow-up (§29.1.4):** a per-candidate / per-professor-stage timeout
   would let the 18-min per-paper blanket shrink back and cap the 5.5-min tail.
+- **2026-05-28 timeout re-tune + root cause (a3289005 review rec 2/3).** The
+  18-min cap was still firing: professor tool turns on the `legacy-ai`
+  path hit the proxy's per-turn cap and surfaced a 500 "turn timeout", forcing a
+  fallover to OpenRouter (one observed paper ran ~35 min across two best-of-N
+  candidates). Two distinct issues were root-caused from the logs:
+  - **The narration timeout was not enforced.** `cancel(true)` interrupts the
+    worker, but `GenericOpenAICompatPool.syncCall` swallows the `InterruptedException`
+    (generic `catch (Exception)`, flag not re-set) and `LlmRouter` treats it as a
+    provider failure and fails over — so the worker runs to completion regardless.
+    The proxy hang itself is the Claude Agent SDK's *SDK-executes-tools* loop not
+    converging within the bridge's turn cap. (Fix pending — see REVIEW_REPORT rec 2.)
+  - **Stopgap (this change):** give heavy turns room + instrument them, rather
+    than relax a cap that isn't enforced. New values, which MUST move together:
+
+    | Setting | Old | New | Constraint |
+    |---|---|---|---|
+    | proxy `LEGACY_AI_GATEWAY_TURN_TIMEOUT_MS` | 300 s | 1000 s | < ET legacy-ai HTTP timeout |
+    | proxy `LEGACY_AI_GATEWAY_SESSION_TTL_MS` | 600 s | 2400 s | > turn cap |
+    | ET `provider-timeout-seconds.legacy-ai` | 420 s (global) | 1100 s | > proxy turn cap (so ET sees the clean 500) |
+    | ET `narrationTimeoutMs` | 18 min | 40 min | < stuckDraftTtlMs |
+    | ET `stuckDraftTtlMs` | 22 min | 48 min | > narrationTimeoutMs |
+    | proxy `LEGACY_AI_GATEWAY_SDK_DEBUG` (→`ANTHROPIC_LOG`) | off | `debug` | verbose; disable after diagnosis |
+
+    Because cancel(true) is still a no-op, these larger caps also lengthen how long
+    a genuinely-hung worker ties up a narration slot — fixing the swallowed
+    interrupt (rec 2) is the real fix; this only buys room + visibility.
 
 ### §1.A — grok `/`-in-enum tool-schema rejection *(SHIPPED, always-on)*
 
