@@ -2518,6 +2518,7 @@ public class UniversityService {
                 **Room**: %s
                 **Domain**: %s  |  **Topic**: %s
                 **Methodology**: %s
+                **Evidence Label**: %s
                 **Peer Score**: %.3f%s
                 **Status**: %s
                 **Generation**: %d
@@ -2546,6 +2547,7 @@ public class UniversityService {
                 roomId,
                 paper.domain(), paper.topic(),
                 paper.methodology(),
+                paper.evidenceLabel() != null ? paper.evidenceLabel() : EvidenceLabel.CONJECTURE,
                 paper.peerScore(),
                 Math.abs(paper.anomalyZScore()) >= 1.5
                         ? "  ⚑ anomaly z=%.2f".formatted(paper.anomalyZScore()) : "",
