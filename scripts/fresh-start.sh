@@ -19,6 +19,17 @@ read -rp "This will delete all game data and generated files. Continue? [y/N] " 
 echo ""
 echo "--- Truncating game + research tables ---"
 PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER" -h "$PG_HOST" -d "$PG_DB" -v ON_ERROR_STOP=1 <<'SQL'
+-- Deliberately PRESERVED (not game/run data):
+--   oeis_cache                 external OEIS lookups — expensive to rebuild, pure cache
+--   users, profiles            account data, survive a simulation reset
+--   prompt_template_variants   accumulated A/B variant stats (cross-run learning) —
+--                              wipe manually if a clean prompt-experiment is wanted
+-- Child tables (research_paper_reviewers, formal_finding_independents,
+-- room_state_history) are cleared automatically via FK CASCADE from their parents.
+-- conjectures: truncated below — the row carries per-run investigation state
+-- (confirmedRuns/promotedAt/refutedByJson); the miner repopulates the corpus from
+-- the math sidecar on the next run. Comment it out to keep the mined queue across
+-- a fresh start (e.g. during the conjecture-path verification phase).
 TRUNCATE
     room_bots,
     room_participants,
@@ -32,6 +43,7 @@ TRUNCATE
     profile_quest_state,
     rooms,
     bot_calibrations,
+    conjectures,
     epistemic_markets,
     expectation_priors,
     formal_findings,
