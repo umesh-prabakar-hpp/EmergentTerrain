@@ -64,7 +64,17 @@ import java.util.function.Consumer;
  * a model-aware path so a slow first model doesn't drag the whole tier.
  */
 @Component
-@ConditionalOnProperty(name = "app.ai.enabled", havingValue = "true", matchIfMissing = false)
+// 2026-05-29 — per-provider kill switch. The annotation's name[] requires
+// EVERY listed property to equal "true", so the bean loads only when the
+// global AI switch is on AND ollama is explicitly enabled. app.ai.ollama.enabled
+// defaults OFF (matchIfMissing=false): Ollama is dormant unless an operator
+// opts it back in, at which point it rejoins FastModelRegistry automatically.
+// OpenRouter is the configured fast-tier provider (app.ai.fastProvider) while
+// this is off.
+@ConditionalOnProperty(
+        name = {"app.ai.enabled", "app.ai.ollama.enabled"},
+        havingValue = "true",
+        matchIfMissing = false)
 public class OllamaPool implements LlmPool {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaPool.class);

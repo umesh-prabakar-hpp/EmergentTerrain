@@ -90,6 +90,14 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         for (Map.Entry<String, RawProviderConfig> e : providers.entrySet()) {
             String providerKey = e.getKey();
             RawProviderConfig raw = e.getValue();
+            // 2026-05-29 — per-provider kill switch. enabled:false dormants the
+            // provider without deleting its config block; the bean is never
+            // registered, so it stays out of every registry/router.
+            if (!raw.enabled()) {
+                log.info("GenericPoolsRegistrar({}): enabled=false — skipping registration (config block preserved for re-enable).",
+                        providerKey);
+                continue;
+            }
             // Phase 20.11 §migration — env-var lookup wins; otherwise fall
             // back to the literal `api-key` value (which itself may be a
             // Spring placeholder like ${ENV:default} that Binder already
@@ -232,6 +240,14 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         private Integer maxOutputTokens;
         /** Lever 1 — provider honors response_format json_schema (strict). See ProviderConfig.supportsJsonSchema. */
         private Boolean supportsJsonSchema;
+        /**
+         * 2026-05-29 — per-provider kill switch. Null/true → the pool registers
+         * normally; explicit false → GenericPoolsRegistrar skips it so the bean
+         * never enters PrimaryModelRegistry / FastModelRegistry / LlmRouter.
+         * Lets an operator dormant a provider in config without deleting its
+         * block (host/model/budget config is preserved for a one-line re-enable).
+         */
+        private Boolean enabled;
 
         public String getBaseUrl() { return baseUrl; }
         public void setBaseUrl(String v) { this.baseUrl = v; }
@@ -271,10 +287,14 @@ public class GenericPoolsRegistrar implements BeanDefinitionRegistryPostProcesso
         public void setMaxOutputTokens(Integer v) { this.maxOutputTokens = v; }
         public Boolean getSupportsJsonSchema() { return supportsJsonSchema; }
         public void setSupportsJsonSchema(Boolean v) { this.supportsJsonSchema = v; }
+        public Boolean getEnabled() { return enabled; }
+        public void setEnabled(Boolean v) { this.enabled = v; }
 
         // Record-style accessors for use from GenericPoolsRegistrar.
         public String apiKeyEnv() { return apiKeyEnv; }
         public Integer parallelism() { return parallelism; }
+        /** Null/true → register; explicit false → skip (per-provider kill switch). */
+        public boolean enabled() { return enabled == null || enabled; }
 
         ProviderConfig toProviderConfig(String providerKey, String apiKey) {
             return new ProviderConfig(
