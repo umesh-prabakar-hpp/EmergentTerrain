@@ -20,16 +20,20 @@ echo ""
 echo "--- Truncating game + research tables ---"
 PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER" -h "$PG_HOST" -d "$PG_DB" -v ON_ERROR_STOP=1 <<'SQL'
 -- Deliberately PRESERVED (not game/run data):
---   oeis_cache                 external OEIS lookups — expensive to rebuild, pure cache
---   users, profiles            account data, survive a simulation reset
---   prompt_template_variants   accumulated A/B variant stats (cross-run learning) —
---                              wipe manually if a clean prompt-experiment is wanted
+--   oeis_cache       external OEIS lookups — expensive to rebuild, pure cache
+--   users, profiles  account data, survive a simulation reset
 -- Child tables (research_paper_reviewers, formal_finding_independents,
 -- room_state_history) are cleared automatically via FK CASCADE from their parents.
 -- conjectures: truncated below — the row carries per-run investigation state
 -- (confirmedRuns/promotedAt/refutedByJson); the miner repopulates the corpus from
 -- the math sidecar on the next run. Comment it out to keep the mined queue across
 -- a fresh start (e.g. during the conjecture-path verification phase).
+-- prompt_template_variants: truncated below — its papers_narrated/replications_*
+-- counters tally the wiped paper corpus, so they go stale on a reset and would
+-- bias the next run's epsilon-greedy / rollback decisions. Safe to wipe: the rows
+-- self-heal on the next boot (PromptTemplateRegistry.syncVariantsToDatabase,
+-- @PostConstruct, re-inserts one row per registered variant with zeroed stats +
+-- ACTIVE status before the research cycle starts).
 TRUNCATE
     room_bots,
     room_participants,
@@ -54,6 +58,7 @@ TRUNCATE
     paper_citations,
     program_failed_approaches,
     program_open_questions,
+    prompt_template_variants,
     replication_councils,
     reputation_history,
     research_papers,
