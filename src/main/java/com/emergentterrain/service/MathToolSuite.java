@@ -182,6 +182,7 @@ public class MathToolSuite {
         private int symbolicSuccessCount   = 0;
         private int gpuEvalSuccessCount    = 0;
         private int predicateScanSuccessCount = 0;
+        private int verifyConjectureSuccessCount = 0;
         public int sandboxRejectCount()  { return sandboxRejectCount;  }
         public int symbolicRejectCount() { return symbolicRejectCount; }
         public int gpuEvalRejectCount()  { return gpuEvalRejectCount;  }
@@ -189,9 +190,11 @@ public class MathToolSuite {
         public int symbolicSuccessCount(){ return symbolicSuccessCount;}
         public int gpuEvalSuccessCount() { return gpuEvalSuccessCount; }
         public int predicateScanSuccessCount() { return predicateScanSuccessCount; }
+        public int verifyConjectureSuccessCount() { return verifyConjectureSuccessCount; }
         public int totalSuccesses() {
             return sandboxSuccessCount + symbolicSuccessCount
-                    + gpuEvalSuccessCount + predicateScanSuccessCount;
+                    + gpuEvalSuccessCount + predicateScanSuccessCount
+                    + verifyConjectureSuccessCount;
         }
         public int totalRejects() {
             return sandboxRejectCount + symbolicRejectCount + gpuEvalRejectCount;
@@ -224,9 +227,11 @@ public class MathToolSuite {
             symbolicSuccessCount = 0;
             gpuEvalSuccessCount = 0;
             predicateScanSuccessCount = 0;
+            verifyConjectureSuccessCount = 0;
         }
         void incrementGpuEvalSuccesses()    { gpuEvalSuccessCount++;    }
         void incrementPredicateScanSuccesses() { predicateScanSuccessCount++; }
+        void incrementVerifyConjectureSuccesses() { verifyConjectureSuccessCount++; }
     }
 
     private static final Set<String> VALID_PREDICATES = Set.of(
@@ -801,10 +806,21 @@ public class MathToolSuite {
                 if ("run_predicate_scan".equals(name) && success) {
                     metrics.incrementPredicateScanSuccesses();
                 }
-                // Phase 23.5 — verify_conjecture is success-counted via the
-                // same isSuccessResult path; rejected (LLM-side malformed
-                // args) and held/refuted (legitimate outputs) both surface
-                // their own descriptors so the D3 gate sees them.
+                // 2026-05-29 — verify_conjecture success counter. The Phase 23.5
+                // comment claimed this tool was "success-counted via isSuccessResult"
+                // but NO counter was ever wired, so totalSuccesses() omitted it.
+                // Effect: a CONJECTURE_INVESTIGATION paper whose professor uses
+                // verify_conjecture (the purpose-built tool) — and nothing else that
+                // happens to increment a counter — accrued totalSuccesses()==0 and
+                // was killed by the D3 empty_trace gate even when every verify call
+                // succeeded (observed room b72c4e10: P-b72c-3/4/5/6 all suppressed
+                // once legacy-ai correctly used verify_conjecture only).
+                // A verify result starting with "verify_conjecture:" (HELD or
+                // REFUTED — both legitimate computations) counts; "Invalid …"/
+                // "… not configured" (failed args / sidecar) does not, via isSuccessResult.
+                if ("verify_conjecture".equals(name) && success) {
+                    metrics.incrementVerifyConjectureSuccesses();
+                }
                 // run_param_sweep is intentionally not counted here — same
                 // as pre-Phase-17. Param-sweep papers are rare enough on
                 // INTERDISCIPLINARY topics that the D3 gate wasn't relying
@@ -1916,26 +1932,64 @@ public class MathToolSuite {
         // Stage 2 — narrowed LLM intent check. Asks one question only: does the
         // code attempt what the description claims? No rule recitation that the
         // model can hallucinate against. Default-approve on any ambiguity.
+        //
+        // The verdict line is explicitly pinned to the LAST line: reasoning-
+        // capable primary models (claude-sonnet-4-6) think out loud and emit a
+        // tentative "REJECTED: …" preamble before self-correcting to "APPROVED"
+        // on the final line (see finalIntentVerdict for the 2026-05-29 P-b72c-1
+        // case). Pinning the verdict last + parsing the last verdict line makes
+        // the conclusion, not the scratch-work, decide.
         String prompt = """
                 Does the following pseudocode attempt to compute what the description claims?
                 Ignore style, error handling, and convergence theory — judge intent only.
+                A bug in the computation is NOT grounds for rejection; reject only if
+                the code is unrelated to the described computation.
 
                 Description: %s
 
                 Code:
                 %s
 
-                Reply with EXACTLY one of:
+                You may reason briefly first, but the LAST line of your reply MUST be
+                exactly one of:
                 APPROVED
                 REJECTED: <one-sentence reason explaining how the code is unrelated to the description>
                 """.formatted(description, code);
         try {
-            String response = router.callPrimary(prompt).trim();
-            if (response.toUpperCase().startsWith("REJECTED")) return response;
-            return "APPROVED";
+            return finalIntentVerdict(router.callPrimary(prompt));
         } catch (Exception e) {
             log.warn("MathToolSuite: intent review failed ({}), approving conservatively", e.getMessage());
             return "APPROVED"; // fail-open: static check + runtime limits are the real safety boundary
         }
+    }
+
+    /**
+     * Extract the model's FINAL intent verdict from a Stage-2 intent-review
+     * reply. Reasoning-capable primary models think out loud — emitting a
+     * tentative {@code REJECTED: …} then self-correcting to {@code APPROVED} on
+     * the last line. The prior prefix-only parser ({@code startsWith("REJECTED")})
+     * keyed off the scratch-work and false-rejected valid code (observed
+     * 2026-05-29, P-b72c-1: a correct-intent mean_omega computation rejected
+     * because the reply opened with "REJECTED: …" before concluding "APPROVED",
+     * costing the paper its only computation → empty_trace suppression).
+     *
+     * <p>Scans non-blank lines from the bottom and returns at the first whose
+     * first token is a verdict: {@code "APPROVED"} or the verbatim
+     * {@code REJECTED…} line (its one-sentence reason rides along). Falls back to
+     * {@code "APPROVED"} when no verdict line is present — matching the
+     * default-approve / fail-open contract (the static check + runtime limits are
+     * the load-bearing boundary). Package-private + static for unit testing.
+     */
+    static String finalIntentVerdict(String response) {
+        if (response == null || response.isBlank()) return "APPROVED";
+        String[] lines = response.split("\\R");
+        for (int i = lines.length - 1; i >= 0; i--) {
+            String line = lines[i].strip();
+            if (line.isEmpty()) continue;
+            String upper = line.toUpperCase(java.util.Locale.ROOT);
+            if (upper.startsWith("APPROVED")) return "APPROVED";
+            if (upper.startsWith("REJECTED")) return line;
+        }
+        return "APPROVED";
     }
 }
