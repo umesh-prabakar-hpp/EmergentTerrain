@@ -2417,7 +2417,16 @@ public class ResearchNarrationService {
                 .append("4. Where the panel said a [call_N] citation doesn't exist or contradicts ")
                 .append("the prose, either replace it with the correct citation from the trace or ")
                 .append("remove the unsupported claim entirely.\n")
-                .append("5. Keep prose factual and concise; do not pad with boilerplate.\n\n");
+                // rec #4 (2026-05-28) — the narrator routinely invented [call_N]
+                // indices beyond the trace (P-a328-993 cited call_3/4/5/18/19) and
+                // cited FAILED calls as data (P-a328-994 cited the errored call_1/
+                // call_5). Spell out the citation contract explicitly so the
+                // revision doesn't reintroduce hallucinated or failed-call markers.
+                .append("5. Cite a tool result ONLY as [call_N] where call_N is a call you actually ")
+                .append("made in this session AND it returned a usable result. Never cite a call ")
+                .append("index higher than the number of calls in the trace, and never cite a call ")
+                .append("that errored or was REJECTED by safety review — treat those as absent.\n")
+                .append("6. Keep prose factual and concise; do not pad with boilerplate.\n\n");
 
         p.append("=== OUTPUT FORMAT ===\n")
                 .append("Return ONLY valid JSON with this exact schema:\n")

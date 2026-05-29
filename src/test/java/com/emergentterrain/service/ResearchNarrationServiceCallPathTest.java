@@ -279,6 +279,19 @@ class ResearchNarrationServiceCallPathTest {
     }
 
     @Test
+    void panelRevision_promptStatesCitationValidityConstraint() {
+        // rec #4 — the revision prompt must spell out that citations may only
+        // reference real, non-failed calls within the trace, so the revision
+        // doesn't reintroduce hallucinated [call_N] indices or cite errored calls
+        // (P-a328-993/994 pattern).
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(1, 0));
+        assertThat(prompt).contains("Never cite a call index higher than the number of calls in the trace");
+        assertThat(prompt).contains("never cite a call that errored or was REJECTED");
+    }
+
+    @Test
     void panelRevision_promptRequestsExactJsonSchema() {
         com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
                 "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
