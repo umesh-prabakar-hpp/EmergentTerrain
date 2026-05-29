@@ -571,6 +571,19 @@ public class GenericOpenAICompatPool implements LlmPool {
                 recordAccountantUsage(modelId, usage);
             }
             return content;
+        } catch (InterruptedException e) {
+            // rec #2 (2026-05-28, research/a3289005) — http.send() is
+            // interruptible; a narration-timeout cancel(true) lands its
+            // InterruptedException here. Java CLEARS the interrupt flag when
+            // throwing InterruptedException, so the prior generic catch lost it
+            // and re-wrapped this as an ordinary provider failure — LlmRouter
+            // then failed over to the next handle, whose send() blocked
+            // normally and ran the narration to completion uninterrupted (the
+            // zombie-worker double-publish). Re-assert the flag here so the
+            // router checks isInterrupted() and aborts instead of failing over.
+            Thread.currentThread().interrupt();
+            outcome = "interrupted";
+            throw new RuntimeException(cfg.providerKey() + " sync call interrupted", e);
         } catch (RuntimeException e) {
             if ("ok".equals(outcome)) outcome = "io_error";
             throw e;
@@ -798,6 +811,15 @@ public class GenericOpenAICompatPool implements LlmPool {
             JsonNode tools = mapper.readTree(toolsJson);
 
             for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+                // rec #2 (2026-05-28) — abort the multi-round loop the moment the
+                // worker thread is interrupted (narration-timeout cancel(true)).
+                // Without this the loop would start another full round (another
+                // interruptible send + best-of-N continuation) and keep the
+                // zombie narration alive past the timeout it was meant to bound.
+                if (Thread.currentThread().isInterrupted()) {
+                    throw new RuntimeException(cfg.providerKey()
+                            + " tool loop interrupted before round " + round);
+                }
                 boolean lastRound = round == MAX_TOOL_ROUNDS;
                 boolean sendTools = toolSchemaCachePolicy == null
                         ? !lastRound
@@ -874,11 +896,16 @@ public class GenericOpenAICompatPool implements LlmPool {
                     }
                     throw e;
                 } catch (Exception e) {
+                    // rec #2 (2026-05-28) — http.send() is interruptible; re-assert
+                    // the interrupt flag Java clears on InterruptedException so the
+                    // router aborts instead of failing over to the next handle.
+                    if (e instanceof InterruptedException) Thread.currentThread().interrupt();
                     // #3 — round failed before a 200 (~0 tokens); refund its reservation.
                     if (reserved && budgetGate != null)
                         budgetGate.correct(cfg.providerKey(), modelId, estimate, 0L);
                     if (callMetrics != null)
-                        callMetrics.record(cfg.providerKey(), modelId, "tools", "io_error");
+                        callMetrics.record(cfg.providerKey(), modelId, "tools",
+                                e instanceof InterruptedException ? "interrupted" : "io_error");
                     if (traceWriter != null) {
                         traceWriter.record(LlmCallContext.currentPaperId(),
                                 cfg.providerKey(), modelId, "tools", respStatus,
@@ -922,6 +949,11 @@ public class GenericOpenAICompatPool implements LlmPool {
                                             .put("name", fnName)
                                             .set("arguments", mapper.readTree(fnArgs))));
                         } catch (Exception ex) {
+                            // rec #2 (2026-05-28) — a tool execution interrupted by the
+                            // narration timeout must not be swallowed into a "Tool error"
+                            // string and silently continue; re-assert the flag so the
+                            // loop-top check aborts before the next round.
+                            if (ex instanceof InterruptedException) Thread.currentThread().interrupt();
                             result = "Tool error: " + ex.getMessage();
                         }
                         String harnessCallId = "call_" + (trace.size() + 1);

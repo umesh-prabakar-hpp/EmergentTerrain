@@ -114,7 +114,7 @@ public class ResearchNarrationService {
      * the rare non-timeout exception path (a finally-remove would race the
      * cross-thread timeout publish, since the interrupt flag is unreliable once an
      * interruptible call has thrown). The synchronized map makes {@code remove}
-     * atomic, so exactly one of {normal publish, timeout publish} claims the entry.
+     * atomic.
      */
     private static final int FIRSTPASS_CHECKPOINT_CAP = 512;
     private final java.util.Map<String, NarrationResult> firstPassCheckpoints =
@@ -126,6 +126,46 @@ public class ResearchNarrationService {
                             return size() > FIRSTPASS_CHECKPOINT_CAP;
                         }
                     });
+
+    /**
+     * rec #2c (2026-05-28) — at-most-once publish claim shared by the normal
+     * narration publish ({@link #runNarration}) and the rec #8 timeout-checkpoint
+     * publish ({@link #publishFirstPassCheckpoint}). The first caller to claim a
+     * paperId publishes; the loser skips. This closes the double-publish the
+     * review traced (P-a328-993: the timeout hook published a checkpoint at the
+     * cap, then the still-running worker published the full version 17 min later
+     * — because the normal path removed the checkpoint but published
+     * unconditionally, never checking that it won the race).
+     *
+     * <p>Crucially the timeout hook only takes the claim when it actually has a
+     * checkpoint to publish (see {@link #publishFirstPassCheckpoint}), so a
+     * timeout that fires with no checkpoint stored does NOT block a worker that
+     * later completes — that paper is still published normally. Only contended
+     * when the checkpoint feature is on (the timeout hook is wired only then).
+     * Bounded-LRU so it can't grow without bound; eldest-eviction is the only
+     * cleanup (an in-flight claim is never evicted at this cap).
+     */
+    private static final int PUBLISH_CLAIM_CAP = 512;
+    private final java.util.Set<String> publishedPaperIds =
+            java.util.Collections.synchronizedSet(
+                    java.util.Collections.newSetFromMap(
+                            new java.util.LinkedHashMap<String, Boolean>(64, 0.75f, false) {
+                                @Override
+                                protected boolean removeEldestEntry(
+                                        java.util.Map.Entry<String, Boolean> eldest) {
+                                    return size() > PUBLISH_CLAIM_CAP;
+                                }
+                            }));
+
+    /**
+     * rec #2c — atomically claim the right to publish {@code paperId}. Returns
+     * true exactly once per paperId; subsequent callers get false. {@link
+     * java.util.Set#add} on the synchronized backing map is the atomic
+     * compare-and-set.
+     */
+    private boolean claimPublish(String paperId) {
+        return publishedPaperIds.add(paperId);
+    }
     private final Semaphore refinementSlot = new Semaphore(2);
     /** Phase 6 D1.3 — optional. Null when the literature service bean isn't on the context. */
     private final LiteratureSearchService literatureSearch;
@@ -722,7 +762,18 @@ public class ResearchNarrationService {
      */
     private void publishFirstPassCheckpoint(PaperDraft draft) {
         NarrationResult cp = firstPassCheckpoints.remove(draft.paperId());
+        // No checkpoint to salvage → take NO publish claim, so a worker that
+        // later completes still publishes normally (rec #2c — don't strand the
+        // paper).
         if (cp == null || narrationPublisher == null) return;
+        // rec #2c — only publish the checkpoint if we win the at-most-once claim.
+        // If the normal publish already won (worker completed concurrently), skip
+        // rather than double-publish the partial over the full result.
+        if (!claimPublish(draft.paperId())) {
+            log.info("narration timeout-checkpoint paperId={} — normal publish already "
+                    + "claimed this paper; skipping first-pass salvage (rec #2c)", draft.paperId());
+            return;
+        }
         String base = (cp.callPath() == null || cp.callPath().isBlank()) ? "fp:?" : cp.callPath();
         NarrationResult stamped = cp.withCallPath(base + " → critique:skip:incomplete_firstpass");
         log.warn("narration timeout-checkpoint paperId={} — publishing first-pass as "
@@ -907,7 +958,13 @@ public class ResearchNarrationService {
         // rec #8 — the full result supersedes any first-pass checkpoint; drop it
         // before publishing so a racing timeout hook can't re-publish the partial.
         firstPassCheckpoints.remove(draft.paperId());
-        if (narrationPublisher != null) {
+        // rec #2c — gate the normal publish on winning the at-most-once claim, so
+        // a worker that survives past the timeout (e.g. interrupt landed between
+        // calls) can't overwrite a checkpoint the timeout hook already published.
+        // When the checkpoint feature is off there is no timeout hook and hence
+        // no race — publish unconditionally, preserving pre-rec#8 behaviour.
+        if (narrationPublisher != null
+                && (!narrationFirstPassCheckpointEnabled || claimPublish(draft.paperId()))) {
             narrationPublisher.accept(draft, result);
         }
         // Phase 17 — clear the retry queue entry on a successful retry publish.
@@ -952,6 +1009,16 @@ public class ResearchNarrationService {
         // exhaustion guard at the top of runNarration covers the pre-first case.
         List<NarrationResult> candidates = new java.util.ArrayList<>();
         for (int i = 0; i < bestOfNCandidates; i++) {
+            // rec #2b (2026-05-28) — abort best-of-N the moment the worker is
+            // interrupted (narration timeout). A candidate's inner stages catch
+            // Exception and may degrade-but-continue, so an interrupt could
+            // otherwise be swallowed and the loop would start the next candidate,
+            // keeping the zombie narration alive past its timeout.
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("best-of-n paperId={} interrupted after {}/{} candidates — aborting",
+                        draft.paperId(), i, bestOfNCandidates);
+                break;
+            }
             if (i > 0 && router.primaryFullyExhausted()) {
                 log.info("best-of-n paperId={} stopping after {}/{} candidates — primary exhausted",
                         draft.paperId(), i, bestOfNCandidates);
@@ -986,6 +1053,12 @@ public class ResearchNarrationService {
                                                java.time.Instant orchestrationStartedAt) {
         List<FirstPass> firstPasses = new java.util.ArrayList<>();
         for (int i = 0; i < bestOfNCandidates; i++) {
+            // rec #2b — abort on interrupt (see produceBestCandidate).
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("cascade paperId={} interrupted after {}/{} first-passes — aborting",
+                        draft.paperId(), i, bestOfNCandidates);
+                break;
+            }
             if (i > 0 && router.primaryFullyExhausted()) {
                 log.info("cascade paperId={} stopping first-pass production after {}/{} — primary exhausted",
                         draft.paperId(), i, bestOfNCandidates);
@@ -1000,6 +1073,11 @@ public class ResearchNarrationService {
 
         List<NarrationResult> finished = new java.util.ArrayList<>();
         for (FirstPass fp : screened) {
+            // rec #2b — abort on interrupt (see produceBestCandidate).
+            if (Thread.currentThread().isInterrupted()) {
+                log.warn("cascade paperId={} interrupted during finish stage — aborting", draft.paperId());
+                break;
+            }
             NarrationResult candidate = finishCandidate(draft, orchestrationStartedAt, fp);
             log.info("cascade paperId={} finished candidate score={} suppressed={}",
                     draft.paperId(), String.format("%.4f", scoreCandidate(candidate)),

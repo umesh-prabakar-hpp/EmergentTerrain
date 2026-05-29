@@ -263,12 +263,27 @@ public class LlmRouter {
      * re-throw (or fall back to the first registered model when all are blocked,
      * so the caller sees a real exception rather than "no available models").
      */
+    /**
+     * rec #2 (2026-05-28, research/a3289005) — when the worker thread has been
+     * interrupted (a narration-timeout {@code cancel(true)} that the pool's
+     * {@code syncCall}/{@code runToolLoop} re-asserted as the interrupt flag),
+     * the router must NOT fail over to the next handle. The next provider's
+     * {@code http.send()} would block normally and run the work to completion
+     * uninterrupted — exactly the zombie-narration double-publish the timeout
+     * was meant to bound. Re-throw the in-flight exception so the supervised
+     * future terminates promptly. Call at the top of every failover catch.
+     */
+    private static void rethrowIfInterrupted(RuntimeException e) {
+        if (Thread.currentThread().isInterrupted()) throw e;
+    }
+
     public String callPrimary(String prompt) {
         List<ModelHandle> available = orderedAvailable();
         RuntimeException last = null;
         for (ModelHandle h : available) {
             try { return h.pool().callSyncOnModel(h.modelId(), prompt); }
             catch (RuntimeException e) {
+                rethrowIfInterrupted(e);
                 last = e;
                 log.warn("LlmRouter: handle={} callSync failed, trying next: {}",
                         h.reviewerId(), e.getMessage());
@@ -297,6 +312,7 @@ public class LlmRouter {
         for (ModelHandle h : available) {
             try { h.pool().callStreamOnModel(h.modelId(), prompt, tokenConsumer); return; }
             catch (RuntimeException e) {
+                rethrowIfInterrupted(e);
                 last = e;
                 log.warn("LlmRouter: handle={} callStream failed, trying next: {}",
                         h.reviewerId(), e.getMessage());
@@ -359,6 +375,7 @@ public class LlmRouter {
             if (p != null && !p.allBlocked()) {
                 try { return p.callSync(prompt); }
                 catch (RuntimeException e) {
+                    rethrowIfInterrupted(e);
                     log.warn("LlmRouter: role={} provider={} failed, falling back to fast: {}",
                             role, p.providerKey(), e.getMessage());
                 }
@@ -568,6 +585,7 @@ public class LlmRouter {
                 return new com.emergentterrain.llm.ToolCallResponse(
                         resp.synthesis(), resp.trace(), java.util.List.copyOf(merged));
             } catch (RuntimeException e) {
+                rethrowIfInterrupted(e);
                 last = e;
                 skipped.add(h.modelId());
                 log.warn("LlmRouter: handle={} callWithTools failed, trying next: {}",
