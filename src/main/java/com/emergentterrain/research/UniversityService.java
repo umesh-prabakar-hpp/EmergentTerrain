@@ -826,6 +826,7 @@ public class UniversityService {
         //     this mode.
         //   - otherwise → PUBLISHED.
         String paperStatus;
+        ReviewState reviewState;   // 2026-05-29 — pipeline/quality-health axis, assigned with paperStatus below
         String callPath = narration.callPath();
         // Phase 7 F2 — truncation guard is per-block. A single mid-sentence block
         // (or a mid-sentence conclusion) flips the paper to NEEDS_REVISION; the
@@ -1216,25 +1217,40 @@ public class UniversityService {
         boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
                 || uncitedClone || crossDomainDrift || physicalMechanismAuditFailed
                 || cherryPickedAuditFailed;
+        // 2026-05-29 — reviewState (pipeline/quality-health axis) is assigned
+        // INLINE alongside paperStatus in each branch, so it is precedence-faithful
+        // by construction (it cannot drift from the status the ladder actually
+        // picked). INCOMPLETE = the pipeline did not finish (content may be sound,
+        // a re-queue candidate); REVISABLE_DEFECT = a fixable content defect;
+        // GATE_FLAGGED = a validator/audit hard-flag (incl. a gate-forced null,
+        // where harness false-positives live); CLEAN = published or a genuine null.
         if (isNullResult) {
             paperStatus = "NULL_RESULT";
+            // numericInconsistentDowngraded forced the null → GATE_FLAGGED (likely
+            // false-positive); an intrinsic science null → CLEAN.
+            reviewState = ReviewState.forNull(numericInconsistentDowngraded);
         } else if (validatorRejected) {
             paperStatus = "REJECTED";
+            reviewState = ReviewState.GATE_FLAGGED;
         } else if (truncated) {
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.INCOMPLETE;   // token-cutoff; content before the cut may be sound
         } else if (topicSpecificMismatch) {
             // G6 — kept below truncation/validators (more severe), above the
             // call-path-driven NEEDS_REVISION clauses.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (closingProseMismatch) {
             // Phase 12 D6 — boilerplate-on-textbook-topic. Same tier as G6:
             // a content-quality issue that revision can fix.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (uncertaintyMissing) {
             // Phase 13 E6 — uncertainty-disclosure discipline. Same tier as
             // G6 / D6: a content-quality issue that revision can fix by
             // adding the ± clause or the "exact closed form" qualifier.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (noMethods && "downgrade".equals(missingMethodsGateMode)) {
             // Phase 14 F5 — missing Methods section. Structurally stronger
             // than uncertaintyMissing (no math at all vs unlabeled math).
@@ -1244,16 +1260,19 @@ public class UniversityService {
             // before status precedence; `warn` falls through to the next
             // clause; only `downgrade` (legacy default) stamps here.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.INCOMPLETE;   // no tool trace; re-running the professor can fix it
         } else if (singlePointSweep) {
             // Phase 14 F3 — inflated sweep size in Findings. Same tier as
             // F5 / E6 / D6: a content-quality issue that revision can fix
             // by rewording the prose to match the trace.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (directionOfFindingInverted) {
             // Phase 14 F4 — Conclusion polarity inversion. Same tier as F3:
             // revision can fix the prose by aligning the verdict with the
             // observed deviation.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (unsourcedClaimRoutes) {
             // Phase 18 §18.2 (P8d) — unsourced derivative / uncertainty /
             // error / ±N claim with no paired [call_N] in the same sentence.
@@ -1261,6 +1280,7 @@ public class UniversityService {
             // Only routes here in mode=downgrade; warn mode stamps without
             // changing status.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (proseBaselineDriftRoutes) {
             // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose
             // cited a baseline the tool call never used. Same tier as
@@ -1268,24 +1288,28 @@ public class UniversityService {
             // predicate scan with the prose baseline or rewriting the
             // prose to match the args.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (citationCorpusRoutes) {
             // 2026-05-21 review §1 rec #5 — fabricated author-year cite
             // not in literature-corpus.yml. Same tier as F3/F4/prose-
             // baseline: revision can fix by either citing a real corpus
             // entry or removing the unsupported reference.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (topicConsistencyRoutes) {
             // 2026-05-21 review §1 rec #6 — foreign topic name mentioned
             // in Discussion / Related-Work. Same tier as citation-corpus:
             // revision can fix by either removing the cross-topic mention
             // or reframing it as a legitimate methodological comparison.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (scalingSweepDepthRoutes) {
             // 2026-05-21 review §1 rec #7 — scaling/linearity claim with
             // < 3 non-sweep sample points. Same tier as F3/F4/citation-
             // corpus: revision can fix by either running additional
             // sample points or reframing the claim as a single-point check.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (srEvidenceRoutes) {
             // Phase 24 §24.4 — prose claims a symbolic-regression result
             // with no matching tool call. Same tier as F3/F4/citation-
@@ -1293,6 +1317,7 @@ public class UniversityService {
             // claim or re-running the professor stage with the
             // symbolic_regress tool to produce real evidence.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (blockCountOvershoot) {
             // Phase 14 F1b — Five-Computation stub-block fabrication. Block
             // count > trace.size() means the narrator wrote prose for
@@ -1300,6 +1325,7 @@ public class UniversityService {
             // a content-quality issue that revision can fix by re-running
             // the professor stage or by tightening the narrator prompt.
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (callPath != null && callPath.contains(":demoted_to_needs_revision")) {
             // Phase 12 D4 — degraded panel (n=2 or n=3 of configured 4) — stamp
             // is `panel:n=N:degraded:demoted_to_needs_revision`.
@@ -1314,8 +1340,12 @@ public class UniversityService {
             // the prof:error→fp PUBLISHED_NO_PROFESSOR clause so the demotion
             // wins when both apply.
             paperStatus = "NEEDS_REVISION";
+            // A degraded panel (fewer reviewers ran) is INCOMPLETE; a full-panel
+            // grade-floor demotion is a REVISABLE_DEFECT (reviewers graded it low).
+            reviewState = ReviewState.forPanelDemotion(callPath);
         } else if (callPath != null && callPath.contains("critique:skip:incomplete_firstpass")) {
             paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.INCOMPLETE;   // rec #8 timeout salvage — never peer-reviewed
         } else if (callPath != null && callPath.contains("rev:ollama:ok")) {
             // Phase 7 E3 — Ollama-fallback path: critique+revise completed on the
             // fast pool when the primary chain was exhausted. The paper IS revised
@@ -1324,10 +1354,13 @@ public class UniversityService {
             // clause BEFORE the prof:error→fp branch so a paper that hit prof:error
             // on tools and then succeeded on ollama-fallback still publishes.
             paperStatus = "PUBLISHED";
+            reviewState = ReviewState.CLEAN;
         } else if (callPath != null && callPath.contains("prof:error→fp")) {
             paperStatus = "PUBLISHED_NO_PROFESSOR";
+            reviewState = ReviewState.INCOMPLETE;   // professor stage never ran
         } else {
             paperStatus = "PUBLISHED";
+            reviewState = ReviewState.CLEAN;
         }
 
         String persistedCallPath = narration.callPath();
@@ -1496,6 +1529,9 @@ public class UniversityService {
         paper.setNarrationStatus(narration.status() != null
                 ? narration.status().name()
                 : NarrationResult.OutcomeStatus.UNKNOWN.name());
+        // 2026-05-29 — persist the pipeline/quality-health axis decided in the
+        // status ladder above (orthogonal to status; see ReviewState).
+        paper.setReviewState(reviewState.name());
 
         // Phase 23.6 panel-emission slice — route the aggregated reviewer
         // proposal (median ordinal, weaker-side tiebreak) onto the paper

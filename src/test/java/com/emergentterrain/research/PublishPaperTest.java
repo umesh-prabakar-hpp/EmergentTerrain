@@ -296,6 +296,8 @@ class PublishPaperTest {
     void supportedResultPublishesWithStatusPUBLISHED() {
         service.publishPaper(draft(ResultClassification.SUPPORTED, 0.5), narration(0.7));
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
+        // 2026-05-29 — orthogonal reviewState axis: a clean publish is CLEAN.
+        assertThat(firstPaper().reviewState()).isEqualTo("CLEAN");
     }
 
     @Test
@@ -308,6 +310,9 @@ class PublishPaperTest {
     void nullResultPublishesWithStatusNULL_RESULT() {
         service.publishPaper(draft(ResultClassification.NULL_RESULT, 0.2), narration(0.5));
         assertThat(firstPaper().status()).isEqualTo("NULL_RESULT");
+        // 2026-05-29 — a GENUINE science null (the draft was classified NULL_RESULT,
+        // no gate forced it) is a clean scientific outcome, not a harness artifact.
+        assertThat(firstPaper().reviewState()).isEqualTo("CLEAN");
     }
 
     @Test
@@ -444,6 +449,10 @@ class PublishPaperTest {
                 "Conclusion is fine.", null, null, 0.8, List.of());
         service.publishPaper(draft, narration);
         assertThat(firstPaper().status()).isEqualTo("NEEDS_REVISION");
+        // 2026-05-29 — a token-truncated draft is INCOMPLETE (the content before the
+        // cut may be sound), NOT a content defect — the re-queue-candidate cell.
+        assertThat(firstPaper().reviewState()).isEqualTo("INCOMPLETE");
+        assertThat(ReviewState.valueOf(firstPaper().reviewState()).isReworkCandidate()).isTrue();
     }
 
     @Test

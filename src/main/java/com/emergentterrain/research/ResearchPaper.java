@@ -211,6 +211,16 @@ public class ResearchPaper {
     private String narrationStatus;
 
     /**
+     * 2026-05-29 — pipeline/quality-health axis ({@link ReviewState} name),
+     * orthogonal to {@link #status}. Distinguishes incomplete-but-sound from
+     * defective revisions, and gate-flagged from genuine nulls. Nullable;
+     * pre-2026-05-29 rows read back {@code null}. Set via {@link #setReviewState}
+     * after construction, mirroring {@link #narrationStatus}.
+     */
+    @Column(name = "review_state", length = 32)
+    private String reviewState;
+
+    /**
      * Phase 21 §21.2 — replicator bot id captured at the DISPUTED transition,
      * so the {@code scanOrphanedDisputes} sweep can re-ping the replicator
      * side too instead of refreshing only the original author. Null on
@@ -320,6 +330,7 @@ public class ResearchPaper {
     public long         narrationInputTokens()      { return narrationInputTokens; }
     public long         narrationOutputTokens()     { return narrationOutputTokens; }
     public String       narrationStatus()           { return narrationStatus; }
+    public String       reviewState()               { return reviewState; }
     public String       disputeReplicatorBotId()    { return disputeReplicatorBotId; }
     public int          disputeAttempts()           { return disputeAttempts; }
 
@@ -346,6 +357,7 @@ public class ResearchPaper {
     public void setNarrationInputTokens(long v)              { this.narrationInputTokens = v; }
     public void setNarrationOutputTokens(long v)             { this.narrationOutputTokens = v; }
     public void setNarrationStatus(String v)                 { this.narrationStatus = v; }
+    public void setReviewState(String v)                     { this.reviewState = v; }
     public void setDisputeReplicatorBotId(String v)          { this.disputeReplicatorBotId = v; }
     public void setDisputeAttempts(int v)                    { this.disputeAttempts = v; }
     public int  incrementDisputeAttempts()                   { return ++this.disputeAttempts; }
