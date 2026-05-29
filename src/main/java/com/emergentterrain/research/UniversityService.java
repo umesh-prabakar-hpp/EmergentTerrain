@@ -870,7 +870,13 @@ public class UniversityService {
         // Hypothesis truncated mid-sentence ("…matrix-yields-first Vf ≈ 10–20%")
         // yet published cleanly because the pre-D5 guard only checked Findings
         // and Conclusion.
+        // 2026-05-29 — exempt CONJECTURE_INVESTIGATION: its hypothesis is a bare
+        // inequality formula (e.g. "mertens_per_sqrt_W ≤ +2.0000 · log_window_start
+        // + −7.7621") that ends in a number, not a sentence terminator, so the D5
+        // guard always misread it as mid-sentence truncation → forced
+        // NEEDS_REVISION/INCOMPLETE on every conjecture paper regardless of content.
         boolean hypothesisTruncated = truncationGuardEnabled
+                && draft.kind() != PaperKind.CONJECTURE_INVESTIGATION
                 && !endsWithSentenceTerminator(hypothesis);
         boolean truncated = truncationGuardEnabled
                 && (truncatedBlockIndex != null
@@ -2635,10 +2641,20 @@ public class UniversityService {
      * and {@code ## Adversarial Check} headers run together inline (no newlines), so
      * they render as body text instead of headers. Force each onto its own line with
      * its body on the next line. No-op for prose without those headers (catalog papers).
+     *
+     * <p>2026-05-29 (fix) — demote these to H3 ({@code ###}). The
+     * CONJECTURE_INVESTIGATION findings field packs ALL its content into the
+     * Mechanism + Adversarial Check sections (see PromptTemplateRegistry findings
+     * schema). The renderer prints its own {@code ## Findings} header
+     * ({@link #buildMarkdown}), so emitting these as H2 made them *siblings* of
+     * {@code ## Findings} — leaving Findings with an empty body while its content
+     * showed one level up. Rendering as H3 nests them UNDER Findings (the content
+     * was never lost — it is in {@code paper.findings()}; this is render-only and
+     * does not touch the stored field or any validator that reads it).
      */
     private static String normalizeSectionHeaders(String raw) {
         if (raw == null) return null;
-        return raw.replaceAll("\\s*##\\s*(Mechanism|Adversarial Check)\\b[ \\t]*", "\n\n## $1\n")
+        return raw.replaceAll("\\s*#{2,3}\\s*(Mechanism|Adversarial Check)\\b[ \\t]*", "\n\n### $1\n")
                   .replaceFirst("^\\n+", "");   // trim any leading blank lines the insert created
     }
 
