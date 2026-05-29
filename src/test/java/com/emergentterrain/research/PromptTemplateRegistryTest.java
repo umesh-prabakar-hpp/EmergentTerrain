@@ -921,6 +921,22 @@ class PromptTemplateRegistryTest {
     }
 
     @Test
+    void rec7_auditTemplateFlagsCircularVerificationUnderPhysicalMechanism() {
+        // rec #7 (2026-05-28) — the active audit template must name the
+        // circular / tautological verification pattern (P-a328-997: λ_max=b/T
+        // "verified" against b/T) so the first audit pass flags it and it routes
+        // through the existing default-on physical_mechanism→REJECTED gate.
+        PromptTemplateRegistry r = freshSeededRegistry();
+        PromptTemplate active = r.pickActive(PromptTemplateIds.NARRATION_AUDIT_ID).orElseThrow();
+        String body = active.body();
+        assertThat(body)
+                .contains("CIRCULAR / TAUTOLOGICAL")
+                .contains("compares a derived quantity to its own")   // single-line (text-block wraps after "own")
+                .contains("independent measurement, prediction, or dataset")
+                .contains("physical_mechanism");      // stays on the existing gate's dimension
+    }
+
+    @Test
     void phase23_6_conjectureTemplateActiveAtV1() {
         PromptTemplateRegistry r = freshSeededRegistry();
         PromptTemplate active = r.pickActive(

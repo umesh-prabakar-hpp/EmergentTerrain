@@ -781,6 +781,15 @@ public class PromptTemplateRegistry {
                   Schrödinger, lattice strain, or other physical-science concepts with no causal
                   bridge from the Hypothesis). INTERDISCIPLINARY papers are exempt; they bridge
                   domains intentionally.
+                  rec #7 (2026-05-28): ALSO flag physical_mechanism as CRITICAL when the paper's
+                  "verification" is CIRCULAR / TAUTOLOGICAL — it computes a quantity from a formula
+                  and then "checks" it by re-evaluating the SAME formula and comparing the two,
+                  reporting the residual as if it were a physical deviation. Such a test cannot fail
+                  by construction; the only non-zero deviation is numerical noise. Example
+                  (P-a328-997): computing Wien's λ_max = b/T and comparing it to b/T, then reporting
+                  the 0.499% "deviation" as a finding when an independent computation shows ~0.01%.
+                  Flag whenever the hypothesis's test compares a derived quantity to its own
+                  definition rather than to an independent measurement, prediction, or dataset.
                 - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
                 - boundary_answer: reported best parameter value sits exactly at a boundary of the swept
                   range (e.g. volume fraction Vf=1.00 on a Vf∈[0,1] sweep, angle θ=90° on a [0°,90°]
