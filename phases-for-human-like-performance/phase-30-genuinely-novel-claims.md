@@ -239,6 +239,37 @@ system can produce.
   attempts that failed to break it, (c) carries no OEIS/literature match,
   and (d) seeds a `ProgramOpenQuestion`.
 
+### 30.7 — Mechanism rigor for conjecture investigations [P1]
+
+The `## Mechanism` section of a `CONJECTURE_INVESTIGATION` paper currently asks
+the narrator for "a structural reason the bound holds" as **freeform, unverified
+prose**. The adversarial check (`verify_conjecture`) tests the *bound* on
+held-out windows — it never tests the *mechanism*. So a stated mechanism can
+name any reasoning mode but the system performs **none** of them rigorously.
+
+**Shipped (cheap first step, 2026-05-29):** the conjecture template
+(`narration.conjecture_investigation` v2-mechanism-kind) now forces the narrator
+to declare a **`Mechanism kind:`** tag — one of:
+
+| Mode | What a rigorous version would require (verification hook) |
+|---|---|
+| `heuristic_derivation` | self-consistency check: the heuristic's predicted constant matches the mined `k`/`c` |
+| `asymptotic_intuition` | a CAS (Sympy/Symbolics via the sidecar) to derive + compare LHS vs RHS growth rates |
+| `probabilistic_model` | a Monte-Carlo step simulating the random model (e.g. ω(n)~Poisson(log log n)) and checking the bound's predicted tail |
+| `extremal_construction` | an optimizer that *searches for / proves* the saturating case — not just `verify_conjecture`'s worst *sampled* window |
+| `analogy_to_known_theory` | the known-laws registry + identity prover ([[`phase-25`]] / 30.4) to confirm the analogy is real and the bound isn't *reducible* to the cited theorem |
+
+The tag is **self-declared and unverified** — it makes the current hand-waving
+*auditable* (the panel + a future validator can see which mode is claimed) and
+sets up the per-mode hooks above. Making any mode actually rigorous is the real
+work; `extremal_construction` is closest today (`verify_conjecture`'s
+worst-margin witness is an empirical near-extremal point, not a construction).
+Until a hook verifies the declared mode, mechanism prose cannot justify a label
+above `CONJECTURE` — the `EMPIRICAL_RESULT` text-floor checking only that the
+*words* "mechanism"/"adversarial check" appear is a **syntactic** gate, not a
+semantic one, and should eventually require the verified hook for the claimed
+kind.
+
 ---
 
 ## Guardrails (cross-cutting — without these, this phase manufactures HARKing)

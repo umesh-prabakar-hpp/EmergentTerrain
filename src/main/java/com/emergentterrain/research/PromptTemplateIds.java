@@ -38,7 +38,7 @@ public final class PromptTemplateIds {
      * "adversarial check" header OR a verify_conjecture tool-call trace).
      */
     public static final String NARRATION_CONJECTURE_INVESTIGATION_ID      = "narration.conjecture_investigation";
-    public static final String NARRATION_CONJECTURE_INVESTIGATION_VERSION = "v1";
+    public static final String NARRATION_CONJECTURE_INVESTIGATION_VERSION = "v2-mechanism-kind";
 
     /** Refinement pass when the primary needed an additional iteration. */
     public static final String NARRATION_REFINEMENT_ID      = "narration.refinement";

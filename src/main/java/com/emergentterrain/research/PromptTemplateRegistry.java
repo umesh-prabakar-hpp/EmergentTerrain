@@ -298,11 +298,24 @@ public class PromptTemplateRegistry {
                 Required structure for the `findings` field — your prose MUST contain:
 
                   1. A "## Mechanism" section: propose a structural reason the bound holds. \
-                     Not a paraphrase of the inequality — a structural argument (e.g. "the \
-                     LHS counts X-prime factorizations, bounded by a Stirling-like \
-                     approximation of …"). If you cannot identify a structural mechanism, \
-                     say so explicitly with the words "no mechanism identified" — honesty \
-                     beats fabricated reasoning.
+                     BEGIN the section with a line exactly of the form \
+                     "Mechanism kind: <one of: heuristic_derivation | asymptotic_intuition | \
+                     probabilistic_model | extremal_construction | analogy_to_known_theory | \
+                     none>", then give the argument IN THAT MODE — not a paraphrase of the \
+                     inequality. Examples per kind: \
+                     asymptotic_intuition — "the LHS counts X-prime factorizations, bounded \
+                     by a Stirling-like approximation of …"; \
+                     analogy_to_known_theory — "this is the Mertens bound restricted to …"; \
+                     probabilistic_model — "modelling ω(n) as Poisson(log log n), the bound \
+                     is the … tail"; \
+                     extremal_construction — "the tight case is the primorial, where …"; \
+                     heuristic_derivation — "summing the per-prime contribution gives …". \
+                     Pick the kind that GENUINELY fits and argue in it; do NOT dress \
+                     hand-waving up as a mode it isn't. If you cannot identify a structural \
+                     mechanism, use "Mechanism kind: none" and the words "no mechanism \
+                     identified" — honesty beats fabricated reasoning. (NOTE: this tag is \
+                     self-declared and unverified — the adversarial check tests the BOUND, \
+                     not the mechanism; per-mode verification is future work.)
 
                   2. A "## Adversarial Check" section: invoke the `verify_conjecture` tool \
                      on at least one held-out window the miner did not sample. Report the \
