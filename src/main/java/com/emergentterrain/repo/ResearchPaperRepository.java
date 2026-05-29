@@ -44,4 +44,22 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
 
     /** Phase 4b — all papers attached to a journal (impact-factor accumulation). */
     List<ResearchPaper> findByJournalId(UUID journalId);
+
+    /**
+     * 2026-05-29 — INCOMPLETE re-queue candidates: papers that published as
+     * {@code NEEDS_REVISION} with {@code reviewState=INCOMPLETE} (sound-but-
+     * unfinished), still under the attempt cap, and carrying a persisted draft
+     * snapshot to re-narrate from. Oldest first so the backlog drains in order;
+     * {@code maxAttempts} caps the number of automated finish attempts per slot.
+     */
+    @Query("""
+            SELECT p FROM ResearchPaper p
+            WHERE p.status = 'NEEDS_REVISION'
+              AND p.reviewState = 'INCOMPLETE'
+              AND p.reworkDraftJson IS NOT NULL
+              AND p.reworkAttempts < :maxAttempts
+            ORDER BY p.tick ASC
+            """)
+    List<ResearchPaper> findReworkCandidates(@Param("maxAttempts") int maxAttempts,
+                                             org.springframework.data.domain.Pageable pageable);
 }

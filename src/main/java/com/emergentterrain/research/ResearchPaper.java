@@ -221,6 +221,25 @@ public class ResearchPaper {
     private String reviewState;
 
     /**
+     * 2026-05-29 — INCOMPLETE re-queue. Number of automated re-narration attempts
+     * this paper slot has had. Carried forward across the in-place re-publish so a
+     * rework that comes out INCOMPLETE again lands at the cap and is not re-queued.
+     * 0 for papers that were never reworked.
+     */
+    @Column(name = "rework_attempts", nullable = false)
+    private int reworkAttempts;
+
+    /**
+     * 2026-05-29 — INCOMPLETE re-queue. Serialized {@link ReworkDraftSnapshot} of
+     * the originating draft, persisted ONLY for {@code (NEEDS_REVISION, INCOMPLETE)}
+     * papers still under the attempt cap, so the sweep can re-narrate faithfully
+     * from the true seed inputs (rawFindings, sweep params, pre-registration).
+     * Null for every other paper, and cleared once consumed.
+     */
+    @Column(name = "rework_draft_json", columnDefinition = "TEXT")
+    private String reworkDraftJson;
+
+    /**
      * Phase 21 §21.2 — replicator bot id captured at the DISPUTED transition,
      * so the {@code scanOrphanedDisputes} sweep can re-ping the replicator
      * side too instead of refreshing only the original author. Null on
@@ -331,6 +350,8 @@ public class ResearchPaper {
     public long         narrationOutputTokens()     { return narrationOutputTokens; }
     public String       narrationStatus()           { return narrationStatus; }
     public String       reviewState()               { return reviewState; }
+    public int          reworkAttempts()            { return reworkAttempts; }
+    public String       reworkDraftJson()           { return reworkDraftJson; }
     public String       disputeReplicatorBotId()    { return disputeReplicatorBotId; }
     public int          disputeAttempts()           { return disputeAttempts; }
 
@@ -358,6 +379,8 @@ public class ResearchPaper {
     public void setNarrationOutputTokens(long v)             { this.narrationOutputTokens = v; }
     public void setNarrationStatus(String v)                 { this.narrationStatus = v; }
     public void setReviewState(String v)                     { this.reviewState = v; }
+    public void setReworkAttempts(int v)                     { this.reworkAttempts = v; }
+    public void setReworkDraftJson(String v)                 { this.reworkDraftJson = v; }
     public void setDisputeReplicatorBotId(String v)          { this.disputeReplicatorBotId = v; }
     public void setDisputeAttempts(int v)                    { this.disputeAttempts = v; }
     public int  incrementDisputeAttempts()                   { return ++this.disputeAttempts; }

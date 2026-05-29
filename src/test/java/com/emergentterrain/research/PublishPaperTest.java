@@ -298,6 +298,9 @@ class PublishPaperTest {
         assertThat(firstPaper().status()).isEqualTo("PUBLISHED");
         // 2026-05-29 — orthogonal reviewState axis: a clean publish is CLEAN.
         assertThat(firstPaper().reviewState()).isEqualTo("CLEAN");
+        // A clean paper is NOT an INCOMPLETE re-queue candidate: no draft snapshot.
+        assertThat(firstPaper().reworkDraftJson()).isNull();
+        assertThat(firstPaper().reworkAttempts()).isZero();
     }
 
     @Test
@@ -439,7 +442,7 @@ class PublishPaperTest {
     }
 
     @Test
-    void d5_truncationGuardOnDowngradesTruncatedHypothesis() {
+    void d5_truncationGuardOnDowngradesTruncatedHypothesis() throws Exception {
         enableTruncationGuard();
         PaperDraft draft = draft(ResultClassification.SUPPORTED, 0.5);
         // Hypothesis truncated mid-sentence — the P-a328-419 signature.
@@ -453,6 +456,15 @@ class PublishPaperTest {
         // cut may be sound), NOT a content defect — the re-queue-candidate cell.
         assertThat(firstPaper().reviewState()).isEqualTo("INCOMPLETE");
         assertThat(ReviewState.valueOf(firstPaper().reviewState()).isReworkCandidate()).isTrue();
+        // INCOMPLETE → a faithful draft snapshot is persisted so the re-queue can
+        // re-narrate from the true seed inputs; reworkAttempts starts at 0.
+        assertThat(firstPaper().reworkDraftJson()).isNotNull();
+        assertThat(firstPaper().reworkAttempts()).isZero();
+        // The snapshot rehydrates to a draft that reuses the SAME paperId (so the
+        // re-narration upserts the same row in place, not a duplicate).
+        ReworkDraftSnapshot snap = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readValue(firstPaper().reworkDraftJson(), ReworkDraftSnapshot.class);
+        assertThat(snap.toDraft().paperId()).isEqualTo(firstPaper().paperId());
     }
 
     @Test

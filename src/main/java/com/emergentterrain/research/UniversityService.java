@@ -1532,6 +1532,24 @@ public class UniversityService {
         // 2026-05-29 — persist the pipeline/quality-health axis decided in the
         // status ladder above (orthogonal to status; see ReviewState).
         paper.setReviewState(reviewState.name());
+        // 2026-05-29 — INCOMPLETE re-queue. Carry the rework-attempt count forward
+        // across an in-place re-publish (the rework reuses the same paperId), so a
+        // rework that comes out INCOMPLETE again lands at the cap and is not
+        // re-queued. Fresh papers have no prior row → 0. Then persist a faithful
+        // draft snapshot for INCOMPLETE papers so IncompleteReworkService can
+        // re-narrate from the true seed inputs; the cap is enforced by that
+        // service's candidate query, so we always snapshot when INCOMPLETE.
+        paper.setReworkAttempts(priorReworkAttempts(draft.paperId()));
+        if (reviewState == ReviewState.INCOMPLETE) {
+            try {
+                paper.setReworkDraftJson(objectMapper.writeValueAsString(
+                        ReworkDraftSnapshot.from(draft)));
+            } catch (Exception e) {
+                // Best-effort: a paper we can't snapshot simply won't be re-queued.
+                log.warn("rework-snapshot serialize failed paperId={}: {}",
+                        draft.paperId(), e.toString());
+            }
+        }
 
         // Phase 23.6 panel-emission slice — route the aggregated reviewer
         // proposal (median ordinal, weaker-side tiebreak) onto the paper
@@ -2796,6 +2814,19 @@ public class UniversityService {
      * <p>Package-private static for unit testing without standing up the full
      * service. Parallel to {@code normalizeMode} below.
      */
+    /**
+     * 2026-05-29 — rework-attempt count already recorded for this paperId, or 0
+     * when no row exists yet (a fresh paper). Read before each publish so the
+     * count survives the in-place re-publish that the INCOMPLETE re-queue does
+     * (same paperId), capping the number of automated finish attempts.
+     */
+    private int priorReworkAttempts(String paperId) {
+        if (paperId == null) return 0;
+        return papersRepository.findByPaperId(paperId)
+                .map(ResearchPaper::reworkAttempts)
+                .orElse(0);
+    }
+
     static boolean isCarryoverAllowed(String paperStatus) {
         if (paperStatus == null) return false;
         return switch (paperStatus) {
