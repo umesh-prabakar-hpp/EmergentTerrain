@@ -102,10 +102,10 @@ class ConjectureTopicProviderTest {
     // ---------- helpers ----------
 
     private static ConjectureTopicProvider build(ConjectureQueue queue, double share) {
-        return new ConjectureTopicProvider(Optional.of(queue), share);
+        return new ConjectureTopicProvider(Optional.of(queue), share, "math");
     }
 
     private static ConjectureTopicProvider buildNoMiner(double share) {
-        return new ConjectureTopicProvider(Optional.empty(), share);
+        return new ConjectureTopicProvider(Optional.empty(), share, "math");
     }
 }

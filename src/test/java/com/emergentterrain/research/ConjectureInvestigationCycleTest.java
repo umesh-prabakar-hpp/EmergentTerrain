@@ -102,7 +102,7 @@ class ConjectureInvestigationCycleTest {
     void runCycleFallsThroughWhenProviderReturnsEmpty() {
         ResearchCycleService svc = new ResearchCycleService();
         svc.setConjectureTopicProvider(
-                new ConjectureTopicProvider(Optional.empty(), 1.0));  // queue absent → always empty
+                new ConjectureTopicProvider(Optional.empty(), 1.0, "math"));  // queue absent → always empty
 
         Researcher author = researcher();
         CapturingContext ctx = new CapturingContext();
@@ -146,7 +146,7 @@ class ConjectureInvestigationCycleTest {
             @Override public Optional<Conjecture> next(String domain) { return Optional.of(c); }
             @Override public List<Conjecture> nextN(String domain, int n) { return List.of(c); }
         };
-        return new ConjectureTopicProvider(Optional.of(queue), 1.0);
+        return new ConjectureTopicProvider(Optional.of(queue), 1.0, "math");
     }
 
     /** Captures the most recent dispatched draft for assertion. */

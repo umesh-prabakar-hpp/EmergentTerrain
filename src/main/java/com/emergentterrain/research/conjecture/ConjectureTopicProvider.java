@@ -1,10 +1,15 @@
 package com.emergentterrain.research.conjecture;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
 import java.util.Optional;
 import java.util.Random;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Phase 23.4 — decides whether a paper-writing cycle should be sourced
@@ -32,18 +37,38 @@ import java.util.Random;
 @Component
 public class ConjectureTopicProvider {
 
+    private static final Logger log = LoggerFactory.getLogger(ConjectureTopicProvider.class);
+
     private final Optional<ConjectureQueue> queue;
     private final double paperShare;
+    /**
+     * 2026-05-29 — allow-substrate gate. Only these (lowercase) substrate keys
+     * may source a conjecture paper; a cycle whose mapped substrate
+     * ({@link #conjectureDomainKey}) is not in this set falls through to the
+     * catalog path. Pinned to {@code math} today (the only substrate the miner
+     * populates), which focuses testing on the math substrate. Add
+     * {@code physics}/{@code materials} here as Phase 23.7 substrates come
+     * online, enabling them one at a time. Config:
+     * {@code app.research.conjectureMiner.allowedSubstrates} (CSV).
+     */
+    private final Set<String> allowedSubstrates;
 
     public ConjectureTopicProvider(
             Optional<ConjectureQueue> queue,
-            @Value("${app.research.conjectureMiner.paperShare:0.0}") double paperShare) {
+            @Value("${app.research.conjectureMiner.paperShare:0.0}") double paperShare,
+            @Value("${app.research.conjectureMiner.allowedSubstrates:math}") String allowedSubstratesCsv) {
         this.queue = queue;
         if (paperShare < 0.0 || paperShare > 1.0) {
             throw new IllegalArgumentException(
                     "app.research.conjectureMiner.paperShare must be in [0,1]; got " + paperShare);
         }
         this.paperShare = paperShare;
+        this.allowedSubstrates = Arrays.stream(allowedSubstratesCsv.split(","))
+                .map(String::trim).map(String::toLowerCase)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toUnmodifiableSet());
+        log.info("ConjectureTopicProvider: paperShare={} allowedSubstrates={} queuePresent={}",
+                paperShare, allowedSubstrates, queue.isPresent());
     }
 
     /**
@@ -55,13 +80,44 @@ public class ConjectureTopicProvider {
         if (paperShare <= 0.0 || queue.isEmpty()) {
             return Optional.empty();
         }
+        String substrate = conjectureDomainKey(domain);
+        if (!allowedSubstrates.contains(substrate)) {   // allow-substrate gate
+            return Optional.empty();
+        }
         if (rng.nextDouble() >= paperShare) {
             return Optional.empty();
         }
-        return queue.get().next(domain);
+        return queue.get().next(substrate);
+    }
+
+    /**
+     * 2026-05-29 — bridge the engine domain (e.g. "MATHEMATICS", as carried by
+     * Researcher.getDomain() and passed in by ResearchCycleService) to the
+     * conjecture-store domain key (e.g. "math", ConjectureMinerService.DOMAIN).
+     * The miner persists conjectures under the lowercase substrate key; the
+     * research cycle passes the uppercase engine domain, so without this
+     * translation next() queries the wrong key (findByDomain is exact-match)
+     * and always returns empty — making the conjecture path unreachable on
+     * every cycle regardless of paperShare. Physics/materials are pre-wired for
+     * Phase 23.7; their queues stay empty (→ catalog fallback) until those
+     * substrates exist.
+     */
+    static String conjectureDomainKey(String engineDomain) {
+        if (engineDomain == null) return "";
+        return switch (engineDomain.toUpperCase()) {
+            case "MATHEMATICS" -> "math";
+            case "PHYSICS"     -> "physics";
+            case "MATERIALS"   -> "materials";
+            default            -> engineDomain.toLowerCase();
+        };
     }
 
     public double paperShare() {
         return paperShare;
+    }
+
+    /** The allow-substrate gate set (lowercase substrate keys). */
+    public Set<String> allowedSubstrates() {
+        return allowedSubstrates;
     }
 }
