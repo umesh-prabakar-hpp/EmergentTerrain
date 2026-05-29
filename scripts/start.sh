@@ -82,9 +82,13 @@ PROXY_DIR="$REPO_ROOT/scripts/legacy-ai-gateway"
 PROXY_PATTERN="legacy-ai-gateway/server.mjs"
 PROXY_LOG="$REPO_ROOT/logs/claude-proxy.log"
 start_claude_proxy() {
+    # Clear the proxy log on every (re)start so it holds ONLY the current run —
+    # no carryover from the previous run (the SDK debug stream is verbose, and
+    # mixing runs made the turn-timeout trace hard to read).
+    : > "$PROXY_LOG"
     # env -u ANTHROPIC_API_KEY: never let a stray API key bill the subscription path.
     # Absolute script path so stop.sh's pgrep pattern matches the command line.
-    nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" > "$PROXY_LOG" 2>&1 &
+    nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" >> "$PROXY_LOG" 2>&1 &
     echo "legacy-ai-gateway: started on http://127.0.0.1:8787 (PID $!), log → $PROXY_LOG"
 }
 if [ "${ET_DISABLE_CLAUDE_PROXY:-0}" = "1" ]; then
