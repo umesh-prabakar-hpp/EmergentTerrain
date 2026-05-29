@@ -90,11 +90,12 @@ public class ResearchPaper {
      * output; META papers are analyses of the system itself. Defaults to
      * DOMAIN so existing rows read back unchanged.
      */
-    @Enumerated(EnumType.STRING)
-    // 2026-05-29 — 32 not 16: PaperKind.CONJECTURE_INVESTIGATION is 24 chars and
-    // overflowed varchar(16) on insert (DataException) once conjecture papers
-    // started persisting. ddl-auto=update does NOT widen existing columns, so the
-    // live column was ALTERed to varchar(32) separately; this keeps fresh DBs correct.
+    // 2026-05-29 — @Convert (not @Enumerated) so Hibernate generates NO `check (kind in (...))`
+    // constraint: such checks go stale on enum additions and ddl-auto can't update them (a stale
+    // DOMAIN,META check blocked CONJECTURE_INVESTIGATION inserts). length=32 (not 16):
+    // CONJECTURE_INVESTIGATION is 24 chars; the live column was ALTERed to varchar(32) since
+    // ddl-auto does not widen existing columns — this keeps fresh DBs correct.
+    @Convert(converter = PaperKindConverter.class)
     @Column(name = "kind", nullable = false, length = 32)
     private PaperKind kind = PaperKind.DOMAIN;
 
@@ -111,7 +112,9 @@ public class ResearchPaper {
      * columns needed). Legacy NULLs (if any survive the migration) are
      * coerced to CONJECTURE by {@link #setEvidenceLabel}.
      */
-    @Enumerated(EnumType.STRING)
+    // 2026-05-29 — @Convert (not @Enumerated): no auto-generated `check (evidence_label in (...))`
+    // constraint (the old one was stale — missing KNOWN_RESULT — and ddl-auto can't update it).
+    @Convert(converter = EvidenceLabelConverter.class)
     @Column(name = "evidence_label", nullable = false, length = 32,
             columnDefinition = "varchar(32) not null default 'CONJECTURE'")
     private EvidenceLabel evidenceLabel = EvidenceLabel.CONJECTURE;

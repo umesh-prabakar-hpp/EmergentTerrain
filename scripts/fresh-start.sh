@@ -66,6 +66,14 @@ TRUNCATE
     surprise_events,
     universities
 RESTART IDENTITY CASCADE;
+
+-- 2026-05-29 — self-heal the stale @Enumerated-generated CHECK constraints on a long-lived DB.
+-- research_papers.kind / evidence_label are now mapped via AttributeConverter (no auto-check),
+-- but ddl-auto=update can't drop the pre-existing checks created back when the enums were smaller
+-- (kind: DOMAIN,META — rejected CONJECTURE_INVESTIGATION; evidence_label: missing KNOWN_RESULT).
+-- Idempotent; a fresh DB never creates these (converters), so the drops are simply no-ops there.
+ALTER TABLE research_papers DROP CONSTRAINT IF EXISTS research_papers_kind_check;
+ALTER TABLE research_papers DROP CONSTRAINT IF EXISTS research_papers_evidence_label_check;
 SQL
 echo "Done."
 
