@@ -179,6 +179,39 @@ public class ResearchCycleService {
     }
 
     /**
+     * 2026-05-29 — when non-empty, restrict author selection to this engine
+     * domain (e.g. "MATHEMATICS"); empty = no restriction (default). Lets the
+     * room run a single domain for a phase — e.g. math-only while verifying the
+     * conjecture path. Setter-injected from {@code app.research.restrictDomain}
+     * (Spring calls it in production; tests using {@code new} keep the default).
+     * Falls back to the full pool if no bot of the domain exists, so the room
+     * never stalls. NOTE: this only narrows the AUTHOR; reviewers/replication
+     * still draw from the full pool (pickReviewer already prefers same-domain).
+     */
+    private volatile String restrictDomain = "";
+
+    @org.springframework.beans.factory.annotation.Value("${app.research.restrictDomain:}")
+    public void setRestrictDomain(String domain) {
+        this.restrictDomain = domain == null ? "" : domain.trim();
+    }
+
+    public String restrictDomain() {
+        return restrictDomain;
+    }
+
+    /**
+     * Narrow the author-selection pool to {@link #restrictDomain} when set;
+     * returns the full pool unchanged when unset or when the domain has no bots.
+     */
+    private List<Researcher> restrictAuthorPool(List<Researcher> pool) {
+        if (restrictDomain.isEmpty()) return pool;
+        List<Researcher> filtered = pool.stream()
+                .filter(r -> restrictDomain.equalsIgnoreCase(r.getDomain()))
+                .collect(Collectors.toList());
+        return filtered.isEmpty() ? pool : filtered;
+    }
+
+    /**
      * Phase 16 P7 — when true, the topic-selection step applies a backoff
      * after the initial pick: count REJECTED papers on the (domain, topic)
      * pair in the room's recent history, and re-roll the selection with
@@ -259,7 +292,7 @@ public class ResearchCycleService {
     public void runCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick,
                          PopulationEcologyService.PopulationParams popParams,
                          boolean peerReviewEnabled, Context ctx) {
-        Researcher author = tournamentSelect(pool, rng);
+        Researcher author = tournamentSelect(restrictAuthorPool(pool), rng);
 
         DynamicProblem directive = author.getState().getPendingDirective();
         if (directive != null) {
