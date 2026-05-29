@@ -776,8 +776,11 @@ public final class NumericalConsistencyValidator {
      *
      * <p>An executed range is extracted from each {@link
      * com.emergentterrain.llm.ToolInvocation#argsJson} by parsing
-     * {@code range_start}/{@code range_end} or {@code start}/{@code end} pairs.
-     * The union of those intervals is the executed-range set.
+     * {@code range_start}/{@code range_end} or {@code start}/{@code end} pairs,
+     * or — for {@code verify_conjecture} — {@code window_start} +
+     * {@code window_size}·{@code num_windows}. Calls whose result is errored /
+     * rejected are skipped (they computed nothing). The union of the surviving
+     * intervals is the executed-range set.
      */
     private static void findScopeOverreach(
             String hypothesis, String findings,
@@ -791,14 +794,50 @@ public final class NumericalConsistencyValidator {
                 "(?i)\"(?:range_start|start)\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?"
                         + "[^}]*?"
                         + "\"(?:range_end|end)\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?");
+        // 2026-05-29 — verify_conjecture (Phase 23.5) reports its coverage as
+        // window_start + window_size·num_windows, NOT range_start/range_end. Without
+        // this, a conjecture paper's real coverage is invisible to the check and any
+        // prose range reads as scope overreach (P-b72c-4 was nulled this way).
+        Pattern windowArgs = Pattern.compile(
+                "(?i)\"window_start\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?"
+                        + "[^}]*?\"window_size\"\\s*:\\s*\"?([0-9]+(?:\\.[0-9]+)?)\"?"
+                        + "[^}]*?\"num_windows\"\\s*:\\s*\"?([0-9]+)\"?");
         for (com.emergentterrain.llm.ToolInvocation inv : trace) {
             if (inv == null || inv.argsJson() == null) continue;
+            // 2026-05-29 — only count ranges from calls that actually RAN. A rejected
+            // call (window > MAX_N, predicate-scan span over cap, safety reject)
+            // computed nothing, so its *requested* range must not enter the
+            // executed-range union — otherwise it both credits coverage that never
+            // happened and crowds out the real ranges. P-b72c-4: a rejected
+            // predicate-scan's [200000,1000000) was the only range seen, hiding the
+            // real verify_conjecture coverage at [1500000,1520000) → false NULL.
+            // isErroredResult covers safety/runtime errors; the leading-"Invalid"
+            // test catches the tool argument rejections ("Invalid verify_conjecture
+            // call: … exceeds MAX_N", "Invalid predicate scan: …") that the shared
+            // marker set does not, since those would otherwise credit the *requested*
+            // (never-run) window/range.
+            String resJson = inv.resultJson();
+            if (resJson == null || resJson.isBlank()
+                    || isErroredResult(resJson)
+                    || resJson.stripLeading().regionMatches(true, 0, "Invalid", 0, 7)) {
+                continue;
+            }
             Matcher am = rangeArgs.matcher(inv.argsJson());
             while (am.find()) {
                 try {
                     double a = Double.parseDouble(am.group(1));
                     double b = Double.parseDouble(am.group(2));
                     if (b > a) executed.add(new double[]{a, b});
+                } catch (NumberFormatException ignored) {}
+            }
+            Matcher wm = windowArgs.matcher(inv.argsJson());
+            while (wm.find()) {
+                try {
+                    double start = Double.parseDouble(wm.group(1));
+                    double size  = Double.parseDouble(wm.group(2));
+                    double n     = Double.parseDouble(wm.group(3));
+                    double end   = start + size * n;
+                    if (end > start) executed.add(new double[]{start, end});
                 } catch (NumberFormatException ignored) {}
             }
         }
