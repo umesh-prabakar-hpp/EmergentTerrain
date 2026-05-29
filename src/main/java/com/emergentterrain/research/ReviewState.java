@@ -42,7 +42,7 @@ public enum ReviewState {
     /**
      * The narration/review pipeline did not finish: a wall-clock-timeout
      * first-pass salvage (rec #8), a mid-sentence truncation, a missing-Methods
-     * downgrade (no tool trace), a degraded review panel, or a paper published
+     * downgrade (no tool trace), or a paper published
      * without the tool-calling professor. The content before the cutoff may be
      * entirely sound — this is the {@link #isReworkCandidate() re-work} cell, not
      * a quality judgement on the science.
@@ -56,6 +56,18 @@ public enum ReviewState {
      * panel demotion, etc.
      */
     REVISABLE_DEFECT,
+
+    /**
+     * 2026-05-29 — Published and reviewed, but by a REDUCED panel (fewer
+     * reviewers than configured actually ran) and then demoted to
+     * {@code NEEDS_REVISION} as a precaution. The content WAS reviewed (a full
+     * panel + revision typically ran), so this is neither incomplete content —
+     * re-narration adds nothing — nor a graded content defect. Deliberately NOT
+     * a {@link #isReworkCandidate() re-work} candidate (re-queuing it just burns
+     * spend), and distinct from {@link #INCOMPLETE} so the NEEDS_REVISION banner
+     * can tell "reduced panel" apart from "first-pass never finished".
+     */
+    DEGRADED_PANEL,
 
     /**
      * A validator or audit hard-flagged the paper — a {@code REJECTED} status, or
@@ -90,11 +102,12 @@ public enum ReviewState {
      * panel. Both the degraded-panel gate and the grade-floor gate share the
      * {@code :demoted_to_needs_revision} callPath suffix, but they mean different
      * things: a <em>degraded</em> panel (fewer reviewers than configured ran) is
-     * {@link #INCOMPLETE}, while a full panel that hit the <em>grade floor</em>
-     * is a {@link #REVISABLE_DEFECT} (the reviewers graded the content low).
+     * {@link #DEGRADED_PANEL} (reviewed, just under-staffed — not a re-work
+     * candidate), while a full panel that hit the <em>grade floor</em> is a
+     * {@link #REVISABLE_DEFECT} (the reviewers graded the content low).
      */
     public static ReviewState forPanelDemotion(String callPath) {
-        if (callPath != null && callPath.contains(":degraded:")) return INCOMPLETE;
+        if (callPath != null && callPath.contains(":degraded:")) return DEGRADED_PANEL;
         return REVISABLE_DEFECT;   // grade_floor (or any other full-panel demotion)
     }
 }

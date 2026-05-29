@@ -980,6 +980,17 @@ public class UniversityService {
             log.warn("direction-of-finding check failed paperId={} reasons={}",
                     draft.paperId(), directionOfFindingFailures);
         }
+        // 2026-05-29 (review fix #2) — placeholder/TODO completeness gate. The narrator
+        // sometimes ships literal stubs (## Discussion → "TODO: review for final",
+        // ## Related Work → "TODO: add citations"). Any placeholder marker in the narrated
+        // prose is a revisable defect — a stub must never publish clean.
+        boolean placeholderStub = PLACEHOLDER_STUB.matcher(
+                (conclusion == null ? "" : conclusion) + "\n"
+                + (narration.discussion() == null ? "" : narration.discussion()) + "\n"
+                + (narration.relatedWork() == null ? "" : narration.relatedWork())).find();
+        if (placeholderStub) {
+            log.warn("placeholder/TODO stub detected in narrated prose paperId={}", draft.paperId());
+        }
         // Phase 18 §18.2 (P8d) — unsourced derivative / uncertainty / error /
         // ±N claims in Findings/Conclusion with no paired [call_N] reference
         // in the same sentence. Targets P-603 (Snell "1.5° error", "331° per
@@ -1310,6 +1321,11 @@ public class UniversityService {
             // observed deviation.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (placeholderStub) {
+            // 2026-05-29 (review fix #2) — literal TODO/placeholder stub in the narrated
+            // prose. A real, fixable content defect; revision (or re-narration) replaces it.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (unsourcedClaimRoutes) {
             // Phase 18 §18.2 (P8d) — unsourced derivative / uncertainty /
             // error / ±N claim with no paired [call_N] in the same sentence.
@@ -1423,6 +1439,12 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:single_point_sweep→needs_revision"
                     : persistedCallPath + " → publish:single_point_sweep→needs_revision";
+        }
+        // 2026-05-29 (review fix #2) — additive stamp for literal TODO/placeholder stubs.
+        if (placeholderStub) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:placeholder_stub→needs_revision"
+                    : persistedCallPath + " → publish:placeholder_stub→needs_revision";
         }
         // Paper-review 2026-05-22 fix 4 — additive stamp for hypothesis
         // range under-coverage. Warn-only (no routing), so the stamp
@@ -2465,6 +2487,33 @@ public class UniversityService {
         }
     }
 
+    /** 2026-05-29 — literal placeholder/stub markers that must not ship in a published paper. */
+    private static final java.util.regex.Pattern PLACEHOLDER_STUB = java.util.regex.Pattern.compile(
+            "(?i)\\b(TODO|FIXME|TBD)\\b|\\bplaceholder\\b|add citations|review for final|\\[insert\\b");
+
+    /**
+     * 2026-05-29 — NEEDS_REVISION banner, branched on reviewState so it no longer
+     * makes the blanket false claim that "first-pass was incomplete and the
+     * peer-review stage was skipped" — untrue for degraded-panel / grade-floor
+     * demotions, which DID run a full panel + revision. {@code reviewState} is the
+     * String name of {@link ReviewState} (nullable on pre-2026-05-29 rows).
+     */
+    private static String needsRevisionBanner(String reviewState) {
+        return switch (reviewState == null ? "" : reviewState) {
+            case "INCOMPLETE" -> "\n> ⏳ **NEEDS REVISION** — The narration pipeline did not fully "
+                + "complete (a first-pass timeout salvage, a truncated draft, a missing tool "
+                + "trace, or no professor stage). The content may be sound and is queued for "
+                + "automated rework.\n";
+            case "DEGRADED_PANEL" -> "\n> ⏳ **NEEDS REVISION** — Published after review by a reduced "
+                + "panel (fewer than the configured four reviewers ran), then flagged for revision "
+                + "as a precaution. The content was reviewed — not skipped.\n";
+            case "REVISABLE_DEFECT" -> "\n> ⏳ **NEEDS REVISION** — A full review flagged a revisable "
+                + "content issue (e.g. an overclaim, an unsourced number, or a low-graded section). "
+                + "Recorded pending a focused revision.\n";
+            default -> "\n> ⏳ **NEEDS REVISION** — Flagged for revision before final publication.\n";
+        };
+    }
+
     private String formatPaperAsMarkdown(UUID roomId, ResearchPaper paper) {
         boolean disputed         = "DISPUTED".equals(paper.status());
         boolean disputeAbandoned = "DISPUTE_ABANDONED".equals(paper.status());
@@ -2487,8 +2536,7 @@ public class UniversityService {
                   + "(unphysical magnitude, numerical inconsistency, uncited near-clone, or cross-domain "
                   + "non-sequitur). This paper is recorded but should not be cited.\n"
                 : needsRevision
-                ? "\n> ⏳ **NEEDS REVISION** — The first-pass narration was incomplete and the peer-review "
-                  + "stage was skipped. This paper has not been reviewed.\n"
+                ? needsRevisionBanner(paper.reviewState())
                 : noProfessor
                 ? "\n> ⓘ **PUBLISHED WITHOUT PROFESSOR REVIEW** — The tool-calling professor stage failed "
                   + "(commonly upstream LLM quota exhaustion) and this paper kept its first-pass narration.\n"
@@ -2582,11 +2630,23 @@ public class UniversityService {
      * findings is plain prose (single-block / flag-off path), return it verbatim
      * so the rendered markdown is bit-identical to F1-baseline.
      */
+    /**
+     * 2026-05-29 — conjecture findings sometimes arrive with the {@code ## Mechanism}
+     * and {@code ## Adversarial Check} headers run together inline (no newlines), so
+     * they render as body text instead of headers. Force each onto its own line with
+     * its body on the next line. No-op for prose without those headers (catalog papers).
+     */
+    private static String normalizeSectionHeaders(String raw) {
+        if (raw == null) return null;
+        return raw.replaceAll("\\s*##\\s*(Mechanism|Adversarial Check)\\b[ \\t]*", "\n\n## $1\n")
+                  .replaceFirst("^\\n+", "");   // trim any leading blank lines the insert created
+    }
+
     String renderFindingsSection(ResearchPaper paper) {
         String raw = paper.findings();
         if (raw == null || raw.isBlank()) return "";
         java.util.Map<Integer, String> blocks = tryParseFindingsMap(raw);
-        if (blocks == null || blocks.size() <= 1) return raw;
+        if (blocks == null || blocks.size() <= 1) return normalizeSectionHeaders(raw);
         String equation = MathPhysicsEngine.equationFor(paper.domain(), paper.topic());
         // Phase 14 F1a — count successful tool-call entries so each block can
         // be tagged with the call_N it draws from, and blocks beyond
