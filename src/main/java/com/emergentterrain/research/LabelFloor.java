@@ -20,7 +20,9 @@ package com.emergentterrain.research;
  *       fired and returned a certificate.</li>
  *   <li>{@link EvidenceLabel#EMPIRICAL_RESULT} — paper text contains
  *       "mechanism" AND ("adversarial check" OR a {@code verify_conjecture}
- *       tool-call trace).</li>
+ *       tool-call trace) AND the adversarial check did NOT refute the bound
+ *       (no {@code verify_conjecture} "REFUTED across …" result — review finding
+ *       #2, 2026-05-29). A refuted-as-stated bound caps at CONJECTURE.</li>
  *   <li>{@link EvidenceLabel#CONJECTURE} — default; anything not
  *       meeting the above.</li>
  * </ul>
@@ -48,7 +50,8 @@ public final class LabelFloor {
         if (hasProofMarker(corpus) || hasMachineCertifiedProof(corpus)) {
             return EvidenceLabel.THEOREM;
         }
-        if (hasMechanism(corpus) && hasAdversarialCheck(corpus)) {
+        if (hasMechanism(corpus) && hasAdversarialCheck(corpus)
+                && !adversarialCheckRefuted(paper, corpus)) {
             return EvidenceLabel.EMPIRICAL_RESULT;
         }
         return EvidenceLabel.CONJECTURE;
@@ -124,5 +127,21 @@ public final class LabelFloor {
     private static boolean hasAdversarialCheck(String lower) {
         return lower.contains("adversarial check")
                 || lower.contains("verify_conjecture");
+    }
+
+    /**
+     * 2026-05-29 (review finding #2) — EMPIRICAL_RESULT must rest on an adversarial
+     * check that actually HELD. {@code verify_conjecture} formats its result as
+     * "… HELD across N window(s) …" or "… REFUTED across N window(s) …"
+     * (MathToolSuite); if any held-out window REFUTED the bound, the conjecture as
+     * stated is false and the strongest honest label is {@link EvidenceLabel#CONJECTURE},
+     * not EMPIRICAL_RESULT (an honest "holds only for large n" finding is still a
+     * conjecture about the stated universal bound). Scans the authoritative tool-call
+     * trace plus the narrated corpus (already lowercased).
+     */
+    private static boolean adversarialCheckRefuted(ResearchPaper p, String lowerCorpus) {
+        String trace = p == null ? null : p.toolCallTrace();
+        String lowerTrace = trace == null ? "" : trace.toLowerCase();
+        return lowerTrace.contains("refuted across") || lowerCorpus.contains("refuted across");
     }
 }

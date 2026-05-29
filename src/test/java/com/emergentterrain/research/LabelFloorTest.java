@@ -51,6 +51,20 @@ class LabelFloorTest {
     }
 
     @Test
+    void refutedAdversarialCheckCapsAtConjecture() {
+        // 2026-05-29 review finding #2 — mechanism + adversarial check both present, but the
+        // verify_conjecture check REFUTED the bound on a held-out window. The bound as stated is
+        // false, so the strongest honest label is CONJECTURE, not EMPIRICAL_RESULT.
+        ResearchPaper p = paper(
+                "Hypothesis: mertens_per_sqrt_W <= 2*log_window_start - 7.76.",
+                "## Mechanism\nAnalogy to the Mertens bound. ## Adversarial Check\n" +
+                        "verify_conjecture: mertens_per_sqrt_W <= ... REFUTED across 5 window(s) starting at 100.",
+                "Holds only for large n; refuted at small windows.");
+        assertEquals(EvidenceLabel.CONJECTURE, LabelFloor.maxDefensibleLabel(p),
+                "mechanism + adversarial check present but the check REFUTED → caps at CONJECTURE");
+    }
+
+    @Test
     void mechanismAloneStaysAtConjecture() {
         ResearchPaper p = paper(
                 "...",
