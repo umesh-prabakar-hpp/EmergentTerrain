@@ -227,6 +227,7 @@ public class ResearchPaper {
      * 0 for papers that were never reworked.
      */
     @Column(name = "rework_attempts", nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")  // 2026-05-29 — ddl-auto ADD COLUMN ... DEFAULT 0 so it succeeds on the already-populated table (backfills existing rows); without it the NOT NULL add fails and the column is never created
     private int reworkAttempts;
 
     /**
