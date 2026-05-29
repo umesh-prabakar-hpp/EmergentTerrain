@@ -85,6 +85,15 @@ public final class NumericalConsistencyValidator {
     private static final double F5_5_RELATIVE_TOLERANCE = 0.01;
 
     /**
+     * 2026-05-28 rec #1 (research/a3289005) — maximum power-of-ten gap tolerated
+     * by the scale-invariant fallback in {@link #isPermittedNumber}. Ported from
+     * {@link CitationValidator#MAX_SCALE_DECADES}; covers scaling a Planck-scale
+     * quantity (~1e-34) up to O(1) for readability. Gaps beyond this are treated
+     * as coincidental mantissa collisions and not reconciled.
+     */
+    private static final int MAX_SCALE_DECADES = 40;
+
+    /**
      * Phase 12 D2d — a salient INTEGER is one that carries a physical unit
      * marker in the surrounding text. P-a328-417's three load-bearing prose
      * values (2377 MPa, σ₀=97 MPa, k=510 MPa·µm^½) are all integers and slip
@@ -325,15 +334,27 @@ public final class NumericalConsistencyValidator {
             double anchor = Double.parseDouble(m.group(1));
             if (anchor == 0) continue;
             String unit = m.group(2);
+            // 2026-05-28 rec #1 — percent↔fraction normalisation. When the
+            // anchor carries a "%" unit the prose value is a percentage (e.g.
+            // "close to 2.8%") while the Findings frequently report the same
+            // quantity as a bare fraction (0.023). P-a328-996 was a false NULL
+            // because 0.023 sits far from 2.8 yet within ±20% of 2.8/100=0.028.
+            // Test the ±20% band against both the percent and the fraction form.
+            double[] candidateAnchors = "%".equals(unit)
+                    ? new double[]{anchor, anchor / 100.0}
+                    : new double[]{anchor};
             // Look for any number in Findings within 20% of the anchor — same unit
             // suffix preferred but not required.
             boolean foundNearby = false;
             Matcher tokens = NUMERIC_TOKEN.matcher(findings);
+            scan:
             while (tokens.find()) {
                 double observed = Double.parseDouble(tokens.group(1));
-                if (Math.abs(observed - anchor) / Math.abs(anchor) <= 0.20) {
-                    foundNearby = true;
-                    break;
+                for (double a : candidateAnchors) {
+                    if (Math.abs(observed - a) / Math.abs(a) <= 0.20) {
+                        foundNearby = true;
+                        break scan;
+                    }
                 }
             }
             if (!foundNearby) {
@@ -491,8 +512,40 @@ public final class NumericalConsistencyValidator {
             // citations against signed trace values (e.g. prose "15.286" vs
             // trace "-15.286").
             if (Math.abs(value - Math.abs(p)) / Math.abs(p) <= F5_5_RELATIVE_TOLERANCE) return true;
+            // 2026-05-28 rec #1 — scale-tolerant fallback. A prose value and a
+            // source value with identical leading significant digits differing
+            // only by a clean power of ten (prose "5.840" vs trace
+            // "σ_obs=5.840e-08", P-a328-998) are the same computed quantity
+            // recorded at a different unit scale. Mirrors the P0 fix landed in
+            // CitationValidator.valueAppearsInResultScaleTolerant; bounded to
+            // MAX_SCALE_DECADES so unrelated mantissa coincidences far apart in
+            // magnitude are not reconciled. This was the dominant residual
+            // false-NULL source in the post-rotation a3289005 batch.
+            if (sameMantissaDifferentScale(value, p)) return true;
         }
         return false;
+    }
+
+    /**
+     * 2026-05-28 rec #1 — true when {@code a} and {@code b} share the same
+     * leading significant digits (mantissa) within {@link #F5_5_RELATIVE_TOLERANCE}
+     * and differ only by a power-of-ten unit scale no larger than
+     * {@link #MAX_SCALE_DECADES} decades. Ported from
+     * {@link CitationValidator#valueAppearsInResultScaleTolerant}. Used only as
+     * a last-resort fallback in {@link #isPermittedNumber} after the strict and
+     * magnitude comparisons fail, so it can only rescue a paper from a false
+     * NULL, never launder a value that is genuinely off by more than a
+     * unit-scale factor (the mantissa must still agree to within 1%).
+     */
+    static boolean sameMantissaDifferentScale(double a, double b) {
+        if (a == 0.0 || b == 0.0 || !Double.isFinite(a) || !Double.isFinite(b)) return false;
+        int aExp = (int) Math.floor(Math.log10(Math.abs(a)));
+        int bExp = (int) Math.floor(Math.log10(Math.abs(b)));
+        if (Math.abs(aExp - bExp) > MAX_SCALE_DECADES) return false;
+        double aMant = Math.abs(a) / Math.pow(10.0, aExp);
+        double bMant = Math.abs(b) / Math.pow(10.0, bExp);
+        return Math.abs(aMant - bMant) <= F5_5_RELATIVE_TOLERANCE * Math.abs(bMant)
+                || Math.abs(aMant - bMant) <= F5_5_RELATIVE_TOLERANCE * Math.abs(aMant);
     }
 
     /**

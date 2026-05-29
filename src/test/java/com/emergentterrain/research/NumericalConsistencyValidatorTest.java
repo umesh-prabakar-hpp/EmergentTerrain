@@ -796,4 +796,74 @@ class NumericalConsistencyValidatorTest {
                 hypothesis, findings, conclusion, trace);
         assertThat(reasons).noneMatch(r -> r.contains("inline computation-stub"));
     }
+
+    // -------- rec #1 (2026-05-28): scale / percent-fraction false-NULL --------
+    // Ported from the P0 CitationValidator scale-reconcile into the
+    // numerical-consistency validator — the dominant residual false-NULL source
+    // in the post-rotation a3289005 batch (REVIEW_REPORT.md §1 rec 1).
+
+    @Test
+    void rec1_pA328_998_scaleTolerantMatchDoesNotFlagScaledTraceValue() {
+        // P-a328-998: prose cites "5.840" (a σ_obs deviation); the trace records
+        // the same quantity at SI scale as "σ_obs=5.840e-08". Pre-fix the strict
+        // ±1% compare missed it by 8 decades and the paper was a false NULL.
+        String hypothesis = "Stefan-Boltzmann constant σ = 2π⁵k⁴/(15c²h³).";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The sweep reported a worst observed value of 5.840 against the baseline [call_1].");
+        String conclusion = "σ recovered to CODATA precision.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}",
+                        "Param sweep: worst σ_obs=5.840e-08 (3.00% injected deviation).",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("5.840"));
+    }
+
+    @Test
+    void rec1_scaleTolerantMatchStillFlagsGenuinelyAbsentValue() {
+        // Guard: a value whose mantissa matches NOTHING in the trace at any
+        // scale must still be flagged — the fallback only rescues unit-scale
+        // mismatches, not fabricated digits.
+        String hypothesis = "Stefan-Boltzmann constant recovery.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The sweep reported a worst observed value of 7.291 against the baseline [call_1].");
+        String conclusion = "σ recovered.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_param_sweep", "{}",
+                        "Param sweep: worst σ_obs=5.840e-08 (3.00% injected deviation).",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("7.291") && r.contains("not within ±1%"));
+    }
+
+    @Test
+    void rec1_pA328_996_percentAnchorMatchesFractionFindingsValue() {
+        // P-a328-996: Conclusion says "close to 2.8%"; the measured joint density
+        // in Findings is the fraction 0.023. 0.023 is within ±20% of 2.8/100 =
+        // 0.028, so the percent↔fraction normalisation clears the false NULL.
+        String hypothesis = "Joint isPrime∧isHappy density over [420, 720).";
+        String findings   = "Measured joint density 0.023 over the window.";
+        String conclusion = "The joint density is close to 2.8% across the regime.";
+
+        List<String> reasons = NumericalConsistencyValidator.validate(hypothesis, findings, conclusion);
+        assertThat(reasons).noneMatch(r -> r.contains("close to 2.8"));
+    }
+
+    @Test
+    void rec1_percentNormalisationStillFlagsTrulyAbsentAnchor() {
+        // Guard: a percent anchor whose fraction form ALSO has no nearby Findings
+        // value must still flag. "close to 9%" → 0.09; Findings only has 0.023.
+        String hypothesis = "Joint density survey.";
+        String findings   = "Measured joint density 0.023 over the window.";
+        String conclusion = "The joint density is close to 9% across the regime.";
+
+        List<String> reasons = NumericalConsistencyValidator.validate(hypothesis, findings, conclusion);
+        assertThat(reasons).anyMatch(r -> r.contains("close to 9"));
+    }
 }
