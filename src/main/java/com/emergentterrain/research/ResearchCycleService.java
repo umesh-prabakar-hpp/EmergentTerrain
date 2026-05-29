@@ -190,7 +190,25 @@ public class ResearchCycleService {
      */
     private volatile String restrictDomain = "";
 
-    @org.springframework.beans.factory.annotation.Value("${app.research.restrictDomain:}")
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private org.springframework.core.env.Environment env;
+
+    /**
+     * 2026-05-29 — resolve restrictDomain from the Spring Environment at init
+     * (robust against setter-injection not firing) and log the resolved value
+     * plus whether the conjecture provider is wired, for verification. Tests
+     * that {@code new} this service skip @PostConstruct, keeping the default.
+     */
+    @jakarta.annotation.PostConstruct
+    void initRestrictDomainFromEnv() {
+        if (env != null) {
+            String v = env.getProperty("app.research.restrictDomain", "");
+            this.restrictDomain = (v == null) ? "" : v.trim();
+        }
+        log.info("ResearchCycleService init: restrictDomain='{}' conjectureProvider={}",
+                restrictDomain, conjectureTopicProvider != null);
+    }
+
     public void setRestrictDomain(String domain) {
         this.restrictDomain = domain == null ? "" : domain.trim();
     }
