@@ -380,6 +380,24 @@ public class ResearchNarrationService {
     private boolean revisionSelfCheckEnabled;
 
     /**
+     * rec #4 follow-up (2026-05-29) — revision-prompt trace grounding. ROOT
+     * CAUSE of the phantom {@code [call_N]} citations (P-a328-993 cited
+     * call_18/19; 994 cited the FAILED call_1/5): the revision templates inject
+     * the professor's PROSE synthesis (which carries no {@code [call_N]}
+     * prefixes), yet {@link #CITATION_RULE_ADDENDUM} tells the reviser to "reuse
+     * those exact markers" — so the student-revision stage auto-numbered
+     * citations blind and overran the real trace. When ON, both the
+     * student-revision and panel-revision prompts get the actual
+     * {@code [call_N]}-tagged trace ({@link #renderCitableTraceBlock}) appended,
+     * making the addendum's premise true: the reviser cites real IDs and SEES
+     * the ceiling. Default off (A/B against the prompt-instruction-only state
+     * shipped in 59c8efb). See [[project_hallucination_stage_rootcause]].
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.revision-trace-grounding.enabled:false}")
+    private boolean revisionTraceGroundingEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -1771,8 +1789,14 @@ public class ResearchNarrationService {
             // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            final String revisionUserPrompt = buildRevisionPromptFromSynthesis(
+            String revisionPromptBase = buildRevisionPromptFromSynthesis(
                     promptRegistry, draft, firstPass, professorSynthesis, literatureContext);
+            // rec #4 follow-up — ground the [call_N] contract by appending the real
+            // tagged trace, so the reviser cites real IDs instead of inventing them
+            // (P-a328-993/994). Flag-gated for A/B against the instruction-only state.
+            final String revisionUserPrompt = revisionTraceGroundingEnabled
+                    ? revisionPromptBase + renderCitableTraceBlock(profTrace)
+                    : revisionPromptBase;
             // Lever 2 — snapshot the professor trace as effectively-final for the
             // self-check executor; the revision's OWN check calls are not part of
             // this trace and must never be appended to it.
@@ -2410,7 +2434,11 @@ public class ResearchNarrationService {
         }
         long start = System.currentTimeMillis();
         try {
-            String prompt = buildPanelRevisionPrompt(narration, outcome);
+            // rec #4 follow-up — ground the citation constraints with the real
+            // tagged trace when the flag is on (profTrace is authoritative here).
+            String traceBlock = revisionTraceGroundingEnabled
+                    ? renderCitableTraceBlock(profTrace) : "";
+            String prompt = buildPanelRevisionPrompt(narration, outcome, traceBlock);
             StringBuilder buf = new StringBuilder();
             // Phase 17 (analyses §2.4) — temperature 0.0 for the panel
             // revision: the constraints (no new numerics, fix citations,
@@ -2536,6 +2564,19 @@ public class ResearchNarrationService {
      */
     static String buildPanelRevisionPrompt(NarrationResult narration,
                                             com.emergentterrain.research.PanelOutcome outcome) {
+        return buildPanelRevisionPrompt(narration, outcome, "");
+    }
+
+    /**
+     * rec #4 follow-up (2026-05-29) — {@code traceBlock} is the pre-rendered
+     * {@code [call_N]}-tagged trace (see {@link #renderCitableTraceBlock}),
+     * appended before the OUTPUT FORMAT section so the citation constraints
+     * below actually have the trace to reference. Pass {@code ""} (or use the
+     * 2-arg overload) to retain the prior instruction-only behaviour.
+     */
+    static String buildPanelRevisionPrompt(NarrationResult narration,
+                                            com.emergentterrain.research.PanelOutcome outcome,
+                                            String traceBlock) {
         StringBuilder p = new StringBuilder();
         p.append("You wrote a research paper that a multi-reviewer panel has just evaluated. ")
                 .append("The panel agreed on specific issues. Your task is a FOCUSED REVISION ")
@@ -2587,6 +2628,10 @@ public class ResearchNarrationService {
                 .append("index higher than the number of calls in the trace, and never cite a call ")
                 .append("that errored or was REJECTED by safety review — treat those as absent.\n")
                 .append("6. Keep prose factual and concise; do not pad with boilerplate.\n\n");
+
+        if (traceBlock != null && !traceBlock.isEmpty()) {
+            p.append(traceBlock).append("\n");
+        }
 
         p.append("=== OUTPUT FORMAT ===\n")
                 .append("Return ONLY valid JSON with this exact schema:\n")
@@ -3293,6 +3338,62 @@ public class ResearchNarrationService {
      * calls have run yet at those points — there are no {@code call_N} IDs to
      * cite.
      */
+    /**
+     * rec #4 follow-up (2026-05-29) — render the actual {@code [call_N]}-tagged
+     * tool trace for injection into a revision prompt. This makes
+     * {@link #CITATION_RULE_ADDENDUM}'s premise ("tool results ... already
+     * prefixed with their [call_N] IDs — reuse those exact markers") TRUE: the
+     * revision templates otherwise inject only the professor's PROSE synthesis,
+     * so the reviser invented {@code [call_N]} indices and overran the trace
+     * (P-a328-993 cited call_18/19; 994 cited the FAILED call_1/5).
+     *
+     * <p>Every invocation is listed with its real harness-assigned
+     * {@code callId} (falling back to its 1-based position for pre-Phase-11
+     * traces). Errored / safety-rejected calls are rendered but flagged
+     * DO-NOT-CITE (via {@link com.emergentterrain.research.NumericalConsistencyValidator#isErroredResult})
+     * — the harness numbers {@code call_N} positionally over the WHOLE trace, so
+     * a failed call still occupies an index that must not be cited as data.
+     * Args/results are clipped to bound prompt tokens.
+     *
+     * <p>Returns {@code ""} for a null/empty trace so callers can append
+     * unconditionally. Package-private + static for unit testing without a router.
+     */
+    static String renderCitableTraceBlock(List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return "";
+        StringBuilder b = new StringBuilder();
+        b.append("\n\n=== TOOL-CALL TRACE — the ONLY valid [call_N] citations ===\n")
+                .append("These are the exact tool calls made for this paper, with their real ")
+                .append("[call_N] IDs. Cite ONLY these markers; never cite a [call_N] not listed ")
+                .append("here and never cite a call marked FAILED.\n");
+        int idx = 0;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            idx++;
+            if (inv == null) continue;
+            String id = (inv.callId() != null && !inv.callId().isBlank())
+                    ? inv.callId() : "call_" + idx;
+            String fn = inv.functionName() == null ? "?" : inv.functionName();
+            b.append('[').append(id).append("] ").append(fn)
+                    .append('(').append(clip(inv.argsJson(), 120)).append(") → ");
+            if (com.emergentterrain.research.NumericalConsistencyValidator
+                    .isErroredResult(inv.resultJson())) {
+                b.append("FAILED (errored or safety-rejected) — DO NOT CITE\n");
+            } else {
+                b.append(clip(inv.resultJson(), 240)).append('\n');
+            }
+        }
+        b.append("Valid citation indices: call_1 … call_").append(trace.size())
+                .append(". Never cite an index above call_").append(trace.size())
+                .append(", and never cite a FAILED call.\n");
+        return b.toString();
+    }
+
+    /** Whitespace-collapse and length-clip a raw JSON field for prompt embedding. */
+    private static String clip(String s, int max) {
+        if (s == null) return "";
+        String t = s.replaceAll("\\s+", " ").trim();
+        return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
     static final String CITATION_RULE_ADDENDUM = """
 
 

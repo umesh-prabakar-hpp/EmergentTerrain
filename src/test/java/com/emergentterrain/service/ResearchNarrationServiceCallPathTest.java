@@ -312,6 +312,79 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(prompt).contains("PANEL RECOMMENDATIONS");
     }
 
+    // ---- rec #4 follow-up: revision-prompt [call_N] trace grounding ----
+
+    private static com.emergentterrain.llm.ToolInvocation inv(
+            String fn, String args, String result, int round, String callId) {
+        return new com.emergentterrain.llm.ToolInvocation(fn, args, result, round, callId);
+    }
+
+    @Test
+    void traceBlock_emptyForNullOrEmptyTrace() {
+        assertThat(ResearchNarrationService.renderCitableTraceBlock(null)).isEmpty();
+        assertThat(ResearchNarrationService.renderCitableTraceBlock(List.of())).isEmpty();
+    }
+
+    @Test
+    void traceBlock_listsRealCallIdsAndStatesCeiling() {
+        String block = ResearchNarrationService.renderCitableTraceBlock(List.of(
+                inv("run_param_sweep", "{\"param1\":3}", "{\"deviation\":0.29}", 1, "call_1"),
+                inv("run_symbolic", "{\"expr\":\"b/T\"}", "{\"value\":1.0}", 2, "call_2")));
+        assertThat(block).contains("[call_1] run_param_sweep");
+        assertThat(block).contains("[call_2] run_symbolic");
+        // The ceiling is stated explicitly so the reviser cannot over-run it.
+        assertThat(block).contains("Valid citation indices: call_1 … call_2");
+        assertThat(block).contains("Never cite an index above call_2");
+    }
+
+    @Test
+    void traceBlock_flagsErroredAndRejectedCallsDoNotCite() {
+        // P-a328-994 cited the FAILED call_1/5 as data — failed calls must be
+        // rendered (they occupy a positional index) but explicitly DO-NOT-CITE,
+        // and their result body must NOT be shown as a citable value.
+        String block = ResearchNarrationService.renderCitableTraceBlock(List.of(
+                inv("run_sandboxed_code", "{}", "{\"error\":true,\"loop limit\":1}", 1, "call_1"),
+                inv("run_symbolic", "{}", "REJECTED by safety: unbalanced parens", 2, "call_2"),
+                inv("run_param_sweep", "{}", "{\"deviation\":1.18}", 3, "call_3")));
+        assertThat(block).contains("[call_1] run_sandboxed_code({}) → FAILED");
+        assertThat(block).contains("[call_2] run_symbolic({}) → FAILED");
+        assertThat(block).doesNotContain("loop limit");      // failed body not surfaced as data
+        assertThat(block).contains("[call_3] run_param_sweep({}) → ");
+        assertThat(block).contains("1.18");                  // good call's value IS surfaced
+    }
+
+    @Test
+    void traceBlock_fallsBackToPositionalIdWhenCallIdNull() {
+        // pre-Phase-11 traces have null callId; render the 1-based position.
+        String block = ResearchNarrationService.renderCitableTraceBlock(List.of(
+                inv("run_symbolic", "{}", "{\"value\":2}", 1, null)));
+        assertThat(block).contains("[call_1] run_symbolic");
+    }
+
+    @Test
+    void panelRevision_threeArgInjectsTraceBlock() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        String traceBlock = ResearchNarrationService.renderCitableTraceBlock(List.of(
+                inv("run_param_sweep", "{}", "{\"deviation\":0.29}", 1, "call_1")));
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(
+                n, panelOutcome(1, 0), traceBlock);
+        assertThat(prompt).contains("TOOL-CALL TRACE — the ONLY valid [call_N] citations");
+        assertThat(prompt).contains("[call_1] run_param_sweep");
+        // The block precedes the OUTPUT FORMAT section.
+        assertThat(prompt.indexOf("TOOL-CALL TRACE"))
+                .isLessThan(prompt.indexOf("=== OUTPUT FORMAT ==="));
+    }
+
+    @Test
+    void panelRevision_twoArgOmitsTraceBlock() {
+        com.emergentterrain.research.NarrationResult n = new com.emergentterrain.research.NarrationResult(
+                "Hyp.", "Find.", "Conc.", null, "m", 0.5, List.of());
+        // Backward-compat: the 2-arg overload (and "" trace) emits no trace block.
+        String prompt = ResearchNarrationService.buildPanelRevisionPrompt(n, panelOutcome(1, 0));
+        assertThat(prompt).doesNotContain("TOOL-CALL TRACE");
+    }
+
     // ---- Phase 17 panel-grade-floor demote gate ----
 
     private static PanelOutcome panelOutcomeWithGrades(

@@ -163,6 +163,21 @@ public final class NumericalConsistencyValidator {
             + "|Topic\\s+not\\s+computable");
 
     /**
+     * Does a tool-call result body carry an errored / safety-rejected marker?
+     * The single source of truth for "this call did NOT return a usable result"
+     * — used by the F1b-companion checks here AND by the revision-prompt trace
+     * renderer, which must label failed calls DO-NOT-CITE so the reviser does
+     * not cite an errored call as data (P-a328-994 cited the errored call_1/5).
+     *
+     * @param resultJson the raw {@link com.emergentterrain.llm.ToolInvocation#resultJson()}
+     * @return true when the body is non-blank AND matches an errored-result marker
+     */
+    public static boolean isErroredResult(String resultJson) {
+        return resultJson != null && !resultJson.isBlank()
+                && ERRORED_RESULT_MARKER.matcher(resultJson).find();
+    }
+
+    /**
      * Phase 12 D2e — high-deviation marker in a tool result. P-a328-405 /
      * P-a328-422 both had their recovered ε value sit in the trace within
      * tolerance of the prose value, so Check C's literal-numeric match passes
@@ -881,7 +896,7 @@ public final class NumericalConsistencyValidator {
             if (inv == null) continue;
             String body = inv.resultJson();
             if (body == null || body.isBlank()) continue;
-            if (ERRORED_RESULT_MARKER.matcher(body).find()) continue;
+            if (isErroredResult(body)) continue;
             n++;
         }
         return n;
