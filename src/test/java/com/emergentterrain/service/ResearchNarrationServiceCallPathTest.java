@@ -385,6 +385,25 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(prompt).doesNotContain("TOOL-CALL TRACE");
     }
 
+    // ---- rec #4 follow-up: first-pass metric-fabrication guard ----
+
+    @Test
+    void firstPassGuard_appendsRuleWhenEnabled() {
+        String guarded = ResearchNarrationService.appendFirstPassMetricGuard("BASE PROMPT", true);
+        assertThat(guarded).startsWith("BASE PROMPT");
+        assertThat(guarded).contains("FIRST-PASS GROUNDING");
+        // Targets P-a328-995: no fabricated quality score, no premature optimum.
+        assertThat(guarded).contains("quality score");
+        assertThat(guarded).contains("optimum");
+        assertThat(guarded).contains("confidenceScore");
+    }
+
+    @Test
+    void firstPassGuard_noOpWhenDisabled() {
+        assertThat(ResearchNarrationService.appendFirstPassMetricGuard("BASE PROMPT", false))
+                .isEqualTo("BASE PROMPT");
+    }
+
     // ---- Phase 17 panel-grade-floor demote gate ----
 
     private static PanelOutcome panelOutcomeWithGrades(

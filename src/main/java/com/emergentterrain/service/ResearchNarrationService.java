@@ -398,6 +398,24 @@ public class ResearchNarrationService {
     private boolean revisionTraceGroundingEnabled;
 
     /**
+     * rec #4 follow-up (2026-05-29) — first-pass metric-fabrication guard. The
+     * second hallucination class (distinct from the phantom-{@code [call_N]}
+     * citations the trace-grounding fix targets): the first-pass narrator runs
+     * with NO tools, yet asserts specific measured-looking numbers in prose —
+     * P-a328-995 stated a "quality score of 0.89" present in no tool call and
+     * locked in d=2.41µm as the optimum before the professor sweep found the
+     * equal-or-better d=2.62µm. The harness itself seeds the phrase "quality
+     * score" into follow-up prompts and emits {@code predictedScore}/
+     * {@code confidenceScore}, so the narrator conflates those meta-assessments
+     * with computed results. When ON, {@link #FIRST_PASS_METRIC_GUARD_RULE} is
+     * appended to the first-pass prompt forbidding that conflation. Default off.
+     * See [[project_hallucination_stage_rootcause]].
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.first-pass-metric-guard.enabled:false}")
+    private boolean firstPassMetricGuardEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -1345,7 +1363,10 @@ public class ResearchNarrationService {
         boolean firstPassFailed = false;
 
         // First-pass narration (Groq/primary stream)
-        String prompt = buildNarrationPrompt(draft);
+        // rec #4 follow-up — guard against fp asserting uncomputed metrics / a
+        // premature optimum (P-a328-995). Flag-gated; no-op when off.
+        String prompt = appendFirstPassMetricGuard(
+                buildNarrationPrompt(draft), firstPassMetricGuardEnabled);
         long start = System.currentTimeMillis();
         StringBuilder response = new StringBuilder();
         try {
@@ -3392,6 +3413,36 @@ public class ResearchNarrationService {
         if (s == null) return "";
         String t = s.replaceAll("\\s+", " ").trim();
         return t.length() <= max ? t : t.substring(0, max) + "…";
+    }
+
+    /**
+     * rec #4 follow-up (2026-05-29) — appended to the first-pass prompt when
+     * {@code firstPassMetricGuardEnabled}. Targets P-a328-995's two fp failures:
+     * a fabricated "quality score" presented as a result, and committing to an
+     * "optimum" before the verification tools ran. {@code confidenceScore} /
+     * {@code predictedScore} stay valid as JSON meta-fields; the rule only bars
+     * stating them (or any uncomputed metric) as measured results in prose.
+     */
+    static final String FIRST_PASS_METRIC_GUARD_RULE = """
+
+
+            FIRST-PASS GROUNDING: no verification tools have run at this stage — you are \
+            interpreting the raw computation output above, nothing more. In `findings` and \
+            `conclusion`: (a) do NOT state a specific numeric "quality score", "accuracy", or \
+            any measured metric the computation did not itself produce — `confidenceScore` and \
+            `predictedScore` are your own meta-assessments and belong ONLY in those JSON fields, \
+            never in prose as a computed result; (b) do NOT declare one parameter value the \
+            definitive optimum unless the raw output above already shows it beating the \
+            alternatives — describe the qualitative trend and leave the precise optimum to the \
+            verified revision.""";
+
+    /**
+     * Append {@link #FIRST_PASS_METRIC_GUARD_RULE} to a first-pass prompt iff the
+     * guard is enabled. Package-private + static so the flag-gating is unit-testable
+     * without standing up a router or the prompt registry.
+     */
+    static String appendFirstPassMetricGuard(String prompt, boolean enabled) {
+        return enabled ? prompt + FIRST_PASS_METRIC_GUARD_RULE : prompt;
     }
 
     static final String CITATION_RULE_ADDENDUM = """
