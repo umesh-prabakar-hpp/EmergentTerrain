@@ -245,7 +245,8 @@ public final class NumericalConsistencyValidator {
         if (hypothesis == null || findings == null || conclusion == null) return reasons;
 
         // Check A — "close to N" anchor that has no nearby observed value within ±20%.
-        findCloseToFarFromObserved(findings, conclusion, reasons);
+        // No trace on this overload → no tool-parameter grounding (empty set).
+        findCloseToFarFromObserved(findings, conclusion, reasons, java.util.Set.of());
 
         // Check B — Hypothesis "near X" vs Conclusion "starting Y" mismatch.
         findRangeMismatch(hypothesis, conclusion, reasons);
@@ -291,8 +292,19 @@ public final class NumericalConsistencyValidator {
                                          java.util.Map<Integer, String> findingsMap,
                                          String conclusion,
                                          java.util.List<com.emergentterrain.llm.ToolInvocation> toolCallTrace) {
-        List<String> reasons = validate(hypothesis, findingsMap, conclusion);
         String findings = MagnitudeRangeValidator.joinBlocks(findingsMap);
+        // Base checks (A + B). Unlike the trace-less overload, Check A here grounds
+        // "close to N" anchors against the numbers the model actually passed as tool
+        // arguments (window_start / window_size / num_windows / range bounds /
+        // baseline). A round value like 10000 that is a window-size *parameter* is a
+        // grounded reference, not a fabricated result — P-b72c-6 was false-NULLed for
+        // "close to 10000" with no Findings value near it (Check B needs no grounding).
+        List<String> reasons = new ArrayList<>();
+        if (hypothesis != null && findings != null && conclusion != null) {
+            findCloseToFarFromObserved(findings, conclusion, reasons,
+                    collectToolParamNumbers(toolCallTrace));
+            findRangeMismatch(hypothesis, conclusion, reasons);
+        }
 
         // Phase 12 D2c — when the trace was instantiated but stayed EMPTY
         // (professor stage ran and errored before any tool call landed) AND
@@ -343,7 +355,8 @@ public final class NumericalConsistencyValidator {
      * ±20% of N, flag a "claim-vs-data" inconsistency.
      */
     private static void findCloseToFarFromObserved(String findings, String conclusion,
-                                                    List<String> reasons) {
+                                                    List<String> reasons,
+                                                    java.util.Set<Double> groundedParams) {
         Matcher m = COMPARISON_ANCHOR.matcher(conclusion);
         while (m.find()) {
             double anchor = Double.parseDouble(m.group(1));
@@ -372,12 +385,61 @@ public final class NumericalConsistencyValidator {
                     }
                 }
             }
+            // 2026-05-29 — the anchor is also grounded if it (near-exactly) matches a
+            // number the model passed as a tool argument: a window_size / range bound /
+            // baseline the run actually used is a parameter reference, not a fabricated
+            // result. Tight tolerance (1%, not the 20% result band) so a real result
+            // claim that merely sits within 20% of some unrelated parameter is NOT
+            // exempted. Fixes the P-b72c-6 false NULL on "close to 10000" (a window
+            // size), without weakening the fabrication catch for genuine result claims.
+            if (!foundNearby && groundedParams != null) {
+                for (double a : candidateAnchors) {
+                    for (double p : groundedParams) {
+                        if (Math.abs(p - a) <= Math.max(Math.abs(a), 1.0) * F5_5_RELATIVE_TOLERANCE) {
+                            foundNearby = true;
+                            break;
+                        }
+                    }
+                    if (foundNearby) break;
+                }
+            }
             if (!foundNearby) {
                 reasons.add(String.format(
                         "Conclusion claims values are 'close to %s%s' but no Findings value lands within ±20%% of %s.",
                         m.group(1), unit, m.group(1)));
             }
         }
+    }
+
+    /**
+     * JSON value-after-colon numeric, used to harvest the numbers a tool call was
+     * invoked with (window_start / window_size / num_windows / range bounds /
+     * baseline / k / c). Matches the value side of {@code "key": <num>} so keys and
+     * numbers embedded inside string values are not collected.
+     */
+    private static final Pattern JSON_NUMERIC_VALUE =
+            Pattern.compile(":\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?");
+
+    /**
+     * 2026-05-29 — the set of numeric values the model passed as tool arguments
+     * across the whole trace. {@link #findCloseToFarFromObserved} treats a "close to
+     * N" anchor as grounded when N matches one of these (near-exactly), so a window
+     * size / range bound / baseline the run actually used is not mistaken for a
+     * fabricated result. Null/empty trace → empty set (no grounding).
+     */
+    private static java.util.Set<Double> collectToolParamNumbers(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        java.util.Set<Double> out = new java.util.HashSet<>();
+        if (trace == null) return out;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv == null || inv.argsJson() == null) continue;
+            Matcher m = JSON_NUMERIC_VALUE.matcher(inv.argsJson());
+            while (m.find()) {
+                try { out.add(Double.parseDouble(m.group(1))); }
+                catch (NumberFormatException ignored) {}
+            }
+        }
+        return out;
     }
 
     /**
