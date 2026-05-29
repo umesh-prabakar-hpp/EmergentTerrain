@@ -555,6 +555,12 @@ class PromptTemplateRegistryTest {
                     Write `x^2`, not `x**2` or `pow(x,2)`. Plain expressions only —
                     no top-level `let … end` blocks; if you need scoped names use
                     `(let x = …, y = …; expr end)` wrapped in parens on a single line.
+                  - run_symbolic is Julia, NOT Mathematica. Use lowercase `pi` (or `π`),
+                    never `PI`. There is no `PLANCK_H`/`HBAR`/`PLANCK` global — substitute
+                    the numeric value (h = 6.62607015e-34, ħ = 1.054571817e-34) or bind it
+                    inline. There is no `Solve[...]`/`NSolve[...]` — rearrange to a closed
+                    form or evaluate numerically instead. (These undefined globals are the
+                    top recurring run_symbolic eval errors.)
                   - If a call is REJECTED by safety review, READ the rejection reason —
                     it names the disallowed construct. Don't resubmit the same shape.
                 After any tool calls, write a concise synthesis:
@@ -934,6 +940,21 @@ class PromptTemplateRegistryTest {
                 .contains("compares a derived quantity to its own")   // single-line (text-block wraps after "own")
                 .contains("independent measurement, prediction, or dataset")
                 .contains("physical_mechanism");      // stays on the existing gate's dimension
+    }
+
+    @Test
+    void sidecar7a_professorPromptWarnsAgainstMathematicaGlobals() {
+        // §7a — the LLM kept reaching for Mathematica-style globals in run_symbolic
+        // (PI/PLANCK_H/Solve), the top recurring sidecar eval errors. The active
+        // professor system prompt must steer it to Julia equivalents.
+        PromptTemplateRegistry r = freshSeededRegistry();
+        String body = r.pickActive(PromptTemplateIds.NARRATION_PROFESSOR_SYSTEM_ID)
+                .orElseThrow().body();
+        assertThat(body)
+                .contains("Julia, NOT Mathematica")
+                .contains("never `PI`")
+                .contains("no `PLANCK_H`")
+                .contains("no `Solve[...]`");
     }
 
     @Test
