@@ -91,7 +91,11 @@ public class ResearchPaper {
      * DOMAIN so existing rows read back unchanged.
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "kind", nullable = false, length = 16)
+    // 2026-05-29 — 32 not 16: PaperKind.CONJECTURE_INVESTIGATION is 24 chars and
+    // overflowed varchar(16) on insert (DataException) once conjecture papers
+    // started persisting. ddl-auto=update does NOT widen existing columns, so the
+    // live column was ALTERed to varchar(32) separately; this keeps fresh DBs correct.
+    @Column(name = "kind", nullable = false, length = 32)
     private PaperKind kind = PaperKind.DOMAIN;
 
     /**
