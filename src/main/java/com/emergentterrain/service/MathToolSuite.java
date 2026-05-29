@@ -86,6 +86,30 @@ public class MathToolSuite {
         return false;
     }
 
+    /**
+     * rec #6 (2026-05-28) — the sandbox end index after clamping an over-cap span
+     * to {@code cap}. Within-cap ranges pass through unchanged; an over-cap range
+     * is truncated to {@code [start, start+cap)}. Package-private + pure so the
+     * clamp logic is unit-testable without standing up the Mockito-mocked
+     * executor (which can't instantiate on this dev shell's JDK).
+     */
+    static int clampSandboxEnd(int rangeStart, int rangeEnd, int cap) {
+        return (rangeEnd - rangeStart > cap) ? rangeStart + cap : rangeEnd;
+    }
+
+    /**
+     * rec #6 — the visible note appended to the sandbox result when a span was
+     * clamped, or "" when no clamp occurred. Tells the narrator to cite the
+     * computed sub-range rather than the wider range it requested.
+     */
+    static String sandboxRangeClampNote(int rangeStart, int rangeEnd, int cap) {
+        if (rangeEnd - rangeStart <= cap) return "";
+        int clampedEnd = rangeStart + cap;
+        return (" [range auto-clamped: requested [%d,%d) span %d exceeds the %d cap; "
+                + "computed only the first %d values, [%d,%d) — cite this range, not the requested one]")
+                .formatted(rangeStart, rangeEnd, rangeEnd - rangeStart, cap, cap, rangeStart, clampedEnd);
+    }
+
     public static final class ToolMetrics {
         private int sandboxRejectCount  = 0;
         private int symbolicRejectCount = 0;
@@ -1628,8 +1652,22 @@ public class MathToolSuite {
         // narrator. Only clamp when a sane end exists — a missing/zero end still
         // falls through to the rejection so genuinely empty ranges are caught.
         if (rangeStart < 1 && rangeEnd > 1) rangeStart = 1;
-        if (rangeStart < 1 || rangeEnd <= rangeStart || rangeEnd - rangeStart > MAX_SANDBOX_RANGE)
+        // Genuinely-empty / inverted ranges still hard-reject.
+        if (rangeStart < 1 || rangeEnd <= rangeStart)
             return "Invalid range: must be ≥1 and span ≤ " + MAX_SANDBOX_RANGE;
+        // rec #6 (2026-05-28) — auto-clamp an over-cap span instead of hard-rejecting.
+        // The model repeatedly emits ranges past the span cap (P-a328-997's call_2
+        // requested T=3650–10427 K, span 6777 > 5000, and burned the call). The
+        // success string below echoes the actual [start,end) used, so clamping here
+        // keeps the computed sub-range visible; we also append an explicit note so
+        // the narrator cites the computed range, not the requested one.
+        String rangeClampNote = sandboxRangeClampNote(rangeStart, rangeEnd, MAX_SANDBOX_RANGE);
+        if (!rangeClampNote.isEmpty()) {
+            int requestedEnd = rangeEnd;
+            rangeEnd = clampSandboxEnd(rangeStart, rangeEnd, MAX_SANDBOX_RANGE);
+            log.info("MathToolSuite: sandbox range auto-clamped requested=[{},{}) → [{},{}) (cap {})",
+                    rangeStart, requestedEnd, rangeStart, rangeEnd, MAX_SANDBOX_RANGE);
+        }
 
         // Static check + primary-model intent review before execution.
         String reviewVerdict = reviewCodeIntent(code, description);
@@ -1691,8 +1729,8 @@ public class MathToolSuite {
                 }
                 named = b.toString();
             }
-            return "Sandboxed computation — \"%s\" over [%d,%d): %s%s%s"
-                    .formatted(description, rangeStart, rangeEnd, result.summary(), stats, named);
+            return "Sandboxed computation — \"%s\" over [%d,%d): %s%s%s%s"
+                    .formatted(description, rangeStart, rangeEnd, result.summary(), stats, named, rangeClampNote);
         } catch (Exception e) {
             return "Sandbox execution failed: " + e.getMessage();
         }

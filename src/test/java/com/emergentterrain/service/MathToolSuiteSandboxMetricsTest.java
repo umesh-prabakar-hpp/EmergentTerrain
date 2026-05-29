@@ -131,6 +131,39 @@ class MathToolSuiteSandboxMetricsTest {
     }
 
     @Test
+    void overCapRangeIsAutoClampedInsteadOfRejected() throws Exception {
+        // rec #6 — the model repeatedly emits a span past the 5000 cap
+        // (P-a328-997's call_2: T=3650–10427, span 6777). Instead of the
+        // "Invalid range:" refusal that burned the call, the range is clamped to
+        // the first MAX_SANDBOX_RANGE values, the result echoes the clamped range,
+        // and an explicit auto-clamp note tells the narrator which range to cite.
+        LlmRouter router = mock(LlmRouter.class);
+        when(router.callFast(anyString())).thenReturn("APPROVED");
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(router, mapper);
+
+        MathToolSuite.ToolMetrics metrics = new MathToolSuite.ToolMetrics();
+        var executor = suite.buildExecutor(stubDraft(), metrics);
+
+        String toolCall = mapper.writeValueAsString(java.util.Map.of(
+                "name", "run_sandboxed_code",
+                "arguments", java.util.Map.of(
+                        "code",        "var s = 0; for (var n = start; n < end; n++) { s += 1; } return s;",
+                        "description", "sweep a wide range",
+                        "range_start", 1,
+                        "range_end",   8000     // span 7999 > 5000 cap → previously hard-rejected
+                )));
+
+        String result = executor.apply(toolCall);
+
+        assertThat(result).startsWith("Sandboxed computation");
+        assertThat(result).contains("over [1,5001)");        // clamped to start + 5000
+        assertThat(result).contains("auto-clamped");
+        assertThat(result).doesNotContain("Invalid range");
+        assertThat(metrics.sandboxSuccessCount()).isEqualTo(1);
+    }
+
+    @Test
     void missingRangeStillRejects() throws Exception {
         // The clamp must not paper over a genuinely empty/absent range: with no
         // sane end, the call still returns the Invalid-range refusal.
