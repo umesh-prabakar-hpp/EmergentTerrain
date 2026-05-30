@@ -1502,14 +1502,42 @@ public class MathToolSuite {
                 result.windowsEvaluated(), windowSize, windowStart));
         sb.append(String.format("worst margin: %+.5f at window starting %d.",
                 result.worstMargin(), result.worstWindowStart()));
-        // Binding-regime auto-probe (room b72c4e10): if the verifier appended a
-        // window below the requested start to test where the bound binds, say
-        // so — the narrator must not present it as a window it chose.
-        boolean boundaryProbed = result.windows().stream()
-                .anyMatch(w -> w.windowStart() < windowStart);
-        if (boundaryProbed) {
-            sb.append(" [binding-regime auto-probe: an extra window at the smallest-ceiling"
-                    + " start was appended to test the regime where the bound binds]");
+        // Binding-regime auto-probe (room b72c4e10, REVIEW_REPORT §1 rec #3):
+        // the verifier may append window(s) BELOW the requested start to test
+        // where the bound binds. The headline verdict + worst margin above range
+        // over ALL windows including that probe, so a call whose requested
+        // windows all HELD can still read REFUTED purely because of the probe.
+        // Spell out the requested-range result separately so the narrator does
+        // not (a) present the probe as a window it chose, or (b) double-count the
+        // same small-start refutation as independent evidence across calls.
+        var probeWindows = result.windows().stream()
+                .filter(w -> w.windowStart() < windowStart).toList();
+        if (!probeWindows.isEmpty()) {
+            var userWindows = result.windows().stream()
+                    .filter(w -> w.windowStart() >= windowStart).toList();
+            long userRefuted = userWindows.stream().filter(w -> !w.holds()).count();
+            String userWorst = userWindows.stream()
+                    .max(java.util.Comparator.comparingDouble(w -> w.margin()))
+                    .map(w -> String.format(" worst margin %+.5f at start %d.",
+                            w.margin(), w.windowStart()))
+                    .orElse("");
+            sb.append(String.format(
+                    " [binding-regime auto-probe: %d extra window(s) below the requested"
+                            + " start were appended at the smallest-ceiling start to test where"
+                            + " the bound binds; they are NOT part of the requested range.",
+                    probeWindows.size()));
+            if (userWindows.isEmpty()) {
+                sb.append(" The requested range contributed no windows.]");
+            } else if (userRefuted == 0) {
+                sb.append(String.format(
+                        " Requested range (start>=%d): all %d window(s) HELD.%s"
+                                + " The REFUTED verdict above is due solely to the appended probe.]",
+                        windowStart, userWindows.size(), userWorst));
+            } else {
+                sb.append(String.format(
+                        " Requested range (start>=%d): %d of %d window(s) REFUTED.%s]",
+                        windowStart, userRefuted, userWindows.size(), userWorst));
+            }
         }
         sb.append("\nPer-window:");
         for (var w : result.windows()) {

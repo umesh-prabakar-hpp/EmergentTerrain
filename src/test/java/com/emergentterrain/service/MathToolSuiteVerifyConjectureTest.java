@@ -100,6 +100,70 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @Test
+    void autoProbeRefutationIsSeparatedFromRequestedRange() throws Exception {
+        // REVIEW_REPORT b72c4e10 §1 rec #3: when the appended binding-regime
+        // probe (start=2000) refutes but every REQUESTED window holds, the
+        // output must say so explicitly rather than letting the headline
+        // REFUTED / "worst margin at start 2000" stand unqualified.
+        ObjectMapper mapper = new ObjectMapper();
+        ConjectureVerifier verifier = verifierWithSubstrate();
+        verifier.setBoundaryProbeEnabled(true);   // probe is flag-gated; enable for this test
+        MathToolSuite suite = new MathToolSuite((LlmRouter) null, mapper, null, null, verifier);
+        var executor = suite.buildExecutor(stubDraft());
+
+        // lhs=abundant_density (stub=0.247), bound = 2*log10(start) - 7.7621.
+        // start=200000 -> bound=+2.840 -> 0.247 HOLDS; appended probe at
+        // start=2000 -> bound=-1.160 -> 0.247 REFUTES. So the requested range
+        // all holds; only the probe refutes.
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density",
+                        "rhs", "log_window_start",
+                        "k", 2.0,
+                        "c", -7.7621,
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3)));
+
+        String result = executor.apply(call);
+        // Headline still reflects the global (correct) refutation...
+        assertThat(result).contains("REFUTED");
+        // ...but the requested range is broken out as all-HELD, attributing the
+        // refutation solely to the probe.
+        assertThat(result).contains("binding-regime auto-probe");
+        assertThat(result).contains("NOT part of the requested range");
+        assertThat(result).contains("Requested range (start>=200000): all 3 window(s) HELD");
+        assertThat(result).contains("due solely to the appended probe");
+    }
+
+    @Test
+    void noAutoProbeAnnotationWhenProbeDisabled() throws Exception {
+        // Same call with the probe OFF: no appended window below the start, so
+        // no auto-probe clause and the requested windows stand on their own.
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density",
+                        "rhs", "log_window_start",
+                        "k", 2.0,
+                        "c", -7.7621,
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3)));
+
+        String result = executor.apply(call);
+        assertThat(result).contains("HELD");
+        assertThat(result).doesNotContain("binding-regime auto-probe");
+        assertThat(result).doesNotContain("Requested range");
+    }
+
+    @Test
     void notConfiguredErrorWhenVerifierAbsent() throws Exception {
         ObjectMapper mapper = new ObjectMapper();
         MathToolSuite suite = new MathToolSuite((LlmRouter) null, mapper);
