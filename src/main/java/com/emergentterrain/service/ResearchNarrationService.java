@@ -454,6 +454,39 @@ public class ResearchNarrationService {
     private boolean revisionNoveltyPreservationEnabled;
 
     /**
+     * REVIEW_REPORT b72c4e10 §1 rec #4 — executed-scope grounding for the
+     * revision stage. P-b72c-19 stated results over ranges [100,500) and
+     * [700,1100) that NO tool call executed (only [300,700) was scanned), and
+     * reported "+0.52" where call_5 computed z=-0.523 (sign flipped, magnitude
+     * truncated). The numerical-consistency gate caught it post-hoc and demoted
+     * the paper to NULL_RESULT, but the reviser should not emit unexecuted
+     * ranges or sign-flipped values in the first place. When ON,
+     * {@link #EXECUTED_SCOPE_RULE} is appended to the revision prompt, confining
+     * results to ranges a call actually swept and pinning each value to the
+     * sign+magnitude the tool returned. Adds no output field (schema-compatible).
+     * Default off (cf. [[feedback_flag_gated_dormant]]).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.executed-scope-grounding.enabled:false}")
+    private boolean executedScopeGroundingEnabled;
+
+    /**
+     * REVIEW_REPORT b72c4e10 §1 rec #5 — definition grounding for the revision
+     * stage. P-b72c-18's Mechanism defined the central quantity as
+     * "mertens_per_sqrt_W = M/sqrt(W) where W denotes window_start" while the
+     * tool's own sandbox normalized by sqrt(window_size). The definition
+     * contradicted the computation even though the refutation conclusion was
+     * unaffected. When ON, {@link #DEFINITION_GROUNDING_RULE} is appended to the
+     * revision prompt, requiring the Mechanism/Methods prose to define each
+     * computed quantity exactly as the tools computed it (same normalizer,
+     * window, variables). Adds no output field. Default off
+     * (cf. [[feedback_flag_gated_dormant]]).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.definition-grounding.enabled:false}")
+    private boolean definitionGroundingEnabled;
+
+    /**
      * Phase 17 P8a — diagnostic capture for {@code rev:parse_failed→fp}.
      * When on, the FALLBACK log line is followed by a separate WARN log
      * line carrying the first {@link #revParseFailedByteCaptureChars}
@@ -1852,10 +1885,18 @@ public class ResearchNarrationService {
             // class of failure off entirely on OpenAI-compatible pools.
             long revStart = System.currentTimeMillis();
             StringBuilder revised = new StringBuilder();
-            String revisionPromptBase = appendNoveltyPreservation(
-                    buildRevisionPromptFromSynthesis(
-                            promptRegistry, draft, firstPass, professorSynthesis, literatureContext),
-                    revisionNoveltyPreservationEnabled);
+            // Grounding rules (REVIEW_REPORT b72c4e10 §1 rec #4/#5) wrap the
+            // base revision prompt; each is independently flag-gated and OFF by
+            // default, so this is a no-op until flipped.
+            String revisionPromptBase = appendDefinitionGrounding(
+                    appendExecutedScopeGrounding(
+                            appendNoveltyPreservation(
+                                    buildRevisionPromptFromSynthesis(
+                                            promptRegistry, draft, firstPass, professorSynthesis,
+                                            literatureContext),
+                                    revisionNoveltyPreservationEnabled),
+                            executedScopeGroundingEnabled),
+                    definitionGroundingEnabled);
             // rec #4 follow-up — ground the [call_N] contract by appending the real
             // tagged trace, so the reviser cites real IDs instead of inventing them
             // (P-a328-993/994). Flag-gated for A/B against the instruction-only state.
@@ -3657,6 +3698,63 @@ public class ResearchNarrationService {
      */
     static String appendNoveltyPreservation(String prompt, boolean enabled) {
         return enabled ? prompt + NOVELTY_PRESERVATION_RULE : prompt;
+    }
+
+    /**
+     * REVIEW_REPORT b72c4e10 §1 rec #4 — appended to a revision prompt when
+     * {@code executedScopeGroundingEnabled}. Bars the two P-b72c-19 failures:
+     * describing results over an interval no tool call swept, and reporting a
+     * value with a flipped sign / truncated magnitude. Adds NO output field, so
+     * it stays compatible with the pinned {@link #NARRATION_RESPONSE_SCHEMA}
+     * ({@code additionalProperties:false}). See {@link #executedScopeGroundingEnabled}.
+     */
+    static final String EXECUTED_SCOPE_RULE = """
+
+
+            EXECUTED-SCOPE GROUNDING: state results ONLY over numeric ranges or \
+            intervals that a tool call in the professor's synthesis above actually \
+            executed. If a call swept [300,700), you may discuss [300,700); you may \
+            NOT report a density, trend, or result over an interval like [100,500) or \
+            [700,1100) that no call covered. To mention an untested region, say plainly \
+            it was "not tested" — never imply a computed result there. Report every \
+            value with the exact sign and magnitude the tool returned (e.g. z=-0.523, \
+            not +0.52): do not flip a sign, round a magnitude away, or restate a \
+            computed statistic as "untested".""";
+
+    /**
+     * Append {@link #EXECUTED_SCOPE_RULE} to a revision prompt iff enabled.
+     * Package-private + static to mirror {@link #appendNoveltyPreservation} and
+     * stay unit-testable without a router.
+     */
+    static String appendExecutedScopeGrounding(String prompt, boolean enabled) {
+        return enabled ? prompt + EXECUTED_SCOPE_RULE : prompt;
+    }
+
+    /**
+     * REVIEW_REPORT b72c4e10 §1 rec #5 — appended to a revision prompt when
+     * {@code definitionGroundingEnabled}. Forces the Mechanism/Methods prose to
+     * define a computed quantity exactly as the tools computed it (the P-b72c-18
+     * sqrt(window_size)-vs-window_start drift). Adds NO output field, so it stays
+     * compatible with the pinned {@link #NARRATION_RESPONSE_SCHEMA}. See
+     * {@link #definitionGroundingEnabled}.
+     */
+    static final String DEFINITION_GROUNDING_RULE = """
+
+
+            DEFINITION GROUNDING: when the Mechanism or Methods prose defines a \
+            computed quantity, state its definition EXACTLY as the tools computed it — \
+            the same normalizer, window, and variables shown in the tool args/results. \
+            If a call normalized by sqrt(window_size), write sqrt(window_size); do NOT \
+            assert it is sqrt(window_start) or any normalization the trace does not \
+            show. A definition that contradicts the tool call is a defect even when the \
+            conclusion is unaffected.""";
+
+    /**
+     * Append {@link #DEFINITION_GROUNDING_RULE} to a revision prompt iff enabled.
+     * Package-private + static to mirror {@link #appendNoveltyPreservation}.
+     */
+    static String appendDefinitionGrounding(String prompt, boolean enabled) {
+        return enabled ? prompt + DEFINITION_GROUNDING_RULE : prompt;
     }
 
     static final String CITATION_RULE_ADDENDUM = """
