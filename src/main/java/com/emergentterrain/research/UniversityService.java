@@ -301,6 +301,36 @@ public class UniversityService {
             "${app.research.citation-trace-cap.enabled:false}")
     private boolean citationTraceCapEnabled;
 
+    /**
+     * Room b72c4e10 fix (Rec 2, lever 1) — withhold the confidence boost from a
+     * confirmatory-only conjecture paper. The headline score is
+     * {@code peerScore × (0.92 + 0.16·confidence)}; in room b72c4e10 the three
+     * mertens papers had near-equal base peerScore (~0.75), so the whole
+     * published spread came from confidence — and confidence was highest for
+     * P-b72c-15, whose all-HELD trace never sought a counterexample, and lowest
+     * for the two papers that found violations. When this is on, a SUPPORTED
+     * paper whose trace used {@code verify_conjecture} but never adversarially
+     * ({@link ScoreCalibration#isConfirmatoryOnlyConjecture}) gets the neutral
+     * 0.92 factor — no boost for "held because we never stressed it". Field-level
+     * {@code @Value} keeps the constructor + publish tests unchanged; default OFF.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.confidence-coverage-gate.enabled:false}")
+    private boolean confidenceCoverageGateEnabled;
+
+    /**
+     * Room b72c4e10 fix (Rec 2, lever 2) — publish the panel's own quality
+     * signal as the headline score instead of {@code peerScore × confidence}.
+     * The cascade computes this (mean of the four median panel axes +
+     * agreement tiebreak) to select the best-of-N winner, then discards it; in
+     * room b72c4e10 it ranked P-b72c-15 last while the confidence-weighted
+     * headline ranked it first. When on (and a panel ran), the headline becomes
+     * {@link ScoreCalibration#cascadeQuality}. Default OFF.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.cascade-quality-headline.enabled:false}")
+    private boolean cascadeQualityHeadlineEnabled;
+
     /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
     private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
             java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
@@ -818,10 +848,28 @@ public class UniversityService {
 
         // Null results get no confidence boost (fixed ×0.92); others range ×0.92–×1.08
         boolean isNullResult = draft.resultClassification() == ResultClassification.NULL_RESULT;
-        double confidenceFactor = isNullResult
+        // Room b72c4e10 Rec 2 lever 1 — a SUPPORTED paper that "held" a conjecture
+        // only because every verify_conjecture call sat in the comfortable regime
+        // (no refutation, no binding-regime probe) earns no confidence boost: its
+        // high confidence is an artefact of not looking for a counterexample.
+        boolean withholdConfidenceBoost = confidenceCoverageGateEnabled
+                && draft.resultClassification() == ResultClassification.SUPPORTED
+                && ScoreCalibration.isConfirmatoryOnlyConjecture(narration.toolCallTrace());
+        double confidenceFactor = (isNullResult || withholdConfidenceBoost)
                 ? 0.92
                 : (0.92 + 0.16 * Math.max(0.0, Math.min(1.0, narration.confidenceScore())));
         double adjustedScore = draft.peerScore() * confidenceFactor;
+
+        // Room b72c4e10 Rec 2 lever 2 — when enabled and a panel ran, the headline
+        // score is the panel's own quality signal (cascade quality) instead of
+        // peerScore×confidence, decoupling the rank from narrator self-confidence.
+        if (cascadeQualityHeadlineEnabled
+                && narration.panelOutcome() != null && !narration.panelOutcome().isEmpty()) {
+            PanelReview.Grades g = narration.panelOutcome().aggregateGrades();
+            adjustedScore = ScoreCalibration.cascadeQuality(
+                    g.honesty(), g.completeness(), g.rigor(), g.novelty(),
+                    narration.panelOutcome().agreementScore());
+        }
 
         // Phase 5 C1 — citation-aware score adjustment. The May 2026 corpus's
         // first three cross-paper citations (P-a328-34→30, 54→49, 73→69) showed
