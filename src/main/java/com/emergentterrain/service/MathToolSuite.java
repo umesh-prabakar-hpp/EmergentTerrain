@@ -1502,6 +1502,18 @@ public class MathToolSuite {
                 result.windowsEvaluated(), windowSize, windowStart));
         sb.append(String.format("worst margin: %+.5f at window starting %d.",
                 result.worstMargin(), result.worstWindowStart()));
+        // Log-base label (room b72c4e10, REVIEW_REPORT §1 rec #2): the
+        // log_window_* scalars are base-10 (MathInvariants uses Math.log10), but
+        // "log" reads as natural log in the RH-conditional O(sqrt(x) log x)
+        // motivation a narrator reaches for. Stating the base stops the fitted
+        // constants from being silently tied to an ln bound — a base mismatch
+        // P-b72c-17 had to call out by hand (the +2.0000 slope needs an
+        // ln(10) rescale to read as an RH normalisation).
+        if (rhs.equals("log_window_start") || rhs.equals("log_window_size")) {
+            sb.append(String.format(
+                    " (%s is base-10 log; multiply by ln(10)=2.302585 to compare with a"
+                            + " natural-log bound.)", rhs));
+        }
         // Binding-regime auto-probe (room b72c4e10, REVIEW_REPORT §1 rec #3):
         // the verifier may append window(s) BELOW the requested start to test
         // where the bound binds. The headline verdict + worst margin above range

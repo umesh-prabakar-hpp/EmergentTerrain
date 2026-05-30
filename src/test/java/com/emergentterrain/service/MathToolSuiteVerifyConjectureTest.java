@@ -138,6 +138,54 @@ class MathToolSuiteVerifyConjectureTest {
     }
 
     @Test
+    void logWindowScalarIsLabeledBaseTen() throws Exception {
+        // REVIEW_REPORT b72c4e10 §1 rec #2: log_window_start is base-10, so the
+        // output must say so (and not let a narrator read it as natural log).
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density",
+                        "rhs", "log_window_start",
+                        "k", 2.0,
+                        "c", -7.7621,
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3)));
+
+        String result = executor.apply(call);
+        assertThat(result).contains("log_window_start is base-10 log");
+        assertThat(result).contains("ln(10)=2.302585");
+    }
+
+    @Test
+    void nonLogScalarHasNoBaseLabel() throws Exception {
+        // A non-log rhs (prime_density) must NOT carry the base-10 note.
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density",
+                        "rhs", "prime_density",
+                        "k", 0.0,
+                        "c", 0.30,
+                        "window_start", 200_000,
+                        "window_size", 500,
+                        "num_windows", 3)));
+
+        String result = executor.apply(call);
+        assertThat(result).doesNotContain("base-10 log");
+    }
+
+    @Test
     void noAutoProbeAnnotationWhenProbeDisabled() throws Exception {
         // Same call with the probe OFF: no appended window below the start, so
         // no auto-probe clause and the requested windows stand on their own.
