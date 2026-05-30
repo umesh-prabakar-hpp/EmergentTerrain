@@ -21,6 +21,46 @@
 
 using HTTP
 using Logging
+using Dates
+
+# ---------------------------------------------------------------------
+# Timestamped logging.
+#
+# The default `ConsoleLogger` emits no wall-clock timestamp, so every
+# line in sidecar.log carried only a level + message — the file's mtime
+# was the *only* time anchor (paper-review's operational-log discovery
+# repeatedly had to fall back to mtime + `ps` because the lines
+# themselves had no clock). This injects a local-time stamp into the
+# metadata prefix of every record so a line now reads e.g.
+#     ┌ 2026-05-30T12:50:22.461 Info: julia-math-sidecar starting
+# Local time (not UTC) is deliberate: it matches EmergentTerrain's
+# logs/et-app.log so the two can be correlated line-for-line without an
+# offset in the head.
+# ---------------------------------------------------------------------
+function _ts_now()
+    t = Dates.now()
+    string(Dates.format(t, "yyyy-mm-ddTHH:MM:SS."), lpad(Dates.millisecond(t), 3, '0'))
+end
+
+function _timestamped_metafmt(level::LogLevel, _module, group, id, file, line)
+    color, prefix, suffix = Logging.default_metafmt(level, _module, group, id, file, line)
+    return color, string(_ts_now(), ' ', prefix), suffix
+end
+
+"""
+    install_timestamped_logger!(; stream=stderr, level=Logging.Info)
+
+Replace the global logger with a `ConsoleLogger` that prefixes every
+record with a local-time timestamp. Called at the top of `start_server!`
+(and the py-sidecar's `start_py_server!`) so every line written to
+sidecar.log / py-sidecar.log carries a wall-clock anchor. Logs go to
+`stderr` to preserve the existing capture path (scripts/start.sh tees
+stdout+stderr to the log file).
+"""
+function install_timestamped_logger!(; stream=stderr, level=Logging.Info)
+    global_logger(ConsoleLogger(stream, level; meta_formatter=_timestamped_metafmt))
+    return nothing
+end
 
 # Build the route table. Each route binds a method+path pair to one
 # of the handlers defined in handlers.jl.
@@ -112,6 +152,7 @@ precompile cache via PrecompileTools; PyCall endpoints are isolated to the
 single-threaded py-sidecar (see scripts/start-py-sidecar.sh).
 """
 function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
+    install_timestamped_logger!()
     init_metrics!()
     # Expose the safe numeric stdlibs in the eval namespace (Main — where
     # handle_eval runs `Main.eval`) so /eval expressions can use

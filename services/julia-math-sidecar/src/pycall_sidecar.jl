@@ -39,7 +39,8 @@ using PyCall
 # name (works for non-exported names). None of these touch Python.
 using JuliaMathSidecar: safe_parse_body, ok_response, error_response,
                         record_call!, init_metrics!,
-                        handle_healthz, handle_metrics
+                        handle_healthz, handle_metrics,
+                        install_timestamped_logger!
 
 # ─── moved from handlers.jl: /prove_identity (phase-25 §25.1) ───────────
 # ---------------------------------------------------------------------
@@ -914,6 +915,7 @@ thread. With one thread every finalizer runs on it → safe. The main sidecar
 PY_SIDECAR_ENABLED=true.
 """
 function start_py_server!(; host::AbstractString="127.0.0.1", port::Integer=8089)
+    install_timestamped_logger!()
     if Threads.nthreads() > 1
         @warn "start_py_server!: >1 thread is UNSAFE for PyCall (off-thread \
                pydecref segfaults). Start with JULIA_NUM_THREADS=1." nthreads=Threads.nthreads()

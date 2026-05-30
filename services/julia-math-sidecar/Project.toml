@@ -22,6 +22,7 @@ Roots  = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"  # numeric root finding
 QuadGK = "1fd47b50-473d-5c70-9696-f719f8f3bcdc"  # adaptive numerical integration
 SymbolicRegression = "8254be44-1295-4e6a-a16d-46603ac705cb"  # PySR backend (phase-24)
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"  # stdlib
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"  # stdlib — local-time stamp for the timestamped logger
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"  # stdlib — median for Lever 1 auto-normalize + exposed in /eval
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"  # stdlib — norm/det/dot/cross/… exposed in the /eval namespace (already transitive)
 PyCall = "438e738f-606a-5dbb-bf0a-cddfbfd45ab0"  # Python bridge for SymPy (phase-25)

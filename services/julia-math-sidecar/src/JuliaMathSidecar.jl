@@ -50,7 +50,7 @@ using Logging
 # Public surface — entry point from the module-loader script (scripts/start.sh).
 # start_py_server! moved to the PyCallSidecar module (src/pycall_sidecar.jl),
 # loaded only by the py-sidecar process, so this package never pulls in PyCall.
-export start_server!
+export start_server!, install_timestamped_logger!
 
 # Internal submodules. Each owns one slice of the HTTP surface.
 include("safety.jl")       # Safety filter for incoming expressions.
