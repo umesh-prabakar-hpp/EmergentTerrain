@@ -122,6 +122,75 @@ class SinglePointSweepValidatorTest {
         assertThat(reasons.get(0)).contains("40").contains("20");
     }
 
+    // ---- REVIEW_REPORT b72c4e10 §1 rec #1: yield-aware allowance ----
+    // The claimed sample count must be checked against the data points the
+    // trace actually produced, not just the call count. These three mirror
+    // the false-fired corpus papers and must now PASS.
+
+    @Test
+    void windowClaimBackedByVerifyConjectureYieldPasses() {
+        // P-b72c-16: Findings cite "15 windows"; one verify_conjecture call
+        // genuinely swept 21 windows. 15 <= max(2*5, 21) -> pass.
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("verify_conjecture", "{\"num_windows\":20}",
+                        "verify_conjecture: REFUTED across 21 window(s) of size 2000 "
+                                + "starting at 750000. worst margin: +0.847", 0),
+                new ToolInvocation("verify_conjecture", "{}", "Invalid: exceeds MAX_N", 1),
+                new ToolInvocation("search_literature", "{}", "no references found", 2),
+                new ToolInvocation("verify_conjecture", "{\"num_windows\":15}",
+                        "verify_conjecture: REFUTED across 15 window(s) of size 500", 3),
+                new ToolInvocation("verify_conjecture", "{\"num_windows\":15}",
+                        "verify_conjecture: REFUTED across 16 window(s) of size 3000", 4));
+        List<String> reasons = SinglePointSweepValidator.validate(
+                "Call [call_4] swept 15 windows of size 500 beginning at start=2000.",
+                trace);
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void predicateScanNYieldBacksNClaimPasses() {
+        // P-b72c-19: Findings cite n=400; a run_predicate_scan over [300,700)
+        // evaluated n=400. 400 <= max(2*5, 400) -> pass.
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("run_predicate_scan", "{\"range_start\":300,\"range_end\":700}",
+                        "Predicate scan: fraction = 0.033 +/- 0.017 (95% CI, n=400)", 0),
+                new ToolInvocation("run_predicate_scan", "{}",
+                        "Predicate scan: fraction = 0.16 (95% CI, n=400)", 1),
+                new ToolInvocation("run_predicate_scan", "{}",
+                        "Predicate scan: fraction = 0.14 (95% CI, n=400)", 2),
+                new ToolInvocation("search_literature", "{}", "no references found", 3),
+                new ToolInvocation("run_sandboxed_code", "{}",
+                        "Sandboxed computation result=-0.523 iters_used=0 recorded n=7", 4));
+        List<String> reasons = SinglePointSweepValidator.validate(
+                "The joint density was 0.033 (n=400) across the survey.", trace);
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void sandboxItersYieldBacksLargerClaimPasses() {
+        // A run_sandboxed_code loop reporting iters_used=4999 backs a sizeable
+        // sweep claim that the 2*calls floor alone would reject.
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("run_sandboxed_code", "{}",
+                        "Sandboxed computation over [1,5000): result=40 iters_used=4999", 0));
+        List<String> reasons = SinglePointSweepValidator.validate(
+                "We found 40 windows in violation across the dense scan.", trace);
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void fabricatedClaimWithNoSweepYieldStillFlags() {
+        // Regression guard: a large claim against a trace that produced NO
+        // sweep output (scalar results only) is real fabrication -> still flag.
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("compute_value", "{}", "{\"result\":1.07}", 0),
+                new ToolInvocation("search_literature", "{}", "no references found", 1));
+        List<String> reasons = SinglePointSweepValidator.validate(
+                "The estimate averaged over n=400 sampled cases.", trace);
+        assertThat(reasons).hasSize(1);
+        assertThat(reasons.get(0)).contains("[400]");
+    }
+
     @Test
     void structuredFindingsMapOverloadConcatenatesBlocks() {
         // Map overload joins blocks before scanning so a claim split

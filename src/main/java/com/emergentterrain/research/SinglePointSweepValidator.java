@@ -20,20 +20,30 @@ import java.util.regex.Pattern;
  * inflates the apparent sample size to lend the Findings prose
  * sweep-like credibility it doesn't actually have.
  *
- * <p>The validator treats {@code trace.size()} as the actual successful
- * call count — the persisted trace only records calls whose result
- * arrived back from the tool (failed / rejected sandbox attempts never
- * make it into the trace). A slack factor of {@code 2 × trace.size()}
- * tolerates legitimate sweep output where each call returns several
- * internal samples, while still catching 16-vs-1 fabrication. Concretely:
+ * <p>The allowance is the larger of two measures: a call-count floor of
+ * {@code 2 * max(1, trace.size())} (the persisted trace only records calls
+ * whose result arrived back from the tool, and the factor of 2 tolerates a
+ * couple of internal samples per call), and the actual sweep yield summed
+ * across the trace, parsed from each call's output. The yield term matters
+ * because a single call legitimately produces many data points:
+ * {@code verify_conjecture} reports {@code "across 21 window(s)"},
+ * {@code run_predicate_scan} over {@code [300,700)} reports {@code n=400},
+ * {@code run_sandboxed_code} reports {@code iters_used=4999}.
+ *
+ * <p>Comparing a {@code "15 windows"} / {@code "n=400"} claim against the
+ * call-count floor alone (10 for a 5-call trace) false-flagged correct papers
+ * whose single calls genuinely swept that many points (REVIEW_REPORT b72c4e10
+ * rec #1: P-b72c-16 {@code [15]}, P-b72c-18 {@code [15,15,15]}, P-b72c-19
+ * {@code [400]}). Folding in the parsed yield fixes those while still catching
+ * real fabrication. Concretely:
  *
  * <ul>
- *   <li>Findings says {@code "sixteen sampled cases"}, trace has 1 call:
- *       16 &gt; 2·1 → flag.</li>
- *   <li>Findings says {@code "4 measured cases"}, trace has 2 calls:
- *       4 ≤ 2·2 → pass (sweep-with-internal-samples within slack).</li>
- *   <li>Findings says {@code "n=40 windows"}, trace has 5 calls:
- *       40 &gt; 2·5 → flag.</li>
+ *   <li>{@code "sixteen sampled cases"}, 1 call returning a scalar (yield 0):
+ *       16 over max(2*1, 0) -&gt; flag.</li>
+ *   <li>{@code "n=400"}, a {@code run_predicate_scan} reporting {@code n=400}:
+ *       400 within max(2*5, 400) -&gt; pass (backed by real yield).</li>
+ *   <li>{@code "15 windows"}, a {@code verify_conjecture} reporting
+ *       {@code "across 21 window(s)"}: 15 within max(2*5, 21) -&gt; pass.</li>
  * </ul>
  *
  * <p>Null or empty trace short-circuits to empty (no information to
@@ -73,6 +83,26 @@ public final class SinglePointSweepValidator {
                     + "parameter[\\s-]combinations?)\\b");
 
     /**
+     * Sweep-yield signals in a tool's output (or args) — the real number of
+     * data points a single call produced. Each is matched against the
+     * concatenation of {@code argsJson} and {@code resultJson} per call:
+     * <ul>
+     *   <li>{@code "across 21 window(s)"} — {@code verify_conjecture};</li>
+     *   <li>{@code "n=400"} — {@code run_predicate_scan} survey size, and
+     *       {@code run_sandboxed_code} "{@code recorded n=7}";</li>
+     *   <li>{@code "iters_used=4999"} — {@code run_sandboxed_code} loop;</li>
+     *   <li>{@code "num_windows": 30} — verify-conjecture args.</li>
+     * </ul>
+     * The {@code \\bn\\s*=} boundary avoids matching {@code min=}/{@code mean=}.
+     */
+    private static final Pattern[] YIELD_SIGNALS = {
+            Pattern.compile("(?i)across\\s+(\\d{1,7})\\s+window"),
+            Pattern.compile("(?i)\\bn\\s*=\\s*(\\d{1,7})"),
+            Pattern.compile("(?i)iters_used\\s*=\\s*(\\d{1,7})"),
+            Pattern.compile("(?i)\"?num_windows\"?\\s*[:=]\\s*(\\d{1,7})"),
+    };
+
+    /**
      * Returns non-empty reason list when the prose asserts a sample
      * count {@code N} exceeding {@code 2 × max(1, trace.size())}.
      * Multiple offending claims fold into one summary reason so the
@@ -81,7 +111,12 @@ public final class SinglePointSweepValidator {
     public static List<String> validate(String findings, List<ToolInvocation> trace) {
         if (findings == null || findings.isBlank()) return List.of();
         if (trace == null || trace.isEmpty()) return List.of();
-        int allowance = 2 * Math.max(1, trace.size());
+        // Allowance = larger of the call-count floor (2 per successful call)
+        // and the data points the trace actually produced (parsed from the
+        // tool outputs). The floor alone false-flagged correct papers whose
+        // single calls legitimately swept many windows / scanned n integers
+        // (REVIEW_REPORT b72c4e10 §1 rec #1).
+        long allowance = Math.max(2L * Math.max(1, trace.size()), traceDataPoints(trace));
         List<Integer> overclaims = new ArrayList<>();
 
         Matcher digit = DIGIT_SAMPLE_CLAIM.matcher(findings);
@@ -104,9 +139,10 @@ public final class SinglePointSweepValidator {
         if (overclaims.isEmpty()) return List.of();
         return List.of(String.format(
                 "Findings claims %s samples, but the tool-call trace records only "
-                        + "%d successful call(s) (Phase 14 F3 slack allows up to %d). "
-                        + "Either the narrator inflated the sweep size or the trace is "
-                        + "incomplete.",
+                        + "%d successful call(s) yielding at most %d data point(s) "
+                        + "(Phase 14 F3 allowance = max of 2x calls and observed sweep "
+                        + "yield). Either the narrator inflated the sweep size or the "
+                        + "trace is incomplete.",
                 overclaims, trace.size(), allowance));
     }
 
@@ -150,5 +186,41 @@ public final class SinglePointSweepValidator {
             case "ninety"    -> 90;
             default          -> -1;
         };
+    }
+
+    /**
+     * Total data points the trace actually produced — the sum over calls of
+     * each call's largest sweep-yield signal (windows / n / iters). Used as
+     * the upper measure of the sample-size allowance so a Findings claim
+     * backed by genuine sweep output is not mistaken for fabrication.
+     */
+    private static long traceDataPoints(List<ToolInvocation> trace) {
+        long total = 0;
+        for (ToolInvocation call : trace) {
+            if (call == null) continue;
+            StringBuilder text = new StringBuilder();
+            if (call.argsJson() != null) text.append(call.argsJson()).append(' ');
+            if (call.resultJson() != null) text.append(call.resultJson());
+            long best = 0;
+            for (Pattern signal : YIELD_SIGNALS) {
+                best = Math.max(best, maxMatch(signal, text));
+            }
+            total += best;
+        }
+        return total;
+    }
+
+    /** Largest first-group integer {@code pattern} matches in {@code text}, or 0. */
+    private static long maxMatch(Pattern pattern, CharSequence text) {
+        Matcher m = pattern.matcher(text);
+        long best = 0;
+        while (m.find()) {
+            try {
+                best = Math.max(best, Long.parseLong(m.group(1)));
+            } catch (NumberFormatException ignored) {
+                // Defensive: groups are \d{1,7}, so this can't fire.
+            }
+        }
+        return best;
     }
 }
