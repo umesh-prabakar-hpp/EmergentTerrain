@@ -331,6 +331,25 @@ public class UniversityService {
             "${app.research.cascade-quality-headline.enabled:false}")
     private boolean cascadeQualityHeadlineEnabled;
 
+    /**
+     * Room b72c4e10 fix (Rec 3) — deterministic binding-regime coverage gate.
+     * The existing F7.3 cherry-pick gate ({@code auditCherryPickedRejectsEnabled})
+     * is panel-driven: it only fires when ≥2 reviewers flag an <i>executed</i>
+     * tool call as omitted from the prose, so it is structurally blind to a probe
+     * that was <i>never executed</i> — exactly P-b72c-15's confirmatory-only
+     * trace. This gate closes that hole deterministically: a SUPPORTED conjecture
+     * paper whose {@code verify_conjecture} calls were all confirmatory (none
+     * REFUTED, none in the binding regime — {@link
+     * ScoreCalibration#isConfirmatoryOnlyConjecture}) routes to NEEDS_REVISION so
+     * the author must add a binding-regime probe before the SUPPORTED claim
+     * stands. Defense-in-depth behind the Rec 1 auto-probe (which fixes it at the
+     * source); kept separate so it still catches a confirmatory-only trace if the
+     * auto-probe is off or could not run. Default OFF.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.binding-regime-coverage-gate.enabled:false}")
+    private boolean bindingRegimeCoverageGateEnabled;
+
     /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
     private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
             java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
@@ -1007,6 +1026,20 @@ public class UniversityService {
             log.warn("single-point-sweep check failed paperId={} reasons={}",
                     draft.paperId(), singlePointSweepFailures);
         }
+        // Room b72c4e10 fix (Rec 3) — binding-regime coverage gate. A SUPPORTED
+        // conjecture paper whose verify_conjecture calls were all confirmatory
+        // (none REFUTED, none in the binding regime) never tested where the bound
+        // binds; the SUPPORTED claim is unearned until it does. Deterministic
+        // backstop to the panel-driven F7.3 gate, which can't see a probe that was
+        // never run. Default flag-off; bit-identical to today when off.
+        boolean bindingRegimeUncovered = bindingRegimeCoverageGateEnabled
+                && draft.resultClassification() == ResultClassification.SUPPORTED
+                && ScoreCalibration.isConfirmatoryOnlyConjecture(narration.toolCallTrace());
+        if (bindingRegimeUncovered) {
+            log.warn("binding-regime-coverage check failed paperId={} "
+                    + "(SUPPORTED conjecture with confirmatory-only verify_conjecture trace)",
+                    draft.paperId());
+        }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
         // Warn-only: stamps the call path + logs, never routes the paper.
         // Sibling check to SinglePointSweep but operates on the hypothesis
@@ -1369,6 +1402,13 @@ public class UniversityService {
             // by rewording the prose to match the trace.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (bindingRegimeUncovered) {
+            // Room b72c4e10 Rec 3 — SUPPORTED conjecture with a confirmatory-only
+            // verify_conjecture trace. Same tier as F3: a coverage defect that
+            // revision fixes by adding a binding-regime (small-start) probe before
+            // the SUPPORTED claim can stand.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (directionOfFindingInverted) {
             // Phase 14 F4 — Conclusion polarity inversion. Same tier as F3:
             // revision can fix the prose by aligning the verdict with the
@@ -1493,6 +1533,13 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:single_point_sweep→needs_revision"
                     : persistedCallPath + " → publish:single_point_sweep→needs_revision";
+        }
+        // Room b72c4e10 Rec 3 — additive stamp for confirmatory-only conjecture
+        // traces (no binding-regime coverage).
+        if (bindingRegimeUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:binding_regime_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:binding_regime_uncovered→needs_revision";
         }
         // 2026-05-29 (review fix #2) — additive stamp for literal TODO/placeholder stubs.
         if (placeholderStub) {

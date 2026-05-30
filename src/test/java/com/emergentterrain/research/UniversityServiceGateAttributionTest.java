@@ -66,6 +66,16 @@ class UniversityServiceGateAttributionTest {
     }
 
     @Test
+    void capturesBindingRegimeCoverageGate() {
+        // Room b72c4e10 Rec 3 — the binding-regime coverage stamp ends in
+        // →needs_revision, so it is attributed like the other publish-ladder gates.
+        String path = "fp:m → prof:m:ok → rev:m:ok → "
+                + "publish:binding_regime_uncovered→needs_revision";
+        assertThat(UniversityService.attributedGates(path))
+                .containsExactly("publish:binding_regime_uncovered→needs_revision");
+    }
+
+    @Test
     void nullOrBlankPath_empty() {
         assertThat(UniversityService.attributedGates(null)).isEmpty();
         assertThat(UniversityService.attributedGates("")).isEmpty();
