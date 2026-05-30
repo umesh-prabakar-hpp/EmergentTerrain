@@ -402,7 +402,7 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
         Status::invalid_argument(format!("formula parse failed: {e}")))?;
     let shader_src = to_wgsl(&expr);
     let parse_ms = t_parse.elapsed().as_micros();
-    println!("eval_expr.parse request_id={request_id} formula_len={} ast_nodes_approx={} wgsl_len={} parse_us={parse_ms}",
+    crate::logln!("eval_expr.parse request_id={request_id} formula_len={} ast_nodes_approx={} wgsl_len={} parse_us={parse_ms}",
              formula.len(), count_nodes(&expr), shader_src.len());
 
     let t0 = Instant::now();
@@ -430,7 +430,7 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
     });
 
     let groups = (length + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
-    println!("eval_expr.dispatch request_id={request_id} length={length} workgroups={groups} buf_bytes={out_bytes} compile_ms={compile_ms}");
+    crate::logln!("eval_expr.dispatch request_id={request_id} length={length} workgroups={groups} buf_bytes={out_bytes} compile_ms={compile_ms}");
 
     let t_dispatch = Instant::now();
     let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -455,7 +455,7 @@ pub fn run_on_gpu(device: &wgpu::Device, queue: &wgpu::Queue,
 
     let agg = aggregate(&values);
     let millis = t0.elapsed().as_millis() as u64;
-    println!("eval_expr.done request_id={request_id} total_ms={millis} dispatch_ms={dispatch_ms} readback_ms={readback_ms} finite={}/{} mean={:.6} std={:.6}",
+    crate::logln!("eval_expr.done request_id={request_id} total_ms={millis} dispatch_ms={dispatch_ms} readback_ms={readback_ms} finite={}/{} mean={:.6} std={:.6}",
              agg.finite_count, agg.n, agg.mean, agg.std_dev);
     Ok(EvalAggregate { millis, ..agg })
 }

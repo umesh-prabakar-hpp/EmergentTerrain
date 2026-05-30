@@ -136,17 +136,17 @@ impl WorldConfig {
         let contents = match std::fs::read_to_string(path) {
             Ok(s) => s,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                println!("config.load path={} status=absent (using defaults)", path.display());
+                crate::logln!("config.load path={} status=absent (using defaults)", path.display());
                 return Self::default();
             }
             Err(e) => {
-                eprintln!("config.load path={} status=read_error err={} (using defaults)", path.display(), e);
+                crate::elogln!("config.load path={} status=read_error err={} (using defaults)", path.display(), e);
                 return Self::default();
             }
         };
         match toml::from_str::<WorldConfig>(&contents) {
             Ok(cfg) => {
-                println!("config.load path={} status=ok forest=({},{},{}) water=({},{},{}) industry=({},{}) hidden=({},{},{},{}) highway_ratio_default={}",
+                crate::logln!("config.load path={} status=ok forest=({},{},{}) water=({},{},{}) industry=({},{}) hidden=({},{},{},{}) highway_ratio_default={}",
                          path.display(),
                          cfg.density.forest.base, cfg.density.forest.humidity_coef, cfg.density.forest.density_coef,
                          cfg.density.water.base, cfg.density.water.humidity_coef, cfg.density.water.energy_coef,
@@ -156,7 +156,7 @@ impl WorldConfig {
                 cfg
             }
             Err(e) => {
-                eprintln!("config.load path={} status=parse_error err={} (using defaults)", path.display(), e);
+                crate::elogln!("config.load path={} status=parse_error err={} (using defaults)", path.display(), e);
                 Self::default()
             }
         }

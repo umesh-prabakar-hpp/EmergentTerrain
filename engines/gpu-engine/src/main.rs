@@ -14,6 +14,7 @@ pub mod gpu {
 
 mod config;
 mod eval_expr;
+mod logging;
 mod pipelines;
 
 use config::WorldConfig;
@@ -464,7 +465,7 @@ impl GpuTerrainService for GpuEngineService {
     async fn generate_region(&self, request: Request<GenerateRegionRequest>) -> Result<Response<GenerateRegionResponse>, Status> {
         let req = request.into_inner();
         let region = req.region.unwrap_or_default();
-        println!("generate_region.enter request_id={} size={}x{} seed={} adapter={}",
+        crate::logln!("generate_region.enter request_id={} size={}x{} seed={} adapter={}",
                  req.request_id, region.width, region.height, req.seed, self.gpu.adapter_summary());
         let t0 = std::time::Instant::now();
         let generated = self.gpu.generate_region(req.seed, region.width, region.height, &req.params_json)?;
@@ -479,7 +480,7 @@ impl GpuTerrainService for GpuEngineService {
         let bytes_written = pixels * 4 * 2;
         let flops_estimate = pixels * 25;
         let stats = build_pipeline_stats("WORLD", latency_us, 32, bytes_written, flops_estimate);
-        println!("generate_region.exit request_id={} size={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
+        crate::logln!("generate_region.exit request_id={} size={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, region.width, region.height,
                  t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, generated.debug_json);
         Ok(Response::new(GenerateRegionResponse {
@@ -494,7 +495,7 @@ impl GpuTerrainService for GpuEngineService {
     async fn rebuild_patch(&self, request: Request<RebuildPatchRequest>) -> Result<Response<RebuildPatchResponse>, Status> {
         let req = request.into_inner();
         let patch = req.patch.unwrap_or_default();
-        println!("rebuild_patch.enter request_id={} patch={}x{} edits={} adapter={}",
+        crate::logln!("rebuild_patch.enter request_id={} patch={}x{} edits={} adapter={}",
                  req.request_id, patch.width, patch.height, req.applied_edits.len(),
                  self.gpu.adapter_summary());
         let t0 = std::time::Instant::now();
@@ -519,7 +520,7 @@ impl GpuTerrainService for GpuEngineService {
         let bytes_written = patch_pixels * 4 * 2;
         let flops_estimate = patch_pixels * 3;
         let stats = build_pipeline_stats("PATCH", latency_us, bytes_read, bytes_written, flops_estimate);
-        println!("rebuild_patch.exit request_id={} patch={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
+        crate::logln!("rebuild_patch.exit request_id={} patch={}x{} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, patch.width, patch.height,
                  t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, rebuilt.debug_json);
         Ok(Response::new(RebuildPatchResponse {
@@ -553,7 +554,7 @@ impl GpuTerrainService for GpuEngineService {
             -> Result<Response<Self::SimulateBotsV2Stream>, Status> {
         let req = request.into_inner();
         let steps = req.steps.max(1);
-        println!("simulate_bots_v2.enter request_id={} bots={} steps={} adapter={}",
+        crate::logln!("simulate_bots_v2.enter request_id={} bots={} steps={} adapter={}",
                  req.request_id, req.bots.len(), steps, self.gpu.adapter_summary());
 
         // Resolve the world up front so any not-found error surfaces as a
@@ -609,7 +610,7 @@ impl GpuTerrainService for GpuEngineService {
             let flops_estimate = bot_count * (steps as u64) * 80;
             let stats = build_pipeline_stats("BOT", latency_us, bytes_read, bytes_written, flops_estimate);
 
-            println!("simulate_bots_v2.exit request_id={} bots={} steps={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4}",
+            crate::logln!("simulate_bots_v2.exit request_id={} bots={} steps={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4}",
                      request_id, bots.len(), steps, latency_us, stats.mem_bw_gbps, stats.flops_tflops);
 
             let done = SimulateBotsUpdate {
@@ -631,7 +632,7 @@ impl GpuTerrainService for GpuEngineService {
     async fn simulate_bots(&self, request: Request<SimulateBotsRequest>) -> Result<Response<SimulateBotsResponse>, Status> {
         let req = request.into_inner();
         let steps = req.steps.max(1);
-        println!("simulate_bots.enter request_id={} bots={} steps={} cached_world={} world_id=\"{}\" adapter={}",
+        crate::logln!("simulate_bots.enter request_id={} bots={} steps={} cached_world={} world_id=\"{}\" adapter={}",
                  req.request_id, req.bots.len(), steps, !req.world_id.is_empty(),
                  req.world_id, self.gpu.adapter_summary());
         let t0 = std::time::Instant::now();
@@ -651,7 +652,7 @@ impl GpuTerrainService for GpuEngineService {
         let bytes_written = bot_count * bot_struct_bytes;
         let flops_estimate = bot_count * (steps as u64) * 80;
         let stats = build_pipeline_stats("BOT", latency_us, bytes_read, bytes_written, flops_estimate);
-        println!("simulate_bots.exit request_id={} bots={} steps={} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
+        crate::logln!("simulate_bots.exit request_id={} bots={} steps={} ms={} latency_us={} mem_bw_gbps={:.2} flops_tflops={:.4} debug={}",
                  req.request_id, req.bots.len(), steps,
                  t0.elapsed().as_millis(), latency_us, stats.mem_bw_gbps, stats.flops_tflops, simulated.debug_json);
         Ok(Response::new(SimulateBotsResponse {
@@ -670,12 +671,12 @@ impl GpuTerrainService for GpuEngineService {
     // eval_expr::parse for the grammar.
     async fn eval_expr(&self, request: Request<EvalExprRequest>) -> Result<Response<EvalExprResponse>, Status> {
         let req = request.into_inner();
-        println!("eval_expr.enter request_id={} formula=\"{}\" range=[{},{}) adapter={}",
+        crate::logln!("eval_expr.enter request_id={} formula=\"{}\" range=[{},{}) adapter={}",
                  req.request_id, req.formula, req.start, req.end, self.gpu.adapter_summary());
         let agg = eval_expr::run_on_gpu(&self.gpu.device, &self.gpu.queue,
                                          &req.formula, req.start, req.end,
                                          &req.request_id)?;
-        println!("eval_expr.exit request_id={} ms={} finite={}/{} mean={:.6} std={:.6} min={:.6} max={:.6} sum={:.6}",
+        crate::logln!("eval_expr.exit request_id={} ms={} finite={}/{} mean={:.6} std={:.6} min={:.6} max={:.6} sum={:.6}",
                  req.request_id, agg.millis, agg.finite_count, agg.n,
                  agg.mean, agg.std_dev, agg.min, agg.max, agg.sum);
         let debug = serde_json::json!({
@@ -1124,12 +1125,12 @@ fn highway_spacing(highway_ratio: f64, cfg: &config::HighwayConfig) -> u32 {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = std::env::var("GPU_ENGINE_ADDR").unwrap_or_else(|_| "127.0.0.1:50051".to_string()).parse()?;
-    println!("startup.init pid={} bind={}", std::process::id(), addr);
+    crate::logln!("startup.init pid={} bind={}", std::process::id(), addr);
     let t_init = std::time::Instant::now();
     let gpu = Arc::new(GpuComputeEngine::new().await?);
-    println!("startup.adapter init_ms={} {}",
+    crate::logln!("startup.adapter init_ms={} {}",
              t_init.elapsed().as_millis(), gpu.adapter_summary());
-    println!("startup.ready listening_on={} services=[GenerateRegion,RebuildPatch,SimulateBots,EvalExpr]", addr);
+    crate::logln!("startup.ready listening_on={} services=[GenerateRegion,RebuildPatch,SimulateBots,EvalExpr]", addr);
     tonic::transport::Server::builder()
         .add_service(GpuTerrainServiceServer::new(GpuEngineService {
             worlds: Arc::new(RwLock::new(HashMap::new())),
