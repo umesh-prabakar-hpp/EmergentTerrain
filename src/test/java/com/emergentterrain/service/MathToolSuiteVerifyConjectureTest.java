@@ -160,6 +160,12 @@ class MathToolSuiteVerifyConjectureTest {
         String result = executor.apply(call);
         assertThat(result).contains("log_window_start is base-10 log");
         assertThat(result).contains("ln(10)=2.302585");
+        // §1 rec #2 refinement (P-b72c-24 mis-applied "multiply by ln(10)" to the
+        // coefficient): the label must give the concrete natural-log slope
+        // k/ln(10) and forbid the multiply. For k=2.0 that is 2/ln(10)=0.86859.
+        assertThat(result).contains("natural-log slope is k/ln(10)=+0.86859");
+        assertThat(result).contains("do NOT multiply");
+        assertThat(result).doesNotContain("4.605");   // the wrong k*ln(10) value
     }
 
     @Test

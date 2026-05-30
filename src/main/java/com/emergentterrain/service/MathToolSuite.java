@@ -1509,10 +1509,19 @@ public class MathToolSuite {
         // constants from being silently tied to an ln bound — a base mismatch
         // P-b72c-17 had to call out by hand (the +2.0000 slope needs an
         // ln(10) rescale to read as an RH normalisation).
+        //
+        // §1 rec #2 refinement: the earlier "multiply by ln(10)" phrasing is true
+        // for the SCALAR (log10(x)*ln(10)=ln(x)) but P-b72c-24 mis-applied it to
+        // the COEFFICIENT (wrote 2*ln(10)=4.605 instead of 2/ln(10)=0.869). Spell
+        // out BOTH conversions and print the concrete natural-log slope k/ln(10)
+        // so the narrator copies the right number instead of re-deriving it.
         if (rhs.equals("log_window_start") || rhs.equals("log_window_size")) {
+            String arg = rhs.substring(4); // "window_start" | "window_size"
             sb.append(String.format(
-                    " (%s is base-10 log; multiply by ln(10)=2.302585 to compare with a"
-                            + " natural-log bound.)", rhs));
+                    " (%s is base-10 log: the rhs_scalar times ln(10)=2.302585 equals"
+                            + " ln(%s); the bound's natural-log slope is k/ln(10)=%+.5f"
+                            + " — divide k by ln(10), do NOT multiply.)",
+                    rhs, arg, k / Math.log(10.0)));
         }
         // Binding-regime auto-probe (room b72c4e10, REVIEW_REPORT §1 rec #3):
         // the verifier may append window(s) BELOW the requested start to test
