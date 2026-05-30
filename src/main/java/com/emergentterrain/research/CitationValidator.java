@@ -101,13 +101,25 @@ public class CitationValidator {
     private static final int MAX_SCALE_DECADES = 40;
 
     /** Aggregate result of one paper's validation pass. */
+    /**
+     * Room b72c4e10 fix (Rec 5) — one prose-side numeric value the validator
+     * could not trace, with enough context to excise just the sentence that
+     * carries it (rather than nulling the whole paper). {@code sourceLocation}
+     * is the prose block ({@code "findings:1"}, {@code "conclusion"}); only
+     * Check-1 (uncited) and Check-2 (unmatched-claim) rejections produce these
+     * — Check-3 trace-conformance failures are claim-side fabrications that stay
+     * whole-paper nullable.
+     */
+    public record RejectedProseNumber(double value, String text, String sourceLocation) {}
+
     public record CitationValidationResult(
             int uncitedCount,
             int unmatchedClaimCount,
             int outOfToleranceCount,
             int exemptSweepCount,
             int hypothesisParamExemptCount,
-            List<String> issues) {
+            List<String> issues,
+            List<RejectedProseNumber> rejectedProseNumbers) {
 
         public boolean hasFailures() {
             return uncitedCount + unmatchedClaimCount + outOfToleranceCount > 0;
@@ -117,20 +129,43 @@ public class CitationValidator {
             return uncitedCount + unmatchedClaimCount + outOfToleranceCount;
         }
 
+        /**
+         * True iff every failure is prose-side (uncited / unmatched-claim) — i.e.
+         * there are no Check-3 trace-conformance ({@code outOfTolerance})
+         * failures. Sentence-level quarantine is only safe in this case: an
+         * out-of-tolerance claim asserts a tool produced a value it did not, a
+         * fabrication that must null the paper, not be edited away.
+         */
+        public boolean allFailuresAreProseSide() {
+            return hasFailures() && outOfToleranceCount == 0;
+        }
+
         public static CitationValidationResult clean() {
-            return new CitationValidationResult(0, 0, 0, 0, 0, List.of());
+            return new CitationValidationResult(0, 0, 0, 0, 0, List.of(), List.of());
         }
 
         /** Back-compat ctor (pre-2026-05-20 callers + tests that don't care
          *  about hypothesis exemption). Routes through the canonical
-         *  constructor with {@code hypothesisParamExemptCount = 0}. */
+         *  constructor with {@code hypothesisParamExemptCount = 0} and no
+         *  rejected-prose-number detail. */
         public CitationValidationResult(int uncitedCount,
                                          int unmatchedClaimCount,
                                          int outOfToleranceCount,
                                          int exemptSweepCount,
                                          List<String> issues) {
             this(uncitedCount, unmatchedClaimCount, outOfToleranceCount,
-                    exemptSweepCount, 0, issues);
+                    exemptSweepCount, 0, issues, List.of());
+        }
+
+        /** Back-compat ctor (pre-Rec-5 6-arg callers). */
+        public CitationValidationResult(int uncitedCount,
+                                         int unmatchedClaimCount,
+                                         int outOfToleranceCount,
+                                         int exemptSweepCount,
+                                         int hypothesisParamExemptCount,
+                                         List<String> issues) {
+            this(uncitedCount, unmatchedClaimCount, outOfToleranceCount,
+                    exemptSweepCount, hypothesisParamExemptCount, issues, List.of());
         }
     }
 
@@ -222,6 +257,10 @@ public class CitationValidator {
         // trace token at end-of-run so a residual false-null can be triaged
         // (mantissa/scale mismatch vs genuinely-absent) without re-running the paper.
         List<Double> rejectedValues = new ArrayList<>();
+        // Room b72c4e10 Rec 5 — prose-side rejections (uncited / unmatched-claim),
+        // carried with their source block so a sentence-level quarantine can
+        // excise just the offending sentence instead of nulling the whole paper.
+        List<RejectedProseNumber> rejectedProse = new ArrayList<>();
         Set<Double> whitelist = sweepParamWhitelist == null ? Set.of() : sweepParamWhitelist;
 
         // Collect (number, sourceLocation, citedCallId) tuples from every prose block.
@@ -271,6 +310,7 @@ public class CitationValidator {
                 }
                 uncited++;
                 rejectedValues.add(pn.value);
+                rejectedProse.add(new RejectedProseNumber(pn.value, pn.text, pn.sourceLocation));
                 issues.add(String.format("uncited number %s in %s", pn.text, pn.sourceLocation));
             }
         }
@@ -292,6 +332,7 @@ public class CitationValidator {
                 }
                 unmatched++;
                 rejectedValues.add(pn.value);
+                rejectedProse.add(new RejectedProseNumber(pn.value, pn.text, pn.sourceLocation));
                 issues.add(String.format(
                         "prose number %s in %s has no matching numeric_claims entry",
                         pn.text, pn.sourceLocation));
@@ -375,7 +416,8 @@ public class CitationValidator {
                     REL_TOLERANCE, uncited, unmatched, outOfTolerance, diag);
         }
         return new CitationValidationResult(uncited, unmatched, outOfTolerance,
-                exemptSweep, hypothesisParamExempt, List.copyOf(issues));
+                exemptSweep, hypothesisParamExempt, List.copyOf(issues),
+                List.copyOf(rejectedProse));
     }
 
     /**
@@ -493,6 +535,79 @@ public class CitationValidator {
 
     private record ProseNumber(double value, String text, int endIndex,
                                 String sourceLocation, String citedCallId) {}
+
+    /**
+     * Room b72c4e10 Rec 5 — sentence-level quarantine. Remove from {@code block}
+     * each sentence that contains one of the {@code rejectedTexts} (the verbatim
+     * numeric tokens the validator flagged in this block), leaving the rest of
+     * the prose intact. Returns the surviving prose (trimmed, sentences re-joined
+     * with a single space), or empty string if every sentence was removed.
+     *
+     * <p>Sentence splitting is deliberately simple — split on {@code . }, {@code ! },
+     * {@code ? } boundaries, keeping the terminator — because the narrator's prose
+     * is plain declarative sentences; a rejected number lives in exactly one of
+     * them. Matching is on the exact token surrounded by non-digit boundaries so
+     * "0.143" doesn't also strike a sentence mentioning "0.1437". Pure + static
+     * for unit testing.
+     */
+    public static String quarantineSentences(String block, List<String> rejectedTexts) {
+        if (block == null || block.isBlank() || rejectedTexts == null || rejectedTexts.isEmpty()) {
+            return block == null ? "" : block;
+        }
+        // Split into sentences on a terminator (. ! ?) FOLLOWED BY whitespace —
+        // so a decimal point inside a number ("0.143") never splits, because it
+        // is followed by a digit, not whitespace. The terminator stays attached
+        // to the sentence it ends (lookbehind split). A trailing terminator with
+        // no following whitespace (end of block) leaves the last sentence whole.
+        List<String> sentences = new ArrayList<>();
+        for (String s : block.split("(?<=[.!?])\\s+")) {
+            if (!s.isBlank()) sentences.add(s.trim());
+        }
+        if (sentences.isEmpty()) sentences.add(block.trim());
+
+        StringBuilder kept = new StringBuilder();
+        for (String sentence : sentences) {
+            boolean carriesRejected = false;
+            for (String tok : rejectedTexts) {
+                if (tok != null && !tok.isBlank() && containsNumberToken(sentence, tok)) {
+                    carriesRejected = true;
+                    break;
+                }
+            }
+            if (!carriesRejected) {
+                if (kept.length() > 0) kept.append(' ');
+                kept.append(sentence);
+            }
+        }
+        return kept.toString().trim();
+    }
+
+    /**
+     * True iff {@code sentence} contains {@code token} as a standalone numeric
+     * token (not as a substring of a longer number). Reuses the digit-boundary
+     * discipline of {@link #NUMBER} so "0.143" matches "0.143" but not "0.1437".
+     */
+    public static boolean containsNumberToken(String sentence, String token) {
+        if (sentence == null || token == null || token.isEmpty()) return false;
+        int from = 0;
+        while (true) {
+            int idx = sentence.indexOf(token, from);
+            if (idx < 0) return false;
+            char before = idx == 0 ? ' ' : sentence.charAt(idx - 1);
+            int after = idx + token.length();
+            char afterCh = after >= sentence.length() ? ' ' : sentence.charAt(after);
+            // A '.' bounds the token only when it continues the number (followed by
+            // a digit, e.g. "0.1437"); a sentence-terminating '.' ("0.143.") does
+            // not. Same for the left side.
+            char afterAfter = (after + 1) >= sentence.length() ? ' ' : sentence.charAt(after + 1);
+            boolean leftOk = !Character.isDigit(before)
+                    && !(before == '.' && idx >= 2 && Character.isDigit(sentence.charAt(idx - 2)));
+            boolean rightOk = !Character.isDigit(afterCh)
+                    && !(afterCh == '.' && Character.isDigit(afterAfter));
+            if (leftOk && rightOk) return true;
+            from = idx + 1;
+        }
+    }
 
     /**
      * Extract numeric tokens from a prose block, filtering out years / citation

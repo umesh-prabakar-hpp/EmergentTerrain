@@ -250,7 +250,7 @@ public class ResearchNarrationService {
      * the exemption; raise to widen the rescue band.
      */
     @org.springframework.beans.factory.annotation.Value(
-            "${app.citations.moderate-mismatch.threshold:5}")
+            "${app.research.citations.moderate-mismatch.threshold:5}")
     private int moderateMismatchThreshold = MODERATE_MISMATCH_THRESHOLD_DEFAULT;
 
     /**
@@ -264,8 +264,23 @@ public class ResearchNarrationService {
      * strict pre-2026-05-26 marker-only behaviour.
      */
     @org.springframework.beans.factory.annotation.Value(
-            "${app.citations.reconcile-before-null:true}")
+            "${app.research.citations.reconcile-before-null:true}")
     private boolean citationsReconcileBeforeNull = true;
+
+    /**
+     * Room b72c4e10 fix (Rec 5) — sentence-level citation quarantine. When a
+     * citation downgrade is driven entirely by prose-side failures (uncited /
+     * unmatched-claim numbers the narrator injected, e.g. P-b72c-12's 0.143 /
+     * 0.025 / 0.034), null-ing the whole paper discards an otherwise-correct
+     * computation. With this on, the offending <i>sentences</i> are excised and
+     * the paper publishes with the surviving prose — provided substantive
+     * findings remain. Out-of-tolerance (Check-3) failures still null the paper:
+     * those are claim-side fabrications, not stray prose. Default OFF (it edits
+     * published prose); flip after a refresh confirms the excision quality.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.citations.sentence-quarantine.enabled:false}")
+    private boolean citationsSentenceQuarantineEnabled;
 
     /**
      * Phase 16 P6a — cross-citation verdict propagation. Controls how the
@@ -2069,7 +2084,7 @@ public class ResearchNarrationService {
      * <p>The exemption stamps {@code citations:moderate_mismatch:manual_review}
      * in the call path so operators can grep for papers rescued from
      * the downgrade. Tunable via
-     * {@code app.citations.moderate-mismatch.threshold} — set to 0 to
+     * {@code app.research.citations.moderate-mismatch.threshold} — set to 0 to
      * disable the exemption entirely.
      */
     private static final int MODERATE_MISMATCH_THRESHOLD_DEFAULT = 5;
@@ -2105,7 +2120,7 @@ public class ResearchNarrationService {
      * @param unmatched                  {@code cv.unmatchedClaimCount()}
      * @param outOfTolerance             {@code cv.outOfToleranceCount()}
      * @param traceSize                  {@code trace.size()} — 0 if null/empty
-     * @param moderateMismatchThreshold  {@code app.citations.moderate-mismatch.threshold},
+     * @param moderateMismatchThreshold  {@code app.research.citations.moderate-mismatch.threshold},
      *                                   0 disables the rescue branch
      * @param mode                       "warn" | "downgrade" | "suppress"
      */
@@ -2239,6 +2254,23 @@ public class ResearchNarrationService {
                 return null;
             }
             case NULL_RESULT_DOWNGRADE -> {
+                // Room b72c4e10 Rec 5 — when the downgrade is driven entirely by
+                // prose-side failures, try excising just the offending sentences
+                // instead of nulling the whole paper. Only when substantive
+                // findings survive; otherwise fall through to the whole-paper null.
+                if (citationsSentenceQuarantineEnabled && cv.allFailuresAreProseSide()) {
+                    NarrationResult quarantined = quarantineNarration(narration, cv);
+                    if (quarantined != null) {
+                        callPath.add("citations:sentence_quarantine");
+                        log.warn("CitationValidator: paperId={} mode=downgrade {} — "
+                                        + "sentence-quarantined {} prose-side value(s), publishing "
+                                        + "surviving prose issues={}",
+                                paperId, summary, cv.rejectedProseNumbers().size(), cv.issues());
+                        return quarantined;
+                    }
+                    log.warn("CitationValidator: paperId={} sentence-quarantine left no "
+                                    + "substantive findings — falling through to NULL_RESULT", paperId);
+                }
                 callPath.add("citations:downgrade→null_result");
                 log.warn("CitationValidator: paperId={} mode=downgrade {} — routing to "
                                 + "NULL_RESULT issues={}", paperId, summary, cv.issues());
@@ -2297,6 +2329,87 @@ public class ResearchNarrationService {
      * <p>Up to three example issues are included in the preamble; more would
      * bloat the prose without adding signal.
      */
+    /**
+     * Room b72c4e10 Rec 5 — sentence-level citation quarantine. Excise from the
+     * findings/conclusion only the sentences carrying a prose-side rejected
+     * number ({@link com.emergentterrain.research.CitationValidator.CitationValidationResult#rejectedProseNumbers()}),
+     * leaving the rest of the paper intact, and stamp a short quarantine note on
+     * the first findings block. Returns the edited narration, or {@code null} if
+     * excision leaves no substantive findings (caller then falls through to the
+     * whole-paper null). Hypothesis-sourced rejections are not expected here (the
+     * validator exempts hypothesis numbers), so only findings/conclusion are edited.
+     */
+    static NarrationResult quarantineNarration(
+            NarrationResult narration,
+            com.emergentterrain.research.CitationValidator.CitationValidationResult cv) {
+        // Group the verbatim rejected tokens by their source block.
+        Map<String, java.util.List<String>> byBlock = new java.util.LinkedHashMap<>();
+        for (var r : cv.rejectedProseNumbers()) {
+            if (r.sourceLocation() == null) continue;
+            byBlock.computeIfAbsent(r.sourceLocation(), k -> new java.util.ArrayList<>())
+                    .add(r.text());
+        }
+
+        Map<Integer, String> srcFindings = NarrationResult.orderedFindingsMap(narration.findingsMap());
+        Map<Integer, String> newFindings = new java.util.LinkedHashMap<>();
+        boolean anySubstantiveFinding = false;
+        for (Map.Entry<Integer, String> e : srcFindings.entrySet()) {
+            String loc = "findings:" + e.getKey();
+            String block = e.getValue();
+            java.util.List<String> toks = byBlock.get(loc);
+            String kept = (toks == null || toks.isEmpty())
+                    ? block
+                    : com.emergentterrain.research.CitationValidator.quarantineSentences(block, toks);
+            if (kept != null && !kept.isBlank()) {
+                newFindings.put(e.getKey(), kept);
+                anySubstantiveFinding = true;
+            }
+        }
+        if (!anySubstantiveFinding) {
+            return null;   // nothing of substance survived — let the caller null the paper
+        }
+
+        // Excise the conclusion's offending sentences too (may end up blank).
+        java.util.List<String> concToks = byBlock.get("conclusion");
+        String newConclusion = (concToks == null || concToks.isEmpty())
+                ? narration.conclusion()
+                : com.emergentterrain.research.CitationValidator.quarantineSentences(
+                        narration.conclusion(), concToks);
+
+        // Stamp a transparency note on the lowest-keyed findings block so a
+        // reader knows prose was removed and why.
+        Integer firstKey = newFindings.keySet().iterator().next();
+        String note = "[Note: " + cv.totalFailureCount()
+                + (cv.totalFailureCount() == 1 ? " sentence" : " sentences")
+                + " citing untraceable value(s) "
+                + cv.rejectedProseNumbers().stream()
+                        .map(com.emergentterrain.research.CitationValidator.RejectedProseNumber::text)
+                        .distinct().limit(5)
+                        .collect(java.util.stream.Collectors.joining(", "))
+                + " removed in review; remaining findings are tool-traced.]";
+        newFindings.put(firstKey, newFindings.get(firstKey) + " " + note);
+
+        return new NarrationResult(
+                narration.hypothesis(),
+                newFindings,
+                newConclusion,
+                narration.followUp(),
+                narration.aiModel(),
+                narration.confidenceScore(),
+                narration.citedPaperIds(),
+                narration.callPath(),
+                narration.typedCitations(),
+                narration.formalFindings(),
+                narration.templateId(),
+                narration.templateVersion(),
+                narration.discussion(),
+                narration.relatedWork(),
+                narration.auditGapDimensions(),
+                narration.toolCallTrace(),
+                narration.panelOutcome(),
+                narration.numericClaims());
+    }
+
     static NarrationResult downgradeNarrationToNull(
             NarrationResult narration,
             com.emergentterrain.research.CitationValidator.CitationValidationResult cv) {
