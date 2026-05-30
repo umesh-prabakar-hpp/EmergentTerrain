@@ -57,7 +57,7 @@ public class ConjectureVerifier {
      * ConjectureVerifier()} instances dormant.
      */
     @org.springframework.beans.factory.annotation.Value(
-            "${app.research.conjecture.boundary-probe-enabled:false}")
+            "${app.julia.conjecture.boundary-probe-enabled:false}")
     private boolean boundaryProbeEnabled;
 
     /**
@@ -67,7 +67,7 @@ public class ConjectureVerifier {
      * are too erratic to be representative.
      */
     @org.springframework.beans.factory.annotation.Value(
-            "${app.research.conjecture.boundary-probe-start:2000}")
+            "${app.julia.conjecture.boundary-probe-start:2000}")
     private long boundaryProbeStart = 2000;
 
     /** Test seam: enable/disable the binding-regime auto-probe without Spring. */
