@@ -45,6 +45,41 @@ public class ConjectureVerifier {
     @org.springframework.beans.factory.annotation.Autowired
     private MathConjectureSubstrateDelegate substrateDelegate;
 
+    /**
+     * Binding-regime auto-probe (room b72c4e10 fix). When enabled, a
+     * start-monotone bound (see {@link BindingRegimeProbe}) whose requested
+     * windows all HELD gets one extra window evaluated at
+     * {@link #boundaryProbeStart} — the smallest-ceiling regime where the
+     * bound actually binds. If that window refutes, the overall result flips
+     * to REFUTED, so a confirmatory-only trace can no longer be assembled and
+     * the professor's own tool result reports the violation. Flag-gated OFF;
+     * the field default (false) also keeps non-Spring {@code new
+     * ConjectureVerifier()} instances dormant.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.conjecture.boundary-probe-enabled:false}")
+    private boolean boundaryProbeEnabled;
+
+    /**
+     * Window start used for the binding-regime probe. Defaults to 2,000 — the
+     * regime where sibling papers P-b72c-13/14 found genuine refutations,
+     * above the degenerate sub-100 noise floor where number-theoretic scalars
+     * are too erratic to be representative.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.conjecture.boundary-probe-start:2000}")
+    private long boundaryProbeStart = 2000;
+
+    /** Test seam: enable/disable the binding-regime auto-probe without Spring. */
+    public void setBoundaryProbeEnabled(boolean enabled) {
+        this.boundaryProbeEnabled = enabled;
+    }
+
+    /** Test seam: set the binding-regime probe start without Spring. */
+    public void setBoundaryProbeStart(long start) {
+        this.boundaryProbeStart = start;
+    }
+
     /** One window's evaluation: the scalar values + the resulting margin. */
     public record WindowReport(
             long windowStart,
@@ -76,6 +111,19 @@ public class ConjectureVerifier {
             String lhs, String rhs,
             double k, double c,
             long windowStart, int windowSize, int numWindows) {
+        return verifyInternal(lhs, rhs, k, c, windowStart, windowSize, numWindows,
+                boundaryProbeEnabled);
+    }
+
+    /**
+     * Core verify with an explicit boundary-probe switch so the probe itself
+     * (which recurses for a single extra window) never re-triggers a probe.
+     */
+    private VerifyResult verifyInternal(
+            String lhs, String rhs,
+            double k, double c,
+            long windowStart, int windowSize, int numWindows,
+            boolean allowBoundaryProbe) {
 
         Objects.requireNonNull(lhs, "lhs");
         Objects.requireNonNull(rhs, "rhs");
@@ -107,6 +155,7 @@ public class ConjectureVerifier {
                     "window extends to n=" + maxEvaluated + " which exceeds MAX_N=" + MAX_N);
         }
 
+        VerifyResult requested;
         // Phase 28 §28.4 — try the sidecar batched verify path first.
         // One round trip instead of `numWindows` calls to
         // /numbertheory/window. Any failure (transport, bad_request,
@@ -116,13 +165,14 @@ public class ConjectureVerifier {
         // unavailable the per-window path throws and verify aborts.
         com.emergentterrain.llm.JuliaMathClient sidecarClient = juliaMathClientOrNull();
         if (sidecarClient != null && sidecarClient.isConjectureAvailable()) {
+            VerifyResult viaSidecar = null;
             try {
                 List<long[]> windows = new ArrayList<>(numWindows);
                 for (int i = 0; i < numWindows; i++) {
                     long start = windowStart + (long) i * windowSize;
                     windows.add(new long[]{start, windowSize});
                 }
-                return sidecarClient.conjectureVerify(lhs, rhs, k, c, windows);
+                viaSidecar = sidecarClient.conjectureVerify(lhs, rhs, k, c, windows);
             } catch (RuntimeException e) {
                 org.slf4j.LoggerFactory.getLogger(ConjectureVerifier.class).warn(
                         "ConjectureVerifier: sidecar /conjecture/verify failed " +
@@ -131,7 +181,43 @@ public class ConjectureVerifier {
                         lhs, rhs, numWindows, e.getMessage());
                 // Fall through to the per-window path below.
             }
+            requested = (viaSidecar != null)
+                    ? viaSidecar
+                    : evaluatePerWindow(lhs, rhs, k, c, windowStart, windowSize, numWindows);
+        } else {
+            requested = evaluatePerWindow(lhs, rhs, k, c, windowStart, windowSize, numWindows);
         }
+
+        // Binding-regime auto-probe (room b72c4e10): a start-monotone bound that
+        // "held" only because every requested window sat in the comfortable
+        // large-start regime gets one extra window at the smallest-ceiling
+        // start. A refutation there flips the overall verdict, so the
+        // professor's tool result reports REFUTED instead of a false HELD.
+        if (allowBoundaryProbe && requested.held()
+                && BindingRegimeProbe.shouldProbe(rhs, k, windowStart, boundaryProbeStart)) {
+            try {
+                VerifyResult probe = verifyInternal(
+                        lhs, rhs, k, c, boundaryProbeStart, windowSize, 1, /*allowBoundaryProbe*/ false);
+                requested = mergeBoundaryProbe(requested, probe);
+            } catch (RuntimeException e) {
+                // Fail-safe: the probe is an enhancement, not a correctness-critical
+                // path. A probe-window error (e.g. sidecar transport failure, which
+                // has no in-process fallback) must not turn a successful verify into a
+                // hard failure — keep the requested result unprobed and log.
+                org.slf4j.LoggerFactory.getLogger(ConjectureVerifier.class).warn(
+                        "ConjectureVerifier: binding-regime probe at start={} failed " +
+                        "(lhs={} rhs={}): {} — returning requested result unprobed",
+                        boundaryProbeStart, lhs, rhs, e.getMessage());
+            }
+        }
+
+        return requested;
+    }
+
+    /** Per-window evaluation via the sidecar-backed substrate delegate. */
+    private VerifyResult evaluatePerWindow(
+            String lhs, String rhs, double k, double c,
+            long windowStart, int windowSize, int numWindows) {
 
         MathConjectureSubstrateDelegate sub = substrate();
 
@@ -159,6 +245,35 @@ public class ConjectureVerifier {
         }
 
         return new VerifyResult(lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
+    }
+
+    /**
+     * Merge a binding-regime probe result into the requested result. The probe
+     * window(s) — at a strictly smaller start — are prepended so the per-window
+     * detail reads low-to-high start; {@code held} is the conjunction (a probe
+     * refutation flips it), and the worst margin is the larger of the two.
+     * Package-private + static so it is unit-testable without the sidecar.
+     */
+    static VerifyResult mergeBoundaryProbe(VerifyResult requested, VerifyResult probe) {
+        List<WindowReport> windows = new ArrayList<>(
+                probe.windows().size() + requested.windows().size());
+        windows.addAll(probe.windows());        // smaller start first
+        windows.addAll(requested.windows());
+
+        boolean held = requested.held() && probe.held();
+        double worstMargin;
+        long worstWindowStart;
+        if (probe.worstMargin() > requested.worstMargin()) {
+            worstMargin = probe.worstMargin();
+            worstWindowStart = probe.worstWindowStart();
+        } else {
+            worstMargin = requested.worstMargin();
+            worstWindowStart = requested.worstWindowStart();
+        }
+        return new VerifyResult(
+                requested.lhs(), requested.rhs(), requested.k(), requested.c(),
+                requested.windowsEvaluated() + probe.windowsEvaluated(),
+                held, worstMargin, worstWindowStart, windows);
     }
 
     /**

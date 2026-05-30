@@ -1502,6 +1502,15 @@ public class MathToolSuite {
                 result.windowsEvaluated(), windowSize, windowStart));
         sb.append(String.format("worst margin: %+.5f at window starting %d.",
                 result.worstMargin(), result.worstWindowStart()));
+        // Binding-regime auto-probe (room b72c4e10): if the verifier appended a
+        // window below the requested start to test where the bound binds, say
+        // so — the narrator must not present it as a window it chose.
+        boolean boundaryProbed = result.windows().stream()
+                .anyMatch(w -> w.windowStart() < windowStart);
+        if (boundaryProbed) {
+            sb.append(" [binding-regime auto-probe: an extra window at the smallest-ceiling"
+                    + " start was appended to test the regime where the bound binds]");
+        }
         sb.append("\nPer-window:");
         for (var w : result.windows()) {
             // 2026-05-29 — label the rhs *scalar* explicitly and print the evaluated
