@@ -1,7 +1,9 @@
 package com.emergentterrain.research.conjecture;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Phase 30 Wave 5 — compositional derivation (30.3, simulation-patterns #15
@@ -74,6 +76,32 @@ public final class ConjectureComposer {
                         ConjectureTrivialityFilter.descriptorKey(f1),
                         ConjectureTrivialityFilter.descriptorKey(f2)));
             }
+        }
+        return out;
+    }
+
+    /**
+     * Sound 1-step compositions, made publishable: filtered through the W1 gates
+     * ({@link ConjectureTrivialityFilter} window-geometry tautology +
+     * {@link ConjectureDimensionFilter} density-vs-window-magnitude), deduped by
+     * descriptor key (one per derived relation), and capped at {@code cap}
+     * ({@code cap <= 0} = uncapped). The reusable "what novel relations can
+     * composition add" step — used by the substrate-metrics integration and, once
+     * flipped, by the persisting step. Deterministic.
+     */
+    public static List<Inequality> proposeNovel(List<Inequality> pool, int cap) {
+        Map<String, Inequality> byKey = new LinkedHashMap<>();
+        for (Composition comp : compose(pool)) {
+            Inequality d = comp.derived();
+            if (ConjectureTrivialityFilter.dropReason(d).isPresent()
+                    || ConjectureDimensionFilter.dropReason(d).isPresent()) {
+                continue;
+            }
+            byKey.putIfAbsent(ConjectureTrivialityFilter.descriptorKey(d), d);
+        }
+        List<Inequality> out = new ArrayList<>(byKey.values());
+        if (cap > 0 && out.size() > cap) {
+            return new ArrayList<>(out.subList(0, cap));
         }
         return out;
     }

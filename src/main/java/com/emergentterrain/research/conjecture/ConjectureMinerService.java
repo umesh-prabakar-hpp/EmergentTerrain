@@ -101,6 +101,14 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final boolean investigationRotationEnabled;
 
+    /**
+     * Phase 30 integration (observability) — when ON, each mine pass logs a
+     * {@link SubstrateMetrics} snapshot over the live survivors (redundancy +
+     * composition novelty potential). Read-only; the first integration step that
+     * wires the substrate over the live pool without changing behavior. Default OFF.
+     */
+    private final boolean substrateMetricsEnabled;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
@@ -114,7 +122,10 @@ public class ConjectureMinerService implements ConjectureQueue {
             boolean dimensionFilterEnabled,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.investigationRotationEnabled:false}")
-            boolean investigationRotationEnabled) {
+            boolean investigationRotationEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.substrateMetricsEnabled:false}")
+            boolean substrateMetricsEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -122,10 +133,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.trivialityFilterEnabled = trivialityFilterEnabled;
         this.dimensionFilterEnabled = dimensionFilterEnabled;
         this.investigationRotationEnabled = investigationRotationEnabled;
+        this.substrateMetricsEnabled = substrateMetricsEnabled;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
-                + "trivialityFilter={} dimensionFilter={} investigationRotation={}", OeisCatalog.size(),
-                trivialityFilterEnabled ? "ON" : "OFF", dimensionFilterEnabled ? "ON" : "OFF",
-                investigationRotationEnabled ? "ON" : "OFF");
+                + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={}",
+                OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
+                dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
+                substrateMetricsEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -230,6 +243,12 @@ public class ConjectureMinerService implements ConjectureQueue {
                 oeisAnnotated++;
             }
             repo.save(entity);
+        }
+
+        // Phase 30 integration (observability, flag-gated OFF) — wire the substrate
+        // over the live survivors and log its view. Read-only; no behavior change.
+        if (substrateMetricsEnabled) {
+            log.info("conjecture mine pass — {}", SubstrateMetrics.of(store).summary());
         }
 
         log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} ms",

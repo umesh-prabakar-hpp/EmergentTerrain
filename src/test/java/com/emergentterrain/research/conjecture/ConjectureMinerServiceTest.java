@@ -94,7 +94,7 @@ class ConjectureMinerServiceTest {
         ObjectMapper om = new ObjectMapper();
         ConjectureMapper mapper = new ConjectureMapper(om);
         ConjectureMinerService svc = new ConjectureMinerService(
-                repo, mapper, new OeisAnnotator(om), sidecarDelegate(), /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false);
+                repo, mapper, new OeisAnnotator(om), sidecarDelegate(), /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false);
 
         svc.mine();
 
@@ -145,7 +145,7 @@ class ConjectureMinerServiceTest {
 
         ObjectMapper om = new ObjectMapper();
         ConjectureMinerService svc = new ConjectureMinerService(
-                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate(), /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false);
+                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate(), /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false);
         svc.mine();
 
         ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
@@ -173,7 +173,7 @@ class ConjectureMinerServiceTest {
         when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
         when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
         ConjectureMinerService svc = new ConjectureMinerService(
-                repo, mapper, new OeisAnnotator(om), delegate, /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false);
+                repo, mapper, new OeisAnnotator(om), delegate, /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false);
         svc.mine();
         ArgumentCaptor<Conjecture> firstPassSaves = ArgumentCaptor.forClass(Conjecture.class);
         verify(repo, atLeast(50)).save(firstPassSaves.capture());
