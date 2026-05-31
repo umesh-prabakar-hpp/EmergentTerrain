@@ -16,7 +16,9 @@ after the prior stage's acceptance bar is met.
 > from self-improving frameworks); and
 > [`phase-30-simulation-patterns.md`](phase-30-simulation-patterns.md) — the *content* layer (RAF-closure
 > irreducibility, mechanism-as-runnable-model, FIM identifiability, conservation/null/convergence gates,
-> dedup primitives, from chemistry / artificial-life / simulation frameworks).
+> dedup primitives, from chemistry / artificial-life / simulation frameworks). The two addenda plus the
+> sub-items below are sequenced into a dependency-ordered roadmap in
+> [`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md).
 
 **Premise.** The novelty *machinery* already exists and is live: Phase 23
 (conjecture mining + held-out `verify_conjecture` + `EvidenceLabel`
