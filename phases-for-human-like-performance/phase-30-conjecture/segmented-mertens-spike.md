@@ -191,6 +191,25 @@ boundaries, `p²` ordering — and does feeding back the first mismatch converge
 *next* concrete step: one model call, validate against `nt_mertens_dense`, log whether it passed
 first try or needed a fix. No production wiring.
 
+> **2a run (2026-05-31).** Done as a dev-time loop: a subagent (fresh context, no sight of the
+> baseline) was asked blind for a standalone segmented `mertens_segmented`; its output was run through
+> a standalone moat with an **independent** oracle (a linear Möbius sieve — a different algorithm, so
+> agreement is meaningful, not co-derived). Result:
+> - **ACCEPT, first try** — the blind candidate matched the oracle at all 12 overlap checkpoints
+>   (incl. `999983`, `1234567`, the `2×10⁶` boundary) and OEIS A084237 beyond range
+>   (`M(10⁷)=1037`, `M(10⁸)=1928`). It independently arrived at the `rem`-cofactor + leftover-prime
+>   structure.
+> - **Moat has teeth (negative control)** — the same code with the leftover-prime `>√x` flip removed
+>   (the most common subtle omission) was **REJECTED at `k=2`** (`buggy=2` vs `oracle=0`) and diverged
+>   badly thereafter. So the moat rubber-stamps nothing: a correct method passes, a plausibly-buggy
+>   one is caught at the first prime-bearing checkpoint.
+>
+> Takeaway: the generate→validate loop works and the oracle-equality gate genuinely discriminates.
+> Convergence-on-failure (feed the mismatch back, model repairs) wasn't exercised because the blind
+> attempt passed first try — worth forcing in a later run with a harder target to confirm the repair
+> loop, not just the accept/reject gate. Harnesses: `/tmp/fork2a_moat.jl` (accept), `/tmp/fork2a_negative.jl`
+> (reject) — scratch, not committed.
+
 **2b** is the genuinely novel capability and a phase of its own, not a spike. It requires:
 - a **sandboxed Julia exec path** in the sidecar (today it runs only fixed, reviewed code; the safety
   filter even rejects `using`) — resource/time/memory limits, no filesystem/network, and the
