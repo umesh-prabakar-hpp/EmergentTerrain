@@ -195,12 +195,18 @@ end, the discipline the discovery tool's own output already enforces.
      + loop backward-step test; 51/51). The loop no longer treats `next ≤ x` as termination: the
      **knowledge frontier stays monotonic** (`frontier = max` held scale), but the **step may go
      forward OR backward** — a visited-set guards cycles and the loop stops on no-progress / a revisit.
-     So a policy can interleave forward leaps with backward **densify/localize** moves (the groundwork
-     for counterexample localization; continue-after-counterexample is a follow-on). `LlmNextScalePolicy`
+     So a policy can interleave forward leaps with backward **densify/localize** moves. `LlmNextScalePolicy`
      (`frontierScalePolicy=llm`) asks a frontier model for the next scale from the `(x, ratio)` history
      + margin + `x_c`, prompted **aggressive** (leap when there's room, never crawl) and explicitly
      permitted to step backward; it parses plain/comma/scientific replies and **falls back to the
      aggressive adaptive policy** on anything bad, so a poor generation never stalls the loop.
+   - ✅ **Counterexample localization** — **Done** (`frontierLocalizeEnabled`, `localize` bisection +
+     `counterexample_localized` outcome; tests). When on, a counterexample no longer just stops: the
+     loop **bisects** the bracket `(largest-held-below, first-failed]` (geometric midpoint,
+     overflow-safe) until `hi/lo ≤ 1.1`, pinning where the bound crosses; the renderer narrates the
+     bracket. **Honest caveat** (in-code + Findings): for a *non-monotone* bound (Mertens' ratio
+     oscillates) this localizes the bracket *boundary*, not a proven first failure. Default OFF (the
+     first counterexample stays the headline result).
 
 ## 8. Non-goals
 - Resolving Mertens (or any question whose only path to `x_s` is B5).
