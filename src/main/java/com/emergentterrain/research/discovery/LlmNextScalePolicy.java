@@ -103,11 +103,30 @@ public class LlmNextScalePolicy implements NextScalePolicy {
                         + "leap once you have a method that scales.%n",
                         ctx.lastFailedX(), ctx.lastFailureReason() == null ? "no value" : ctx.lastFailureReason())
                 : "";
+        // §10.3/B2 — known boundaries from PREVIOUS runs (persisted). Informational, not a ban:
+        // a memory-bounded method may now reach a scale a dense one couldn't before.
+        String boundaryNote = "";
+        if (!ctx.priorBoundaries().isEmpty()) {
+            StringBuilder b = new StringBuilder("Known boundaries from previous runs (unreachable before; you MAY "
+                    + "retry with a better-scaling method, but don't assume they'll work without one): ");
+            int n = 0;
+            for (FrontierEvent e : ctx.priorBoundaries()) {
+                if (n++ > 0) {
+                    b.append(", ");
+                }
+                b.append("x=").append(e.x()).append(" (").append(e.outcome()).append(")");
+                if (n >= 12) {
+                    b.append(", …");
+                    break;
+                }
+            }
+            boundaryNote = b.append("\n").toString();
+        }
         return ("""
                 You are choosing the NEXT scale x to probe a bound that has held so far. Goal: advance the validated frontier AGGRESSIVELY.
                 History (x -> value, ratio = |value|/sqrt(x), verdict):
                 %s
-                %sCurrent x = %d. Headroom margin = %.3f (1 = far below the bound, 0 = at it). Compute frontier x_c (cost runs out beyond this) = %s.
+                %s%sCurrent x = %d. Headroom margin = %.3f (1 = far below the bound, 0 = at it). Compute frontier x_c (cost runs out beyond this) = %s.
                 Rules:
                 - When the bound holds with room (high margin), LEAP: 10x, 100x, or 1000x. Do NOT take timid small steps.
                 - You MAY pick a SMALLER x than the current one to densify/localize if the ratio is climbing toward the bound and you want to study the approach — but default to large FORWARD leaps.
@@ -117,6 +136,7 @@ public class LlmNextScalePolicy implements NextScalePolicy {
                 """).formatted(
                 h.length() == 0 ? "  (none yet)" : h.toString(),
                 failureNote,
+                boundaryNote,
                 ctx.currentX(), ctx.margin(),
                 ctx.computeFrontierX() > 0 ? String.format("%.3g", ctx.computeFrontierX()) : "unknown");
     }

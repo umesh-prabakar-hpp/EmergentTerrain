@@ -109,7 +109,11 @@ public class MertensFrontierService {
                     EscalationOutcome.disabled());
         }
         EscalationTask task = new EscalationTask(SPEC, startScale, 10L, CHECKPOINTS, ANCHORS, 20, 28);
-        EscalationOutcome out = escalation.escalate(task, sieveSource, BoundPredicate.MERTENS);
+        // §10.3/B2 — seed the scale policy with persisted boundaries from prior runs so a
+        // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
+        java.util.List<FrontierEvent> priorEvents = knowledge == null
+                ? java.util.List.of() : knowledge.recall(BOUND).events();
+        EscalationOutcome out = escalation.escalate(task, sieveSource, BoundPredicate.MERTENS, priorEvents);
         String findings = FrontierFindingsRenderer.render(out, "M(x)", BOUND_LABEL);
         log.info("frontier paper produced — terminal={} frontier={} pivot={}",
                 out.terminalState(), out.frontierReached(), out.pivot() == null ? "none" : out.pivot().branch());

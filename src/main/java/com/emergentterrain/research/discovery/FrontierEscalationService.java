@@ -129,9 +129,21 @@ public class FrontierEscalationService {
      * checkpoint corpus + terminal state.
      */
     public EscalationOutcome escalate(EscalationTask task, ScaleValueSource sieveSource, BoundPredicate bound) {
+        return escalate(task, sieveSource, bound, List.of());
+    }
+
+    /**
+     * §10.3/B2 — overload that seeds the scale policy with {@code priorEvents}: the
+     * persisted failure/boundary events from previous runs, so a fresh run starts
+     * INFORMED of which scales were unreachable (the LLM may still retry them — inform,
+     * not suppress). Fetched by the caller from the knowledge store.
+     */
+    public EscalationOutcome escalate(EscalationTask task, ScaleValueSource sieveSource, BoundPredicate bound,
+                                      List<FrontierEvent> priorEvents) {
         if (!enabled) {
             return EscalationOutcome.disabled();
         }
+        List<FrontierEvent> priors = priorEvents == null ? List.of() : List.copyOf(priorEvents);
         List<EscalationCheckpoint> cps = new ArrayList<>();
         List<CostObservation> costs = new ArrayList<>();   // discovery rungs only — fed to the predictor
         java.util.Set<Long> visited = new java.util.HashSet<>();   // cycle guard for bidirectional steps
@@ -203,7 +215,7 @@ public class FrontierEscalationService {
             double margin = cp.value() != null ? bound.margin(cp.x(), cp.value()) : 0.0;
             double xc = pred.valid() ? pred.computeFrontierX() : 0.0;
             long next = scalePolicy.nextScale(new NextScaleContext(
-                    x, margin, xc, task.scaleFactor(), cps, lastFailedX, lastFailureReason));
+                    x, margin, xc, task.scaleFactor(), cps, lastFailedX, lastFailureReason, priors));
             if (next < 1 || next == x || !visited.add(next)) {
                 break;
             }

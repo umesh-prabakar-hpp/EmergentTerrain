@@ -66,4 +66,20 @@ class LlmNextScalePolicyTest {
                 .contains("SMALLER x")            // backward allowed
                 .contains("x=1000000");           // history rendered
     }
+
+    @Test
+    void promptSurfacesInRunFailureAndPriorBoundaries() {
+        // in-run failure feedback
+        NextScaleContext withFail = new NextScaleContext(2_000_000L, 1.0, 0, 10, List.of(),
+                200_000_000_000L, "oom");
+        assertThat(LlmNextScalePolicy.buildPrompt(withFail))
+                .contains("could NOT be computed").contains("x=200000000000").contains("oom");
+
+        // cross-run persisted boundaries (B2) — informed, not suppressed
+        NextScaleContext withPriors = new NextScaleContext(2_000_000L, 1.0, 0, 10, List.of(), 0, null,
+                List.of(new FrontierEvent("mertens_M", 500_000_000_000L, "oom", "prior", null, null)));
+        assertThat(LlmNextScalePolicy.buildPrompt(withPriors))
+                .contains("Known boundaries from previous runs")
+                .contains("x=500000000000").contains("MAY");   // may retry — not a ban
+    }
 }
