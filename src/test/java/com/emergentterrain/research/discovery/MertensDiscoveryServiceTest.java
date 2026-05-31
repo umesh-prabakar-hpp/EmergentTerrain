@@ -46,7 +46,7 @@ class MertensDiscoveryServiceTest {
     @Test
     void repairConvergesOnSecondAttempt() {
         FakeGen gen = new FakeGen("buggy-code", "fixed-code");
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, gen, new FakeVal(reject(), accept()));
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3, gen, new FakeVal(reject(), accept()));
 
         DiscoveryOutcome out = svc.discover(TASK);
 
@@ -65,7 +65,7 @@ class MertensDiscoveryServiceTest {
 
     @Test
     void acceptsFirstTryWhenCorrect() {
-        MertensDiscoveryService svc = new MertensDiscoveryService(true,
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
                 new FakeGen("good-code"), new FakeVal(accept()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isTrue();
@@ -74,7 +74,7 @@ class MertensDiscoveryServiceTest {
 
     @Test
     void exhaustsAfterMaxAttempts() {
-        MertensDiscoveryService svc = new MertensDiscoveryService(true,
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
                 new FakeGen("a", "b", "c"), new FakeVal(reject(), reject(), reject()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isFalse();
@@ -85,7 +85,7 @@ class MertensDiscoveryServiceTest {
     @Test
     void disabledShortCircuits() {
         // Even with fakes that would accept, the flag-off service does nothing.
-        MertensDiscoveryService svc = new MertensDiscoveryService(false,
+        MertensDiscoveryService svc = new MertensDiscoveryService(false, 3,
                 new FakeGen("x"), new FakeVal(accept()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isFalse();

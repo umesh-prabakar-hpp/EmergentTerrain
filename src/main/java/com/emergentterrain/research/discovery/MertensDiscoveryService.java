@@ -34,17 +34,31 @@ public class MertensDiscoveryService {
     private static final Logger log = LoggerFactory.getLogger(MertensDiscoveryService.class);
 
     private final boolean enabled;
+    private final int maxRepairAttempts;
     private final CandidateGenerator generator;
     private final CandidateValidator validator;
 
     public MertensDiscoveryService(
             @Value("${app.research.discovery.runtimeExecEnabled:false}") boolean enabled,
+            @Value("${app.research.discovery.maxRepairAttempts:3}") int maxRepairAttempts,
             CandidateGenerator generator,
             CandidateValidator validator) {
         this.enabled = enabled;
+        this.maxRepairAttempts = Math.max(1, maxRepairAttempts);
         this.generator = generator;
         this.validator = validator;
-        log.info("MertensDiscoveryService ready — runtimeExec={}", enabled ? "ON" : "OFF");
+        log.info("MertensDiscoveryService ready — runtimeExec={} maxRepairAttempts={}",
+                enabled ? "ON" : "OFF", this.maxRepairAttempts);
+    }
+
+    /** Whether the Java gate is on (the Phase-4 tool advertises itself only when this is true). */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /** Configured generate→validate→repair cap; callers stamp it onto the {@link DiscoveryTask}. */
+    public int maxAttempts() {
+        return maxRepairAttempts;
     }
 
     /**

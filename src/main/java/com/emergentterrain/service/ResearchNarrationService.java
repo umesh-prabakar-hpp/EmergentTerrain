@@ -54,6 +54,14 @@ public class ResearchNarrationService {
 
     private final LlmRouter router;
     private final MathToolSuite toolSuite;
+    /**
+     * Phase 30 fork 2b Phase 4 — optional runtime-discovery service, field-injected
+     * (required=false) and wired into {@link #toolSuite} in {@link #wireDiscoveryTool()}
+     * after autowiring. Null when the discovery beans aren't present; the
+     * discover_mertens_value tool is then absent. Gated further by runtimeExecEnabled.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService;
     /** Lever 2 — read-only check_* tools for the revision self-check loop. */
     private final RevisionSelfCheckTools selfCheckTools;
     private final ObjectMapper objectMapper;
@@ -723,6 +731,7 @@ public class ResearchNarrationService {
         // setter; MathToolSuite isn't a Spring bean). literatureSearch may be null;
         // the search_literature tool is then omitted regardless of the flag.
         this.toolSuite.setLiteratureSearch(literatureSearch);
+        // discoveryService is field-injected (after construction); wired in wireDiscoveryTool().
         this.selfCheckTools            = new RevisionSelfCheckTools(objectMapper);
         this.objectMapper              = objectMapper;
         this.juliaMathClient           = juliaMathClient;
@@ -774,6 +783,19 @@ public class ResearchNarrationService {
         if (literatureSearchEnabled && literatureSearch == null) {
             log.warn("ResearchNarrationService: app.research.literature-search.enabled=true "
                     + "but no LiteratureSearchService bean on the context; degrading to off");
+        }
+    }
+
+    /**
+     * Phase 30 fork 2b Phase 4 — wire the (field-injected) discovery service into
+     * the tool suite after autowiring. {@code discoveryService} is null unless the
+     * discovery beans are present; the {@code discover_mertens_value} tool stays
+     * absent then, and (when present) only advertises itself if runtimeExecEnabled.
+     */
+    @jakarta.annotation.PostConstruct
+    void wireDiscoveryTool() {
+        if (toolSuite != null) {
+            toolSuite.setDiscoveryService(discoveryService);
         }
     }
 

@@ -367,6 +367,32 @@ public class MathToolSuite {
         this.literatureSearch = literatureSearch;
     }
 
+    /**
+     * Phase 30 fork 2b Phase 4 — optional runtime-discovery service. Set by
+     * {@link ResearchNarrationService} after Spring autowires it. The
+     * {@code discover_mertens_value} tool is advertised + executable only when
+     * this is non-null AND {@code isEnabled()} (the {@code runtimeExecEnabled}
+     * flag) — so it is absent by default. The tool computes M(x) only, so it is
+     * inherently mertens-class; it is offered only during a deliberate discovery
+     * experiment. See phase-30-conjecture/runtime-self-verifying-execution.md.
+     */
+    private volatile com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService;
+
+    public void setDiscoveryService(
+            com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService) {
+        this.discoveryService = discoveryService;
+    }
+
+    private boolean discoveryAvailable() {
+        return discoveryService != null && discoveryService.isEnabled();
+    }
+
+    /** Standard moat checkpoints (≤ NT_MAX_N, judged vs the oracle) + OEIS anchor. */
+    private static final java.util.List<Long> DISCOVER_CHECKPOINTS =
+            java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
+    private static final java.util.Map<Long, Long> DISCOVER_ANCHORS =
+            java.util.Map.of(10_000_000L, 1037L);   // M(10^7), OEIS A084237
+
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
     /**
@@ -608,14 +634,15 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
                         ? PROVE_IDENTITY_TOOL_JSON : "",
                 (includeLiterature && literatureSearch != null)
-                        ? SEARCH_LITERATURE_TOOL_JSON : "");
+                        ? SEARCH_LITERATURE_TOOL_JSON : "",
+                discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "");
     }
 
     /**
@@ -721,6 +748,30 @@ public class MathToolSuite {
               }
             }""";
 
+    /**
+     * Phase 30 fork 2b Phase 4 — runtime-discovery tool. Advertised only when
+     * {@link #discoveryAvailable()} (discovery wired AND runtimeExecEnabled). It
+     * computes the cumulative Mertens function M(x) at large x via a method that
+     * is generated and then validated against ground truth before its result is
+     * trusted — so it is mertens-class by construction.
+     */
+    private static final String DISCOVER_MERTENS_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"discover_mertens_value",
+                "description":"Compute the cumulative Mertens function M(x) = sum of the Möbius function mu(n) for n=1..x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a Mertens-related claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000] plus the known M(10^7)=1037) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for M(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "x":{"type":"integer","description":"The target n: compute M(x). Must be > 2000000 (use a direct method below that)."},
+                    "rationale":{"type":"string","description":"Why the paper's Mertens claim needs M(x) at this scale."}
+                  },
+                  "required":["x","rationale"]
+                }
+              }
+            }""";
+
     // ── Executor factory ──────────────────────────────────────────────────────
 
     /**
@@ -753,6 +804,7 @@ public class MathToolSuite {
                     case "run_symbolic"       -> runSymbolic(args);
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
+                    case "discover_mertens_value" -> discoverMertensValue(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
@@ -1450,6 +1502,44 @@ public class MathToolSuite {
         char next = s.charAt(i);
         if (next != '[' && next != '(') return null;
         return s.substring(0, i);
+    }
+
+    /**
+     * Phase 30 fork 2b Phase 4 — {@code discover_mertens_value}: compute M(x) at
+     * a large x via a runtime-discovered, moat-validated method. Builds a
+     * {@link com.emergentterrain.research.discovery.DiscoveryTask} with the
+     * standard checkpoints + OEIS anchor, runs the generate→validate→repair loop,
+     * and returns the validated value tagged as a computed (not established)
+     * result, or a failure note. Gated: returns a disabled line unless discovery
+     * is wired AND {@code runtimeExecEnabled}.
+     */
+    String discoverMertensValue(JsonNode args) {
+        if (!discoveryAvailable()) {
+            return "discover_mertens_value: disabled (runtime discovery is off).";
+        }
+        long x = args.path("x").asLong(0);
+        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+            return "discover_mertens_value: 'x' must be > " +
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    " (use a direct method at or below the sieve range).";
+        }
+        var task = new com.emergentterrain.research.discovery.DiscoveryTask(
+                "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)",
+                x, DISCOVER_CHECKPOINTS, DISCOVER_ANCHORS, 20, 28, discoveryService.maxAttempts());
+        var outcome = discoveryService.discover(task);
+        if (outcome.accepted()) {
+            var p = outcome.provenance();
+            return String.format(
+                    "discover_mertens_value: M(%d) = %d. COMPUTED by a moat-validated method "
+                    + "(method sha256=%s, reproduced %d checkpoints in [1, %d] + M(10^7)=1037). "
+                    + "This is a computed value from a validated method, NOT an established result — "
+                    + "report it as \"computed to x=%d\", with no claim about the Mertens conjecture.",
+                    x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+        }
+        return "discover_mertens_value: no method validated within "
+                + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
+                + ". Do NOT report a value for M(" + x + ").";
     }
 
     /**
