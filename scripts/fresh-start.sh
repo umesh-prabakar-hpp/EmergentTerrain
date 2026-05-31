@@ -34,7 +34,20 @@ PGPASSWORD="$PGPASSWORD" psql -U "$PG_USER" -h "$PG_HOST" -d "$PG_DB" -v ON_ERRO
 -- self-heal on the next boot (PromptTemplateRegistry.syncVariantsToDatabase,
 -- @PostConstruct, re-inserts one row per registered variant with zeroed stats +
 -- ACTIVE status before the research cycle starts).
+-- frontier_records / frontier_convergence / verified_methods / frontier_events
+-- (Phase 30 fork 2b — self-verifying discovery & frontier escalation): the accumulated,
+-- moat-validated frontier knowledge for each bound (e.g. mertens_M) — validated values,
+-- the reusable verified-method library, run-until-converged state, and the OOM/timeout
+-- boundary events. Truncated below so a fresh start resets the frontier to the sieve.
+-- These have NO FK to the game tables (keyed by bound string), so CASCADE won't reach
+-- them — they MUST be listed explicitly or they survive the reset. Comment them out to
+-- PRESERVE the accumulated discovery corpus across a fresh start (it is expensive
+-- verified computation; see phase-30-conjecture/frontier-escalation-loop.md §8b).
 TRUNCATE
+    frontier_records,
+    frontier_convergence,
+    verified_methods,
+    frontier_events,
     room_bots,
     room_participants,
     room_proposal_votes,

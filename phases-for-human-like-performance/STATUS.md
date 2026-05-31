@@ -33,27 +33,41 @@ Phase 0 began.
 
 ## Phase 30 — self-verifying discovery & frontier escalation (2026-05-31)
 
-Built this session as a flag-gated, **dormant-by-default** substrate (design +
-status in [`phase-30-conjecture/`](phase-30-conjecture/)). All `app.research.discovery.*`
-flags default OFF; with them off, behaviour is unchanged.
+Built this session and now **LIVE** (no longer dormant): the `app.research.discovery.*`
+flags were flipped ON and the loop has produced a real result — design + status in
+[`phase-30-conjecture/`](phase-30-conjecture/).
+
+**Live result (2026-05-31):** an autonomous frontier run ratcheted the Mertens frontier
+**2×10⁶ → 2×10⁸** (100× past the sieve), banking **3 LLM-generated, moat-validated
+methods** and **4 boundary events** — `M(10⁸)=1928` (the known value) confirms the moat.
+The LLM self-corrected scale on feedback (2×10¹¹→5×10⁹→5×10⁷ found the reachable zone)
+and the OOM hint produced segmented methods that validate.
 
 | Slice | Status | Key flags / docs |
 |-------|--------|------------------|
-| Composition lane (steps 2 / 2.5) | **LIVE** | `compositionPersistEnabled`, `compositionKnobExemptEnabled` ON — cross-density derived conjectures persisted + knob-exempt ([IMPLEMENTATION-ORDER.md](phase-30-conjecture/IMPLEMENTATION-ORDER.md)) |
-| Fork 2b — runtime self-verifying execution | **shipped, gated** | sandbox runner + `/discover/validate` (sidecar `ET_DISCOVER_EXEC=1`) + `MertensDiscoveryService` (`runtimeExecEnabled`) + `discover_mertens_value` tool. Live moat verified (M(10⁸)=1928). [runtime-self-verifying-execution.md](phase-30-conjecture/runtime-self-verifying-execution.md) |
+| Composition lane (steps 2 / 2.5) | **LIVE** | `compositionPersistEnabled`, `compositionKnobExemptEnabled` ON ([IMPLEMENTATION-ORDER.md](phase-30-conjecture/IMPLEMENTATION-ORDER.md)) |
+| Fork 2b — runtime self-verifying execution | **LIVE** | sandbox runner + `/discover/validate` (sidecar `ET_DISCOVER_EXEC=1`) + `MertensDiscoveryService` (`runtimeExecEnabled` ON) + `discover_mertens_value` tool. Moat verified (M(10⁸)=1928). [runtime-self-verifying-execution.md](phase-30-conjecture/runtime-self-verifying-execution.md) |
 | Segmented M(x) spike | **shipped** | `nt_mertens_dense`/`nt_mertens_segmented` + dev-time self-verifying loop (2a) [segmented-mertens-spike.md](phase-30-conjecture/segmented-mertens-spike.md) |
-| Frontier-escalation loop (Phases 1–6) | **logic flipped ON, schedule OFF** | `frontierEscalationEnabled`+`branchPivotEnabled` ON (no spend until `produce()`); `frontierScheduleEnabled` OFF (6h autonomous runs, the token-spend gate). Stall predictor, B3/B4 pivot, paper renderer, `frontierScalePolicy=default\|adaptive\|llm`, bidirectional steps, counterexample localization. [frontier-escalation-loop.md](phase-30-conjecture/frontier-escalation-loop.md) |
-| Generalized B3 oracle + proxy-discovery loop | **shipped, gated** | `SummatoryProxyOracle`/`ProxyValidator`/`ProxyDiscoveryService` (`proxyDiscoveryEnabled`) — verify any linear-combo summatory proxy over μ/ω/Ω/τ |
+| Frontier-escalation loop + **feedback-driven discovery (§10)** | **LIVE** | `frontierEscalationEnabled`/`branchPivotEnabled`/`frontierScheduleEnabled` ON. A discovery `CANNOT_COMPUTE` **feeds back, not terminates** (LLM re-picks a reachable x; `frontierMaxConsecutiveFailures`); scoped OOM repair hint; persisted boundaries fed back across runs. Tunable budgets `maxRepairAttempts`/`frontierCpuSeconds`/`frontierWallSeconds`/`frontierEscalationMaxRounds`; runs **resume from the persisted frontier**. [frontier-escalation-loop.md](phase-30-conjecture/frontier-escalation-loop.md) §10 |
+| Knowledge accumulation + paper-side recall (§8b) | **LIVE** | DB-backed `frontier_records`/`frontier_convergence`/`verified_methods`/`frontier_events` (survive restart); keep-the-best, run-until-converged; `recall_frontier_knowledge` tool (`frontierRecallEnabled` ON) surfaces records + best method + boundaries with trust verbatim. LLM method code logged to **log + DB + paper**. |
+| Generalized B3 oracle + proxy-discovery loop | **LIVE** | `SummatoryProxyOracle`/`ProxyValidator`/`ProxyDiscoveryService` (`proxyDiscoveryEnabled` ON) — verify any linear-combo summatory proxy over μ/ω/Ω/τ |
+| Pre-flight probe + sticky circuit-breaker | **LIVE** | cold-start-tolerant probe (`preflightColdTimeoutMs`/`preflightColdRetries`); optional app-wide hard stop `hardStopOn403Enabled` (default **OFF**) |
 
 Honest ceiling (documented throughout): it does **not** resolve Mertens — it
 computes/extrapolates toward the ~10¹⁴ failure regime with the trust level stated
-(`FULL`/`VALIDATED_PROXY`/`MODEL_FIT`/`LITERATURE_ONLY`), never laundering trust.
-Tests: ~50 in `research/discovery/` + 23 in the sidecar.
+(`FULL`/`VALIDATED_PROXY`/`MODEL_FIT`/`LITERATURE_ONLY`), never laundering trust. An
+OOM/timeout is itself recorded as a trust-framed computational *boundary*, never a claim.
+Tests: ~65 in `research/discovery/` + 23 in the sidecar.
 
-**Operator-pending:** app restart loads the escalation logic; flip `frontierScheduleEnabled`
-for autonomous runs. **Follow-ons (none blocking):** nonlinear proxy terms (need a
-trusted sidecar evaluator), cgroups RSS sandbox hardening, the large-x topic that
-makes the discovery tool fire organically.
+**DB note:** four new tables (`frontier_records`, `frontier_convergence`, `verified_methods`,
+`frontier_events`) are created additively by `ddl-auto=update`; `scripts/fresh-start.sh`
+truncates them (they have no FK to the game tables — comment out to preserve the accumulated
+verified-computation corpus across a reset).
+
+**Follow-ons (none blocking):** the deferred **worst-case wall-clock mitigation** (global
+per-run budget + early-exit on repeated same-failure + a discovery concurrency semaphore —
+the 6×5×80s tail can reach ~40 min); nonlinear proxy terms (need a trusted sidecar
+evaluator); cgroups RSS sandbox hardening; reuse a library method instead of regenerating.
 
 ---
 
