@@ -237,6 +237,10 @@ ceilings (§7 of [`mertens-analytic-reachability.md`](mertens-analytic-reachabil
 validated LLM-authored `M(x)` reaching `10¹⁵` is *less trivial*, not a *solution*. Sequence: do 2a
 first (prove the loop is worth it); only then scope 2b's sandbox.
 
+> **2b is now scoped in full** (threat model, subprocess isolation, candidate-emits/trusted-judges
+> contract, runtime moat gate, flags + per-invariant gate, provenance, acceptance/containment tests,
+> phasing, risks): [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md).
+
 ---
 
 ## Cross-references
