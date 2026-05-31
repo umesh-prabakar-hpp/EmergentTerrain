@@ -85,6 +85,8 @@ public class MertensDiscoveryService {
         }
         String previousCode = null;
         String discrepancy = null;
+        String lastCode = null;
+        String lastStatus = null;
         for (int attempt = 1; attempt <= task.maxAttempts(); attempt++) {
             String code = generator.generate(new GenerationRequest(task.spec(), previousCode, discrepancy));
             if (code == null || code.isBlank()) {
@@ -92,34 +94,61 @@ public class MertensDiscoveryService {
                 log.info("discovery attempt {}/{} — {}", attempt, task.maxAttempts(), discrepancy);
                 continue;
             }
+            // Log the LLM-generated candidate verbatim (+sha) — the actual computation
+            // that will (or won't) produce a frontier value, so it is auditable in the log.
+            log.info("discovery attempt {}/{} — candidate (sha256={}) for M({}):\n{}",
+                    attempt, task.maxAttempts(), sha256(code), task.target(), clip(code));
             ValidationResult result = validator.validate(code, task);
             if (result.accepted()) {
-                log.info("discovery accepted on attempt {}/{} — target M({}) = {}",
-                        attempt, task.maxAttempts(), task.target(), result.targetValue());
+                log.info("discovery accepted on attempt {}/{} — target M({}) = {} | method sha256={}",
+                        attempt, task.maxAttempts(), task.target(), result.targetValue(), sha256(code));
                 return DiscoveryOutcome.accepted(code, result.targetValue(), attempt,
                         provenanceOf(code, task), result.elapsedMs());
             }
             previousCode = code;
+            lastCode = code;
+            lastStatus = result == null ? "error" : result.status();
             discrepancy = describe(result);
             log.info("discovery attempt {}/{} rejected — {}", attempt, task.maxAttempts(), discrepancy);
         }
-        return DiscoveryOutcome.exhausted(task.maxAttempts(), discrepancy);
+        return DiscoveryOutcome.exhausted(task.maxAttempts(), discrepancy, lastCode, lastStatus);
     }
 
-    /** The repair signal fed back to the generator — exactly what fork 2a showed sufficient. */
+    /** Trim a candidate for the log so a pathological generation can't flood it. */
+    private static String clip(String code) {
+        return code.length() <= 4000 ? code : code.substring(0, 4000) + "\n… [" + (code.length() - 4000) + " more chars]";
+    }
+
+    /**
+     * The repair signal fed back to the generator — exactly what fork 2a showed sufficient.
+     * The <b>Mertens-specific</b> realization of a resource (OOM/timeout) failure is added
+     * here (this is the mertens branch); the <i>domain-neutral</i> "use bounded memory /
+     * segment the range" lesson is added by the shared {@link LlmCandidateGenerator} so it
+     * also serves proxy discovery (see frontier-escalation-loop.md §10.4).
+     */
     static String describe(ValidationResult r) {
         if (r == null) {
             return "no validation result";
         }
         if ("na".equals(r.verdict())) {
-            return "candidate did not run (" + r.status() + ")"
+            String base = "candidate did not run (" + r.status() + ")"
                     + (r.detail() == null || r.detail().isBlank() ? "" : ": " + r.detail());
+            if (isResourceFailure(r.status())) {
+                base += " — M(x) = Σ_{n≤x} μ(n); a SEGMENTED Möbius sieve (process [1,x] in blocks,"
+                        + " summing μ per block) computes it without holding the whole range.";
+            }
+            return base;
         }
         if (r.firstFail() != null) {
             ValidationResult.FirstFail f = r.firstFail();
             return "M(" + f.k() + ") = " + f.got() + " but the correct value is " + f.want();
         }
         return "rejected (" + r.status() + ")";
+    }
+
+    /** Sandbox statuses where the fix is memory/time-bound, not a numeric bug. Domain-neutral tokens. */
+    static boolean isResourceFailure(String status) {
+        return "oom".equals(status) || "timeout".equals(status);
     }
 
     private static Provenance provenanceOf(String code, DiscoveryTask task) {

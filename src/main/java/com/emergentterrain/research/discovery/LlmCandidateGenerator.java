@@ -56,10 +56,31 @@ public class LlmCandidateGenerator implements CandidateGenerator {
     private static String repairPrompt(GenerationRequest r) {
         return "Your previous Julia attempt to compute: " + r.spec() + "\n"
                 + "is WRONG. An independent validator found:\n    " + r.discrepancy() + "\n\n"
+                + memoryLesson(r.discrepancy())
                 + "Find and fix the bug. Here is your previous attempt:\n\n```julia\n"
                 + r.previousCode() + "\n```\n\n"
                 + "Output ONLY the corrected Julia function in a single ```julia code fence. "
                 + "No prose, no explanation of what you changed.";
+    }
+
+    /**
+     * Domain-neutral memory-bound lesson — added (for ANY spec: Mertens, proxy, future
+     * bounds) when the validator reported a resource failure. The sandbox runs each
+     * candidate under a hard memory cap, so a method whose footprint grows with x cannot
+     * reach large x. Keyed off the neutral sandbox status tokens, not the domain
+     * (frontier-escalation-loop.md §10.4). Empty for non-resource failures.
+     */
+    static String memoryLesson(String discrepancy) {
+        String d = discrepancy == null ? "" : discrepancy.toLowerCase();
+        if (d.contains("oom") || d.contains("out of memory") || d.contains("timeout")
+                || d.contains("memory limit") || d.contains("time limit")) {
+            return "The sandbox runs your code under a HARD memory and time cap, so a method whose "
+                    + "memory grows with x cannot reach large x. Do NOT allocate an array (or other "
+                    + "structure) whose size is proportional to x. Use BOUNDED, streaming memory: "
+                    + "process the range in fixed-size segments, keeping only O(segment) state at a "
+                    + "time and accumulating the result as you go.\n\n";
+        }
+        return "";
     }
 
     /**

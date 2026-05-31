@@ -86,6 +86,26 @@ class FrontierEscalationServiceTest {
     }
 
     @Test
+    void discoveryFailureFeedsBackThenStallsAfterMaxConsecutive() {
+        // §10.1 — with maxConsecutiveFailures=3, a CANNOT_COMPUTE no longer ends the run on
+        // the first failure: the loop keeps escalating (feeding the failure back) until 3
+        // consecutive failures, then stalls. So we see 1 sieve rung + 3 discovery failures.
+        FrontierEscalationService svc =
+                new FrontierEscalationService(true, 8, 30000.0, 0.0, 3, discFailing());
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        assertThat(out.terminalState()).isEqualTo("discovery_stalled");
+        assertThat(out.checkpoints()).hasSize(4);                       // 1 sieve hold + 3 discovery failures
+        assertThat(out.frontierReached()).isEqualTo(1_000_000L);
+        assertThat(out.checkpoints().subList(1, 4))
+                .allMatch(c -> c.verdict() == EscalationVerdict.CANNOT_COMPUTE);
+        // the failed candidate code + sandbox status are captured for the knowledge event
+        EscalationCheckpoint firstFail = out.checkpoints().get(1);
+        assertThat(firstFail.methodCode()).isEqualTo("code");
+        assertThat(firstFail.failureStatus()).isEqualTo("ast_reject");
+    }
+
+    @Test
     void disabledShortCircuits() {
         FrontierEscalationService svc = new FrontierEscalationService(false, 4, 30000.0, 0.0, discReturning(1037L));
         EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);

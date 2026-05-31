@@ -93,18 +93,30 @@ public class LlmNextScalePolicy implements NextScalePolicy {
                         c.verdict().name().toLowerCase()));
             }
         }
+        // §10.2 — surface the last failure so the model can pick a REACHABLE x. We inform; we
+        // do not clamp — it stays free to leap, or to retry the same x with a better method.
+        String failureNote = ctx.lastFailedX() > 0
+                ? String.format("IMPORTANT — your previous target x=%d could NOT be computed (%s). The method must "
+                        + "run inside a hard memory+time-capped sandbox, so a footprint that grows with x can't reach "
+                        + "very large x. Pick a target you can actually reach now (a smaller x with a memory-bounded/"
+                        + "segmented method validates and lets the frontier ratchet upward from there). You MAY still "
+                        + "leap once you have a method that scales.%n",
+                        ctx.lastFailedX(), ctx.lastFailureReason() == null ? "no value" : ctx.lastFailureReason())
+                : "";
         return ("""
                 You are choosing the NEXT scale x to probe a bound that has held so far. Goal: advance the validated frontier AGGRESSIVELY.
                 History (x -> value, ratio = |value|/sqrt(x), verdict):
                 %s
-                Current x = %d. Headroom margin = %.3f (1 = far below the bound, 0 = at it). Compute frontier x_c (cost runs out beyond this) = %s.
+                %sCurrent x = %d. Headroom margin = %.3f (1 = far below the bound, 0 = at it). Compute frontier x_c (cost runs out beyond this) = %s.
                 Rules:
                 - When the bound holds with room (high margin), LEAP: 10x, 100x, or 1000x. Do NOT take timid small steps.
                 - You MAY pick a SMALLER x than the current one to densify/localize if the ratio is climbing toward the bound and you want to study the approach — but default to large FORWARD leaps.
+                - If the previous target failed to compute, prefer a scale you can reach NOW; do not just re-leap to the same unreachable size.
                 - Stay a positive integer; do not exceed ~10x the compute frontier (the loop pivots past it anyway).
                 Reply with ONLY the next x as plain digits (no commas, no exponent, no prose). Example: 5000000000
                 """).formatted(
                 h.length() == 0 ? "  (none yet)" : h.toString(),
+                failureNote,
                 ctx.currentX(), ctx.margin(),
                 ctx.computeFrontierX() > 0 ? String.format("%.3g", ctx.computeFrontierX()) : "unknown");
     }

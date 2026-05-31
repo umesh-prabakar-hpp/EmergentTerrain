@@ -34,21 +34,31 @@ public class FrontierEscalationService {
     private final int maxRounds;
     private final double stallBudgetMs;
     private final double scienceFrontier;
+    private final int maxConsecutiveFailures;
     private final MertensDiscoveryService discovery;
 
+    /** Back-compatible constructor (maxConsecutiveFailures defaults to 1 — old terminate-on-first-failure). */
+    FrontierEscalationService(boolean enabled, int maxRounds, double stallBudgetMs, double scienceFrontier,
+                              MertensDiscoveryService discovery) {
+        this(enabled, maxRounds, stallBudgetMs, scienceFrontier, 1, discovery);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public FrontierEscalationService(
             @Value("${app.research.discovery.frontierEscalationEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.frontierEscalationMaxRounds:8}") int maxRounds,
             @Value("${app.research.discovery.frontierStallBudgetMs:30000}") double stallBudgetMs,
             @Value("${app.research.discovery.frontierScienceFrontier:0}") double scienceFrontier,
+            @Value("${app.research.discovery.frontierMaxConsecutiveFailures:3}") int maxConsecutiveFailures,
             MertensDiscoveryService discovery) {
         this.enabled = enabled;
         this.maxRounds = Math.max(1, maxRounds);
         this.stallBudgetMs = stallBudgetMs;
         this.scienceFrontier = scienceFrontier;
+        this.maxConsecutiveFailures = Math.max(1, maxConsecutiveFailures);
         this.discovery = discovery;
-        log.info("FrontierEscalationService ready — frontierEscalation={} maxRounds={} stallBudgetMs={} scienceFrontier={}",
-                enabled ? "ON" : "OFF", this.maxRounds, stallBudgetMs, scienceFrontier);
+        log.info("FrontierEscalationService ready — frontierEscalation={} maxRounds={} stallBudgetMs={} scienceFrontier={} maxConsecutiveFailures={}",
+                enabled ? "ON" : "OFF", this.maxRounds, stallBudgetMs, scienceFrontier, this.maxConsecutiveFailures);
     }
 
     /**
@@ -129,6 +139,12 @@ public class FrontierEscalationService {
         long x = task.startScale();
         visited.add(x);
         long frontier = 0;
+        // §10.1 — a discovery failure is FEEDBACK, not a terminal: the loop keeps going and
+        // re-consults the scale policy with the failure, so the LLM can pick a reachable x.
+        // After maxConsecutiveFailures with no progress it routes to the stall→pivot path.
+        int consecutiveFailures = 0;
+        long lastFailedX = 0;
+        String lastFailureReason = null;
         for (int round = 0; round < maxRounds; round++) {
             EscalationCheckpoint cp = evaluateAt(x, task, sieveSource, bound);
             cps.add(cp);
@@ -144,9 +160,31 @@ public class FrontierEscalationService {
                     return EscalationOutcome.counterexampleLocalized(cps, bracket[0], bracket[1]);
                 }
                 case CANNOT_COMPUTE -> {
-                    return EscalationOutcome.stalled(cps, frontier);
+                    consecutiveFailures++;
+                    lastFailedX = x;
+                    lastFailureReason = cp.failureStatus() != null ? cp.failureStatus() : "cannot_compute";
+                    log.info("escalation — x={} did not compute ({}); feeding back to the scale policy "
+                            + "(consecutive {}/{})", x, lastFailureReason, consecutiveFailures, maxConsecutiveFailures);
+                    if (consecutiveFailures >= maxConsecutiveFailures) {
+                        // the LLM has had its chances to self-correct → degrade to pivot or stall
+                        StallPrediction pred = StallPredictor.predict(costs, stallBudgetMs, scienceFrontier);
+                        if (branchPivot != null && branchPivot.isEnabled()) {
+                            PivotOutcome pv = branchPivot.pivot(
+                                    new PivotRequest(task.spec(), x, task.checkpoints(), task.anchors(), pred, cps));
+                            log.info("escalation — {} consecutive discovery failures; pivoting -> branch={} trust={} validated={}",
+                                    consecutiveFailures, pv.branch(), pv.trust(), pv.validated());
+                            return EscalationOutcome.pivoted(cps, frontier, pred, pv);
+                        }
+                        log.info("escalation — {} consecutive discovery failures and no pivot wired; stalling at frontier={}",
+                                consecutiveFailures, frontier);
+                        return EscalationOutcome.stalled(cps, frontier);
+                    }
+                    // fall through to choose the next (informed) scale — don't return
                 }
-                case HOLDS -> frontier = Math.max(frontier, x);   // max held — a backward step can't lower it
+                case HOLDS -> {
+                    frontier = Math.max(frontier, x);   // max held — a backward step can't lower it
+                    consecutiveFailures = 0;            // progress resets the failure streak
+                }
             }
             if ("discovery".equals(cp.source()) && cp.elapsedMs() > 0) {
                 costs.add(new CostObservation(x, cp.elapsedMs()));
@@ -160,9 +198,12 @@ public class FrontierEscalationService {
             // Phase 6 — the policy decides the next scale (default ×10 / adaptive / llm).
             // The step may go forward (escalate) OR backward (densify/localize); the
             // loop stops on no-progress or a revisit (cycle/converged), not on next<=x.
+            // §10.2 — the last failure (x + reason) is handed to the policy so the LLM
+            // adjusts; we INFORM, we do NOT clamp the step.
             double margin = cp.value() != null ? bound.margin(cp.x(), cp.value()) : 0.0;
             double xc = pred.valid() ? pred.computeFrontierX() : 0.0;
-            long next = scalePolicy.nextScale(new NextScaleContext(x, margin, xc, task.scaleFactor(), cps));
+            long next = scalePolicy.nextScale(new NextScaleContext(
+                    x, margin, xc, task.scaleFactor(), cps, lastFailedX, lastFailureReason));
             if (next < 1 || next == x || !visited.add(next)) {
                 break;
             }
@@ -232,6 +273,7 @@ public class FrontierEscalationService {
         String source;
         long elapsedMs;
         String methodCode = null;
+        String failureStatus = null;
         if (x <= ConjectureVerifier.MAX_N) {
             long t0 = System.nanoTime();
             value = sieveSource.valueAt(x);
@@ -244,10 +286,16 @@ public class FrontierEscalationService {
             value = out.accepted() ? out.targetValue() : null;
             elapsedMs = out.elapsedMs();
             source = "discovery";
-            methodCode = out.accepted() ? out.code() : null;   // the validated method (for the library)
+            if (out.accepted()) {
+                methodCode = out.code();           // the validated method (for the library)
+            } else {
+                methodCode = out.failedCode();     // the last rejected candidate (for the boundary event)
+                failureStatus = out.failureStatus();
+            }
         }
         if (value == null) {
-            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source, elapsedMs, methodCode);
+            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source, elapsedMs,
+                    methodCode, failureStatus);
         }
         return new EscalationCheckpoint(x, value, bound.classify(x, value), source, elapsedMs, methodCode);
     }

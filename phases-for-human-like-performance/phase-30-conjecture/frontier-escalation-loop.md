@@ -309,6 +309,61 @@ blocking**:
 
 ---
 
+## 10. Feedback-driven discovery (2026-05-31 — live-run findings + design)
+
+The first live frontier run exposed a structural gap. The LLM scale policy leapt
+`2×10⁶ → 2×10¹¹` (×100 000) in one step; all three candidates OOM'd on a naive dense
+`ones(n)` allocation; the loop hit `terminal=discovery_stalled`, `pivot=none`, `0
+methods kept` — only `M(2×10⁶) = −247` accumulated. Root cause was **not** an
+over-eager LLM: a discovery `CANNOT_COMPUTE` was *terminal*
+(`FrontierEscalationService` returned `stalled` on the first failure), so the model
+got exactly one blind pick and was never allowed to adjust.
+
+**Design principle (decided): never clamp the LLM's step — build the feedback channels
+instead.** The LLM stays free to choose any scale (10×/100×/1000×) and any method; it
+just gets the failure back so it can self-correct. Concretely:
+
+1. **A discovery failure feeds back, not terminates.** `CANNOT_COMPUTE` records
+   `(x, reason, code)`, the loop **continues**, and `nextScale` is consulted again
+   with the failure in hand. The visited-set still guards cycles and `maxRounds`
+   bounds it; after **K** consecutive no-progress failures the loop routes to the
+   existing stall → branch-pivot path (which also fixes `pivot=none`).
+2. **The scale policy sees the failure.** `NextScaleContext` gains `lastFailedX` +
+   `lastFailureReason`; `LlmNextScalePolicy`'s prompt surfaces *"x=2×10¹¹ failed: OOM;
+   largest validated x = 2×10⁶; pick your next target."* No cap — informed free choice.
+3. **An OOM is knowledge — persist, recall, cite it.** A `frontier_events` table
+   `(bound, x, outcome=OOM|TIMEOUT|WRONG, reason, code, sha, when)` records every
+   failure alongside the validated `frontier_records`/`verified_methods`. It feeds back
+   **across runs** (a post-restart run sees a known-OOM x) and is **recallable into
+   papers** as a trust-framed computational boundary / negative result — a FULL-trust
+   fact *about the harness*, never a math claim (fits
+   [`mertens-analytic-reachability.md`](mertens-analytic-reachability.md)).
+   **Inform, do not suppress:** the event is shown to the LLM as context; it may still
+   retry that x/approach if it judges fit.
+4. **The OOM repair hint is scoped per the common-code rule.** The *domain-neutral*
+   lesson — "you allocated memory ∝ x and hit the sandbox cap; use bounded/streaming
+   memory, segment the range, never allocate a size-x array" — lives in the **shared**
+   `LlmCandidateGenerator` (used by Mertens *and* Proxy discovery), triggered by the
+   sandbox `oom`/`timeout` status. The *Mertens-specific* realization — "e.g. a
+   segmented Möbius sieve (`nt_mertens_segmented` style)" — lives only in
+   `MertensDiscoveryService.describe()`.
+5. **The LLM-generated method code is logged everywhere.** Each candidate's Julia
+   source (+sha) is written to the **log file** (per attempt, accepted and rejected),
+   persisted to the **DB** (validated → `verified_methods`; failed → `frontier_events`),
+   and rendered into the **paper** (a *Methods* section for the validated method, a
+   *Computational boundary* section for the failures) — so the actual computation that
+   produced a frontier value is auditable end to end.
+
+Sidecar facts confirmed during the run: `/discover/validate` has no lock — each call is
+its own ulimit'd subprocess (`sandbox_runner.jl`), so an OOM kills only the child
+(`signal 15`), never the server; within a run the repair rounds are inherently
+sequential. Overlapping discovery callers compete for host RAM (optional in-app
+semaphore if it bites). The post-OOM sidecar was slow (~7 s for a trivial probe vs
+~0.6 s warm) — GC/memory pressure, not a crash; this can flap the 5 s steady-state
+pre-flight timeout (falls back to the 20 s cold path).
+
+---
+
 ## Cross-references
 - [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md) — the discovery engine
   this loop drives (branch B1/B2; the moat that gates B3/B4).
