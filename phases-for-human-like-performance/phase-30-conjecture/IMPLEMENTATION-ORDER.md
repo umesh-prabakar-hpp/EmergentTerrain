@@ -41,11 +41,22 @@ Make the pool meaningful before adding machinery.
 
 | Item | Source | Notes |
 |------|--------|-------|
-| **Retirement loop** — feed published refutations back to retire conjectures; sample the binding regime in the mine pass so false bounds die at mine time | triviality §2/§5; ext #7 | fixes the "0 retired (counterexample)" loop |
-| **Domain field on `Inequality`** — record fitted start-range; state domain-restricted claims | mertens §2 | fixes "stated universally / refuted at small start" |
+| **Investigation rotation** — mark a conjecture consumed when it is selected for a paper (`lastInvestigatedAt`); serve least-recently-investigated first so the queue rotates instead of re-serving the same refuted conjecture | this trace | fixes "every math paper is the same mertens refutation" |
+| **Domain field on `Inequality`** (defer) — record fitted start-range; state domain-restricted claims so a start-monotone bound becomes a confirmed bound instead of perpetual refutation fodder | mertens §2 | fixes "stated universally / refuted at small start" |
 
-**Acceptance:** a mine pass retires ≥1 already-refuted conjecture; published conjectures carry an explicit
-domain; the 212-pool count drops on the next pass.
+> **Source-trace correction (2026-05-31).** The original framing here ("feed published refutations
+> back"; "sample the binding regime") was wrong: retirement **already works** — the miner samples small
+> starts (`ConjectureMinerService.RUNS` offsets include 100/1000/5000) and `ConjectureEngine.update`
+> retires on counterexample (**76 retired** on a fresh seed). The "0 retired" steady-state log is benign
+> (already-retired conjectures aren't re-loaded). The real bug is that the refuted (Tier-1) queue is a
+> **stateless peek**: `nextN` re-serves the same most-recently-refuted conjecture every cycle with no
+> consumption tracking, so with `paperShare=1.0` every math paper investigates the identical mertens
+> bound. The fix is investigation rotation (above), implemented flag-gated as
+> `app.research.conjectureMiner.investigationRotationEnabled`. The domain-field fix remains valid but is
+> deferred (it changes `seed()`/`Inequality` shape and risks `ConjectureEngineParityTest`).
+
+**Acceptance:** with rotation ON, consecutive conjecture papers cover **distinct** conjectures (not the
+same mertens bound); `markInvestigated` sets `lastInvestigatedAt` on consume; ordering unchanged when OFF.
 
 ---
 

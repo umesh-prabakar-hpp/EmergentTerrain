@@ -91,6 +91,14 @@ public class Conjecture {
     /** Set when {@code confirmedRuns} first crosses the promotion threshold. */
     private Instant promotedAt;
 
+    /**
+     * Phase 30 Wave 0 — last time this conjecture was selected for a paper
+     * (consumption mark). Drives investigation rotation in
+     * {@link ConjectureMinerService#nextN} so the same refuted conjecture is not
+     * re-served every cycle. Nullable (never investigated); additive column.
+     */
+    private Instant lastInvestigatedAt;
+
     protected Conjecture() {}  // for JPA
 
     public Conjecture(String domain, String lhs, String rhs, double k, double c) {
@@ -119,6 +127,7 @@ public class Conjecture {
     public Instant createdAt()             { return createdAt; }
     public Instant updatedAt()             { return updatedAt; }
     public Instant promotedAt()            { return promotedAt; }
+    public Instant lastInvestigatedAt()    { return lastInvestigatedAt; }
 
     // Targeted setters — mutated by the mapper during update cycles.
     public void setK(double k)                            { this.k = k; }
@@ -132,4 +141,5 @@ public class Conjecture {
     public void setOeisMatchJson(String s)                { this.oeisMatchJson = s; }
     public void setUpdatedAt(Instant t)                   { this.updatedAt = t; }
     public void setPromotedAt(Instant t)                  { this.promotedAt = t; }
+    public void setLastInvestigatedAt(Instant t)          { this.lastInvestigatedAt = t; }
 }

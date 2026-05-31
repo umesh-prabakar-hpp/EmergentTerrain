@@ -92,6 +92,15 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final boolean dimensionFilterEnabled;
 
+    /**
+     * Phase 30 Wave 0 — when ON, {@link #nextN}'s refuted (Tier-1) queue serves
+     * least-recently-investigated first (via {@code lastInvestigatedAt}), so the
+     * paper pipeline rotates through distinct conjectures instead of re-serving
+     * the same most-recently-refuted one every cycle. Default OFF (unchanged
+     * peek ordering). See phase-30-conjecture/IMPLEMENTATION-ORDER.md Wave 0.
+     */
+    private final boolean investigationRotationEnabled;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
@@ -102,16 +111,21 @@ public class ConjectureMinerService implements ConjectureQueue {
             boolean trivialityFilterEnabled,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.dimensionFilterEnabled:false}")
-            boolean dimensionFilterEnabled) {
+            boolean dimensionFilterEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.investigationRotationEnabled:false}")
+            boolean investigationRotationEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
         this.trivialityFilterEnabled = trivialityFilterEnabled;
         this.dimensionFilterEnabled = dimensionFilterEnabled;
+        this.investigationRotationEnabled = investigationRotationEnabled;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
-                + "trivialityFilter={} dimensionFilter={}", OeisCatalog.size(),
-                trivialityFilterEnabled ? "ON" : "OFF", dimensionFilterEnabled ? "ON" : "OFF");
+                + "trivialityFilter={} dimensionFilter={} investigationRotation={}", OeisCatalog.size(),
+                trivialityFilterEnabled ? "ON" : "OFF", dimensionFilterEnabled ? "ON" : "OFF",
+                investigationRotationEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -266,10 +280,19 @@ public class ConjectureMinerService implements ConjectureQueue {
         }
         List<Conjecture> out = new ArrayList<>(Math.min(n, all.size()));
 
-        // Tier 1: retired by counterexample, most recent first.
+        // Tier 1: retired by counterexample. Legacy order = most-recently-refuted
+        // first. Phase 30 Wave 0 rotation (flag-gated) = least-recently-INVESTIGATED
+        // first (then most-recently-refuted as tiebreaker), so the pipeline rotates
+        // through distinct conjectures instead of re-serving the same one each cycle.
+        Comparator<Conjecture> mostRecentlyRefuted =
+                (a, b) -> Long.compare(timestampOf(b), timestampOf(a));
+        Comparator<Conjecture> tier1Order = investigationRotationEnabled
+                ? Comparator.<Conjecture>comparingLong(ConjectureMinerService::investigatedAtOf)
+                        .thenComparing(mostRecentlyRefuted)
+                : mostRecentlyRefuted;
         all.stream()
                 .filter(c -> DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
-                .sorted((a, b) -> Long.compare(timestampOf(b), timestampOf(a)))
+                .sorted(tier1Order)
                 .limit(n)
                 .forEach(out::add);
 
@@ -289,6 +312,25 @@ public class ConjectureMinerService implements ConjectureQueue {
     private static long timestampOf(Conjecture c) {
         Instant t = c.updatedAt() != null ? c.updatedAt() : c.createdAt();
         return t == null ? 0 : t.toEpochMilli();
+    }
+
+    /** Epoch-ms of last investigation; {@link Long#MIN_VALUE} = never (sorts first under rotation). */
+    private static long investigatedAtOf(Conjecture c) {
+        return c.lastInvestigatedAt() == null ? Long.MIN_VALUE : c.lastInvestigatedAt().toEpochMilli();
+    }
+
+    /**
+     * Phase 30 Wave 0 — record that this conjecture was selected for a paper,
+     * so {@link #nextN} rotates away from it on the next cycle. Best-effort: a
+     * null or transient conjecture is ignored.
+     */
+    @Override
+    public void markInvestigated(Conjecture conjecture) {
+        if (conjecture == null) {
+            return;
+        }
+        conjecture.setLastInvestigatedAt(Instant.now());
+        repo.save(conjecture);
     }
 
     private List<Map<String, Double>> materialize(Run run) {

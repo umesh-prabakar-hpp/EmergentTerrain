@@ -91,6 +91,15 @@ public class ConjectureTopicProvider {
     }
 
     /**
+     * Phase 30 Wave 0 — mark a selected conjecture as investigated (consumption),
+     * delegating to the underlying queue so {@link ConjectureMinerService#nextN}
+     * can rotate away from it. No-op when no queue is wired.
+     */
+    public void markInvestigated(Conjecture conjecture) {
+        queue.ifPresent(q -> q.markInvestigated(conjecture));
+    }
+
+    /**
      * 2026-05-29 — bridge the engine domain (e.g. "MATHEMATICS", as carried by
      * Researcher.getDomain() and passed in by ResearchCycleService) to the
      * conjecture-store domain key (e.g. "math", ConjectureMinerService.DOMAIN).

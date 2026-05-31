@@ -332,6 +332,9 @@ public class ResearchCycleService {
             java.util.Optional<com.emergentterrain.research.conjecture.Conjecture> conjecture =
                     conjectureTopicProvider.selectConjecture(domain, rng);
             if (conjecture.isPresent()) {
+                // Phase 30 Wave 0 — record consumption so the queue rotates away
+                // from this conjecture next cycle (no-op unless rotation flag on).
+                conjectureTopicProvider.markInvestigated(conjecture.get());
                 publishConjectureInvestigation(roomId, author, conjecture.get(), gameTick, ctx);
                 return;
             }

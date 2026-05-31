@@ -11,6 +11,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -123,7 +124,55 @@ class ConjectureQueueTest {
         // 'kn' (knob-dropped) intentionally absent
     }
 
+    // ---------- Phase 30 Wave 0 — investigation rotation ----------
+
+    @Test
+    void withoutRotationSameConjectureIsReServed() {
+        // Documents the bug: next() is a stateless peek, so marking a conjecture
+        // investigated does NOT change the order — the same top refuted conjecture
+        // comes back every cycle.
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture refutedOld = retired("ra", "x", ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE, "2026-05-01T00:00:00Z");
+        Conjecture refutedNew = retired("rb", "x", ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE, "2026-05-15T00:00:00Z");
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(refutedOld, refutedNew));
+        when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ConjectureMinerService svc = buildService(repo);   // rotation OFF
+        Conjecture first = svc.next("math").orElseThrow();
+        assertEquals("rb", first.lhs());
+        svc.markInvestigated(first);
+        Conjecture second = svc.next("math").orElseThrow();
+        assertEquals("rb", second.lhs(), "without rotation the same conjecture is re-served");
+    }
+
+    @Test
+    void rotationServesLeastRecentlyInvestigatedNext() {
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture refutedOld = retired("ra", "x", ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE, "2026-05-01T00:00:00Z");
+        Conjecture refutedNew = retired("rb", "x", ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE, "2026-05-15T00:00:00Z");
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(refutedOld, refutedNew));
+        when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ConjectureMinerService svc = buildServiceWithRotation(repo);
+
+        // both never investigated -> tie -> most-recently-refuted (rb) first
+        Conjecture first = svc.next("math").orElseThrow();
+        assertEquals("rb", first.lhs());
+        // consume it, then the never-investigated 'ra' rotates to the front
+        svc.markInvestigated(first);
+        Conjecture second = svc.next("math").orElseThrow();
+        assertEquals("ra", second.lhs(),
+                "rotation should serve the least-recently-investigated conjecture next");
+    }
+
     // ---------- helpers ----------
+
+    private static ConjectureMinerService buildServiceWithRotation(ConjectureRepository repo) {
+        ObjectMapper om = new ObjectMapper();
+        return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
+                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ true);
+    }
 
     private static ConjectureMinerService buildService(ConjectureRepository repo) {
         ObjectMapper om = new ObjectMapper();
@@ -132,7 +181,7 @@ class ConjectureQueueTest {
         // evaluateWindow is never called — a null-client delegate is inert here.
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
                 new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
-                /*trivialityFilter*/ false, /*dimensionFilter*/ false);
+                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false);
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,

@@ -20,4 +20,13 @@ public interface ConjectureQueue {
 
     /** Up to {@code n} highest-priority conjectures, in priority order. */
     List<Conjecture> nextN(String domain, int n);
+
+    /**
+     * Phase 30 Wave 0 — mark a conjecture as selected-for-a-paper (consumption),
+     * so {@link #nextN} can rotate away from it instead of re-serving the same
+     * refuted conjecture every cycle. Default no-op; implemented by the miner.
+     */
+    default void markInvestigated(Conjecture conjecture) {
+        // no-op by default
+    }
 }
