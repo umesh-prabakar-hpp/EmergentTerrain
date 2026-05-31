@@ -135,8 +135,17 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
    the package, so no recompile; the live sidecars were verified up before and after. Memory limiting is
    `timeout`/allocation-failure for now; a hard RSS cap via cgroups is a Phase-2 hardening (a slow leak
    isn't bounded by `ulimit -v` because Julia reserves huge virtual memory).
-2. **`/discover/validate` endpoint** wrapping the runner (untrusted) alongside the existing
-   `nt_mertens_dense` (trusted oracle). Sidecar.
+2. ✅ **`/discover/validate` endpoint** wrapping the runner (untrusted) alongside the trusted
+   `nt_mobius`/`nt_mertens_dense` oracle. **Done** (`handlers.jl: handle_discover_validate`,
+   registered in `server.jl`; `discover_endpoint_test.jl`, 15/15). **ENV-gated**: the route is
+   registered but the handler returns HTTP 403 — no parsing, no execution — unless
+   `ET_DISCOVER_EXEC=1`, so it is dormant by default (verified 403 on the live server post-restart).
+   The oracle is computed in the trusted process (one cumulative `nt_mobius` pass), never in the
+   sandbox; `moat_judge` returns `accept|reject|na`. Tests cover dormant→403, ACCEPT a correct
+   candidate (validating `M(10⁸)=1928` out-of-range), REJECT wrong-but-running, AST-containment of a
+   malicious candidate, and out-of-range→400. (Note: judging happens in the trusted *sidecar* process
+   — a refinement over the §5 "judged in Java" sketch — keeping oracle + comparison in one trusted
+   place; Java orchestrates and can re-judge from the returned `values`+`oracle`.)
 3. **Java orchestration**: generate→validate→repair loop, judging in Java, attempt cap, provenance
    tagging. Flag-gated OFF.
 4. **Per-invariant gated tool** in `MathToolSuite` (spike §6 predicate).
