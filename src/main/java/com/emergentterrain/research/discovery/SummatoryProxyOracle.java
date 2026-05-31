@@ -16,7 +16,7 @@ import java.util.Map;
  * sidecar code — so no recompile.
  */
 @Component
-public class SummatoryProxyOracle {
+public class SummatoryProxyOracle implements ProxyOracleFactory {
 
     private final MathConjectureSubstrateDelegate substrate;
 
@@ -24,6 +24,7 @@ public class SummatoryProxyOracle {
         this.substrate = substrate;
     }
 
+    @Override
     public ProxyOracle forSpec(ProxySpec spec) {
         return new ProxyOracle() {
             @Override
