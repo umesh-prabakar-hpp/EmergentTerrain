@@ -176,6 +176,25 @@ class FrontierEscalationServiceTest {
     }
 
     @Test
+    void localizesCounterexampleWithBisection() {
+        long threshold = 500_000_000L;   // a monotone bound: holds below 5×10^8, fails at/above
+        BoundPredicate stepBound = (x, v) ->
+                x < threshold ? EscalationVerdict.HOLDS : EscalationVerdict.COUNTEREXAMPLE;
+        FrontierEscalationService svc =
+                new FrontierEscalationService(true, 8, 1.0e18, 0.0, discReturning(0L));
+        svc.setLocalizeEnabled(true);
+
+        // escalate 10^6→10^7→10^8 (hold) → 10^9 (fail) → bisect (10^8, 10^9] toward 5×10^8
+        EscalationOutcome out = svc.escalate(TASK, x -> 0L, stepBound);
+
+        assertThat(out.terminalState()).isEqualTo("counterexample_localized");
+        assertThat(out.frontierReached()).isLessThan(threshold);            // lo holds
+        assertThat(out.localizedHi()).isGreaterThanOrEqualTo(threshold);    // hi fails
+        assertThat((double) out.localizedHi() / out.frontierReached())
+                .isLessThanOrEqualTo(1.2);                                  // tight bracket (~10%)
+    }
+
+    @Test
     void mertensBoundClassifiesCorrectly() {
         // |212| < sqrt(10^6)=1000 -> holds ; |5000| > sqrt(10^6) -> counterexample
         assertThat(BoundPredicate.MERTENS.classify(1_000_000L, 212L)).isEqualTo(EscalationVerdict.HOLDS);

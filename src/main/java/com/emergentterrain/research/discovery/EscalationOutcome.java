@@ -20,26 +20,38 @@ public record EscalationOutcome(
         String terminalState,
         long frontierReached,
         StallPrediction prediction,
-        PivotOutcome pivot) {
+        PivotOutcome pivot,
+        long localizedHi) {
 
     public EscalationOutcome {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
     }
 
     public static EscalationOutcome disabled() {
-        return new EscalationOutcome(false, List.of(), "disabled", 0, null, null);
+        return new EscalationOutcome(false, List.of(), "disabled", 0, null, null, 0);
     }
 
     public static EscalationOutcome counterexample(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "counterexample_found", frontier, null, null);
+        return new EscalationOutcome(true, cps, "counterexample_found", frontier, null, null, 0);
+    }
+
+    /**
+     * Counterexample localized by bisection — the bound holds up to
+     * {@code frontierReached} (lo) and fails by {@code localizedHi}; the crossing
+     * is in {@code (lo, hi]}. (For a non-monotone bound the function may re-cross
+     * inside the bracket — this localizes the bracket boundary, not a proven first
+     * failure.)
+     */
+    public static EscalationOutcome counterexampleLocalized(List<EscalationCheckpoint> cps, long lo, long hi) {
+        return new EscalationOutcome(true, cps, "counterexample_localized", lo, null, null, hi);
     }
 
     public static EscalationOutcome stalled(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "discovery_stalled", frontier, null, null);
+        return new EscalationOutcome(true, cps, "discovery_stalled", frontier, null, null, 0);
     }
 
     public static EscalationOutcome exhausted(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
-        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier, p, null);
+        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier, p, null, 0);
     }
 
     /**
@@ -48,7 +60,7 @@ public record EscalationOutcome(
      * pivot is wired/enabled; otherwise {@link #pivoted} replaces this.
      */
     public static EscalationOutcome predictedStall(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
-        return new EscalationOutcome(true, cps, "predicted_stall", frontier, p, null);
+        return new EscalationOutcome(true, cps, "predicted_stall", frontier, p, null, 0);
     }
 
     /**
@@ -62,6 +74,6 @@ public record EscalationOutcome(
         String terminal = pivot != null && pivot.validated()
                 ? "pivoted_" + pivot.branch().name().toLowerCase()
                 : "pivot_boundary";
-        return new EscalationOutcome(true, cps, terminal, frontier, p, pivot);
+        return new EscalationOutcome(true, cps, terminal, frontier, p, pivot, 0);
     }
 }

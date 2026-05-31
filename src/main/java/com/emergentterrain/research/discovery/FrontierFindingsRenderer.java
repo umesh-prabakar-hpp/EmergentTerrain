@@ -56,6 +56,10 @@ public final class FrontierFindingsRenderer {
         return switch (out.terminalState()) {
             case "counterexample_found" -> "A counterexample was found at x=" + last
                     + " — the bound FAILS there. This is the genuine result, not a non-result.";
+            case "counterexample_localized" -> "The crossing was localized by bisection to the bracket "
+                    + "(x=" + frontier + ", x=" + out.localizedHi() + "] — the bound holds at the lower "
+                    + "end and fails at the upper. (For a non-monotone bound this is the bracket "
+                    + "boundary, not a proven first failure.)";
             case "exhausted_rounds" -> "The bound HELD at every escalated scale, up to x=" + frontier
                     + " (the round cap was reached before any counterexample or stall).";
             case "discovery_stalled" -> "Computation could not be validated at x=" + last

@@ -64,6 +64,17 @@ class FrontierFindingsRendererTest {
     }
 
     @Test
+    void rendersLocalizedCounterexampleBracket() {
+        String md = FrontierFindingsRenderer.render(
+                EscalationOutcome.counterexampleLocalized(CORPUS, 487_000_000L, 523_000_000L),
+                "M(x)", "|M(x)| < sqrt(x)");
+        assertThat(md)
+                .contains("counterexample_localized")
+                .contains("localized by bisection")
+                .contains("487000000").contains("523000000");
+    }
+
+    @Test
     void disabledOutcomeRendersNoFindings() {
         assertThat(FrontierFindingsRenderer.render(EscalationOutcome.disabled(), "M(x)", "b"))
                 .contains("did not run");

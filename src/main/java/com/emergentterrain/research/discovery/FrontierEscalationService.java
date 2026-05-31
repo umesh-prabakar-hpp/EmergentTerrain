@@ -94,6 +94,21 @@ public class FrontierEscalationService {
         this.scalePolicy = scalePolicy;
     }
 
+    /**
+     * Phase 6 — when ON, a counterexample is *localized* by bisection (the bracket
+     * {@code (largest-held-below, first-failed]} is narrowed) instead of stopping at
+     * the first failure. Default OFF (the first counterexample is the headline
+     * result). Bisection rungs route ≤NT_MAX_N to the sieve, beyond to discovery.
+     */
+    @Value("${app.research.discovery.frontierLocalizeEnabled:false}")
+    private boolean localizeEnabled = false;
+    private static final int LOCALIZE_MAX_ROUNDS = 30;
+    private static final double LOCALIZE_TOLERANCE = 1.1;   // stop when hi/lo ≤ this (within 10%)
+
+    void setLocalizeEnabled(boolean localizeEnabled) {
+        this.localizeEnabled = localizeEnabled;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -121,7 +136,12 @@ public class FrontierEscalationService {
                     round + 1, maxRounds, x, cp.value(), cp.verdict(), cp.source(), cp.elapsedMs());
             switch (cp.verdict()) {
                 case COUNTEREXAMPLE -> {
-                    return EscalationOutcome.counterexample(cps, frontier);
+                    long lo = localizeEnabled ? largestHeldBelow(cps, x) : 0;
+                    if (lo <= 0) {
+                        return EscalationOutcome.counterexample(cps, frontier);   // no held lower bound to bracket from
+                    }
+                    long[] bracket = localize(lo, x, task, sieveSource, bound, cps, visited);
+                    return EscalationOutcome.counterexampleLocalized(cps, bracket[0], bracket[1]);
                 }
                 case CANNOT_COMPUTE -> {
                     return EscalationOutcome.stalled(cps, frontier);
@@ -167,6 +187,43 @@ public class FrontierEscalationService {
             x = next;
         }
         return EscalationOutcome.exhausted(cps, frontier, lastPrediction);
+    }
+
+    /** Largest scale that HELD and is strictly below {@code x} — the lower bracket for localization. */
+    private static long largestHeldBelow(List<EscalationCheckpoint> cps, long x) {
+        long lo = 0;
+        for (EscalationCheckpoint c : cps) {
+            if (c.verdict() == EscalationVerdict.HOLDS && c.x() < x && c.x() > lo) {
+                lo = c.x();
+            }
+        }
+        return lo;
+    }
+
+    /**
+     * Bisect {@code (lo, hi]} to localize where the bound stops holding: probe the
+     * geometric midpoint, move {@code lo} up on HOLDS or {@code hi} down on a
+     * counterexample, until the bracket is tight ({@code hi/lo ≤ tolerance}),
+     * converges, or can't be computed. Appends each probe to {@code cps}. Returns
+     * {@code [lo, hi]}.
+     */
+    private long[] localize(long lo, long hi, EscalationTask task, ScaleValueSource sieveSource,
+                            BoundPredicate bound, List<EscalationCheckpoint> cps, java.util.Set<Long> visited) {
+        for (int i = 0; i < LOCALIZE_MAX_ROUNDS && (double) hi / lo > LOCALIZE_TOLERANCE; i++) {
+            long mid = Math.round(Math.exp((Math.log((double) lo) + Math.log((double) hi)) / 2.0));
+            if (mid <= lo || mid >= hi || !visited.add(mid)) {
+                break;   // converged / cycle
+            }
+            EscalationCheckpoint cp = evaluateAt(mid, task, sieveSource, bound);
+            cps.add(cp);
+            log.info("localize {} — bracket ({}, {}] probe x={} -> {}", i + 1, lo, hi, mid, cp.verdict());
+            switch (cp.verdict()) {
+                case HOLDS -> lo = mid;
+                case COUNTEREXAMPLE -> hi = mid;
+                case CANNOT_COMPUTE -> { return new long[]{lo, hi}; }   // can't probe — stop with current bracket
+            }
+        }
+        return new long[]{lo, hi};
     }
 
     private EscalationCheckpoint evaluateAt(long x, EscalationTask task,
