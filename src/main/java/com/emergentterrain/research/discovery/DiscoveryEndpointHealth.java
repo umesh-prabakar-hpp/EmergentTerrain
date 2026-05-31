@@ -47,12 +47,20 @@ public class DiscoveryEndpointHealth {
     private final HttpClient http;
     private final boolean hardStopEnabled;
     private final int hardStopExitCode;
+    private final long steadyTimeoutMs;
+    private final long coldTimeoutMs;
+    private final int coldRetries;
 
     private volatile long lastProbeMs = -1;
     private volatile boolean cached = false;
     private volatile boolean hardStopTriggered = false;
+    /** Flips true on the first 200; until then probes are treated as cold (patient). */
+    private volatile boolean warmedUp = false;
 
     private volatile ConfigurableApplicationContext context;
+
+    /** Outcome of a single probe attempt — distinguishes cold-slow from definitively-down. */
+    protected enum ProbeResult { OK, GATE_OFF, TIMEOUT, DOWN }
 
     @Autowired
     public DiscoveryEndpointHealth(
@@ -60,7 +68,10 @@ public class DiscoveryEndpointHealth {
             @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
             @Value("${app.research.discovery.preflightCooldownMs:60000}") long cooldownMs,
             @Value("${app.research.discovery.hardStopOn403Enabled:false}") boolean hardStopEnabled,
-            @Value("${app.research.discovery.hardStopExitCode:70}") int hardStopExitCode) {
+            @Value("${app.research.discovery.hardStopExitCode:70}") int hardStopExitCode,
+            @Value("${app.research.discovery.preflightProbeTimeoutMs:5000}") long steadyTimeoutMs,
+            @Value("${app.research.discovery.preflightColdTimeoutMs:20000}") long coldTimeoutMs,
+            @Value("${app.research.discovery.preflightColdRetries:1}") int coldRetries) {
         this.enabled = enabled;
         this.cooldownMs = cooldownMs;
         String b = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
@@ -68,11 +79,20 @@ public class DiscoveryEndpointHealth {
         this.http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
         this.hardStopEnabled = hardStopEnabled;
         this.hardStopExitCode = hardStopExitCode;
+        this.steadyTimeoutMs = steadyTimeoutMs;
+        this.coldTimeoutMs = Math.max(steadyTimeoutMs, coldTimeoutMs);
+        this.coldRetries = Math.max(0, coldRetries);
     }
 
-    /** Back-compatible constructor (hard-stop OFF) for tests/call sites. */
+    /** Back-compatible constructor (hard-stop OFF, default cold-start tuning) for tests/call sites. */
     public DiscoveryEndpointHealth(boolean enabled, String baseUrl, long cooldownMs) {
-        this(enabled, baseUrl, cooldownMs, false, 70);
+        this(enabled, baseUrl, cooldownMs, false, 70, 5000, 20000, 1);
+    }
+
+    /** Back-compatible constructor (default cold-start tuning) for tests/call sites. */
+    public DiscoveryEndpointHealth(boolean enabled, String baseUrl, long cooldownMs,
+                                   boolean hardStopEnabled, int hardStopExitCode) {
+        this(enabled, baseUrl, cooldownMs, hardStopEnabled, hardStopExitCode, 5000, 20000, 1);
     }
 
     /** Optional — the context to shut down on hard-stop. Absent in unit tests. */
@@ -128,18 +148,62 @@ public class DiscoveryEndpointHealth {
         System.exit(code);
     }
 
-    /** The probe itself (overridable for tests). 200 = enabled; 403/other/error = unavailable. */
+    /**
+     * Cold-start-tolerant probe (overridable for tests). The first call to
+     * {@code /discover/validate} JIT-compiles the parse + sandbox + sieve path on a
+     * single-thread Julia sidecar and can blow past the steady-state timeout, so until
+     * the first 200 ({@code warmedUp}) this uses the longer {@code coldTimeoutMs} and
+     * retries {@code coldRetries} times. A definitive {@code GATE_OFF} (403 — sidecar
+     * started without {@code ET_DISCOVER_EXEC=1}) or {@code DOWN} (connection refused)
+     * short-circuits without burning retries; only a {@code TIMEOUT} (likely cold) is
+     * retried. A 200 latches {@code warmedUp} so steady-state probes stay fast.
+     */
     protected boolean doProbe() {
+        long timeoutMs = warmedUp ? steadyTimeoutMs : coldTimeoutMs;
+        int attempts = warmedUp ? 1 : 1 + coldRetries;
+        for (int i = 0; i < attempts; i++) {
+            ProbeResult r = probeOnce(Duration.ofMillis(timeoutMs));
+            switch (r) {
+                case OK -> {
+                    warmedUp = true;
+                    return true;
+                }
+                case GATE_OFF -> {
+                    return false;   // 403 — config (ET_DISCOVER_EXEC unset); retries won't help
+                }
+                case DOWN -> {
+                    warmedUp = false;   // connection refused — treat next probe as cold
+                    return false;
+                }
+                case TIMEOUT -> {
+                    warmedUp = false;
+                    if (i + 1 < attempts) {
+                        log.info("DISCOVERY PRE-FLIGHT — probe timed out after {} ms (attempt {}/{}); "
+                                + "sidecar may be cold-JITing, retrying.", timeoutMs, i + 1, attempts);
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** A single probe attempt against the endpoint (overridable for tests). */
+    protected ProbeResult probeOnce(Duration timeout) {
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
-                    .timeout(Duration.ofSeconds(5))
+                    .timeout(timeout)
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(PROBE_BODY))
                     .build();
-            return http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode() == 200;
+            return http.send(req, HttpResponse.BodyHandlers.discarding()).statusCode() == 200
+                    ? ProbeResult.OK : ProbeResult.GATE_OFF;
+        } catch (java.net.http.HttpTimeoutException te) {
+            return ProbeResult.TIMEOUT;      // slow — likely cold JIT
+        } catch (java.net.ConnectException ce) {
+            return ProbeResult.DOWN;         // refused — sidecar not listening
         } catch (Exception e) {
-            return false;
+            return ProbeResult.TIMEOUT;      // other transient IO — retry like a timeout
         }
     }
 }
