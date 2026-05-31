@@ -222,6 +222,28 @@ end, the discipline the discovery tool's own output already enforces.
 - Autonomous *verified* theory generation (B5 is a boundary, not a capability).
 - Unbounded compute — every escalation step is budget-bounded and stall-predicted.
 
+## 9. Follow-ons (built infra, deferred extensions)
+
+The loop and its proposers are shipped flag-gated; these extend them and are **not
+blocking**:
+
+1. **Nonlinear proxy terms.** The generalized B3 oracle (`SummatoryProxyOracle`)
+   handles *linear* combinations of {μ, ω, Ω, τ} because their summatories come free
+   from the window aggregator. **Nonlinear terms — `μ(n)²` (the squarefree
+   indicator), `μ(n)·ω(n)`, `μ(n)/n^s` weights — would need a new *trusted sidecar
+   evaluator*** (a small, fixed Julia summatory over the dense sieve for a
+   constrained term grammar) since the window aggregator doesn't precompute them.
+   That's a scoped sidecar build (recompile + restart per the sidecar hazard); the
+   Java side (`ProxySpec`/`ProxyValidator`/`ProxyDiscoveryService`) already
+   generalizes to it.
+2. **A *useful* Mertens proxy.** The oracle makes any proxy *verifiable*; whether one
+   genuinely *constrains* M(x) is the open research question (the catalog proxies are
+   illustrative, not load-bearing).
+3. **cgroups RSS hardening** for the sandbox (runtime-self-verifying-execution.md
+   §8.1) — a hard memory cap beyond the current `timeout`/allocation-failure bound.
+4. **A large-x Mertens topic** so `discover_mertens_value` fires organically in a
+   paper (today it only fires if a paper needs M(x) beyond 2×10⁶).
+
 ---
 
 ## Cross-references

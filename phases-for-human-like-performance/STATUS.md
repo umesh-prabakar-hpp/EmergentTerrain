@@ -31,6 +31,32 @@ Phase 0 began.
 
 ---
 
+## Phase 30 — self-verifying discovery & frontier escalation (2026-05-31)
+
+Built this session as a flag-gated, **dormant-by-default** substrate (design +
+status in [`phase-30-conjecture/`](phase-30-conjecture/)). All `app.research.discovery.*`
+flags default OFF; with them off, behaviour is unchanged.
+
+| Slice | Status | Key flags / docs |
+|-------|--------|------------------|
+| Composition lane (steps 2 / 2.5) | **LIVE** | `compositionPersistEnabled`, `compositionKnobExemptEnabled` ON — cross-density derived conjectures persisted + knob-exempt ([IMPLEMENTATION-ORDER.md](phase-30-conjecture/IMPLEMENTATION-ORDER.md)) |
+| Fork 2b — runtime self-verifying execution | **shipped, gated** | sandbox runner + `/discover/validate` (sidecar `ET_DISCOVER_EXEC=1`) + `MertensDiscoveryService` (`runtimeExecEnabled`) + `discover_mertens_value` tool. Live moat verified (M(10⁸)=1928). [runtime-self-verifying-execution.md](phase-30-conjecture/runtime-self-verifying-execution.md) |
+| Segmented M(x) spike | **shipped** | `nt_mertens_dense`/`nt_mertens_segmented` + dev-time self-verifying loop (2a) [segmented-mertens-spike.md](phase-30-conjecture/segmented-mertens-spike.md) |
+| Frontier-escalation loop (Phases 1–6) | **logic flipped ON, schedule OFF** | `frontierEscalationEnabled`+`branchPivotEnabled` ON (no spend until `produce()`); `frontierScheduleEnabled` OFF (6h autonomous runs, the token-spend gate). Stall predictor, B3/B4 pivot, paper renderer, `frontierScalePolicy=default\|adaptive\|llm`, bidirectional steps, counterexample localization. [frontier-escalation-loop.md](phase-30-conjecture/frontier-escalation-loop.md) |
+| Generalized B3 oracle + proxy-discovery loop | **shipped, gated** | `SummatoryProxyOracle`/`ProxyValidator`/`ProxyDiscoveryService` (`proxyDiscoveryEnabled`) — verify any linear-combo summatory proxy over μ/ω/Ω/τ |
+
+Honest ceiling (documented throughout): it does **not** resolve Mertens — it
+computes/extrapolates toward the ~10¹⁴ failure regime with the trust level stated
+(`FULL`/`VALIDATED_PROXY`/`MODEL_FIT`/`LITERATURE_ONLY`), never laundering trust.
+Tests: ~50 in `research/discovery/` + 23 in the sidecar.
+
+**Operator-pending:** app restart loads the escalation logic; flip `frontierScheduleEnabled`
+for autonomous runs. **Follow-ons (none blocking):** nonlinear proxy terms (need a
+trusted sidecar evaluator), cgroups RSS sandbox hardening, the large-x topic that
+makes the discovery tool fire organically.
+
+---
+
 ## Phase tree
 
 ### Phase 0 — Refactor foundation ✅

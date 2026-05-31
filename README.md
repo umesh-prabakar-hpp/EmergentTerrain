@@ -106,6 +106,15 @@ Research papers go through a deterministic integrity layer before any LLM narrat
 
 Stats endpoint (`getStats`) now reports: `totalPublished`, `positiveResults`, `nullResults`, `disputed`, `totalRejected`.
 
+## Self-Verifying Discovery & Frontier Escalation (Phase 30)
+
+A flag-gated, dormant-by-default substrate that lets the system *compute and verify* numeric results beyond the precomputed sieve, and push a bound's frontier autonomously — never trusting an unverified value. (`app.research.discovery.*`, all default OFF; design docs in `phases-for-human-like-performance/phase-30-conjecture/`.)
+
+- **Runtime self-verifying execution** — an LLM proposes a numeric method (e.g. the Mertens function `M(x)` for `x > 2,000,000`); it runs in an isolated subprocess sandbox (AST allowlist + `ulimit`/`timeout`) via the sidecar `/discover/validate` endpoint, and its output is trusted *only* after exact agreement with a trusted oracle on the overlap range `[1, 2,000,000]`. Generate → validate → repair, with provenance tagging ("computed, not established"). The endpoint executes model-authored code, so it is gated by `ET_DISCOVER_EXEC=1` on the sidecar (see STARTUP.md §4.5) plus `runtimeExecEnabled` + a per-invariant tool gate.
+- **Frontier-escalation loop** — escalates a holding bound (e.g. the Mertens conjecture `|M(x)| < √x`) across scales, **forecasts its own compute stall** (power-law cost fit → compute frontier `x_c`), and on stall **pivots** to a verifiable innovative branch (B3 proxy reformulation / B4 predictive model) or reports the honest **analytic boundary** — never inventing a value. Pluggable step policies (`default | adaptive | llm`, aggressive leaps + backward **localization**), **counterexample bisection**, and a **generalized proxy oracle** (trusted ground truth for any linear-combination summatory over μ/ω/Ω/τ). Trust travels with every value (`FULL` / `VALIDATED_PROXY` / `MODEL_FIT` / `LITERATURE_ONLY`) and is never laundered.
+
+Honest by construction: it does **not** resolve Mertens (the failure regime ~10¹⁴ is beyond feasible compute) — it computes/extrapolates *toward* the wall with the trust level stated, and the renderer's regime caveat keeps "held" from reading as "resolved".
+
 ## Tests (summary)
 - `ResultClassificationTest` — all 17 branches of `classifyResult`: DEGENERATE (NaN, Infinity, zero sentinel, zero authorScore), NULL_RESULT (score floor, REFUTED claim, low OBSERVATIONAL), SUPPORTED, PARTIALLY_SUPPORTED, and real computation round-trips.
 - `LlmServiceParseTest` — 35 tests for `parseFormulationResult`, `parseNarrationResult`, and `parseRefinementDecision`: valid JSON, boundary params, malformed input, preamble extraction, confidence clamping, paper ID filtering, follow-up validation.
