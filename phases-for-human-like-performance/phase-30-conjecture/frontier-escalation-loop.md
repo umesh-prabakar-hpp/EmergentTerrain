@@ -173,7 +173,16 @@ end, the discipline the discovery tool's own output already enforces.
    + 1`); `MertensFrontierService.produce()` composes the task, runs `escalate()`, renders a
    `FrontierPaper`. Gated via the escalation flag (disabled → a "did not run" paper). The tool/cycle
    that surfaces `produce()` is the flip+watch step.
-5. **Flip + watch** — enable on a holding bound; watch it escalate, predict its own stall, and pivot.
+5. ◐ **Flip + watch** — **logic flipped ON** (`frontierEscalationEnabled`, `branchPivotEnabled`) — SAFE,
+   since `escalate()`/pivot are now functional but spend nothing until `produce()` runs. The trigger is
+   `MertensFrontierService.scheduledFrontierRun()` — a gated, long-interval (`6h`) `@Scheduled` run
+   (a heavy multi-LLM-call escalation is the wrong fit for a mid-paper professor tool), with a
+   **separate** `frontierScheduleEnabled` cost gate (default OFF) so flipping the logic does not
+   auto-spend. **Remaining (operator):** restart to load the logic (boot-check
+   `FrontierEscalationService ready … frontierEscalation=ON`), then flip `frontierScheduleEnabled` +
+   restart to begin autonomous 6-hourly runs — watch the log for `scheduled frontier run` / `frontier
+   paper produced`, escalating → forecasting its own stall → pivoting. (A live run also needs the
+   discovery stack live: `runtimeExecEnabled` + sidecar `ET_DISCOVER_EXEC=1`.)
 
 ## 8. Non-goals
 - Resolving Mertens (or any question whose only path to `x_s` is B5).
