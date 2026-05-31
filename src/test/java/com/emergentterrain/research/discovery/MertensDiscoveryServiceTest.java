@@ -94,6 +94,22 @@ class MertensDiscoveryServiceTest {
     }
 
     @Test
+    void skipsWithoutGeneratingWhenEndpointUnavailable() {
+        int[] genCalls = {0};
+        CandidateGenerator gen = req -> { genCalls[0]++; return "code"; };
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3, gen, (c, t) -> accept());
+        svc.setEndpointHealth(new DiscoveryEndpointHealth(true, "http://x", 60_000) {
+            protected boolean doProbe() { return false; }   // endpoint unavailable
+        });
+
+        DiscoveryOutcome out = svc.discover(TASK);
+
+        assertThat(out.accepted()).isFalse();
+        assertThat(out.failureReason()).contains("unavailable");
+        assertThat(genCalls[0]).isZero();   // pre-flight skipped BEFORE any generation -> no tokens
+    }
+
+    @Test
     void describeFormatsRepairSignal() {
         assertThat(MertensDiscoveryService.describe(reject()))
                 .isEqualTo("M(2) = 2 but the correct value is 0");

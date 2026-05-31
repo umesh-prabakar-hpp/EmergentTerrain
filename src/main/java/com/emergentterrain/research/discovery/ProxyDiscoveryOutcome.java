@@ -18,6 +18,12 @@ public record ProxyDiscoveryOutcome(
         return new ProxyDiscoveryOutcome(false, null, null, null, 0, "proxy discovery disabled");
     }
 
+    /** Pre-flight skip: the sidecar endpoint is 403/unreachable — no candidate was generated. */
+    public static ProxyDiscoveryOutcome unavailable() {
+        return new ProxyDiscoveryOutcome(false, null, null, null, 0,
+                "discovery endpoint unavailable (sidecar /discover/validate 403/unreachable; set ET_DISCOVER_EXEC=1)");
+    }
+
     public static ProxyDiscoveryOutcome accepted(String proxyName, String code, Long targetValue, int attempts) {
         return new ProxyDiscoveryOutcome(true, proxyName, code, targetValue, attempts, null);
     }

@@ -26,6 +26,12 @@ public record DiscoveryOutcome(
         return new DiscoveryOutcome(false, null, null, 0, null, "discovery disabled (runtimeExecEnabled=false)", 0);
     }
 
+    /** Pre-flight skip: the sidecar endpoint is 403/unreachable — no candidate was generated. */
+    public static DiscoveryOutcome unavailable() {
+        return new DiscoveryOutcome(false, null, null, 0, null,
+                "discovery endpoint unavailable (sidecar /discover/validate 403/unreachable; set ET_DISCOVER_EXEC=1)", 0);
+    }
+
     public static DiscoveryOutcome accepted(String code, Long targetValue, int attempts, Provenance p, long elapsedMs) {
         return new DiscoveryOutcome(true, code, targetValue, attempts, p, null, elapsedMs);
     }

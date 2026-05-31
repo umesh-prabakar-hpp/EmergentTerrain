@@ -48,9 +48,20 @@ public class ProxyDiscoveryService {
         return enabled;
     }
 
+    private DiscoveryEndpointHealth endpointHealth;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEndpointHealth(DiscoveryEndpointHealth endpointHealth) {
+        this.endpointHealth = endpointHealth;
+    }
+
     public ProxyDiscoveryOutcome discover(ProxySpec spec, DiscoveryTask task) {
         if (!enabled) {
             return ProxyDiscoveryOutcome.disabled();
+        }
+        if (endpointHealth != null && !endpointHealth.available()) {
+            log.warn("proxy discovery skipped — endpoint unavailable; no candidate generated (no tokens spent)");
+            return ProxyDiscoveryOutcome.unavailable();
         }
         ProxyOracle oracle = oracleFactory.forSpec(spec);
         String previousCode = null;

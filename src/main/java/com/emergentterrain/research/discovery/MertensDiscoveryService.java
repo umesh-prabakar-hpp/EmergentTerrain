@@ -67,9 +67,21 @@ public class MertensDiscoveryService {
      * if none does within {@code task.maxAttempts()}, or a disabled outcome when
      * the flag is off.
      */
+    private DiscoveryEndpointHealth endpointHealth;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEndpointHealth(DiscoveryEndpointHealth endpointHealth) {
+        this.endpointHealth = endpointHealth;
+    }
+
     public DiscoveryOutcome discover(DiscoveryTask task) {
         if (!enabled) {
             return DiscoveryOutcome.disabled();
+        }
+        // Pre-flight — skip BEFORE generating (no tokens) if the sidecar endpoint is gated/down.
+        if (endpointHealth != null && !endpointHealth.available()) {
+            log.warn("discovery skipped — endpoint unavailable; no candidate generated (no tokens spent)");
+            return DiscoveryOutcome.unavailable();
         }
         String previousCode = null;
         String discrepancy = null;

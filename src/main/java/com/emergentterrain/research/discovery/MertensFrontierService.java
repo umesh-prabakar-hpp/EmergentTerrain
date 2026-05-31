@@ -67,7 +67,25 @@ public class MertensFrontierService {
                 paper.title(), paper.outcome().terminalState(), paper.outcome().frontierReached());
     }
 
+    private DiscoveryEndpointHealth endpointHealth;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setEndpointHealth(DiscoveryEndpointHealth endpointHealth) {
+        this.endpointHealth = endpointHealth;
+    }
+
     public FrontierPaper produce() {
+        // Pre-flight — a Mertens frontier run escalates past NT_MAX_N, so it needs discovery.
+        // Skip the WHOLE run (no escalation, no per-rung LLM scale calls, no discovery) if the
+        // endpoint is gated/down — zero tokens spent.
+        if (endpointHealth != null && !endpointHealth.available()) {
+            log.warn("frontier run skipped — discovery endpoint unavailable (set ET_DISCOVER_EXEC=1); no tokens spent");
+            return new FrontierPaper(
+                    "Frontier escalation of the Mertens bound |M(x)| < sqrt(x)",
+                    "_Frontier run skipped: the discovery endpoint `/discover/validate` is unavailable "
+                            + "(403/unreachable; set `ET_DISCOVER_EXEC=1` on the sidecar). No tokens were spent._",
+                    EscalationOutcome.disabled());
+        }
         EscalationTask task = new EscalationTask(SPEC, startScale, 10L, CHECKPOINTS, ANCHORS, 20, 28);
         EscalationOutcome out = escalation.escalate(task, sieveSource, BoundPredicate.MERTENS);
         String findings = FrontierFindingsRenderer.render(out, "M(x)", BOUND_LABEL);
