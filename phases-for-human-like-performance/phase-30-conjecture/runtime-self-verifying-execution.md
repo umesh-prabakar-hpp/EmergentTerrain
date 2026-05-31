@@ -169,8 +169,15 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
    precedent), rather than threading per-paper invariant context through the pipeline-wide narration
    path — the tool is offered only during a deliberate discovery experiment, so a density/primality
    paper has no reason to call it. Dormant by default; no app restart needed until the flags flip.
-5. **Flip + watch** on a mertens-class paper; confirm a discovered `M(x)` lands with provenance and the
-   narrator frames it honestly.
+5. ◐ **Flip + watch**. **Config flipped** (`runtimeExecEnabled: true`) and the **live sidecar moat
+   verified end-to-end** (2026-05-31): with `ET_DISCOVER_EXEC=1` on the running 8088, a direct
+   `POST /discover/validate` ACCEPTED a correct candidate — **validating `M(10⁸)=1928` out of
+   range** (~11.6 s) — and REJECTED a wrong one (`firstFail:[1,0,1]`). So the sandbox-exec → oracle →
+   moat path works in production. **Remaining (operator):** rebuild + restart the app to load the
+   Phase-3/4 beans (boot-check with the flag now live), then watch a mertens-class
+   `CONJECTURE_INVESTIGATION` paper whose professor calls `discover_mertens_value` — confirm the
+   validated `M(x)` lands with provenance and the narrator frames it as "computed", not established.
+   (The running app is still the pre-Phase-3 jar, so nothing fires until that restart.)
 
 ## 9. Risks
 
