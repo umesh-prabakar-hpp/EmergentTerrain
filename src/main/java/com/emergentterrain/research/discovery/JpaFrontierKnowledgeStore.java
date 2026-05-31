@@ -1,33 +1,17 @@
 package com.emergentterrain.research.discovery;
 
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Component;
 
 import java.util.Optional;
-import java.util.UUID;
 
 /**
  * Phase 30 fork 2b — DB-backed {@link FrontierKnowledgeStore} (survives restart).
- * Thin adapter over Spring Data repositories; the keep-the-best + convergence logic
- * lives in {@link FrontierKnowledgeService}.
+ * Thin adapter over Spring Data repositories ({@link FrontierRecordRepository},
+ * {@link FrontierConvergenceRepository}, {@link VerifiedMethodRepository}); the
+ * keep-the-best + convergence logic lives in {@link FrontierKnowledgeService}.
  */
 @Component
 public class JpaFrontierKnowledgeStore implements FrontierKnowledgeStore {
-
-    interface FrontierRecordRepository extends JpaRepository<FrontierRecordEntity, UUID> {
-        Optional<FrontierRecordEntity> findByBoundAndScaleX(String bound, long scaleX);
-        @Query("select max(r.scaleX) from FrontierRecordEntity r where r.bound = ?1")
-        Long maxScaleX(String bound);
-        java.util.List<FrontierRecordEntity> findByBoundOrderByScaleXAsc(String bound);
-    }
-
-    interface FrontierConvergenceRepository extends JpaRepository<FrontierConvergenceEntity, String> {}
-
-    interface VerifiedMethodRepository extends JpaRepository<VerifiedMethodEntity, UUID> {
-        Optional<VerifiedMethodEntity> findByBoundAndMethodSha256(String bound, String methodSha256);
-        java.util.List<VerifiedMethodEntity> findByBoundOrderByMaxScaleDescCostMsAsc(String bound);
-    }
 
     private final FrontierRecordRepository records;
     private final FrontierConvergenceRepository convergence;
