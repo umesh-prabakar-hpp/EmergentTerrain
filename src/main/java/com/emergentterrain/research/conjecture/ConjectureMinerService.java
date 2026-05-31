@@ -128,6 +128,20 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final int compositionPersistCap;
 
+    /**
+     * Phase 30 integration step 2.5 — when ON, derived (composed) conjectures are
+     * exempt from the {@code window_size} knob-restatement filter. A cross-quantity
+     * derived relation (e.g. {@code deficient_density <= 4*abundant_density + c})
+     * has slack that trends monotonically with window_size as its constituents
+     * converge, which the Spearman restatement heuristic mis-reads as "restates the
+     * knob" and drops — culling every persisted composition within one pass. Derived
+     * items still run through {@code update()} (genuine counterexamples retire them);
+     * only the restatement heuristic is skipped. Safe because such relations already
+     * cleared the W1 gates in {@code proposeNovel}. Default OFF. See
+     * phase-30-conjecture/IMPLEMENTATION-ORDER.md step 2.5.
+     */
+    private final boolean compositionKnobExemptEnabled;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
@@ -150,7 +164,10 @@ public class ConjectureMinerService implements ConjectureQueue {
             boolean compositionPersistEnabled,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.compositionPersistCap:5}")
-            int compositionPersistCap) {
+            int compositionPersistCap,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.compositionKnobExemptEnabled:false}")
+            boolean compositionKnobExemptEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -161,14 +178,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.substrateMetricsEnabled = substrateMetricsEnabled;
         this.compositionPersistEnabled = compositionPersistEnabled;
         this.compositionPersistCap = compositionPersistCap;
+        this.compositionKnobExemptEnabled = compositionKnobExemptEnabled;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
-                + "compositionPersist={}{}",
+                + "compositionPersist={}{} compositionKnobExempt={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
                 compositionPersistEnabled ? "ON" : "OFF",
-                compositionPersistEnabled ? " (cap=" + compositionPersistCap + ")" : "");
+                compositionPersistEnabled ? " (cap=" + compositionPersistCap + ")" : "",
+                compositionKnobExemptEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -189,12 +208,20 @@ public class ConjectureMinerService implements ConjectureQueue {
         // conjectures stay in the DB for their witness audit trail but
         // shouldn't re-enter the seed/update loop.
         List<Inequality> store = new ArrayList<>();
+        // Phase 30 step 2.5 — track which live keys are derived (composed), so the
+        // knob filter can exempt them (their window-correlated slack is expected,
+        // not a restatement). Empty unless compositions have been persisted.
+        java.util.Set<String> derivedKeys = new java.util.HashSet<>();
         for (Conjecture e : existing) {
             if (e.droppedByKnob() == null) {
                 store.add(mapper.toInequality(e));
+                if (e.derivedFrom() != null) {
+                    derivedKeys.add(keyOf(e.lhs(), e.rhs()));
+                }
             }
         }
-        log.debug("loaded {} existing conjectures ({} live)", existing.size(), store.size());
+        log.debug("loaded {} existing conjectures ({} live, {} derived)",
+                existing.size(), store.size(), derivedKeys.size());
 
         Map<String, Double> knobValues = new LinkedHashMap<>();
         int totalConfirmed = 0;
@@ -217,8 +244,11 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        ConjectureEngine.FilterResult fr = ConjectureEngine.filterKnobRestatements(
-                store,
+        // Phase 30 step 2.5 — derived (composed) conjectures are exempt from the
+        // window_size knob filter when the flag is on (no-op otherwise). See
+        // knobFilterExempting.
+        ConjectureEngine.FilterResult fr = knobFilterExempting(
+                store, derivedKeys, compositionKnobExemptEnabled,
                 List.of(new ConjectureEngine.KnobAxis("window_size", knobValues)),
                 KNOB_FILTER_THRESHOLD,
                 KNOB_FILTER_MIN_CONFIGS);
@@ -457,5 +487,41 @@ public class ConjectureMinerService implements ConjectureQueue {
 
     private static String keyOf(String lhs, String rhs) {
         return lhs + "|" + rhs;
+    }
+
+    /**
+     * Phase 30 step 2.5 — run the knob-restatement filter, optionally exempting
+     * derived (composed) keys. When {@code exempt} is off (or no derived keys),
+     * this is exactly {@link ConjectureEngine#filterKnobRestatements} over the
+     * whole store (legacy behavior). When on, derived items are pulled aside,
+     * the rest are filtered in place, and the derived items are added back — so a
+     * cross-quantity relation's window-correlated slack no longer counts as a knob
+     * restatement. {@code store} is mutated in place to hold the survivors (mined
+     * survivors + all derived); the returned {@link ConjectureEngine.FilterResult}
+     * lists only the dropped mined items. Package-private for unit tests.
+     */
+    static ConjectureEngine.FilterResult knobFilterExempting(
+            List<Inequality> store,
+            java.util.Set<String> derivedKeys,
+            boolean exempt,
+            List<ConjectureEngine.KnobAxis> axes,
+            double threshold,
+            int minConfigs) {
+        if (!exempt || derivedKeys == null || derivedKeys.isEmpty()) {
+            return ConjectureEngine.filterKnobRestatements(store, axes, threshold, minConfigs);
+        }
+        List<Inequality> held = new ArrayList<>();
+        java.util.Iterator<Inequality> it = store.iterator();
+        while (it.hasNext()) {
+            Inequality ineq = it.next();
+            if (derivedKeys.contains(keyOf(ineq.lhs, ineq.rhs))) {
+                held.add(ineq);
+                it.remove();
+            }
+        }
+        ConjectureEngine.FilterResult fr =
+                ConjectureEngine.filterKnobRestatements(store, axes, threshold, minConfigs);
+        store.addAll(held);   // derived survive the restatement heuristic (still counterexample-checked)
+        return fr;
     }
 }
