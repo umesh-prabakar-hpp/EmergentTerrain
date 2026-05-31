@@ -19,34 +19,49 @@ public record EscalationOutcome(
         List<EscalationCheckpoint> checkpoints,
         String terminalState,
         long frontierReached,
-        StallPrediction prediction) {
+        StallPrediction prediction,
+        PivotOutcome pivot) {
 
     public EscalationOutcome {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
     }
 
     public static EscalationOutcome disabled() {
-        return new EscalationOutcome(false, List.of(), "disabled", 0, null);
+        return new EscalationOutcome(false, List.of(), "disabled", 0, null, null);
     }
 
     public static EscalationOutcome counterexample(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "counterexample_found", frontier, null);
+        return new EscalationOutcome(true, cps, "counterexample_found", frontier, null, null);
     }
 
     public static EscalationOutcome stalled(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "discovery_stalled", frontier, null);
+        return new EscalationOutcome(true, cps, "discovery_stalled", frontier, null, null);
     }
 
     public static EscalationOutcome exhausted(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
-        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier, p);
+        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier, p, null);
     }
 
     /**
      * Phase 2 — the predictor anticipates the next rung will exceed the compute
-     * budget, so the loop stops *before* wasting it (rather than grinding to a
-     * reactive {@code discovery_stalled}). The Phase-3 pivot replaces the stop.
+     * budget, so the loop stops *before* wasting it. Used only when no branch
+     * pivot is wired/enabled; otherwise {@link #pivoted} replaces this.
      */
     public static EscalationOutcome predictedStall(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
-        return new EscalationOutcome(true, cps, "predicted_stall", frontier, p);
+        return new EscalationOutcome(true, cps, "predicted_stall", frontier, p, null);
+    }
+
+    /**
+     * Phase 3 — on a predicted stall the loop pivoted to a different branch. The
+     * terminal state is {@code pivoted_<branch>} when a verifiable branch (B3/B4)
+     * validated, or {@code pivot_boundary} when only the B5 analytic boundary
+     * remained. The {@link PivotOutcome} carries the trust level verbatim.
+     */
+    public static EscalationOutcome pivoted(List<EscalationCheckpoint> cps, long frontier,
+                                            StallPrediction p, PivotOutcome pivot) {
+        String terminal = pivot != null && pivot.validated()
+                ? "pivoted_" + pivot.branch().name().toLowerCase()
+                : "pivot_boundary";
+        return new EscalationOutcome(true, cps, terminal, frontier, p, pivot);
     }
 }

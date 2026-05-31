@@ -51,6 +51,18 @@ public class FrontierEscalationService {
                 enabled ? "ON" : "OFF", this.maxRounds, stallBudgetMs, scienceFrontier);
     }
 
+    /**
+     * Phase 3 — optional branch pivot. Set by Spring when a {@link BranchPivotService}
+     * bean exists (always, but gated by its own flag); null in unit tests that don't
+     * exercise the pivot (the loop then degrades to a {@code predicted_stall} stop).
+     */
+    private BranchPivotService branchPivot;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setBranchPivot(BranchPivotService branchPivot) {
+        this.branchPivot = branchPivot;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -96,6 +108,15 @@ public class FrontierEscalationService {
             if (pred.valid()) {
                 lastPrediction = pred;
                 if (next > pred.computeFrontierX()) {
+                    // Phase 3 — scarcity → innovation: pivot to a verifiable branch
+                    // instead of stopping. Degrades to a plain stop if no pivot is wired.
+                    if (branchPivot != null && branchPivot.isEnabled()) {
+                        PivotOutcome pv = branchPivot.pivot(
+                                new PivotRequest(task.spec(), next, task.checkpoints(), task.anchors(), pred));
+                        log.info("escalation predicted stall — {}; pivoting -> branch={} trust={} validated={}",
+                                pred.basis(), pv.branch(), pv.trust(), pv.validated());
+                        return EscalationOutcome.pivoted(cps, frontier, pred, pv);
+                    }
                     log.info("escalation predicted stall — {}; next x={} exceeds compute frontier — stopping",
                             pred.basis(), next);
                     return EscalationOutcome.predictedStall(cps, frontier, pred);

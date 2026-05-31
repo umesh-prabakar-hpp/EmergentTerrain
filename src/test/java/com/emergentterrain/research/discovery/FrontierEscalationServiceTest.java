@@ -112,6 +112,37 @@ class FrontierEscalationServiceTest {
     }
 
     @Test
+    void pivotsToVerifiableBranchOnPredictedStall() {
+        FrontierEscalationService svc = new FrontierEscalationService(
+                true, 8, 500_000.0, 1.0e12, discWithCost(1037L, x -> x / 1000));
+        svc.setBranchPivot(new BranchPivotService(true, List.of(new BranchProposer() {
+            public Branch branch() { return Branch.PROXY_REFORMULATION; }
+            public PivotOutcome attempt(PivotRequest r) {
+                return new PivotOutcome(Branch.PROXY_REFORMULATION, TrustLevel.VALIDATED_PROXY, true, "proxy validated");
+            }
+        })));
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        assertThat(out.terminalState()).isEqualTo("pivoted_proxy_reformulation");
+        assertThat(out.frontierReached()).isEqualTo(100_000_000L);
+        assertThat(out.pivot()).isNotNull();
+        assertThat(out.pivot().trust()).isEqualTo(TrustLevel.VALIDATED_PROXY);
+        assertThat(out.pivot().validated()).isTrue();
+    }
+
+    @Test
+    void pivotReachesHonestBoundaryWhenNoVerifiableBranch() {
+        FrontierEscalationService svc = new FrontierEscalationService(
+                true, 8, 500_000.0, 1.0e12, discWithCost(1037L, x -> x / 1000));
+        svc.setBranchPivot(new BranchPivotService(true, List.of()));   // no proposers -> B5 boundary
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        assertThat(out.terminalState()).isEqualTo("pivot_boundary");
+        assertThat(out.pivot().branch()).isEqualTo(Branch.ANALYTIC);
+        assertThat(out.pivot().trust()).isEqualTo(TrustLevel.LITERATURE_ONLY);
+    }
+
+    @Test
     void mertensBoundClassifiesCorrectly() {
         // |212| < sqrt(10^6)=1000 -> holds ; |5000| > sqrt(10^6) -> counterexample
         assertThat(BoundPredicate.MERTENS.classify(1_000_000L, 212L)).isEqualTo(EscalationVerdict.HOLDS);
