@@ -157,7 +157,18 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
    0` — exactly the fork-2a signal). Accepted outcomes carry `Provenance` (code SHA-256 + checkpoint
    count + target), never a novelty claim. Dormant — nothing calls `discover()` until the Phase-4
    tool. (Judging is in the sidecar per Phase 2; Java consumes the verdict and runs the loop.)
-4. **Per-invariant gated tool** in `MathToolSuite` (spike §6 predicate).
+4. ✅ **Gated tool** in `MathToolSuite` — `discover_mertens_value`. **Done**
+   (`MathToolSuite.discoverMertensValue` + advertisement in `toolsJson`;
+   `MertensDiscoveryService` field-injected into `ResearchNarrationService` via a `@PostConstruct`;
+   `MathToolSuiteDiscoveryTest`, 15/15). Advertised + executable only when discovery is wired AND
+   `runtimeExecEnabled` (omitted from the tool list + handler returns a disabled line otherwise);
+   `ET_DISCOVER_EXEC` enforced downstream. Computes M(x) at x > NT_MAX_N, returns the validated value
+   tagged **COMPUTED, not established** (honest framing baked into the tool output), or a failure
+   note — never a guessed number. **Scope note:** the per-invariant gate was realised as the tool
+   being *M(x)-only by construction* + the flag/instance gate (matching the `verify_conjecture`
+   precedent), rather than threading per-paper invariant context through the pipeline-wide narration
+   path — the tool is offered only during a deliberate discovery experiment, so a density/primality
+   paper has no reason to call it. Dormant by default; no app restart needed until the flags flip.
 5. **Flip + watch** on a mertens-class paper; confirm a discovered `M(x)` lands with provenance and the
    narrator frames it honestly.
 
