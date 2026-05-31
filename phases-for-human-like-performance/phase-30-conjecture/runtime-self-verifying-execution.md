@@ -146,8 +146,17 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
    malicious candidate, and out-of-range→400. (Note: judging happens in the trusted *sidecar* process
    — a refinement over the §5 "judged in Java" sketch — keeping oracle + comparison in one trusted
    place; Java orchestrates and can re-judge from the returned `values`+`oracle`.)
-3. **Java orchestration**: generate→validate→repair loop, judging in Java, attempt cap, provenance
-   tagging. Flag-gated OFF.
+3. ✅ **Java orchestration**: generate→validate→repair loop, attempt cap, provenance tagging.
+   **Done** (`research/discovery/`: `MertensDiscoveryService` + `DiscoveryTask`/`ValidationResult`/
+   `DiscoveryOutcome` records + `CandidateGenerator`/`CandidateValidator` interfaces +
+   `LlmCandidateGenerator` (router + fenced-code extraction) + `SidecarCandidateValidator` (HTTP →
+   `/discover/validate`); 11/11 tests). Flag-gated OFF (`runtimeExecEnabled`): `discover()`
+   short-circuits to a disabled outcome — model and sandbox untouched. The loop is **domain-neutral**
+   (spec from the task); generation/validation are injected so the loop is unit-tested with fakes
+   (repair converges on attempt 2, carrying the prior code + the moat discrepancy `M(2)=2 but correct
+   0` — exactly the fork-2a signal). Accepted outcomes carry `Provenance` (code SHA-256 + checkpoint
+   count + target), never a novelty claim. Dormant — nothing calls `discover()` until the Phase-4
+   tool. (Judging is in the sidecar per Phase 2; Java consumes the verdict and runs the loop.)
 4. **Per-invariant gated tool** in `MathToolSuite` (spike §6 predicate).
 5. **Flip + watch** on a mertens-class paper; confirm a discovered `M(x)` lands with provenance and the
    narrator frames it honestly.
