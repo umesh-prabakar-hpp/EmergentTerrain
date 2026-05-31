@@ -63,6 +63,27 @@ public class FrontierEscalationService {
         this.branchPivot = branchPivot;
     }
 
+    /**
+     * Phase 6 — the step policy. Default fixed ×10; the aggressive
+     * {@link AdaptiveNextScalePolicy} when {@code frontierAdaptiveScaleEnabled} is
+     * on. Spring calls this after construction; tests may call
+     * {@link #setScalePolicy} directly.
+     */
+    private NextScalePolicy scalePolicy = new DefaultNextScalePolicy();
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configureScalePolicy(
+            @Value("${app.research.discovery.frontierAdaptiveScaleEnabled:false}") boolean adaptive) {
+        this.scalePolicy = adaptive ? new AdaptiveNextScalePolicy() : new DefaultNextScalePolicy();
+        log.info("FrontierEscalationService scale policy — {}",
+                adaptive ? "ADAPTIVE (aggressive)" : "DEFAULT (fixed x10)");
+    }
+
+    /** Test seam — inject a policy directly. */
+    void setScalePolicy(NextScalePolicy scalePolicy) {
+        this.scalePolicy = scalePolicy;
+    }
+
     public boolean isEnabled() {
         return enabled;
     }
@@ -98,15 +119,22 @@ public class FrontierEscalationService {
             if ("discovery".equals(cp.source()) && cp.elapsedMs() > 0) {
                 costs.add(new CostObservation(x, cp.elapsedMs()));
             }
-            long next = x * task.scaleFactor();
+            // Phase 2 — forecast the cost (before choosing the next scale, so the
+            // policy can see the compute frontier).
+            StallPrediction pred = StallPredictor.predict(costs, stallBudgetMs, scienceFrontier);
+            if (pred.valid()) {
+                lastPrediction = pred;
+            }
+            // Phase 6 — the policy decides the next scale (default ×10, or adaptive).
+            double margin = cp.value() != null ? bound.margin(cp.x(), cp.value()) : 0.0;
+            double xc = pred.valid() ? pred.computeFrontierX() : 0.0;
+            long next = scalePolicy.nextScale(new NextScaleContext(x, margin, xc, task.scaleFactor()));
             if (next <= x) {          // overflow / non-increasing — stop cleanly
                 break;
             }
             // Phase 2 — anticipate the stall: if the fitted cost says the next rung
             // would exceed the budget, stop now instead of grinding to a reactive stall.
-            StallPrediction pred = StallPredictor.predict(costs, stallBudgetMs, scienceFrontier);
             if (pred.valid()) {
-                lastPrediction = pred;
                 if (next > pred.computeFrontierX()) {
                     // Phase 3 — scarcity → innovation: pivot to a verifiable branch
                     // instead of stopping. Degrades to a plain stop if no pivot is wired.

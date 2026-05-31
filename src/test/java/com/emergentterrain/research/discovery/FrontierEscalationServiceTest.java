@@ -143,6 +143,21 @@ class FrontierEscalationServiceTest {
     }
 
     @Test
+    void adaptivePolicyLeapsAcrossScales() {
+        // high margin everywhere -> ×1000 leaps: 10^6 -> 10^9 -> 10^12 in 3 rounds
+        // (vs 10^6 -> 10^7 -> 10^8 under the fixed-×10 default).
+        FrontierEscalationService svc =
+                new FrontierEscalationService(true, 3, 1.0e18, 0.0, discReturning(1037L));
+        svc.setScalePolicy(new AdaptiveNextScalePolicy());
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        assertThat(out.checkpoints()).extracting(EscalationCheckpoint::x)
+                .containsExactly(1_000_000L, 1_000_000_000L, 1_000_000_000_000L);
+        assertThat(out.terminalState()).isEqualTo("exhausted_rounds");
+        assertThat(out.frontierReached()).isEqualTo(1_000_000_000_000L);
+    }
+
+    @Test
     void mertensBoundClassifiesCorrectly() {
         // |212| < sqrt(10^6)=1000 -> holds ; |5000| > sqrt(10^6) -> counterexample
         assertThat(BoundPredicate.MERTENS.classify(1_000_000L, 212L)).isEqualTo(EscalationVerdict.HOLDS);
