@@ -269,3 +269,120 @@ function nt_evaluate_window(start::Integer, size::Integer)
         "mertens_delta"      => Float64(mertens_delta),
     ]
 end
+
+# =====================================================================
+# Phase 30 — cumulative Mertens function M(x) beyond NT_MAX_N
+# =====================================================================
+# Spike: phases-for-human-like-performance/phase-30-conjecture/
+#        segmented-mertens-spike.md
+#
+# Two paths to M(x) = Σ_{n=1}^{x} μ(n):
+#   - nt_mertens_dense(x)      — trusted ground truth; reuses the dense
+#       SPF sieve via nt_mobius. Capped at NT_MAX_N (the dense array).
+#   - nt_mertens_segmented(x)  — a segmented Möbius sieve that needs only
+#       primes ≤ √x (drawn from the same SPF sieve), so x may exceed
+#       NT_MAX_N up to NT_MAX_N². Linear in x.
+#
+# The two MUST agree exactly on the overlap range [0, NT_MAX_N] — that
+# equality is the trust gate (the Java SegmentedMertensValidator checks
+# it before any out-of-range value is believed). |M(x)| ~ √x, so values
+# stay tiny and Int64 is safe.
+# =====================================================================
+
+"""
+    nt_mertens_dense(x) -> Int64
+
+Cumulative Mertens function `M(x) = Σ_{n=1}^{x} μ(n)`, summed directly
+over the dense SPF sieve (the trusted reference). Returns 0 for `x < 1`.
+Throws `ArgumentError` for `x > NT_MAX_N` — use `nt_mertens_segmented`
+beyond the dense array.
+"""
+function nt_mertens_dense(x::Integer)
+    x < 1 && return Int64(0)
+    x > NT_MAX_N && throw(ArgumentError(
+        "x=$x exceeds NT_MAX_N=$NT_MAX_N; use nt_mertens_segmented"))
+    nt_ensure_sieve!()
+    total = Int64(0)
+    @inbounds for n in 1:Int(x)
+        total += nt_mobius(n)
+    end
+    return total
+end
+
+"""
+    nt_mertens_segmented(x; block=1_000_000) -> Int64
+
+⚠️ PHASE-1 THROWAWAY BASELINE. This body is hand-written *only* to prove the
+moat (overlap-equality against `nt_mertens_dense`) end-to-end. It is NOT the
+intended source of the method: per `segmented-mertens-spike.md` fork #2, clever
+`M(x)` methods are meant to be **LLM-proposed and gated by this same moat at
+runtime**, not authored here. Treat this as a stand-in candidate until the
+runtime self-verifying path lands.
+
+Cumulative Mertens function `M(x) = Σ_{n=1}^{x} μ(n)` via a segmented
+Möbius sieve. Sieves `μ` over blocks `[lo, hi]` using only primes
+`≤ √x` (drawn from the SPF sieve), so the dense `NT_MAX_N` array is not
+needed: `x` may range up to `NT_MAX_N²` (primes ≤ √x must exist in the
+sieve). Linear in `x`; the caller enforces the work guard. Returns 0 for
+`x < 1`. Throws `ArgumentError` if `√x` exceeds `NT_MAX_N`.
+
+Method: init `μ = +1`, track the unfactored cofactor `rem = n`. For each
+prime `p ≤ √x`: flip `μ` and divide `rem` by `p` on multiples of `p`,
+zero `μ` on multiples of `p²` (square factor). After all such primes, any
+`rem > 1` is a single leftover prime `> √x`, so flip `μ` once more.
+"""
+function nt_mertens_segmented(x::Integer; block::Integer = 1_000_000)
+    x < 1 && return Int64(0)
+    xx = Int64(x)
+    r = isqrt(xx)
+    r > NT_MAX_N && throw(ArgumentError(
+        "x=$xx needs primes up to √x=$r which exceeds NT_MAX_N=$NT_MAX_N"))
+    nt_ensure_sieve!()
+    spf = NT_SPF[]
+
+    # Primes ≤ √x, pulled from the SPF sieve (spf[p+1] == p ⇔ p prime).
+    primes = Int[]
+    @inbounds for p in 2:Int(r)
+        spf[p + 1] == p && push!(primes, p)
+    end
+
+    total = Int64(0)
+    blk = Int64(block)
+    lo = Int64(1)
+    while lo <= xx
+        hi = min(lo + blk - 1, xx)
+        len = Int(hi - lo + 1)
+        mu = ones(Int8, len)
+        rem = Vector{Int64}(undef, len)
+        @inbounds for i in 1:len
+            rem[i] = lo + (i - 1)
+        end
+        for p in primes
+            pl = Int64(p)
+            pl > hi && break              # no multiple of p in this block (primes ascending)
+            # multiples of p: flip sign, peel one factor of p
+            j = cld(lo, pl) * pl
+            @inbounds while j <= hi
+                idx = Int(j - lo) + 1
+                mu[idx] = -mu[idx]
+                rem[idx] ÷= pl
+                j += pl
+            end
+            # multiples of p²: not squarefree → μ = 0
+            pp = pl * pl
+            if pp <= hi
+                j2 = cld(lo, pp) * pp
+                @inbounds while j2 <= hi
+                    mu[Int(j2 - lo) + 1] = 0
+                    j2 += pp
+                end
+            end
+        end
+        @inbounds for i in 1:len
+            (mu[i] != 0 && rem[i] > 1) && (mu[i] = -mu[i])   # leftover prime > √x
+            total += mu[i]
+        end
+        lo = hi + 1
+    end
+    return total
+end

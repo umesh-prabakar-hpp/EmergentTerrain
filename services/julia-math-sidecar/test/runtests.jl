@@ -969,6 +969,38 @@ end
     @test !JuliaMathSidecar.nt_is_happy(11)
 end
 
+@testset "nt_mertens: dense vs segmented (Phase 30 spike)" begin
+    M_dense = JuliaMathSidecar.nt_mertens_dense
+    M_seg   = JuliaMathSidecar.nt_mertens_segmented
+
+    # Known M(10^n) — OEIS A084237. Both paths must reproduce these.
+    @test M_dense(1)         == 1
+    @test M_dense(10)        == -1
+    @test M_dense(100)       == 1
+    @test M_dense(1_000)     == 2
+    @test M_dense(10_000)    == -23
+    @test M_dense(100_000)   == -48
+    @test M_dense(1_000_000) == 212        # the famous M(10^6)
+    @test M_seg(1)           == 1          # μ(1) = 1 boundary
+    @test M_seg(2)           == 0
+    @test M_seg(1_000_000)   == 212
+
+    # The trust gate: segmented == dense EXACTLY across the overlap range,
+    # including non-round offsets (guards against round-number flukes) and
+    # the NT_MAX_N boundary.
+    for k in (1, 2, 10, 999, 1_000, 10_000, 100_000, 999_983, 1_000_000,
+              1_234_567, 1_500_000, 2_000_000)
+        @test M_seg(k) == M_dense(k)
+    end
+
+    # Beyond NT_MAX_N: dense refuses, segmented extends and still matches
+    # the OEIS reference at 10^7 (this is the whole point of the spike).
+    @test_throws ArgumentError M_dense(10_000_000)
+    @test M_seg(10_000_000) == 1037        # M(10^7), A084237
+    # √x > NT_MAX_N must be rejected (no primes to sieve with).
+    @test_throws ArgumentError M_seg((JuliaMathSidecar.NT_MAX_N + 1)^2)
+end
+
 @testset "nt_evaluate_window: keyed ordering + spot values" begin
     pairs = JuliaMathSidecar.nt_evaluate_window(100, 50)
     @test length(pairs) == 9
