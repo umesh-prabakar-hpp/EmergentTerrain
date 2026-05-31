@@ -32,17 +32,23 @@ public class FrontierEscalationService {
 
     private final boolean enabled;
     private final int maxRounds;
+    private final double stallBudgetMs;
+    private final double scienceFrontier;
     private final MertensDiscoveryService discovery;
 
     public FrontierEscalationService(
             @Value("${app.research.discovery.frontierEscalationEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.frontierEscalationMaxRounds:8}") int maxRounds,
+            @Value("${app.research.discovery.frontierStallBudgetMs:30000}") double stallBudgetMs,
+            @Value("${app.research.discovery.frontierScienceFrontier:0}") double scienceFrontier,
             MertensDiscoveryService discovery) {
         this.enabled = enabled;
         this.maxRounds = Math.max(1, maxRounds);
+        this.stallBudgetMs = stallBudgetMs;
+        this.scienceFrontier = scienceFrontier;
         this.discovery = discovery;
-        log.info("FrontierEscalationService ready — frontierEscalation={} maxRounds={}",
-                enabled ? "ON" : "OFF", this.maxRounds);
+        log.info("FrontierEscalationService ready — frontierEscalation={} maxRounds={} stallBudgetMs={} scienceFrontier={}",
+                enabled ? "ON" : "OFF", this.maxRounds, stallBudgetMs, scienceFrontier);
     }
 
     public boolean isEnabled() {
@@ -59,13 +65,15 @@ public class FrontierEscalationService {
             return EscalationOutcome.disabled();
         }
         List<EscalationCheckpoint> cps = new ArrayList<>();
+        List<CostObservation> costs = new ArrayList<>();   // discovery rungs only — fed to the predictor
+        StallPrediction lastPrediction = null;
         long x = task.startScale();
         long frontier = 0;
         for (int round = 0; round < maxRounds; round++) {
             EscalationCheckpoint cp = evaluateAt(x, task, sieveSource, bound);
             cps.add(cp);
-            log.info("escalation round {}/{} — x={} value={} verdict={} via {}",
-                    round + 1, maxRounds, x, cp.value(), cp.verdict(), cp.source());
+            log.info("escalation round {}/{} — x={} value={} verdict={} via {} ({}ms)",
+                    round + 1, maxRounds, x, cp.value(), cp.verdict(), cp.source(), cp.elapsedMs());
             switch (cp.verdict()) {
                 case COUNTEREXAMPLE -> {
                     return EscalationOutcome.counterexample(cps, frontier);
@@ -75,32 +83,50 @@ public class FrontierEscalationService {
                 }
                 case HOLDS -> frontier = x;
             }
+            if ("discovery".equals(cp.source()) && cp.elapsedMs() > 0) {
+                costs.add(new CostObservation(x, cp.elapsedMs()));
+            }
             long next = x * task.scaleFactor();
             if (next <= x) {          // overflow / non-increasing — stop cleanly
                 break;
             }
+            // Phase 2 — anticipate the stall: if the fitted cost says the next rung
+            // would exceed the budget, stop now instead of grinding to a reactive stall.
+            StallPrediction pred = StallPredictor.predict(costs, stallBudgetMs, scienceFrontier);
+            if (pred.valid()) {
+                lastPrediction = pred;
+                if (next > pred.computeFrontierX()) {
+                    log.info("escalation predicted stall — {}; next x={} exceeds compute frontier — stopping",
+                            pred.basis(), next);
+                    return EscalationOutcome.predictedStall(cps, frontier, pred);
+                }
+            }
             x = next;
         }
-        return EscalationOutcome.exhausted(cps, frontier);
+        return EscalationOutcome.exhausted(cps, frontier, lastPrediction);
     }
 
     private EscalationCheckpoint evaluateAt(long x, EscalationTask task,
                                             ScaleValueSource sieveSource, BoundPredicate bound) {
         Long value;
         String source;
+        long elapsedMs;
         if (x <= ConjectureVerifier.MAX_N) {
+            long t0 = System.nanoTime();
             value = sieveSource.valueAt(x);
+            elapsedMs = (System.nanoTime() - t0) / 1_000_000L;
             source = "sieve";
         } else {
             DiscoveryTask dt = new DiscoveryTask(task.spec(), x, task.checkpoints(), task.anchors(),
                     task.cpuSeconds(), task.wallSeconds(), discovery.maxAttempts());
             DiscoveryOutcome out = discovery.discover(dt);
             value = out.accepted() ? out.targetValue() : null;
+            elapsedMs = out.elapsedMs();
             source = "discovery";
         }
         if (value == null) {
-            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source);
+            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source, elapsedMs);
         }
-        return new EscalationCheckpoint(x, value, bound.classify(x, value), source);
+        return new EscalationCheckpoint(x, value, bound.classify(x, value), source, elapsedMs);
     }
 }

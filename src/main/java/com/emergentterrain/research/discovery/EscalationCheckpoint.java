@@ -7,4 +7,4 @@ package com.emergentterrain.research.discovery;
  * {@code "discovery"} for x beyond it). The accumulating list of these IS the
  * frontier-paper corpus.
  */
-public record EscalationCheckpoint(long x, Long value, EscalationVerdict verdict, String source) {}
+public record EscalationCheckpoint(long x, Long value, EscalationVerdict verdict, String source, long elapsedMs) {}

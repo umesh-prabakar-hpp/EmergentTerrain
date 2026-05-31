@@ -92,7 +92,7 @@ public class SidecarCandidateValidator implements CandidateValidator {
         Long targetValue = root.has("targetValue") && !root.get("targetValue").isNull()
                 ? root.get("targetValue").asLong() : null;
         return new ValidationResult(status, verdict, values, oracle, ff, targetValue,
-                root.path("detail").asText(""));
+                root.path("detail").asText(""), root.path("elapsed_ms").asLong(0));
     }
 
     private static Map<Long, Long> readLongMap(JsonNode node) {

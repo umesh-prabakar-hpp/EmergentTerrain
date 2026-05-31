@@ -23,7 +23,14 @@ public record ValidationResult(
         Map<Long, Long> oracle,
         FirstFail firstFail,
         Long targetValue,
-        String detail) {
+        String detail,
+        long elapsedMs) {
+
+    /** Back-compatible constructor (elapsed unknown → 0). */
+    public ValidationResult(String status, String verdict, Map<Long, Long> values,
+                            Map<Long, Long> oracle, FirstFail firstFail, Long targetValue, String detail) {
+        this(status, verdict, values, oracle, firstFail, targetValue, detail, 0L);
+    }
 
     /** A single moat mismatch: candidate said {@code got} at {@code k}, truth is {@code want}. */
     public record FirstFail(long k, Long got, long want) {}

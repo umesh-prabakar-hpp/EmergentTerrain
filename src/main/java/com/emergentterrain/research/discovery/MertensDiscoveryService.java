@@ -84,7 +84,8 @@ public class MertensDiscoveryService {
             if (result.accepted()) {
                 log.info("discovery accepted on attempt {}/{} — target M({}) = {}",
                         attempt, task.maxAttempts(), task.target(), result.targetValue());
-                return DiscoveryOutcome.accepted(code, result.targetValue(), attempt, provenanceOf(code, task));
+                return DiscoveryOutcome.accepted(code, result.targetValue(), attempt,
+                        provenanceOf(code, task), result.elapsedMs());
             }
             previousCode = code;
             discrepancy = describe(result);

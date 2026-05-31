@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Phase 30 frontier-escalation Phase 1 — the escalation skeleton, tested with
@@ -29,11 +30,18 @@ class FrontierEscalationServiceTest {
                 (code, t) -> new ValidationResult("ast_reject", "na", Map.of(), Map.of(), null, null, ""));
     }
 
+    /** Discovery that accepts with a fixed value and a per-x cost (ms). */
+    private static MertensDiscoveryService discWithCost(long value, java.util.function.LongUnaryOperator costOfX) {
+        return new MertensDiscoveryService(true, 1, req -> "code",
+                (code, t) -> new ValidationResult("ok", "accept", Map.of(), Map.of(), null, value, "",
+                        costOfX.applyAsLong(t.target())));
+    }
+
     private static final ScaleValueSource SIEVE_HOLDS = x -> 212L;   // M(10^6)=212, |212|<sqrt(x) for x>=10^6
 
     @Test
     void escalatesWhileHoldingThenExhaustsRounds() {
-        FrontierEscalationService svc = new FrontierEscalationService(true, 4, discReturning(1037L));
+        FrontierEscalationService svc = new FrontierEscalationService(true, 4, 30000.0, 0.0, discReturning(1037L));
         EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
 
         assertThat(out.ran()).isTrue();
@@ -54,7 +62,7 @@ class FrontierEscalationServiceTest {
                 return (n++ == 0) ? EscalationVerdict.HOLDS : EscalationVerdict.COUNTEREXAMPLE;
             }
         };
-        FrontierEscalationService svc = new FrontierEscalationService(true, 8, discReturning(1037L));
+        FrontierEscalationService svc = new FrontierEscalationService(true, 8, 30000.0, 0.0, discReturning(1037L));
         EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, holdThenFail);
 
         assertThat(out.terminalState()).isEqualTo("counterexample_found");
@@ -65,7 +73,7 @@ class FrontierEscalationServiceTest {
 
     @Test
     void stallsWhenDiscoveryCannotCompute() {
-        FrontierEscalationService svc = new FrontierEscalationService(true, 8, discFailing());
+        FrontierEscalationService svc = new FrontierEscalationService(true, 8, 30000.0, 0.0, discFailing());
         EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
 
         assertThat(out.terminalState()).isEqualTo("discovery_stalled");
@@ -79,11 +87,28 @@ class FrontierEscalationServiceTest {
 
     @Test
     void disabledShortCircuits() {
-        FrontierEscalationService svc = new FrontierEscalationService(false, 4, discReturning(1037L));
+        FrontierEscalationService svc = new FrontierEscalationService(false, 4, 30000.0, 0.0, discReturning(1037L));
         EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
         assertThat(out.ran()).isFalse();
         assertThat(out.terminalState()).isEqualTo("disabled");
         assertThat(out.checkpoints()).isEmpty();
+    }
+
+    @Test
+    void predictsStallAndStopsEarly() {
+        // discovery cost = x/1000 ms -> 10^7:1e4ms, 10^8:1e5ms => power law p=1, a=1e-3.
+        // budget 5e5 ms -> x_c=5e8. After 10^8 holds, next 10^9 > x_c -> predicted_stall.
+        FrontierEscalationService svc = new FrontierEscalationService(
+                true, 8, 500_000.0, 1.0e12, discWithCost(1037L, x -> x / 1000));
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        assertThat(out.terminalState()).isEqualTo("predicted_stall");
+        assertThat(out.frontierReached()).isEqualTo(100_000_000L);     // 10^8 held; 10^9 forecast to stall
+        assertThat(out.prediction()).isNotNull();
+        assertThat(out.prediction().valid()).isTrue();
+        assertThat(out.prediction().exponent()).isCloseTo(1.0, within(0.05));
+        assertThat(out.prediction().computeFrontierX()).isCloseTo(5.0e8, within(5.0e7));
+        assertThat(out.prediction().stallsBeforeScience()).isTrue();   // x_c=5e8 < x_s=1e12
     }
 
     @Test

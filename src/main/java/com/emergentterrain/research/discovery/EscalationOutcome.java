@@ -18,25 +18,35 @@ public record EscalationOutcome(
         boolean ran,
         List<EscalationCheckpoint> checkpoints,
         String terminalState,
-        long frontierReached) {
+        long frontierReached,
+        StallPrediction prediction) {
 
     public EscalationOutcome {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
     }
 
     public static EscalationOutcome disabled() {
-        return new EscalationOutcome(false, List.of(), "disabled", 0);
+        return new EscalationOutcome(false, List.of(), "disabled", 0, null);
     }
 
     public static EscalationOutcome counterexample(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "counterexample_found", frontier);
+        return new EscalationOutcome(true, cps, "counterexample_found", frontier, null);
     }
 
     public static EscalationOutcome stalled(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "discovery_stalled", frontier);
+        return new EscalationOutcome(true, cps, "discovery_stalled", frontier, null);
     }
 
-    public static EscalationOutcome exhausted(List<EscalationCheckpoint> cps, long frontier) {
-        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier);
+    public static EscalationOutcome exhausted(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
+        return new EscalationOutcome(true, cps, "exhausted_rounds", frontier, p);
+    }
+
+    /**
+     * Phase 2 — the predictor anticipates the next rung will exceed the compute
+     * budget, so the loop stops *before* wasting it (rather than grinding to a
+     * reactive {@code discovery_stalled}). The Phase-3 pivot replaces the stop.
+     */
+    public static EscalationOutcome predictedStall(List<EscalationCheckpoint> cps, long frontier, StallPrediction p) {
+        return new EscalationOutcome(true, cps, "predicted_stall", frontier, p);
     }
 }
