@@ -35,16 +35,31 @@ public class MertensFrontierService {
 
     private final long startScale;
     private final boolean scheduleEnabled;
+    private final int cpuSeconds;
+    private final int wallSeconds;
     private final FrontierEscalationService escalation;
     private final ScaleValueSource sieveSource;
 
+    /** Back-compatible constructor (default 60s/80s sandbox budget) for tests/call sites. */
+    MertensFrontierService(long startScale, boolean scheduleEnabled,
+                           FrontierEscalationService escalation, ScaleValueSource sieveSource) {
+        this(startScale, scheduleEnabled, 60, 80, escalation, sieveSource);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
     public MertensFrontierService(
             @Value("${app.research.discovery.frontierStartScale:2000000}") long startScale,
             @Value("${app.research.discovery.frontierScheduleEnabled:false}") boolean scheduleEnabled,
+            @Value("${app.research.discovery.frontierCpuSeconds:60}") int cpuSeconds,
+            @Value("${app.research.discovery.frontierWallSeconds:80}") int wallSeconds,
             FrontierEscalationService escalation,
             ScaleValueSource sieveSource) {
         this.startScale = startScale < 1 ? 2_000_000 : startScale;
         this.scheduleEnabled = scheduleEnabled;
+        // per-candidate sandbox budget — bigger CPU reaches bigger x; wall stays above CPU
+        // for JIT/startup headroom (see frontier-escalation-loop.md §10).
+        this.cpuSeconds = Math.max(1, cpuSeconds);
+        this.wallSeconds = Math.max(this.cpuSeconds + 1, wallSeconds);
         this.escalation = escalation;
         this.sieveSource = sieveSource;
     }
@@ -108,7 +123,7 @@ public class MertensFrontierService {
                             + "(403/unreachable; set `ET_DISCOVER_EXEC=1` on the sidecar). No tokens were spent._",
                     EscalationOutcome.disabled());
         }
-        EscalationTask task = new EscalationTask(SPEC, startScale, 10L, CHECKPOINTS, ANCHORS, 20, 28);
+        EscalationTask task = new EscalationTask(SPEC, startScale, 10L, CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
         // §10.3/B2 — seed the scale policy with persisted boundaries from prior runs so a
         // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
         java.util.List<FrontierEvent> priorEvents = knowledge == null
