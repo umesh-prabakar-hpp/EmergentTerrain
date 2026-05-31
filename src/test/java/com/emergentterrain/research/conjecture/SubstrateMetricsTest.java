@@ -61,6 +61,42 @@ class SubstrateMetricsTest {
     }
 
     @Test
+    void proposeNovelCompositionsKeepsParentProvenanceAndMatchesProposeNovel() {
+        // a<=2b, b<=3c -> a<=6c ; the Composition must name both parent descriptors,
+        // and its derived bound must equal what proposeNovel returns (same filtering,
+        // dedup, cap, order — proposeNovel is the derived-only projection).
+        List<Inequality> pool = List.of(
+                ineq("a", "b", 2.0, 0.0),
+                ineq("b", "c", 3.0, 0.0));
+        List<ConjectureComposer.Composition> comps =
+                ConjectureComposer.proposeNovelCompositions(pool, 0);
+        assertThat(comps).hasSize(1);
+        ConjectureComposer.Composition c = comps.get(0);
+        assertThat(c.derived().lhs()).isEqualTo("a");
+        assertThat(c.derived().rhs()).isEqualTo("c");
+        assertThat(c.derived().k()).isEqualTo(6.0);
+        assertThat(c.parentKey1()).isEqualTo(ConjectureTrivialityFilter.descriptorKey(pool.get(0)));
+        assertThat(c.parentKey2()).isEqualTo(ConjectureTrivialityFilter.descriptorKey(pool.get(1)));
+        // projection equivalence
+        List<Inequality> derived = ConjectureComposer.proposeNovel(pool, 0);
+        assertThat(derived).hasSize(1);
+        assertThat(derived.get(0).lhs()).isEqualTo(c.derived().lhs());
+        assertThat(derived.get(0).rhs()).isEqualTo(c.derived().rhs());
+        assertThat(derived.get(0).k()).isEqualTo(c.derived().k());
+    }
+
+    @Test
+    void proposeNovelCompositionsCapMatchesProposeNovel() {
+        List<Inequality> pool = List.of(
+                ineq("a", "b", 2.0, 0.0),
+                ineq("b", "c", 3.0, 0.0),    // -> a<=6c
+                ineq("a", "d", 2.0, 0.0),
+                ineq("d", "e", 5.0, 0.0));   // -> a<=10e
+        assertThat(ConjectureComposer.proposeNovelCompositions(pool, 0)).hasSize(2);
+        assertThat(ConjectureComposer.proposeNovelCompositions(pool, 1)).hasSize(1);
+    }
+
+    @Test
     void proposeNovelDropsDimensionMismatchCompositions() {
         // density <= 2*log_window_start (composed) would be a dimensional mismatch -> dropped.
         // build it: abundant_density <= 2*X ; X <= 1*log_window_start  -> abundant_density <= 2*log_window_start

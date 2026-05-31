@@ -99,6 +99,18 @@ public class Conjecture {
      */
     private Instant lastInvestigatedAt;
 
+    /**
+     * Phase 30 integration step 2 — when non-null, this conjecture was synthesized
+     * by {@link ConjectureComposer} as a sound 1-step composition of two parent
+     * bounds rather than mined from sample windows. Value is the two parent
+     * descriptor keys it was composed from (e.g. {@code "a <= +k* b  ∘  b <= +k* c"}).
+     * Lets the paper pipeline tell a derivable-but-non-trivial claim from an
+     * empirically-mined bound, so the narrator doesn't present a derived
+     * consequence as an independent observation. Nullable (mined conjectures leave
+     * it null); additive column.
+     */
+    private String derivedFrom;
+
     protected Conjecture() {}  // for JPA
 
     public Conjecture(String domain, String lhs, String rhs, double k, double c) {
@@ -128,6 +140,7 @@ public class Conjecture {
     public Instant updatedAt()             { return updatedAt; }
     public Instant promotedAt()            { return promotedAt; }
     public Instant lastInvestigatedAt()    { return lastInvestigatedAt; }
+    public String derivedFrom()            { return derivedFrom; }
 
     // Targeted setters — mutated by the mapper during update cycles.
     public void setK(double k)                            { this.k = k; }
@@ -142,4 +155,5 @@ public class Conjecture {
     public void setUpdatedAt(Instant t)                   { this.updatedAt = t; }
     public void setPromotedAt(Instant t)                  { this.promotedAt = t; }
     public void setLastInvestigatedAt(Instant t)          { this.lastInvestigatedAt = t; }
+    public void setDerivedFrom(String s)                  { this.derivedFrom = s; }
 }

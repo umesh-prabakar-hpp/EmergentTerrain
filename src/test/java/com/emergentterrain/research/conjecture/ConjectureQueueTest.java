@@ -171,7 +171,8 @@ class ConjectureQueueTest {
         ObjectMapper om = new ObjectMapper();
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
                 new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
-                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ true, /*substrateMetrics*/ false);
+                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ true, /*substrateMetrics*/ false,
+                /*compositionPersist*/ false, /*compositionPersistCap*/ 5);
     }
 
     private static ConjectureMinerService buildService(ConjectureRepository repo) {
@@ -181,7 +182,8 @@ class ConjectureQueueTest {
         // evaluateWindow is never called — a null-client delegate is inert here.
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
                 new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
-                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false);
+                /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false,
+                /*compositionPersist*/ false, /*compositionPersistCap*/ 5);
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,

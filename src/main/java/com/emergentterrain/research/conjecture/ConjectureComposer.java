@@ -90,16 +90,32 @@ public final class ConjectureComposer {
      * flipped, by the persisting step. Deterministic.
      */
     public static List<Inequality> proposeNovel(List<Inequality> pool, int cap) {
-        Map<String, Inequality> byKey = new LinkedHashMap<>();
+        List<Inequality> out = new ArrayList<>();
+        for (Composition comp : proposeNovelCompositions(pool, cap)) {
+            out.add(comp.derived());
+        }
+        return out;
+    }
+
+    /**
+     * Like {@link #proposeNovel}, but keeps the full {@link Composition} (derived
+     * bound + both parent descriptor keys) so the persisting step can record
+     * provenance. Same filtering (W1 gates), same dedup-by-descriptor (one per
+     * derived relation, first parent pair wins), same cap semantics
+     * ({@code cap <= 0} = uncapped), same deterministic order. {@link #proposeNovel}
+     * is the derived-only projection of this. Deterministic.
+     */
+    public static List<Composition> proposeNovelCompositions(List<Inequality> pool, int cap) {
+        Map<String, Composition> byKey = new LinkedHashMap<>();
         for (Composition comp : compose(pool)) {
             Inequality d = comp.derived();
             if (ConjectureTrivialityFilter.dropReason(d).isPresent()
                     || ConjectureDimensionFilter.dropReason(d).isPresent()) {
                 continue;
             }
-            byKey.putIfAbsent(ConjectureTrivialityFilter.descriptorKey(d), d);
+            byKey.putIfAbsent(ConjectureTrivialityFilter.descriptorKey(d), comp);
         }
-        List<Inequality> out = new ArrayList<>(byKey.values());
+        List<Composition> out = new ArrayList<>(byKey.values());
         if (cap > 0 && out.size() > cap) {
             return new ArrayList<>(out.subList(0, cap));
         }

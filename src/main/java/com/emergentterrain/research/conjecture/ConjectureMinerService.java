@@ -109,6 +109,25 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final boolean substrateMetricsEnabled;
 
+    /**
+     * Phase 30 integration step 2 — when ON, each mine pass persists up to
+     * {@link #compositionPersistCap} novel 1-step compositions (W1-filtered,
+     * deduped, not already present) as new live conjectures carrying
+     * {@code derivedFrom} provenance, so the paper pipeline can investigate
+     * derivable-but-non-trivial claims. They enter the empirical update loop on
+     * the next pass like any mined bound. Default OFF; gated by the signal that
+     * {@link #substrateMetricsEnabled} logs. No-op when OFF.
+     */
+    private final boolean compositionPersistEnabled;
+
+    /**
+     * Phase 30 integration step 2 — max novel compositions persisted per mine
+     * pass (a small cap keeps corpus growth controlled and reviewable). Only
+     * consulted when {@link #compositionPersistEnabled} is ON. {@code <= 0} =
+     * uncapped (not recommended in the live pipeline).
+     */
+    private final int compositionPersistCap;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
@@ -125,7 +144,13 @@ public class ConjectureMinerService implements ConjectureQueue {
             boolean investigationRotationEnabled,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.substrateMetricsEnabled:false}")
-            boolean substrateMetricsEnabled) {
+            boolean substrateMetricsEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.compositionPersistEnabled:false}")
+            boolean compositionPersistEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.compositionPersistCap:5}")
+            int compositionPersistCap) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -134,11 +159,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.dimensionFilterEnabled = dimensionFilterEnabled;
         this.investigationRotationEnabled = investigationRotationEnabled;
         this.substrateMetricsEnabled = substrateMetricsEnabled;
+        this.compositionPersistEnabled = compositionPersistEnabled;
+        this.compositionPersistCap = compositionPersistCap;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
-                + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={}",
+                + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
+                + "compositionPersist={}{}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
-                substrateMetricsEnabled ? "ON" : "OFF");
+                substrateMetricsEnabled ? "ON" : "OFF",
+                compositionPersistEnabled ? "ON" : "OFF",
+                compositionPersistEnabled ? " (cap=" + compositionPersistCap + ")" : "");
     }
 
     /**
@@ -251,9 +281,43 @@ public class ConjectureMinerService implements ConjectureQueue {
             log.info("conjecture mine pass — {}", SubstrateMetrics.of(store).summary());
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} ms",
+        // Phase 30 integration step 2 — persist novel compositions (flag-gated OFF,
+        // capped). Sound 1-step derived bounds (W1-filtered, deduped) whose relation
+        // isn't already in the pool become new live conjectures carrying derivedFrom
+        // provenance, so the paper pipeline can investigate derivable-but-non-trivial
+        // claims. They join the empirical update loop on the next mine pass like any
+        // mined bound (confirmedRuns starts at 0). No-op when OFF.
+        int compositionsPersisted = 0;
+        if (compositionPersistEnabled) {
+            for (ConjectureComposer.Composition comp
+                    : ConjectureComposer.proposeNovelCompositions(store, 0)) {
+                if (compositionPersistCap > 0 && compositionsPersisted >= compositionPersistCap) {
+                    break;
+                }
+                Inequality derived = comp.derived();
+                String key = keyOf(derived.lhs, derived.rhs);
+                if (byKey.containsKey(key)) {
+                    continue;   // relation already persisted (mined, or composed in a prior pass)
+                }
+                Conjecture entity = mapper.toEntity(derived, DOMAIN);
+                entity.setDerivedFrom(comp.parentKey1() + "  ∘  " + comp.parentKey2());
+                String annotation = oeisAnnotator.annotate(derived.lhs, derived.rhs);
+                if (annotation != null) {
+                    entity.setOeisMatchJson(annotation);
+                }
+                repo.save(entity);
+                byKey.put(key, entity);   // guard a second composition with the same pair this pass
+                compositionsPersisted++;
+            }
+            if (compositionsPersisted > 0) {
+                log.info("conjecture mine pass — persisted {} novel composition(s) as derived conjectures",
+                        compositionsPersisted);
+            }
+        }
+
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, System.currentTimeMillis() - t0);
+                dimensionDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
