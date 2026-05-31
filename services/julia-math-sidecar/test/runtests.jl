@@ -1290,3 +1290,9 @@ using Sockets
     # since wait(server) blocks. Easiest: just let it die when the
     # test process exits.
 end
+
+# Fork 2b Phase 1 — sandbox containment tests. Standalone module
+# (src/sandbox_runner.jl); spawns isolated julia subprocesses. Decoupled
+# from the server layer above; also runnable on its own via
+# `julia test/sandbox_runner_test.jl`.
+include("sandbox_runner_test.jl")
