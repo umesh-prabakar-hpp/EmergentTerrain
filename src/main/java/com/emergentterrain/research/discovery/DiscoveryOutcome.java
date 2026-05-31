@@ -1,0 +1,36 @@
+package com.emergentterrain.research.discovery;
+
+/**
+ * Phase 30 fork 2b Phase 3 — the result of a discovery run. On success it
+ * carries the accepted candidate, its validated target value, and
+ * {@link Provenance} (so a downstream paper can present the number as
+ * "computed by a moat-validated method", never as an established result — see
+ * runtime-self-verifying-execution.md §6).
+ */
+public record DiscoveryOutcome(
+        boolean accepted,
+        String code,
+        Long targetValue,
+        int attempts,
+        Provenance provenance,
+        String failureReason) {
+
+    /**
+     * What the accepted value is grounded in: the method's content hash and the
+     * checkpoints it reproduced. Never asserts mathematical novelty.
+     */
+    public record Provenance(String codeSha256, int checkpointCount, int anchorCount, long target) {}
+
+    public static DiscoveryOutcome disabled() {
+        return new DiscoveryOutcome(false, null, null, 0, null, "discovery disabled (runtimeExecEnabled=false)");
+    }
+
+    public static DiscoveryOutcome accepted(String code, Long targetValue, int attempts, Provenance p) {
+        return new DiscoveryOutcome(true, code, targetValue, attempts, p, null);
+    }
+
+    public static DiscoveryOutcome exhausted(int attempts, String lastReason) {
+        return new DiscoveryOutcome(false, null, null, attempts, null,
+                "no candidate validated within " + attempts + " attempt(s); last: " + lastReason);
+    }
+}
