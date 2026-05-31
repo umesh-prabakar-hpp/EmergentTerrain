@@ -101,7 +101,11 @@ calibration.
 ### 30.1 — Anomaly mining (invert the miner) [P0]
 
 Today `ConjectureEngine` seeds inequalities and **promotes the ones that
-survive** (tighten on confirmation, drop on counterexample). Anomaly mining
+survive** (tighten on confirmation, drop on counterexample — *but the drop arm
+barely fires in practice: the live miner logs `0 retired`, because it never
+samples the binding regime and paper-refutations are not fed back, so anomaly
+mining must fix retirement first; see
+[`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) §6*). Anomaly mining
 keeps the *discarded* arm: a conjecture that holds at 999/1000 configs but
 fails sharply at one is not noise to drop — the one violation is the
 candidate claim.

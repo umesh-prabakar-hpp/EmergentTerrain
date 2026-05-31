@@ -71,7 +71,7 @@ magnitude with zero false-retirement of a hand-checked control set of genuine re
 
 | Item | Source | Notes |
 |------|--------|-------|
-| **Findings-as-network with typed input/output ports + provenance edges** | sim #15 typed ports; ext #9 lineage | the substrate RAF closure (W6), composition (W5), and clade-value selection (W3) all require |
+| **Findings-as-network with typed input/output ports + provenance edges** | sim #15 typed ports; ext #2 lineage | the substrate RAF closure (W6), composition (W5), and clade-value selection (W3) all require |
 
 **Acceptance:** every accepted finding is a node with typed ports and `DERIVES_FROM` provenance; the graph
 round-trips (serialise/reload) and a finding's full derivation lineage is reconstructable.

@@ -49,6 +49,12 @@ From `research/conjectures-math.json`:
 - **All carry `refuted=False`** — none are ever retired (the "0 retired (counterexample)" loop is
   universal, not mertens-specific): refutations happen in published papers and are never fed back.
 
+> **Count note.** `212` is the total in `conjectures-math.json` (the persisted, all-time / cross-room
+> mined set). A single live mine pass logs far fewer *active* survivors (≈16 in room b72c4e10:
+> `16 survivors … 0 retired … 0 dropped`). The triviality argument holds at both counts — every entry
+> is the same data-mined linear shape and none is retired — but where this note says "the store" below
+> it means the persisted 212, of which only the active survivors are actually served to bots.
+
 Representative mined entries (verbatim shape):
 
 ```
@@ -73,7 +79,8 @@ mertens_per_sqrt_W <= 2.0 * log_window_start     - 7.7621      (the one that get
 Why only mertens-type gets investigated: `BindingRegimeProbe.appliesTo` returns true only for
 `k > 0 && rhs == "log_window_start"` (start-monotone). Of the 212, only the `log_window_start` bounds
 qualify, so they alone become "conjecture investigation" topics and generate the refutation papers; the
-other ~200 sit in the store, never investigated, never retired.
+other ~200 persisted entries sit in the store, never investigated, never retired (see the §2 count note
+on persisted-212 vs active-survivors).
 
 ---
 
