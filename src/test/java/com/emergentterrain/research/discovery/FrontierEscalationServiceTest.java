@@ -158,6 +158,24 @@ class FrontierEscalationServiceTest {
     }
 
     @Test
+    void loopAllowsBackwardStepAndStopsOnRevisit() {
+        // a policy that steps back to localize, then would revisit the start -> stop.
+        NextScalePolicy zigzag = new NextScalePolicy() {
+            int n = 0;
+            public long nextScale(NextScaleContext c) { return (n++ == 0) ? 500_000L : 1_000_000L; }
+        };
+        FrontierEscalationService svc =
+                new FrontierEscalationService(true, 8, 1.0e18, 0.0, discReturning(212L));
+        svc.setScalePolicy(zigzag);
+        EscalationOutcome out = svc.escalate(TASK, SIEVE_HOLDS, BoundPredicate.MERTENS);
+
+        // 10^6 (holds) -> backward 5×10^5 (holds) -> next 10^6 already visited -> stop
+        assertThat(out.checkpoints()).extracting(EscalationCheckpoint::x)
+                .containsExactly(1_000_000L, 500_000L);
+        assertThat(out.frontierReached()).isEqualTo(1_000_000L);   // backward step doesn't lower the frontier
+    }
+
+    @Test
     void mertensBoundClassifiesCorrectly() {
         // |212| < sqrt(10^6)=1000 -> holds ; |5000| > sqrt(10^6) -> counterexample
         assertThat(BoundPredicate.MERTENS.classify(1_000_000L, 212L)).isEqualTo(EscalationVerdict.HOLDS);

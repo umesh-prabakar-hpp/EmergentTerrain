@@ -64,19 +64,29 @@ public class FrontierEscalationService {
     }
 
     /**
-     * Phase 6 — the step policy. Default fixed ×10; the aggressive
-     * {@link AdaptiveNextScalePolicy} when {@code frontierAdaptiveScaleEnabled} is
-     * on. Spring calls this after construction; tests may call
+     * Phase 6 — the step policy, selected by {@code frontierScalePolicy}:
+     * {@code default} (fixed ×10), {@code adaptive} (aggressive margin-driven), or
+     * {@code llm} (model-decided, falls back to adaptive if its bean is absent).
+     * Chosen in {@link #selectScalePolicy} after autowiring; tests call
      * {@link #setScalePolicy} directly.
      */
     private NextScalePolicy scalePolicy = new DefaultNextScalePolicy();
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public void configureScalePolicy(
-            @Value("${app.research.discovery.frontierAdaptiveScaleEnabled:false}") boolean adaptive) {
-        this.scalePolicy = adaptive ? new AdaptiveNextScalePolicy() : new DefaultNextScalePolicy();
-        log.info("FrontierEscalationService scale policy — {}",
-                adaptive ? "ADAPTIVE (aggressive)" : "DEFAULT (fixed x10)");
+    @Value("${app.research.discovery.frontierScalePolicy:default}")
+    private String scalePolicyName;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private LlmNextScalePolicy llmNextScalePolicy;
+
+    @jakarta.annotation.PostConstruct
+    void selectScalePolicy() {
+        this.scalePolicy = switch (scalePolicyName == null ? "default" : scalePolicyName.toLowerCase()) {
+            case "llm" -> llmNextScalePolicy != null ? llmNextScalePolicy : new AdaptiveNextScalePolicy();
+            case "adaptive" -> new AdaptiveNextScalePolicy();
+            default -> new DefaultNextScalePolicy();
+        };
+        log.info("FrontierEscalationService scale policy — {} ({})",
+                scalePolicyName, scalePolicy.getClass().getSimpleName());
     }
 
     /** Test seam — inject a policy directly. */
@@ -99,8 +109,10 @@ public class FrontierEscalationService {
         }
         List<EscalationCheckpoint> cps = new ArrayList<>();
         List<CostObservation> costs = new ArrayList<>();   // discovery rungs only — fed to the predictor
+        java.util.Set<Long> visited = new java.util.HashSet<>();   // cycle guard for bidirectional steps
         StallPrediction lastPrediction = null;
         long x = task.startScale();
+        visited.add(x);
         long frontier = 0;
         for (int round = 0; round < maxRounds; round++) {
             EscalationCheckpoint cp = evaluateAt(x, task, sieveSource, bound);
@@ -114,7 +126,7 @@ public class FrontierEscalationService {
                 case CANNOT_COMPUTE -> {
                     return EscalationOutcome.stalled(cps, frontier);
                 }
-                case HOLDS -> frontier = x;
+                case HOLDS -> frontier = Math.max(frontier, x);   // max held — a backward step can't lower it
             }
             if ("discovery".equals(cp.source()) && cp.elapsedMs() > 0) {
                 costs.add(new CostObservation(x, cp.elapsedMs()));
@@ -125,11 +137,13 @@ public class FrontierEscalationService {
             if (pred.valid()) {
                 lastPrediction = pred;
             }
-            // Phase 6 — the policy decides the next scale (default ×10, or adaptive).
+            // Phase 6 — the policy decides the next scale (default ×10 / adaptive / llm).
+            // The step may go forward (escalate) OR backward (densify/localize); the
+            // loop stops on no-progress or a revisit (cycle/converged), not on next<=x.
             double margin = cp.value() != null ? bound.margin(cp.x(), cp.value()) : 0.0;
             double xc = pred.valid() ? pred.computeFrontierX() : 0.0;
-            long next = scalePolicy.nextScale(new NextScaleContext(x, margin, xc, task.scaleFactor()));
-            if (next <= x) {          // overflow / non-increasing — stop cleanly
+            long next = scalePolicy.nextScale(new NextScaleContext(x, margin, xc, task.scaleFactor(), cps));
+            if (next < 1 || next == x || !visited.add(next)) {
                 break;
             }
             // Phase 2 — anticipate the stall: if the fitted cost says the next rung
