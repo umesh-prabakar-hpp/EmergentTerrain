@@ -30,6 +30,7 @@ public class FrontierKnowledgeService {
     private final int convergenceThreshold;
     private final boolean recallEnabled;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public FrontierKnowledgeService(
             FrontierKnowledgeStore store,
             @Value("${app.research.discovery.convergenceThreshold:2}") int convergenceThreshold,

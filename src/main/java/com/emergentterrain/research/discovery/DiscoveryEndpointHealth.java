@@ -54,6 +54,7 @@ public class DiscoveryEndpointHealth {
 
     private volatile ConfigurableApplicationContext context;
 
+    @Autowired
     public DiscoveryEndpointHealth(
             @Value("${app.research.discovery.preflightEnabled:true}") boolean enabled,
             @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
