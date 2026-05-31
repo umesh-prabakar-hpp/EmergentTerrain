@@ -9,6 +9,15 @@ known-correct method, and proves the gated-tool plumbing stays scoped to a singl
 It does **not** yet ask an LLM to invent a method (that comes after the moat exists — you can't
 validate a proposal before the validator is built).
 
+> **Status (Phase 1 done).** The oracle (`nt_mertens_dense`), the moat test, and a *throwaway
+> baseline* candidate (`nt_mertens_segmented`) are in `../julia-math-sidecar/src/numbertheory.jl`,
+> validated 25/25: dense ≡ segmented exactly across `[1, 2×10⁶]` (incl. non-round offsets), dense
+> refuses past `NT_MAX_N`, segmented extends to match OEIS A084237 (`M(10⁷)=1037`, `M(10⁸)=1928`).
+> **Decision (fork b):** the hand-written `nt_mertens_segmented` is kept *only* as a baseline that
+> proves the moat plumbing — it is **not** the deliverable method. The real method source is the
+> runtime self-verifying path scoped in §10. See that section for why hand-authoring the candidate
+> is off-thesis.
+
 > Scope discipline: this rides a **per-invariant capability gate**, not a prompt change. Nothing in
 > the shared narration prompt (`ResearchNarrationService` revision rules) is touched. See
 > [`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md) for why the M(x) class
@@ -131,16 +140,18 @@ mirrors the existing per-scalar branching already in `MathToolSuite`.
 
 ## 8. Phasing (build the moat before the creativity)
 
-1. **Sidecar method + sidecar test** — `nt_mertens_segmented`, exact-match on overlap. (Isolated;
-   restart sidecars around the change.)
+1. ✅ **Sidecar method + sidecar test** — `nt_mertens_dense` (oracle) + `nt_mertens_segmented`
+   (throwaway baseline) + the overlap-equality testset, exact-match on `[1, 2×10⁶]` and OEIS A084237
+   beyond. **Done** (25/25; sidecars stopped/restarted around the recompile).
 2. **Java validator + unit tests** — `SegmentedMertensValidator`, the §3 moat, accept/reject. (No
    live sidecar needed; mock the client.)
 3. **Gated tool + gate test** — `MathToolSuite` exposure under §6 predicate. Flag-gated OFF.
 4. **Flip + watch** — enable on a mertens-class conjecture paper; confirm the tool validates in-range
    then reports `M(10⁸)`, and that the narrator frames it regime-honestly ("computed to 10⁸", not
    "solved").
-5. **(Follow-on, out of spike)** — sublinear `O(x^{2/3})` `M(x)` for `10¹²–10¹⁵`; and the LLM-proposed
-   -method variant routed through the *same* validator.
+5. **(Follow-on)** sublinear `O(x^{2/3})` `M(x)` for `10¹²–10¹⁵`.
+6. **(The real method source — §10)** runtime self-verifying execution: the candidate is
+   **LLM-proposed**, not hand-authored, and gated by this same moat at runtime.
 
 ## 9. Risks
 
@@ -155,6 +166,45 @@ mirrors the existing per-scalar branching already in `MathToolSuite`.
 - **Reference-value drift** — published `M(10ⁿ)` constants are recalled to a 2026 cutoff; the *trust
   gate* is the in-range overlap equality (sieve ground truth), not the external numbers, so the spike
   doesn't depend on them.
+
+---
+
+## 10. Fork #2 — runtime self-verifying execution (the real method source)
+
+**Why this exists.** Phase 1's `nt_mertens_segmented` is hand-authored, which quietly assumes the
+answer the project is trying to *earn*. The thesis is **trivial oracle + LLM candidate + moat**: the
+clever method should come from a frontier model and be *gated by the moat*, so the harness
+demonstrates it can catch a hallucinated/buggy method — not just run a method a human already knew
+was right. Phase 1 proved the *plumbing*; fork #2 supplies the *candidate* the way the architecture
+intends.
+
+**The two sub-forks (cost-distinct):**
+
+| | What the LLM produces | Trust gate | New attack surface | Demonstrates the thesis? |
+|---|---|---|---|---|
+| **2a — dev-time authoring** | source, reviewed by a human + the moat, committed as fixed code | moat at dev time + human review | none | partially (it's LLM-assisted coding) |
+| **2b — runtime execution** | source executed *in the sidecar* at runtime | moat as a **runtime gate** | **yes — sandboxed code-exec** | fully (self-verifying discovery) |
+
+**2a** is cheap and a good first proof that the generate→validate→iterate loop has teeth (does the
+moat catch the classic segmented-sieve bugs — `n=1`, the leftover-prime-`>√x` step, block
+boundaries, `p²` ordering — and does feeding back the first mismatch converge?). Recommended as the
+*next* concrete step: one model call, validate against `nt_mertens_dense`, log whether it passed
+first try or needed a fix. No production wiring.
+
+**2b** is the genuinely novel capability and a phase of its own, not a spike. It requires:
+- a **sandboxed Julia exec path** in the sidecar (today it runs only fixed, reviewed code; the safety
+  filter even rejects `using`) — resource/time/memory limits, no filesystem/network, and the
+  `using`-filter implications reconsidered for vetted numeric primitives only;
+- the **moat as a runtime trust gate**: an LLM-authored `M(x)` is run, cross-checked against
+  `nt_mertens_dense` on `[0, NT_MAX_N]`, and its out-of-range output is believed *only* on pass;
+- the discrepancy on failure fed back as a counterexample for the model to repair (the
+  loop-until-validated pattern), with a hard attempt cap.
+
+**Boundary.** 2b is where "ask the LLM to invent novel numeric techniques" actually lives. It must
+stay behind its own flag and the §6 per-invariant gate, and it does **not** change the honest
+ceilings (§7 of [`mertens-analytic-reachability.md`](mertens-analytic-reachability.md)): even a
+validated LLM-authored `M(x)` reaching `10¹⁵` is *less trivial*, not a *solution*. Sequence: do 2a
+first (prove the loop is worth it); only then scope 2b's sandbox.
 
 ---
 
