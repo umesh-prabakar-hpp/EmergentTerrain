@@ -183,6 +183,17 @@ end, the discipline the discovery tool's own output already enforces.
    restart to begin autonomous 6-hourly runs — watch the log for `scheduled frontier run` / `frontier
    paper produced`, escalating → forecasting its own stall → pivoting. (A live run also needs the
    discovery stack live: `runtimeExecEnabled` + sidecar `ET_DISCOVER_EXEC=1`.)
+6. ✅ **Adaptive step (`NextScalePolicy` seam)** — **Done** (`NextScalePolicy` + `NextScaleContext` +
+   `DefaultNextScalePolicy` + `AdaptiveNextScalePolicy`; `NextScalePolicyTest` + loop integration,
+   43/43). The next scale is now a *decision*, not a fixed ×10: the **knowledge frontier stays
+   monotonic**, but the **step** adapts. `BoundPredicate` gained `margin(x,value)` (MERTENS =
+   `1−|M(x)|/√x`); the **aggressive** adaptive policy leaps **×1000/×100** while the bound holds with
+   room, ×10 closer in, and a **×3 floor** even at the bound — it never crawls (tuned to reach the
+   frontier fast, not die by small steps; the stall predictor + pivot handle the ceiling). Flag-gated
+   (`frontierAdaptiveScaleEnabled`, default OFF → fixed ×10, no behavior change). The *step can revisit
+   intermediate scales* (e.g. localize a bracketed transition) while the frontier advances — and an
+   **LLM-decided policy plugs into the same seam** (follow-on): given the (x, ratio) corpus + forecast,
+   the model returns the next scale.
 
 ## 8. Non-goals
 - Resolving Mertens (or any question whose only path to `x_s` is B5).
