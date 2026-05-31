@@ -13,10 +13,15 @@ import org.springframework.stereotype.Component;
  * <p>Honest scope: this reuses the discovery moat, so it succeeds only when a
  * cheaper method that still reproduces the overlap actually exists and validates
  * — for Mertens, where the sublinear method is already near-optimal, it will
- * often (correctly) fail and defer to B4. A *genuinely different* proxy quantity
- * (a sibling summatory function with its own oracle) needs a generalized
- * validation oracle the harness doesn't have yet — a documented follow-on, not
- * faked here.
+ * often (correctly) fail and defer to B4.
+ *
+ * <p>For a *genuinely different* proxy quantity (a sibling summatory function),
+ * the generalized oracle now exists — {@link SummatoryProxyOracle} (trusted ground
+ * truth for any linear-combination summatory over μ/ω/Ω/τ, from the sieve) +
+ * {@link ProxyValidator} (the proxy moat). Wiring this proposer's *runtime* to it
+ * (generate a proxy method → sandbox-execute → judge via the proxy oracle, a
+ * proxy-discovery loop mirroring {@link MertensDiscoveryService}) is the remaining
+ * consumption step.
  */
 @Component
 public class B3ProxyReformulationProposer implements BranchProposer {
