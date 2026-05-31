@@ -142,8 +142,17 @@ end, the discipline the discovery tool's own output already enforces.
    `discovery_stalled`. Config: `frontierStallBudgetMs` (per-rung ceiling), `frontierScienceFrontier`
    (`x_s`; 0 = unknown). Still flag-gated/dormant. The Phase-3 pivot **replaces** this stop with a
    branch switch.
-3. **B3 proxy / B4 model pivot** — on stall, an LLM-proposed proxy (B3) or model (B4) routed through
-   the **same moat** on the overlap; trust-tagged output. (B5 stays a literature-grounded leaf.)
+3. ✅ **B3/B4 branch pivot** — **Done** (`BranchPivotService` + `Branch`/`TrustLevel`/`PivotOutcome`/
+   `PivotRequest`/`BranchProposer`; `BranchPivotServiceTest` + loop integration; 33/33). On a
+   predicted stall the loop pivots: try verifiable branches in **trust order** (B3 then B4), take the
+   first that validates, else return the **honest B5 boundary** ("requires non-constructive methods
+   outside this harness; ground in literature, don't report a derived value") — never invent one. The
+   outcome carries its `TrustLevel` verbatim (`FULL`/`VALIDATED_PROXY`/`MODEL_FIT`/`LITERATURE_ONLY`)
+   and the loop never launders one into another. Proposers are injected — **none wired yet, so the
+   honest prod default IS the B5 boundary**; the concrete B3 (proxy via the discovery moat) and B4
+   (model fit) proposers land at the live-wiring step. Flag-gated OFF (`branchPivotEnabled`);
+   degrades to a plain `predicted_stall` when no pivot is wired. B5 remains a leaf — there is
+   deliberately no `BranchProposer` for it.
 4. **Frontier paper wiring** — the narrator builds Findings from the checkpoint corpus + the pivot
    result, with per-branch trust framing.
 5. **Flip + watch** — enable on a holding bound; watch it escalate, predict its own stall, and pivot.
