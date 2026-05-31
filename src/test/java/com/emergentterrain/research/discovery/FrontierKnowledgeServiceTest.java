@@ -20,6 +20,7 @@ class FrontierKnowledgeServiceTest {
         final Map<String, FrontierRecord> recs = new HashMap<>();
         final Map<String, ConvergenceState> conv = new HashMap<>();
         final Map<String, VerifiedMethod> methods = new HashMap<>();
+        final Map<String, FrontierEvent> events = new HashMap<>();
         private static String k(String b, long x) { return b + "|" + x; }
         public Optional<FrontierRecord> find(String b, long x) { return Optional.ofNullable(recs.get(k(b, x))); }
         public void put(FrontierRecord r) { recs.put(k(r.bound(), r.x()), r); }
@@ -39,6 +40,11 @@ class FrontierKnowledgeServiceTest {
                     .max(java.util.Comparator.comparingLong(VerifiedMethod::maxScale)
                             .thenComparing(java.util.Comparator.comparingLong(VerifiedMethod::costMs).reversed()));
         }
+        public void putEvent(FrontierEvent e) { events.put(e.bound() + "|" + e.x() + "|" + e.outcome(), e); }
+        public List<FrontierEvent> eventsFor(String b) {
+            return events.values().stream().filter(e -> e.bound().equals(b))
+                    .sorted(java.util.Comparator.comparingLong(FrontierEvent::x)).toList();
+        }
     }
 
     private static EscalationCheckpoint cp(long x, Long v) {
@@ -47,6 +53,11 @@ class FrontierKnowledgeServiceTest {
 
     private static EscalationCheckpoint cpm(long x, Long v, String code, long ms) {
         return new EscalationCheckpoint(x, v, EscalationVerdict.HOLDS, "discovery", ms, code);
+    }
+
+    /** A CANNOT_COMPUTE rung carrying the failed candidate + sandbox status. */
+    private static EscalationCheckpoint cpFail(long x, String code, String status) {
+        return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, "discovery", 0, code, status);
     }
 
     private static EscalationOutcome run(long frontier, EscalationCheckpoint... cps) {
@@ -119,6 +130,24 @@ class FrontierKnowledgeServiceTest {
         FrontierKnowledgeService.RunRecord r3 =
                 svc.record("b", run(1_000_000_000_000L, cpm(1_000_000_000L, 1L, "f(x)=...", 100)));
         assertThat(r3.methodsKept()).isZero();
+    }
+
+    @Test
+    void persistsFailureEventsAndRecallSurfacesBoundary() {
+        FakeStore store = new FakeStore();
+        FrontierKnowledgeService svc = new FrontierKnowledgeService(store, 2);
+        // a run that holds at 1e6 (sieve) then OOMs at 2e11 (discovery)
+        svc.record("b", run(1_000_000L, cp(1_000_000L, 212L), cpFail(200_000_000_000L, "candidate(x)=ones(x)", "oom")));
+
+        assertThat(store.events.values()).anySatisfy(e -> {
+            assertThat(e.outcome()).isEqualTo("oom");
+            assertThat(e.x()).isEqualTo(200_000_000_000L);
+            assertThat(e.code()).isEqualTo("candidate(x)=ones(x)");
+            assertThat(e.codeSha256()).isNotBlank();
+        });
+        String text = svc.recallText("b");
+        assertThat(text).contains("Computational boundaries").contains("oom").contains("200000000000");
+        assertThat(svc.recall("b").events()).hasSize(1);
     }
 
     @Test

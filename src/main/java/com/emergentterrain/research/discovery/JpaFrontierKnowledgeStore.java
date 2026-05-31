@@ -16,12 +16,14 @@ public class JpaFrontierKnowledgeStore implements FrontierKnowledgeStore {
     private final FrontierRecordRepository records;
     private final FrontierConvergenceRepository convergence;
     private final VerifiedMethodRepository methods;
+    private final FrontierEventRepository events;
 
     public JpaFrontierKnowledgeStore(FrontierRecordRepository records, FrontierConvergenceRepository convergence,
-                                     VerifiedMethodRepository methods) {
+                                     VerifiedMethodRepository methods, FrontierEventRepository events) {
         this.records = records;
         this.convergence = convergence;
         this.methods = methods;
+        this.events = events;
     }
 
     @Override
@@ -76,5 +78,18 @@ public class JpaFrontierKnowledgeStore implements FrontierKnowledgeStore {
     @Override
     public Optional<VerifiedMethod> bestMethod(String bound) {
         return methods.findByBoundOrderByMaxScaleDescCostMsAsc(bound).stream().findFirst().map(VerifiedMethodEntity::toDto);
+    }
+
+    @Override
+    public void putEvent(FrontierEvent event) {
+        FrontierEventEntity e = events.findByBoundAndScaleXAndOutcome(event.bound(), event.x(), event.outcome())
+                .orElseGet(FrontierEventEntity::new);
+        e.apply(event);
+        events.save(e);
+    }
+
+    @Override
+    public java.util.List<FrontierEvent> eventsFor(String bound) {
+        return events.findByBoundOrderByScaleXAsc(bound).stream().map(FrontierEventEntity::toDto).toList();
     }
 }

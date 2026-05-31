@@ -68,6 +68,7 @@ public class FrontierKnowledgeService {
         }
         int kept = 0;
         int methodsKept = 0;
+        int eventsKept = 0;
         for (EscalationCheckpoint c : outcome.checkpoints()) {
             if (c.verdict() == EscalationVerdict.HOLDS && c.value() != null) {
                 // every validated rung is FULL trust (sieve exact / discovery moat-validated)
@@ -80,6 +81,15 @@ public class FrontierKnowledgeService {
                         && keepBestMethod(bound, c.methodCode(), c.x(), c.elapsedMs())) {
                     methodsKept++;
                 }
+            } else if (c.verdict() == EscalationVerdict.CANNOT_COMPUTE && c.failureStatus() != null) {
+                // §10.3 — an OOM/timeout/etc. is knowledge: persist the boundary event
+                // (with the failed candidate code) so future runs can be informed and a
+                // paper can cite the computational boundary. Inform, never suppress.
+                String code = c.methodCode();
+                String sha = (code == null || code.isBlank()) ? null : sha256(code);
+                store.putEvent(new FrontierEvent(bound, c.x(), c.failureStatus(),
+                        "candidate did not run (" + c.failureStatus() + ") at x=" + c.x(), code, sha));
+                eventsKept++;
             }
         }
         boolean progressed = outcome.frontierReached() > prev.frontier();
@@ -87,8 +97,8 @@ public class FrontierKnowledgeService {
         int stable = progressed ? 0 : prev.stableRuns() + 1;
         boolean converged = stable >= convergenceThreshold;
         store.saveConvergence(bound, new ConvergenceState(frontier, stable, converged));
-        log.info("frontier knowledge [{}] — kept {} record(s), {} method(s); frontier={}; progressed={}; stableRuns={}/{}; converged={}",
-                bound, kept, methodsKept, frontier, progressed, stable, convergenceThreshold, converged);
+        log.info("frontier knowledge [{}] — kept {} record(s), {} method(s), {} event(s); frontier={}; progressed={}; stableRuns={}/{}; converged={}",
+                bound, kept, methodsKept, eventsKept, frontier, progressed, stable, convergenceThreshold, converged);
         return new RunRecord(kept, frontier, stable, converged, methodsKept);
     }
 
@@ -121,39 +131,55 @@ public class FrontierKnowledgeService {
         return true;
     }
 
-    /** The records and best method accumulated for a bound (for paper-side recall). */
+    /** The records, best method, and boundary events accumulated for a bound (for paper-side recall). */
     public record Recall(java.util.List<FrontierRecord> records, long frontier,
-                         java.util.Optional<VerifiedMethod> bestMethod) {}
+                         java.util.Optional<VerifiedMethod> bestMethod,
+                         java.util.List<FrontierEvent> events) {}
 
     public Recall recall(String bound) {
-        return new Recall(store.recordsFor(bound), store.frontierOf(bound), store.bestMethod(bound));
+        return new Recall(store.recordsFor(bound), store.frontierOf(bound), store.bestMethod(bound),
+                store.eventsFor(bound));
     }
 
     /**
      * Render the accumulated knowledge for a paper, trust carried verbatim — never laundered.
      * Each line states the trust ceiling of its source so a reader (and the model) cannot
-     * mistake a moat-validated discovery value for an unconditional proof.
+     * mistake a moat-validated discovery value for an unconditional proof. Boundary events
+     * (§10.3) are surfaced as honest negative results — facts about the harness's reach.
      */
     public String recallText(String bound) {
         Recall r = recall(bound);
-        if (r.records().isEmpty()) {
+        if (r.records().isEmpty() && r.events().isEmpty()) {
             return "No accumulated frontier knowledge for `" + bound + "` yet.";
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("Accumulated, independently re-verified frontier knowledge for `").append(bound)
-                .append("` (frontier x = ").append(r.frontier()).append("):\n\n");
-        sb.append("| x | value | source | trust |\n|---|---|---|---|\n");
-        for (FrontierRecord rec : r.records()) {
-            sb.append("| ").append(rec.x()).append(" | ").append(rec.value())
-                    .append(" | ").append(rec.source())
-                    .append(" | ").append(rec.trust()).append(" |\n");
+        if (!r.records().isEmpty()) {
+            sb.append("Accumulated, independently re-verified frontier knowledge for `").append(bound)
+                    .append("` (frontier x = ").append(r.frontier()).append("):\n\n");
+            sb.append("| x | value | source | trust |\n|---|---|---|---|\n");
+            for (FrontierRecord rec : r.records()) {
+                sb.append("| ").append(rec.x()).append(" | ").append(rec.value())
+                        .append(" | ").append(rec.source())
+                        .append(" | ").append(rec.trust()).append(" |\n");
+            }
+            r.bestMethod().ifPresent(m -> sb.append("\nBest verified method reaches x = ").append(m.maxScale())
+                    .append(" (cost ").append(m.costMs()).append(" ms, sha256 ")
+                    .append(m.methodSha256(), 0, Math.min(12, m.methodSha256().length())).append("…).\n"));
+            sb.append("\n_Trust is carried verbatim from the producing run; a `FULL`-trust value was exact-")
+                    .append("agreement-validated against a trusted oracle on its overlap range. This is verified ")
+                    .append("computation at the stated x, not a proof of the bound for all x._\n");
         }
-        r.bestMethod().ifPresent(m -> sb.append("\nBest verified method reaches x = ").append(m.maxScale())
-                .append(" (cost ").append(m.costMs()).append(" ms, sha256 ")
-                .append(m.methodSha256(), 0, Math.min(12, m.methodSha256().length())).append("…).\n"));
-        sb.append("\n_Trust is carried verbatim from the producing run; a `FULL`-trust value was exact-")
-                .append("agreement-validated against a trusted oracle on its overlap range. This is verified ")
-                .append("computation at the stated x, not a proof of the bound for all x._");
+        if (!r.events().isEmpty()) {
+            sb.append("\nComputational boundaries observed (honest negative results — facts about this "
+                    + "harness's reach, not mathematical claims):\n\n");
+            sb.append("| x | outcome | note |\n|---|---|---|\n");
+            for (FrontierEvent e : r.events()) {
+                sb.append("| ").append(e.x()).append(" | ").append(e.outcome())
+                        .append(" | ").append(e.reason() == null ? "" : e.reason()).append(" |\n");
+            }
+            sb.append("\n_Each boundary records where validated computation could not (yet) reach x in this "
+                    + "harness (e.g. the sandbox memory cap). It bounds what has been verified, not what is true._");
+        }
         return sb.toString();
     }
 

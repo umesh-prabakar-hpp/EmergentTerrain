@@ -39,4 +39,12 @@ public interface FrontierKnowledgeStore {
 
     /** The best method for a bound — furthest reach, then cheapest — or empty. */
     Optional<VerifiedMethod> bestMethod(String bound);
+
+    // --- failure / boundary events (§10.3) ---
+
+    /** Upsert a failure event (keyed by bound, x, outcome). */
+    void putEvent(FrontierEvent event);
+
+    /** The recorded failure/boundary events for a bound, ascending by x. */
+    java.util.List<FrontierEvent> eventsFor(String bound);
 }
