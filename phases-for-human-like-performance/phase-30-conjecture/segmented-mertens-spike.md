@@ -205,10 +205,22 @@ first try or needed a fix. No production wiring.
 >   one is caught at the first prime-bearing checkpoint.
 >
 > Takeaway: the generate→validate loop works and the oracle-equality gate genuinely discriminates.
-> Convergence-on-failure (feed the mismatch back, model repairs) wasn't exercised because the blind
-> attempt passed first try — worth forcing in a later run with a harder target to confirm the repair
-> loop, not just the accept/reject gate. Harnesses: `/tmp/fork2a_moat.jl` (accept), `/tmp/fork2a_negative.jl`
-> (reject) — scratch, not committed.
+>
+> **2a-#1 — harder target + repair loop (2026-05-31).** Two extensions:
+> - **Sublinear target also passed first try.** A blind subagent asked for the `O(x^{2/3})`
+>   Deléglise–Rivat recurrence (`M(n)=1−Σ M(⌊n/i⌋)` with floor-blocking + an `x^{2/3}` base table)
+>   produced a *correct* implementation — exact against oracle + OEIS. So generation is robust on the
+>   well-known algorithms; natural first-try failures didn't occur, even for the trickier method.
+> - **Repair/convergence demonstrated by feeding a moat-caught failure back.** Since natural attempts
+>   kept passing, the convergence loop was exercised directly: the buggy variant (leftover-prime step
+>   removed) was handed to a fresh model with *only the moat's discrepancies* (`M(2)=2` vs `0`, etc.)
+>   and no statement of the cause. The model **diagnosed the missing leftover-prime sign-flip from the
+>   numbers alone and repaired it**; the moat then **ACCEPTED — converged in 1 round**. This closes the
+>   gap: the gate not only rejects wrong methods, the discrepancy it emits is sufficient signal for a
+>   model to self-correct.
+>
+> Net: generate→validate→**repair** all exercised. Harnesses (scratch, not committed):
+> `/tmp/fork2a_moat.jl`, `/tmp/fork2a_negative.jl`, `/tmp/fork2a_sub_r1.jl`, `/tmp/fork2a_repaired.jl`.
 
 **2b** is the genuinely novel capability and a phase of its own, not a spike. It requires:
 - a **sandboxed Julia exec path** in the sidecar (today it runs only fixed, reviewed code; the safety
