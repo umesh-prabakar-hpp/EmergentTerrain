@@ -354,6 +354,19 @@ just gets the failure back so it can self-correct. Concretely:
    *Computational boundary* section for the failures) — so the actual computation that
    produced a frontier value is auditable end to end.
 
+**Live result (2026-05-31, 60s budget run pending).** The first run with the feedback
+loop ratcheted the frontier **2×10⁶ → 2×10⁸** in 8 rounds, banking **3 validated
+methods** and **4 boundary events**: the LLM self-corrected scale on feedback
+(2×10¹¹→5×10⁹→5×10⁷ found the reachable zone) and the OOM hint produced segmented
+methods that validate (`M(10⁸)=1928`, the known value). The run ended on the round cap
+while still progressing — so the budgets were tuned: `maxRepairAttempts` 3→6,
+`frontierMaxConsecutiveFailures` 3→5, `frontierEscalationMaxRounds` 8→20, and the
+per-candidate sandbox budget is now the tunable `frontierCpuSeconds`/`frontierWallSeconds`
+(20/28 → 60/80; CPU bounds reachable x ~linearly, wall is the JIT/hang backstop and stays
+above CPU). **Runs now RESUME from the persisted frontier** (`startScale = max(configured,
+knowledge.frontier(BOUND))`) instead of re-walking from the sieve each time — so each run
+pushes past the last, and convergence reflects real new ground.
+
 Sidecar facts confirmed during the run: `/discover/validate` has no lock — each call is
 its own ulimit'd subprocess (`sandbox_runner.jl`), so an OOM kills only the child
 (`signal 15`), never the server; within a run the repair rounds are inherently

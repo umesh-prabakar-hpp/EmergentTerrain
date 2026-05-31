@@ -39,6 +39,31 @@ class MertensFrontierServiceTest {
     }
 
     @Test
+    void resumesFromPersistedFrontierInsteadOfReWalking() {
+        // knowledge reports an accumulated frontier of 5e8 (>> the 2e6 sieve range)
+        FrontierKnowledgeService knowledge = new FrontierKnowledgeService(null, 2) {
+            @Override public long frontier(String bound) { return 500_000_000L; }
+            @Override public boolean isConverged(String bound) { return false; }
+            @Override public Recall recall(String bound) {
+                return new Recall(java.util.List.of(), 500_000_000L, java.util.Optional.empty(), java.util.List.of());
+            }
+        };
+        FrontierEscalationService escalation =
+                new FrontierEscalationService(true, 3, 30000.0, 0.0, discAccepting(1037L));
+        int[] sieveCalls = {0};
+        ScaleValueSource counting = x -> { sieveCalls[0]++; return -247L; };
+        MertensFrontierService svc = new MertensFrontierService(2_000_000L, false, escalation, counting);
+        svc.setKnowledge(knowledge);
+
+        FrontierPaper paper = svc.produce();
+
+        // resumed at 5e8 -> the first rung is discovery (> NT_MAX_N), so the sieve is never queried
+        assertThat(sieveCalls[0]).isZero();
+        assertThat(paper.outcome().frontierReached()).isGreaterThanOrEqualTo(500_000_000L);
+        assertThat(paper.outcome().checkpoints().get(0).x()).isEqualTo(500_000_000L);
+    }
+
+    @Test
     void disabledEscalationYieldsDisabledPaper() {
         FrontierEscalationService escalation =
                 new FrontierEscalationService(false, 3, 30000.0, 0.0, discAccepting(1037L));

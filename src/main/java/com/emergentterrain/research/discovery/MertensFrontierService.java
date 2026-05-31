@@ -123,7 +123,18 @@ public class MertensFrontierService {
                             + "(403/unreachable; set `ET_DISCOVER_EXEC=1` on the sidecar). No tokens were spent._",
                     EscalationOutcome.disabled());
         }
-        EscalationTask task = new EscalationTask(SPEC, startScale, 10L, CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
+        // §10/B2 — RESUME from the persisted frontier instead of re-walking from the sieve
+        // each run: start at the larger of the configured start scale and the accumulated
+        // frontier, so a run pushes PAST where the last one reached (and convergence reflects
+        // real new ground, not a re-derivation). Round 1 re-validates the frontier (a cheap
+        // sanity check that re-banks the method); the rest is new territory.
+        long resumeFrom = knowledge == null ? 0 : knowledge.frontier(BOUND);
+        long effectiveStart = Math.max(startScale, resumeFrom);
+        if (effectiveStart > startScale) {
+            log.info("frontier run resuming from accumulated frontier x={} (configured start {})",
+                    effectiveStart, startScale);
+        }
+        EscalationTask task = new EscalationTask(SPEC, effectiveStart, 10L, CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
         // §10.3/B2 — seed the scale policy with persisted boundaries from prior runs so a
         // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
         java.util.List<FrontierEvent> priorEvents = knowledge == null
