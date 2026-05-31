@@ -120,6 +120,11 @@ function build_router()
     # to /numbertheory/window into one call; the JVM ConjectureVerifier
     # routes here when the conjecture flag is on.
     HTTP.register!(router, "POST", "/conjecture/verify", handle_conjecture_verify)
+    # fork 2b Phase 2 — runtime self-verifying execution. The route is
+    # registered unconditionally, but the handler is ENV-gated: it returns
+    # HTTP 403 (no parsing, no code execution) unless ET_DISCOVER_EXEC=1, so
+    # it is dormant by default. See runtime-self-verifying-execution.md.
+    HTTP.register!(router, "POST", "/discover/validate", handle_discover_validate)
     # DynamicComputeEngine port — predicate / metric scan over an
     # integer range (phase-28 §28.5a). Returns numeric scalars only;
     # the JVM caller layers on the prose. /physics/topic is deferred

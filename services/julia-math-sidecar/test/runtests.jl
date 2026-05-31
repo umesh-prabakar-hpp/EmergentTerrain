@@ -1296,3 +1296,7 @@ end
 # from the server layer above; also runnable on its own via
 # `julia test/sandbox_runner_test.jl`.
 include("sandbox_runner_test.jl")
+
+# Fork 2b Phase 2 — /discover/validate endpoint (ENV-gated, dormant by
+# default). Exercises the handler directly; spawns sandbox subprocesses.
+include("discover_endpoint_test.jl")

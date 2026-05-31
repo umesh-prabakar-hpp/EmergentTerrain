@@ -74,6 +74,7 @@ include("physics_arch_liquid.jl") # ARCHITECTURE_LIQUID domain (phase-28 §28.5h
 include("physics_arch_space.jl") # ARCHITECTURE_SPACE domain (phase-28 §28.5h).
 include("physics.jl")            # physics_compute dispatch (phase-28 §28.5b).
 include("conjecture.jl")         # Pearson + tightestKC + seed/update (phase-28 §28.3).
+include("sandbox_runner.jl")     # fork 2b: isolated runner for LLM-authored numeric Julia (ENV-gated endpoint).
 include("handlers.jl")     # Endpoint implementations.
 include("server.jl")       # HTTP route table + server loop.
 

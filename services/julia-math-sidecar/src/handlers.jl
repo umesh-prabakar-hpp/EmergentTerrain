@@ -2480,3 +2480,128 @@ function handle_physics_topic(req::HTTP.Request)
     return ok_response(elapsed_ms, value::Dict{String,Any})
 end
 
+# =====================================================================
+# /discover/validate — fork 2b Phase 2 (runtime self-verifying execution)
+# =====================================================================
+# Runs an LLM-authored `candidate(x)` in SandboxRunner's isolated
+# subprocess and judges its output against the trusted nt_mertens_dense
+# oracle on the overlap range. ENV-GATED: inert (HTTP 403) unless
+# ET_DISCOVER_EXEC=1, so the route is dormant by default even though it is
+# registered. Two gates total — this one plus the Java
+# app.research.discovery.runtimeExecEnabled flag (won't call it otherwise).
+# Scope: phase-30-conjecture/runtime-self-verifying-execution.md.
+#
+# Request JSON:
+#   { "code": "<julia defining candidate(x)>",
+#     "checkpoints": [1,2,10,...],       # 1..NT_MAX_N — judged vs nt_mertens_dense
+#     "anchors": {"10000000": 1037},     # beyond-range external truth (optional)
+#     "target": 100000000,               # value wanted if accepted (optional)
+#     "cpuSeconds": 10, "wallSeconds": 15, "memKb": 0 }   # optional limits
+# Response: ok + status, verdict (accept|reject|na), values, oracle,
+#   firstFail, target, targetValue.
+const DISCOVER_MAX_CHECKPOINTS = 64
+
+function handle_discover_validate(req::HTTP.Request)
+    t0 = time_ns()
+    el() = round(Int, (time_ns() - t0) / 1_000_000)
+
+    # SIDECAR-side gate — dormant by default: no parsing, no execution.
+    if get(ENV, "ET_DISCOVER_EXEC", "0") != "1"
+        record_call!("discover_validate", el(), :error)
+        return error_response("disabled",
+            "discovery execution is disabled; set ET_DISCOVER_EXEC=1 to enable", el(); status=403)
+    end
+
+    body = safe_parse_body(req)
+    if body === nothing
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request", "Body is not valid JSON", el())
+    end
+
+    code = get(body, :code, nothing)
+    if !(code isa AbstractString) || isempty(strip(String(code)))
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request", "Field 'code' must be a non-empty string", el())
+    end
+
+    cps_raw = get(body, :checkpoints, nothing)
+    if !(cps_raw isa AbstractVector) || isempty(cps_raw) || !all(x -> x isa Integer, cps_raw)
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request",
+            "Field 'checkpoints' must be a non-empty array of integers", el())
+    end
+    checkpoints = Int.(collect(cps_raw))
+    if length(checkpoints) > DISCOVER_MAX_CHECKPOINTS
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request", "Too many checkpoints (max $(DISCOVER_MAX_CHECKPOINTS))", el())
+    end
+    if any(k -> k < 1 || k > NT_MAX_N, checkpoints)
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request",
+            "All checkpoints must be in 1..NT_MAX_N=$(NT_MAX_N) (the oracle range)", el())
+    end
+
+    anchors = Dict{Int,Int}()
+    araw = get(body, :anchors, nothing)
+    if araw !== nothing
+        try
+            for (k, v) in pairs(araw)
+                anchors[parse(Int, String(k))] = Int(v)
+            end
+        catch
+            record_call!("discover_validate", el(), :error)
+            return error_response("bad_request", "Field 'anchors' must map integer→integer", el())
+        end
+    end
+
+    target = get(body, :target, nothing)
+    target_i = target isa Integer ? Int(target) : nothing
+
+    cpu_s  = clamp(Int(get(body, :cpuSeconds, 10)),  1, 25)
+    wall_s = clamp(Int(get(body, :wallSeconds, 15)), 1, 28)
+    mem_kb = Int(get(body, :memKb, 0))
+
+    # Trusted oracle: ONE cumulative pass to the max checkpoint over the
+    # validated nt_mobius, capturing M at each checkpoint. Runs in this
+    # (trusted) process — never in the sandbox.
+    oracle = Dict{Int,Int}()
+    let want = Set(checkpoints), maxk = maximum(checkpoints), acc = 0
+        @inbounds for n in 1:maxk
+            acc += nt_mobius(n)
+            (n in want) && (oracle[n] = acc)
+        end
+    end
+
+    inputs = collect(union(Set(checkpoints), Set(keys(anchors)),
+                           target_i === nothing ? Set{Int}() : Set([target_i])))
+
+    res = SandboxRunner.run_sandboxed(String(code), inputs;
+            cpu_seconds=cpu_s, wall_seconds=wall_s, mem_kb=mem_kb)
+
+    if res.status !== :ok
+        record_call!("discover_validate", el(), :ok)   # endpoint worked; candidate failed/was rejected
+        return ok_response(el(), Dict(
+            "status"  => String(res.status),
+            "verdict" => "na",
+            "detail"  => res.detail === nothing ? "" : string(res.detail),
+        ))
+    end
+
+    verdict, fail = SandboxRunner.moat_judge(res, oracle, anchors)
+    extra = Dict{String,Any}(
+        "status"  => "ok",
+        "verdict" => String(verdict),
+        "values"  => Dict(string(k) => v for (k, v) in res.values),
+        "oracle"  => Dict(string(k) => v for (k, v) in oracle),
+    )
+    if verdict === :reject && fail !== nothing
+        extra["firstFail"] = Any[fail...]
+    end
+    if verdict === :accept && target_i !== nothing
+        extra["target"] = target_i
+        extra["targetValue"] = get(res.values, target_i, nothing)
+    end
+    record_call!("discover_validate", el(), :ok)
+    return ok_response(el(), extra)
+end
+
