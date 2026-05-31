@@ -27,4 +27,16 @@ public interface FrontierKnowledgeStore {
     ConvergenceState convergence(String bound);
 
     void saveConvergence(String bound, ConvergenceState state);
+
+    // --- verified-method library ---
+
+    Optional<VerifiedMethod> findMethod(String bound, String methodSha256);
+
+    void putMethod(VerifiedMethod method);
+
+    /** The validated records for a bound, ascending by x (for recall). */
+    java.util.List<FrontierRecord> recordsFor(String bound);
+
+    /** The best method for a bound — furthest reach, then cheapest — or empty. */
+    Optional<VerifiedMethod> bestMethod(String bound);
 }

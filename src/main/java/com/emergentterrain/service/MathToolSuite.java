@@ -387,6 +387,29 @@ public class MathToolSuite {
         return discoveryService != null && discoveryService.isEnabled();
     }
 
+    /**
+     * Phase 30 fork 2b §8b — optional accumulated-knowledge service. Set by
+     * {@link ResearchNarrationService} after Spring autowires it. The
+     * {@code recall_frontier_knowledge} tool is advertised + executable only when
+     * this is non-null AND {@code isRecallEnabled()} (the {@code frontierRecallEnabled}
+     * flag). It lets a paper READ the persisted, independently re-verified frontier
+     * corpus (records + best method) with trust carried verbatim — never re-running
+     * a discovery and never laundering a moat-validated value into a proof.
+     */
+    private volatile com.emergentterrain.research.discovery.FrontierKnowledgeService frontierKnowledge;
+
+    public void setFrontierKnowledge(
+            com.emergentterrain.research.discovery.FrontierKnowledgeService frontierKnowledge) {
+        this.frontierKnowledge = frontierKnowledge;
+    }
+
+    private boolean recallAvailable() {
+        return frontierKnowledge != null && frontierKnowledge.isRecallEnabled();
+    }
+
+    /** Default bound key for the recall tool (the only accumulated corpus today). */
+    private static final String DEFAULT_RECALL_BOUND = "mertens_M";
+
     /** Standard moat checkpoints (≤ NT_MAX_N, judged vs the oracle) + OEIS anchor. */
     private static final java.util.List<Long> DISCOVER_CHECKPOINTS =
             java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
@@ -634,7 +657,7 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
@@ -642,7 +665,8 @@ public class MathToolSuite {
                         ? PROVE_IDENTITY_TOOL_JSON : "",
                 (includeLiterature && literatureSearch != null)
                         ? SEARCH_LITERATURE_TOOL_JSON : "",
-                discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "");
+                discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
+                recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "");
     }
 
     /**
@@ -772,6 +796,29 @@ public class MathToolSuite {
               }
             }""";
 
+    /**
+     * Phase 30 fork 2b §8b — recall tool. Advertised only when {@link
+     * #recallAvailable()}. READ-ONLY: it returns the persisted, independently
+     * re-verified frontier corpus (records + best verified method) with each value's
+     * trust ceiling stated, so a paper can cite computed frontier values without
+     * re-running discovery and without mistaking a moat-validated value for a proof.
+     */
+    private static final String RECALL_FRONTIER_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"recall_frontier_knowledge",
+                "description":"Look up the system's accumulated, independently re-verified frontier knowledge for a bound (e.g. the cumulative Mertens function M(x)). Returns the validated (x, value, source, trust) records and the best verified method's reach/cost — all carried with each value's TRUST CEILING. A 'FULL'-trust value was validated by exact agreement against a trusted oracle on its overlap range: report it as a COMPUTED, verified value at that x, NOT as a proof of the bound for all x. Use this to ground a Mertens-class claim in already-verified computation instead of re-deriving it. An empty result means nothing has been accumulated yet — make no frontier claim in that case.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "bound":{"type":"string","description":"Optional bound key; defaults to 'mertens_M' (the cumulative Mertens function corpus). Use the default unless told otherwise."}
+                  },
+                  "required":[]
+                }
+              }
+            }""";
+
     // ── Executor factory ──────────────────────────────────────────────────────
 
     /**
@@ -805,6 +852,7 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
+                    case "recall_frontier_knowledge" -> recallFrontierKnowledge(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
@@ -1540,6 +1588,24 @@ public class MathToolSuite {
         return "discover_mertens_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
                 + ". Do NOT report a value for M(" + x + ").";
+    }
+
+    /**
+     * Phase 30 fork 2b §8b — {@code recall_frontier_knowledge}: read the persisted,
+     * independently re-verified frontier corpus for a bound (records + best method)
+     * with trust carried verbatim. READ-ONLY — no LLM tokens, no discovery re-run; it
+     * lets a paper reuse already-verified frontier values instead of regenerating them.
+     * Gated: returns a disabled line unless knowledge is wired AND {@code frontierRecallEnabled}.
+     */
+    String recallFrontierKnowledge(JsonNode args) {
+        if (!recallAvailable()) {
+            return "recall_frontier_knowledge: disabled (frontier recall is off).";
+        }
+        String bound = args.path("bound").asText("");
+        if (bound == null || bound.isBlank()) {
+            bound = DEFAULT_RECALL_BOUND;
+        }
+        return "recall_frontier_knowledge [" + bound + "]:\n" + frontierKnowledge.recallText(bound);
     }
 
     /**

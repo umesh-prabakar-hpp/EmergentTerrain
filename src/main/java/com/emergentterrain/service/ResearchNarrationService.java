@@ -62,6 +62,14 @@ public class ResearchNarrationService {
      */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService;
+    /**
+     * Phase 30 fork 2b §8b — optional accumulated-knowledge service, field-injected
+     * and wired into {@link #toolSuite} in {@link #wireDiscoveryTool()}. Null when the
+     * knowledge beans aren't present; the recall_frontier_knowledge tool is then absent.
+     * Gated further by frontierRecallEnabled.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.discovery.FrontierKnowledgeService frontierKnowledge;
     /** Lever 2 — read-only check_* tools for the revision self-check loop. */
     private final RevisionSelfCheckTools selfCheckTools;
     private final ObjectMapper objectMapper;
@@ -796,6 +804,7 @@ public class ResearchNarrationService {
     void wireDiscoveryTool() {
         if (toolSuite != null) {
             toolSuite.setDiscoveryService(discoveryService);
+            toolSuite.setFrontierKnowledge(frontierKnowledge);
         }
     }
 

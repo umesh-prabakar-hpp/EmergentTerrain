@@ -243,9 +243,15 @@ run on a *fixed* bound is largely repeatable). That is the wrong model for an
 3. **Keep-the-best.** On a conflict at the same `(bound, x)`, keep the
    **highest-trust** value (`FULL` > `VALIDATED_PROXY` > `MODEL_FIT` >
    `LITERATURE_ONLY`); the frontier keeps the largest validated `x`. Persistence
-   accumulates *quality*, not just history. (Persisting the *method code* itself —
-   a reusable verified-method library, ranked by the stall predictor's cost curve —
-   is the next layer; the checkpoint would need to carry the method hash.)
+   accumulates *quality*, not just history.
+4. **Persist the method code itself (built).** Each discovery checkpoint now carries
+   the LLM-generated, moat-validated `methodCode` that reached `x`
+   (`EscalationCheckpoint.methodCode`). `FrontierKnowledgeService.record()` hashes it
+   (SHA-256), stores it as a `VerifiedMethod(bound, sha, code, maxScale, costMs)` in a
+   `verified_methods` table, and keeps-the-best by **reach**. The library is **ranked
+   by the cost curve** — reach desc, then cost asc — so `bestMethod(bound)` returns the
+   method that reaches furthest cheapest, i.e. the one worth *reusing* instead of
+   regenerating (a token saving that compounds with the frontier).
 
 These reinforce each other: persistence makes convergence *detectable*, and
 keep-the-best makes persistence *worth keeping*. Together they turn the loop from a
@@ -267,6 +273,17 @@ re-verified or invalidated, so staleness and feedback-loop dilution are guarded 
 the same "never launder trust" rule that governs the live pivot (§5). Used this way,
 accumulation compounds *honestly* — the corpus of trustworthy computed knowledge
 grows, and each paper can reach further than the last, with the trust ledger intact.
+
+**Wired (the read path).** A paper consumes the corpus through the read-only
+`recall_frontier_knowledge` tool in `MathToolSuite` (gated by `frontierRecallEnabled`,
+advertised only when a `FrontierKnowledgeService` bean is present). It returns the
+persisted `(x, value, source, trust)` records and the best verified method's
+reach/cost via `recallText(bound)` — **no discovery re-run, no LLM/sidecar spend**.
+Every line states its `TrustLevel`, and the framing is explicit: a `FULL` value is
+reported as *computed-and-verified at x against a trusted oracle*, **never** as a proof
+of the bound for all `x`. The tool is wired through `ResearchNarrationService`
+(field-injected, `@PostConstruct`) the same way `discover_mertens_value` is, so it stays
+absent in test contexts and dormant until the flag is flipped.
 
 ## 9. Follow-ons (built infra, deferred extensions)
 

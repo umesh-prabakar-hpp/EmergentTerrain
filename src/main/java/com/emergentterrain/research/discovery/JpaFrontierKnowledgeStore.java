@@ -19,16 +19,25 @@ public class JpaFrontierKnowledgeStore implements FrontierKnowledgeStore {
         Optional<FrontierRecordEntity> findByBoundAndScaleX(String bound, long scaleX);
         @Query("select max(r.scaleX) from FrontierRecordEntity r where r.bound = ?1")
         Long maxScaleX(String bound);
+        java.util.List<FrontierRecordEntity> findByBoundOrderByScaleXAsc(String bound);
     }
 
     interface FrontierConvergenceRepository extends JpaRepository<FrontierConvergenceEntity, String> {}
 
+    interface VerifiedMethodRepository extends JpaRepository<VerifiedMethodEntity, UUID> {
+        Optional<VerifiedMethodEntity> findByBoundAndMethodSha256(String bound, String methodSha256);
+        java.util.List<VerifiedMethodEntity> findByBoundOrderByMaxScaleDescCostMsAsc(String bound);
+    }
+
     private final FrontierRecordRepository records;
     private final FrontierConvergenceRepository convergence;
+    private final VerifiedMethodRepository methods;
 
-    public JpaFrontierKnowledgeStore(FrontierRecordRepository records, FrontierConvergenceRepository convergence) {
+    public JpaFrontierKnowledgeStore(FrontierRecordRepository records, FrontierConvergenceRepository convergence,
+                                     VerifiedMethodRepository methods) {
         this.records = records;
         this.convergence = convergence;
+        this.methods = methods;
     }
 
     @Override
@@ -60,5 +69,28 @@ public class JpaFrontierKnowledgeStore implements FrontierKnowledgeStore {
         FrontierConvergenceEntity e = convergence.findById(bound).orElseGet(() -> new FrontierConvergenceEntity(bound));
         e.apply(state);
         convergence.save(e);
+    }
+
+    @Override
+    public Optional<VerifiedMethod> findMethod(String bound, String methodSha256) {
+        return methods.findByBoundAndMethodSha256(bound, methodSha256).map(VerifiedMethodEntity::toDto);
+    }
+
+    @Override
+    public void putMethod(VerifiedMethod method) {
+        VerifiedMethodEntity e = methods.findByBoundAndMethodSha256(method.bound(), method.methodSha256())
+                .orElseGet(VerifiedMethodEntity::new);
+        e.apply(method);
+        methods.save(e);
+    }
+
+    @Override
+    public java.util.List<FrontierRecord> recordsFor(String bound) {
+        return records.findByBoundOrderByScaleXAsc(bound).stream().map(FrontierRecordEntity::toDto).toList();
+    }
+
+    @Override
+    public Optional<VerifiedMethod> bestMethod(String bound) {
+        return methods.findByBoundOrderByMaxScaleDescCostMsAsc(bound).stream().findFirst().map(VerifiedMethodEntity::toDto);
     }
 }

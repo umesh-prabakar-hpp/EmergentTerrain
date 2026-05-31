@@ -19,6 +19,7 @@ class FrontierKnowledgeServiceTest {
     private static final class FakeStore implements FrontierKnowledgeStore {
         final Map<String, FrontierRecord> recs = new HashMap<>();
         final Map<String, ConvergenceState> conv = new HashMap<>();
+        final Map<String, VerifiedMethod> methods = new HashMap<>();
         private static String k(String b, long x) { return b + "|" + x; }
         public Optional<FrontierRecord> find(String b, long x) { return Optional.ofNullable(recs.get(k(b, x))); }
         public void put(FrontierRecord r) { recs.put(k(r.bound(), r.x()), r); }
@@ -27,10 +28,25 @@ class FrontierKnowledgeServiceTest {
         }
         public ConvergenceState convergence(String b) { return conv.getOrDefault(b, ConvergenceState.initial()); }
         public void saveConvergence(String b, ConvergenceState s) { conv.put(b, s); }
+        public Optional<VerifiedMethod> findMethod(String b, String sha) { return Optional.ofNullable(methods.get(b + "|" + sha)); }
+        public void putMethod(VerifiedMethod m) { methods.put(m.bound() + "|" + m.methodSha256(), m); }
+        public List<FrontierRecord> recordsFor(String b) {
+            return recs.values().stream().filter(r -> r.bound().equals(b))
+                    .sorted(java.util.Comparator.comparingLong(FrontierRecord::x)).toList();
+        }
+        public Optional<VerifiedMethod> bestMethod(String b) {
+            return methods.values().stream().filter(m -> m.bound().equals(b))
+                    .max(java.util.Comparator.comparingLong(VerifiedMethod::maxScale)
+                            .thenComparing(java.util.Comparator.comparingLong(VerifiedMethod::costMs).reversed()));
+        }
     }
 
     private static EscalationCheckpoint cp(long x, Long v) {
         return new EscalationCheckpoint(x, v, EscalationVerdict.HOLDS, "discovery", 1);
+    }
+
+    private static EscalationCheckpoint cpm(long x, Long v, String code, long ms) {
+        return new EscalationCheckpoint(x, v, EscalationVerdict.HOLDS, "discovery", ms, code);
     }
 
     private static EscalationOutcome run(long frontier, EscalationCheckpoint... cps) {
@@ -80,6 +96,41 @@ class FrontierKnowledgeServiceTest {
                 svc.record("b", run(1_000_000_000_000L, cp(1_000_000_000_000L, 2L)));
         assertThat(rr.stableRuns()).isZero();
         assertThat(rr.frontier()).isEqualTo(1_000_000_000_000L);
+    }
+
+    @Test
+    void persistsVerifiedMethodAndKeepsBestByReach() {
+        FakeStore store = new FakeStore();
+        FrontierKnowledgeService svc = new FrontierKnowledgeService(store, 2);
+
+        // first discovery rung records the method at reach 1e9
+        FrontierKnowledgeService.RunRecord r1 =
+                svc.record("b", run(1_000_000_000L, cpm(1_000_000_000L, 1L, "f(x)=...", 500)));
+        assertThat(r1.methodsKept()).isEqualTo(1);
+        assertThat(store.bestMethod("b")).get().extracting(VerifiedMethod::maxScale).isEqualTo(1_000_000_000L);
+
+        // same method re-validated further out updates reach; counts as kept
+        FrontierKnowledgeService.RunRecord r2 =
+                svc.record("b", run(1_000_000_000_000L, cpm(1_000_000_000_000L, 1L, "f(x)=...", 800)));
+        assertThat(r2.methodsKept()).isEqualTo(1);
+        assertThat(store.bestMethod("b")).get().extracting(VerifiedMethod::maxScale).isEqualTo(1_000_000_000_000L);
+
+        // same method at an equal-or-lower reach is not re-kept
+        FrontierKnowledgeService.RunRecord r3 =
+                svc.record("b", run(1_000_000_000_000L, cpm(1_000_000_000L, 1L, "f(x)=...", 100)));
+        assertThat(r3.methodsKept()).isZero();
+    }
+
+    @Test
+    void recallTextCarriesTrustVerbatim() {
+        FakeStore store = new FakeStore();
+        FrontierKnowledgeService svc = new FrontierKnowledgeService(store, 2);
+        svc.record("b", run(1_000_000_000L, cpm(1_000_000L, 212L, null, 0), cpm(1_000_000_000L, -222L, "g(x)=...", 700)));
+
+        String text = svc.recallText("b");
+        assertThat(text).contains("FULL").contains("1000000000").contains("not a proof");
+        assertThat(svc.recall("b").bestMethod()).isPresent();
+        assertThat(svc.recallText("absent")).contains("No accumulated frontier knowledge");
     }
 
     @Test

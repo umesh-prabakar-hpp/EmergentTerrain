@@ -231,6 +231,7 @@ public class FrontierEscalationService {
         Long value;
         String source;
         long elapsedMs;
+        String methodCode = null;
         if (x <= ConjectureVerifier.MAX_N) {
             long t0 = System.nanoTime();
             value = sieveSource.valueAt(x);
@@ -243,10 +244,11 @@ public class FrontierEscalationService {
             value = out.accepted() ? out.targetValue() : null;
             elapsedMs = out.elapsedMs();
             source = "discovery";
+            methodCode = out.accepted() ? out.code() : null;   // the validated method (for the library)
         }
         if (value == null) {
-            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source, elapsedMs);
+            return new EscalationCheckpoint(x, null, EscalationVerdict.CANNOT_COMPUTE, source, elapsedMs, methodCode);
         }
-        return new EscalationCheckpoint(x, value, bound.classify(x, value), source, elapsedMs);
+        return new EscalationCheckpoint(x, value, bound.classify(x, value), source, elapsedMs, methodCode);
     }
 }
