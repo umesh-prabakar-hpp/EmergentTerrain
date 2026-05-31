@@ -5,6 +5,13 @@ below is flag-gated dormant by default (`app.research.*.enabled = false`),
 per the project convention — ship the code, leave the flip to the operator
 after the prior stage's acceptance bar is met.
 
+> **Empirical diagnosis (companion docs, same folder).** The triviality this phase fixes is *measured*
+> in [`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) — the engine produces 212
+> identically-shaped data-mined linear bounds, none retired in practice — and
+> [`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md) — why the room's flagship
+> `mertens_per_sqrt_W` refutations are not real Mertens research. Those describe the "Today" state this
+> phase moves away from.
+
 **Premise.** The novelty *machinery* already exists and is live: Phase 23
 (conjecture mining + held-out `verify_conjecture` + `EvidenceLabel`
 discipline), Phase 24 (PySR symbolic regression), Phase 25 (sympy identity

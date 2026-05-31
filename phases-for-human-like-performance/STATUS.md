@@ -744,7 +744,7 @@ app.research.closing-prose-validator.enabled # Phase 12 D6 — reject conclusion
 # Phase 13 — recommendation fixes
 app.research.uncertainty-disclosure.enabled # Phase 13 E6 — reject Findings whose unit-anchored numerics lack uncertainty indicators (default OFF; flag-gated rollout)
 
-# Phase 30 — genuinely novel claims [PROPOSED — code NOT yet in main; see phase-30-genuinely-novel-claims.md]
+# Phase 30 — genuinely novel claims [PROPOSED — code NOT yet in main; see phase-30-conjecture/phase-30-genuinely-novel-claims.md (folder also holds the conjecture-engine triviality diagnosis docs)]
 app.research.anomaly-miner.enabled          # 30.1 — surface single-config violations of strong conjectures (Bonferroni/BH-corrected) [proposed]
 app.research.residual-probe.enabled         # 30.2 — subtract known law, fit residual with PySR; null-model + irreducibility gated [proposed]
 app.research.composition-claims.enabled     # 30.3 — promote theory-composition chains to verified derived claims [proposed]
