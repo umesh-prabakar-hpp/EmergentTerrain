@@ -23,7 +23,7 @@ class MertensFrontierServiceTest {
         FrontierEscalationService escalation =
                 new FrontierEscalationService(true, 3, 30000.0, 0.0, discAccepting(1037L));
         ScaleValueSource sieve = x -> -247L;     // M(2,000,000)=-247, |247|<sqrt(2e6) -> holds
-        MertensFrontierService svc = new MertensFrontierService(2_000_000L, escalation, sieve);
+        MertensFrontierService svc = new MertensFrontierService(2_000_000L, false, escalation, sieve);
 
         FrontierPaper paper = svc.produce();
 
@@ -42,9 +42,25 @@ class MertensFrontierServiceTest {
     void disabledEscalationYieldsDisabledPaper() {
         FrontierEscalationService escalation =
                 new FrontierEscalationService(false, 3, 30000.0, 0.0, discAccepting(1037L));
-        MertensFrontierService svc = new MertensFrontierService(2_000_000L, escalation, x -> -247L);
+        MertensFrontierService svc = new MertensFrontierService(2_000_000L, false, escalation, x -> -247L);
         FrontierPaper paper = svc.produce();
         assertThat(paper.outcome().ran()).isFalse();
         assertThat(paper.findings()).contains("did not run");
+    }
+
+    @Test
+    void scheduledRunNoOpsUntilScheduleFlagOn() {
+        FrontierEscalationService escalation =
+                new FrontierEscalationService(true, 3, 30000.0, 0.0, discAccepting(1037L));
+        int[] sieveCalls = {0};
+        ScaleValueSource counting = x -> { sieveCalls[0]++; return -247L; };
+
+        // schedule OFF -> no produce(), sieve never queried
+        new MertensFrontierService(2_000_000L, false, escalation, counting).scheduledFrontierRun();
+        assertThat(sieveCalls[0]).isZero();
+
+        // schedule ON -> produce() runs, sieve queried at the first rung
+        new MertensFrontierService(2_000_000L, true, escalation, counting).scheduledFrontierRun();
+        assertThat(sieveCalls[0]).isPositive();
     }
 }

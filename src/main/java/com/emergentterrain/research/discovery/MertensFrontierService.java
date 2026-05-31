@@ -34,16 +34,37 @@ public class MertensFrontierService {
     private static final Map<Long, Long> ANCHORS = Map.of(10_000_000L, 1037L);
 
     private final long startScale;
+    private final boolean scheduleEnabled;
     private final FrontierEscalationService escalation;
     private final ScaleValueSource sieveSource;
 
     public MertensFrontierService(
             @Value("${app.research.discovery.frontierStartScale:2000000}") long startScale,
+            @Value("${app.research.discovery.frontierScheduleEnabled:false}") boolean scheduleEnabled,
             FrontierEscalationService escalation,
             ScaleValueSource sieveSource) {
         this.startScale = startScale < 1 ? 2_000_000 : startScale;
+        this.scheduleEnabled = scheduleEnabled;
         this.escalation = escalation;
         this.sieveSource = sieveSource;
+    }
+
+    /**
+     * Phase 5 — autonomous frontier run. Gated by {@code frontierScheduleEnabled}
+     * (default OFF, separate from the escalation-logic flag) because each run
+     * spends real LLM tokens across the discovery rungs; the long default interval
+     * (6 h) bounds that. No-op until the operator opts in. Watch the log for
+     * "frontier paper produced".
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            fixedDelayString = "${app.research.discovery.frontierScheduleMs:21600000}")
+    public void scheduledFrontierRun() {
+        if (!scheduleEnabled) {
+            return;
+        }
+        FrontierPaper paper = produce();
+        log.info("scheduled frontier run — {} | terminal={} frontier={}",
+                paper.title(), paper.outcome().terminalState(), paper.outcome().frontierReached());
     }
 
     public FrontierPaper produce() {
