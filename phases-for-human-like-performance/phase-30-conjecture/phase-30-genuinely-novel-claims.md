@@ -10,7 +10,9 @@ after the prior stage's acceptance bar is met.
 > identically-shaped data-mined linear bounds, none retired in practice — and
 > [`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md) — why the room's flagship
 > `mertens_per_sqrt_W` refutations are not real Mertens research. Those describe the "Today" state this
-> phase moves away from.
+> phase moves away from. For external-framework patterns that strengthen this proposal (quality-diversity
+> archive, clade-value selection, private-validator anti-gaming, sublinear generation budget), see
+> [`phase-30-external-patterns.md`](phase-30-external-patterns.md).
 
 **Premise.** The novelty *machinery* already exists and is live: Phase 23
 (conjecture mining + held-out `verify_conjecture` + `EvidenceLabel`
