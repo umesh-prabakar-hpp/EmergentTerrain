@@ -190,10 +190,17 @@ end, the discipline the discovery tool's own output already enforces.
    `1−|M(x)|/√x`); the **aggressive** adaptive policy leaps **×1000/×100** while the bound holds with
    room, ×10 closer in, and a **×3 floor** even at the bound — it never crawls (tuned to reach the
    frontier fast, not die by small steps; the stall predictor + pivot handle the ceiling). Flag-gated
-   (`frontierAdaptiveScaleEnabled`, default OFF → fixed ×10, no behavior change). The *step can revisit
-   intermediate scales* (e.g. localize a bracketed transition) while the frontier advances — and an
-   **LLM-decided policy plugs into the same seam** (follow-on): given the (x, ratio) corpus + forecast,
-   the model returns the next scale.
+   (`frontierScalePolicy: default|adaptive|llm`, default → fixed ×10, no behavior change).
+   - ✅ **Bidirectional step + LLM policy** — **Done** (`LlmNextScalePolicy`; `LlmNextScalePolicyTest`
+     + loop backward-step test; 51/51). The loop no longer treats `next ≤ x` as termination: the
+     **knowledge frontier stays monotonic** (`frontier = max` held scale), but the **step may go
+     forward OR backward** — a visited-set guards cycles and the loop stops on no-progress / a revisit.
+     So a policy can interleave forward leaps with backward **densify/localize** moves (the groundwork
+     for counterexample localization; continue-after-counterexample is a follow-on). `LlmNextScalePolicy`
+     (`frontierScalePolicy=llm`) asks a frontier model for the next scale from the `(x, ratio)` history
+     + margin + `x_c`, prompted **aggressive** (leap when there's room, never crawl) and explicitly
+     permitted to step backward; it parses plain/comma/scientific replies and **falls back to the
+     aggressive adaptive policy** on anything bad, so a poor generation never stalls the loop.
 
 ## 8. Non-goals
 - Resolving Mertens (or any question whose only path to `x_s` is B5).
