@@ -158,9 +158,18 @@ end, the discipline the discovery tool's own output already enforces.
      bound is known to fail" caveat. **B3 `ProxyReformulationProposer`**: asks the discovery moat for
      a *fundamentally more efficient reformulation* at the stalled target; `VALIDATED_PROXY` on a
      validated cheaper method, defers otherwise (for Mertens, where the sublinear method is
-     near-optimal, it usually defers to B4 — honest). A genuinely different proxy *quantity* (a
-     sibling summatory function with its own oracle) needs a **generalized validation oracle the
-     harness lacks** — a documented follow-on, not faked. (`BranchProposerImplTest`, 39/39.)
+     near-optimal, it usually defers to B4 — honest). (`BranchProposerImplTest`, 39/39.)
+   - ✅ **Generalized B3 oracle** — **Done** (`ProxySpec` + `ProxyOracle` + `SummatoryProxyOracle` +
+     `ProxyValidator` + `ProxyCatalog`; 7/7). A genuinely different proxy *quantity* — a
+     linear-combination summatory `Σ(cμ·μ + cω·ω + cΩ·Ω + cτ·τ)` over the trusted primitives — now
+     has trusted ground truth on the overlap, computed from the **existing window aggregator** (no
+     sidecar change): `window(1,x)` already sums μ/ω/Ω/τ over `[2,x]`; the n=1 terms are added back.
+     `ProxyValidator` is the proxy moat (judge candidate values vs the oracle on the overlap — the
+     same contract as M(x), any proxy). Nonlinear terms (e.g. μ²) would need a new trusted sidecar
+     evaluator (further follow-on); and *wiring B3's runtime to it* (a proxy-discovery loop:
+     generate → sandbox-exec → judge via the proxy oracle, mirroring `MertensDiscoveryService`) is
+     the remaining consumption step. The honest open question stays: whether any proxy is a *useful*
+     constraint on Mertens — the oracle only makes proxies **verifiable**.
 4. ✅ **Frontier paper wiring** — **Done** (`FrontierFindingsRenderer` + `SidecarMertensValueSource` +
    `MertensFrontierService` + `FrontierPaper`; `FrontierFindingsRendererTest` +
    `MertensFrontierServiceTest`, 7/7). The renderer turns an `EscalationOutcome` into markdown
