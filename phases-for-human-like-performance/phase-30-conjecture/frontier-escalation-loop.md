@@ -132,8 +132,16 @@ end, the discipline the discovery tool's own output already enforces.
    bound-agnostic and unit-tested with fakes (escalate-while-holding → `exhausted_rounds` with
    sieve→discovery source routing; counterexample → stop at last-held; discovery fail →
    `discovery_stalled`). Dormant — nothing calls `escalate()` until the frontier-paper wiring (phase 4).
-2. **Stall predictor** — fit `elapsed_ms` vs x to the known complexity form; compute `x_c`; compare to a
-   configured `x_s`; emit a `compute-will-stall` signal with the fitted curve logged.
+2. ✅ **Stall predictor** — **Done** (`StallPredictor` + `StallPrediction` + `CostObservation`;
+   `StallPredictorTest`, and the loop's `predicted_stall` path). Fits `cost ≈ a·xᵖ` by log-log least
+   squares from the discovery rungs' observed `elapsed` (threaded through
+   `ValidationResult`/`DiscoveryOutcome`/`EscalationCheckpoint`), solves `a·x_cᵖ = stallBudgetMs` for
+   `x_c`, and flags `x_c < scienceFrontier`. The exponent is **learned empirically** (honest about
+   whatever method discovery produced — recovers p=1 and p=2/3 in tests), not assumed. The loop now
+   **stops at `predicted_stall` before escalating past `x_c`**, rather than grinding to the reactive
+   `discovery_stalled`. Config: `frontierStallBudgetMs` (per-rung ceiling), `frontierScienceFrontier`
+   (`x_s`; 0 = unknown). Still flag-gated/dormant. The Phase-3 pivot **replaces** this stop with a
+   branch switch.
 3. **B3 proxy / B4 model pivot** — on stall, an LLM-proposed proxy (B3) or model (B4) routed through
    the **same moat** on the overlap; trust-tagged output. (B5 stays a literature-grounded leaf.)
 4. **Frontier paper wiring** — the narrator builds Findings from the checkpoint corpus + the pivot
