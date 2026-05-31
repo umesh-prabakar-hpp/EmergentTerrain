@@ -56,15 +56,37 @@ public class MertensFrontierService {
      * (6 h) bounds that. No-op until the operator opts in. Watch the log for
      * "frontier paper produced".
      */
+    /** Stable identifier for the Mertens bound's accumulated knowledge. */
+    private static final String BOUND = "mertens_M";
+
+    private FrontierKnowledgeService knowledge;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setKnowledge(FrontierKnowledgeService knowledge) {
+        this.knowledge = knowledge;
+    }
+
     @org.springframework.scheduling.annotation.Scheduled(
             fixedDelayString = "${app.research.discovery.frontierScheduleMs:21600000}")
     public void scheduledFrontierRun() {
         if (!scheduleEnabled) {
             return;
         }
+        // Run-until-converged — stop re-spending once the frontier + pivot stabilize.
+        if (knowledge != null && knowledge.isConverged(BOUND)) {
+            log.info("scheduled frontier run skipped — {} converged at frontier {}; no spend (re-engages on a new trigger)",
+                    BOUND, knowledge.frontier(BOUND));
+            return;
+        }
         FrontierPaper paper = produce();
-        log.info("scheduled frontier run — {} | terminal={} frontier={}",
-                paper.title(), paper.outcome().terminalState(), paper.outcome().frontierReached());
+        if (knowledge != null) {
+            FrontierKnowledgeService.RunRecord rr = knowledge.record(BOUND, paper.outcome());
+            log.info("scheduled frontier run — {} | terminal={} frontier={} kept={} converged={}",
+                    paper.title(), paper.outcome().terminalState(), rr.frontier(), rr.recordsKept(), rr.converged());
+        } else {
+            log.info("scheduled frontier run — {} | terminal={} frontier={}",
+                    paper.title(), paper.outcome().terminalState(), paper.outcome().frontierReached());
+        }
     }
 
     private DiscoveryEndpointHealth endpointHealth;

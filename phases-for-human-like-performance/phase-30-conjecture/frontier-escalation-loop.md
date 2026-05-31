@@ -222,6 +222,52 @@ end, the discipline the discovery tool's own output already enforces.
 - Autonomous *verified* theory generation (B5 is a boundary, not a capability).
 - Unbounded compute — every escalation step is budget-bounded and stall-predicted.
 
+## 8b. Knowledge accumulation — persistence, convergence, reuse
+
+The loop as first built is **amnesiac and clock-driven**: each run re-derives from
+scratch and a `@Scheduled` cadence re-spends on near-identical outcomes (a frontier
+run on a *fixed* bound is largely repeatable). That is the wrong model for an
+*accumulating* system. The fix is three coupled changes:
+
+1. **Persist results across restarts.** The validated `(bound, x, value, source,
+   trust)` checkpoints go to the DB the conjectures already live in
+   (`FrontierRecord*`), so a restart resumes instead of recomputing — and the
+   frontier **ratchets** (each run extends the corpus rather than redoing it). This
+   is the lynchpin: without it the system can't accumulate.
+2. **Run-until-converged-then-stop** (replacing the clock). Keep running only while
+   a run *progresses* (extends the frontier) or the pivot changes; after
+   `convergenceThreshold` runs with no progress, mark the bound **converged** and
+   stop re-running (zero further spend) until a real trigger (new bound, new
+   capability, new budget, manual). Convergence state persists too, so "converged"
+   survives a restart.
+3. **Keep-the-best.** On a conflict at the same `(bound, x)`, keep the
+   **highest-trust** value (`FULL` > `VALIDATED_PROXY` > `MODEL_FIT` >
+   `LITERATURE_ONLY`); the frontier keeps the largest validated `x`. Persistence
+   accumulates *quality*, not just history. (Persisting the *method code* itself —
+   a reusable verified-method library, ranked by the stall predictor's cost curve —
+   is the next layer; the checkpoint would need to carry the method hash.)
+
+These reinforce each other: persistence makes convergence *detectable*, and
+keep-the-best makes persistence *worth keeping*. Together they turn the loop from a
+re-running clock into a system that **improves by accumulating** (cf. §6 ceilings —
+it accumulates verified *computation*, never *proof*).
+
+### Reusing accumulated knowledge in future papers
+
+The accumulated corpus is a **trusted, provenance-tagged cache** that future papers
+can draw on — a Mertens-class paper can cite a previously-validated `M(10¹²)` (or the
+whole `M(x)/√x`-across-scales trajectory) instead of being stuck at the 2×10⁶ sieve.
+This is how papers get **less trivial**: they build on the verified frontier rather
+than re-verifying known results at 2×10⁶. **The discipline that makes this safe is
+non-negotiable:** every reused value carries its `TrustLevel`, and trust is preserved
+**transitively** — a paper that builds on a `MODEL_FIT` extrapolation *inherits*
+`MODEL_FIT` trust (never laundered up to "established"). The cache is a *verified
+store with provenance* (method hash + when), not a fact store: a record can be
+re-verified or invalidated, so staleness and feedback-loop dilution are guarded by
+the same "never launder trust" rule that governs the live pivot (§5). Used this way,
+accumulation compounds *honestly* — the corpus of trustworthy computed knowledge
+grows, and each paper can reach further than the last, with the trust ledger intact.
+
 ## 9. Follow-ons (built infra, deferred extensions)
 
 The loop and its proposers are shipped flag-gated; these extend them and are **not
