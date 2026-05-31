@@ -14,10 +14,18 @@ public record PivotRequest(
         long target,
         List<Long> checkpoints,
         Map<Long, Long> anchors,
-        StallPrediction prediction) {
+        StallPrediction prediction,
+        List<EscalationCheckpoint> corpus) {
 
     public PivotRequest {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
         anchors = anchors == null ? Map.of() : Map.copyOf(anchors);
+        corpus = corpus == null ? List.of() : List.copyOf(corpus);
+    }
+
+    /** Back-compatible constructor (no corpus — B4 then has no data to model). */
+    public PivotRequest(String spec, long target, List<Long> checkpoints,
+                        Map<Long, Long> anchors, StallPrediction prediction) {
+        this(spec, target, checkpoints, anchors, prediction, List.of());
     }
 }

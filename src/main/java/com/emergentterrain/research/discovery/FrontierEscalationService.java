@@ -112,7 +112,7 @@ public class FrontierEscalationService {
                     // instead of stopping. Degrades to a plain stop if no pivot is wired.
                     if (branchPivot != null && branchPivot.isEnabled()) {
                         PivotOutcome pv = branchPivot.pivot(
-                                new PivotRequest(task.spec(), next, task.checkpoints(), task.anchors(), pred));
+                                new PivotRequest(task.spec(), next, task.checkpoints(), task.anchors(), pred, cps));
                         log.info("escalation predicted stall — {}; pivoting -> branch={} trust={} validated={}",
                                 pred.basis(), pv.branch(), pv.trust(), pv.validated());
                         return EscalationOutcome.pivoted(cps, frontier, pred, pv);
