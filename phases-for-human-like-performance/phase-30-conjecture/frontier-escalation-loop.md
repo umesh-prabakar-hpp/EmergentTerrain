@@ -148,11 +148,19 @@ end, the discipline the discovery tool's own output already enforces.
    first that validates, else return the **honest B5 boundary** ("requires non-constructive methods
    outside this harness; ground in literature, don't report a derived value") — never invent one. The
    outcome carries its `TrustLevel` verbatim (`FULL`/`VALIDATED_PROXY`/`MODEL_FIT`/`LITERATURE_ONLY`)
-   and the loop never launders one into another. Proposers are injected — **none wired yet, so the
-   honest prod default IS the B5 boundary**; the concrete B3 (proxy via the discovery moat) and B4
-   (model fit) proposers land at the live-wiring step. Flag-gated OFF (`branchPivotEnabled`);
-   degrades to a plain `predicted_stall` when no pivot is wired. B5 remains a leaf — there is
-   deliberately no `BranchProposer` for it.
+   and the loop never launders one into another. Flag-gated OFF (`branchPivotEnabled`); degrades to a
+   plain `predicted_stall` when no pivot is wired. B5 remains a leaf — there is deliberately no
+   `BranchProposer` for it.
+   - ✅ **Concrete B3/B4 proposers** — built as injected `@Component`s (so the pivot now tries B3→B4→
+     boundary). **B4 `PredictiveModelProposer`** (pure): least-squares-fits the corpus ratio
+     `|M(x)|/√x` vs `ln(x)`, extrapolates to the stalled target, predicts HOLD/FAIL tagged
+     `MODEL_FIT` with the R² and an explicit "extrapolation, not proof — below the regime where the
+     bound is known to fail" caveat. **B3 `ProxyReformulationProposer`**: asks the discovery moat for
+     a *fundamentally more efficient reformulation* at the stalled target; `VALIDATED_PROXY` on a
+     validated cheaper method, defers otherwise (for Mertens, where the sublinear method is
+     near-optimal, it usually defers to B4 — honest). A genuinely different proxy *quantity* (a
+     sibling summatory function with its own oracle) needs a **generalized validation oracle the
+     harness lacks** — a documented follow-on, not faked. (`BranchProposerImplTest`, 39/39.)
 4. **Frontier paper wiring** — the narrator builds Findings from the checkpoint corpus + the pivot
    result, with per-branch trust framing.
 5. **Flip + watch** — enable on a holding bound; watch it escalate, predict its own stall, and pivot.
