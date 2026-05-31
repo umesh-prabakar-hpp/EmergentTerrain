@@ -209,3 +209,9 @@ questions.
 > `M(x)/√x` exceeding ≈ ±1.8; no counterexample below ~10¹⁶; first counterexample below ~`exp(10⁴⁰)`)
 > are recalled to a 2026 knowledge cutoff; the exact localization constants have been sharpened over
 > time. The structural comparison does not depend on the precise constants.
+
+> **Whether the *analytic* method (zeros of ζ + LLL) could be run and verified in this harness — and
+> whether frontier LLMs could instead be asked to invent novel *numeric* techniques — is taken up in
+> [`mertens-analytic-reachability.md`](mertens-analytic-reachability.md).** Short version: analytic
+> *proofs* are unverifiable here (category mismatch with the evaluate-and-check model), but novel
+> *computations* are verifiable by cross-checking against the sieve on the overlap range.
