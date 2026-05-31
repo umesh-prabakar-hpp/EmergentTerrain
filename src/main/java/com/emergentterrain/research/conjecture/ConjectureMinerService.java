@@ -83,6 +83,15 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final boolean trivialityFilterEnabled;
 
+    /**
+     * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
+     * mine pass via {@link ConjectureDimensionFilter}: a [0,1] density bounded
+     * by a harness window-magnitude function (k>0) is eventually vacuous.
+     * Default OFF; independent of {@link #trivialityFilterEnabled} so the two
+     * gates can be A/B'd separately.
+     */
+    private final boolean dimensionFilterEnabled;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
@@ -90,14 +99,19 @@ public class ConjectureMinerService implements ConjectureQueue {
             MathConjectureSubstrateDelegate substrate,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.trivialityFilterEnabled:false}")
-            boolean trivialityFilterEnabled) {
+            boolean trivialityFilterEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.dimensionFilterEnabled:false}")
+            boolean dimensionFilterEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
         this.trivialityFilterEnabled = trivialityFilterEnabled;
+        this.dimensionFilterEnabled = dimensionFilterEnabled;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
-                + "trivialityFilter={}", OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF");
+                + "trivialityFilter={} dimensionFilter={}", OeisCatalog.size(),
+                trivialityFilterEnabled ? "ON" : "OFF", dimensionFilterEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -168,6 +182,24 @@ public class ConjectureMinerService implements ConjectureQueue {
             store = red.kept();
         }
 
+        // Phase 30 Wave 1 — dimensional-mismatch drop (flag-gated OFF, independent
+        // of the triviality flag). Drops density <= k*window_magnitude (k>0) seeds,
+        // which are eventually vacuous. No-op when the flag is off.
+        int dimensionDropped = 0;
+        if (dimensionFilterEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                java.util.Optional<String> r = ConjectureDimensionFilter.dropReason(ineq);
+                if (r.isPresent()) {
+                    persistRetired(List.of(ineq), byKey, "dimension:" + r.get());
+                    dimensionDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
+        }
+
         // Persist survivors: update existing entities in place, insert new ones.
         int oeisAnnotated = 0;
         for (Inequality ineq : store) {
@@ -186,9 +218,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             repo.save(entity);
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                System.currentTimeMillis() - t0);
+                dimensionDropped, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
