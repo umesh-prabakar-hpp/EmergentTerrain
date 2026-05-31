@@ -125,9 +125,16 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
 
 ## 8. Phasing
 
-1. **Sandbox runner + CLI harness** (sidecar repo): subprocess + rlimit/namespace + AST allowlist.
-   Test matrix: correct / buggy / hanging / OOM / FS-touch / `using` / segfault candidates. The
-   containment tests (§7.3) are the deliverable — prove isolation before any wiring.
+1. ✅ **Sandbox runner + containment tests** (sidecar repo): `src/sandbox_runner.jl` (module
+   `SandboxRunner`) — AST allowlist + isolated `julia` subprocess under `timeout` (wall) + `ulimit`
+   (CPU, no file writes, no cores) + the candidate-emits/trusted-judges `moat_judge`. **Done** (23/23,
+   `test/sandbox_runner_test.jl`): AST rejects `open`/`using`/`ccall`/`unsafe_*`/`run` + parse errors;
+   moat ACCEPTS a correct candidate (validates `M(10⁷)=1037` beyond the oracle range) and REJECTS a
+   wrong-but-running one; HANG→`:timeout`, OOM/stack-overflow contained, the FS-touch never creates its
+   file; the runner stays reusable after a hang/crash (parent liveness). **Dormant** — not `include`d by
+   the package, so no recompile; the live sidecars were verified up before and after. Memory limiting is
+   `timeout`/allocation-failure for now; a hard RSS cap via cgroups is a Phase-2 hardening (a slow leak
+   isn't bounded by `ulimit -v` because Julia reserves huge virtual memory).
 2. **`/discover/validate` endpoint** wrapping the runner (untrusted) alongside the existing
    `nt_mertens_dense` (trusted oracle). Sidecar.
 3. **Java orchestration**: generate→validate→repair loop, judging in Java, attempt cap, provenance
