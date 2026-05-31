@@ -122,9 +122,16 @@ end, the discipline the discovery tool's own output already enforces.
 
 ## 7. Phasing
 
-1. **Escalation skeleton** — the §2 loop over a *holding* bound, routing ≤2×10⁶ to the verifier and
-   >2×10⁶ to `discover_mertens_value`; emit the checkpoint corpus. Flag-gated OFF. (Reuses everything
-   built; the new code is the loop + the checkpoint record.)
+1. ✅ **Escalation skeleton** — the §2 loop over a *holding* bound, routing ≤NT_MAX_N to a sieve value
+   source and beyond to `MertensDiscoveryService.discover()`; emits the checkpoint corpus + terminal
+   state + `frontierReached`. **Done** (`research/discovery/FrontierEscalationService` + the
+   `Escalation*` types + `BoundPredicate.MERTENS` = `|M(x)|<√x` + `ScaleValueSource`;
+   `FrontierEscalationServiceTest`, 5/5). Flag-gated OFF (`frontierEscalationEnabled`); `escalate()`
+   returns a disabled outcome otherwise. Stall is **reactive** here (a `CANNOT_COMPUTE` stops the
+   loop) — the predictor below is Phase 2. The bound + sieve source are injected, so the loop is
+   bound-agnostic and unit-tested with fakes (escalate-while-holding → `exhausted_rounds` with
+   sieve→discovery source routing; counterexample → stop at last-held; discovery fail →
+   `discovery_stalled`). Dormant — nothing calls `escalate()` until the frontier-paper wiring (phase 4).
 2. **Stall predictor** — fit `elapsed_ms` vs x to the known complexity form; compute `x_c`; compare to a
    configured `x_s`; emit a `compute-will-stall` signal with the fitted curve logged.
 3. **B3 proxy / B4 model pivot** — on stall, an LLM-proposed proxy (B3) or model (B4) routed through
