@@ -161,8 +161,18 @@ end, the discipline the discovery tool's own output already enforces.
      near-optimal, it usually defers to B4 — honest). A genuinely different proxy *quantity* (a
      sibling summatory function with its own oracle) needs a **generalized validation oracle the
      harness lacks** — a documented follow-on, not faked. (`BranchProposerImplTest`, 39/39.)
-4. **Frontier paper wiring** — the narrator builds Findings from the checkpoint corpus + the pivot
-   result, with per-branch trust framing.
+4. ✅ **Frontier paper wiring** — **Done** (`FrontierFindingsRenderer` + `SidecarMertensValueSource` +
+   `MertensFrontierService` + `FrontierPaper`; `FrontierFindingsRendererTest` +
+   `MertensFrontierServiceTest`, 7/7). The renderer turns an `EscalationOutcome` into markdown
+   Findings: a checkpoint table (x, value, ratio, verdict, source), a terminal narrative (a
+   counterexample is framed as *the real result*; held / stalled / pivoted / boundary otherwise), the
+   compute forecast, and the pivot result with its `TrustLevel` **verbatim** plus a plain-words gloss
+   (`FULL` / `VALIDATED_PROXY` / `MODEL_FIT` = extrapolation-not-proof / `LITERATURE_ONLY`) — never
+   laundering trust — closed by a regime caveat so "held" never reads as "resolved".
+   `SidecarMertensValueSource` is the prod ≤NT_MAX_N value source (`M(x) = mertens_delta(window 1..x)
+   + 1`); `MertensFrontierService.produce()` composes the task, runs `escalate()`, renders a
+   `FrontierPaper`. Gated via the escalation flag (disabled → a "did not run" paper). The tool/cycle
+   that surfaces `produce()` is the flip+watch step.
 5. **Flip + watch** — enable on a holding bound; watch it escalate, predict its own stall, and pivot.
 
 ## 8. Non-goals
