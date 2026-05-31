@@ -73,17 +73,31 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final MathConjectureSubstrateDelegate substrate;
 
+    /**
+     * Phase 30 Wave 1 — when ON, structurally-trivial seeds are removed each
+     * mine pass via {@link ConjectureTrivialityFilter}: window-geometry
+     * tautologies are dropped and degenerate k=0 constant bounds are deduped
+     * (rhs-agnostic) to one representative. Default OFF (flag-gated rollout);
+     * with it OFF this service behaves exactly as before. See
+     * phase-30-conjecture/IMPLEMENTATION-ORDER.md Wave 1.
+     */
+    private final boolean trivialityFilterEnabled;
+
     public ConjectureMinerService(
             ConjectureRepository repo,
             ConjectureMapper mapper,
             OeisAnnotator oeisAnnotator,
-            MathConjectureSubstrateDelegate substrate) {
+            MathConjectureSubstrateDelegate substrate,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.trivialityFilterEnabled:false}")
+            boolean trivialityFilterEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
-        log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries)",
-                OeisCatalog.size());
+        this.trivialityFilterEnabled = trivialityFilterEnabled;
+        log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
+                + "trivialityFilter={}", OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -141,6 +155,19 @@ public class ConjectureMinerService implements ConjectureQueue {
             persistRetired(List.of(dropped), byKey, dropped.droppedByKnob());
         }
 
+        // Phase 30 Wave 1 — structural triviality + dedup (flag-gated OFF). Drops
+        // window-geometry tautologies and collapses degenerate k=0 constant bounds
+        // (rhs-agnostic) to one representative. No-op when the flag is off.
+        int trivialOrRedundant = 0;
+        if (trivialityFilterEnabled) {
+            ConjectureTrivialityFilter.Reduction red = ConjectureTrivialityFilter.reduce(store);
+            for (ConjectureTrivialityFilter.Removed rm : red.removed()) {
+                persistRetired(List.of(rm.inequality()), byKey, rm.reason());
+            }
+            trivialOrRedundant = red.removed().size();
+            store = red.kept();
+        }
+
         // Persist survivors: update existing entities in place, insert new ones.
         int oeisAnnotated = 0;
         for (Inequality ineq : store) {
@@ -159,8 +186,8 @@ public class ConjectureMinerService implements ConjectureQueue {
             repo.save(entity);
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} ms",
-                store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(),
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} ms",
+                store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
                 System.currentTimeMillis() - t0);
     }
 

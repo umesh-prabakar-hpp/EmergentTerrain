@@ -131,7 +131,8 @@ class ConjectureQueueTest {
         // exercise only the queue (next/nextN), never mine(), so the delegate's
         // evaluateWindow is never called — a null-client delegate is inert here.
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
-                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null));
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
+                /*trivialityFilter*/ false);
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,
