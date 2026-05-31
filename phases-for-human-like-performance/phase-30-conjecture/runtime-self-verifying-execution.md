@@ -203,6 +203,9 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
 ---
 
 ## Cross-references
+- [`frontier-escalation-loop.md`](frontier-escalation-loop.md) — the autonomous *drive* that uses this
+  tool: escalate a holding bound, predict the compute stall, and pivot to a verifiable "innovative"
+  branch when computation runs out.
 - [`segmented-mertens-spike.md`](segmented-mertens-spike.md) — Phase 1 + fork 2a (the dev-time loop this
   productionizes); §6 per-invariant gate; §10 the 2a/2a-#1 results.
 - [`mertens-analytic-reachability.md`](mertens-analytic-reachability.md) — why novel *computations* are

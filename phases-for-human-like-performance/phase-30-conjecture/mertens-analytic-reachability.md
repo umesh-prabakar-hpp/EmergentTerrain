@@ -156,6 +156,10 @@ creative" from a recitation risk into a *checkable* search.
 
 ## Cross-references
 
+- [`frontier-escalation-loop.md`](frontier-escalation-loop.md) — turns §5–§7's "verifiable
+  computation vs unverifiable proof" distinction into a branch taxonomy + pivot policy: when compute
+  stalls, prefer verifiable innovation (proxy/model) and treat the analytic branch (this note's
+  Wall 2) as an honest boundary, not a step.
 - [`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md) — what the app's
   `mertens_per_sqrt_W` bound is, and how it differs from real Mertens research.
 - [`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) — the engine-level
