@@ -800,12 +800,19 @@ public class ResearchNarrationService {
      * discovery beans are present; the {@code discover_mertens_value} tool stays
      * absent then, and (when present) only advertises itself if runtimeExecEnabled.
      */
+    @org.springframework.beans.factory.annotation.Value("${app.research.narration.proseIntegrityEnabled:false}")
+    private boolean proseIntegrityFlag;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
             toolSuite.setDiscoveryService(discoveryService);
             toolSuite.setFrontierKnowledge(frontierKnowledge);
         }
+        // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the
+        // static revision-prompt builders can read it). Domain-neutral; OFF by default.
+        proseIntegrityEnabled = proseIntegrityFlag;
+        log.info("ResearchNarrationService — proseIntegrityAddendum={}", proseIntegrityFlag ? "ON" : "OFF");
     }
 
     /**
@@ -3808,6 +3815,41 @@ public class ResearchNarrationService {
             in your prose; do NOT emit fabricated entries to fill it.
             """;
 
+    /**
+     * Prose-integrity addendum (flag-gated, domain-neutral) — reinforces the citation
+     * rule and adds the two checks the always-live numerical-consistency D2 gaps catch
+     * that the citation rule alone does not: untraceable numbers, claims over un-executed
+     * ranges, and citing a FAILED call. Wording is deliberately domain-neutral (this runs
+     * on every domain's papers). Appended to the revision prompt when
+     * {@code app.research.narration.proseIntegrityEnabled} is ON. Targets review Rec 2/3:
+     * P-b72c-45 (phantom number), P-b72c-43 (scope overreach), P-b72c-46 (cited a rejected
+     * call) — all SUPPORTED-classified but downgraded to NULL_RESULT by the gate.
+     */
+    static final String PROSE_INTEGRITY_ADDENDUM = """
+
+
+            PROSE INTEGRITY (every claim must trace to the tool results above; the validator \
+            downgrades the paper to a null result otherwise — so OMIT, do not assert):
+            - State a number ONLY if it appears in a tool-call result above (or you derive it \
+            from such numbers and show the arithmetic). Never introduce a value, percentage, \
+            or margin that no tool call produced.
+            - Describe results ONLY over the ranges/intervals the tool calls actually \
+            evaluated. Do not claim a trend, statistic, or value over any interval — wider, \
+            shifted, or finer — that no tool call covered; your stated range must lie within \
+            the union of the executed ranges.
+            - Never cite a `[call_N]` marked FAILED / errored / rejected in the trace, and \
+            never reference a call index that does not exist — a failed call produced no data.
+            """;
+
+    /** Flag-gated activation of {@link #PROSE_INTEGRITY_ADDENDUM} (static mirror of the
+     *  {@code app.research.narration.proseIntegrityEnabled} @Value; settable in tests). */
+    static volatile boolean proseIntegrityEnabled = false;
+
+    /** Appends the prose-integrity addendum when enabled; identity otherwise. */
+    static String withProseIntegrity(String prompt) {
+        return proseIntegrityEnabled ? prompt + PROSE_INTEGRITY_ADDENDUM : prompt;
+    }
+
     static String buildRevisionPromptFromSynthesis(PromptTemplateRegistry registry,
                                                     PaperDraft draft, NarrationResult firstPass,
                                                     String professorSynthesis) {
@@ -3848,12 +3890,12 @@ public class ResearchNarrationService {
         params.put("conclusionSpec",     conclusionSpec);
         if (literatureContext != null && !literatureContext.isEmpty()) {
             params.put("literatureContext", literatureContext);
-            return registry.render(PromptTemplateIds.NARRATION_REVISION_ID,
+            return withProseIntegrity(registry.render(PromptTemplateIds.NARRATION_REVISION_ID,
                     "v2-from-synthesis-with-literature", params) + CITATION_RULE_ADDENDUM
-                    + conjectureDirective(draft);
+                    + conjectureDirective(draft));
         }
-        return registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params)
-                + CITATION_RULE_ADDENDUM + conjectureDirective(draft);
+        return withProseIntegrity(registry.render(PromptTemplateIds.NARRATION_REVISION_ID, "v1-from-synthesis", params)
+                + CITATION_RULE_ADDENDUM + conjectureDirective(draft));
     }
 
     // ─────────────────────────────────────────────────────────────────────────

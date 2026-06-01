@@ -536,4 +536,28 @@ class ResearchNarrationServiceCallPathTest {
         // At threshold 0.30, avg=0.25 < 0.30 → fire.
         assertThat(ResearchNarrationService.shouldDemoteByPanelGradeFloor(o, 0.30)).isTrue();
     }
+
+    @Test
+    void proseIntegrityAddendumGatedAndDomainNeutral() {
+        // review Rec 2/3 — flag-gated; covers the three D2-gap failure modes; domain-neutral.
+        boolean saved = ResearchNarrationService.proseIntegrityEnabled;
+        try {
+            ResearchNarrationService.proseIntegrityEnabled = false;
+            assertThat(ResearchNarrationService.withProseIntegrity("BASE")).isEqualTo("BASE");
+
+            ResearchNarrationService.proseIntegrityEnabled = true;
+            String out = ResearchNarrationService.withProseIntegrity("BASE");
+            assertThat(out).startsWith("BASE").contains("PROSE INTEGRITY");
+            // covers: untraceable number, un-executed range, FAILED-call citation
+            assertThat(out)
+                    .containsIgnoringCase("appears in a tool-call result")
+                    .containsIgnoringCase("ranges/intervals the tool calls actually")
+                    .containsIgnoringCase("FAILED");
+            // domain-neutral: no domain-specific terms baked in
+            assertThat(out.toLowerCase())
+                    .doesNotContain("mertens").doesNotContain("prime").doesNotContain("density");
+        } finally {
+            ResearchNarrationService.proseIntegrityEnabled = saved;
+        }
+    }
 }
