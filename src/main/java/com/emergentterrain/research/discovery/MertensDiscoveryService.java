@@ -163,9 +163,16 @@ public class MertensDiscoveryService {
         if ("na".equals(r.verdict())) {
             String base = "candidate did not run (" + r.status() + ")"
                     + (r.detail() == null || r.detail().isBlank() ? "" : ": " + r.detail());
-            if (isResourceFailure(r.status())) {
-                base += " — M(x) = Σ_{n≤x} μ(n); a SEGMENTED Möbius sieve (process [1,x] in blocks,"
-                        + " summing μ per block) computes it without holding the whole range.";
+            if ("timeout".equals(r.status())) {
+                // a correct-but-O(x) sieve (even segmented) is too SLOW at large x — push sublinear
+                base += " — TOO SLOW: an O(x) pass over [1,x] cannot finish in the budget at this "
+                        + "scale. Switch to the SUBLINEAR O(x^(2/3)) method: sieve μ and its prefix "
+                        + "sums M(n) up to ~x^(2/3), then M(n) = 1 - Σ_{d=2}^{n} M(⌊n/d⌋), grouping "
+                        + "equal ⌊n/d⌋ blocks and memoizing M at the ⌊x/i⌋ points.";
+            } else if (isResourceFailure(r.status())) {   // oom
+                base += " — TOO MUCH MEMORY: do not allocate ~x entries for M(x) = Σ_{n≤x} μ(n). "
+                        + "Sieve μ only up to ~x^(2/3) (Int8) and use the M(n) = 1 - Σ M(⌊n/d⌋) "
+                        + "recurrence with memoization for the rest.";
             }
             return base;
         }

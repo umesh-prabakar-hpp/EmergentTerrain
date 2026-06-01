@@ -28,6 +28,22 @@ public class MertensFrontierService {
 
     private static final String SPEC =
             "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)";
+
+    /**
+     * §10 — efficiency guidance appended to the Mertens generation spec so the LLM writes a
+     * SUBLINEAR method on the first attempt (a correct-but-O(x) segmented sieve times out for
+     * large x; the O(x^2/3) recurrence reaches far higher x in the same budget). Mertens-scoped
+     * (shared with the {@code discover_mertens_value} tool). The moat still validates correctness.
+     */
+    public static final String MERTENS_EFFICIENCY_HINT =
+            "\n\nEFFICIENCY (critical for large x): a linear or segmented sieve over ALL of [1,x] is "
+            + "O(x) and WILL time out for large x. Use the SUBLINEAR method — about O(x^(2/3)) time "
+            + "and memory: (1) sieve the Möbius function mu(n) and its running prefix sum "
+            + "M(n)=sum_{k<=n} mu(k) for n up to about x^(2/3) (store mu as Int8 to save memory); "
+            + "(2) for larger arguments use the recurrence M(n) = 1 - sum_{d=2}^{n} M(floor(n/d)), "
+            + "evaluated by grouping the d that share the same floor(n/d) (only O(sqrt(n)) distinct "
+            + "blocks) and MEMOIZING M at the O(sqrt(x)) distinct points floor(x/i). This computes "
+            + "M(x) for x up to ~10^12 well within the time budget. Never allocate an array of size x.";
     private static final String BOUND_LABEL = "|M(x)| < sqrt(x) (the Mertens conjecture)";
     private static final List<Long> CHECKPOINTS =
             List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
@@ -134,7 +150,8 @@ public class MertensFrontierService {
             log.info("frontier run resuming from accumulated frontier x={} (configured start {})",
                     effectiveStart, startScale);
         }
-        EscalationTask task = new EscalationTask(SPEC, effectiveStart, 10L, CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
+        EscalationTask task = new EscalationTask(SPEC + MERTENS_EFFICIENCY_HINT, effectiveStart, 10L,
+                CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
         // §10.3/B2 — seed the scale policy with persisted boundaries from prior runs so a
         // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
         java.util.List<FrontierEvent> priorEvents = knowledge == null

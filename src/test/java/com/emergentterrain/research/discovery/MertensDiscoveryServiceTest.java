@@ -119,6 +119,17 @@ class MertensDiscoveryServiceTest {
     }
 
     @Test
+    void describeGivesSublinearHintOnTimeoutAndMemoryHintOnOom() {
+        // §10 method-quality — a timeout means TOO SLOW (push sublinear), oom means TOO MUCH MEMORY
+        ValidationResult t = new ValidationResult("timeout", "na", Map.of(), Map.of(), null, null, "time limit");
+        assertThat(MertensDiscoveryService.describe(t))
+                .contains("TOO SLOW").contains("SUBLINEAR").contains("M(n) = 1 -");
+        ValidationResult o = new ValidationResult("oom", "na", Map.of(), Map.of(), null, null, "oom");
+        assertThat(MertensDiscoveryService.describe(o))
+                .contains("TOO MUCH MEMORY").contains("x^(2/3)");
+    }
+
+    @Test
     void sha256IsStableAndHex() {
         String a = MertensDiscoveryService.sha256("candidate(x)=0");
         assertThat(a).isEqualTo(MertensDiscoveryService.sha256("candidate(x)=0")).hasSize(64);
