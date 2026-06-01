@@ -38,6 +38,22 @@ public class MertensDiscoveryService {
     private final CandidateGenerator generator;
     private final CandidateValidator validator;
 
+    /**
+     * §10 mitigation — bail out of the repair loop after this many CONSECUTIVE resource
+     * failures (timeout/oom) at the same scale. Repeated timeouts mean the SCALE is too big,
+     * not a fixable bug, so grinding all {@code maxRepairAttempts} just burns ~wall_s each;
+     * bailing early lets the escalation loop feed back a smaller x sooner. A non-resource
+     * failure (wrong number — repairable) resets the streak. 0 disables (old behavior).
+     * Field-injected (default 2) so the back-compat constructor stays 4-arg.
+     */
+    @Value("${app.research.discovery.repairEarlyExitThreshold:2}")
+    private int repairEarlyExitThreshold = 2;
+
+    /** Test seam for the early-exit threshold. */
+    void setRepairEarlyExitThreshold(int t) {
+        this.repairEarlyExitThreshold = t;
+    }
+
     public MertensDiscoveryService(
             @Value("${app.research.discovery.runtimeExecEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.maxRepairAttempts:3}") int maxRepairAttempts,
@@ -87,6 +103,7 @@ public class MertensDiscoveryService {
         String discrepancy = null;
         String lastCode = null;
         String lastStatus = null;
+        int consecutiveResourceFails = 0;   // §10 — repeated timeout/oom ⇒ scale too big
         for (int attempt = 1; attempt <= task.maxAttempts(); attempt++) {
             String code = generator.generate(new GenerationRequest(task.spec(), previousCode, discrepancy));
             if (code == null || code.isBlank()) {
@@ -110,6 +127,19 @@ public class MertensDiscoveryService {
             lastStatus = result == null ? "error" : result.status();
             discrepancy = describe(result);
             log.info("discovery attempt {}/{} rejected — {}", attempt, task.maxAttempts(), discrepancy);
+
+            // §10 mitigation — early-exit on REPEATED resource failure. A timeout/oom means the
+            // scale is too big; the LLM can't fix that with a better method, so grinding the
+            // remaining attempts just burns ~wall_s each. Bail and let the escalation feed back a
+            // smaller x. A wrong-number failure (repairable) resets the streak.
+            consecutiveResourceFails = isResourceFailure(lastStatus) ? consecutiveResourceFails + 1 : 0;
+            if (repairEarlyExitThreshold > 0 && consecutiveResourceFails >= repairEarlyExitThreshold
+                    && attempt < task.maxAttempts()) {
+                log.info("discovery early-exit — {} consecutive {} at M({}); scale too big, stopping repair "
+                        + "after {}/{} (feeding back for a smaller x)",
+                        consecutiveResourceFails, lastStatus, task.target(), attempt, task.maxAttempts());
+                return DiscoveryOutcome.exhausted(attempt, discrepancy, lastCode, lastStatus);
+            }
         }
         return DiscoveryOutcome.exhausted(task.maxAttempts(), discrepancy, lastCode, lastStatus);
     }

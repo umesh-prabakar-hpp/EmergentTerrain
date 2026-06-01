@@ -124,4 +124,42 @@ class MertensDiscoveryServiceTest {
         assertThat(a).isEqualTo(MertensDiscoveryService.sha256("candidate(x)=0")).hasSize(64);
         assertThat(a).isNotEqualTo(MertensDiscoveryService.sha256("candidate(x)=1"));
     }
+
+    /** A resource (timeout) failure — the candidate did not run within the budget. */
+    private static ValidationResult timeout() {
+        return new ValidationResult("timeout", "na", Map.of(), Map.of(), null, null, "time limit");
+    }
+
+    @Test
+    void earlyExitsAfterRepeatedResourceFailure() {
+        // §10 — threshold 2: bail after 2 consecutive timeouts even though 3 attempts are allowed,
+        // because the scale (not the method) is the problem. Saves the 3rd (~wall_s) attempt.
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+                new FakeGen("a", "b", "c"), new FakeVal(timeout(), timeout(), timeout()));
+        svc.setRepairEarlyExitThreshold(2);
+        DiscoveryOutcome out = svc.discover(TASK);
+        assertThat(out.accepted()).isFalse();
+        assertThat(out.attempts()).isEqualTo(2);              // bailed at 2, did not grind to 3
+        assertThat(out.failureStatus()).isEqualTo("timeout");
+    }
+
+    @Test
+    void wrongNumberFailuresResetStreakAndDoNotEarlyExit() {
+        // a wrong-number failure is repairable (a better method may fix it), so the streak resets
+        // and the loop runs all attempts — early-exit only fires on REPEATED resource failures.
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+                new FakeGen("a", "b", "c"), new FakeVal(reject(), reject(), reject()));
+        svc.setRepairEarlyExitThreshold(2);
+        DiscoveryOutcome out = svc.discover(TASK);
+        assertThat(out.attempts()).isEqualTo(3);
+    }
+
+    @Test
+    void earlyExitDisabledWhenThresholdZero() {
+        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+                new FakeGen("a", "b", "c"), new FakeVal(timeout(), timeout(), timeout()));
+        svc.setRepairEarlyExitThreshold(0);   // disabled — grind all attempts
+        DiscoveryOutcome out = svc.discover(TASK);
+        assertThat(out.attempts()).isEqualTo(3);
+    }
 }
