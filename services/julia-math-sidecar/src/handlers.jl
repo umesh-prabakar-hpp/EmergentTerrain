@@ -2567,13 +2567,24 @@ function handle_discover_validate(req::HTTP.Request)
     wall_s = clamp(Int(get(body, :wallSeconds, 15)), 1, 120)
     mem_kb = Int(get(body, :memKb, 0))
 
-    # Trusted oracle: ONE cumulative pass to the max checkpoint over the
-    # validated nt_mobius, capturing M at each checkpoint. Runs in this
-    # (trusted) process — never in the sandbox.
+    # Which trusted per-n function the cumulative oracle sums — selects the bound being
+    # escalated. Defaults to "mertens" (back-compat: existing callers send no quantity).
+    quantity = lowercase(strip(String(get(body, :quantity, "mertens"))))
+    oracle_fn = quantity == "mertens" ? nt_mobius :
+                quantity == "divisor" ? nt_divisor_count : nothing
+    if oracle_fn === nothing
+        record_call!("discover_validate", el(), :error)
+        return error_response("bad_request",
+            "Field 'quantity' must be one of: mertens, divisor (got '$(quantity)')", el())
+    end
+
+    # Trusted oracle: ONE cumulative pass to the max checkpoint over the validated per-n
+    # function (nt_mobius → M(x); nt_divisor_count → D(x)), capturing the cumulative value
+    # at each checkpoint. Runs in this (trusted) process — never in the sandbox.
     oracle = Dict{Int,Int}()
     let want = Set(checkpoints), maxk = maximum(checkpoints), acc = 0
         @inbounds for n in 1:maxk
-            acc += nt_mobius(n)
+            acc += oracle_fn(n)
             (n in want) && (oracle[n] = acc)
         end
     end
