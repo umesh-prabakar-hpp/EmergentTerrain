@@ -1,6 +1,5 @@
 package com.emergentterrain.research.discovery;
 
-import com.emergentterrain.research.discovery.CandidateGenerator.GenerationRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,6 +54,16 @@ public class ProxyDiscoveryService {
         this.endpointHealth = endpointHealth;
     }
 
+    @Value("${app.research.discovery.repairEarlyExitThreshold:2}")
+    private int repairEarlyExitThreshold = 2;
+
+    void setRepairEarlyExitThreshold(int t) {
+        this.repairEarlyExitThreshold = t;
+    }
+
+    /** One proxy attempt's outcome, flattened so the shared loop can read it generically. */
+    private record Attempt(boolean accepted, String status, String failureText, Long targetValue) {}
+
     public ProxyDiscoveryOutcome discover(ProxySpec spec, DiscoveryTask task) {
         if (!enabled) {
             return ProxyDiscoveryOutcome.disabled();
@@ -64,33 +73,36 @@ public class ProxyDiscoveryService {
             return ProxyDiscoveryOutcome.unavailable();
         }
         ProxyOracle oracle = oracleFactory.forSpec(spec);
-        String previousCode = null;
-        String discrepancy = null;
-        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-            String code = generator.generate(new GenerationRequest(specText(spec), previousCode, discrepancy));
-            if (code == null || code.isBlank()) {
-                discrepancy = "generator returned no code";
-                continue;
-            }
-            ValidationResult res = executor.validate(code, task);   // sandbox executor — verdict ignored
-            if (!"ok".equals(res.status())) {
-                previousCode = code;
-                discrepancy = "candidate did not run (" + res.status() + ")";
-                log.info("proxy discovery [{}] attempt {}/{} — {}", spec.name(), attempt, maxAttempts, discrepancy);
-                continue;
-            }
-            ProxyValidator.Verdict v = ProxyValidator.judge(res.values(), oracle, task.checkpoints());
-            if (v.accepted()) {
-                Long targetValue = res.values() == null ? null : res.values().get(task.target());
-                log.info("proxy discovery [{}] accepted on attempt {}/{} — P({}) = {}",
-                        spec.name(), attempt, maxAttempts, task.target(), targetValue);
-                return ProxyDiscoveryOutcome.accepted(spec.name(), code, targetValue, attempt);
-            }
-            previousCode = code;
-            discrepancy = "P(" + v.firstFailK() + ") = " + v.got() + " but the correct value is " + v.want();
-            log.info("proxy discovery [{}] attempt {}/{} rejected — {}", spec.name(), attempt, maxAttempts, discrepancy);
+        // §10 — same SHARED loop as Mertens: proxy supplies its 2-stage validation (sandbox
+        // exec → proxy-oracle judge) as one callback; the loop adds logging, the recipe-free
+        // resource hints, and early-exit (which proxy discovery now inherits — previously it had
+        // neither). The judge's clean-run rejections carry status "ok", so they reset the
+        // early-exit streak (repairable), while sandbox timeout/oom trigger it.
+        DiscoveryRepairLoop.Result<Attempt> r = DiscoveryRepairLoop.run(
+                specText(spec), "proxy " + spec.name(), maxAttempts, repairEarlyExitThreshold,
+                generator,
+                code -> {
+                    ValidationResult res = executor.validate(code, task);   // verdict ignored — raw values
+                    if (!"ok".equals(res.status())) {
+                        return new Attempt(false, res.status(), "candidate did not run (" + res.status() + ")", null);
+                    }
+                    ProxyValidator.Verdict v = ProxyValidator.judge(res.values(), oracle, task.checkpoints());
+                    if (v.accepted()) {
+                        Long tv = res.values() == null ? null : res.values().get(task.target());
+                        return new Attempt(true, "ok", null, tv);
+                    }
+                    return new Attempt(false, "ok",
+                            "P(" + v.firstFailK() + ") = " + v.got() + " but the correct value is " + v.want(), null);
+                },
+                Attempt::accepted,
+                Attempt::status,
+                Attempt::failureText);
+        if (r.accepted()) {
+            log.info("proxy discovery [{}] accepted — P({}) = {}", spec.name(), task.target(), r.winning().targetValue());
+            return ProxyDiscoveryOutcome.accepted(spec.name(), r.code(), r.winning().targetValue(), r.attempts());
         }
-        return ProxyDiscoveryOutcome.exhausted(spec.name(), maxAttempts, discrepancy);
+        return ProxyDiscoveryOutcome.exhausted(spec.name(), r.attempts(),
+                r.lastDiscrepancy() == null ? "no validated candidate" : r.lastDiscrepancy());
     }
 
     /** Describe the proxy summatory for the generator. */

@@ -110,28 +110,13 @@ class MertensDiscoveryServiceTest {
     }
 
     @Test
-    void describeFormatsRepairSignal() {
-        assertThat(MertensDiscoveryService.describe(reject()))
+    void failureTextFormatsDomainSignalWithoutHint() {
+        // the per-domain text ONLY (the shared loop appends the neutral resource hint, not this)
+        assertThat(MertensDiscoveryService.failureText(reject()))
                 .isEqualTo("M(2) = 2 but the correct value is 0");
         ValidationResult na = new ValidationResult("ast_reject", "na", Map.of(), Map.of(), null, null, "open");
-        assertThat(MertensDiscoveryService.describe(na))
+        assertThat(MertensDiscoveryService.failureText(na))
                 .contains("did not run").contains("ast_reject");
-    }
-
-    @Test
-    void describeSignalsResourceFailureWithoutPrescribingTheAlgorithm() {
-        // §10 — the hint signals the failure + freedom, but does NOT hand the model the algorithm
-        // (no recipe): the LLM must devise the efficient method itself; the moat verifies.
-        ValidationResult t = new ValidationResult("timeout", "na", Map.of(), Map.of(), null, null, "time limit");
-        String th = MertensDiscoveryService.describe(t);
-        assertThat(th).contains("TOO SLOW").contains("more efficient algorithm").contains("free to use");
-        assertThat(th).doesNotContain("M(n) = 1").doesNotContainIgnoringCase("recurrence")
-                .doesNotContain("x^(2/3)").doesNotContainIgnoringCase("sieve");
-
-        ValidationResult o = new ValidationResult("oom", "na", Map.of(), Map.of(), null, null, "oom");
-        String oh = MertensDiscoveryService.describe(o);
-        assertThat(oh).contains("MEMORY BUDGET").contains("grows with x");
-        assertThat(oh).doesNotContain("x^(2/3)").doesNotContainIgnoringCase("recurrence");
     }
 
     @Test

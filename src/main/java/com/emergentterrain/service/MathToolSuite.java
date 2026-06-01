@@ -1582,8 +1582,7 @@ public class MathToolSuite {
                     " (use a direct method at or below the sieve range).";
         }
         var task = new com.emergentterrain.research.discovery.DiscoveryTask(
-                "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)"
-                        + com.emergentterrain.research.discovery.MertensFrontierService.MERTENS_EFFICIENCY_HINT,
+                "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)",
                 x, DISCOVER_CHECKPOINTS, DISCOVER_ANCHORS, 20, 28, discoveryService.maxAttempts());
         var outcome = discoveryService.discover(task);
         if (outcome.accepted()) {

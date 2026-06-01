@@ -30,6 +30,10 @@ public class LlmCandidateGenerator implements CandidateGenerator {
               cld, arrays) is fine.
             - Deterministic; return Int64; return 0 for x < 1.
             - It will be run in an isolated sandbox and checked against ground truth.
+            - It runs under a STRICT CPU-time and memory budget and may be called with VERY large x,
+              so it must scale: an approach whose time or memory grows with x will not finish for
+              large x. You are FREE to use any algorithm or mathematical structure you can devise to
+              make it efficient — only the result is checked, so be inventive.
             Output ONLY the Julia code in a single ```julia code fence — the function plus any
             helpers it needs. No prose, no comments explaining your reasoning.""";
 
@@ -54,34 +58,15 @@ public class LlmCandidateGenerator implements CandidateGenerator {
     }
 
     private static String repairPrompt(GenerationRequest r) {
+        // The discrepancy already carries the neutral resource signal (appended by
+        // DiscoveryRepairLoop.augment for timeout/oom), and the CONTRACT (shown on the first
+        // prompt) carries the budget/freedom framing — so no separate lesson is added here.
         return "Your previous Julia attempt to compute: " + r.spec() + "\n"
                 + "is WRONG. An independent validator found:\n    " + r.discrepancy() + "\n\n"
-                + memoryLesson(r.discrepancy())
                 + "Find and fix the bug. Here is your previous attempt:\n\n```julia\n"
                 + r.previousCode() + "\n```\n\n"
                 + "Output ONLY the corrected Julia function in a single ```julia code fence. "
                 + "No prose, no explanation of what you changed.";
-    }
-
-    /**
-     * Domain-neutral memory-bound lesson — added (for ANY spec: Mertens, proxy, future
-     * bounds) when the validator reported a resource failure. The sandbox runs each
-     * candidate under a hard memory cap, so a method whose footprint grows with x cannot
-     * reach large x. Keyed off the neutral sandbox status tokens, not the domain
-     * (frontier-escalation-loop.md §10.4). Empty for non-resource failures.
-     */
-    static String memoryLesson(String discrepancy) {
-        String d = discrepancy == null ? "" : discrepancy.toLowerCase();
-        if (d.contains("oom") || d.contains("out of memory") || d.contains("timeout")
-                || d.contains("memory limit") || d.contains("time limit")) {
-            // State the CONSTRAINT (budget) and freedom — not the algorithm. The model must
-            // devise the efficient approach itself; the validator enforces correctness (§10).
-            return "The sandbox enforces a HARD memory and time cap, and x can be very large, so the "
-                    + "method must scale: an approach whose time or memory grows with x will not "
-                    + "finish for large x. You are free to use any algorithm or mathematical "
-                    + "structure you can devise to make it efficient — only the result is checked.\n\n";
-        }
-        return "";
     }
 
     /**

@@ -1,6 +1,5 @@
 package com.emergentterrain.research.discovery;
 
-import com.emergentterrain.research.discovery.CandidateGenerator.GenerationRequest;
 import com.emergentterrain.research.discovery.DiscoveryOutcome.Provenance;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,92 +98,43 @@ public class MertensDiscoveryService {
             log.warn("discovery skipped — endpoint unavailable; no candidate generated (no tokens spent)");
             return DiscoveryOutcome.unavailable();
         }
-        String previousCode = null;
-        String discrepancy = null;
-        String lastCode = null;
-        String lastStatus = null;
-        int consecutiveResourceFails = 0;   // §10 — repeated timeout/oom ⇒ scale too big
-        for (int attempt = 1; attempt <= task.maxAttempts(); attempt++) {
-            String code = generator.generate(new GenerationRequest(task.spec(), previousCode, discrepancy));
-            if (code == null || code.isBlank()) {
-                discrepancy = "generator returned no code";
-                log.info("discovery attempt {}/{} — {}", attempt, task.maxAttempts(), discrepancy);
-                continue;
-            }
-            // Log the LLM-generated candidate verbatim (+sha) — the actual computation
-            // that will (or won't) produce a frontier value, so it is auditable in the log.
-            log.info("discovery attempt {}/{} — candidate (sha256={}) for M({}):\n{}",
-                    attempt, task.maxAttempts(), sha256(code), task.target(), clip(code));
-            ValidationResult result = validator.validate(code, task);
-            if (result.accepted()) {
-                log.info("discovery accepted on attempt {}/{} — target M({}) = {} | method sha256={}",
-                        attempt, task.maxAttempts(), task.target(), result.targetValue(), sha256(code));
-                return DiscoveryOutcome.accepted(code, result.targetValue(), attempt,
-                        provenanceOf(code, task), result.elapsedMs());
-            }
-            previousCode = code;
-            lastCode = code;
-            lastStatus = result == null ? "error" : result.status();
-            discrepancy = describe(result);
-            log.info("discovery attempt {}/{} rejected — {}", attempt, task.maxAttempts(), discrepancy);
-
-            // §10 mitigation — early-exit on REPEATED resource failure. A timeout/oom means the
-            // scale is too big; the LLM can't fix that with a better method, so grinding the
-            // remaining attempts just burns ~wall_s each. Bail and let the escalation feed back a
-            // smaller x. A wrong-number failure (repairable) resets the streak.
-            consecutiveResourceFails = isResourceFailure(lastStatus) ? consecutiveResourceFails + 1 : 0;
-            if (repairEarlyExitThreshold > 0 && consecutiveResourceFails >= repairEarlyExitThreshold
-                    && attempt < task.maxAttempts()) {
-                log.info("discovery early-exit — {} consecutive {} at M({}); scale too big, stopping repair "
-                        + "after {}/{} (feeding back for a smaller x)",
-                        consecutiveResourceFails, lastStatus, task.target(), attempt, task.maxAttempts());
-                return DiscoveryOutcome.exhausted(attempt, discrepancy, lastCode, lastStatus);
-            }
+        // §10 — delegate to the SHARED generic loop (logging, the recipe-free resource hints,
+        // and early-exit on repeated timeout/oom all live there, domain-neutral). Mertens supplies
+        // only its 1-stage moat validation + the per-failure text; the loop does the rest.
+        DiscoveryRepairLoop.Result<ValidationResult> r = DiscoveryRepairLoop.run(
+                task.spec(), "mertens M(" + task.target() + ")", task.maxAttempts(), repairEarlyExitThreshold,
+                generator,
+                code -> validator.validate(code, task),
+                ValidationResult::accepted,
+                vr -> vr == null ? "error" : vr.status(),
+                MertensDiscoveryService::failureText);
+        if (r.accepted()) {
+            ValidationResult v = r.winning();
+            return DiscoveryOutcome.accepted(r.code(), v.targetValue(), r.attempts(),
+                    provenanceOf(r.code(), task), v.elapsedMs());
         }
-        return DiscoveryOutcome.exhausted(task.maxAttempts(), discrepancy, lastCode, lastStatus);
-    }
-
-    /** Trim a candidate for the log so a pathological generation can't flood it. */
-    private static String clip(String code) {
-        return code.length() <= 4000 ? code : code.substring(0, 4000) + "\n… [" + (code.length() - 4000) + " more chars]";
+        return DiscoveryOutcome.exhausted(r.attempts(),
+                r.lastDiscrepancy() == null ? "no validated candidate" : r.lastDiscrepancy(),
+                r.lastFailedCode(), r.lastStatus());
     }
 
     /**
-     * The repair signal fed back to the generator — exactly what fork 2a showed sufficient.
-     * The <b>Mertens-specific</b> realization of a resource (OOM/timeout) failure is added
-     * here (this is the mertens branch); the <i>domain-neutral</i> "use bounded memory /
-     * segment the range" lesson is added by the shared {@link LlmCandidateGenerator} so it
-     * also serves proxy discovery (see frontier-escalation-loop.md §10.4).
+     * The domain "what was wrong" text for a rejected candidate (the shared loop appends the
+     * neutral resource signal). Mertens-specific only in that it names M(k); no algorithm hint.
      */
-    static String describe(ValidationResult r) {
+    static String failureText(ValidationResult r) {
         if (r == null) {
             return "no validation result";
         }
         if ("na".equals(r.verdict())) {
-            String base = "candidate did not run (" + r.status() + ")"
+            return "candidate did not run (" + r.status() + ")"
                     + (r.detail() == null || r.detail().isBlank() ? "" : ": " + r.detail());
-            if ("timeout".equals(r.status())) {
-                // signal only — too slow at this scale; the model must find a better algorithm itself
-                base += " — TOO SLOW at this scale: it did not finish within the time budget. A faster "
-                        + "constant on the same approach will not be enough — a more efficient "
-                        + "algorithm is needed. You are free to use any technique; correctness is "
-                        + "still checked against ground truth.";
-            } else if (isResourceFailure(r.status())) {   // oom
-                base += " — EXCEEDED THE MEMORY BUDGET: do not allocate memory that grows with x. "
-                        + "Find an approach with bounded memory; correctness is still checked.";
-            }
-            return base;
         }
         if (r.firstFail() != null) {
             ValidationResult.FirstFail f = r.firstFail();
             return "M(" + f.k() + ") = " + f.got() + " but the correct value is " + f.want();
         }
         return "rejected (" + r.status() + ")";
-    }
-
-    /** Sandbox statuses where the fix is memory/time-bound, not a numeric bug. Domain-neutral tokens. */
-    static boolean isResourceFailure(String status) {
-        return "oom".equals(status) || "timeout".equals(status);
     }
 
     private static Provenance provenanceOf(String code, DiscoveryTask task) {

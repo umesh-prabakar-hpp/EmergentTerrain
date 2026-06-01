@@ -28,20 +28,10 @@ public class MertensFrontierService {
 
     private static final String SPEC =
             "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)";
-
-    /**
-     * §10 — the LLM is the creative engine; the moat is the verifier. We give it the RULES OF
-     * THE GAME (a strict budget, large x, freedom, verification), NOT the algorithm — so that
-     * reaching higher x is the model's own discovery, generalizes to any bound, and is honestly
-     * the system's work rather than a recipe dictated in the prompt. The failure feedback
-     * (timeout/oom is knowledge) is the only nudge; the moat validates whatever it invents.
-     */
-    public static final String MERTENS_EFFICIENCY_HINT =
-            "\n\nThis runs under a STRICT CPU-time and memory budget and may be called with VERY "
-            + "large x, so it must scale — an approach whose time or memory grows with x will not "
-            + "finish for large x. You are free to use ANY algorithm or mathematical structure you "
-            + "can devise; an independent validator checks the result against ground truth, so "
-            + "correctness is enforced — be inventive about efficiency.";
+    // §10 — the budget/freedom framing ("strict budget, large x, be inventive, validator checks")
+    // is NO LONGER appended here: it moved to the shared LlmCandidateGenerator CONTRACT so it
+    // applies to EVERY discovery domain (Mertens, proxy, future bounds), not just this spec. The
+    // LLM is the creative engine; the moat is the verifier; the rules of the game are domain-neutral.
     private static final String BOUND_LABEL = "|M(x)| < sqrt(x) (the Mertens conjecture)";
     private static final List<Long> CHECKPOINTS =
             List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
@@ -148,7 +138,7 @@ public class MertensFrontierService {
             log.info("frontier run resuming from accumulated frontier x={} (configured start {})",
                     effectiveStart, startScale);
         }
-        EscalationTask task = new EscalationTask(SPEC + MERTENS_EFFICIENCY_HINT, effectiveStart, 10L,
+        EscalationTask task = new EscalationTask(SPEC, effectiveStart, 10L,
                 CHECKPOINTS, ANCHORS, cpuSeconds, wallSeconds);
         // §10.3/B2 — seed the scale policy with persisted boundaries from prior runs so a
         // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
