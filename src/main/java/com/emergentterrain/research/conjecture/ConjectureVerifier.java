@@ -37,6 +37,35 @@ public class ConjectureVerifier {
     public static final int MAX_WORK = 100_000;
 
     /**
+     * Config-driven verify caps (the static constants above are the defaults).
+     * <ul>
+     *   <li>{@code maxWorkCfg} — per-call total-integers budget; a free tuning knob (the
+     *       per-integer number-theory eval is in-process, so this bounds one call's cost).</li>
+     *   <li>{@code maxNCfg} — the verify window ceiling. This is NOT a free knob: it is the
+     *       trusted-oracle / dense-sieve range, coupled to the sidecar's {@code NT_MAX_N}.
+     *       {@link #maxN()} clamps it to {@link #MAX_N} so it can be lowered for testing but
+     *       never raised past the actual sieve (which would have no ground truth). Raising the
+     *       real ceiling requires extending the sidecar sieve and {@link #MAX_N} in lockstep.
+     *       It is distinct from the discovery <i>frontier</i> (how far validated computation has
+     *       reached <i>beyond</i> the sieve) — see frontier-escalation-loop.md.</li>
+     * </ul>
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxWork:100000}")
+    private int maxWorkCfg = MAX_WORK;
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxN:2000000}")
+    private int maxNCfg = MAX_N;
+
+    /** Effective per-call work cap (numWindows × windowSize), config-driven. */
+    public int maxWork() {
+        return Math.max(1, maxWorkCfg);
+    }
+
+    /** Effective verify window ceiling — clamped to the sidecar's sieve coverage; never exceeds it. */
+    public int maxN() {
+        return Math.max(1, Math.min(maxNCfg, MAX_N));
+    }
+
+    /**
      * Phase 28 §28.6 — the sidecar-only delegate is the sole source of window
      * scalars and the wrapped JuliaMathClient for the batched verify path.
      * Autowired (kept field-injected to preserve this class's zero-arg
@@ -145,14 +174,14 @@ public class ConjectureVerifier {
             throw new IllegalArgumentException("num_windows must be > 0; got " + numWindows);
         }
         long totalWork = (long) numWindows * windowSize;
-        if (totalWork > MAX_WORK) {
+        if (totalWork > maxWork()) {
             throw new IllegalArgumentException(
-                    "num_windows × window_size = " + totalWork + " exceeds cap of " + MAX_WORK);
+                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork());
         }
         long maxEvaluated = windowStart + totalWork;
-        if (maxEvaluated > MAX_N) {
+        if (maxEvaluated > maxN()) {
             throw new IllegalArgumentException(
-                    "window extends to n=" + maxEvaluated + " which exceeds MAX_N=" + MAX_N);
+                    "window extends to n=" + maxEvaluated + " which exceeds MAX_N=" + maxN());
         }
 
         VerifyResult requested;

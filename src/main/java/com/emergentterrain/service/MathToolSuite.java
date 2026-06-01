@@ -658,7 +658,7 @@ public class MathToolSuite {
                     }
                   }
                 }%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
-                conjectureVerifier == null ? "" : VERIFY_CONJECTURE_TOOL_JSON,
+                conjectureVerifier == null ? "" : verifyConjectureToolJson(),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
@@ -750,12 +750,22 @@ public class MathToolSuite {
               }
             }""";
 
-    private static final String VERIFY_CONJECTURE_TOOL_JSON = """
+    /**
+     * verify_conjecture tool schema. Built at call time so the two hard caps — the per-call
+     * work cap ({@code window_size × num_windows ≤ maxWork}) and the trusted-oracle range cap
+     * ({@code window_start + window_size × num_windows ≤ maxN}) — are surfaced with their
+     * CONFIGURED values, so the model sizes its first call legally instead of burning calls
+     * discovering the limits by trial (review Rec 4). Caps come from {@link ConjectureVerifier}.
+     */
+    private String verifyConjectureToolJson() {
+        long maxWork = conjectureVerifier.maxWork();
+        long maxN = conjectureVerifier.maxN();
+        return ("""
             ,{
               "type":"function",
               "function":{
                 "name":"verify_conjecture",
-                "description":"Phase 23.5 — verify a math-domain conjecture of the form `lhs <= k*rhs + c` on a held-out window slice. Pick a window_start the conjecture miner did NOT see (anything outside the prototype's offsets {100, 1000, 5000, 10000, 50000, 100000, 500000, 1000000}). Evaluates num_windows disjoint windows of window_size starting at window_start, computes per-window margin (lhs - (k*rhs + c)), reports held overall (all margins within 2*TOL) or REFUTED with the worst sample as witness. Valid scalar names for lhs/rhs: abundant_density, deficient_density, prime_density, happy_density, mean_omega, mean_Omega, mean_divisor_count, max_divisor_count, mertens_delta, abundant_minus_deficient, omega_Omega_gap, log_window_size, sqrt_window_size, log_window_start, mertens_per_sqrt_W.",
+                "description":"Phase 23.5 — verify a math-domain conjecture of the form `lhs <= k*rhs + c` on a held-out window slice. Pick a window_start the conjecture miner did NOT see (anything outside the prototype's offsets {100, 1000, 5000, 10000, 50000, 100000, 500000, 1000000}). Evaluates num_windows disjoint windows of window_size starting at window_start, computes per-window margin (lhs - (k*rhs + c)), reports held overall (all margins within 2*TOL) or REFUTED with the worst sample as witness. TWO HARD CAPS, both rejected if exceeded: (1) WORK: window_size × num_windows ≤ %d (total integers scanned per call); (2) RANGE: window_start + window_size × num_windows ≤ %d (the trusted-oracle/sieve range — windows cannot extend past it). Size your FIRST call within both. Valid scalar names for lhs/rhs: abundant_density, deficient_density, prime_density, happy_density, mean_omega, mean_Omega, mean_divisor_count, max_divisor_count, mertens_delta, abundant_minus_deficient, omega_Omega_gap, log_window_size, sqrt_window_size, log_window_start, mertens_per_sqrt_W.",
                 "parameters":{
                   "type":"object",
                   "properties":{
@@ -763,14 +773,14 @@ public class MathToolSuite {
                     "rhs":{"type":"string","description":"Right-hand-side scalar name."},
                     "k":{"type":"number","description":"Multiplicative coefficient on rhs."},
                     "c":{"type":"number","description":"Additive constant."},
-                    "window_start":{"type":"integer","description":"First integer in the first evaluated window. Pick a held-out offset."},
-                    "window_size":{"type":"integer","description":"Integers per window (window_size * num_windows ≤ 100000)."},
+                    "window_start":{"type":"integer","description":"First integer in the first evaluated window. Pick a held-out offset. Must satisfy window_start + window_size × num_windows ≤ %d."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
                   },
                   "required":["lhs","rhs","k","c","window_start","window_size"]
                 }
-              }
-            }""";
+              }""").formatted(maxWork, maxN, maxN, maxWork);
+    }
 
     /**
      * Phase 30 fork 2b Phase 4 — runtime-discovery tool. Advertised only when
