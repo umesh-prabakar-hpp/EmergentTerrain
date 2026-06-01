@@ -111,13 +111,26 @@ end
 
 function _driver(code::AbstractString, inputs::Vector{Int})
     lits = join(string.(inputs), ",")
+    # The candidate call is wrapped in try/catch so a RUNTIME error (the candidate parsed
+    # but threw — e.g. a BoundsError/MethodError in a sublinear method) is surfaced as a
+    # FULL, clean message (`CANDIDATE_ERROR: <showerror>` + a few backtrace frames) on stderr,
+    # instead of Julia's terse default that reached the repair loop as an unusable fragment.
+    # The discovery loop feeds this back to the LLM so it can actually fix its own method.
     return string(code, "\n\n",
         "let __inputs = Int[", lits, "]\n",
         "    __parts = String[]\n",
-        "    for __k in __inputs\n",
-        "        push!(__parts, string(\"[\", __k, \",\", Int(candidate(__k)), \"]\"))\n",
+        "    try\n",
+        "        for __k in __inputs\n",
+        "            push!(__parts, string(\"[\", __k, \",\", Int(candidate(__k)), \"]\"))\n",
+        "        end\n",
+        "        println(string(\"RESULT:[\", join(__parts, \",\"), \"]\"))\n",
+        "    catch __e\n",
+        "        println(stderr, \"CANDIDATE_ERROR: \", sprint(showerror, __e))\n",
+        "        __bt = stacktrace(catch_backtrace())\n",
+        "        for __l in __bt[1:min(length(__bt), 8)]\n",
+        "            println(stderr, \"  at \", __l)\n",
+        "        end\n",
         "    end\n",
-        "    println(string(\"RESULT:[\", join(__parts, \",\"), \"]\"))\n",
         "end\n")
 end
 
@@ -174,7 +187,10 @@ function run_sandboxed(code::AbstractString, inputs::Vector{<:Integer};
         # 124/137, or CPU `ulimit -t` → SIGXCPU, which Julia may turn into a
         # ~limit-time exit) is detected by code OR by elapsed reaching ~90% of
         # the tighter of the two limits.
-        errtail = serr[max(1, end-400):end]
+        # Widen the captured tail (was 400 → 4000) so a full CANDIDATE_ERROR + backtrace reaches
+        # the repair loop; fall back to the stdout tail if stderr is empty (some errors print there).
+        errsrc = isempty(strip(serr)) ? sout : serr
+        errtail = errsrc[max(1, end - 4000):end]
         time_budget = min(cpu_seconds, wall_seconds)
         if code_exit == 124 || code_exit == 137 || elapsed >= 0.9 * time_budget
             return SandboxResult(:timeout, "time limit (cpu=$(cpu_seconds)s wall=$(wall_seconds)s)", nothing, elapsed)

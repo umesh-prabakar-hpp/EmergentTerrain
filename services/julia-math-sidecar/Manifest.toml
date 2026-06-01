@@ -2,7 +2,7 @@
 
 julia_version = "1.12.1"
 manifest_format = "2.0"
-project_hash = "70fe9bf2228c1f1b6076c0c32373b1b7cc5fd5c6"
+project_hash = "0713fb1a9f0ac7543f75a4c05da89f7a9f7473f1"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "bbc22a9a08a0ef6460041086d8a7b27940ed4ffd"
@@ -597,7 +597,7 @@ uuid = "ae98c720-c025-4a4a-838c-29b094483192"
 version = "0.2.1"
 
 [[deps.JuliaMathSidecar]]
-deps = ["HTTP", "JSON3", "LinearAlgebra", "Logging", "PrecompileTools", "PyCall", "QuadGK", "Roots", "Statistics", "SymbolicRegression", "SymbolicUtils", "Symbolics"]
+deps = ["Dates", "HTTP", "JSON3", "LinearAlgebra", "Logging", "PrecompileTools", "PyCall", "QuadGK", "Roots", "Statistics", "SymbolicRegression", "SymbolicUtils", "Symbolics"]
 path = "."
 uuid = "9e8a4c00-3f2d-4f1f-9a3a-7c1d8e6f2b00"
 version = "0.1.0"
