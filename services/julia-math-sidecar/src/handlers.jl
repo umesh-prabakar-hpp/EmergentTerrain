@@ -2557,8 +2557,14 @@ function handle_discover_validate(req::HTTP.Request)
     target = get(body, :target, nothing)
     target_i = target isa Integer ? Int(target) : nothing
 
-    cpu_s  = clamp(Int(get(body, :cpuSeconds, 10)),  1, 25)
-    wall_s = clamp(Int(get(body, :wallSeconds, 15)), 1, 28)
+    # Safety backstop on the per-candidate sandbox budget. Ceilings give headroom above the
+    # Java-side config (app.research.discovery.frontierCpuSeconds/WallSeconds = 60/80) so the
+    # configured value passes through and is the single source of truth; this only blocks an
+    # absurd request. NOTE: a candidate can monopolise the single-thread sidecar for up to
+    # wall_s — raising these widens the frontier reach but also the worst-case block time
+    # (see frontier-escalation-loop.md §10 deferred mitigation). Keep wall_s > cpu_s.
+    cpu_s  = clamp(Int(get(body, :cpuSeconds, 10)),  1, 90)
+    wall_s = clamp(Int(get(body, :wallSeconds, 15)), 1, 120)
     mem_kb = Int(get(body, :memKb, 0))
 
     # Trusted oracle: ONE cumulative pass to the max checkpoint over the
