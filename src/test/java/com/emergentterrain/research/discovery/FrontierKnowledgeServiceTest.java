@@ -133,6 +133,20 @@ class FrontierKnowledgeServiceTest {
     }
 
     @Test
+    void recordCheckpointPersistsIncrementallyAndRatchetsFrontier() {
+        FakeStore store = new FakeStore();
+        FrontierKnowledgeService svc = new FrontierKnowledgeService(store, 2);
+        // mid-run: persist a validated rung immediately — frontier reflects it at once (no record() yet)
+        svc.recordCheckpoint("b", cpm(400_000_000L, -1599L, "method-code", 18000));
+        assertThat(svc.frontier("b")).isEqualTo(400_000_000L);
+        assertThat(store.find("b", 400_000_000L)).get().extracting(FrontierRecord::value).isEqualTo(-1599L);
+        assertThat(store.bestMethod("b")).isPresent();
+        // a failure checkpoint persists a boundary event immediately too
+        svc.recordCheckpoint("b", cpFail(2_000_000_000L, "dense-code", "timeout"));
+        assertThat(svc.recall("b").events()).hasSize(1);
+    }
+
+    @Test
     void persistsFailureEventsAndRecallSurfacesBoundary() {
         FakeStore store = new FakeStore();
         FrontierKnowledgeService svc = new FrontierKnowledgeService(store, 2);

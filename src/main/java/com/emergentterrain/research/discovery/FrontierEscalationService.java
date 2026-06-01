@@ -129,17 +129,23 @@ public class FrontierEscalationService {
      * checkpoint corpus + terminal state.
      */
     public EscalationOutcome escalate(EscalationTask task, ScaleValueSource sieveSource, BoundPredicate bound) {
-        return escalate(task, sieveSource, bound, List.of());
+        return escalate(task, sieveSource, bound, List.of(), null);
+    }
+
+    public EscalationOutcome escalate(EscalationTask task, ScaleValueSource sieveSource, BoundPredicate bound,
+                                      List<FrontierEvent> priorEvents) {
+        return escalate(task, sieveSource, bound, priorEvents, null);
     }
 
     /**
-     * §10.3/B2 — overload that seeds the scale policy with {@code priorEvents}: the
-     * persisted failure/boundary events from previous runs, so a fresh run starts
-     * INFORMED of which scales were unreachable (the LLM may still retry them — inform,
-     * not suppress). Fetched by the caller from the knowledge store.
+     * §10.3/B2 — overload that seeds the scale policy with {@code priorEvents} (persisted
+     * boundaries from previous runs — inform, not suppress) and fires {@code onCheckpoint} after
+     * every rung so the caller can persist INCREMENTALLY: a restart mid-run then resumes from the
+     * latest reached x, not the last completed run's frontier ({@code onCheckpoint} may be null).
      */
     public EscalationOutcome escalate(EscalationTask task, ScaleValueSource sieveSource, BoundPredicate bound,
-                                      List<FrontierEvent> priorEvents) {
+                                      List<FrontierEvent> priorEvents,
+                                      java.util.function.Consumer<EscalationCheckpoint> onCheckpoint) {
         if (!enabled) {
             return EscalationOutcome.disabled();
         }
@@ -160,6 +166,9 @@ public class FrontierEscalationService {
         for (int round = 0; round < maxRounds; round++) {
             EscalationCheckpoint cp = evaluateAt(x, task, sieveSource, bound);
             cps.add(cp);
+            if (onCheckpoint != null) {
+                onCheckpoint.accept(cp);   // incremental persist — survives a mid-run restart
+            }
             log.info("escalation round {}/{} — x={} value={} verdict={} via {} ({}ms)",
                     round + 1, maxRounds, x, cp.value(), cp.verdict(), cp.source(), cp.elapsedMs());
             switch (cp.verdict()) {

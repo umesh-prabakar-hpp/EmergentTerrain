@@ -47,6 +47,7 @@ class MertensFrontierServiceTest {
             @Override public Recall recall(String bound) {
                 return new Recall(java.util.List.of(), 500_000_000L, java.util.Optional.empty(), java.util.List.of());
             }
+            @Override public void recordCheckpoint(String bound, EscalationCheckpoint c) { /* no store */ }
         };
         FrontierEscalationService escalation =
                 new FrontierEscalationService(true, 3, 30000.0, 0.0, discAccepting(1037L));

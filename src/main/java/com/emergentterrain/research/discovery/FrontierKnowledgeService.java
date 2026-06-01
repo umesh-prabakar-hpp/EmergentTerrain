@@ -70,27 +70,10 @@ public class FrontierKnowledgeService {
         int methodsKept = 0;
         int eventsKept = 0;
         for (EscalationCheckpoint c : outcome.checkpoints()) {
-            if (c.verdict() == EscalationVerdict.HOLDS && c.value() != null) {
-                // every validated rung is FULL trust (sieve exact / discovery moat-validated)
-                if (keepBest(new FrontierRecord(bound, c.x(), c.value(), c.source(), TrustLevel.FULL))) {
-                    kept++;
-                }
-                // a discovery rung carries the LLM-generated, moat-validated method that
-                // reached x — persist it into the reusable library (keep-the-best by reach).
-                if (c.methodCode() != null && !c.methodCode().isBlank()
-                        && keepBestMethod(bound, c.methodCode(), c.x(), c.elapsedMs())) {
-                    methodsKept++;
-                }
-            } else if (c.verdict() == EscalationVerdict.CANNOT_COMPUTE && c.failureStatus() != null) {
-                // §10.3 — an OOM/timeout/etc. is knowledge: persist the boundary event
-                // (with the failed candidate code) so future runs can be informed and a
-                // paper can cite the computational boundary. Inform, never suppress.
-                String code = c.methodCode();
-                String sha = (code == null || code.isBlank()) ? null : sha256(code);
-                store.putEvent(new FrontierEvent(bound, c.x(), c.failureStatus(),
-                        "candidate did not run (" + c.failureStatus() + ") at x=" + c.x(), code, sha));
-                eventsKept++;
-            }
+            int[] t = persistCheckpoint(bound, c);
+            kept += t[0];
+            methodsKept += t[1];
+            eventsKept += t[2];
         }
         boolean progressed = outcome.frontierReached() > prev.frontier();
         long frontier = Math.max(prev.frontier(), outcome.frontierReached());
@@ -100,6 +83,47 @@ public class FrontierKnowledgeService {
         log.info("frontier knowledge [{}] — kept {} record(s), {} method(s), {} event(s); frontier={}; progressed={}; stableRuns={}/{}; converged={}",
                 bound, kept, methodsKept, eventsKept, frontier, progressed, stable, convergenceThreshold, converged);
         return new RunRecord(kept, frontier, stable, converged, methodsKept);
+    }
+
+    /**
+     * Persist ONE checkpoint immediately (mid-run, incremental) so a restart resumes from the
+     * latest reached x instead of the last <i>completed</i> run's frontier. The frontier ratchet
+     * is automatic — {@code frontierOf} is the max validated scaleX, so a persisted HOLDS record
+     * raises it at once. Convergence is still settled by the end-of-run {@link #record}.
+     * Idempotent with {@code record()} (keep-the-best), so double-persisting a rung is harmless.
+     */
+    public void recordCheckpoint(String bound, EscalationCheckpoint c) {
+        int[] t = persistCheckpoint(bound, c);
+        if (t[0] + t[1] + t[2] > 0) {
+            log.debug("frontier knowledge [{}] — incremental checkpoint x={} (record={} method={} event={})",
+                    bound, c.x(), t[0], t[1], t[2]);
+        }
+    }
+
+    /** Persist one checkpoint; returns {@code {recordsKept, methodsKept, eventsKept}}. */
+    private int[] persistCheckpoint(String bound, EscalationCheckpoint c) {
+        int kept = 0, methods = 0, events = 0;
+        if (c.verdict() == EscalationVerdict.HOLDS && c.value() != null) {
+            // every validated rung is FULL trust (sieve exact / discovery moat-validated)
+            if (keepBest(new FrontierRecord(bound, c.x(), c.value(), c.source(), TrustLevel.FULL))) {
+                kept++;
+            }
+            // a discovery rung carries the LLM-generated, moat-validated method that reached x —
+            // persist it into the reusable library (keep-the-best by reach).
+            if (c.methodCode() != null && !c.methodCode().isBlank()
+                    && keepBestMethod(bound, c.methodCode(), c.x(), c.elapsedMs())) {
+                methods++;
+            }
+        } else if (c.verdict() == EscalationVerdict.CANNOT_COMPUTE && c.failureStatus() != null) {
+            // §10.3 — an OOM/timeout/etc. is knowledge: persist the boundary event (with the
+            // failed candidate code) so future runs are informed and a paper can cite the boundary.
+            String code = c.methodCode();
+            String sha = (code == null || code.isBlank()) ? null : sha256(code);
+            store.putEvent(new FrontierEvent(bound, c.x(), c.failureStatus(),
+                    "candidate did not run (" + c.failureStatus() + ") at x=" + c.x(), code, sha));
+            events++;
+        }
+        return new int[]{kept, methods, events};
     }
 
     /** Put the record unless an equal-or-higher-trust value is already stored at (bound, x). */

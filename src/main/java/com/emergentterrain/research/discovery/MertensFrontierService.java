@@ -144,7 +144,11 @@ public class MertensFrontierService {
         // fresh run starts informed (inform, not suppress). Empty if no knowledge wired/recorded.
         java.util.List<FrontierEvent> priorEvents = knowledge == null
                 ? java.util.List.of() : knowledge.recall(BOUND).events();
-        EscalationOutcome out = escalation.escalate(task, sieveSource, BoundPredicate.MERTENS, priorEvents);
+        // Incremental persistence — each validated rung is written immediately, so a restart
+        // mid-run resumes from the latest reached x (not the last completed run's frontier).
+        java.util.function.Consumer<EscalationCheckpoint> sink =
+                knowledge == null ? null : cp -> knowledge.recordCheckpoint(BOUND, cp);
+        EscalationOutcome out = escalation.escalate(task, sieveSource, BoundPredicate.MERTENS, priorEvents, sink);
         String findings = FrontierFindingsRenderer.render(out, "M(x)", BOUND_LABEL);
         log.info("frontier paper produced — terminal={} frontier={} pivot={}",
                 out.terminalState(), out.frontierReached(), out.pivot() == null ? "none" : out.pivot().branch());
