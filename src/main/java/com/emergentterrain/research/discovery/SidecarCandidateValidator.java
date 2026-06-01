@@ -35,7 +35,7 @@ public class SidecarCandidateValidator implements CandidateValidator {
 
     public SidecarCandidateValidator(
             @Value("${app.julia.baseUrl:http://localhost:8088}") String baseUrl,
-            @Value("${app.research.discovery.httpTimeoutMs:35000}") long timeoutMs,
+            @Value("${app.research.discovery.httpTimeoutMs:130000}") long timeoutMs,
             ObjectMapper mapper) {
         String b = baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
         this.url = b + "/discover/validate";
