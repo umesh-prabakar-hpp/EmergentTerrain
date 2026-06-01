@@ -1807,6 +1807,7 @@ public class ResearchNarrationService {
             // Lever 2 — advertise the search_literature citation tool when the flag
             // is on (the suite still omits it unless a corpus was wired).
             String toolsJson    = toolSuite.toolsJson(includeDynamic, citationToolEnabled);
+            validateProfessorToolsJson(draft, toolsJson, includeDynamic, citationToolEnabled);
             // Phase 6 D1.3 — fetch curated literature for this (domain, topic).
             // Empty / null context means the prompts render their v1 variants
             // verbatim; non-empty context switches to v2-with-literature.
@@ -2116,6 +2117,28 @@ public class ResearchNarrationService {
         // exists. A paper that hit an exception after the professor produced
         // useful tool results still benefits from honesty/completeness grading.
         return runPanelAndStamp(draft, fallback, callPath, auditGapDimensions);
+    }
+
+    /**
+     * Fail fast on malformed professor-tool schemas so the logs carry a
+     * paper-scoped root cause instead of only downstream retry warnings.
+     */
+    private void validateProfessorToolsJson(PaperDraft draft,
+                                            String toolsJson,
+                                            boolean includeDynamic,
+                                            boolean includeLiterature) {
+        try {
+            JsonNode root = objectMapper.readTree(toolsJson);
+            if (!root.isArray()) {
+                throw new IllegalArgumentException("root is not a JSON array");
+            }
+        } catch (Exception e) {
+            log.error("invalid tools schema for professor path paperId={} includeDynamic={} "
+                            + "includeLiterature={} cause={}",
+                    draft.paperId(), includeDynamic, includeLiterature, e.getMessage(), e);
+            throw new IllegalArgumentException(
+                    "invalid tools schema for professor path paperId=" + draft.paperId(), e);
+        }
     }
 
     /**

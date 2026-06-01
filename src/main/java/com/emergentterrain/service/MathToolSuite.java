@@ -779,7 +779,8 @@ public class MathToolSuite {
                   },
                   "required":["lhs","rhs","k","c","window_start","window_size"]
                 }
-              }""").formatted(maxWork, maxN, maxN, maxWork);
+              }
+            }""").formatted(maxWork, maxN, maxN, maxWork);
     }
 
     /**

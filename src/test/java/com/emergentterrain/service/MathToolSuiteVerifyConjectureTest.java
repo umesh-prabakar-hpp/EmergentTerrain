@@ -6,6 +6,7 @@ import com.emergentterrain.research.ResultClassification;
 import com.emergentterrain.llm.JuliaMathClient;
 import com.emergentterrain.research.conjecture.ConjectureVerifier;
 import com.emergentterrain.research.conjecture.MathConjectureSubstrateDelegate;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -46,6 +47,12 @@ class MathToolSuiteVerifyConjectureTest {
 
         assertThat(suite.toolsJson(true)).contains("verify_conjecture");
         assertThat(suite.toolsJson(true)).contains("window_start");
+        try {
+            JsonNode root = mapper.readTree(suite.toolsJson(true));
+            assertThat(root.isArray()).isTrue();
+        } catch (Exception e) {
+            throw new AssertionError("verifier-wired toolsJson should parse cleanly", e);
+        }
     }
 
     @Test
