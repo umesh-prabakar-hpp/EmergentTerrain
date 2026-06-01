@@ -1647,7 +1647,12 @@ public class UniversityService {
                 draft.paperId(), draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), hypothesis, draft.methodology(), persistedFindings, conclusion,
                 draft.reviewerBotIds(), adjustedScore, paperStatus,
-                draft.gameTick(), draft.publishedAt(), draft.generation(), draft.anomalyZScore(),
+                // publishedAt = the actual publish moment, stamped here at persist.
+                // The draft's own publishedAt() is the draft-creation time (it ends up
+                // ~7 min stale by the time narration finishes); that start instant is
+                // already preserved on the row as narration_started_at, so we don't lose
+                // it. Re-stamped on every publish, so a rework reflects its latest run.
+                draft.gameTick(), Instant.now(), draft.generation(), draft.anomalyZScore(),
                 narration.aiModel(), persistedCallPath);
 
         // Phase 23.4 — carry the kind tag from the draft onto the persisted paper.
