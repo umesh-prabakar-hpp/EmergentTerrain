@@ -41,4 +41,33 @@ public interface BoundPredicate {
             return Math.max(0.0, Math.min(1.0, 1.0 - ratio));
         }
     };
+
+    /**
+     * The Dirichlet divisor error term: {@code |D(x) − x·(ln x + 2γ − 1)| < √x},
+     * where {@code D(x) = Σ_{n≤x} d(n)} and {@code γ} is the Euler–Mascheroni
+     * constant. The classical error term is only {@code O(x^{1/4+ε})}, so — like
+     * {@link #MERTENS} — this keeps HOLDing across every reachable scale; the loop
+     * stalls before the wall rather than refuting it. Its {@link #margin} is
+     * {@code 1 − |Δ|/√x}, so the adaptive policy leaps while the error ratio is small.
+     */
+    BoundPredicate DIVISOR_ERROR = new BoundPredicate() {
+        /** 2γ − 1, the constant in the Dirichlet divisor asymptotic D(x) ~ x·ln x + (2γ−1)·x. */
+        double TWO_GAMMA_MINUS_1 = 2 * 0.5772156649015329 - 1;
+
+        private double error(long x, long value) {
+            return Math.abs(value - (x * (Math.log((double) x) + TWO_GAMMA_MINUS_1)));
+        }
+
+        @Override
+        public EscalationVerdict classify(long x, long value) {
+            return error(x, value) < Math.sqrt((double) x)
+                    ? EscalationVerdict.HOLDS : EscalationVerdict.COUNTEREXAMPLE;
+        }
+
+        @Override
+        public double margin(long x, long value) {
+            double ratio = error(x, value) / Math.sqrt((double) x);
+            return Math.max(0.0, Math.min(1.0, 1.0 - ratio));
+        }
+    };
 }

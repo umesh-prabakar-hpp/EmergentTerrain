@@ -407,8 +407,21 @@ public class MathToolSuite {
         return frontierKnowledge != null && frontierKnowledge.isRecallEnabled();
     }
 
-    /** Default bound key for the recall tool (the only accumulated corpus today). */
+    /** Default bound key for the recall tool — the Mertens-class corpus. */
     private static final String DEFAULT_RECALL_BOUND = "mertens_M";
+    /** Bound key for the Dirichlet divisor-sum corpus (papers on divisor-count topics). */
+    private static final String DIVISOR_RECALL_BOUND = "divisor_D";
+
+    /**
+     * Pick the recall corpus that matches the paper's topic so a divisor-count paper
+     * recalls the {@code divisor_D} frontier (not the Mertens one) without the model
+     * having to know the key exists. Falls back to the Mertens corpus. The LLM can
+     * still override via the tool's {@code bound} argument.
+     */
+    private String defaultRecallBound(PaperDraft draft) {
+        String topic = (draft == null || draft.topicName() == null) ? "" : draft.topicName().toLowerCase();
+        return topic.contains("divisor") ? DIVISOR_RECALL_BOUND : DEFAULT_RECALL_BOUND;
+    }
 
     /** Standard moat checkpoints (≤ NT_MAX_N, judged vs the oracle) + OEIS anchor. */
     private static final java.util.List<Long> DISCOVER_CHECKPOINTS =
@@ -819,11 +832,11 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"recall_frontier_knowledge",
-                "description":"Look up the system's accumulated, independently re-verified frontier knowledge for a bound (e.g. the cumulative Mertens function M(x)). Returns the validated (x, value, source, trust) records and the best verified method's reach/cost — all carried with each value's TRUST CEILING. A 'FULL'-trust value was validated by exact agreement against a trusted oracle on its overlap range: report it as a COMPUTED, verified value at that x, NOT as a proof of the bound for all x. Use this to ground a Mertens-class claim in already-verified computation instead of re-deriving it. An empty result means nothing has been accumulated yet — make no frontier claim in that case.",
+                "description":"Look up the system's accumulated, independently re-verified frontier knowledge for a bound. Returns the validated (x, value, source, trust) records and the best verified method's reach/cost — all carried with each value's TRUST CEILING. A 'FULL'-trust value was validated by exact agreement against a trusted oracle on its overlap range: report it as a COMPUTED, verified value at that x, NOT as a proof of the bound for all x. Use this to ground a frontier claim in already-verified computation instead of re-deriving it. An empty result means nothing has been accumulated for that bound yet — make no frontier claim in that case.",
                 "parameters":{
                   "type":"object",
                   "properties":{
-                    "bound":{"type":"string","description":"Optional bound key; defaults to 'mertens_M' (the cumulative Mertens function corpus). Use the default unless told otherwise."}
+                    "bound":{"type":"string","description":"Optional bound key. Defaults to the corpus matching this paper's topic ('divisor_D' = cumulative divisor sum D(x)=sum of d(n); otherwise 'mertens_M' = cumulative Mertens function M(x)). Pass a key explicitly only to read a different corpus than your topic's."}
                   },
                   "required":[]
                 }
@@ -863,7 +876,7 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
-                    case "recall_frontier_knowledge" -> recallFrontierKnowledge(args);
+                    case "recall_frontier_knowledge" -> recallFrontierKnowledge(args, draft);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
@@ -1608,13 +1621,13 @@ public class MathToolSuite {
      * lets a paper reuse already-verified frontier values instead of regenerating them.
      * Gated: returns a disabled line unless knowledge is wired AND {@code frontierRecallEnabled}.
      */
-    String recallFrontierKnowledge(JsonNode args) {
+    String recallFrontierKnowledge(JsonNode args, PaperDraft draft) {
         if (!recallAvailable()) {
             return "recall_frontier_knowledge: disabled (frontier recall is off).";
         }
         String bound = args.path("bound").asText("");
         if (bound == null || bound.isBlank()) {
-            bound = DEFAULT_RECALL_BOUND;
+            bound = defaultRecallBound(draft);
         }
         return "recall_frontier_knowledge [" + bound + "]:\n" + frontierKnowledge.recallText(bound);
     }
