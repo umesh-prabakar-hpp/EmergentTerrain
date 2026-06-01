@@ -74,11 +74,12 @@ public class LlmCandidateGenerator implements CandidateGenerator {
         String d = discrepancy == null ? "" : discrepancy.toLowerCase();
         if (d.contains("oom") || d.contains("out of memory") || d.contains("timeout")
                 || d.contains("memory limit") || d.contains("time limit")) {
-            return "The sandbox runs your code under a HARD memory and time cap, so a method whose "
-                    + "memory grows with x cannot reach large x. Do NOT allocate an array (or other "
-                    + "structure) whose size is proportional to x. Use BOUNDED, streaming memory: "
-                    + "process the range in fixed-size segments, keeping only O(segment) state at a "
-                    + "time and accumulating the result as you go.\n\n";
+            // State the CONSTRAINT (budget) and freedom — not the algorithm. The model must
+            // devise the efficient approach itself; the validator enforces correctness (§10).
+            return "The sandbox enforces a HARD memory and time cap, and x can be very large, so the "
+                    + "method must scale: an approach whose time or memory grows with x will not "
+                    + "finish for large x. You are free to use any algorithm or mathematical "
+                    + "structure you can devise to make it efficient — only the result is checked.\n\n";
         }
         return "";
     }

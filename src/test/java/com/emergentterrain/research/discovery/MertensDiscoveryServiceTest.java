@@ -119,14 +119,19 @@ class MertensDiscoveryServiceTest {
     }
 
     @Test
-    void describeGivesSublinearHintOnTimeoutAndMemoryHintOnOom() {
-        // §10 method-quality — a timeout means TOO SLOW (push sublinear), oom means TOO MUCH MEMORY
+    void describeSignalsResourceFailureWithoutPrescribingTheAlgorithm() {
+        // §10 — the hint signals the failure + freedom, but does NOT hand the model the algorithm
+        // (no recipe): the LLM must devise the efficient method itself; the moat verifies.
         ValidationResult t = new ValidationResult("timeout", "na", Map.of(), Map.of(), null, null, "time limit");
-        assertThat(MertensDiscoveryService.describe(t))
-                .contains("TOO SLOW").contains("SUBLINEAR").contains("M(n) = 1 -");
+        String th = MertensDiscoveryService.describe(t);
+        assertThat(th).contains("TOO SLOW").contains("more efficient algorithm").contains("free to use");
+        assertThat(th).doesNotContain("M(n) = 1").doesNotContainIgnoringCase("recurrence")
+                .doesNotContain("x^(2/3)").doesNotContainIgnoringCase("sieve");
+
         ValidationResult o = new ValidationResult("oom", "na", Map.of(), Map.of(), null, null, "oom");
-        assertThat(MertensDiscoveryService.describe(o))
-                .contains("TOO MUCH MEMORY").contains("x^(2/3)");
+        String oh = MertensDiscoveryService.describe(o);
+        assertThat(oh).contains("MEMORY BUDGET").contains("grows with x");
+        assertThat(oh).doesNotContain("x^(2/3)").doesNotContainIgnoringCase("recurrence");
     }
 
     @Test

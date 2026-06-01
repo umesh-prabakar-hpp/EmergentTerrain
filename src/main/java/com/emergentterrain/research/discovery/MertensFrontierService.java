@@ -30,20 +30,18 @@ public class MertensFrontierService {
             "M(x) = sum of the Möbius function mu(n) for n = 1..x (the cumulative Mertens function)";
 
     /**
-     * §10 — efficiency guidance appended to the Mertens generation spec so the LLM writes a
-     * SUBLINEAR method on the first attempt (a correct-but-O(x) segmented sieve times out for
-     * large x; the O(x^2/3) recurrence reaches far higher x in the same budget). Mertens-scoped
-     * (shared with the {@code discover_mertens_value} tool). The moat still validates correctness.
+     * §10 — the LLM is the creative engine; the moat is the verifier. We give it the RULES OF
+     * THE GAME (a strict budget, large x, freedom, verification), NOT the algorithm — so that
+     * reaching higher x is the model's own discovery, generalizes to any bound, and is honestly
+     * the system's work rather than a recipe dictated in the prompt. The failure feedback
+     * (timeout/oom is knowledge) is the only nudge; the moat validates whatever it invents.
      */
     public static final String MERTENS_EFFICIENCY_HINT =
-            "\n\nEFFICIENCY (critical for large x): a linear or segmented sieve over ALL of [1,x] is "
-            + "O(x) and WILL time out for large x. Use the SUBLINEAR method — about O(x^(2/3)) time "
-            + "and memory: (1) sieve the Möbius function mu(n) and its running prefix sum "
-            + "M(n)=sum_{k<=n} mu(k) for n up to about x^(2/3) (store mu as Int8 to save memory); "
-            + "(2) for larger arguments use the recurrence M(n) = 1 - sum_{d=2}^{n} M(floor(n/d)), "
-            + "evaluated by grouping the d that share the same floor(n/d) (only O(sqrt(n)) distinct "
-            + "blocks) and MEMOIZING M at the O(sqrt(x)) distinct points floor(x/i). This computes "
-            + "M(x) for x up to ~10^12 well within the time budget. Never allocate an array of size x.";
+            "\n\nThis runs under a STRICT CPU-time and memory budget and may be called with VERY "
+            + "large x, so it must scale — an approach whose time or memory grows with x will not "
+            + "finish for large x. You are free to use ANY algorithm or mathematical structure you "
+            + "can devise; an independent validator checks the result against ground truth, so "
+            + "correctness is enforced — be inventive about efficiency.";
     private static final String BOUND_LABEL = "|M(x)| < sqrt(x) (the Mertens conjecture)";
     private static final List<Long> CHECKPOINTS =
             List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);

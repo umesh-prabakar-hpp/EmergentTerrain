@@ -164,15 +164,14 @@ public class MertensDiscoveryService {
             String base = "candidate did not run (" + r.status() + ")"
                     + (r.detail() == null || r.detail().isBlank() ? "" : ": " + r.detail());
             if ("timeout".equals(r.status())) {
-                // a correct-but-O(x) sieve (even segmented) is too SLOW at large x — push sublinear
-                base += " — TOO SLOW: an O(x) pass over [1,x] cannot finish in the budget at this "
-                        + "scale. Switch to the SUBLINEAR O(x^(2/3)) method: sieve μ and its prefix "
-                        + "sums M(n) up to ~x^(2/3), then M(n) = 1 - Σ_{d=2}^{n} M(⌊n/d⌋), grouping "
-                        + "equal ⌊n/d⌋ blocks and memoizing M at the ⌊x/i⌋ points.";
+                // signal only — too slow at this scale; the model must find a better algorithm itself
+                base += " — TOO SLOW at this scale: it did not finish within the time budget. A faster "
+                        + "constant on the same approach will not be enough — a more efficient "
+                        + "algorithm is needed. You are free to use any technique; correctness is "
+                        + "still checked against ground truth.";
             } else if (isResourceFailure(r.status())) {   // oom
-                base += " — TOO MUCH MEMORY: do not allocate ~x entries for M(x) = Σ_{n≤x} μ(n). "
-                        + "Sieve μ only up to ~x^(2/3) (Int8) and use the M(n) = 1 - Σ M(⌊n/d⌋) "
-                        + "recurrence with memoization for the rest.";
+                base += " — EXCEEDED THE MEMORY BUDGET: do not allocate memory that grows with x. "
+                        + "Find an approach with bounded memory; correctness is still checked.";
             }
             return base;
         }
