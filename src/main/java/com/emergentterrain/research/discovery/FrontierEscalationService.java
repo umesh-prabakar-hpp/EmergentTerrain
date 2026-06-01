@@ -302,7 +302,7 @@ public class FrontierEscalationService {
             source = "sieve";
         } else {
             DiscoveryTask dt = new DiscoveryTask(task.spec(), x, task.checkpoints(), task.anchors(),
-                    task.cpuSeconds(), task.wallSeconds(), discovery.maxAttempts());
+                    task.cpuSeconds(), task.wallSeconds(), discovery.maxAttempts(), task.quantity());
             DiscoveryOutcome out = discovery.discover(dt);
             value = out.accepted() ? out.targetValue() : null;
             elapsedMs = out.elapsedMs();

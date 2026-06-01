@@ -17,6 +17,10 @@ import java.util.Map;
  * @param anchors     discovery beyond-range anchors
  * @param cpuSeconds  per-candidate sandbox CPU budget
  * @param wallSeconds per-candidate sandbox wall budget
+ * @param quantity    the trusted oracle the beyond-NT_MAX_N discovery validates
+ *                    against ({@code "mertens"} → M(x), {@code "divisor"} → D(x));
+ *                    forwarded verbatim into the {@link DiscoveryTask}. Defaults to
+ *                    {@code "mertens"}.
  */
 public record EscalationTask(
         String spec,
@@ -25,7 +29,8 @@ public record EscalationTask(
         List<Long> checkpoints,
         Map<Long, Long> anchors,
         int cpuSeconds,
-        int wallSeconds) {
+        int wallSeconds,
+        String quantity) {
 
     public EscalationTask {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
@@ -36,5 +41,12 @@ public record EscalationTask(
         if (scaleFactor < 2) {
             scaleFactor = 10;
         }
+        quantity = (quantity == null || quantity.isBlank()) ? "mertens" : quantity;
+    }
+
+    /** Back-compatible constructor — defaults {@code quantity} to {@code "mertens"}. */
+    public EscalationTask(String spec, long startScale, long scaleFactor, List<Long> checkpoints,
+                          Map<Long, Long> anchors, int cpuSeconds, int wallSeconds) {
+        this(spec, startScale, scaleFactor, checkpoints, anchors, cpuSeconds, wallSeconds, "mertens");
     }
 }

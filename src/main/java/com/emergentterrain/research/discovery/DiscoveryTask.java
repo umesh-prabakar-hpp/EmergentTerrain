@@ -17,6 +17,9 @@ import java.util.Map;
  * @param cpuSeconds  per-candidate CPU budget in the sandbox
  * @param wallSeconds per-candidate wall budget in the sandbox
  * @param maxAttempts cap on generate→validate→repair rounds (>= 1)
+ * @param quantity    which trusted oracle the sidecar validates against —
+ *                    {@code "mertens"} (cumulative μ → M(x)) or {@code "divisor"}
+ *                    (cumulative d(n) → D(x)). Defaults to {@code "mertens"}.
  */
 public record DiscoveryTask(
         String spec,
@@ -25,7 +28,8 @@ public record DiscoveryTask(
         Map<Long, Long> anchors,
         int cpuSeconds,
         int wallSeconds,
-        int maxAttempts) {
+        int maxAttempts,
+        String quantity) {
 
     public DiscoveryTask {
         checkpoints = checkpoints == null ? List.of() : List.copyOf(checkpoints);
@@ -39,5 +43,12 @@ public record DiscoveryTask(
         if (wallSeconds < 1) {
             wallSeconds = 15;
         }
+        quantity = (quantity == null || quantity.isBlank()) ? "mertens" : quantity;
+    }
+
+    /** Back-compatible constructor — defaults {@code quantity} to {@code "mertens"}. */
+    public DiscoveryTask(String spec, long target, List<Long> checkpoints, Map<Long, Long> anchors,
+                         int cpuSeconds, int wallSeconds, int maxAttempts) {
+        this(spec, target, checkpoints, anchors, cpuSeconds, wallSeconds, maxAttempts, "mertens");
     }
 }

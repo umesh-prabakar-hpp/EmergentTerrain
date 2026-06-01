@@ -50,14 +50,9 @@ public class MertensFrontierService {
         this(startScale, scheduleEnabled, 60, 80, escalation, sieveSource);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
-    public MertensFrontierService(
-            @Value("${app.research.discovery.frontierStartScale:2000000}") long startScale,
-            @Value("${app.research.discovery.frontierScheduleEnabled:false}") boolean scheduleEnabled,
-            @Value("${app.research.discovery.frontierCpuSeconds:60}") int cpuSeconds,
-            @Value("${app.research.discovery.frontierWallSeconds:80}") int wallSeconds,
-            FrontierEscalationService escalation,
-            ScaleValueSource sieveSource) {
+    /** Canonical initializer (interface-typed source so tests can pass a fake). */
+    private MertensFrontierService(long startScale, boolean scheduleEnabled, int cpuSeconds, int wallSeconds,
+                                   FrontierEscalationService escalation, ScaleValueSource sieveSource) {
         this.startScale = startScale < 1 ? 2_000_000 : startScale;
         this.scheduleEnabled = scheduleEnabled;
         // per-candidate sandbox budget — bigger CPU reaches bigger x; wall stays above CPU
@@ -66,6 +61,19 @@ public class MertensFrontierService {
         this.wallSeconds = Math.max(this.cpuSeconds + 1, wallSeconds);
         this.escalation = escalation;
         this.sieveSource = sieveSource;
+    }
+
+    // Spring path — inject the CONCRETE Mertens source. With a second ScaleValueSource bean
+    // now present (SidecarDivisorSumValueSource), an interface-typed param would be ambiguous.
+    @org.springframework.beans.factory.annotation.Autowired
+    public MertensFrontierService(
+            @Value("${app.research.discovery.frontierStartScale:2000000}") long startScale,
+            @Value("${app.research.discovery.frontierScheduleEnabled:false}") boolean scheduleEnabled,
+            @Value("${app.research.discovery.frontierCpuSeconds:60}") int cpuSeconds,
+            @Value("${app.research.discovery.frontierWallSeconds:80}") int wallSeconds,
+            FrontierEscalationService escalation,
+            SidecarMertensValueSource sieveSource) {
+        this(startScale, scheduleEnabled, cpuSeconds, wallSeconds, escalation, (ScaleValueSource) sieveSource);
     }
 
     /**

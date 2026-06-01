@@ -53,6 +53,7 @@ public class SidecarCandidateValidator implements CandidateValidator {
         body.put("target", task.target());
         body.put("cpuSeconds", task.cpuSeconds());
         body.put("wallSeconds", task.wallSeconds());
+        body.put("quantity", task.quantity());        // selects the sidecar oracle (mertens M(x) / divisor D(x))
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))
