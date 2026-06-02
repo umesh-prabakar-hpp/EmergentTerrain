@@ -186,9 +186,9 @@ end, the discipline the discovery tool's own output already enforces.
    since `escalate()`/pivot are now functional but spend nothing until `produce()` runs. The trigger is
    `MertensFrontierService.scheduledFrontierRun()` — a gated, long-interval (`6h`) `@Scheduled` run
    (a heavy multi-LLM-call escalation is the wrong fit for a mid-paper professor tool), with a
-   **separate** `frontierScheduleEnabled` cost gate (default OFF) so flipping the logic does not
+   **separate** `mertensFrontierScheduleEnabled` cost gate (default OFF) so flipping the logic does not
    auto-spend. **Remaining (operator):** restart to load the logic (boot-check
-   `FrontierEscalationService ready … frontierEscalation=ON`), then flip `frontierScheduleEnabled` +
+   `FrontierEscalationService ready … frontierEscalation=ON`), then flip `mertensFrontierScheduleEnabled` +
    restart to begin autonomous 6-hourly runs — watch the log for `scheduled frontier run` / `frontier
    paper produced`, escalating → forecasting its own stall → pivoting. (A live run also needs the
    discovery stack live: `runtimeExecEnabled` + sidecar `ET_DISCOVER_EXEC=1`.)

@@ -22,7 +22,7 @@ import java.util.Map;
  * is moat-validated against the real D(x) on the overlap checkpoints — the loop generalizes
  * past the sieve for any bound with a sidecar oracle, not just Mertens.
  *
- * <p>Gated by {@code divisorFrontierEnabled} (the schedule/spend gate, separate from the
+ * <p>Gated by {@code divisorFrontierScheduleEnabled} (the schedule/spend gate, separate from the
  * escalation-logic flag). Beyond the sieve it spends LLM tokens (the discovery rungs), exactly
  * like the Mertens schedule, so it is OFF by default and the long interval bounds the cost.
  */
@@ -74,7 +74,7 @@ public class DivisorFrontierService {
     @org.springframework.beans.factory.annotation.Autowired
     public DivisorFrontierService(
             @Value("${app.research.discovery.divisorFrontierStartScale:2000000}") long startScale,
-            @Value("${app.research.discovery.divisorFrontierEnabled:false}") boolean scheduleEnabled,
+            @Value("${app.research.discovery.divisorFrontierScheduleEnabled:false}") boolean scheduleEnabled,
             @Value("${app.research.discovery.divisorFrontierCpuSeconds:60}") int cpuSeconds,
             @Value("${app.research.discovery.divisorFrontierWallSeconds:80}") int wallSeconds,
             FrontierEscalationService escalation,
@@ -97,7 +97,7 @@ public class DivisorFrontierService {
     }
 
     /**
-     * Autonomous frontier run — gated by {@code divisorFrontierEnabled}. Spends LLM tokens on
+     * Autonomous frontier run — gated by {@code divisorFrontierScheduleEnabled}. Spends LLM tokens on
      * the discovery rungs beyond the sieve (like the Mertens schedule), so it stays OFF until the
      * operator opts in. Run-until-converged: stops re-spending once the frontier stabilizes.
      */

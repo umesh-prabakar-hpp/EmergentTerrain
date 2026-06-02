@@ -68,7 +68,7 @@ public class MertensFrontierService {
     @org.springframework.beans.factory.annotation.Autowired
     public MertensFrontierService(
             @Value("${app.research.discovery.frontierStartScale:2000000}") long startScale,
-            @Value("${app.research.discovery.frontierScheduleEnabled:false}") boolean scheduleEnabled,
+            @Value("${app.research.discovery.mertensFrontierScheduleEnabled:false}") boolean scheduleEnabled,
             @Value("${app.research.discovery.frontierCpuSeconds:60}") int cpuSeconds,
             @Value("${app.research.discovery.frontierWallSeconds:80}") int wallSeconds,
             FrontierEscalationService escalation,
@@ -77,7 +77,7 @@ public class MertensFrontierService {
     }
 
     /**
-     * Phase 5 — autonomous frontier run. Gated by {@code frontierScheduleEnabled}
+     * Phase 5 — autonomous frontier run. Gated by {@code mertensFrontierScheduleEnabled}
      * (default OFF, separate from the escalation-logic flag) because each run
      * spends real LLM tokens across the discovery rungs; the long default interval
      * (6 h) bounds that. No-op until the operator opts in. Watch the log for
