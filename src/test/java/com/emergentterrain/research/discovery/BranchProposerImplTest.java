@@ -52,8 +52,8 @@ class BranchProposerImplTest {
 
     // ---------- B3 proxy reformulation (reuses the discovery moat) ----------
 
-    private static MertensDiscoveryService disc(boolean enabled, boolean accepts) {
-        return new MertensDiscoveryService(enabled, 1, r -> "code",
+    private static CandidateDiscoveryService disc(boolean enabled, boolean accepts) {
+        return new CandidateDiscoveryService(enabled, 1, r -> "code",
                 (code, t) -> accepts
                         ? new ValidationResult("ok", "accept", Map.of(), Map.of(), null, 62366L, "")
                         : new ValidationResult("ast_reject", "na", Map.of(), Map.of(), null, null, ""));

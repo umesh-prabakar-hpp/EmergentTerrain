@@ -376,10 +376,10 @@ public class MathToolSuite {
      * inherently mertens-class; it is offered only during a deliberate discovery
      * experiment. See phase-30-conjecture/runtime-self-verifying-execution.md.
      */
-    private volatile com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService;
+    private volatile com.emergentterrain.research.discovery.CandidateDiscoveryService discoveryService;
 
     public void setDiscoveryService(
-            com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService) {
+            com.emergentterrain.research.discovery.CandidateDiscoveryService discoveryService) {
         this.discoveryService = discoveryService;
     }
 

@@ -35,11 +35,11 @@ public class FrontierEscalationService {
     private final double stallBudgetMs;
     private final double scienceFrontier;
     private final int maxConsecutiveFailures;
-    private final MertensDiscoveryService discovery;
+    private final CandidateDiscoveryService discovery;
 
     /** Back-compatible constructor (maxConsecutiveFailures defaults to 1 — old terminate-on-first-failure). */
     FrontierEscalationService(boolean enabled, int maxRounds, double stallBudgetMs, double scienceFrontier,
-                              MertensDiscoveryService discovery) {
+                              CandidateDiscoveryService discovery) {
         this(enabled, maxRounds, stallBudgetMs, scienceFrontier, 1, discovery);
     }
 
@@ -50,7 +50,7 @@ public class FrontierEscalationService {
             @Value("${app.research.discovery.frontierStallBudgetMs:30000}") double stallBudgetMs,
             @Value("${app.research.discovery.frontierScienceFrontier:0}") double scienceFrontier,
             @Value("${app.research.discovery.frontierMaxConsecutiveFailures:3}") int maxConsecutiveFailures,
-            MertensDiscoveryService discovery) {
+            CandidateDiscoveryService discovery) {
         this.enabled = enabled;
         this.maxRounds = Math.max(1, maxRounds);
         this.stallBudgetMs = stallBudgetMs;

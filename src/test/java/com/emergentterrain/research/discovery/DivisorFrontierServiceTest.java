@@ -22,8 +22,8 @@ class DivisorFrontierServiceTest {
     }
 
     /** Fake discovery that returns the (holding) D(x) for whatever beyond-sieve target it's asked. */
-    private static MertensDiscoveryService discReturningDivisor() {
-        return new MertensDiscoveryService(true, 1, r -> "code",
+    private static CandidateDiscoveryService discReturningDivisor() {
+        return new CandidateDiscoveryService(true, 1, r -> "code",
                 (code, t) -> new ValidationResult("ok", "accept", Map.of(), Map.of(), null,
                         dirichlet(t.target()), ""));
     }

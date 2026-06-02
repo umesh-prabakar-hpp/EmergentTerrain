@@ -20,7 +20,7 @@ import org.springframework.stereotype.Component;
  * truth for any linear-combination summatory over μ/ω/Ω/τ, from the sieve) +
  * {@link ProxyValidator} (the proxy moat). Wiring this proposer's *runtime* to it
  * (generate a proxy method → sandbox-execute → judge via the proxy oracle, a
- * proxy-discovery loop mirroring {@link MertensDiscoveryService}) is the remaining
+ * proxy-discovery loop mirroring {@link CandidateDiscoveryService}) is the remaining
  * consumption step.
  */
 @Component
@@ -32,9 +32,9 @@ public class B3ProxyReformulationProposer implements BranchProposer {
     private static final java.util.List<Long> PROXY_CHECKPOINTS =
             java.util.List.of(2L, 10L, 1_000L, 100_000L, 1_000_000L, 2_000_000L);
 
-    private final MertensDiscoveryService discovery;
+    private final CandidateDiscoveryService discovery;
 
-    public B3ProxyReformulationProposer(MertensDiscoveryService discovery) {
+    public B3ProxyReformulationProposer(CandidateDiscoveryService discovery) {
         this.discovery = discovery;
     }
 

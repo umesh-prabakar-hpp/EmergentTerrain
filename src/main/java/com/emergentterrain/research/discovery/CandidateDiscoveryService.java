@@ -28,9 +28,9 @@ import java.util.HexFormat;
  * or sidecar.
  */
 @Service
-public class MertensDiscoveryService {
+public class CandidateDiscoveryService {
 
-    private static final Logger log = LoggerFactory.getLogger(MertensDiscoveryService.class);
+    private static final Logger log = LoggerFactory.getLogger(CandidateDiscoveryService.class);
 
     private final boolean enabled;
     private final int maxRepairAttempts;
@@ -53,7 +53,7 @@ public class MertensDiscoveryService {
         this.repairEarlyExitThreshold = t;
     }
 
-    public MertensDiscoveryService(
+    public CandidateDiscoveryService(
             @Value("${app.research.discovery.runtimeExecEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.maxRepairAttempts:3}") int maxRepairAttempts,
             CandidateGenerator generator,
@@ -62,7 +62,7 @@ public class MertensDiscoveryService {
         this.maxRepairAttempts = Math.max(1, maxRepairAttempts);
         this.generator = generator;
         this.validator = validator;
-        log.info("MertensDiscoveryService ready — runtimeExec={} maxRepairAttempts={}",
+        log.info("CandidateDiscoveryService ready — runtimeExec={} maxRepairAttempts={}",
                 enabled ? "ON" : "OFF", this.maxRepairAttempts);
     }
 
@@ -99,15 +99,19 @@ public class MertensDiscoveryService {
             return DiscoveryOutcome.unavailable();
         }
         // §10 — delegate to the SHARED generic loop (logging, the recipe-free resource hints,
-        // and early-exit on repeated timeout/oom all live there, domain-neutral). Mertens supplies
-        // only its 1-stage moat validation + the per-failure text; the loop does the rest.
+        // and early-exit on repeated timeout/oom all live there, domain-neutral). The caller
+        // supplies only its 1-stage moat validation + the per-failure text; the loop does the
+        // rest. The label and failure text are derived from task.quantity() so a divisor run
+        // reports D(x)/divisor, not Mertens M(x) (this class drives both via the frontier path).
+        String symbol = quantitySymbol(task.quantity());
         DiscoveryRepairLoop.Result<ValidationResult> r = DiscoveryRepairLoop.run(
-                task.spec(), "mertens M(" + task.target() + ")", task.maxAttempts(), repairEarlyExitThreshold,
+                task.spec(), task.quantity() + " " + symbol + "(" + task.target() + ")",
+                task.maxAttempts(), repairEarlyExitThreshold,
                 generator,
                 code -> validator.validate(code, task),
                 ValidationResult::accepted,
                 vr -> vr == null ? "error" : vr.status(),
-                MertensDiscoveryService::failureText);
+                vr -> failureText(symbol, vr));
         if (r.accepted()) {
             ValidationResult v = r.winning();
             return DiscoveryOutcome.accepted(r.code(), v.targetValue(), r.attempts(),
@@ -118,11 +122,17 @@ public class MertensDiscoveryService {
                 r.lastFailedCode(), r.lastStatus());
     }
 
+    /** The quantity's one-letter summatory symbol for human-facing labels/feedback. */
+    static String quantitySymbol(String quantity) {
+        return "divisor".equals(quantity) ? "D" : "M";
+    }
+
     /**
      * The domain "what was wrong" text for a rejected candidate (the shared loop appends the
-     * neutral resource signal). Mertens-specific only in that it names M(k); no algorithm hint.
+     * neutral resource signal). Names the summatory value (M(k) for Mertens, D(k) for divisor)
+     * via {@code symbol}; no algorithm hint.
      */
-    static String failureText(ValidationResult r) {
+    static String failureText(String symbol, ValidationResult r) {
         if (r == null) {
             return "no validation result";
         }
@@ -132,7 +142,7 @@ public class MertensDiscoveryService {
         }
         if (r.firstFail() != null) {
             ValidationResult.FirstFail f = r.firstFail();
-            return "M(" + f.k() + ") = " + f.got() + " but the correct value is " + f.want();
+            return symbol + "(" + f.k() + ") = " + f.got() + " but the correct value is " + f.want();
         }
         return "rejected (" + r.status() + ")";
     }

@@ -19,20 +19,20 @@ class FrontierEscalationServiceTest {
             "M(x) = sum of mu(n) for n=1..x", 1_000_000L, 10L, List.of(1L, 2L), Map.of(), 20, 28);
 
     /** Discovery that always accepts with a fixed value (M(x)-ish, holding). */
-    private static MertensDiscoveryService discReturning(long value) {
-        return new MertensDiscoveryService(true, 1, req -> "code",
+    private static CandidateDiscoveryService discReturning(long value) {
+        return new CandidateDiscoveryService(true, 1, req -> "code",
                 (code, t) -> new ValidationResult("ok", "accept", Map.of(), Map.of(), null, value, ""));
     }
 
     /** Discovery that never validates a candidate. */
-    private static MertensDiscoveryService discFailing() {
-        return new MertensDiscoveryService(true, 1, req -> "code",
+    private static CandidateDiscoveryService discFailing() {
+        return new CandidateDiscoveryService(true, 1, req -> "code",
                 (code, t) -> new ValidationResult("ast_reject", "na", Map.of(), Map.of(), null, null, ""));
     }
 
     /** Discovery that accepts with a fixed value and a per-x cost (ms). */
-    private static MertensDiscoveryService discWithCost(long value, java.util.function.LongUnaryOperator costOfX) {
-        return new MertensDiscoveryService(true, 1, req -> "code",
+    private static CandidateDiscoveryService discWithCost(long value, java.util.function.LongUnaryOperator costOfX) {
+        return new CandidateDiscoveryService(true, 1, req -> "code",
                 (code, t) -> new ValidationResult("ok", "accept", Map.of(), Map.of(), null, value, "",
                         costOfX.applyAsLong(t.target())));
     }

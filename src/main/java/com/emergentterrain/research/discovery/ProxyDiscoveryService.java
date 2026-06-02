@@ -8,7 +8,7 @@ import org.springframework.stereotype.Service;
 /**
  * Phase 30 fork 2b — the proxy-discovery loop: generate→validate→repair for a
  * proxy quantity, the consumption of the generalized oracle. Mirrors
- * {@link MertensDiscoveryService}, but the moat is the proxy moat: the candidate
+ * {@link CandidateDiscoveryService}, but the moat is the proxy moat: the candidate
  * is run by the sandbox **executor** (the existing {@link CandidateValidator},
  * whose own M(x) verdict is ignored — only its emitted {@code values} are used),
  * and those values are judged by {@link ProxyValidator} against the

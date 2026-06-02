@@ -6,7 +6,7 @@ import java.util.Map;
 /**
  * Phase 30 fork 2b Phase 3 — a self-verifying numeric-method discovery task.
  * Domain-neutral on purpose (the per-invariant gate that fills {@code spec} is
- * Phase 4); carries everything {@link MertensDiscoveryService} needs to run the
+ * Phase 4); carries everything {@link CandidateDiscoveryService} needs to run the
  * generate→validate→repair loop and the sidecar {@code /discover/validate} call.
  *
  * @param spec        what {@code candidate(x)} must compute, in plain words

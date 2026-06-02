@@ -2,7 +2,7 @@ package com.emergentterrain.research.discovery;
 
 /**
  * Phase 30 fork 2b Phase 3 — produces a candidate Julia method for a spec.
- * Injected into {@link MertensDiscoveryService} so the loop is testable with a
+ * Injected into {@link CandidateDiscoveryService} so the loop is testable with a
  * fake generator. The production impl ({@link LlmCandidateGenerator}) calls a
  * frontier model; this is where "ask the LLM to invent the method" lives.
  */

@@ -2,7 +2,7 @@ package com.emergentterrain.service;
 
 import com.emergentterrain.research.discovery.CandidateGenerator;
 import com.emergentterrain.research.discovery.CandidateValidator;
-import com.emergentterrain.research.discovery.MertensDiscoveryService;
+import com.emergentterrain.research.discovery.CandidateDiscoveryService;
 import com.emergentterrain.research.discovery.ValidationResult;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -21,16 +21,16 @@ class MathToolSuiteDiscoveryTest {
 
     private static final ObjectMapper OM = new ObjectMapper();
 
-    private static MathToolSuite suiteWith(MertensDiscoveryService svc) {
+    private static MathToolSuite suiteWith(CandidateDiscoveryService svc) {
         MathToolSuite suite = new MathToolSuite(null, OM);
         suite.setDiscoveryService(svc);
         return suite;
     }
 
-    private static MertensDiscoveryService svc(boolean enabled, ValidationResult result) {
+    private static CandidateDiscoveryService svc(boolean enabled, ValidationResult result) {
         CandidateGenerator gen = req -> "candidate(x)=0";
         CandidateValidator val = (code, task) -> result;
-        return new MertensDiscoveryService(enabled, 3, gen, val);
+        return new CandidateDiscoveryService(enabled, 3, gen, val);
     }
 
     private static ValidationResult accept(long value) {

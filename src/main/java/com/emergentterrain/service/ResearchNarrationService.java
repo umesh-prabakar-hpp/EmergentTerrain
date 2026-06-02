@@ -61,7 +61,7 @@ public class ResearchNarrationService {
      * discover_mertens_value tool is then absent. Gated further by runtimeExecEnabled.
      */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private com.emergentterrain.research.discovery.MertensDiscoveryService discoveryService;
+    private com.emergentterrain.research.discovery.CandidateDiscoveryService discoveryService;
     /**
      * Phase 30 fork 2b §8b — optional accumulated-knowledge service, field-injected
      * and wired into {@link #toolSuite} in {@link #wireDiscoveryTool()}. Null when the

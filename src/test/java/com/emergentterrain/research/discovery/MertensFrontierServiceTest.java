@@ -13,8 +13,8 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class MertensFrontierServiceTest {
 
-    private static MertensDiscoveryService discAccepting(long value) {
-        return new MertensDiscoveryService(true, 1, r -> "code",
+    private static CandidateDiscoveryService discAccepting(long value) {
+        return new CandidateDiscoveryService(true, 1, r -> "code",
                 (code, t) -> new ValidationResult("ok", "accept", Map.of(), Map.of(), null, value, ""));
     }
 

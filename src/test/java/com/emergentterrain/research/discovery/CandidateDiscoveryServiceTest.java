@@ -14,7 +14,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * Phase 30 fork 2b Phase 3 — the generate→validate→repair loop, tested with
  * fakes (no live model or sidecar). Mirrors what fork 2a proved at dev time.
  */
-class MertensDiscoveryServiceTest {
+class CandidateDiscoveryServiceTest {
 
     private static final DiscoveryTask TASK = new DiscoveryTask(
             "M(x) = sum of the Möbius function mu(n) for n=1..x",
@@ -46,7 +46,7 @@ class MertensDiscoveryServiceTest {
     @Test
     void repairConvergesOnSecondAttempt() {
         FakeGen gen = new FakeGen("buggy-code", "fixed-code");
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3, gen, new FakeVal(reject(), accept()));
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3, gen, new FakeVal(reject(), accept()));
 
         DiscoveryOutcome out = svc.discover(TASK);
 
@@ -65,7 +65,7 @@ class MertensDiscoveryServiceTest {
 
     @Test
     void acceptsFirstTryWhenCorrect() {
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3,
                 new FakeGen("good-code"), new FakeVal(accept()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isTrue();
@@ -74,7 +74,7 @@ class MertensDiscoveryServiceTest {
 
     @Test
     void exhaustsAfterMaxAttempts() {
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3,
                 new FakeGen("a", "b", "c"), new FakeVal(reject(), reject(), reject()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isFalse();
@@ -85,7 +85,7 @@ class MertensDiscoveryServiceTest {
     @Test
     void disabledShortCircuits() {
         // Even with fakes that would accept, the flag-off service does nothing.
-        MertensDiscoveryService svc = new MertensDiscoveryService(false, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(false, 3,
                 new FakeGen("x"), new FakeVal(accept()));
         DiscoveryOutcome out = svc.discover(TASK);
         assertThat(out.accepted()).isFalse();
@@ -97,7 +97,7 @@ class MertensDiscoveryServiceTest {
     void skipsWithoutGeneratingWhenEndpointUnavailable() {
         int[] genCalls = {0};
         CandidateGenerator gen = req -> { genCalls[0]++; return "code"; };
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3, gen, (c, t) -> accept());
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3, gen, (c, t) -> accept());
         svc.setEndpointHealth(new DiscoveryEndpointHealth(true, "http://x", 60_000) {
             protected boolean doProbe() { return false; }   // endpoint unavailable
         });
@@ -112,18 +112,23 @@ class MertensDiscoveryServiceTest {
     @Test
     void failureTextFormatsDomainSignalWithoutHint() {
         // the per-domain text ONLY (the shared loop appends the neutral resource hint, not this)
-        assertThat(MertensDiscoveryService.failureText(reject()))
+        assertThat(CandidateDiscoveryService.failureText("M", reject()))
                 .isEqualTo("M(2) = 2 but the correct value is 0");
+        // the symbol is quantity-derived: a divisor run reports D(k), not M(k)
+        assertThat(CandidateDiscoveryService.failureText("D", reject()))
+                .isEqualTo("D(2) = 2 but the correct value is 0");
+        assertThat(CandidateDiscoveryService.quantitySymbol("divisor")).isEqualTo("D");
+        assertThat(CandidateDiscoveryService.quantitySymbol("mertens")).isEqualTo("M");
         ValidationResult na = new ValidationResult("ast_reject", "na", Map.of(), Map.of(), null, null, "open");
-        assertThat(MertensDiscoveryService.failureText(na))
+        assertThat(CandidateDiscoveryService.failureText("M", na))
                 .contains("did not run").contains("ast_reject");
     }
 
     @Test
     void sha256IsStableAndHex() {
-        String a = MertensDiscoveryService.sha256("candidate(x)=0");
-        assertThat(a).isEqualTo(MertensDiscoveryService.sha256("candidate(x)=0")).hasSize(64);
-        assertThat(a).isNotEqualTo(MertensDiscoveryService.sha256("candidate(x)=1"));
+        String a = CandidateDiscoveryService.sha256("candidate(x)=0");
+        assertThat(a).isEqualTo(CandidateDiscoveryService.sha256("candidate(x)=0")).hasSize(64);
+        assertThat(a).isNotEqualTo(CandidateDiscoveryService.sha256("candidate(x)=1"));
     }
 
     /** A resource (timeout) failure — the candidate did not run within the budget. */
@@ -135,7 +140,7 @@ class MertensDiscoveryServiceTest {
     void earlyExitsAfterRepeatedResourceFailure() {
         // §10 — threshold 2: bail after 2 consecutive timeouts even though 3 attempts are allowed,
         // because the scale (not the method) is the problem. Saves the 3rd (~wall_s) attempt.
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3,
                 new FakeGen("a", "b", "c"), new FakeVal(timeout(), timeout(), timeout()));
         svc.setRepairEarlyExitThreshold(2);
         DiscoveryOutcome out = svc.discover(TASK);
@@ -148,7 +153,7 @@ class MertensDiscoveryServiceTest {
     void wrongNumberFailuresResetStreakAndDoNotEarlyExit() {
         // a wrong-number failure is repairable (a better method may fix it), so the streak resets
         // and the loop runs all attempts — early-exit only fires on REPEATED resource failures.
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3,
                 new FakeGen("a", "b", "c"), new FakeVal(reject(), reject(), reject()));
         svc.setRepairEarlyExitThreshold(2);
         DiscoveryOutcome out = svc.discover(TASK);
@@ -157,7 +162,7 @@ class MertensDiscoveryServiceTest {
 
     @Test
     void earlyExitDisabledWhenThresholdZero() {
-        MertensDiscoveryService svc = new MertensDiscoveryService(true, 3,
+        CandidateDiscoveryService svc = new CandidateDiscoveryService(true, 3,
                 new FakeGen("a", "b", "c"), new FakeVal(timeout(), timeout(), timeout()));
         svc.setRepairEarlyExitThreshold(0);   // disabled — grind all attempts
         DiscoveryOutcome out = svc.discover(TASK);
