@@ -53,6 +53,26 @@ public class CandidateDiscoveryService {
         this.repairEarlyExitThreshold = t;
     }
 
+    /**
+     * Gate for the author-facing {@code discover_divisor_value} tool — the divisor-domain
+     * sibling of {@code discover_mertens_value}. Independent of {@link #isEnabled()} (the
+     * runtime-exec gate) so the divisor tool can be advertised or held back on its own,
+     * while both still require the sidecar's {@code ET_DISCOVER_EXEC=1}. Field-injected
+     * (default ON) so the back-compat 4-arg constructor stays unchanged.
+     */
+    @Value("${app.research.discovery.divisorDiscoverToolEnabled:true}")
+    private boolean divisorToolEnabled = true;
+
+    /** Whether the divisor-domain discovery tool should be advertised. */
+    public boolean isDivisorToolEnabled() {
+        return divisorToolEnabled;
+    }
+
+    /** Test seam for the divisor-tool gate (public: exercised from the service-package tool test). */
+    public void setDivisorToolEnabled(boolean b) {
+        this.divisorToolEnabled = b;
+    }
+
     public CandidateDiscoveryService(
             @Value("${app.research.discovery.runtimeExecEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.maxRepairAttempts:3}") int maxRepairAttempts,

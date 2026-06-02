@@ -72,4 +72,53 @@ class MathToolSuiteDiscoveryTest {
         String out = suite.discoverMertensValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
         assertThat(out).contains("disabled");
     }
+
+    // ── discover_divisor_value — divisor-domain sibling, default ON ──────────────
+
+    @Test
+    void divisorToolAdvertisedWhenWiredEnabledAndGateOn() {
+        // wired + runtimeExec on + divisor gate default ON → advertised
+        assertThat(suiteWith(svc(true, accept(1L))).toolsJson(true, false))
+                .contains("discover_divisor_value");
+        // runtimeExec off → omitted (discoveryAvailable() short-circuits)
+        assertThat(suiteWith(svc(false, accept(1L))).toolsJson(true, false))
+                .doesNotContain("discover_divisor_value");
+        // not wired at all → omitted
+        assertThat(new MathToolSuite(null, OM).toolsJson(true, false))
+                .doesNotContain("discover_divisor_value");
+    }
+
+    @Test
+    void divisorToolOmittedWhenItsGateOff() {
+        CandidateDiscoveryService svc = svc(true, accept(1L));
+        svc.setDivisorToolEnabled(false);
+        String tools = suiteWith(svc).toolsJson(true, false);
+        // divisor tool held back, but Mertens (runtimeExec on) still advertised
+        assertThat(tools).doesNotContain("discover_divisor_value");
+        assertThat(tools).contains("discover_mertens_value");
+    }
+
+    @Test
+    void divisorAcceptOutputCarriesValueAndHonestFraming() throws Exception {
+        MathToolSuite suite = suiteWith(svc(true, accept(13218484L)));
+        String out = suite.discoverDivisorValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
+        assertThat(out)
+                .contains("D(1000000000) = 13218484")
+                .contains("COMPUTED")
+                .contains("NOT an established result");
+    }
+
+    @Test
+    void divisorRejectsTargetWithinSieveRange() throws Exception {
+        MathToolSuite suite = suiteWith(svc(true, accept(1L)));
+        String out = suite.discoverDivisorValue(OM.readTree("{\"x\":1000000,\"rationale\":\"r\"}"));
+        assertThat(out).contains("must be >");
+    }
+
+    @Test
+    void divisorDisabledHandlerReturnsDisabledLine() throws Exception {
+        MathToolSuite suite = suiteWith(svc(false, accept(1L)));
+        String out = suite.discoverDivisorValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
+        assertThat(out).contains("disabled");
+    }
 }

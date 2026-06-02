@@ -387,6 +387,11 @@ public class MathToolSuite {
         return discoveryService != null && discoveryService.isEnabled();
     }
 
+    /** The divisor-domain discover tool needs discovery wired+enabled AND its own gate on. */
+    private boolean divisorDiscoveryAvailable() {
+        return discoveryAvailable() && discoveryService.isDivisorToolEnabled();
+    }
+
     /**
      * Phase 30 fork 2b §8b — optional accumulated-knowledge service. Set by
      * {@link ResearchNarrationService} after Spring autowires it. The
@@ -428,6 +433,15 @@ public class MathToolSuite {
             java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
     private static final java.util.Map<Long, Long> DISCOVER_ANCHORS =
             java.util.Map.of(10_000_000L, 1037L);   // M(10^7), OEIS A084237
+
+    /** Divisor-sum (Dirichlet D(x)) discovery spec + moat checkpoints (≤ NT_MAX_N, judged vs
+     *  the D(x) oracle). No beyond-range external anchor today — the overlap checkpoints carry
+     *  the moat (weaker than Mertens' M(10^7) anchor; the COMPUTED-not-established framing holds). */
+    private static final String DISCOVER_DIVISOR_SPEC =
+            "D(x) = sum of the number-of-divisors function d(n) for n = 1..x (the Dirichlet divisor summatory function)";
+    private static final java.util.List<Long> DISCOVER_DIVISOR_CHECKPOINTS =
+            java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
+    private static final java.util.Map<Long, Long> DISCOVER_DIVISOR_ANCHORS = java.util.Map.of();
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
@@ -670,7 +684,7 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : verifyConjectureToolJson(),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
@@ -679,6 +693,7 @@ public class MathToolSuite {
                 (includeLiterature && literatureSearch != null)
                         ? SEARCH_LITERATURE_TOOL_JSON : "",
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
+                divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
                 recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "");
     }
 
@@ -821,6 +836,31 @@ public class MathToolSuite {
             }""";
 
     /**
+     * Phase 30 — runtime-discovery tool for the Dirichlet divisor sum, the divisor-domain
+     * sibling of {@link #DISCOVER_MERTENS_TOOL_JSON}. Advertised only when {@link
+     * #divisorDiscoveryAvailable()} (discovery wired AND runtimeExecEnabled AND the divisor
+     * tool gate on). It computes D(x) at large x via a generated, moat-validated method —
+     * divisor-class by construction. Unlike Mertens it has no beyond-range external anchor,
+     * so the moat rests on the overlap checkpoints alone.
+     */
+    private static final String DISCOVER_DIVISOR_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"discover_divisor_value",
+                "description":"Compute the Dirichlet divisor summatory function D(x) = sum of the number-of-divisors function d(n) for n=1..x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a divisor-sum claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000]) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for D(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "x":{"type":"integer","description":"The target n: compute D(x). Must be > 2000000 (use a direct method below that)."},
+                    "rationale":{"type":"string","description":"Why the paper's divisor-sum claim needs D(x) at this scale."}
+                  },
+                  "required":["x","rationale"]
+                }
+              }
+            }""";
+
+    /**
      * Phase 30 fork 2b §8b — recall tool. Advertised only when {@link
      * #recallAvailable()}. READ-ONLY: it returns the persisted, independently
      * re-verified frontier corpus (records + best verified method) with each value's
@@ -876,6 +916,7 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
+                    case "discover_divisor_value" -> discoverDivisorValue(args);
                     case "recall_frontier_knowledge" -> recallFrontierKnowledge(args, draft);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
@@ -1612,6 +1653,45 @@ public class MathToolSuite {
         return "discover_mertens_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
                 + ". Do NOT report a value for M(" + x + ").";
+    }
+
+    /**
+     * Phase 30 — {@code discover_divisor_value}: compute the Dirichlet divisor sum D(x) at a
+     * large x via a runtime-discovered, moat-validated method. The divisor-domain sibling of
+     * {@link #discoverMertensValue(JsonNode)}: same generate→validate→repair loop (the
+     * discovery service is generic over {@code task.quantity()}), with the divisor spec +
+     * checkpoints and {@code quantity="divisor"} so the sidecar moat validates against the
+     * real D(x) oracle. No beyond-range external anchor (overlap checkpoints carry the moat).
+     * Gated: a disabled line unless discovery is wired, {@code runtimeExecEnabled}, AND the
+     * {@code divisorDiscoverToolEnabled} gate is on.
+     */
+    String discoverDivisorValue(JsonNode args) {
+        if (!divisorDiscoveryAvailable()) {
+            return "discover_divisor_value: disabled (runtime discovery is off).";
+        }
+        long x = args.path("x").asLong(0);
+        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+            return "discover_divisor_value: 'x' must be > " +
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    " (use a direct method at or below the sieve range).";
+        }
+        var task = new com.emergentterrain.research.discovery.DiscoveryTask(
+                DISCOVER_DIVISOR_SPEC, x, DISCOVER_DIVISOR_CHECKPOINTS, DISCOVER_DIVISOR_ANCHORS,
+                20, 28, discoveryService.maxAttempts(), "divisor");
+        var outcome = discoveryService.discover(task);
+        if (outcome.accepted()) {
+            var p = outcome.provenance();
+            return String.format(
+                    "discover_divisor_value: D(%d) = %d. COMPUTED by a moat-validated method "
+                    + "(method sha256=%s, reproduced %d checkpoints in [1, %d]). "
+                    + "This is a computed value from a validated method, NOT an established result — "
+                    + "report it as \"computed to x=%d\", with no claim about the divisor error-term bound.",
+                    x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+        }
+        return "discover_divisor_value: no method validated within "
+                + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
+                + ". Do NOT report a value for D(" + x + ").";
     }
 
     /**
