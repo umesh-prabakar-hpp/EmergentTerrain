@@ -42,8 +42,9 @@ public class DivisorFrontierService {
     /** Overlap checkpoints (1..NT_MAX_N) the discovery moat validates a candidate against. */
     private static final List<Long> CHECKPOINTS =
             List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
-    /** No beyond-range external anchor wired yet; the overlap checkpoints carry the moat. */
-    private static final Map<Long, Long> ANCHORS = Map.of();
+    /** Beyond-range external anchor D(10^7) (OEIS A006218), parity with the Mertens M(10^7)
+     *  anchor — catches a candidate that matches the in-sieve checkpoints but diverges past them. */
+    private static final Map<Long, Long> ANCHORS = Map.of(10_000_000L, 162_725_364L);
 
     private final long startScale;
     private final boolean scheduleEnabled;

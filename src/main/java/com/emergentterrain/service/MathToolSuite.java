@@ -435,13 +435,14 @@ public class MathToolSuite {
             java.util.Map.of(10_000_000L, 1037L);   // M(10^7), OEIS A084237
 
     /** Divisor-sum (Dirichlet D(x)) discovery spec + moat checkpoints (≤ NT_MAX_N, judged vs
-     *  the D(x) oracle). No beyond-range external anchor today — the overlap checkpoints carry
-     *  the moat (weaker than Mertens' M(10^7) anchor; the COMPUTED-not-established framing holds). */
+     *  the D(x) oracle) + a beyond-range external anchor D(10^7) (parity with Mertens' M(10^7)
+     *  anchor), so a candidate that passes the in-sieve checkpoints but diverges past it is caught. */
     private static final String DISCOVER_DIVISOR_SPEC =
             "D(x) = sum of the number-of-divisors function d(n) for n = 1..x (the Dirichlet divisor summatory function)";
     private static final java.util.List<Long> DISCOVER_DIVISOR_CHECKPOINTS =
             java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
-    private static final java.util.Map<Long, Long> DISCOVER_DIVISOR_ANCHORS = java.util.Map.of();
+    private static final java.util.Map<Long, Long> DISCOVER_DIVISOR_ANCHORS =
+            java.util.Map.of(10_000_000L, 162_725_364L);   // D(10^7), OEIS A006218
 
     // ── Tool definitions JSON ─────────────────────────────────────────────────
 
@@ -840,15 +841,14 @@ public class MathToolSuite {
      * sibling of {@link #DISCOVER_MERTENS_TOOL_JSON}. Advertised only when {@link
      * #divisorDiscoveryAvailable()} (discovery wired AND runtimeExecEnabled AND the divisor
      * tool gate on). It computes D(x) at large x via a generated, moat-validated method —
-     * divisor-class by construction. Unlike Mertens it has no beyond-range external anchor,
-     * so the moat rests on the overlap checkpoints alone.
+     * divisor-class by construction. Anchored by D(10^7) beyond the sieve (parity with Mertens).
      */
     private static final String DISCOVER_DIVISOR_TOOL_JSON = """
             ,{
               "type":"function",
               "function":{
                 "name":"discover_divisor_value",
-                "description":"Compute the Dirichlet divisor summatory function D(x) = sum of the number-of-divisors function d(n) for n=1..x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a divisor-sum claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000]) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for D(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
+                "description":"Compute the Dirichlet divisor summatory function D(x) = sum of the number-of-divisors function d(n) for n=1..x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a divisor-sum claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000] plus the known D(10^7)=162725364) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for D(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
                 "parameters":{
                   "type":"object",
                   "properties":{
@@ -1683,7 +1683,7 @@ public class MathToolSuite {
             var p = outcome.provenance();
             return String.format(
                     "discover_divisor_value: D(%d) = %d. COMPUTED by a moat-validated method "
-                    + "(method sha256=%s, reproduced %d checkpoints in [1, %d]). "
+                    + "(method sha256=%s, reproduced %d checkpoints in [1, %d] + D(10^7)=162725364). "
                     + "This is a computed value from a validated method, NOT an established result — "
                     + "report it as \"computed to x=%d\", with no claim about the divisor error-term bound.",
                     x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),

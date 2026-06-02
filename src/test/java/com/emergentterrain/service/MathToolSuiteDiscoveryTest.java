@@ -105,6 +105,7 @@ class MathToolSuiteDiscoveryTest {
         assertThat(out)
                 .contains("D(1000000000) = 13218484")
                 .contains("COMPUTED")
+                .contains("D(10^7)=162725364")
                 .contains("NOT an established result");
     }
 
