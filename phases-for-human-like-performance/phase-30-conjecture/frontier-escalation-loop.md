@@ -377,6 +377,49 @@ pre-flight timeout (falls back to the 20 s cold path).
 
 ---
 
+## 11. Path B — frontier-framed conjecture investigation (generation reframing) (2026-06-02)
+
+§1–§10 give the *engine* (escalate past the sieve, discover+validate a beyond-sieve value)
+and its *autonomous* trigger (the scheduled `*FrontierScheduleEnabled` jobs). But the
+day-to-day **paper pipeline** never used any of it: `ConjectureMinerService` mines finite-window
+inequalities `lhs ≤ k·rhs + c` from offsets ≤ 1,000,000 / windows ≤ 50,000 — all *inside*
+NT_MAX_N — and `ResearchCycleService.publishConjectureInvestigation` framed every such paper as
+an **in-range verification** ("does the bound hold on held-out windows the miner did not sample?",
+checked by `verify_conjecture`, itself hard-capped to ≤ NT_MAX_N). So the corpus was 100%
+known-result verification (Phase 23.8 finding): the papers neither needed nor used discovery,
+because the *claim itself* never referenced a beyond-sieve quantity.
+
+**Path B reframes generation, not the engine.** When
+`app.research.conjectureInvestigation.frontierFramingEnabled` is ON, a `CONJECTURE_INVESTIGATION`
+paper whose scalars map to a discovery domain is posed as an **asymptotic** question instead:
+
+- **Domain mapping** (`ResearchCycleService.frontierDomainFor`, mirroring
+  `MathToolSuite.recallBoundForTopic`): a `mertens`-named scalar (`mertens_delta`) → **MERTENS**
+  (`M(x)=Σμ(n)`, corpus `mertens_M`, per-paper tool `discover_mertens_value`); a `divisor`-named
+  scalar → **DIVISOR** (`D(x)=Σd(n)`, corpus `divisor_D`, per-paper tool `discover_divisor_value`).
+  Everything else (ω/density) → `null` → **unchanged in-range framing**.
+- **Reframed seed text** (`synthesizeFrontier{Hypothesis,Findings,Conclusion}`): the hypothesis
+  asks whether the in-range bound *persists past the sieve ceiling*; the findings/conclusion steer
+  the narrator to `discover_mertens_value` (compute M(x) at a chosen x>2,000,000) and/or
+  `recall_frontier_knowledge` (read the accumulated frontier record), and insist that any
+  beyond-sieve value is a **computed, moat-validated result, NOT a proof**.
+
+This is flag-gated (default OFF; flipped ON 2026-06-02) and additive — with it OFF,
+`publishConjectureInvestigation` behaves exactly as before. It only steers; the narrator already
+has the discover/recall tools (offered to every math paper). **Pair it with the discovery flags**
+(`discovery.runtimeExecEnabled` + the sidecar `ET_DISCOVER_EXEC=1`) so the tools the framing points
+at are live — otherwise the narrator gets a "disabled" line and falls back to in-range evidence.
+
+**Why this is the honest standalone half.** Path B needs no new oracle *for the domains that
+already have one* (Mertens, divisor) — it bridges the existing engine into the generation pipeline.
+It does **not** make ω/density papers use discovery: posing an asymptotic ω-bound that no tool can
+validate beyond the sieve would be vacuous. Extending Path B to a new quantity (e.g. `Σω(n)`)
+requires **Path A** first — a `ScaleValueSource`, a sidecar `quantity` oracle, a `BoundPredicate`,
+and a `*FrontierService` — at which point `frontierDomainFor` gains a third branch and the same
+generation reframing applies.
+
+---
+
 ## Cross-references
 - [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md) — the discovery engine
   this loop drives (branch B1/B2; the moat that gates B3/B4).

@@ -114,6 +114,28 @@ public class ResearchCycleService {
     }
 
     /**
+     * Phase 30 fork 2b Path B — when ON, a conjecture-investigation paper whose
+     * scalars map to an existing beyond-sieve discovery domain (the cumulative
+     * Mertens function M(x) or the Dirichlet divisor sum D(x)) is framed as an
+     * <em>asymptotic / frontier</em> question instead of an in-range verification:
+     * the hypothesis asks whether the bound's behaviour persists past the sieve
+     * ceiling (NT_MAX_N), and the seed text steers the narrator toward the
+     * beyond-sieve tools ({@code discover_mertens_value} / {@code
+     * recall_frontier_knowledge}) rather than only the in-range {@code
+     * verify_conjecture}. Conjectures with no discovery oracle (e.g. ω-class /
+     * density bounds) are unaffected — they keep the in-range framing, because
+     * posing a beyond-sieve claim no tool can validate would be vacuous (extending
+     * Path B to them needs a new oracle — Path A). Default OFF; flag-gated rollout
+     * matching the rest of this service. See
+     * phases-for-human-like-performance/phase-30-conjecture/frontier-escalation-loop.md.
+     */
+    private volatile boolean conjectureFrontierFramingEnabled = false;
+
+    public void setConjectureFrontierFramingEnabled(boolean enabled) {
+        this.conjectureFrontierFramingEnabled = enabled;
+    }
+
+    /**
      * Phase 23.4 — optional conjecture-topic provider. Setter-injected to
      * match the existing setter-based optional-dependency pattern on this
      * service. When non-null and {@code app.research.conjectureMiner.paperShare}
@@ -563,9 +585,20 @@ public class ResearchCycleService {
                 "Investigation of bound on %s (%s ≤ %+.4f · %s + %+.4f)",
                 conjecture.lhs(), conjecture.lhs(),
                 conjecture.k(), conjecture.rhs(), conjecture.c());
-        String hypothesis = synthesizeConjectureHypothesis(conjecture);
-        String findings = synthesizeConjectureFindings(conjecture);
-        String conclusion = synthesizeConjectureConclusion(conjecture);
+        // Path B — frontier-frame the investigation when enabled AND the conjecture's
+        // scalars map to a discovery domain that can compute the quantity past the sieve.
+        // Otherwise (and for all ω/density bounds) keep the in-range framing.
+        FrontierDomain frontier = conjectureFrontierFramingEnabled
+                ? frontierDomainFor(conjecture.lhs(), conjecture.rhs()) : null;
+        String hypothesis = frontier == null
+                ? synthesizeConjectureHypothesis(conjecture)
+                : synthesizeFrontierHypothesis(conjecture, frontier);
+        String findings = frontier == null
+                ? synthesizeConjectureFindings(conjecture)
+                : synthesizeFrontierFindings(conjecture, frontier);
+        String conclusion = frontier == null
+                ? synthesizeConjectureConclusion(conjecture)
+                : synthesizeFrontierConclusion(conjecture, frontier);
 
         // Map p99Slack into a peer-equivalent score: tighter (more
         // negative or near-zero slack with no violations) → higher score.
@@ -609,8 +642,9 @@ public class ResearchCycleService {
 
         papersSinceTerm.merge(roomId, 1, Integer::sum);
         author.recordPublished(peerScore);
-        log.info("conjecture investigation queued: room={} bot={} paperId={} conjecture=\"{}\" runs={}",
+        log.info("conjecture investigation queued: room={} bot={} paperId={} framing={} conjecture=\"{}\" runs={}",
                 roomId, author.getBotId(), paperId,
+                frontier == null ? "in-range" : "frontier:" + frontier.boundKey,
                 String.format("%s <= %+.4f * %s + %+.4f",
                         conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c()),
                 conjecture.confirmedRuns());
@@ -646,6 +680,94 @@ public class ResearchCycleService {
                 "The inequality has not been refuted in the miner's observed regimes (p99 slack %+.5f " +
                         "across %d runs). Held-out verification via verify_conjecture is recommended " +
                         "before promoting this from CONJECTURE to EMPIRICAL_RESULT.",
+                c.p99Slack(), c.confirmedRuns());
+    }
+
+    // ---- Path B: frontier-framed conjecture investigation ----
+
+    /**
+     * A beyond-sieve discovery domain a conjecture's scalars map to. Carries the
+     * human label for the cumulative quantity, the frontier-knowledge corpus key
+     * ({@code recall_frontier_knowledge} reads it), and the per-paper discovery
+     * tool name if one exists ({@code null} = recall-only, no per-paper compute).
+     */
+    enum FrontierDomain {
+        MERTENS("M(x) = Σ_{n≤x} μ(n) (the cumulative Mertens function)", "mertens_M", "discover_mertens_value"),
+        DIVISOR("D(x) = Σ_{n≤x} d(n) (the Dirichlet divisor summatory function)", "divisor_D", "discover_divisor_value");
+
+        final String quantity;
+        final String boundKey;
+        /** Per-paper compute tool, or null when only the autonomous frontier feeds the corpus (→ recall-only). */
+        final String discoverTool;
+
+        FrontierDomain(String quantity, String boundKey, String discoverTool) {
+            this.quantity = quantity;
+            this.boundKey = boundKey;
+            this.discoverTool = discoverTool;
+        }
+    }
+
+    /**
+     * Map a conjecture's scalars to a beyond-sieve discovery domain, or {@code null}
+     * if none — mirroring {@code MathToolSuite.recallBoundForTopic}: {@code mertens_delta}
+     * is Mertens-class; any {@code divisor}-named scalar is divisor-class. Checks both
+     * sides so a bound is frontier-framed whether the Mertens/divisor quantity is the
+     * bounded or the bounding term. ω/density-only bounds return {@code null}.
+     */
+    static FrontierDomain frontierDomainFor(String lhs, String rhs) {
+        String l = lhs == null ? "" : lhs;
+        String r = rhs == null ? "" : rhs;
+        if (l.contains("mertens") || r.contains("mertens")) {
+            return FrontierDomain.MERTENS;
+        }
+        if (l.contains("divisor") || r.contains("divisor")) {
+            return FrontierDomain.DIVISOR;
+        }
+        return null;
+    }
+
+    /** Names the beyond-sieve tool(s) the narrator should reach for in this domain. */
+    private static String frontierToolGuidance(FrontierDomain fd) {
+        String recall = "`recall_frontier_knowledge` (bound `" + fd.boundKey
+                + "`) for the accumulated beyond-sieve frontier record";
+        if (fd.discoverTool != null) {
+            return "`" + fd.discoverTool + "` to compute " + fd.quantity.split(" ")[0]
+                    + " at a specific x beyond the 2,000,000 sieve ceiling, and " + recall;
+        }
+        return recall + " (no per-paper compute tool in this domain — the autonomous frontier job populates it)";
+    }
+
+    private static String synthesizeFrontierHypothesis(
+            com.emergentterrain.research.conjecture.Conjecture c, FrontierDomain fd) {
+        return String.format(
+                "The miner surfaced `%s ≤ %+.4f · %s + %+.4f` from windows inside the trusted sieve "
+                        + "range (x ≤ 2,000,000), where it held across %d runs. This bound concerns %s, a "
+                        + "quantity that can be carried PAST the sieve. The real question is asymptotic: does "
+                        + "the bound's behaviour persist beyond the sieve ceiling, or does it eventually fail? "
+                        + "This paper investigates the bound at the frontier, x > 2,000,000, where no direct "
+                        + "oracle exists.",
+                c.lhs(), c.k(), c.rhs(), c.c(), c.confirmedRuns(), fd.quantity);
+    }
+
+    private static String synthesizeFrontierFindings(
+            com.emergentterrain.research.conjecture.Conjecture c, FrontierDomain fd) {
+        return String.format(
+                "In-range trace for %s ≤ %+.4f · %s + %+.4f: confirmed across %d runs, worst margin "
+                        + "(p99 slack) %+.5f.%n"
+                        + "Beyond the sieve, gather evidence with %s. Any value returned past x=2,000,000 is a "
+                        + "COMPUTED, moat-validated result, NOT an established fact — report it as such and make "
+                        + "no claim of proof. Cross-check the in-range regime with `verify_conjecture` (capped at "
+                        + "the sieve range) so the in-range and beyond-sieve evidence are clearly separated.",
+                c.lhs(), c.k(), c.rhs(), c.c(), c.confirmedRuns(), c.p99Slack(), frontierToolGuidance(fd));
+    }
+
+    private static String synthesizeFrontierConclusion(
+            com.emergentterrain.research.conjecture.Conjecture c, FrontierDomain fd) {
+        return String.format(
+                "In-range the bound is unrefuted (p99 slack %+.5f over %d runs). Whether it holds asymptotically "
+                        + "is open: a beyond-sieve counterexample from the frontier record would refute it, while "
+                        + "continued holding is computed evidence — never a proof. Frame any frontier value as "
+                        + "\"computed via a moat-validated method\", with no claim about the underlying conjecture.",
                 c.p99Slack(), c.confirmedRuns());
     }
 

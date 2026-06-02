@@ -135,6 +135,7 @@ class PublishPaperTest {
                 new ExplorationTuningService(false, replicationService),
                 /* reviewerRoutingEnabled =     */ false,
                 /* journalReviewEnabled =       */ false,
+                /* conjectureFrontierFraming =  */ false,
                 /* truncationGuardEnabled =     */ truncationGuardEnabled,
                 /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,

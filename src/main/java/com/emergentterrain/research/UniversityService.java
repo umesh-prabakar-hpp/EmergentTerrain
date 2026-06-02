@@ -418,6 +418,7 @@ public class UniversityService {
             ExplorationTuningService explorationTuningService,
             @Value("${app.research.reviewer-routing.enabled:false}") boolean reviewerRoutingEnabled,
             @Value("${app.research.journal-review.enabled:false}") boolean journalReviewEnabled,
+            @Value("${app.research.conjectureInvestigation.frontierFramingEnabled:false}") boolean conjectureFrontierFramingEnabled,
             @Value("${app.research.truncation-guard.enabled:false}") boolean truncationGuardEnabled,
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
@@ -687,6 +688,15 @@ public class UniversityService {
         if (journalReviewEnabled) {
             log.info("UniversityService: journal-review ENABLED — pickReviewer narrows "
                     + "candidates to the top-{} journal editors first.", 5);
+        }
+        // Phase 30 fork 2b Path B — frontier-frame conjecture investigations whose quantity
+        // has a beyond-sieve discovery oracle (Mertens M(x) / divisor D(x)) so the paper poses
+        // the asymptotic question and uses discover/recall instead of only in-range verify.
+        this.researchCycleService.setConjectureFrontierFramingEnabled(conjectureFrontierFramingEnabled);
+        if (conjectureFrontierFramingEnabled) {
+            log.info("UniversityService: conjecture frontier-framing ENABLED — Mertens/divisor "
+                    + "conjecture investigations pose the beyond-sieve question and steer toward "
+                    + "discover_mertens_value / recall_frontier_knowledge. Pair with the discovery flags.");
         }
         try {
             Files.createDirectories(this.researchOutputDir);
