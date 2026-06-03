@@ -172,7 +172,8 @@ class ConjectureQueueTest {
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
                 new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
                 /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ true, /*substrateMetrics*/ false,
-                /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false);
+                /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false,
+                /*stochasticNull*/ false, /*permutations*/ 999, /*alpha*/ 0.05, /*minCv*/ 0.01);
     }
 
     private static ConjectureMinerService buildService(ConjectureRepository repo) {
@@ -183,7 +184,8 @@ class ConjectureQueueTest {
         return new ConjectureMinerService(repo, new ConjectureMapper(om), new OeisAnnotator(om),
                 new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null),
                 /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false,
-                /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false);
+                /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false,
+                /*stochasticNull*/ false, /*permutations*/ 999, /*alpha*/ 0.05, /*minCv*/ 0.01);
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,

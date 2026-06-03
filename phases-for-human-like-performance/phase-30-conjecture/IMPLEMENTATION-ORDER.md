@@ -109,15 +109,18 @@ archive holds one elite per cell; generation rate is sublinear in validations pe
 
 You must judge novelty honestly before producing it, or Stage-1 generation just makes new noise.
 
-| Item | Source | Notes |
-|------|--------|-------|
-| **Generative stochastic null + Fano/CV floor** | sim #8 | simulate the no-effect mechanism; beat the corrected ensemble quantile |
-| **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | now over a tiny W1-reduced denominator |
-| **Private validator the generator can't read + gaming-rate metric** | ext #3 | anti-HARKing; track "passed public, failed private" rate |
-| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | hold across N seeds with a quantified failure rate |
+| Item | Source | Status | Notes |
+|------|--------|--------|-------|
+| **Generative stochastic null + Fano/CV floor** | sim #8 | ◐ shipped flag-OFF | `ConjectureStochasticNull` — permutation-tests \|Spearman ρ\| of lhs↔rhs vs the rhs-shuffled no-effect null + CV floor; wired into `mine()` (`stochasticNullEnabled`, default OFF); emits the per-conjecture p-value the MCC slice will consume. Needs the A/B (zero false-retirement on a control set) before flip. |
+| **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | ⏳ next | consumes the null p-values above, over a tiny W1-reduced denominator |
+| **Private validator the generator can't read + gaming-rate metric** | ext #3 | ⏳ | anti-HARKing; track "passed public, failed private" rate |
+| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ⏳ | hold across N seeds with a quantified failure rate |
 
 **Acceptance:** a claim only scores on held-out data against a generated null; a known-trivial relation
 and a known-fabricated value are both correctly rejected; the gaming-rate metric is emitted.
+
+**Lane opened 2026-06-02** — component 1 (generative stochastic null) shipped flag-gated OFF; the
+remaining three are sequenced above (MCC next, since it just needs the p-values the null already emits).
 
 ---
 
@@ -194,7 +197,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 1 | cheap rejection gates | low | **highest** | low | ◐ triviality/dedup shipped (`trivialityFilterEnabled` ON); dimension gate built, flag OFF; **FIM-identifiability + unit-consistency gates not built** |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ◐ `QualityDiversityArchive` + `lineage()` primitive shipped; **clade-value selection, sublinear budget, tiered ordering not wired** |
-| 4 | evaluation hardening | med | high | low | ⏳ not started (no null/MCC/private-validator/replication) |
+| 4 | evaluation hardening | med | high | low | ◐ **lane open** — generative stochastic null shipped (`stochasticNullEnabled` OFF); MCC / private-validator / seed-replication pending |
 | 5 | generation (Stage 1) | med-high | high | med | ⏳ not started (gated on W4) |
 | 6 | irreducibility + mechanism | **high** | high | med | ⏳ not started (`DerivationClosure` primitive exists; RAF-report + mechanism model not built) |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |

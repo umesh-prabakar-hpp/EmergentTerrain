@@ -141,6 +141,11 @@ public class ConjectureMinerService implements ConjectureQueue {
      * phase-30-conjecture/IMPLEMENTATION-ORDER.md step 2.5.
      */
     private final boolean compositionKnobExemptEnabled;
+    // Phase 30 Wave 4 — generative stochastic null (flag-gated OFF; see ConjectureStochasticNull).
+    private final boolean stochasticNullEnabled;
+    private final int stochasticNullPermutations;
+    private final double stochasticNullAlpha;
+    private final double stochasticNullMinCv;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -167,7 +172,19 @@ public class ConjectureMinerService implements ConjectureQueue {
             int compositionPersistCap,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.compositionKnobExemptEnabled:false}")
-            boolean compositionKnobExemptEnabled) {
+            boolean compositionKnobExemptEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.stochasticNullEnabled:false}")
+            boolean stochasticNullEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.stochasticNullPermutations:999}")
+            int stochasticNullPermutations,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.stochasticNullAlpha:0.05}")
+            double stochasticNullAlpha,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.stochasticNullMinCv:0.01}")
+            double stochasticNullMinCv) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -179,15 +196,20 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.compositionPersistEnabled = compositionPersistEnabled;
         this.compositionPersistCap = compositionPersistCap;
         this.compositionKnobExemptEnabled = compositionKnobExemptEnabled;
+        this.stochasticNullEnabled = stochasticNullEnabled;
+        this.stochasticNullPermutations = stochasticNullPermutations;
+        this.stochasticNullAlpha = stochasticNullAlpha;
+        this.stochasticNullMinCv = stochasticNullMinCv;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
-                + "compositionPersist={}{} compositionKnobExempt={}",
+                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
                 compositionPersistEnabled ? "ON" : "OFF",
                 compositionPersistEnabled ? " (cap=" + compositionPersistCap + ")" : "",
-                compositionKnobExemptEnabled ? "ON" : "OFF");
+                compositionKnobExemptEnabled ? "ON" : "OFF",
+                stochasticNullEnabled ? "ON (p>" + stochasticNullAlpha + ")" : "OFF");
     }
 
     /**
@@ -226,11 +248,19 @@ public class ConjectureMinerService implements ConjectureQueue {
         Map<String, Double> knobValues = new LinkedHashMap<>();
         int totalConfirmed = 0;
         int totalRetiredByCounterexample = 0;
+        // Phase 30 Wave 4 — accumulate every window sample so the stochastic-null gate can
+        // permutation-test the lhs↔rhs association across the full sample set. Only collected
+        // when the gate is on (otherwise it stays empty and costs nothing).
+        List<Map<String, Double>> allSamples =
+                stochasticNullEnabled ? new ArrayList<>() : List.of();
 
         for (Run run : RUNS) {
             List<Map<String, Double>> samples = materialize(run);
             String configHash = "W" + run.windowSize();
             knobValues.put(configHash, (double) run.windowSize());
+            if (stochasticNullEnabled) {
+                allSamples.addAll(samples);
+            }
 
             if (store.isEmpty()) {
                 store = ConjectureEngine.seed(samples, MathInvariants.vocabulary());
@@ -280,6 +310,29 @@ public class ConjectureMinerService implements ConjectureQueue {
                 if (r.isPresent()) {
                     persistRetired(List.of(ineq), byKey, "dimension:" + r.get());
                     dimensionDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
+        }
+
+        // Phase 30 Wave 4 — generative stochastic null (flag-gated OFF). Permutation-tests
+        // the lhs↔rhs association across all accumulated samples; a bound that doesn't beat
+        // the no-effect null (p > alpha), or whose rhs is near-constant, is a marginal-range
+        // artifact, not a real constraint — retire it. No-op when the flag is off.
+        int nullDropped = 0;
+        if (stochasticNullEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                // Deterministic per-conjecture seed so the verdict is reproducible run-to-run.
+                long seed = keyOf(ineq.lhs, ineq.rhs).hashCode();
+                ConjectureStochasticNull.Result nr = ConjectureStochasticNull.evaluate(
+                        allSamples, ineq.lhs, ineq.rhs, stochasticNullPermutations,
+                        stochasticNullAlpha, stochasticNullMinCv, seed);
+                if (nr.flagged()) {
+                    persistRetired(List.of(ineq), byKey, "stochastic_null:" + nr.reason());
+                    nullDropped++;
                 } else {
                     kept.add(ineq);
                 }
@@ -345,9 +398,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} composed (persisted), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, compositionsPersisted, System.currentTimeMillis() - t0);
+                dimensionDropped, nullDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
