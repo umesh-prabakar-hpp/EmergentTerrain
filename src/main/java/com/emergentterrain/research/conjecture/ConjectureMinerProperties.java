@@ -49,6 +49,8 @@ public class ConjectureMinerProperties {
     // Wave 5 — vocabulary expansion (30.5 P3a admission); reuses stochasticNull* + sublinearBudgetAlpha.
     private boolean vocabularyExpansionEnabled = false;
     private int vocabularyExpansionDepth = 1;
+    // Wave 6 — RAF-closure reporting (sim #1): report iRAF publishable units + ungrounded findings.
+    private boolean rafClosureEnabled = false;
     // Wave 4 component 1 — generative stochastic null.
     private boolean stochasticNullEnabled = false;
     private int stochasticNullPermutations = 999;
@@ -117,6 +119,9 @@ public class ConjectureMinerProperties {
 
     public int getVocabularyExpansionDepth() { return vocabularyExpansionDepth; }
     public void setVocabularyExpansionDepth(int v) { this.vocabularyExpansionDepth = v; }
+
+    public boolean isRafClosureEnabled() { return rafClosureEnabled; }
+    public void setRafClosureEnabled(boolean v) { this.rafClosureEnabled = v; }
 
     public boolean isStochasticNullEnabled() { return stochasticNullEnabled; }
     public void setStochasticNullEnabled(boolean v) { this.stochasticNullEnabled = v; }

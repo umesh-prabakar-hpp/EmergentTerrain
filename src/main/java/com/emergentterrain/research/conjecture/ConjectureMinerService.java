@@ -187,6 +187,9 @@ public class ConjectureMinerService implements ConjectureQueue {
     private static final int VOCAB_TARGET_CAP = 3;       // top confirmed bounds used as MDL targets
     private static final int VOCAB_ADMIT_CAP = 8;        // hard ceiling on admitted scalars per pass
     private static final int VOCAB_NEW_CONJECTURE_CAP = 20;   // new conjectures seeded from admitted scalars/pass
+    // Phase 30 Wave 6 — RAF-closure reporting (sim #1); observability over the derivation graph.
+    private final boolean rafClosureEnabled;
+    private static final int RAF_TARGET_CAP = 5;   // top confirmed findings to report iRAFs for
 
     /**
      * Phase 30 Wave 5 (30.5 P3b) — optional persistence for admitted derived scalars. Setter-injected
@@ -266,10 +269,11 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.anomalyMinConfirmed = props.getAnomalyMinConfirmed();
         this.vocabularyExpansionEnabled = props.isVocabularyExpansionEnabled();
         this.vocabularyExpansionDepth = props.getVocabularyExpansionDepth();
+        this.rafClosureEnabled = props.isRafClosureEnabled();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={} anomalyMining={} vocabularyExpansion={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={} anomalyMining={} vocabularyExpansion={} rafClosure={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -290,7 +294,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF",
                 residualStructureEnabled ? "ON" : "OFF",
                 anomalyMiningEnabled ? "ON (minConfirmed=" + anomalyMinConfirmed + ")" : "OFF",
-                vocabularyExpansionEnabled ? "ON (depth=" + vocabularyExpansionDepth + ")" : "OFF");
+                vocabularyExpansionEnabled ? "ON (depth=" + vocabularyExpansionDepth + ")" : "OFF",
+                rafClosureEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -692,6 +697,27 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new conjectures seeded",
                     candidates.size(), admitted.size(), budget, newConjectures);
+        }
+
+        // Phase 30 Wave 6 — RAF-closure reporting (sim #1, flag-gated OFF). Over the live findings'
+        // derivation graph (rhs→lhs, food = the observable vocabulary), report the irreducible core
+        // (iRAF) of the top confirmed findings as the publishable unit, and the count of findings
+        // grounded in no RAF. Observability only — surfaces retirement candidates, doesn't retire.
+        if (rafClosureEnabled) {
+            java.util.Set<String> food = new java.util.HashSet<>(MathInvariants.vocabulary(activeAdmitted));
+            List<Inequality> rafTargets = store.stream()
+                    .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
+                    .limit(RAF_TARGET_CAP)
+                    .toList();
+            RafReport.Report rr = RafReport.of(store, food, rafTargets);
+            for (RafReport.Core core : rr.cores()) {
+                if (core.size() > 1) {   // size 1 = a directly-grounded edge; >1 = a real chain
+                    log.info("RAF closure — finding [{}] has an irreducible core of {} findings (publishable unit)",
+                            core.target(), core.size());
+                }
+            }
+            log.info("RAF closure — {} findings, maxRAF {}, {} grounded in no RAF (retirement candidates)",
+                    rr.findings(), rr.maxRafSize(), rr.ungrounded());
         }
 
         // Persist survivors: update existing entities in place, insert new ones.
