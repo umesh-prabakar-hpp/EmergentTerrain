@@ -1,6 +1,6 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): IN PROGRESS — P1 (grammar) + P2 (MDL gate) shipped (pure); P3 (registry/wiring) next.** This is the last
+**Status (2026-06-03): IN PROGRESS — P1 + P2 + P3a shipped (pure/observability); P3b (persistence + generation) remains.** This is the last
 open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
 Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
 *expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30
@@ -142,11 +142,22 @@ deferred behind its own flag, to be turned on only after one-level admission pro
    (M2). `MdlGateTest` (6: planted explainer admitted, unrelated rejected, duplicate-of-existing rejected,
    description-cost scales with node count, too-few-samples, null safety). Scores one candidate vs one
    target residual — cross-bound iteration + family MCC + persistence are P3.
-3. **P3 — registry + extraction wiring (flag-gated).** `DerivedScalar` registry + the `MathInvariants`
-   extraction pass + `vocabulary()` extension + sublinear budget + persistence. Parity test guarded by
-   the flag-OFF identity. Observability log: "admitted N scalars this pass (top: `…`, gain B bits)."
+3. **P3a — admission orchestration + parity-safe seam (flag-gated). ✅ SHIPPED** (2026-06-03).
+   `DerivedScalar` (admitted term: name = canonical render, the `Expr`, gainBits); `VocabularyExpansion.admit`
+   (enumerate → `MdlGate` over the top confirmed bounds → rank by net gain → cap by `SublinearGenerationBudget`);
+   parity-safe `MathInvariants.vocabulary(admitted)` / `extract(…, admitted)` overloads (no-arg paths
+   untouched → byte-identical when empty, verified by `MathInvariantsExtensionTest`; `ConjectureEngineParityTest`
+   unaffected). Wired into `mine()` flag-gated OFF (`vocabularyExpansionEnabled`, `vocabularyExpansionDepth`),
+   bounded (60 candidates × 3 targets, ≤8 admitted/pass), **observability log only**. Tests:
+   `VocabularyExpansionTest` (5), `MathInvariantsExtensionTest` (3).
+4. **P3b — persistence + generation (flag-gated). ⏳ REMAINING.** A `derived_scalars` table so the admitted
+   set survives restarts; `materialize()` extraction through `extract(…, admitted)` so admitted scalars
+   are present every pass; and seeding new conjecture pairs that touch an admitted scalar (so 30.5 actually
+   *generates* re-evaluable conjectures). This is the part that needs persistence + an `Expr`
+   (de)serialiser, which is why P3a stops at admission/observability.
 
-P1+P2 are the genuinely new pure utilities; P3 is the (riskier) substrate wiring.
+P1+P2+P3a are the new pure/observability pieces (no live behavior change); P3b is the substrate-mutating
+generation step.
 
 ---
 

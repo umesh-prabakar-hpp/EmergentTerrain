@@ -98,4 +98,38 @@ public final class MathInvariants {
         v.addAll(DERIVED.keySet());
         return v;
     }
+
+    /**
+     * Phase 30 Wave 5 (30.5) — vocabulary extended with MDL-admitted derived scalars. The no-arg
+     * {@link #vocabulary()} is the base path and is left untouched; {@code admitted} is appended only
+     * when vocabulary expansion is on, so an empty/absent list reproduces the base vocabulary exactly
+     * (the flag-OFF byte-identity invariant the design depends on).
+     */
+    public static List<String> vocabulary(List<DerivedScalar> admitted) {
+        List<String> v = vocabulary();
+        if (admitted != null) {
+            for (DerivedScalar d : admitted) {
+                v.add(d.name());
+            }
+        }
+        return v;
+    }
+
+    /**
+     * Phase 30 Wave 5 (30.5) — {@link #extract} plus the admitted derived scalars, computed on the
+     * flattened base/derived map (so a derived scalar can reference any base/derived value). A
+     * non-finite result is stored as {@code 0.0}, mirroring the DERIVED failure handling above. With
+     * {@code admitted} empty/null this is byte-identical to {@link #extract(Map, long, long)}.
+     */
+    public static Map<String, Double> extract(Map<String, Double> rawWindow, long windowStart,
+                                              long windowSize, List<DerivedScalar> admitted) {
+        Map<String, Double> flat = extract(rawWindow, windowStart, windowSize);
+        if (admitted != null) {
+            for (DerivedScalar d : admitted) {
+                double v = d.eval(flat);
+                flat.put(d.name(), Double.isFinite(v) ? v : 0.0);
+            }
+        }
+        return flat;
+    }
 }

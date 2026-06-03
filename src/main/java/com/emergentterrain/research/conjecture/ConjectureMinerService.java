@@ -180,6 +180,12 @@ public class ConjectureMinerService implements ConjectureQueue {
     // Phase 30 Wave 5 — anomaly mining (30.1); observability hook, no persistence yet.
     private final boolean anomalyMiningEnabled;
     private final int anomalyMinConfirmed;
+    // Phase 30 Wave 5 — vocabulary expansion (30.5 P3a admission); observability, no persistence yet.
+    private final boolean vocabularyExpansionEnabled;
+    private final int vocabularyExpansionDepth;
+    private static final int VOCAB_CANDIDATE_CAP = 60;   // grammar candidates probed per pass
+    private static final int VOCAB_TARGET_CAP = 3;       // top confirmed bounds used as MDL targets
+    private static final int VOCAB_ADMIT_CAP = 8;        // hard ceiling on admitted scalars per pass
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -217,10 +223,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.residualStructureEnabled = props.isResidualStructureEnabled();
         this.anomalyMiningEnabled = props.isAnomalyMiningEnabled();
         this.anomalyMinConfirmed = props.getAnomalyMinConfirmed();
+        this.vocabularyExpansionEnabled = props.isVocabularyExpansionEnabled();
+        this.vocabularyExpansionDepth = props.getVocabularyExpansionDepth();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={} anomalyMining={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={} anomalyMining={} vocabularyExpansion={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -240,7 +248,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 cladeValueSelectionEnabled ? "ON" : "OFF",
                 sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF",
                 residualStructureEnabled ? "ON" : "OFF",
-                anomalyMiningEnabled ? "ON (minConfirmed=" + anomalyMinConfirmed + ")" : "OFF");
+                anomalyMiningEnabled ? "ON (minConfirmed=" + anomalyMinConfirmed + ")" : "OFF",
+                vocabularyExpansionEnabled ? "ON (depth=" + vocabularyExpansionDepth + ")" : "OFF");
     }
 
     /**
@@ -283,7 +292,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         // gates can work across the full sample set. Only collected when one of those gates is on
         // (otherwise it stays empty and costs nothing).
         boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled
-                || identifiabilityEnabled || residualStructureEnabled;
+                || identifiabilityEnabled || residualStructureEnabled || vocabularyExpansionEnabled;
         List<Map<String, Double>> allSamples =
                 collectSamples ? new ArrayList<>() : List.of();
 
@@ -555,6 +564,40 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             log.info("anomaly mining — {} refuted candidate(s) examined, {} surviving anomalies past MCC",
                     refutedPool.size(), anomalies.size());
+        }
+
+        // Phase 30 Wave 5 — vocabulary expansion (30.5 P3a, flag-gated OFF). Enumerate grammar
+        // candidates over the current vocabulary, admit those that earn their MDL keep against the
+        // top confirmed bounds' residuals (held-out-confirmed, beats existing + the null), capped by
+        // the sublinear budget. Observability only — persisting admitted scalars and wiring them into
+        // materialize()/seeding so they generate re-evaluable conjectures is P3b (needs persistence).
+        if (vocabularyExpansionEnabled && !allSamples.isEmpty()) {
+            List<String> vocab = MathInvariants.vocabulary();
+            List<OperatorGrammar.Expr> candidates =
+                    OperatorGrammar.enumerate(vocab, vocabularyExpansionDepth);
+            if (candidates.size() > VOCAB_CANDIDATE_CAP) {
+                candidates = candidates.subList(0, VOCAB_CANDIDATE_CAP);
+            }
+            List<VocabularyExpansion.Target> targets = store.stream()
+                    .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
+                    .limit(VOCAB_TARGET_CAP)
+                    .map(i -> new VocabularyExpansion.Target(i.lhs, i.rhs))
+                    .toList();
+            long nValidations = 0;
+            for (Inequality ineq : store) {
+                nValidations += ineq.confirmedRuns();
+            }
+            int budget = SublinearGenerationBudget.budget(nValidations, sublinearBudgetAlpha, VOCAB_ADMIT_CAP);
+            MdlGate.Params params = new MdlGate.Params(
+                    vocab.size() + 6, stochasticNullPermutations, stochasticNullAlpha, 0xCAB5EEDL);
+            List<DerivedScalar> admitted = VocabularyExpansion.admit(
+                    candidates, allSamples, targets, vocab, budget, params);
+            for (DerivedScalar dsc : admitted) {
+                log.info("vocabulary-expansion admitted scalar {} (net gain {} bits)",
+                        dsc.name(), String.format("%.2f", dsc.gainBits()));
+            }
+            log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {})",
+                    candidates.size(), admitted.size(), budget);
         }
 
         // Persist survivors: update existing entities in place, insert new ones.
