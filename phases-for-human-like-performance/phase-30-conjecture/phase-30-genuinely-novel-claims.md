@@ -1,9 +1,22 @@
 # Phase 30 — Genuinely Novel Claims
 
-**Status (2026-05-29):** Proposal / scoping doc. Not queued. Every piece
-below is flag-gated dormant by default (`app.research.*.enabled = false`),
-per the project convention — ship the code, leave the flip to the operator
-after the prior stage's acceptance bar is met.
+**Status (updated 2026-06-02):** Partially shipped — sequenced and tracked in
+[`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) (see its wave-status column).
+**Shipped:** Wave 0 investigation rotation (flag ON); Wave 1 triviality/dedup gate
+(ON, dimension gate built-but-OFF); Wave 2 derivation graph + composition
+(`DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer`,
+`compositionPersistEnabled` ON); Wave 3 quality-diversity archive
+(`QualityDiversityArchive`). **Not yet built:** Wave 1 FIM-identifiability / unit
+gates; Wave 3 clade-value selection + sublinear budget + tiered ordering; Waves 4–7
+(evaluation hardening, generative novelty, irreducibility/mechanism, promotion). 30.4
+literature grounding stays deferred per `project_phase23_8_calibration` (generation,
+not retrieval, is the blocker). Each piece ships flag-gated dormant by default
+(`app.research.*.enabled = false`), flipped by the operator after its acceptance bar.
+
+> **Note (separate track):** the beyond-sieve *discovery* engine (frontier escalation +
+> runtime self-verifying execution, Mertens/divisor/prime) is orthogonal to these
+> novelty waves — see [`frontier-escalation-loop.md`](frontier-escalation-loop.md) and
+> [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md).
 
 > **Empirical diagnosis (companion docs, same folder).** The triviality this phase fixes is *measured*
 > in [`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) — the engine produces 212

@@ -186,13 +186,19 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
   vocabulary expansion (30.5) is highest-risk/highest-reward (the proposal flags it "beyond human-level").
   Sequence them last so they sit on a verified foundation.
 
-| Wave | Theme | Effort | Payoff | Risk |
-|------|-------|--------|--------|------|
-| 0 | retirement + domain | low | high | low |
-| 1 | cheap rejection gates | low | **highest** | low |
-| 2 | derivation graph | low-med | enabling | low |
-| 3 | selection/diversity | med | high | low |
-| 4 | evaluation hardening | med | high | low |
-| 5 | generation (Stage 1) | med-high | high | med |
-| 6 | irreducibility + mechanism | **high** | high | med |
-| 7 | promotion (Stage 2) | med | med | med (gated on calibration) |
+**Status legend (2026-06-02):** ✅ shipped · ◐ partial / built-but-flag-OFF · ⏳ not started.
+
+| Wave | Theme | Effort | Payoff | Risk | Status (2026-06-02) |
+|------|-------|--------|--------|------|---------------------|
+| 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
+| 1 | cheap rejection gates | low | **highest** | low | ◐ triviality/dedup shipped (`trivialityFilterEnabled` ON); dimension gate built, flag OFF; **FIM-identifiability + unit-consistency gates not built** |
+| 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
+| 3 | selection/diversity | med | high | low | ◐ `QualityDiversityArchive` + `lineage()` primitive shipped; **clade-value selection, sublinear budget, tiered ordering not wired** |
+| 4 | evaluation hardening | med | high | low | ⏳ not started (no null/MCC/private-validator/replication) |
+| 5 | generation (Stage 1) | med-high | high | med | ⏳ not started (gated on W4) |
+| 6 | irreducibility + mechanism | **high** | high | med | ⏳ not started (`DerivationClosure` primitive exists; RAF-report + mechanism model not built) |
+| 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
+
+> Discovery/frontier work (Mertens/divisor/prime beyond-sieve escalation) is a **separate track** —
+> see [`frontier-escalation-loop.md`](frontier-escalation-loop.md) /
+> [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md) — not part of these waves.
