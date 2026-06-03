@@ -1,6 +1,6 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): DESIGN — decisions settled, READY TO QUEUE (not yet coded).** This is the last
+**Status (2026-06-03): IN PROGRESS — P1 (grammar) shipped; P2 (MDL gate) next.** This is the last
 open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
 Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
 *expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30
@@ -128,9 +128,12 @@ deferred behind its own flag, to be turned on only after one-level admission pro
 
 ## 5. Phasing (all flag-gated OFF; pure-first, like the rest of W5)
 
-1. **P1 — grammar + canonicalisation (pure).** `OperatorGrammar.enumerate(vocabulary, depth)` → candidate
-   expressions, with dedup/dimension/near-identity guards. No admission. Unit-tested on the real scalar
-   set (counts, guard rejections, canonical forms).
+1. **P1 — grammar + canonicalisation (pure). ✅ SHIPPED** (`OperatorGrammar`, 2026-06-03). `enumerate(scalars,
+   maxDepth)` → candidate `Expr`s with canonical render, guarded `eval`, depth + operands; structural
+   dedup, `x∘x` degeneracy pruning, and the bounded-NT × window-magnitude dimension guard. No admission.
+   `OperatorGrammarTest` (9: depth-1 count/contents, dimension guard, canonical `*`, no self-degeneracies,
+   base-scalars-not-re-emitted, depth-2 composition determinism/dedup, guarded eval, null safety).
+   *(Numeric near-identity dedup against existing series is data-driven → deferred to P2 admission.)*
 2. **P2 — MDL ledger (pure).** `MdlGate.score(candidate, samples, existingScalars)` → `net_gain_bits`,
    delegating the structure test to `ResidualStructureMiner` + the null + MCC. Unit-tested: a planted
    `z = 3*log(rhs)` that explains a residual is admitted; a random expression is not.
