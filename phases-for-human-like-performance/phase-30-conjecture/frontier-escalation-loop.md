@@ -420,6 +420,39 @@ generation reframing applies.
 
 ---
 
+## 12. Path A — third discovery domain: prime counting π(x) (2026-06-02)
+
+Path A adds a genuinely new beyond-sieve quantity, exactly the way Tier 2 added divisor, this
+time the **prime-counting function π(x)**. The bound escalated is the von Koch / Schoenfeld
+RH-equivalent **|π(x) − li(x)| < √x·ln(x)/(8π)** (`BoundPredicate.PRIME_PI`), proven for
+x ≥ 2657 *under the Riemann Hypothesis*; RH is verified far past the reachable frontier, so the
+bound keeps HOLDing across every scale and the loop stalls before the wall — escalating it is
+testing RH numerically, the direct analog of escalating the Mertens conjecture.
+
+Why π(x) and not the documented Σω(n): Σω(n)'s error term is O(x/ln x), so a clean √x-class
+frontier bound would be wrong and refute instantly. π(x) reuses the existing `prime_density`
+window scalar (no new sidecar scalar, no miner-parity break) and the existing `nt_is_prime`
+oracle, and has a clean, open, holds-across-scales bound. (Squarefree Q(x) is the cleanest √x
+analog but needs a new window scalar; deferred.)
+
+The pieces (mirror the divisor domain exactly):
+- **Sidecar** (`julia-math-sidecar`): `nt_prime_indicator(n)` + a `"prime"` branch in the
+  `/discover/validate` quantity switch (`nt_prime_indicator` cumulative → π(x)). **Needs a
+  sidecar restart to take effect** — editing source doesn't touch the running process.
+- **`SidecarPrimeCountValueSource`**: in-range π(x) = `round(prime_density·(x-1))` (the [1,2)
+  edge contributes 0 primes, so no `+1` unlike divisor's `d(1)`).
+- **`PrimeFrontierService`**: `quantity="prime"`, bound key `"prime_pi"`, flags `primeFrontier*`.
+- **`discover_prime_value`** per-paper tool in `MathToolSuite` (anchor π(10^7)=664579), gated by
+  `primeDiscoverToolEnabled`; `recallBoundForTopic`/`frontierDomainFor` gain a `prime → prime_pi`
+  branch so prime-topic papers recall the right corpus AND get Path-B frontier framing.
+
+Gating: `primeDiscoverToolEnabled` defaults ON (graceful: pre-restart the sidecar 400s on
+`quantity=prime` → the tool returns a "no method validated" note, never a false value).
+`primeFrontierScheduleEnabled` defaults **OFF** — the autonomous token-spend stays dormant until
+the operator restarts the sidecar with the prime oracle and opts in (flag-gated-dormant).
+
+---
+
 ## Cross-references
 - [`runtime-self-verifying-execution.md`](runtime-self-verifying-execution.md) — the discovery engine
   this loop drives (branch B1/B2; the moat that gates B3/B4).

@@ -122,4 +122,50 @@ class MathToolSuiteDiscoveryTest {
         String out = suite.discoverDivisorValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
         assertThat(out).contains("disabled");
     }
+
+    // ── discover_prime_value — prime-counting sibling (Path A), default ON ──────────
+
+    @Test
+    void primeToolAdvertisedWhenWiredEnabledAndGateOn() {
+        assertThat(suiteWith(svc(true, accept(1L))).toolsJson(true, false))
+                .contains("discover_prime_value");
+        assertThat(suiteWith(svc(false, accept(1L))).toolsJson(true, false))
+                .doesNotContain("discover_prime_value");
+        assertThat(new MathToolSuite(null, OM).toolsJson(true, false))
+                .doesNotContain("discover_prime_value");
+    }
+
+    @Test
+    void primeToolOmittedWhenItsGateOff() {
+        CandidateDiscoveryService svc = svc(true, accept(1L));
+        svc.setPrimeToolEnabled(false);
+        String tools = suiteWith(svc).toolsJson(true, false);
+        assertThat(tools).doesNotContain("discover_prime_value");
+        assertThat(tools).contains("discover_mertens_value");   // others unaffected
+    }
+
+    @Test
+    void primeAcceptOutputCarriesValueAndHonestFraming() throws Exception {
+        MathToolSuite suite = suiteWith(svc(true, accept(37607912018L)));
+        String out = suite.discoverPrimeValue(OM.readTree("{\"x\":1000000000000,\"rationale\":\"r\"}"));
+        assertThat(out)
+                .contains("pi(1000000000000) = 37607912018")
+                .contains("COMPUTED")
+                .contains("pi(10^7)=664579")
+                .contains("NOT an established result");
+    }
+
+    @Test
+    void primeRejectsTargetWithinSieveRange() throws Exception {
+        MathToolSuite suite = suiteWith(svc(true, accept(1L)));
+        String out = suite.discoverPrimeValue(OM.readTree("{\"x\":1000000,\"rationale\":\"r\"}"));
+        assertThat(out).contains("must be >");
+    }
+
+    @Test
+    void primeDisabledHandlerReturnsDisabledLine() throws Exception {
+        MathToolSuite suite = suiteWith(svc(false, accept(1L)));
+        String out = suite.discoverPrimeValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
+        assertThat(out).contains("disabled");
+    }
 }

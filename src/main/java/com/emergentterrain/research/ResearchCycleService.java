@@ -693,7 +693,8 @@ public class ResearchCycleService {
      */
     enum FrontierDomain {
         MERTENS("M(x) = Σ_{n≤x} μ(n) (the cumulative Mertens function)", "mertens_M", "discover_mertens_value"),
-        DIVISOR("D(x) = Σ_{n≤x} d(n) (the Dirichlet divisor summatory function)", "divisor_D", "discover_divisor_value");
+        DIVISOR("D(x) = Σ_{n≤x} d(n) (the Dirichlet divisor summatory function)", "divisor_D", "discover_divisor_value"),
+        PRIME("pi(x) = #{p ≤ x : p prime} (the prime-counting function)", "prime_pi", "discover_prime_value");
 
         final String quantity;
         final String boundKey;
@@ -709,10 +710,11 @@ public class ResearchCycleService {
 
     /**
      * Map a conjecture's scalars to a beyond-sieve discovery domain, or {@code null}
-     * if none — mirroring {@code MathToolSuite.recallBoundForTopic}: {@code mertens_delta}
-     * is Mertens-class; any {@code divisor}-named scalar is divisor-class. Checks both
-     * sides so a bound is frontier-framed whether the Mertens/divisor quantity is the
-     * bounded or the bounding term. ω/density-only bounds return {@code null}.
+     * if none — mirroring {@code MathToolSuite.defaultRecallBound}: {@code mertens_delta}
+     * is Mertens-class; a {@code divisor}-named scalar is divisor-class; a {@code prime}-named
+     * scalar (e.g. {@code prime_density}) is prime-class (π(x)). Checks both sides so a bound
+     * is frontier-framed whether the discovery quantity is the bounded or the bounding term.
+     * Bounds with no discovery oracle (other ω / density scalars) return {@code null}.
      */
     static FrontierDomain frontierDomainFor(String lhs, String rhs) {
         String l = lhs == null ? "" : lhs;
@@ -722,6 +724,9 @@ public class ResearchCycleService {
         }
         if (l.contains("divisor") || r.contains("divisor")) {
             return FrontierDomain.DIVISOR;
+        }
+        if (l.contains("prime") || r.contains("prime")) {
+            return FrontierDomain.PRIME;
         }
         return null;
     }

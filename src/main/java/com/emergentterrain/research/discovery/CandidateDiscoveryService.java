@@ -73,6 +73,26 @@ public class CandidateDiscoveryService {
         this.divisorToolEnabled = b;
     }
 
+    /**
+     * Gate for the author-facing {@code discover_prime_value} tool — the prime-counting (π(x))
+     * sibling of {@code discover_mertens_value} / {@code discover_divisor_value} (Path A).
+     * Independent of {@link #isEnabled()} so the prime tool can be advertised or held back on
+     * its own, while both still require the sidecar's {@code ET_DISCOVER_EXEC=1}. Field-injected
+     * (default ON) so the back-compat 4-arg constructor stays unchanged.
+     */
+    @Value("${app.research.discovery.primeDiscoverToolEnabled:true}")
+    private boolean primeToolEnabled = true;
+
+    /** Whether the prime-domain discovery tool should be advertised. */
+    public boolean isPrimeToolEnabled() {
+        return primeToolEnabled;
+    }
+
+    /** Test seam for the prime-tool gate (public: exercised from the service-package tool test). */
+    public void setPrimeToolEnabled(boolean b) {
+        this.primeToolEnabled = b;
+    }
+
     public CandidateDiscoveryService(
             @Value("${app.research.discovery.runtimeExecEnabled:false}") boolean enabled,
             @Value("${app.research.discovery.maxRepairAttempts:3}") int maxRepairAttempts,

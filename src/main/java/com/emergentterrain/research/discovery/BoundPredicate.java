@@ -70,4 +70,74 @@ public interface BoundPredicate {
             return Math.max(0.0, Math.min(1.0, 1.0 - ratio));
         }
     };
+
+    /**
+     * The von Koch / Schoenfeld RH-equivalent bound on the prime-counting function:
+     * {@code |π(x) − li(x)| < (1/(8π))·√x·ln x}, where {@code π(x) = #{p ≤ x}} and
+     * {@code li(x)} is the logarithmic integral. Schoenfeld (1976) proved this holds for
+     * all {@code x ≥ 2657} <em>under the Riemann Hypothesis</em>; RH is verified far past
+     * the reachable frontier, so — like {@link #MERTENS} and {@link #DIVISOR_ERROR} — it
+     * keeps HOLDing across every scale the loop reaches and the loop stalls before the wall
+     * rather than refuting it. Escalating it is, in effect, testing RH numerically. Its
+     * {@link #margin} is {@code 1 − |π(x)−li(x)|/bound}, so the adaptive policy leaps while
+     * the ratio is small. Below Schoenfeld's {@code x ≥ 2657} threshold the bound is not
+     * claimed, so it reports HOLDS there (the frontier starts at the sieve ceiling ≫ 2657).
+     */
+    BoundPredicate PRIME_PI = new BoundPredicate() {
+        /** 1/(8π), the constant in Schoenfeld's bound |π(x) − li(x)| < (1/8π)·√x·ln x. */
+        static final double INV_8PI = 1.0 / (8.0 * Math.PI);
+        /** Schoenfeld's validity threshold; below it the bound is not asserted. */
+        static final long X_MIN = 2657L;
+
+        private double bound(long x) {
+            return INV_8PI * Math.sqrt((double) x) * Math.log((double) x);
+        }
+
+        private double error(long x, long value) {
+            return Math.abs((double) value - li((double) x));
+        }
+
+        @Override
+        public EscalationVerdict classify(long x, long value) {
+            if (x < X_MIN) {
+                return EscalationVerdict.HOLDS;   // bound only claimed for x ≥ 2657
+            }
+            return error(x, value) < bound(x)
+                    ? EscalationVerdict.HOLDS : EscalationVerdict.COUNTEREXAMPLE;
+        }
+
+        @Override
+        public double margin(long x, long value) {
+            if (x < X_MIN) {
+                return 0.5;
+            }
+            double ratio = error(x, value) / bound(x);
+            return Math.max(0.0, Math.min(1.0, 1.0 - ratio));
+        }
+    };
+
+    /**
+     * The logarithmic integral {@code li(x) = ∫₀ˣ dt/ln t} (Cauchy principal value), the
+     * prime-counting comparison function in {@link #PRIME_PI}. Computed as
+     * {@code li(x) = Ei(ln x) = γ + ln(ln x) + Σ_{k≥1} (ln x)^k / (k·k!)} (the standard
+     * Ramanujan/Ei series, convergent for all {@code x > 1}). Double precision is ample
+     * here: at the reachable frontier {@code li(x) ~ 10^12} and the bound it is compared
+     * against is {@code ~10^7}, far above the rounding floor. Undefined for {@code x ≤ 1};
+     * the only caller guards {@code x ≥ 2657}.
+     */
+    static double li(double x) {
+        double lnx = Math.log(x);
+        final double EULER_MASCHERONI = 0.5772156649015329;
+        double sum = EULER_MASCHERONI + Math.log(lnx);
+        double term = 1.0;            // term = (lnx)^k / k!  (starts at k=0 → 1, updated before use)
+        for (int k = 1; k <= 4000; k++) {
+            term *= lnx / k;          // now (lnx)^k / k!
+            double add = term / k;    // the k-th series term (lnx)^k / (k·k!)
+            sum += add;
+            if (Math.abs(add) <= 1e-9 * Math.abs(sum) && k > lnx) {
+                break;                // converged (only after passing the peak at k≈lnx)
+            }
+        }
+        return sum;
+    }
 }

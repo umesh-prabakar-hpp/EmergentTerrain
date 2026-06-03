@@ -392,6 +392,11 @@ public class MathToolSuite {
         return discoveryAvailable() && discoveryService.isDivisorToolEnabled();
     }
 
+    /** The prime-domain discover tool needs discovery wired+enabled AND its own gate on. */
+    private boolean primeDiscoveryAvailable() {
+        return discoveryAvailable() && discoveryService.isPrimeToolEnabled();
+    }
+
     /**
      * Phase 30 fork 2b §8b — optional accumulated-knowledge service. Set by
      * {@link ResearchNarrationService} after Spring autowires it. The
@@ -416,16 +421,24 @@ public class MathToolSuite {
     private static final String DEFAULT_RECALL_BOUND = "mertens_M";
     /** Bound key for the Dirichlet divisor-sum corpus (papers on divisor-count topics). */
     private static final String DIVISOR_RECALL_BOUND = "divisor_D";
+    /** Bound key for the prime-counting corpus (papers on prime-density / π(x) topics). */
+    private static final String PRIME_RECALL_BOUND = "prime_pi";
 
     /**
      * Pick the recall corpus that matches the paper's topic so a divisor-count paper
-     * recalls the {@code divisor_D} frontier (not the Mertens one) without the model
-     * having to know the key exists. Falls back to the Mertens corpus. The LLM can
-     * still override via the tool's {@code bound} argument.
+     * recalls the {@code divisor_D} frontier (and a prime/π(x) paper the {@code prime_pi}
+     * one) without the model having to know the key exists. Falls back to the Mertens
+     * corpus. The LLM can still override via the tool's {@code bound} argument.
      */
     private String defaultRecallBound(PaperDraft draft) {
         String topic = (draft == null || draft.topicName() == null) ? "" : draft.topicName().toLowerCase();
-        return topic.contains("divisor") ? DIVISOR_RECALL_BOUND : DEFAULT_RECALL_BOUND;
+        if (topic.contains("divisor")) {
+            return DIVISOR_RECALL_BOUND;
+        }
+        if (topic.contains("prime")) {
+            return PRIME_RECALL_BOUND;
+        }
+        return DEFAULT_RECALL_BOUND;
     }
 
     /** Standard moat checkpoints (≤ NT_MAX_N, judged vs the oracle) + OEIS anchor. */
@@ -685,7 +698,7 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : verifyConjectureToolJson(),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
@@ -695,6 +708,7 @@ public class MathToolSuite {
                         ? SEARCH_LITERATURE_TOOL_JSON : "",
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
                 divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
+                primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
                 recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "");
     }
 
@@ -860,6 +874,42 @@ public class MathToolSuite {
               }
             }""";
 
+    /* Path A — prime-counting discovery: validates a π(x) method against the sidecar's
+     * prime oracle (quantity="prime") on the in-sieve checkpoints + a beyond-range anchor
+     * π(10^7) (parity with the Mertens/divisor anchors), so a candidate that passes the
+     * in-sieve checkpoints but diverges past it is caught. */
+    private static final String DISCOVER_PRIME_SPEC =
+            "P(x) = the number of primes p <= x (the prime-counting function pi(x))";
+    private static final java.util.List<Long> DISCOVER_PRIME_CHECKPOINTS =
+            java.util.List.of(1L, 2L, 10L, 1_000L, 100_000L, 999_983L, 1_000_000L, 2_000_000L);
+    private static final java.util.Map<Long, Long> DISCOVER_PRIME_ANCHORS =
+            java.util.Map.of(10_000_000L, 664_579L);   // π(10^7), OEIS A006880
+
+    /**
+     * Phase 30 (Path A) — runtime-discovery tool for the prime-counting function, the
+     * prime-domain sibling of {@link #DISCOVER_MERTENS_TOOL_JSON} / {@link
+     * #DISCOVER_DIVISOR_TOOL_JSON}. Advertised only when {@link #primeDiscoveryAvailable()}
+     * (discovery wired AND runtimeExecEnabled AND the prime tool gate on). It computes π(x)
+     * at large x via a generated, moat-validated method — prime-class by construction.
+     * Anchored by π(10^7) beyond the sieve.
+     */
+    private static final String DISCOVER_PRIME_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"discover_prime_value",
+                "description":"Compute the prime-counting function pi(x) = the number of primes p <= x at a LARGE x (beyond the 2,000,000 direct-sieve range) when a prime-density / prime-counting claim genuinely needs it. The value is produced by a numeric method that is generated and then VALIDATED against ground truth (exact agreement on checkpoints in [1, 2000000] plus the known pi(10^7)=664579) before it is trusted; on failure it returns a note, never a guessed number. Use ONLY for pi(x) at x > 2000000. The returned value is a COMPUTED result from a validated method, NOT an established mathematical fact — report it as such.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "x":{"type":"integer","description":"The target n: compute pi(x). Must be > 2000000 (use a direct method below that)."},
+                    "rationale":{"type":"string","description":"Why the paper's prime-counting claim needs pi(x) at this scale."}
+                  },
+                  "required":["x","rationale"]
+                }
+              }
+            }""";
+
     /**
      * Phase 30 fork 2b §8b — recall tool. Advertised only when {@link
      * #recallAvailable()}. READ-ONLY: it returns the persisted, independently
@@ -917,6 +967,7 @@ public class MathToolSuite {
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
                     case "discover_divisor_value" -> discoverDivisorValue(args);
+                    case "discover_prime_value" -> discoverPrimeValue(args);
                     case "recall_frontier_knowledge" -> recallFrontierKnowledge(args, draft);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
@@ -1692,6 +1743,44 @@ public class MathToolSuite {
         return "discover_divisor_value: no method validated within "
                 + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
                 + ". Do NOT report a value for D(" + x + ").";
+    }
+
+    /**
+     * Phase 30 (Path A) — {@code discover_prime_value}: compute the prime-counting function
+     * π(x) at a large x via a runtime-discovered, moat-validated method. The prime-domain
+     * sibling of {@link #discoverDivisorValue(JsonNode)}: same generate→validate→repair loop
+     * (the discovery service is generic over {@code task.quantity()}), with the prime spec +
+     * checkpoints, {@code quantity="prime"} (so the sidecar moat validates against the real
+     * π(x) oracle), and a beyond-range anchor π(10^7). Gated: a disabled line unless discovery
+     * is wired, {@code runtimeExecEnabled}, AND the {@code primeDiscoverToolEnabled} gate is on.
+     */
+    String discoverPrimeValue(JsonNode args) {
+        if (!primeDiscoveryAvailable()) {
+            return "discover_prime_value: disabled (runtime discovery is off).";
+        }
+        long x = args.path("x").asLong(0);
+        if (x <= com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N) {
+            return "discover_prime_value: 'x' must be > " +
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N +
+                    " (use a direct method at or below the sieve range).";
+        }
+        var task = new com.emergentterrain.research.discovery.DiscoveryTask(
+                DISCOVER_PRIME_SPEC, x, DISCOVER_PRIME_CHECKPOINTS, DISCOVER_PRIME_ANCHORS,
+                20, 28, discoveryService.maxAttempts(), "prime");
+        var outcome = discoveryService.discover(task);
+        if (outcome.accepted()) {
+            var p = outcome.provenance();
+            return String.format(
+                    "discover_prime_value: pi(%d) = %d. COMPUTED by a moat-validated method "
+                    + "(method sha256=%s, reproduced %d checkpoints in [1, %d] + pi(10^7)=664579). "
+                    + "This is a computed value from a validated method, NOT an established result — "
+                    + "report it as \"computed to x=%d\", with no claim about the prime-counting bound.",
+                    x, outcome.targetValue(), p.codeSha256().substring(0, 12), p.checkpointCount(),
+                    com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N, x);
+        }
+        return "discover_prime_value: no method validated within "
+                + outcome.attempts() + " attempt(s) — " + outcome.failureReason()
+                + ". Do NOT report a value for pi(" + x + ").";
     }
 
     /**

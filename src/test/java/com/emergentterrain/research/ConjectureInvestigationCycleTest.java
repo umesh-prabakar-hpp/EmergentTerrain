@@ -128,15 +128,17 @@ class ConjectureInvestigationCycleTest {
 
     @Test
     void frontierDomainForClassifiesByScalar() {
-        // mertens-class and divisor-class scalars map to a discovery domain; ω/density do not.
+        // mertens-, divisor- and prime-class scalars map to a discovery domain; other ω/density do not.
         assertNotNull(ResearchCycleService.frontierDomainFor("mertens_delta", "log_window_size"),
                 "a mertens scalar should map to a frontier domain");
         assertNotNull(ResearchCycleService.frontierDomainFor("mean_divisor_count", "log_window_size"),
                 "a divisor scalar should map to a frontier domain");
-        assertNotNull(ResearchCycleService.frontierDomainFor("prime_density", "mertens_per_sqrt_W"),
+        assertNotNull(ResearchCycleService.frontierDomainFor("prime_density", "log_window_size"),
+                "a prime scalar should map to a frontier domain (Path A)");
+        assertNotNull(ResearchCycleService.frontierDomainFor("log_window_size", "mertens_per_sqrt_W"),
                 "the rhs is checked too");
-        assertNull(ResearchCycleService.frontierDomainFor("abundant_density", "prime_density"),
-                "an ω/density-only bound has no discovery oracle → no frontier framing");
+        assertNull(ResearchCycleService.frontierDomainFor("abundant_density", "happy_density"),
+                "an ω/density bound with no oracle → no frontier framing");
     }
 
     @Test
@@ -178,17 +180,35 @@ class ConjectureInvestigationCycleTest {
     }
 
     @Test
+    void frontierFramingForPrimeUsesPrimeTools() {
+        ResearchCycleService svc = new ResearchCycleService();
+        svc.setConjectureFrontierFramingEnabled(true);
+        CapturingContext ctx = new CapturingContext();
+        Conjecture c = buildConjecture("prime_density", "log_window_size", 1.0, 0.5, 6, -0.01);
+
+        svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
+
+        PaperDraft draft = ctx.lastDraft.get();
+        assertTrue(draft.rawFindings().contains("discover_prime_value"),
+                "prime findings should steer to the prime compute tool: " + draft.rawFindings());
+        assertTrue(draft.rawFindings().contains("prime_pi"),
+                "prime findings should offer recall of the prime_pi corpus: " + draft.rawFindings());
+        assertFalse(draft.rawFindings().contains("Mining trace"),
+                "frontier framing should replace the in-range mining-trace text");
+    }
+
+    @Test
     void densityConjectureStaysInRangeEvenWhenFramingOn() {
         ResearchCycleService svc = new ResearchCycleService();
         svc.setConjectureFrontierFramingEnabled(true);
         CapturingContext ctx = new CapturingContext();
-        Conjecture c = buildConjecture("abundant_density", "prime_density", 0.0, 0.2515, 8, -0.004);
+        Conjecture c = buildConjecture("abundant_density", "happy_density", 0.0, 0.2515, 8, -0.004);
 
         svc.publishConjectureInvestigation(UUID.randomUUID(), researcher(), c, 1L, ctx);
 
         PaperDraft draft = ctx.lastDraft.get();
         assertTrue(draft.rawFindings().contains("Mining trace"),
-                "ω/density bounds keep the in-range framing even with the flag on: " + draft.rawFindings());
+                "ω/density bounds with no oracle keep the in-range framing even with the flag on: " + draft.rawFindings());
     }
 
     @Test
