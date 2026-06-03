@@ -146,6 +146,9 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final int stochasticNullPermutations;
     private final double stochasticNullAlpha;
     private final double stochasticNullMinCv;
+    // Phase 30 Wave 4 component 2 — multiple-comparisons correction over the null p-values.
+    private final boolean multipleComparisonsEnabled;
+    private final MultipleComparisonsCorrection.Method mccMethod;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -184,7 +187,13 @@ public class ConjectureMinerService implements ConjectureQueue {
             double stochasticNullAlpha,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.stochasticNullMinCv:0.01}")
-            double stochasticNullMinCv) {
+            double stochasticNullMinCv,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.multipleComparisonsEnabled:false}")
+            boolean multipleComparisonsEnabled,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.multipleComparisonsMethod:bh}")
+            String multipleComparisonsMethod) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -200,6 +209,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.stochasticNullPermutations = stochasticNullPermutations;
         this.stochasticNullAlpha = stochasticNullAlpha;
         this.stochasticNullMinCv = stochasticNullMinCv;
+        this.multipleComparisonsEnabled = multipleComparisonsEnabled;
+        this.mccMethod = MultipleComparisonsCorrection.Method.parse(multipleComparisonsMethod);
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={}",
@@ -209,7 +220,10 @@ public class ConjectureMinerService implements ConjectureQueue {
                 compositionPersistEnabled ? "ON" : "OFF",
                 compositionPersistEnabled ? " (cap=" + compositionPersistCap + ")" : "",
                 compositionKnobExemptEnabled ? "ON" : "OFF",
-                stochasticNullEnabled ? "ON (p>" + stochasticNullAlpha + ")" : "OFF");
+                stochasticNullEnabled
+                        ? "ON (alpha=" + stochasticNullAlpha + ", mcc="
+                                + (multipleComparisonsEnabled ? mccMethod.name().toLowerCase() : "off") + ")"
+                        : "OFF");
     }
 
     /**
@@ -319,22 +333,58 @@ public class ConjectureMinerService implements ConjectureQueue {
 
         // Phase 30 Wave 4 — generative stochastic null (flag-gated OFF). Permutation-tests
         // the lhs↔rhs association across all accumulated samples; a bound that doesn't beat
-        // the no-effect null (p > alpha), or whose rhs is near-constant, is a marginal-range
-        // artifact, not a real constraint — retire it. No-op when the flag is off.
+        // the no-effect null, or whose rhs is near-constant, is a marginal-range artifact,
+        // not a real constraint — retire it. Two-phase so the optional multiple-comparisons
+        // correction (W4 component 2) can judge the whole family of p-values together rather
+        // than each bound at a raw threshold. No-op when the flag is off.
         int nullDropped = 0;
         if (stochasticNullEnabled) {
             List<Inequality> kept = new ArrayList<>(store.size());
+            List<Inequality> testable = new ArrayList<>();   // got a usable p-value
+            List<Double> testablePs = new ArrayList<>();
             for (Inequality ineq : store) {
                 // Deterministic per-conjecture seed so the verdict is reproducible run-to-run.
                 long seed = keyOf(ineq.lhs, ineq.rhs).hashCode();
                 ConjectureStochasticNull.Result nr = ConjectureStochasticNull.evaluate(
                         allSamples, ineq.lhs, ineq.rhs, stochasticNullPermutations,
                         stochasticNullAlpha, stochasticNullMinCv, seed);
-                if (nr.flagged()) {
-                    persistRetired(List.of(ineq), byKey, "stochastic_null:" + nr.reason());
-                    nullDropped++;
+                switch (nr.reason()) {
+                    case "rhs_near_constant_cv" -> {     // degenerate, not a p-value test
+                        persistRetired(List.of(ineq), byKey, "stochastic_null:rhs_near_constant_cv");
+                        nullDropped++;
+                    }
+                    case "insufficient_samples" -> kept.add(ineq);   // no power → keep
+                    default -> {
+                        testable.add(ineq);
+                        testablePs.add(nr.pValue());
+                    }
+                }
+            }
+            // Phase 2 — keep iff the no-effect H0 is rejected. With MCC on, "rejected" is at
+            // the corrected family level (Bonferroni/BH over the surviving denominator);
+            // otherwise it's the raw per-test threshold p ≤ alpha.
+            boolean[] keepIt;
+            String mccReason;
+            if (multipleComparisonsEnabled && !testable.isEmpty()) {
+                double[] ps = new double[testablePs.size()];
+                for (int i = 0; i < ps.length; i++) {
+                    ps[i] = testablePs.get(i);
+                }
+                keepIt = MultipleComparisonsCorrection.reject(ps, mccMethod, stochasticNullAlpha);
+                mccReason = "stochastic_null:mcc_" + mccMethod.name().toLowerCase();
+            } else {
+                keepIt = new boolean[testable.size()];
+                for (int i = 0; i < keepIt.length; i++) {
+                    keepIt[i] = testablePs.get(i) <= stochasticNullAlpha;
+                }
+                mccReason = "stochastic_null:null_not_beaten";
+            }
+            for (int i = 0; i < testable.size(); i++) {
+                if (keepIt[i]) {
+                    kept.add(testable.get(i));
                 } else {
-                    kept.add(ineq);
+                    persistRetired(List.of(testable.get(i)), byKey, mccReason);
+                    nullDropped++;
                 }
             }
             store = kept;
