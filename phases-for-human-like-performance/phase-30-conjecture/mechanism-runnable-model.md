@@ -1,6 +1,6 @@
 # Wave 6 — 30.7 mechanism-as-runnable-model + closure check + conservation gates
 
-**Status (2026-06-03): IN PROGRESS — decisions D1–D4 settled (recommended options), P1 (Mechanism model) shipping.** The roadmap's **"largest build."**
+**Status (2026-06-03): IN PROGRESS — D1–D4 settled; P1 (model) + P2 (gates) shipped pure; P3 (`propose_mechanism` authoring) remains.** The roadmap's **"largest build."**
 30.7 turns a mechanism from prose into a *runnable model*: a declared mechanism must parse, lower to a
 `predict()` callable, **regenerate its claim out-of-sample**, structurally **close**, and respect
 **conservation/unit invariants** — or it is rejected. Sources: sim #3 (executable model), #4 (closure),
@@ -137,10 +137,12 @@ extractor, and the admission orchestration.
    the §2 DSL (`name := expr`, `predict(TARGET) := expr`, `invariant: …`, `#` comments) via the new
    `OperatorGrammar.parse` (inverse of `render`); `predict(window)` evaluates definitions in order and
    returns the target. Tests: `MechanismTest` (6), `OperatorGrammarTest` parse round-trip (+4).
-2. **P2 — the three gates (pure).** Out-of-sample regeneration (mean + ensemble), closure (`DerivationClosure`),
-   conservation (dimensional balance + monotonicity). `MechanismGate.evaluate(mechanism, samples, target)
-   -> Verdict`. Unit-tested: a faithful mechanism passes; one that overfits / doesn't close / breaks
-   dimension is rejected.
+2. **P2 — the three gates (pure). ✅ SHIPPED** (2026-06-03). `MechanismGate.evaluate(m, samples, food, tol)
+   -> Verdict(regenerates, closes, dimensionallyValid, invariantsHold, admit, reason)`. Regeneration =
+   bound form on a held-out fold (D3); closure reuses `DerivationClosure.producible` + an un-consumed
+   check; dimensional balance reuses `OperatorGrammar`'s mix guard; monotonicities checked by the sign of
+   Spearman(predict, X). `MechanismGateTest` (7: faithful admit, bound-violation, dangling/un-consumed
+   non-closure, dimensional mix, wrong monotonicity, null-safe). Pure library — invoked by P3, not `mine()`.
 3. **P3 — authoring integration (flag-gated).** Per D2: the `propose_mechanism` tool (or auto-derivation),
    persistence of accepted mechanisms, and the paper-pipeline wiring so a published unit can carry a
    verified mechanism. Parity preserved (flag-OFF byte-identity).
