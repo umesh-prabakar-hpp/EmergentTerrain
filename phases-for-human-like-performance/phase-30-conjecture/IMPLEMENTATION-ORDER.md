@@ -113,14 +113,14 @@ You must judge novelty honestly before producing it, or Stage-1 generation just 
 |------|--------|--------|-------|
 | **Generative stochastic null + Fano/CV floor** | sim #8 | ◐ shipped flag-OFF | `ConjectureStochasticNull` — permutation-tests \|Spearman ρ\| of lhs↔rhs vs the rhs-shuffled no-effect null + CV floor; wired into `mine()` (`stochasticNullEnabled`, default OFF); emits the per-conjecture p-value the MCC slice will consume. Needs the A/B (zero false-retirement on a control set) before flip. |
 | **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | ◐ shipped flag-OFF | `MultipleComparisonsCorrection` — Bonferroni (FWER) / Benjamini-Hochberg (FDR, default) over the null p-value family; wired into `mine()` two-phase (`multipleComparisonsEnabled`, default OFF; requires the null), so a bound is kept only if its H0 is rejected at the corrected family level over the W1-reduced denominator. |
-| **Private validator the generator can't read + gaming-rate metric** | ext #3 | ⏳ next | anti-HARKing; track "passed public, failed private" rate |
-| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ⏳ | hold across N seeds with a quantified failure rate |
+| **Private validator the generator can't read + gaming-rate metric** | ext #3 | ◐ shipped flag-OFF | `PrivateHoldoutValidator` — re-checks each surviving bound on PRIVATE windows held out from both the fitter and the `verify_conjecture` prompt; "passed public, failed private" bounds are retired and the gaming rate (failed/tested) is logged. Wired into `mine()` (`privateValidatorEnabled`, default OFF). |
+| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ⏳ next | hold across N seeds with a quantified failure rate |
 
 **Acceptance:** a claim only scores on held-out data against a generated null; a known-trivial relation
 and a known-fabricated value are both correctly rejected; the gaming-rate metric is emitted.
 
-**Lane opened 2026-06-02** — components 1 (generative stochastic null) + 2 (multiple-comparisons
-correction) shipped flag-gated OFF; private-validator/gaming-rate (next) and seed-replication remain.
+**Lane opened 2026-06-02** — components 1 (stochastic null), 2 (multiple-comparisons correction) and
+3 (private holdout + gaming rate) shipped flag-gated OFF; only seed-replication (4) remains.
 
 ---
 
@@ -197,7 +197,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 1 | cheap rejection gates | low | **highest** | low | ◐ triviality/dedup shipped (`trivialityFilterEnabled` ON); dimension gate built, flag OFF; **FIM-identifiability + unit-consistency gates not built** |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ◐ `QualityDiversityArchive` + `lineage()` primitive shipped; **clade-value selection, sublinear budget, tiered ordering not wired** |
-| 4 | evaluation hardening | med | high | low | ◐ **lane open** — stochastic null + multiple-comparisons correction shipped (flags OFF); private-validator / seed-replication pending |
+| 4 | evaluation hardening | med | high | low | ◐ **lane open** — stochastic null + MCC + private-holdout/gaming-rate shipped (flags OFF); only seed-replication pending |
 | 5 | generation (Stage 1) | med-high | high | med | ⏳ not started (gated on W4) |
 | 6 | irreducibility + mechanism | **high** | high | med | ⏳ not started (`DerivationClosure` primitive exists; RAF-report + mechanism model not built) |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |

@@ -58,6 +58,15 @@ public class ConjectureMinerService implements ConjectureQueue {
             new Run("W50k_high",  50_000, new int[]{50_000, 500_000, 1_000_000})
     );
 
+    // Phase 30 Wave 4 component 3 — PRIVATE held-out windows for the gaming-rate validator.
+    // Offsets are disclosed to NEITHER the fitter (never fed to ConjectureEngine) NOR the paper
+    // author (disjoint from the verify_conjecture prompt's {100,1k,5k,10k,50k,100k,500k,1M}), so a
+    // bound that holds here genuinely generalises rather than being tuned/cherry-picked. All ≤ NT_MAX_N.
+    private static final List<Run> PRIVATE_RUNS = List.of(
+            new Run("P1k_holdout",  1_000,  new int[]{250, 2_500, 25_000, 250_000, 750_000}),
+            new Run("P10k_holdout", 10_000, new int[]{15_000, 150_000, 600_000})
+    );
+
     private static final double KNOB_FILTER_THRESHOLD = 0.95;
     private static final int KNOB_FILTER_MIN_CONFIGS = 3;
 
@@ -149,6 +158,8 @@ public class ConjectureMinerService implements ConjectureQueue {
     // Phase 30 Wave 4 component 2 — multiple-comparisons correction over the null p-values.
     private final boolean multipleComparisonsEnabled;
     private final MultipleComparisonsCorrection.Method mccMethod;
+    // Phase 30 Wave 4 component 3 — private held-out validator + gaming-rate metric (anti-HARKing).
+    private final boolean privateValidatorEnabled;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -193,7 +204,10 @@ public class ConjectureMinerService implements ConjectureQueue {
             boolean multipleComparisonsEnabled,
             @org.springframework.beans.factory.annotation.Value(
                     "${app.research.conjectureMiner.multipleComparisonsMethod:bh}")
-            String multipleComparisonsMethod) {
+            String multipleComparisonsMethod,
+            @org.springframework.beans.factory.annotation.Value(
+                    "${app.research.conjectureMiner.privateValidatorEnabled:false}")
+            boolean privateValidatorEnabled) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
@@ -211,9 +225,10 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.stochasticNullMinCv = stochasticNullMinCv;
         this.multipleComparisonsEnabled = multipleComparisonsEnabled;
         this.mccMethod = MultipleComparisonsCorrection.Method.parse(multipleComparisonsMethod);
+        this.privateValidatorEnabled = privateValidatorEnabled;
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
-                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={}",
+                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -223,7 +238,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 stochasticNullEnabled
                         ? "ON (alpha=" + stochasticNullAlpha + ", mcc="
                                 + (multipleComparisonsEnabled ? mccMethod.name().toLowerCase() : "off") + ")"
-                        : "OFF");
+                        : "OFF",
+                privateValidatorEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -390,6 +406,40 @@ public class ConjectureMinerService implements ConjectureQueue {
             store = kept;
         }
 
+        // Phase 30 Wave 4 component 3 — private held-out validator + gaming-rate metric
+        // (flag-gated OFF). Evaluate each surviving bound on PRIVATE windows the fitter never
+        // saw and the author can't name; a bound that holds on the public runs but fails here
+        // "passed public, failed private" — overfit/gamed — is retired. The gaming rate
+        // (failed-private / tested) is logged as the headline anti-HARKing signal. No-op off.
+        int gamedDropped = 0;
+        if (privateValidatorEnabled) {
+            List<Map<String, Double>> privateSamples = new ArrayList<>();
+            for (Run run : PRIVATE_RUNS) {
+                privateSamples.addAll(materialize(run));
+            }
+            List<Inequality> kept = new ArrayList<>(store.size());
+            int tested = 0;
+            for (Inequality ineq : store) {
+                PrivateHoldoutValidator.Verdict v = PrivateHoldoutValidator.evaluate(
+                        ineq.lhs, ineq.rhs, ineq.k, ineq.c, privateSamples, ConjectureEngine.TOL);
+                if (v.samplesEvaluated() == 0) {
+                    kept.add(ineq);   // no private evidence (scalar absent) → don't accuse
+                    continue;
+                }
+                tested++;
+                if (v.failedHoldout()) {
+                    persistRetired(List.of(ineq), byKey, "private_validator:failed_holdout");
+                    gamedDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            log.info("private validator — tested={} gamed (passed public, failed private)={} gamingRate={}",
+                    tested, gamedDropped, String.format("%.3f",
+                            PrivateHoldoutValidator.gamingRate(tested, gamedDropped)));
+            store = kept;
+        }
+
         // Persist survivors: update existing entities in place, insert new ones.
         int oeisAnnotated = 0;
         for (Inequality ineq : store) {
@@ -448,9 +498,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} composed (persisted), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} dropped (private holdout), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, nullDropped, compositionsPersisted, System.currentTimeMillis() - t0);
+                dimensionDropped, nullDropped, gamedDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */

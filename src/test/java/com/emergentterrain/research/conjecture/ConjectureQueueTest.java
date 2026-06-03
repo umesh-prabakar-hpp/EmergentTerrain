@@ -174,7 +174,7 @@ class ConjectureQueueTest {
                 /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ true, /*substrateMetrics*/ false,
                 /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false,
                 /*stochasticNull*/ false, /*permutations*/ 999, /*alpha*/ 0.05, /*minCv*/ 0.01,
-                /*mcc*/ false, /*mccMethod*/ "bh");
+                /*mcc*/ false, /*mccMethod*/ "bh", /*privateValidator*/ false);
     }
 
     private static ConjectureMinerService buildService(ConjectureRepository repo) {
@@ -187,7 +187,7 @@ class ConjectureQueueTest {
                 /*trivialityFilter*/ false, /*dimensionFilter*/ false, /*investigationRotation*/ false, /*substrateMetrics*/ false,
                 /*compositionPersist*/ false, /*compositionPersistCap*/ 5, /*compositionKnobExempt*/ false,
                 /*stochasticNull*/ false, /*permutations*/ 999, /*alpha*/ 0.05, /*minCv*/ 0.01,
-                /*mcc*/ false, /*mccMethod*/ "bh");
+                /*mcc*/ false, /*mccMethod*/ "bh", /*privateValidator*/ false);
     }
 
     private static Conjecture build(String lhs, String rhs, double k, double c,
