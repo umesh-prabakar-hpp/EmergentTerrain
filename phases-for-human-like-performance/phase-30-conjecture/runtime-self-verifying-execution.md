@@ -169,15 +169,16 @@ A validated novel `M(x)` at `10¹⁵` is *less trivial, not a solution*; the mat
    precedent), rather than threading per-paper invariant context through the pipeline-wide narration
    path — the tool is offered only during a deliberate discovery experiment, so a density/primality
    paper has no reason to call it. Dormant by default; no app restart needed until the flags flip.
-5. ◐ **Flip + watch**. **Config flipped** (`runtimeExecEnabled: true`) and the **live sidecar moat
-   verified end-to-end** (2026-05-31): with `ET_DISCOVER_EXEC=1` on the running 8088, a direct
-   `POST /discover/validate` ACCEPTED a correct candidate — **validating `M(10⁸)=1928` out of
-   range** (~11.6 s) — and REJECTED a wrong one (`firstFail:[1,0,1]`). So the sandbox-exec → oracle →
-   moat path works in production. **Remaining (operator):** rebuild + restart the app to load the
-   Phase-3/4 beans (boot-check with the flag now live), then watch a mertens-class
-   `CONJECTURE_INVESTIGATION` paper whose professor calls `discover_mertens_value` — confirm the
-   validated `M(x)` lands with provenance and the narrator frames it as "computed", not established.
-   (The running app is still the pre-Phase-3 jar, so nothing fires until that restart.)
+5. ✅ **Flip + watch**. **Config flipped** (`runtimeExecEnabled: true`), the **app rebuilt/restarted**
+   with the Phase-3/4 beans live, and the **live sidecar moat verified end-to-end** across all three
+   quantity oracles: with `ET_DISCOVER_EXEC=1` on the running 8088, a direct `POST /discover/validate`
+   ACCEPTS a correct candidate and REJECTS a wrong one (`firstFail`). Mertens M(x) (2026-05-31:
+   validated `M(10⁸)=1928` out of range, ~11.6 s; wrong → `firstFail:[1,0,1]`); divisor D(x); and
+   prime π(x) (2026-06-02: oracle returned π(2)=1, π(10)=4, π(100)=25 and rejected an all-zero
+   candidate; an unknown `quantity=omega` 400s listing `mertens, divisor, prime`). So the sandbox-exec
+   → oracle → moat path works in production. A mertens-class `CONJECTURE_INVESTIGATION` paper whose
+   professor calls `discover_mertens_value` was observed firing in a live run — the validated `M(x)`
+   carried with provenance and framed as "computed", not established.
 
 ## 9. Risks
 

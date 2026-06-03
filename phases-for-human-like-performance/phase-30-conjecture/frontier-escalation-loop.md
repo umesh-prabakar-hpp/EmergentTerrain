@@ -182,16 +182,15 @@ end, the discipline the discovery tool's own output already enforces.
    + 1`); `MertensFrontierService.produce()` composes the task, runs `escalate()`, renders a
    `FrontierPaper`. Gated via the escalation flag (disabled → a "did not run" paper). The tool/cycle
    that surfaces `produce()` is the flip+watch step.
-5. ◐ **Flip + watch** — **logic flipped ON** (`frontierEscalationEnabled`, `branchPivotEnabled`) — SAFE,
-   since `escalate()`/pivot are now functional but spend nothing until `produce()` runs. The trigger is
+5. ✅ **Flip + watch** — **all gates flipped ON** (`frontierEscalationEnabled`, `branchPivotEnabled`,
+   and the **separate `mertensFrontierScheduleEnabled` cost gate**, 2026-05-31). The trigger is
    `MertensFrontierService.scheduledFrontierRun()` — a gated, long-interval (`6h`) `@Scheduled` run
-   (a heavy multi-LLM-call escalation is the wrong fit for a mid-paper professor tool), with a
-   **separate** `mertensFrontierScheduleEnabled` cost gate (default OFF) so flipping the logic does not
-   auto-spend. **Remaining (operator):** restart to load the logic (boot-check
-   `FrontierEscalationService ready … frontierEscalation=ON`), then flip `mertensFrontierScheduleEnabled` +
-   restart to begin autonomous 6-hourly runs — watch the log for `scheduled frontier run` / `frontier
-   paper produced`, escalating → forecasting its own stall → pivoting. (A live run also needs the
-   discovery stack live: `runtimeExecEnabled` + sidecar `ET_DISCOVER_EXEC=1`.)
+   (a heavy multi-LLM-call escalation is the wrong fit for a mid-paper professor tool). The discovery
+   stack is live (`runtimeExecEnabled` + sidecar `ET_DISCOVER_EXEC=1`, both verified — §10 below and
+   runtime-self-verifying-execution.md §5), so autonomous 6-hourly runs spend for real: watch the log
+   for `scheduled frontier run` / `frontier paper produced`, escalating → forecasting its own stall →
+   pivoting. The divisor and prime frontiers run the same way (`divisorFrontierScheduleEnabled`,
+   `primeFrontierScheduleEnabled`, both ON).
 6. ✅ **Adaptive step (`NextScalePolicy` seam)** — **Done** (`NextScalePolicy` + `NextScaleContext` +
    `DefaultNextScalePolicy` + `AdaptiveNextScalePolicy`; `NextScalePolicyTest` + loop integration,
    43/43). The next scale is now a *decision*, not a fixed ×10: the **knowledge frontier stays
@@ -304,8 +303,12 @@ blocking**:
    illustrative, not load-bearing).
 3. **cgroups RSS hardening** for the sandbox (runtime-self-verifying-execution.md
    §8.1) — a hard memory cap beyond the current `timeout`/allocation-failure bound.
-4. **A large-x Mertens topic** so `discover_mertens_value` fires organically in a
-   paper (today it only fires if a paper needs M(x) beyond 2×10⁶).
+4. ~~**A large-x Mertens topic** so `discover_mertens_value` fires organically in a
+   paper (today it only fires if a paper needs M(x) beyond 2×10⁶).~~ **Addressed by
+   Path B (§11):** frontier framing reposes a mapped (mertens/divisor/prime) in-range
+   conjecture as the beyond-sieve question and steers the professor to the per-paper
+   discover tool — so the tool now fires from ordinary conjecture papers, no bespoke
+   large-x topic needed. (omega/density bounds still need an oracle — Path A.)
 
 ---
 
@@ -448,8 +451,20 @@ The pieces (mirror the divisor domain exactly):
 
 Gating: `primeDiscoverToolEnabled` defaults ON (graceful: pre-restart the sidecar 400s on
 `quantity=prime` → the tool returns a "no method validated" note, never a false value).
-`primeFrontierScheduleEnabled` defaults **OFF** — the autonomous token-spend stays dormant until
-the operator restarts the sidecar with the prime oracle and opts in (flag-gated-dormant).
+`primeFrontierScheduleEnabled` is now **ON** (flipped 2026-06-02, `3948b94`) — the autonomous
+6-hourly π(x) run is live alongside Mertens and divisor.
+
+**Anchor parity (2026-06-02).** Both the per-paper tool and `PrimeFrontierService` carry the
+beyond-range anchor **π(10⁷)=664579** (OEIS A006880), matching the Mertens **M(10⁷)=1037** and
+divisor **D(10⁷)=162725364** anchors — a candidate that reproduces the in-sieve checkpoints but
+diverges past NT_MAX_N is caught on *both* the per-paper and autonomous paths of every domain.
+(The autonomous divisor/prime frontiers were initially checkpoint-only; the 10⁷ anchors were
+added for parity in `723ba75` (divisor) and `2f60da0` (prime).)
+
+**Live verification (2026-06-02).** The sidecar was restarted with the prime oracle and the moat
+checked directly: `POST /discover/validate` with `quantity=prime` returned the oracle's
+π(2)=1, π(10)=4, π(100)=25 and rejected a wrong (all-zero) candidate; an unknown `quantity=omega`
+400s listing `mertens, divisor, prime`. All three quantity oracles are live end-to-end.
 
 ---
 
