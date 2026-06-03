@@ -43,6 +43,10 @@ public class ConjectureMinerProperties {
     private String multipleComparisonsMethod = "bh";
     // Wave 4 component 3 — private held-out validator + gaming rate.
     private boolean privateValidatorEnabled = false;
+    // Wave 4 component 4 — ensemble replication (K-fold CV stability) + stochastic-pass.
+    private boolean replicationValidatorEnabled = false;
+    private int replicationFolds = 5;
+    private double replicationMinPassRate = 0.8;
 
     public boolean isTrivialityFilterEnabled() { return trivialityFilterEnabled; }
     public void setTrivialityFilterEnabled(boolean v) { this.trivialityFilterEnabled = v; }
@@ -85,4 +89,13 @@ public class ConjectureMinerProperties {
 
     public boolean isPrivateValidatorEnabled() { return privateValidatorEnabled; }
     public void setPrivateValidatorEnabled(boolean v) { this.privateValidatorEnabled = v; }
+
+    public boolean isReplicationValidatorEnabled() { return replicationValidatorEnabled; }
+    public void setReplicationValidatorEnabled(boolean v) { this.replicationValidatorEnabled = v; }
+
+    public int getReplicationFolds() { return replicationFolds; }
+    public void setReplicationFolds(int v) { this.replicationFolds = v; }
+
+    public double getReplicationMinPassRate() { return replicationMinPassRate; }
+    public void setReplicationMinPassRate(double v) { this.replicationMinPassRate = v; }
 }

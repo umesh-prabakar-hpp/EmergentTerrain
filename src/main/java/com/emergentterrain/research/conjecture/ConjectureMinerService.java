@@ -160,6 +160,10 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final MultipleComparisonsCorrection.Method mccMethod;
     // Phase 30 Wave 4 component 3 — private held-out validator + gaming-rate metric (anti-HARKing).
     private final boolean privateValidatorEnabled;
+    // Phase 30 Wave 4 component 4 — ensemble replication (K-fold CV stability) + stochastic-pass.
+    private final boolean replicationValidatorEnabled;
+    private final int replicationFolds;
+    private final double replicationMinPassRate;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -185,9 +189,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.multipleComparisonsEnabled = props.isMultipleComparisonsEnabled();
         this.mccMethod = MultipleComparisonsCorrection.Method.parse(props.getMultipleComparisonsMethod());
         this.privateValidatorEnabled = props.isPrivateValidatorEnabled();
+        this.replicationValidatorEnabled = props.isReplicationValidatorEnabled();
+        this.replicationFolds = props.getReplicationFolds();
+        this.replicationMinPassRate = props.getReplicationMinPassRate();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
-                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={}",
+                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -198,7 +205,10 @@ public class ConjectureMinerService implements ConjectureQueue {
                         ? "ON (alpha=" + stochasticNullAlpha + ", mcc="
                                 + (multipleComparisonsEnabled ? mccMethod.name().toLowerCase() : "off") + ")"
                         : "OFF",
-                privateValidatorEnabled ? "ON" : "OFF");
+                privateValidatorEnabled ? "ON" : "OFF",
+                replicationValidatorEnabled
+                        ? "ON (" + replicationFolds + "-fold, minPass=" + replicationMinPassRate + ")"
+                        : "OFF");
     }
 
     /**
@@ -237,17 +247,18 @@ public class ConjectureMinerService implements ConjectureQueue {
         Map<String, Double> knobValues = new LinkedHashMap<>();
         int totalConfirmed = 0;
         int totalRetiredByCounterexample = 0;
-        // Phase 30 Wave 4 — accumulate every window sample so the stochastic-null gate can
-        // permutation-test the lhs↔rhs association across the full sample set. Only collected
-        // when the gate is on (otherwise it stays empty and costs nothing).
+        // Phase 30 Wave 4 — accumulate every window sample so the stochastic-null and replication
+        // gates can work across the full sample set. Only collected when one of those gates is on
+        // (otherwise it stays empty and costs nothing).
+        boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled;
         List<Map<String, Double>> allSamples =
-                stochasticNullEnabled ? new ArrayList<>() : List.of();
+                collectSamples ? new ArrayList<>() : List.of();
 
         for (Run run : RUNS) {
             List<Map<String, Double>> samples = materialize(run);
             String configHash = "W" + run.windowSize();
             knobValues.put(configHash, (double) run.windowSize());
-            if (stochasticNullEnabled) {
+            if (collectSamples) {
                 allSamples.addAll(samples);
             }
 
@@ -399,6 +410,29 @@ public class ConjectureMinerService implements ConjectureQueue {
             store = kept;
         }
 
+        // Phase 30 Wave 4 component 4 — ensemble replication (K-fold CV stability, flag-gated OFF).
+        // Refits (k,c) per fold and tests out-of-fold; a bound whose fit doesn't generalise across
+        // folds (stochastic-pass rate below the minimum) is replication-fragile and retired. The
+        // pass rate is the quantified replication score. No-op when the flag is off.
+        int replicationDropped = 0;
+        if (replicationValidatorEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                long seed = keyOf(ineq.lhs, ineq.rhs).hashCode();
+                ConjectureReplicationValidator.Result rr = ConjectureReplicationValidator.evaluate(
+                        allSamples, ineq.lhs, ineq.rhs, ineq.k, replicationFolds, ConjectureEngine.TOL,
+                        replicationMinPassRate, seed);
+                if (rr.flagged()) {
+                    persistRetired(List.of(ineq), byKey, "replication:fragile_passRate_"
+                            + String.format("%.2f", rr.passRate()));
+                    replicationDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
+        }
+
         // Persist survivors: update existing entities in place, insert new ones.
         int oeisAnnotated = 0;
         for (Inequality ineq : store) {
@@ -457,9 +491,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} dropped (private holdout), {} composed (persisted), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} dropped (private holdout), {} dropped (replication), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, nullDropped, gamedDropped, compositionsPersisted, System.currentTimeMillis() - t0);
+                dimensionDropped, nullDropped, gamedDropped, replicationDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
