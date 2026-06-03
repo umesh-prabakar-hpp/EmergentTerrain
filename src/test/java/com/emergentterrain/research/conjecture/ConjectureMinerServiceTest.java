@@ -159,6 +159,38 @@ class ConjectureMinerServiceTest {
 
     @Test
     @Tag("integration")
+    void w4ShadowModeLogsButRetiresNothing() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // W4 shadow ON, every W4 gate's own flag OFF (defaults): the gates run and log would-retires
+        // but must persist NO W4 retirement reason and not reduce the surviving corpus.
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
+        when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMinerProperties props = new ConjectureMinerProperties();
+        props.setW4ShadowEnabled(true);
+        ConjectureMinerService svc = new ConjectureMinerService(
+                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate(), props);
+        svc.mine();
+
+        ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
+        verify(repo, atLeast(50)).save(saved.capture());
+
+        // No conjecture may be persisted with a W4 retirement reason while in shadow.
+        for (Conjecture c : saved.getAllValues()) {
+            String knob = c.droppedByKnob();
+            assertTrue(knob == null
+                            || !(knob.startsWith("stochastic_null") || knob.startsWith("private_validator")
+                                    || knob.startsWith("replication")),
+                    "W4 shadow must not persist a retirement; saw droppedByKnob=" + knob);
+        }
+        long live = saved.getAllValues().stream().filter(c -> c.droppedByKnob() == null).count();
+        assertTrue(live >= 50, "shadow must not reduce the corpus; live=" + live);
+    }
+
+    @Test
+    @Tag("integration")
     void secondPassDoesNotDuplicateExistingConjectures() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
         // Simulate the state after a first pass: repo returns the conjectures

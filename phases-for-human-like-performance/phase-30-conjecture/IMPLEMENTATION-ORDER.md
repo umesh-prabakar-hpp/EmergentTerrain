@@ -123,6 +123,12 @@ and a known-fabricated value are both correctly rejected; the gaming-rate metric
 multiple-comparisons correction → private holdout/gaming-rate → replication). Each ships dormant;
 the A/B (zero false-retirement on a hand-checked control set) gates flipping them on for steady state.
 
+**Shadow mode (2026-06-03, the A/B enabler):** `app.research.conjectureMiner.w4ShadowEnabled` — when ON,
+any W4 gate whose own flag is OFF runs and LOGS `W4 shadow — WOULD-RETIRE <conjecture> (reason …)`
+without retiring (no `persistRetired`, corpus unchanged). Turn it on in production, collect the
+would-retire log, hand-check for false-retirement, then flip the individual gate once clean. Verified
+by `ConjectureMinerServiceTest.w4ShadowModeLogsButRetiresNothing` (no W4 reason persisted under shadow).
+
 ---
 
 ## Wave 5 — Generative novelty (Phase 30 Stage 1)

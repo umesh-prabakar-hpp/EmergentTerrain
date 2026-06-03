@@ -51,6 +51,9 @@ public class ConjectureMinerProperties {
     private int vocabularyExpansionDepth = 1;
     // Wave 6 — RAF-closure reporting (sim #1): report iRAF publishable units + ungrounded findings.
     private boolean rafClosureEnabled = false;
+    // Wave 4 — SHADOW mode: when a W4 retirement gate's own flag is OFF, run it anyway and LOG what it
+    // WOULD retire (no persistRetired, nothing removed) — the safe A/B path before flipping a gate live.
+    private boolean w4ShadowEnabled = false;
     // Wave 4 component 1 — generative stochastic null.
     private boolean stochasticNullEnabled = false;
     private int stochasticNullPermutations = 999;
@@ -104,6 +107,9 @@ public class ConjectureMinerProperties {
 
     public double getSublinearBudgetAlpha() { return sublinearBudgetAlpha; }
     public void setSublinearBudgetAlpha(double v) { this.sublinearBudgetAlpha = v; }
+
+    public boolean isW4ShadowEnabled() { return w4ShadowEnabled; }
+    public void setW4ShadowEnabled(boolean v) { this.w4ShadowEnabled = v; }
 
     public boolean isResidualStructureEnabled() { return residualStructureEnabled; }
     public void setResidualStructureEnabled(boolean v) { this.residualStructureEnabled = v; }

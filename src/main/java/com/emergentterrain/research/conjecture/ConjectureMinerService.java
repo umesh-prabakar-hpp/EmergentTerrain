@@ -155,6 +155,8 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final int stochasticNullPermutations;
     private final double stochasticNullAlpha;
     private final double stochasticNullMinCv;
+    // Phase 30 Wave 4 — shadow mode (log would-retire without retiring) for the W4 gates.
+    private final boolean w4ShadowEnabled;
     // Phase 30 Wave 4 component 2 — multiple-comparisons correction over the null p-values.
     private final boolean multipleComparisonsEnabled;
     private final MultipleComparisonsCorrection.Method mccMethod;
@@ -252,6 +254,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.stochasticNullPermutations = props.getStochasticNullPermutations();
         this.stochasticNullAlpha = props.getStochasticNullAlpha();
         this.stochasticNullMinCv = props.getStochasticNullMinCv();
+        this.w4ShadowEnabled = props.isW4ShadowEnabled();
         this.multipleComparisonsEnabled = props.isMultipleComparisonsEnabled();
         this.mccMethod = MultipleComparisonsCorrection.Method.parse(props.getMultipleComparisonsMethod());
         this.privateValidatorEnabled = props.isPrivateValidatorEnabled();
@@ -283,7 +286,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                 stochasticNullEnabled
                         ? "ON (alpha=" + stochasticNullAlpha + ", mcc="
                                 + (multipleComparisonsEnabled ? mccMethod.name().toLowerCase() : "off") + ")"
-                        : "OFF",
+                        : (w4ShadowEnabled ? "SHADOW" : "OFF"),
                 privateValidatorEnabled ? "ON" : "OFF",
                 replicationValidatorEnabled
                         ? "ON (" + replicationFolds + "-fold, minPass=" + replicationMinPassRate + ")"
@@ -344,7 +347,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         // gates can work across the full sample set. Only collected when one of those gates is on
         // (otherwise it stays empty and costs nothing).
         boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled
-                || identifiabilityEnabled || residualStructureEnabled || vocabularyExpansionEnabled;
+                || identifiabilityEnabled || residualStructureEnabled || vocabularyExpansionEnabled
+                || w4ShadowEnabled;   // shadow needs the samples the W4 gates run over
         List<Map<String, Double>> allSamples =
                 collectSamples ? new ArrayList<>() : List.of();
 
@@ -456,7 +460,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         // correction (W4 component 2) can judge the whole family of p-values together rather
         // than each bound at a raw threshold. No-op when the flag is off.
         int nullDropped = 0;
-        if (stochasticNullEnabled) {
+        boolean nullShadow = !stochasticNullEnabled && w4ShadowEnabled;
+        if (stochasticNullEnabled || nullShadow) {
             List<Inequality> kept = new ArrayList<>(store.size());
             List<Inequality> testable = new ArrayList<>();   // got a usable p-value
             List<Double> testablePs = new ArrayList<>();
@@ -468,8 +473,11 @@ public class ConjectureMinerService implements ConjectureQueue {
                         stochasticNullAlpha, stochasticNullMinCv, seed);
                 switch (nr.reason()) {
                     case "rhs_near_constant_cv" -> {     // degenerate, not a p-value test
-                        persistRetired(List.of(ineq), byKey, "stochastic_null:rhs_near_constant_cv");
-                        nullDropped++;
+                        if (retireOrShadow(nullShadow, ineq, byKey, "stochastic_null:rhs_near_constant_cv")) {
+                            kept.add(ineq);
+                        } else {
+                            nullDropped++;
+                        }
                     }
                     case "insufficient_samples" -> kept.add(ineq);   // no power → keep
                     default -> {
@@ -500,8 +508,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             for (int i = 0; i < testable.size(); i++) {
                 if (keepIt[i]) {
                     kept.add(testable.get(i));
+                } else if (retireOrShadow(nullShadow, testable.get(i), byKey, mccReason)) {
+                    kept.add(testable.get(i));
                 } else {
-                    persistRetired(List.of(testable.get(i)), byKey, mccReason);
                     nullDropped++;
                 }
             }
@@ -514,7 +523,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         // "passed public, failed private" — overfit/gamed — is retired. The gaming rate
         // (failed-private / tested) is logged as the headline anti-HARKing signal. No-op off.
         int gamedDropped = 0;
-        if (privateValidatorEnabled) {
+        boolean privateShadow = !privateValidatorEnabled && w4ShadowEnabled;
+        if (privateValidatorEnabled || privateShadow) {
             List<Map<String, Double>> privateSamples = new ArrayList<>();
             for (Run run : PRIVATE_RUNS) {
                 privateSamples.addAll(materialize(run, activeAdmitted));
@@ -530,14 +540,17 @@ public class ConjectureMinerService implements ConjectureQueue {
                 }
                 tested++;
                 if (v.failedHoldout()) {
-                    persistRetired(List.of(ineq), byKey, "private_validator:failed_holdout");
-                    gamedDropped++;
+                    if (retireOrShadow(privateShadow, ineq, byKey, "private_validator:failed_holdout")) {
+                        kept.add(ineq);
+                    } else {
+                        gamedDropped++;
+                    }
                 } else {
                     kept.add(ineq);
                 }
             }
-            log.info("private validator — tested={} gamed (passed public, failed private)={} gamingRate={}",
-                    tested, gamedDropped, String.format("%.3f",
+            log.info("private validator{} — tested={} gamed (passed public, failed private)={} gamingRate={}",
+                    privateShadow ? " [SHADOW]" : "", tested, gamedDropped, String.format("%.3f",
                             PrivateHoldoutValidator.gamingRate(tested, gamedDropped)));
             store = kept;
         }
@@ -547,16 +560,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         // folds (stochastic-pass rate below the minimum) is replication-fragile and retired. The
         // pass rate is the quantified replication score. No-op when the flag is off.
         int replicationDropped = 0;
-        if (replicationValidatorEnabled) {
+        boolean replicationShadow = !replicationValidatorEnabled && w4ShadowEnabled;
+        if (replicationValidatorEnabled || replicationShadow) {
             List<Inequality> kept = new ArrayList<>(store.size());
             for (Inequality ineq : store) {
                 long seed = keyOf(ineq.lhs, ineq.rhs).hashCode();
                 ConjectureReplicationValidator.Result rr = ConjectureReplicationValidator.evaluate(
                         allSamples, ineq.lhs, ineq.rhs, ineq.k, replicationFolds, ConjectureEngine.TOL,
                         replicationMinPassRate, seed);
-                if (rr.flagged()) {
-                    persistRetired(List.of(ineq), byKey, "replication:fragile_passRate_"
-                            + String.format("%.2f", rr.passRate()));
+                if (rr.flagged() && !retireOrShadow(replicationShadow, ineq, byKey,
+                        "replication:fragile_passRate_" + String.format("%.2f", rr.passRate()))) {
                     replicationDropped++;
                 } else {
                     kept.add(ineq);
@@ -920,6 +933,21 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
         return samples;
+    }
+
+    /**
+     * Phase 30 Wave 4 — shared retire/shadow decision for a flagged W4 conjecture. In shadow mode
+     * (the gate's own flag OFF but {@code w4ShadowEnabled} ON) it LOGS a would-retire and returns
+     * {@code true} (KEEP — nothing persisted/removed); otherwise it retires for real and returns
+     * {@code false} (DROP). Lets the W4 gates be A/B-validated against the live pool with no risk.
+     */
+    private boolean retireOrShadow(boolean shadow, Inequality ineq, Map<String, Conjecture> byKey, String reason) {
+        if (shadow) {
+            log.info("W4 shadow — WOULD-RETIRE {} <= k*{} (reason {})", ineq.lhs, ineq.rhs, reason);
+            return true;
+        }
+        persistRetired(List.of(ineq), byKey, reason);
+        return false;
     }
 
     private void persistRetired(
