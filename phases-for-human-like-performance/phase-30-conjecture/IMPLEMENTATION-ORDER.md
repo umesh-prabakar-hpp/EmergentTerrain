@@ -97,7 +97,7 @@ Now that the pool is small and graph-structured, keep the *right* things.
 |------|--------|--------|-------|
 | **Quality-diversity descriptor archive** (one elite per `(variables, derivation-type, mechanism-kind)` cell) | ext #1 | ✅ shipped | `QualityDiversityArchive` |
 | **Clade/lineage-value selection + pseudo-count smoothing** (rank by descendant productivity; fit = eligibility gate only) | ext #2, ext #6 | ◐ shipped flag-OFF | `CladeValueSelector` — ranks the live (Tier-2) investigation queue by clade-value (descendant productivity via `derivedFrom`, Laplace-smoothed) × inverse-popularity (1/(1+cell pop), cell=lhs); replaces rank-by-fit in `nextN` (`cladeValueSelectionEnabled`). Clade term strengthens as composition deepens the graph. |
-| **Sublinear generation budget** (cap new conjectures as `n_validations**α`, α<1) | ext #4 | ⏳ next | the composition-persist cap is fixed (5) today; make it sublinear in validations |
+| **Sublinear generation budget** (cap new conjectures as `n_validations**α`, α<1) | ext #4 | ◐ shipped flag-OFF | `SublinearGenerationBudget` — the composition cap becomes `floor(n_validations^α)` (n_validations = cumulative confirmedRuns over the live pool), clamped to `compositionPersistCap` (`sublinearBudgetEnabled`, α default 0.5). |
 | **Tiered cheap→expensive gate ordering** | ext #5 | ◐ de facto | `mine()` already orders cheap (triviality/dimension/unit) before expensive (FIM/null/replication); not formalised as a config |
 
 **Acceptance:** selection samples parents by clade-value × inverse-popularity (not tightest fit); the
@@ -197,7 +197,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
 | 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped — triviality/dedup (ON), dimension + unit-consistency + FIM-identifiability (built, flags OFF) |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
-| 3 | selection/diversity | med | high | low | ◐ QD archive + clade-value selection shipped (flag OFF); tiered ordering de facto; **sublinear generation budget** still open |
+| 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags OFF); tiered ordering de facto |
 | 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |
 | 5 | generation (Stage 1) | med-high | high | med | ⏳ not started (gated on W4) |
 | 6 | irreducibility + mechanism | **high** | high | med | ⏳ not started (`DerivationClosure` primitive exists; RAF-report + mechanism model not built) |

@@ -170,6 +170,9 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final double identifiabilityMaxRelStdErr;
     // Phase 30 Wave 3 — clade-value × inverse-popularity selection for the live (Tier-2) queue.
     private final boolean cladeValueSelectionEnabled;
+    // Phase 30 Wave 3 — sublinear generation budget (throttles composition vs validations).
+    private final boolean sublinearBudgetEnabled;
+    private final double sublinearBudgetAlpha;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -202,10 +205,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.identifiabilityEnabled = props.isIdentifiabilityEnabled();
         this.identifiabilityMaxRelStdErr = props.getIdentifiabilityMaxRelStdErr();
         this.cladeValueSelectionEnabled = props.isCladeValueSelectionEnabled();
+        this.sublinearBudgetEnabled = props.isSublinearBudgetEnabled();
+        this.sublinearBudgetAlpha = props.getSublinearBudgetAlpha();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={} cladeValueSelection={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -222,7 +227,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                         : "OFF",
                 unitConsistencyEnabled ? "ON" : "OFF",
                 identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF",
-                cladeValueSelectionEnabled ? "ON" : "OFF");
+                cladeValueSelectionEnabled ? "ON" : "OFF",
+                sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF");
     }
 
     /**
@@ -517,9 +523,28 @@ public class ConjectureMinerService implements ConjectureQueue {
         // mined bound (confirmedRuns starts at 0). No-op when OFF.
         int compositionsPersisted = 0;
         if (compositionPersistEnabled) {
+            // Phase 30 Wave 3 — sublinear generation budget: when on, the per-pass composition cap is
+            // floor(n_validations^alpha) (n_validations = cumulative confirmedRuns over the live pool),
+            // clamped to compositionPersistCap — so generation only approaches the cap as validation
+            // work accrues. When off, the fixed cap applies (today's behaviour).
+            // Legacy semantics: compositionPersistCap <= 0 means "unlimited". The sublinear budget,
+            // when on, always enforces its computed cap (including 0 = generate none) — so it is NOT
+            // subject to the unlimited shortcut.
+            int effectiveCompositionCap = compositionPersistCap;
+            boolean capUnlimited = !sublinearBudgetEnabled && compositionPersistCap <= 0;
+            if (sublinearBudgetEnabled) {
+                long nValidations = 0;
+                for (Inequality ineq : store) {
+                    nValidations += ineq.confirmedRuns();
+                }
+                effectiveCompositionCap = SublinearGenerationBudget.budget(
+                        nValidations, sublinearBudgetAlpha, compositionPersistCap);
+                log.debug("sublinear generation budget — nValidations={} alpha={} → cap={} (hardCap={})",
+                        nValidations, sublinearBudgetAlpha, effectiveCompositionCap, compositionPersistCap);
+            }
             for (ConjectureComposer.Composition comp
                     : ConjectureComposer.proposeNovelCompositions(store, 0)) {
-                if (compositionPersistCap > 0 && compositionsPersisted >= compositionPersistCap) {
+                if (!capUnlimited && compositionsPersisted >= effectiveCompositionCap) {
                     break;
                 }
                 Inequality derived = comp.derived();

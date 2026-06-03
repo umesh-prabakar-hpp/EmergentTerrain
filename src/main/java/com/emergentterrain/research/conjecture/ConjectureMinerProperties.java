@@ -38,6 +38,9 @@ public class ConjectureMinerProperties {
     private boolean compositionPersistEnabled = false;
     private int compositionPersistCap = 5;
     private boolean compositionKnobExemptEnabled = false;
+    // Wave 3 — sublinear generation budget (throttles composition vs validations performed).
+    private boolean sublinearBudgetEnabled = false;
+    private double sublinearBudgetAlpha = 0.5;
     // Wave 4 component 1 — generative stochastic null.
     private boolean stochasticNullEnabled = false;
     private int stochasticNullPermutations = 999;
@@ -85,6 +88,12 @@ public class ConjectureMinerProperties {
 
     public boolean isCompositionKnobExemptEnabled() { return compositionKnobExemptEnabled; }
     public void setCompositionKnobExemptEnabled(boolean v) { this.compositionKnobExemptEnabled = v; }
+
+    public boolean isSublinearBudgetEnabled() { return sublinearBudgetEnabled; }
+    public void setSublinearBudgetEnabled(boolean v) { this.sublinearBudgetEnabled = v; }
+
+    public double getSublinearBudgetAlpha() { return sublinearBudgetAlpha; }
+    public void setSublinearBudgetAlpha(double v) { this.sublinearBudgetAlpha = v; }
 
     public boolean isStochasticNullEnabled() { return stochasticNullEnabled; }
     public void setStochasticNullEnabled(boolean v) { this.stochasticNullEnabled = v; }
