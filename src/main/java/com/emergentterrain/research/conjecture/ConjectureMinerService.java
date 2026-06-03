@@ -186,6 +186,47 @@ public class ConjectureMinerService implements ConjectureQueue {
     private static final int VOCAB_CANDIDATE_CAP = 60;   // grammar candidates probed per pass
     private static final int VOCAB_TARGET_CAP = 3;       // top confirmed bounds used as MDL targets
     private static final int VOCAB_ADMIT_CAP = 8;        // hard ceiling on admitted scalars per pass
+    private static final int VOCAB_NEW_CONJECTURE_CAP = 20;   // new conjectures seeded from admitted scalars/pass
+
+    /**
+     * Phase 30 Wave 5 (30.5 P3b) — optional persistence for admitted derived scalars. Setter-injected
+     * (so existing constructor call sites are unchanged); only touched when vocabulary expansion is on.
+     */
+    private com.emergentterrain.repo.DerivedScalarRepository derivedScalarRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setDerivedScalarRepository(com.emergentterrain.repo.DerivedScalarRepository repo) {
+        this.derivedScalarRepository = repo;
+    }
+
+    /**
+     * Reconstruct the previously-admitted derived scalars: read the {@code derived_scalars} rows and
+     * rebuild each {@link OperatorGrammar.Expr} by re-enumerating the (deterministic, non-recursive)
+     * grammar and matching by render — no expression deserialiser needed. Rows whose name no longer
+     * re-enumerates (vocabulary changed) are dropped. Empty when the feature/repo is off.
+     */
+    private List<DerivedScalar> loadActiveAdmitted() {
+        if (!vocabularyExpansionEnabled || derivedScalarRepository == null) {
+            return List.of();
+        }
+        List<DerivedScalarEntity> rows = derivedScalarRepository.findByDomain(DOMAIN);
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        Map<String, OperatorGrammar.Expr> byRender = new HashMap<>();
+        for (OperatorGrammar.Expr e : OperatorGrammar.enumerate(
+                MathInvariants.vocabulary(), vocabularyExpansionDepth)) {
+            byRender.put(e.render(), e);
+        }
+        List<DerivedScalar> out = new ArrayList<>();
+        for (DerivedScalarEntity row : rows) {
+            OperatorGrammar.Expr e = byRender.get(row.name());
+            if (e != null) {
+                out.add(new DerivedScalar(row.name(), e, row.gainBits()));
+            }
+        }
+        return out;
+    }
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -266,6 +307,12 @@ public class ConjectureMinerService implements ConjectureQueue {
             byKey.put(keyOf(e.lhs(), e.rhs()), e);
         }
 
+        // Phase 30 Wave 5 (30.5 P3b) — the previously-admitted derived scalars, reconstructed from
+        // the derived_scalars table. Empty unless vocabulary expansion is on (so materialize/seed are
+        // byte-identical when off). These are extracted into every window below, which is what makes
+        // conjectures referencing a derived scalar re-evaluable across passes.
+        List<DerivedScalar> activeAdmitted = loadActiveAdmitted();
+
         // Only re-process live ones (droppedByKnob is null) — retired
         // conjectures stay in the DB for their witness audit trail but
         // shouldn't re-enter the seed/update loop.
@@ -297,7 +344,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                 collectSamples ? new ArrayList<>() : List.of();
 
         for (Run run : RUNS) {
-            List<Map<String, Double>> samples = materialize(run);
+            List<Map<String, Double>> samples = materialize(run, activeAdmitted);
             String configHash = "W" + run.windowSize();
             knobValues.put(configHash, (double) run.windowSize());
             if (collectSamples) {
@@ -305,7 +352,7 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
 
             if (store.isEmpty()) {
-                store = ConjectureEngine.seed(samples, MathInvariants.vocabulary());
+                store = ConjectureEngine.seed(samples, MathInvariants.vocabulary(activeAdmitted));
                 log.debug("seeded {} candidate inequalities from run {}", store.size(), run.name());
             } else {
                 ConjectureEngine.UpdateResult ur = ConjectureEngine.update(
@@ -465,7 +512,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (privateValidatorEnabled) {
             List<Map<String, Double>> privateSamples = new ArrayList<>();
             for (Run run : PRIVATE_RUNS) {
-                privateSamples.addAll(materialize(run));
+                privateSamples.addAll(materialize(run, activeAdmitted));
             }
             List<Inequality> kept = new ArrayList<>(store.size());
             int tested = 0;
@@ -566,18 +613,19 @@ public class ConjectureMinerService implements ConjectureQueue {
                     refutedPool.size(), anomalies.size());
         }
 
-        // Phase 30 Wave 5 — vocabulary expansion (30.5 P3a, flag-gated OFF). Enumerate grammar
-        // candidates over the current vocabulary, admit those that earn their MDL keep against the
+        // Phase 30 Wave 5 — vocabulary expansion (30.5 P3, flag-gated OFF). Enumerate grammar
+        // candidates (excluding the already-admitted), admit those that earn their MDL keep against the
         // top confirmed bounds' residuals (held-out-confirmed, beats existing + the null), capped by
-        // the sublinear budget. Observability only — persisting admitted scalars and wiring them into
-        // materialize()/seeding so they generate re-evaluable conjectures is P3b (needs persistence).
+        // the sublinear budget; persist the newly-admitted scalars (P3b) and seed new conjecture pairs
+        // that touch them so they enter the empirical loop (re-evaluable next pass via materialize).
         if (vocabularyExpansionEnabled && !allSamples.isEmpty()) {
-            List<String> vocab = MathInvariants.vocabulary();
-            List<OperatorGrammar.Expr> candidates =
-                    OperatorGrammar.enumerate(vocab, vocabularyExpansionDepth);
-            if (candidates.size() > VOCAB_CANDIDATE_CAP) {
-                candidates = candidates.subList(0, VOCAB_CANDIDATE_CAP);
-            }
+            List<String> vocab = MathInvariants.vocabulary(activeAdmitted);   // existing = base + admitted
+            java.util.Set<String> known = new java.util.HashSet<>(vocab);
+            List<OperatorGrammar.Expr> candidates = OperatorGrammar
+                    .enumerate(MathInvariants.vocabulary(), vocabularyExpansionDepth).stream()
+                    .filter(e -> !known.contains(e.render()))   // don't re-admit existing scalars
+                    .limit(VOCAB_CANDIDATE_CAP)
+                    .toList();
             List<VocabularyExpansion.Target> targets = store.stream()
                     .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
                     .limit(VOCAB_TARGET_CAP)
@@ -592,12 +640,58 @@ public class ConjectureMinerService implements ConjectureQueue {
                     vocab.size() + 6, stochasticNullPermutations, stochasticNullAlpha, 0xCAB5EEDL);
             List<DerivedScalar> admitted = VocabularyExpansion.admit(
                     candidates, allSamples, targets, vocab, budget, params);
-            for (DerivedScalar dsc : admitted) {
-                log.info("vocabulary-expansion admitted scalar {} (net gain {} bits)",
-                        dsc.name(), String.format("%.2f", dsc.gainBits()));
+
+            int newConjectures = 0;
+            if (!admitted.isEmpty()) {
+                // Persist the newly-admitted scalars (survive restarts → re-extracted next pass).
+                if (derivedScalarRepository != null) {
+                    for (DerivedScalar dsc : admitted) {
+                        if (!derivedScalarRepository.existsByDomainAndName(DOMAIN, dsc.name())) {
+                            derivedScalarRepository.save(new DerivedScalarEntity(
+                                    DOMAIN, dsc.name(), dsc.expr().depth(), dsc.gainBits(), java.time.Instant.now()));
+                        }
+                        log.info("vocabulary-expansion admitted scalar {} (net gain {} bits)",
+                                dsc.name(), String.format("%.2f", dsc.gainBits()));
+                    }
+                }
+                // Seed conjecture pairs that touch a newly-admitted scalar, so 30.5 generates
+                // (additive, dedup'd, capped — mirrors composition persistence).
+                List<DerivedScalar> augmentedSet = new ArrayList<>(activeAdmitted);
+                augmentedSet.addAll(admitted);
+                java.util.Set<String> newNames = new java.util.HashSet<>();
+                for (DerivedScalar d : admitted) {
+                    newNames.add(d.name());
+                }
+                List<Map<String, Double>> augmentedSamples = new ArrayList<>(allSamples.size());
+                for (Map<String, Double> s : allSamples) {
+                    Map<String, Double> m = new LinkedHashMap<>(s);
+                    for (DerivedScalar d : admitted) {
+                        double v = d.eval(m);
+                        m.put(d.name(), Double.isFinite(v) ? v : 0.0);
+                    }
+                    augmentedSamples.add(m);
+                }
+                for (Inequality ineq : ConjectureEngine.seed(
+                        augmentedSamples, MathInvariants.vocabulary(augmentedSet))) {
+                    if (newConjectures >= VOCAB_NEW_CONJECTURE_CAP) {
+                        break;
+                    }
+                    if (!newNames.contains(ineq.lhs) && !newNames.contains(ineq.rhs)) {
+                        continue;   // only NEW pairs that actually use a newly-admitted scalar
+                    }
+                    String key = keyOf(ineq.lhs, ineq.rhs);
+                    if (byKey.containsKey(key)) {
+                        continue;
+                    }
+                    Conjecture entity = mapper.toEntity(ineq, DOMAIN);
+                    entity.setDerivedFrom("vocab:" + (newNames.contains(ineq.lhs) ? ineq.lhs : ineq.rhs));
+                    repo.save(entity);
+                    byKey.put(key, entity);
+                    newConjectures++;
+                }
             }
-            log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {})",
-                    candidates.size(), admitted.size(), budget);
+            log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new conjectures seeded",
+                    candidates.size(), admitted.size(), budget, newConjectures);
         }
 
         // Persist survivors: update existing entities in place, insert new ones.
@@ -783,12 +877,13 @@ public class ConjectureMinerService implements ConjectureQueue {
         repo.save(conjecture);
     }
 
-    private List<Map<String, Double>> materialize(Run run) {
+    private List<Map<String, Double>> materialize(Run run, List<DerivedScalar> admitted) {
         List<Map<String, Double>> samples = new ArrayList<>(run.offsets().length);
         for (int offset : run.offsets()) {
             try {
                 Map<String, Double> raw = substrate.evaluateWindow(offset, run.windowSize());
-                samples.add(MathInvariants.extract(raw, offset, run.windowSize()));
+                // admitted is empty unless vocabulary expansion is on → byte-identical extract when off.
+                samples.add(MathInvariants.extract(raw, offset, run.windowSize(), admitted));
             } catch (RuntimeException e) {
                 // 2026-05-29 — a single window failing (e.g. sidecar timeout on a large
                 // number-theory window, or contention on the single-thread 8088) must NOT

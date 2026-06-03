@@ -1,6 +1,6 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): IN PROGRESS — P1 + P2 + P3a shipped (pure/observability); P3b (persistence + generation) remains.** This is the last
+**Status (2026-06-03): SHIPPED (flag-gated OFF) — P1+P2+P3a+P3b complete; awaiting the A/B before flip.** This is the last
 open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
 Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
 *expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30
@@ -150,14 +150,20 @@ deferred behind its own flag, to be turned on only after one-level admission pro
    unaffected). Wired into `mine()` flag-gated OFF (`vocabularyExpansionEnabled`, `vocabularyExpansionDepth`),
    bounded (60 candidates × 3 targets, ≤8 admitted/pass), **observability log only**. Tests:
    `VocabularyExpansionTest` (5), `MathInvariantsExtensionTest` (3).
-4. **P3b — persistence + generation (flag-gated). ⏳ REMAINING.** A `derived_scalars` table so the admitted
-   set survives restarts; `materialize()` extraction through `extract(…, admitted)` so admitted scalars
-   are present every pass; and seeding new conjecture pairs that touch an admitted scalar (so 30.5 actually
-   *generates* re-evaluable conjectures). This is the part that needs persistence + an `Expr`
-   (de)serialiser, which is why P3a stops at admission/observability.
+4. **P3b — persistence + generation (flag-gated). ✅ SHIPPED** (2026-06-03). `DerivedScalarEntity` +
+   `DerivedScalarRepository` (new additive `derived_scalars` table, created by `ddl-auto: update`);
+   the admitted set is loaded each pass and its `Expr`s reconstructed by **re-enumerating the grammar
+   and matching by render** (no serialiser); `materialize(run, activeAdmitted)` extracts admitted
+   scalars into every window (so conjectures referencing them are re-evaluable), and after admission the
+   miner **seeds new conjecture pairs that touch a newly-admitted scalar** (additive, dedup'd, capped at
+   20/pass, provenance `derivedFrom="vocab:<name>"`). Repo is setter-injected (existing constructor call
+   sites unchanged); strictly flag-gated — with the flag OFF, `loadActiveAdmitted` returns empty, so
+   `materialize`/seed are byte-identical and the table is untouched (only auto-created, empty).
+   *Pure admission (`VocabularyExpansion`) + the parity invariant are unit-tested; the load/persist/seed
+   wiring is exercised at live-run (needs a DB + flag ON), not in unit tests.*
 
-P1+P2+P3a are the new pure/observability pieces (no live behavior change); P3b is the substrate-mutating
-generation step.
+P1+P2+P3a were the pure/observability pieces; P3b is the substrate-mutating generation step that closes
+the loop — admitted scalar persisted → extracted next pass → its conjectures evaluated like any other.
 
 ---
 
