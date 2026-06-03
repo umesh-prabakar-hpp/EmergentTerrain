@@ -43,6 +43,35 @@ end
 """
 const _BUGGY = replace(_CORRECT, "if rem[i] > 1; mu[i] = -mu[i]; end\n" => "")
 
+# Path A — a correct prime-counting candidate (segmented sieve → π(x)), the per-paper
+# sibling of the Mertens/divisor candidates. Validated against quantity="prime".
+const _PRIME_CORRECT = """
+function candidate(x::Integer; block::Integer = 1_000_000)::Int64
+    x < 2 && return Int64(0)
+    root = isqrt(x); is_composite = falses(root + 1); primes = Int[]
+    for i in 2:root
+        if !is_composite[i]
+            push!(primes, i); j = i * i
+            while j <= root; is_composite[j] = true; j += i; end
+        end
+    end
+    count = Int64(0); seg = Vector{Bool}(undef, block); lo = 2
+    while lo <= x
+        hi = min(lo + block - 1, x); n = hi - lo + 1
+        for i in 1:n; seg[i] = true; end
+        for p in primes
+            start = max(p * p, cld(lo, p) * p); i = start - lo + 1
+            while i <= n; seg[i] = false; i += p; end
+        end
+        for i in 1:n
+            if seg[i]; count += 1; end
+        end
+        lo = hi + 1
+    end
+    return count
+end
+"""
+
 _post(payload) = HTTP.Request("POST", "/discover/validate",
     ["Content-Type" => "application/json"], JSON3.write(payload))
 _call(payload) = JuliaMathSidecar.handle_discover_validate(_post(payload))
@@ -92,6 +121,26 @@ _json(resp) = JSON3.read(String(resp.body))
 
         @testset "out-of-range checkpoint rejected (400)" begin
             resp = _call(Dict("code" => _CORRECT, "checkpoints" => [JuliaMathSidecar.NT_MAX_N + 1]))
+            @test resp.status == 400
+            @test _json(resp)["error"] == "bad_request"
+        end
+
+        @testset "Path A — quantity=prime validates π(x) beyond the oracle" begin
+            # π checkpoints: π(10)=4, π(1000)=168, π(100000)=9592, π(1000000)=78498;
+            # beyond-range anchor π(10^7)=664579 (target validated out of sieve range).
+            resp = _call(Dict("code" => _PRIME_CORRECT, "quantity" => "prime",
+                "checkpoints" => [2, 10, 1_000, 100_000, 1_000_000],
+                "anchors" => Dict("10000000" => 664579), "target" => 10_000_000,
+                "cpuSeconds" => 25, "wallSeconds" => 35))
+            @test resp.status == 200
+            b = _json(resp)
+            @test b["status"] == "ok"
+            @test b["verdict"] == "accept"
+            @test b["targetValue"] == 664579     # π(10^7), validated out-of-range
+        end
+
+        @testset "unknown quantity rejected (400)" begin
+            resp = _call(Dict("code" => _CORRECT, "checkpoints" => cps, "quantity" => "omega"))
             @test resp.status == 400
             @test _json(resp)["error"] == "bad_request"
         end

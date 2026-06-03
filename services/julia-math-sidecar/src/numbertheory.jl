@@ -112,6 +112,15 @@ end
 nt_is_prime(n::Integer) = n >= 2 && n <= NT_MAX_N &&
                           (nt_ensure_sieve!(); NT_SPF[][n + 1] == n)
 
+"""
+    nt_prime_indicator(n) -> Int
+
+1 if `n` is prime, else 0 — the per-n term whose cumulative sum is the prime-counting
+function π(x). Lets the discovery oracle escalate π(x) the same way it does M(x) / D(x):
+a trusted per-n Int function the cumulative pass sums (see `handle_discover_validate`).
+"""
+nt_prime_indicator(n::Integer)::Int = nt_is_prime(n) ? 1 : 0
+
 function nt_omega(n::Integer)
     n < 2 && return 0
     return length(nt_factor(n))
