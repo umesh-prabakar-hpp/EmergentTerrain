@@ -116,6 +116,15 @@ public final class OperatorGrammar {
 
         public int depth() { return depth; }
 
+        /** Total node count (operators + operands) — the basis for the MDL description length. */
+        public int nodeCount() {
+            return switch (kind) {
+                case LEAF -> 1;
+                case UNARY -> 1 + a.nodeCount();
+                case BINARY -> 1 + a.nodeCount() + b.nodeCount();
+            };
+        }
+
         /** Base scalar names used. */
         public Set<String> operands() { return operands; }
 

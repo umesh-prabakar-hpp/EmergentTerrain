@@ -1,6 +1,6 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): IN PROGRESS — P1 (grammar) shipped; P2 (MDL gate) next.** This is the last
+**Status (2026-06-03): IN PROGRESS — P1 (grammar) + P2 (MDL gate) shipped (pure); P3 (registry/wiring) next.** This is the last
 open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
 Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
 *expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30
@@ -134,9 +134,14 @@ deferred behind its own flag, to be turned on only after one-level admission pro
    `OperatorGrammarTest` (9: depth-1 count/contents, dimension guard, canonical `*`, no self-degeneracies,
    base-scalars-not-re-emitted, depth-2 composition determinism/dedup, guarded eval, null safety).
    *(Numeric near-identity dedup against existing series is data-driven → deferred to P2 admission.)*
-2. **P2 — MDL ledger (pure).** `MdlGate.score(candidate, samples, existingScalars)` → `net_gain_bits`,
-   delegating the structure test to `ResidualStructureMiner` + the null + MCC. Unit-tested: a planted
-   `z = 3*log(rhs)` that explains a residual is admitted; a random expression is not.
+2. **P2 — MDL ledger (pure). ✅ SHIPPED** (`MdlGate`, 2026-06-03). `evaluate(z, samples, lhs, rhs,
+   existingScalars, params)` → `Verdict(descriptionBits, compressionBits, bestExistingBits, netGainBits,
+   beatsNull, admit, reason)`. Compression = held-out variance-reduction bits on the lhs~rhs residual
+   (M1/M3: fit `a+b·z` on a fit fold, score on the held fold); incremental over the best existing
+   explainer (M1 "no existing scalar does it"); significance via the W4 null; `L = nodeCount·log2(grammarSymbols)`
+   (M2). `MdlGateTest` (6: planted explainer admitted, unrelated rejected, duplicate-of-existing rejected,
+   description-cost scales with node count, too-few-samples, null safety). Scores one candidate vs one
+   target residual — cross-bound iteration + family MCC + persistence are P3.
 3. **P3 — registry + extraction wiring (flag-gated).** `DerivedScalar` registry + the `MathInvariants`
    extraction pass + `vocabulary()` extension + sublinear budget + persistence. Parity test guarded by
    the flag-OFF identity. Observability log: "admitted N scalars this pass (top: `…`, gain B bits)."
