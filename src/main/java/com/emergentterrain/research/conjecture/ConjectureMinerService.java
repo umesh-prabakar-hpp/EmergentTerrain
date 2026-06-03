@@ -166,66 +166,25 @@ public class ConjectureMinerService implements ConjectureQueue {
             ConjectureMapper mapper,
             OeisAnnotator oeisAnnotator,
             MathConjectureSubstrateDelegate substrate,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.trivialityFilterEnabled:false}")
-            boolean trivialityFilterEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.dimensionFilterEnabled:false}")
-            boolean dimensionFilterEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.investigationRotationEnabled:false}")
-            boolean investigationRotationEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.substrateMetricsEnabled:false}")
-            boolean substrateMetricsEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.compositionPersistEnabled:false}")
-            boolean compositionPersistEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.compositionPersistCap:5}")
-            int compositionPersistCap,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.compositionKnobExemptEnabled:false}")
-            boolean compositionKnobExemptEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.stochasticNullEnabled:false}")
-            boolean stochasticNullEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.stochasticNullPermutations:999}")
-            int stochasticNullPermutations,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.stochasticNullAlpha:0.05}")
-            double stochasticNullAlpha,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.stochasticNullMinCv:0.01}")
-            double stochasticNullMinCv,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.multipleComparisonsEnabled:false}")
-            boolean multipleComparisonsEnabled,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.multipleComparisonsMethod:bh}")
-            String multipleComparisonsMethod,
-            @org.springframework.beans.factory.annotation.Value(
-                    "${app.research.conjectureMiner.privateValidatorEnabled:false}")
-            boolean privateValidatorEnabled) {
+            ConjectureMinerProperties props) {
         this.repo = repo;
         this.mapper = mapper;
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
-        this.trivialityFilterEnabled = trivialityFilterEnabled;
-        this.dimensionFilterEnabled = dimensionFilterEnabled;
-        this.investigationRotationEnabled = investigationRotationEnabled;
-        this.substrateMetricsEnabled = substrateMetricsEnabled;
-        this.compositionPersistEnabled = compositionPersistEnabled;
-        this.compositionPersistCap = compositionPersistCap;
-        this.compositionKnobExemptEnabled = compositionKnobExemptEnabled;
-        this.stochasticNullEnabled = stochasticNullEnabled;
-        this.stochasticNullPermutations = stochasticNullPermutations;
-        this.stochasticNullAlpha = stochasticNullAlpha;
-        this.stochasticNullMinCv = stochasticNullMinCv;
-        this.multipleComparisonsEnabled = multipleComparisonsEnabled;
-        this.mccMethod = MultipleComparisonsCorrection.Method.parse(multipleComparisonsMethod);
-        this.privateValidatorEnabled = privateValidatorEnabled;
+        this.trivialityFilterEnabled = props.isTrivialityFilterEnabled();
+        this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
+        this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
+        this.substrateMetricsEnabled = props.isSubstrateMetricsEnabled();
+        this.compositionPersistEnabled = props.isCompositionPersistEnabled();
+        this.compositionPersistCap = props.getCompositionPersistCap();
+        this.compositionKnobExemptEnabled = props.isCompositionKnobExemptEnabled();
+        this.stochasticNullEnabled = props.isStochasticNullEnabled();
+        this.stochasticNullPermutations = props.getStochasticNullPermutations();
+        this.stochasticNullAlpha = props.getStochasticNullAlpha();
+        this.stochasticNullMinCv = props.getStochasticNullMinCv();
+        this.multipleComparisonsEnabled = props.isMultipleComparisonsEnabled();
+        this.mccMethod = MultipleComparisonsCorrection.Method.parse(props.getMultipleComparisonsMethod());
+        this.privateValidatorEnabled = props.isPrivateValidatorEnabled();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={}",
