@@ -25,6 +25,9 @@ public class ConjectureMinerProperties {
     // Wave 1 — cheap rejection gates.
     private boolean trivialityFilterEnabled = false;
     private boolean dimensionFilterEnabled = false;
+    private boolean unitConsistencyEnabled = false;
+    private boolean identifiabilityEnabled = false;
+    private double identifiabilityMaxRelStdErr = 1.0;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // Observability.
@@ -53,6 +56,15 @@ public class ConjectureMinerProperties {
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }
+
+    public boolean isUnitConsistencyEnabled() { return unitConsistencyEnabled; }
+    public void setUnitConsistencyEnabled(boolean v) { this.unitConsistencyEnabled = v; }
+
+    public boolean isIdentifiabilityEnabled() { return identifiabilityEnabled; }
+    public void setIdentifiabilityEnabled(boolean v) { this.identifiabilityEnabled = v; }
+
+    public double getIdentifiabilityMaxRelStdErr() { return identifiabilityMaxRelStdErr; }
+    public void setIdentifiabilityMaxRelStdErr(double v) { this.identifiabilityMaxRelStdErr = v; }
 
     public boolean isInvestigationRotationEnabled() { return investigationRotationEnabled; }
     public void setInvestigationRotationEnabled(boolean v) { this.investigationRotationEnabled = v; }

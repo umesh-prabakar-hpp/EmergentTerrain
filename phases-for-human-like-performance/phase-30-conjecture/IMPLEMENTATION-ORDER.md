@@ -65,13 +65,13 @@ same mertens bound); `markInvestigated` sets `lastInvestigatedAt` on consume; or
 Each is a standalone validator (same shape as the already-shipped `SinglePointSweepValidator`),
 domain-neutral, no dependencies. Together they collapse 212 → a handful.
 
-| Item | Source | Kills |
-|------|--------|-------|
-| **FIM identifiability gate** | sim #5 | constants the data doesn't pin (cheapest single win) |
-| **Unit/dimensional-consistency gate** | sim #6 | `meters ≤ k·seconds`-class fits |
-| **Copy/tautology suppression** | sim #2 | `A ≤ k·A'` self-reproducers |
-| **Convergence/equilibration gate** | sim #9 | bounds whose value depends on where the window starts (the mertens pathology) |
-| **Descriptor + dedup bitmask** | sim #11 + ext #1 | near-identical duplicates (one claim per capability-set) |
+| Item | Source | Status | Kills |
+|------|--------|--------|-------|
+| **FIM identifiability gate** | sim #5 | ◐ shipped flag-OFF | `ConjectureIdentifiabilityFilter` — for a slope-claiming bound (k≠0), drops it when the OLS slope's relative standard error over the window samples shows the data is consistent with k=0 (`identifiabilityEnabled`). |
+| **Unit/dimensional-consistency gate** | sim #6 | ◐ shipped flag-OFF | `ConjectureUnitConsistencyFilter` — all O(1)-bounded NT scalars ≤ k·window-magnitude (k>0); generalises `ConjectureDimensionFilter` from densities to the full bounded class (`unitConsistencyEnabled`). |
+| **Copy/tautology suppression** | sim #2 | ✅ shipped | `ConjectureTrivialityFilter` (`trivialityFilterEnabled` ON). |
+| **Convergence/equilibration gate** | sim #9 | ◐ partial | the window_size knob filter / mertens-pathology handling; not a standalone gate. |
+| **Descriptor + dedup bitmask** | sim #11 + ext #1 | ◐ partial | `QualityDiversityArchive` + triviality dedup. |
 
 **Acceptance:** on the current substrate, the gates reduce the surviving conjecture count by an order of
 magnitude with zero false-retirement of a hand-checked control set of genuine relations.
@@ -195,7 +195,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | Wave | Theme | Effort | Payoff | Risk | Status (2026-06-02) |
 |------|-------|--------|--------|------|---------------------|
 | 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
-| 1 | cheap rejection gates | low | **highest** | low | ◐ triviality/dedup shipped (`trivialityFilterEnabled` ON); dimension gate built, flag OFF; **FIM-identifiability + unit-consistency gates not built** |
+| 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped — triviality/dedup (ON), dimension + unit-consistency + FIM-identifiability (built, flags OFF) |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ◐ `QualityDiversityArchive` + `lineage()` primitive shipped; **clade-value selection, sublinear budget, tiered ordering not wired** |
 | 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |

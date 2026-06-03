@@ -164,6 +164,10 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean replicationValidatorEnabled;
     private final int replicationFolds;
     private final double replicationMinPassRate;
+    // Phase 30 Wave 1 (finish) — unit/dimensional-consistency + FIM identifiability gates.
+    private final boolean unitConsistencyEnabled;
+    private final boolean identifiabilityEnabled;
+    private final double identifiabilityMaxRelStdErr;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -192,9 +196,13 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.replicationValidatorEnabled = props.isReplicationValidatorEnabled();
         this.replicationFolds = props.getReplicationFolds();
         this.replicationMinPassRate = props.getReplicationMinPassRate();
+        this.unitConsistencyEnabled = props.isUnitConsistencyEnabled();
+        this.identifiabilityEnabled = props.isIdentifiabilityEnabled();
+        this.identifiabilityMaxRelStdErr = props.getIdentifiabilityMaxRelStdErr();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
-                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={}",
+                + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
+                + "unitConsistency={} identifiability={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -208,7 +216,9 @@ public class ConjectureMinerService implements ConjectureQueue {
                 privateValidatorEnabled ? "ON" : "OFF",
                 replicationValidatorEnabled
                         ? "ON (" + replicationFolds + "-fold, minPass=" + replicationMinPassRate + ")"
-                        : "OFF");
+                        : "OFF",
+                unitConsistencyEnabled ? "ON" : "OFF",
+                identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF");
     }
 
     /**
@@ -250,7 +260,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         // Phase 30 Wave 4 — accumulate every window sample so the stochastic-null and replication
         // gates can work across the full sample set. Only collected when one of those gates is on
         // (otherwise it stays empty and costs nothing).
-        boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled;
+        boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled || identifiabilityEnabled;
         List<Map<String, Double>> allSamples =
                 collectSamples ? new ArrayList<>() : List.of();
 
@@ -310,6 +320,44 @@ public class ConjectureMinerService implements ConjectureQueue {
                 if (r.isPresent()) {
                     persistRetired(List.of(ineq), byKey, "dimension:" + r.get());
                     dimensionDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
+        }
+
+        // Phase 30 Wave 1 (finish) — unit/dimensional-consistency drop (flag-gated OFF). Generalises
+        // the density check to all O(1)-bounded number-theoretic scalars bounded by a harness
+        // window-magnitude (k>0) — a unit mismatch that's eventually vacuous. No-op when off.
+        int unitDropped = 0;
+        if (unitConsistencyEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                java.util.Optional<String> r = ConjectureUnitConsistencyFilter.dropReason(ineq);
+                if (r.isPresent()) {
+                    persistRetired(List.of(ineq), byKey, "unit:" + r.get());
+                    unitDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
+        }
+
+        // Phase 30 Wave 1 (finish) — FIM identifiability drop (flag-gated OFF). For a bound that
+        // claims a slope (k≠0), drops it when the OLS slope's relative standard error shows the data
+        // doesn't pin the slope (consistent with k=0) — an over-parameterised "constant the data
+        // doesn't pin". Needs the accumulated samples. No-op when off.
+        int fimDropped = 0;
+        if (identifiabilityEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                ConjectureIdentifiabilityFilter.Result ir = ConjectureIdentifiabilityFilter.evaluate(
+                        allSamples, ineq.lhs, ineq.rhs, ineq.k, identifiabilityMaxRelStdErr);
+                if (ir.flagged()) {
+                    persistRetired(List.of(ineq), byKey, "fim:" + ir.reason());
+                    fimDropped++;
                 } else {
                     kept.add(ineq);
                 }
@@ -491,9 +539,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (stochastic null), {} dropped (private holdout), {} dropped (replication), {} composed (persisted), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (unit), {} dropped (fim), {} dropped (stochastic null), {} dropped (private holdout), {} dropped (replication), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, nullDropped, gamedDropped, replicationDropped, compositionsPersisted, System.currentTimeMillis() - t0);
+                dimensionDropped, unitDropped, fimDropped, nullDropped, gamedDropped, replicationDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
