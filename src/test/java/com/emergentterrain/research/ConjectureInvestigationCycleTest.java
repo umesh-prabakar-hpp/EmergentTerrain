@@ -1,5 +1,6 @@
 package com.emergentterrain.research;
 
+import com.emergentterrain.llm.JuliaMathClient;
 import com.emergentterrain.research.conjecture.Conjecture;
 import com.emergentterrain.research.conjecture.ConjectureQueue;
 import com.emergentterrain.research.conjecture.ConjectureTopicProvider;
@@ -103,6 +104,11 @@ class ConjectureInvestigationCycleTest {
         ResearchCycleService svc = new ResearchCycleService();
         svc.setConjectureTopicProvider(
                 new ConjectureTopicProvider(Optional.empty(), 1.0, "math"));  // queue absent → always empty
+        // The catalog fallthrough computes a physics/math topic, which needs the sidecar-backed
+        // delegate (in-process engine removed in §28.6). Wire a deterministic stub so this stays
+        // hermetic — we assert the fallthrough does NOT publish a conjecture-investigation, not the
+        // compute result itself.
+        svc.setPhysicsEngineDelegate(new StubDelegate());
 
         Researcher author = researcher();
         CapturingContext ctx = new CapturingContext();
@@ -264,5 +270,25 @@ class ConjectureInvestigationCycleTest {
             return null;
         }
         @Override public Function<Object[], Object> formulationCallback() { return null; }
+    }
+
+    /**
+     * Sidecar-free {@link MathPhysicsEngineDelegate} stand-in for the catalog fallthrough —
+     * returns a fixed deterministic result so the cycle runs without a live sidecar (the
+     * in-process engine was removed in §28.6). Mirrors {@code ReplicationServiceTest.StubDelegate}.
+     */
+    private static final class StubDelegate extends MathPhysicsEngineDelegate {
+        StubDelegate() {
+            super((JuliaMathClient) null);
+        }
+
+        @Override
+        public MathPhysicsEngine.ResearchResult compute(String domain, int topicIndex,
+                int param1, double param2, MathPhysicsEngine.SearchParams sp) {
+            // Fixed MATHEMATICS:0 (prime-constellation) result — same canned value the
+            // ReplicationServiceTest stub serves.
+            return MathPhysicsEngine.composePrimeConstellations(
+                    2, 100, 25, 8, 7, 11, 8, 7.6, 0.18, 0.25, 0.08);
+        }
     }
 }
