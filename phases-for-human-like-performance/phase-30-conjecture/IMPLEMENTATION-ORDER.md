@@ -149,7 +149,7 @@ The "is it real / irreducible" tests, on generated candidates.
 | Item | Source | Status | Notes |
 |------|--------|--------|-------|
 | **RAF closure → report iRAF/organizations** as the publishable unit | sim #1 | ◐ shipped flag-OFF | `DerivationClosure` (maxRAF/iRAF math, W2) + `RafReport` — over the live findings' derivation graph (food = observable vocabulary), `mine()` logs the iRAF of the top confirmed findings + the count grounded in no RAF (`rafClosureEnabled`). Observability (doesn't retire); non-trivial once composition / vocab-expansion chains exist. |
-| **30.7 mechanism-as-runnable-model + closure check + conservation gates** | sim #3/#4/#7, 30.7 | 📋 design doc | **largest build**. **Design proposed (not queued):** [`mechanism-runnable-model.md`](mechanism-runnable-model.md) — mechanism DSL over `OperatorGrammar`, out-of-sample regeneration + closure (`DerivationClosure`) + dimensional-balance gates; mostly reuse. Awaiting decisions D1–D4. |
+| **30.7 mechanism-as-runnable-model + closure check + conservation gates** | sim #3/#4/#7, 30.7 | ◐ in progress | [`mechanism-runnable-model.md`](mechanism-runnable-model.md), D1–D4 settled. **P1 shipped** (`Mechanism` model + DSL parse + `predict()`, pure; `OperatorGrammar.parse` added). P2 (regeneration + closure + dimensional gates) + P3 (`propose_mechanism` tool) remain. |
 | **Behavioral-signature discovery detector** | sim #12 | ⏳ | low; truth-table/I-O fingerprint over held-out predictions (ties to the discovery-method substrate) |
 
 **Acceptance:** a published unit is an irreducible closed set (iRAF), not an isolated edge; a declared

@@ -213,6 +213,75 @@ public final class OperatorGrammar {
         return all;
     }
 
+    /**
+     * Parse a canonical render back into an {@link Expr} — the inverse of {@link Expr#render()}.
+     * Grammar: {@code leaf | unary "(" expr ")" | "(" expr " " op " " expr ")"}. Used to ingest the
+     * 30.7 mechanism DSL. Throws {@link IllegalArgumentException} on malformed input.
+     */
+    public static Expr parse(String s) {
+        if (s == null) {
+            throw new IllegalArgumentException("null expression");
+        }
+        String t = s.trim();
+        if (t.isEmpty()) {
+            throw new IllegalArgumentException("empty expression");
+        }
+        if (t.charAt(0) == '(') {
+            String inner = stripOuterParens(t);
+            int opIdx = topLevelBinaryOp(inner);
+            if (opIdx < 0) {
+                throw new IllegalArgumentException("no top-level binary operator: " + s);
+            }
+            Binary op = inner.charAt(opIdx) == '*' ? Binary.MUL : Binary.DIV;
+            Expr left = parse(inner.substring(0, opIdx).trim());
+            Expr right = parse(inner.substring(opIdx + 1).trim());
+            return Expr.binary(op, left, right);
+        }
+        int paren = t.indexOf('(');
+        if (paren < 0) {
+            return Expr.leaf(t);   // identifier
+        }
+        if (t.charAt(t.length() - 1) != ')') {
+            throw new IllegalArgumentException("malformed unary: " + s);
+        }
+        Unary uop = Unary.valueOf(t.substring(0, paren).trim().toUpperCase());
+        return Expr.unary(uop, parse(t.substring(paren + 1, t.length() - 1)));
+    }
+
+    private static String stripOuterParens(String t) {
+        int depth = 0;
+        for (int i = 0; i < t.length(); i++) {
+            if (t.charAt(i) == '(') {
+                depth++;
+            } else if (t.charAt(i) == ')') {
+                depth--;
+                if (depth == 0) {
+                    if (i != t.length() - 1) {
+                        throw new IllegalArgumentException("unbalanced parens: " + t);
+                    }
+                    return t.substring(1, i);
+                }
+            }
+        }
+        throw new IllegalArgumentException("unbalanced parens: " + t);
+    }
+
+    /** Index of the single depth-0 '*' or '/' operator char in a stripped binary body, or -1. */
+    private static int topLevelBinaryOp(String inner) {
+        int depth = 0;
+        for (int i = 0; i < inner.length(); i++) {
+            char c = inner.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+            } else if (depth == 0 && (c == '*' || c == '/')) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     private static void tryAdd(Expr e, Set<String> seen, List<Expr> cur) {
         if (mixesIncompatibleDimensions(e) || !seen.add(e.render())) {
             return;

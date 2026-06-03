@@ -1,6 +1,6 @@
 # Wave 6 — 30.7 mechanism-as-runnable-model + closure check + conservation gates
 
-**Status (2026-06-03): DESIGN DOC — proposal for review, NOT queued.** The roadmap's **"largest build."**
+**Status (2026-06-03): IN PROGRESS — decisions D1–D4 settled (recommended options), P1 (Mechanism model) shipping.** The roadmap's **"largest build."**
 30.7 turns a mechanism from prose into a *runnable model*: a declared mechanism must parse, lower to a
 `predict()` callable, **regenerate its claim out-of-sample**, structurally **close**, and respect
 **conservation/unit invariants** — or it is rejected. Sources: sim #3 (executable model), #4 (closure),
@@ -132,9 +132,11 @@ extractor, and the admission orchestration.
 
 ## 8. Phasing (pure-first, flag-gated OFF)
 
-1. **P1 — Mechanism model + `predict()` (pure).** `Mechanism` (ordered definitions over `OperatorGrammar.Expr`
-   + target + declared invariants); parse from the §2 DSL; lower to `predict(window)`; unit-tested on a
-   hand-written mechanism.
+1. **P1 — Mechanism model + `predict()` (pure). ✅ SHIPPED** (2026-06-03). `Mechanism` (ordered
+   `Definition`s over `OperatorGrammar.Expr` + target + declared invariants); `Mechanism.parse` ingests
+   the §2 DSL (`name := expr`, `predict(TARGET) := expr`, `invariant: …`, `#` comments) via the new
+   `OperatorGrammar.parse` (inverse of `render`); `predict(window)` evaluates definitions in order and
+   returns the target. Tests: `MechanismTest` (6), `OperatorGrammarTest` parse round-trip (+4).
 2. **P2 — the three gates (pure).** Out-of-sample regeneration (mean + ensemble), closure (`DerivationClosure`),
    conservation (dimensional balance + monotonicity). `MechanismGate.evaluate(mechanism, samples, target)
    -> Verdict`. Unit-tested: a faithful mechanism passes; one that overfits / doesn't close / breaks
@@ -167,12 +169,15 @@ dimension, and regenerates the bound on held-out windows (mean + ensemble) → a
 reason. With the flag OFF, the pipeline is byte-identical. Steady-state flip gated by the same A/B
 discipline as the rest of Phase 30.
 
-## Decisions needed before coding
-- **D1** — expression layer: `OperatorGrammar` in-process (recommended) vs sandboxed LLM Julia.
-- **D2** — mechanism source: `propose_mechanism` LLM tool (recommended) vs auto-derivation from W2 chains.
-- **D3** — "regenerate the claim": bound form (recommended) vs value form.
-- **D4** — conservation scope: dimensional balance + declared monotonicities (recommended) vs a
-  substrate-specific conserved-quantity family.
+## Decisions settled (2026-06-03)
+- **D1** — expression layer: **`OperatorGrammar` in-process** (no sandbox / no RCE).
+- **D2** — mechanism source: **`propose_mechanism` LLM tool** (P3), bounded; auto-derivation deferred.
+- **D3** — "regenerate the claim": **bound form** (`lhs <= predict + 2*TOL` on held-out windows).
+- **D4** — conservation scope: **dimensional balance + declared monotonicities** (no moiety analog).
+
+P1 (this slice): the pure `Mechanism` model — definitions over `OperatorGrammar.Expr`, DSL parse (the
+inverse of `render`), and `predict()` lowering. The three gates (P2) and authoring/`propose_mechanism`
+(P3) follow.
 
 ## Cross-references
 - [`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) — Wave 6.

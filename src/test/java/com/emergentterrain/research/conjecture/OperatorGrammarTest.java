@@ -92,4 +92,27 @@ class OperatorGrammarTest {
         assertThat(OperatorGrammar.enumerate(List.of(), 1)).isEmpty();
         assertThat(OperatorGrammar.enumerate(null, 1)).isEmpty();
     }
+
+    @Test
+    void parseIsTheInverseOfRender() {
+        for (String r : List.of("prime_density", "log(prime_density)", "(mean_omega * prime_density)",
+                "(mean_omega / log_window_size)", "reciprocal(square(mertens_delta))",
+                "((a * b) / c)", "log((a / b))")) {
+            assertThat(OperatorGrammar.parse(r).render()).isEqualTo(r);
+        }
+    }
+
+    @Test
+    void parsedExpressionEvaluates() {
+        OperatorGrammar.Expr e = OperatorGrammar.parse("(a / b)");
+        assertThat(e.eval(Map.of("a", 6.0, "b", 3.0))).isEqualTo(2.0);
+    }
+
+    @Test
+    void parseRejectsMalformed() {
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> OperatorGrammar.parse("(a * )"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> OperatorGrammar.parse("bogus(x"));
+    }
 }
