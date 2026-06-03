@@ -129,12 +129,12 @@ the A/B (zero false-retirement on a hand-checked control set) gates flipping the
 
 Claim generation, on a clean pool with honest evaluation.
 
-| Item | Source | Depends on |
-|------|--------|-----------|
-| **30.5 vocabulary expansion via closed operator grammar, MDL-gated** | sim #14, 30.5 | W4 (MDL needs null) |
-| **30.1 anomaly mining** (keep the exceptions) | 30.1 | W0 retirement, W4 null + MCC |
-| **30.2 residual-structure discovery** (subtract known law, beat null) | 30.2 | W4 null |
-| **30.3 compositional derivation** (compose + flatten) | sim #15, 30.3 | W2 graph |
+| Item | Source | Status | Notes |
+|------|--------|--------|-------|
+| **30.3 compositional derivation** (compose + flatten) | sim #15, 30.3 | ✅ shipped (flag) | `ConjectureComposer` — sound transitive composition with provenance; derived bound is on a new pair (absent from both parents); wired via `compositionPersistEnabled`. |
+| **30.2 residual-structure discovery** (subtract known law, beat null) | 30.2 | ◐ shipped flag-OFF | `ResidualStructureMiner` — removes the OLS rhs-trend, tests whether the residual tracks another scalar beyond the W4 null; probes the most-confirmed live bounds in `mine()` (`residualStructureEnabled`), logs candidates. Persisting `lhs~rhs+z` needs a multivariate claim schema (follow-on). |
+| **30.1 anomaly mining** (keep the exceptions) | 30.1 | ⏳ next | surface refutation witnesses as findings past a held-out re-check + MCC |
+| **30.5 vocabulary expansion via closed operator grammar, MDL-gated** | sim #14, 30.5 | ⏳ | highest-risk/reward; generate new scalars under an MDL guard |
 
 **Acceptance (per 30.x bar in the proposal):** ≥5 surviving anomalies past held-out re-check + MCC;
 a residual form beating the linear null on held-out data; one composition paper whose hypothesis is
@@ -199,7 +199,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags OFF); tiered ordering de facto |
 | 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |
-| 5 | generation (Stage 1) | med-high | high | med | ⏳ not started (gated on W4) |
+| 5 | generation (Stage 1) | med-high | high | med | ◐ **lane open** — 30.3 composition shipped, 30.2 residual-structure shipped (flag OFF); 30.1 anomaly mining (next) + 30.5 vocabulary expansion remain |
 | 6 | irreducibility + mechanism | **high** | high | med | ⏳ not started (`DerivationClosure` primitive exists; RAF-report + mechanism model not built) |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
 

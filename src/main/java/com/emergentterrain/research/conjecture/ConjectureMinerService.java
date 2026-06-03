@@ -173,6 +173,10 @@ public class ConjectureMinerService implements ConjectureQueue {
     // Phase 30 Wave 3 — sublinear generation budget (throttles composition vs validations).
     private final boolean sublinearBudgetEnabled;
     private final double sublinearBudgetAlpha;
+    // Phase 30 Wave 5 — residual-structure discovery (30.2); observability hook, no persistence yet.
+    private final boolean residualStructureEnabled;
+    /** Cap on how many live bounds residual-structure discovery probes per pass (cost bound). */
+    private static final int RESIDUAL_PROBE_CAP = 25;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -207,10 +211,11 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.cladeValueSelectionEnabled = props.isCladeValueSelectionEnabled();
         this.sublinearBudgetEnabled = props.isSublinearBudgetEnabled();
         this.sublinearBudgetAlpha = props.getSublinearBudgetAlpha();
+        this.residualStructureEnabled = props.isResidualStructureEnabled();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -228,7 +233,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 unitConsistencyEnabled ? "ON" : "OFF",
                 identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF",
                 cladeValueSelectionEnabled ? "ON" : "OFF",
-                sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF");
+                sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF",
+                residualStructureEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -270,7 +276,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         // Phase 30 Wave 4 — accumulate every window sample so the stochastic-null and replication
         // gates can work across the full sample set. Only collected when one of those gates is on
         // (otherwise it stays empty and costs nothing).
-        boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled || identifiabilityEnabled;
+        boolean collectSamples = stochasticNullEnabled || replicationValidatorEnabled
+                || identifiabilityEnabled || residualStructureEnabled;
         List<Map<String, Double>> allSamples =
                 collectSamples ? new ArrayList<>() : List.of();
 
@@ -489,6 +496,37 @@ public class ConjectureMinerService implements ConjectureQueue {
                 }
             }
             store = kept;
+        }
+
+        // Phase 30 Wave 5 — residual-structure discovery (30.2, flag-gated OFF). For the most-
+        // confirmed live bounds, probe whether the rhs-residual carries structure another scalar
+        // explains beyond the linear null (ResidualStructureMiner). Observability only for now — a
+        // discovered residual relation is a Stage-1 generated candidate, but the 2-term conjecture
+        // schema can't persist lhs~rhs+z yet, so we log candidates rather than create entities.
+        if (residualStructureEnabled) {
+            List<String> vocab = MathInvariants.vocabulary();
+            int probed = 0;
+            int discovered = 0;
+            List<Inequality> ranked = store.stream()
+                    .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
+                    .limit(RESIDUAL_PROBE_CAP)
+                    .toList();
+            for (Inequality ineq : ranked) {
+                probed++;
+                long seed = keyOf(ineq.lhs, ineq.rhs).hashCode();
+                java.util.Optional<ResidualStructureMiner.Candidate> cand =
+                        ResidualStructureMiner.mine(allSamples, ineq.lhs, ineq.rhs, vocab,
+                                stochasticNullPermutations, stochasticNullAlpha, seed);
+                if (cand.isPresent()) {
+                    discovered++;
+                    ResidualStructureMiner.Candidate c = cand.get();
+                    log.info("residual-structure candidate — {} <= k*{} leaves residual explained by {} "
+                            + "(|rho|={}, p={})", ineq.lhs, ineq.rhs, c.explainer(),
+                            String.format("%.3f", c.residualAbsRho()), String.format("%.4f", c.pValue()));
+                }
+            }
+            log.info("residual-structure discovery — probed {} bound(s), {} with residual structure beating the null",
+                    probed, discovered);
         }
 
         // Persist survivors: update existing entities in place, insert new ones.

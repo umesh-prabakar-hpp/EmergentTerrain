@@ -41,6 +41,8 @@ public class ConjectureMinerProperties {
     // Wave 3 — sublinear generation budget (throttles composition vs validations performed).
     private boolean sublinearBudgetEnabled = false;
     private double sublinearBudgetAlpha = 0.5;
+    // Wave 5 — residual-structure discovery (30.2); reuses the W4 null params for its test.
+    private boolean residualStructureEnabled = false;
     // Wave 4 component 1 — generative stochastic null.
     private boolean stochasticNullEnabled = false;
     private int stochasticNullPermutations = 999;
@@ -94,6 +96,9 @@ public class ConjectureMinerProperties {
 
     public double getSublinearBudgetAlpha() { return sublinearBudgetAlpha; }
     public void setSublinearBudgetAlpha(double v) { this.sublinearBudgetAlpha = v; }
+
+    public boolean isResidualStructureEnabled() { return residualStructureEnabled; }
+    public void setResidualStructureEnabled(boolean v) { this.residualStructureEnabled = v; }
 
     public boolean isStochasticNullEnabled() { return stochasticNullEnabled; }
     public void setStochasticNullEnabled(boolean v) { this.stochasticNullEnabled = v; }
