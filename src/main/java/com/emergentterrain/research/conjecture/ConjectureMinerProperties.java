@@ -30,6 +30,8 @@ public class ConjectureMinerProperties {
     private double identifiabilityMaxRelStdErr = 1.0;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
+    // Wave 3 — clade-value × inverse-popularity selection (replaces rank-by-fit for live conjectures).
+    private boolean cladeValueSelectionEnabled = false;
     // Observability.
     private boolean substrateMetricsEnabled = false;
     // Wave 2 — composition persistence.
@@ -68,6 +70,9 @@ public class ConjectureMinerProperties {
 
     public boolean isInvestigationRotationEnabled() { return investigationRotationEnabled; }
     public void setInvestigationRotationEnabled(boolean v) { this.investigationRotationEnabled = v; }
+
+    public boolean isCladeValueSelectionEnabled() { return cladeValueSelectionEnabled; }
+    public void setCladeValueSelectionEnabled(boolean v) { this.cladeValueSelectionEnabled = v; }
 
     public boolean isSubstrateMetricsEnabled() { return substrateMetricsEnabled; }
     public void setSubstrateMetricsEnabled(boolean v) { this.substrateMetricsEnabled = v; }

@@ -168,6 +168,8 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean unitConsistencyEnabled;
     private final boolean identifiabilityEnabled;
     private final double identifiabilityMaxRelStdErr;
+    // Phase 30 Wave 3 — clade-value × inverse-popularity selection for the live (Tier-2) queue.
+    private final boolean cladeValueSelectionEnabled;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -199,10 +201,11 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.unitConsistencyEnabled = props.isUnitConsistencyEnabled();
         this.identifiabilityEnabled = props.isIdentifiabilityEnabled();
         this.identifiabilityMaxRelStdErr = props.getIdentifiabilityMaxRelStdErr();
+        this.cladeValueSelectionEnabled = props.isCladeValueSelectionEnabled();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -218,7 +221,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                         ? "ON (" + replicationFolds + "-fold, minPass=" + replicationMinPassRate + ")"
                         : "OFF",
                 unitConsistencyEnabled ? "ON" : "OFF",
-                identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF");
+                identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF",
+                cladeValueSelectionEnabled ? "ON" : "OFF");
     }
 
     /**
@@ -603,15 +607,20 @@ public class ConjectureMinerService implements ConjectureQueue {
                 .limit(n)
                 .forEach(out::add);
 
-        // Tier 2: live, highest confirmation first, tightest slack as tiebreaker.
+        // Tier 2: live conjectures. Legacy = highest confirmation first, tightest slack tiebreak.
+        // Phase 30 Wave 3 (flag-gated): rank by clade-value × inverse-popularity instead — fit is
+        // an eligibility gate only (still live), not the ranking key — so the queue diversifies
+        // across relations rather than re-serving the best-fit family.
         if (out.size() < n) {
-            all.stream()
+            List<Conjecture> live = all.stream()
                     .filter(c -> c.droppedByKnob() == null)
-                    .sorted(Comparator
+                    .collect(java.util.stream.Collectors.toList());
+            java.util.stream.Stream<Conjecture> ordered = cladeValueSelectionEnabled
+                    ? CladeValueSelector.rank(live, Conjecture::lhs).stream()
+                    : live.stream().sorted(Comparator
                             .<Conjecture>comparingInt(c -> -c.confirmedRuns())
-                            .thenComparingDouble(Conjecture::p99Slack))
-                    .limit((long) n - out.size())
-                    .forEach(out::add);
+                            .thenComparingDouble(Conjecture::p99Slack));
+            ordered.limit((long) n - out.size()).forEach(out::add);
         }
         return out;
     }
