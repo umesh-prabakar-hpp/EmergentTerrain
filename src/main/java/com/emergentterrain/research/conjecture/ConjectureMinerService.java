@@ -177,6 +177,9 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean residualStructureEnabled;
     /** Cap on how many live bounds residual-structure discovery probes per pass (cost bound). */
     private static final int RESIDUAL_PROBE_CAP = 25;
+    // Phase 30 Wave 5 — anomaly mining (30.1); observability hook, no persistence yet.
+    private final boolean anomalyMiningEnabled;
+    private final int anomalyMinConfirmed;
 
     public ConjectureMinerService(
             ConjectureRepository repo,
@@ -212,10 +215,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.sublinearBudgetEnabled = props.isSublinearBudgetEnabled();
         this.sublinearBudgetAlpha = props.getSublinearBudgetAlpha();
         this.residualStructureEnabled = props.isResidualStructureEnabled();
+        this.anomalyMiningEnabled = props.isAnomalyMiningEnabled();
+        this.anomalyMinConfirmed = props.getAnomalyMinConfirmed();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
                 + "compositionPersist={}{} compositionKnobExempt={} stochasticNull={} privateValidator={} replication={} "
-                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={}",
+                + "unitConsistency={} identifiability={} cladeValueSelection={} sublinearBudget={} residualStructure={} anomalyMining={}",
                 OeisCatalog.size(), trivialityFilterEnabled ? "ON" : "OFF",
                 dimensionFilterEnabled ? "ON" : "OFF", investigationRotationEnabled ? "ON" : "OFF",
                 substrateMetricsEnabled ? "ON" : "OFF",
@@ -234,7 +239,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 identifiabilityEnabled ? "ON (maxRelSE=" + identifiabilityMaxRelStdErr + ")" : "OFF",
                 cladeValueSelectionEnabled ? "ON" : "OFF",
                 sublinearBudgetEnabled ? "ON (alpha=" + sublinearBudgetAlpha + ")" : "OFF",
-                residualStructureEnabled ? "ON" : "OFF");
+                residualStructureEnabled ? "ON" : "OFF",
+                anomalyMiningEnabled ? "ON (minConfirmed=" + anomalyMinConfirmed + ")" : "OFF");
     }
 
     /**
@@ -527,6 +533,28 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             log.info("residual-structure discovery — probed {} bound(s), {} with residual structure beating the null",
                     probed, discovered);
+        }
+
+        // Phase 30 Wave 5 — anomaly mining (30.1, flag-gated OFF). Surface counterexample-refuted
+        // conjectures that were a real pattern first (confirmed ≥ minConfirmed) and broke
+        // surprisingly hard, surviving a multiple-comparisons correction over the candidate family.
+        // Observability only — an UNEXPLAINED_OBSERVATION paper from an anomaly is Wave 7.
+        if (anomalyMiningEnabled) {
+            List<Inequality> refutedPool = new ArrayList<>();
+            for (Conjecture c : existing) {
+                if (DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob())) {
+                    refutedPool.add(mapper.toInequality(c));
+                }
+            }
+            List<AnomalyMiner.Anomaly> anomalies = AnomalyMiner.mine(
+                    refutedPool, anomalyMinConfirmed, ConjectureEngine.TOL, mccMethod, stochasticNullAlpha);
+            for (AnomalyMiner.Anomaly a : anomalies) {
+                log.info("anomaly candidate — {} <= k*{} held {} runs then broke by margin {} (surprise p={})",
+                        a.lhs(), a.rhs(), a.confirmedRuns(), String.format("%.4f", a.worstMargin()),
+                        String.format("%.2e", a.pValue()));
+            }
+            log.info("anomaly mining — {} refuted candidate(s) examined, {} surviving anomalies past MCC",
+                    refutedPool.size(), anomalies.size());
         }
 
         // Persist survivors: update existing entities in place, insert new ones.

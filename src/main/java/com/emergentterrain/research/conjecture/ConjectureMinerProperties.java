@@ -43,6 +43,9 @@ public class ConjectureMinerProperties {
     private double sublinearBudgetAlpha = 0.5;
     // Wave 5 — residual-structure discovery (30.2); reuses the W4 null params for its test.
     private boolean residualStructureEnabled = false;
+    // Wave 5 — anomaly mining (30.1); reuses stochasticNullAlpha + multipleComparisonsMethod.
+    private boolean anomalyMiningEnabled = false;
+    private int anomalyMinConfirmed = 5;
     // Wave 4 component 1 — generative stochastic null.
     private boolean stochasticNullEnabled = false;
     private int stochasticNullPermutations = 999;
@@ -99,6 +102,12 @@ public class ConjectureMinerProperties {
 
     public boolean isResidualStructureEnabled() { return residualStructureEnabled; }
     public void setResidualStructureEnabled(boolean v) { this.residualStructureEnabled = v; }
+
+    public boolean isAnomalyMiningEnabled() { return anomalyMiningEnabled; }
+    public void setAnomalyMiningEnabled(boolean v) { this.anomalyMiningEnabled = v; }
+
+    public int getAnomalyMinConfirmed() { return anomalyMinConfirmed; }
+    public void setAnomalyMinConfirmed(int v) { this.anomalyMinConfirmed = v; }
 
     public boolean isStochasticNullEnabled() { return stochasticNullEnabled; }
     public void setStochasticNullEnabled(boolean v) { this.stochasticNullEnabled = v; }
