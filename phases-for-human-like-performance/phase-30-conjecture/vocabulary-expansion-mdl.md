@@ -1,12 +1,15 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): DESIGN DOC — proposal for review, NOT queued.** This is the last open Wave-5
-item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**. Unlike every
-W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5 *expands the
-substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30 change that
-touches [`MathInvariants`](../../src/main/java/com/emergentterrain/research/conjecture/MathInvariants.java)
+**Status (2026-06-03): DESIGN — decisions settled, READY TO QUEUE (not yet coded).** This is the last
+open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
+Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
+*expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30
+change that touches [`MathInvariants`](../../src/main/java/com/emergentterrain/research/conjecture/MathInvariants.java)
 (the scalar registry), so it carries real blast radius (parity tests, pool explosion, interpretability).
-This doc scopes the build and lists the decisions a reviewer should make **before** any code.
+The open decisions (G/M/I) were resolved on 2026-06-03 — see each "**Decision**" below and the resolved
+summary at the end; the chosen shape is the **conservative-but-real** one that cannot quietly flood the
+vocabulary (minimal multiplicative depth-1 grammar, residual-variance-bits MDL with mandatory held-out
+confirmation, a separate table, non-recursive).
 
 ---
 
@@ -48,9 +51,12 @@ themselves eligible operands (composition), bounded by a small depth to keep it 
   class registry (bounded-NT vs harness-window) to reject category-error combinations up front (e.g.
   `density * window_magnitude`), trimming the candidate set before the expensive MDL test.
 
-**Open question (G1):** operator set — start minimal (`log, sqrt, square, reciprocal, *, /`) or include
-`+`/`-` (mostly redundant with the engine's affine `k,c`)? **(G2):** depth 1 first, or 2? **(G3):**
-include constants, or let the engine's `k,c` carry all affine freedom?
+**Decision (2026-06-03).** **G1 — minimal multiplicative grammar:** unary `{log, sqrt, square,
+reciprocal}`, binary `{*, /}`. Exclude `+`/`−` — the engine already fits `lhs ≤ k*rhs + c`, so affine
+combinations are covered; `*` and `/` create the genuinely new products/ratios the affine form can't.
+**G2 — depth 1 first** (~15 scalars × 6 ops ≈ 90 candidates), depth a config knob; depth 2 only after
+depth-1 admissions prove real and bounded. **G3 — no constants:** `k,c` carry all affine freedom, so
+grammar constants are redundant and only inflate the space.
 
 ---
 
@@ -83,11 +89,14 @@ overfit junk:
 So 30.5's admission test is **literally 30.2 + a description-length budget** — the generative engine is
 mostly already shipped; 30.5 adds the grammar that proposes `z` and the MDL ledger that prices it.
 
-**Open question (M1):** the residual-variance→bits conversion above is one operationalisation of
-"compression"; an alternative is "number of new confirmed bounds beating the null after MCC that `z`
-enables." Which is the admission currency? **(M2):** the per-node code-length prior — uniform, or
-weight simpler operators cheaper? **(M3):** a held-out split for the compression estimate (fit the gain
-on one window set, confirm on another) — required for admission, or a follow-on like the other W5 boundaries?
+**Decision (2026-06-03).** **M1 — residual-variance → bits** is the admission currency
+(`0.5*n*log2(var_before/var_after)`): continuous and principled, and it reuses `ResidualStructureMiner`'s
+residuals directly. The "count of new MCC-surviving bounds" alternative is coarser/noisier — rejected.
+**M2 — uniform** per-node prior (`log2(grammar_size)`): no operator hand-weighting initially, fewer knobs
+to mis-tune. **M3 — held-out split is REQUIRED for admission** (not a follow-on): estimate the gain on a
+fit window subset and confirm it on held-out windows (reuse the replication / private-holdout split).
+In-sample MDL overfits exactly the way the wave warns — this is the single most important spurious-scalar
+guard, so it is in scope from P2, not deferred.
 
 ---
 
@@ -109,9 +118,11 @@ that.
   to cap admitted scalars per pass as `floor(n_validations^α)` — vocabulary growth, like conjecture
   generation, must stay sublinear in validation work.
 
-**Open question (I1):** persist admitted scalars in a new table, or extend the conjecture store?
-**(I2):** do admitted scalars become eligible *operands* for the next pass's grammar (true open-endedness,
-more explosion risk), or one level only?
+**Decision (2026-06-03).** **I1 — a new `derived_scalars` table** (name, expression, depth, admitted_at,
+gain_bits), separate from the conjecture store — mirrors how the discovery corpus is kept separate and
+keeps the conjecture schema clean. **I2 — one level only** to start: admitted scalars do NOT feed the
+next pass's grammar. Recursive operand eligibility is the real open-endedness/explosion lever and is
+deferred behind its own flag, to be turned on only after one-level admission proves stable and bounded.
 
 ---
 
@@ -161,10 +172,17 @@ OFF, `vocabulary()` and the mined survivor set are byte-identical to today (pari
 flip gated by the same A/B as the rest of W5 (zero false-retirement + no spurious-scalar inflation on a
 hand-checked control set).
 
-## Decisions needed before coding
-- **G1/G2/G3** — operator set, depth, constants (§2).
-- **M1/M2/M3** — compression currency, code-length prior, held-out split (§3).
-- **I1/I2** — persistence location, recursive operand eligibility (§4).
+## Decisions settled (2026-06-03)
+- **G1/G2/G3** (§2) — minimal multiplicative grammar `{log, sqrt, square, reciprocal, *, /}`; depth 1
+  first (config knob); no constants.
+- **M1/M2/M3** (§3) — residual-variance→bits compression currency; uniform per-node code-length prior;
+  **held-out confirmation required** for admission (in scope from P2).
+- **I1/I2** (§4) — new `derived_scalars` table; one level only (recursive operands deferred behind their
+  own flag).
+
+Net shape: a bounded, non-recursive, depth-1 multiplicative grammar admitted by held-out-confirmed
+residual-variance MDL — the version that cannot quietly flood the vocabulary. **Ready to queue**;
+P1 (grammar, pure) is the first slice.
 
 ## Cross-references
 - [`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) — Wave 5 (30.5 is the last open item).
