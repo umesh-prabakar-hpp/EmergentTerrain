@@ -149,7 +149,7 @@ The "is it real / irreducible" tests, on generated candidates.
 | Item | Source | Status | Notes |
 |------|--------|--------|-------|
 | **RAF closure → report iRAF/organizations** as the publishable unit | sim #1 | ◐ shipped flag-OFF | `DerivationClosure` (maxRAF/iRAF math, W2) + `RafReport` — over the live findings' derivation graph (food = observable vocabulary), `mine()` logs the iRAF of the top confirmed findings + the count grounded in no RAF (`rafClosureEnabled`). Observability (doesn't retire); non-trivial once composition / vocab-expansion chains exist. |
-| **30.7 mechanism-as-runnable-model + closure check + conservation gates** | sim #3/#4/#7, 30.7 | ◐ in progress | [`mechanism-runnable-model.md`](mechanism-runnable-model.md), D1–D4 settled. **P1 + P2 shipped** (`Mechanism` model + DSL parse + `predict()`; `MechanismGate` regeneration/closure/dimensional/monotonicity gates — pure). P3 (`propose_mechanism` tool + authoring/persistence) remains. |
+| **30.7 mechanism-as-runnable-model + closure check + conservation gates** | sim #3/#4/#7, 30.7 | ✅ shipped flag-OFF | [`mechanism-runnable-model.md`](mechanism-runnable-model.md), D1–D4 settled. P1 (`Mechanism`+DSL) + P2 (`MechanismGate`) + P3 (`propose_mechanism` tool, flag-gated). Follow-on: persist accepted mechanisms onto papers. |
 | **Behavioral-signature discovery detector** | sim #12 | ⏳ | low; truth-table/I-O fingerprint over held-out predictions (ties to the discovery-method substrate) |
 
 **Acceptance:** a published unit is an irreducible closed set (iRAF), not an isolated edge; a declared
@@ -200,7 +200,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags OFF); tiered ordering de facto |
 | 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |
 | 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped flag-OFF** — 30.3 composition, 30.2 residual-structure, 30.1 anomaly mining, 30.5 vocabulary expansion (P1–P3b) |
-| 6 | irreducibility + mechanism | **high** | high | med | ◐ **lane open** — RAF closure → iRAF reporting shipped (`RafReport`, flag OFF); 30.7 runnable-mechanism (largest build) + behavioral-signature remain |
+| 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
 
 > Discovery/frontier work (Mertens/divisor/prime beyond-sieve escalation) is a **separate track** —

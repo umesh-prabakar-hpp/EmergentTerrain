@@ -168,4 +168,22 @@ class MathToolSuiteDiscoveryTest {
         String out = suite.discoverPrimeValue(OM.readTree("{\"x\":1000000000,\"rationale\":\"r\"}"));
         assertThat(out).contains("disabled");
     }
+
+    // ── propose_mechanism (30.7 P3) — gating (no conjecture verifier wired here) ──────────
+
+    @Test
+    void mechanismToolNotAdvertisedWithoutVerifier() {
+        MathToolSuite suite = suiteWith(svc(true, accept(1L)));
+        suite.setMechanismProposalEnabled(true);   // flag on, but no conjecture verifier wired
+        assertThat(suite.toolsJson(true, false)).doesNotContain("propose_mechanism");
+    }
+
+    @Test
+    void mechanismHandlerDisabledWithoutVerifier() throws Exception {
+        MathToolSuite suite = suiteWith(svc(true, accept(1L)));
+        suite.setMechanismProposalEnabled(true);
+        String out = suite.proposeMechanism(OM.readTree(
+                "{\"dsl\":\"predict(y) := square(x)\",\"window_start\":1000,\"window_size\":1000}"));
+        assertThat(out).contains("disabled");
+    }
 }

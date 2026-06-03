@@ -803,11 +803,16 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.narration.proseIntegrityEnabled:false}")
     private boolean proseIntegrityFlag;
 
+    /** Phase 30 Wave 6 — 30.7 P3: gate for the propose_mechanism professor tool. OFF by default. */
+    @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.mechanismProposalEnabled:false}")
+    private boolean mechanismProposalFlag;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
             toolSuite.setDiscoveryService(discoveryService);
             toolSuite.setFrontierKnowledge(frontierKnowledge);
+            toolSuite.setMechanismProposalEnabled(mechanismProposalFlag);
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the
         // static revision-prompt builders can read it). Domain-neutral; OFF by default.

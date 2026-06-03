@@ -387,6 +387,18 @@ public class MathToolSuite {
         return discoveryService != null && discoveryService.isEnabled();
     }
 
+    /** Phase 30 30.7 P3 — gate for the propose_mechanism tool (set by ResearchNarrationService). */
+    private volatile boolean mechanismProposalEnabled = false;
+
+    public void setMechanismProposalEnabled(boolean enabled) {
+        this.mechanismProposalEnabled = enabled;
+    }
+
+    /** The propose_mechanism tool needs the conjecture verifier (for windows) AND its own gate on. */
+    private boolean mechanismProposalAvailable() {
+        return conjectureVerifier != null && mechanismProposalEnabled;
+    }
+
     /** The divisor-domain discover tool needs discovery wired+enabled AND its own gate on. */
     private boolean divisorDiscoveryAvailable() {
         return discoveryAvailable() && discoveryService.isDivisorToolEnabled();
@@ -698,7 +710,7 @@ public class MathToolSuite {
                       "required":["formula","start","end","rationale"]
                     }
                   }
-                }%s%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
+                }%s%s%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
                 conjectureVerifier == null ? "" : verifyConjectureToolJson(),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
@@ -709,7 +721,8 @@ public class MathToolSuite {
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
                 divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
-                recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "");
+                recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "",
+                mechanismProposalAvailable() ? PROPOSE_MECHANISM_TOOL_JSON : "");
     }
 
     /**
@@ -933,6 +946,29 @@ public class MathToolSuite {
               }
             }""";
 
+    /**
+     * Phase 30 Wave 6 — 30.7 P3: propose a runnable mechanism for the bound being written about, and
+     * have it gate-checked. Advertised only when {@link #mechanismProposalAvailable()}.
+     */
+    private static final String PROPOSE_MECHANISM_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"propose_mechanism",
+                "description":"Propose a RUNNABLE MECHANISM that explains the bound you are writing about, and have it checked. A mechanism is a few definitions in a tiny DSL, one per line: 'name := expr' for intermediates and 'predict(TARGET) := expr' for the predicted scalar, where TARGET is the bound's left-hand scalar and expr uses ONLY: existing scalar names, earlier-defined names, the operators * and /, and the functions log(), sqrt(), square(), reciprocal() — written in fully-parenthesised form, e.g. predict(mean_omega) := log(sqrt(mean_divisor_count)). Optionally add 'invariant: monotone_increasing(predict in X)' lines. The mechanism is ACCEPTED only if it (1) closes (every term is an observable or produced, nothing dangling/unused), (2) is dimensionally consistent, (3) respects its declared monotonicities, and (4) REGENERATES the bound on held-out windows (actual <= predict + tolerance). A pass means a verified runnable model, NOT a proof. Use it to turn a bound into a mechanism.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "dsl":{"type":"string","description":"The mechanism, newline-separated 'name := expr' / 'predict(TARGET) := expr' / 'invariant: ...' lines."},
+                    "window_start":{"type":"integer","description":"First window start for the held-out check (1 <= start, start+window_size*num_windows <= 2000000)."},
+                    "window_size":{"type":"integer","description":"Integers per window (e.g. 1000)."},
+                    "num_windows":{"type":"integer","description":"How many windows to evaluate (e.g. 8)."}
+                  },
+                  "required":["dsl","window_start","window_size"]
+                }
+              }
+            }""";
+
     // ── Executor factory ──────────────────────────────────────────────────────
 
     /**
@@ -969,6 +1005,7 @@ public class MathToolSuite {
                     case "discover_divisor_value" -> discoverDivisorValue(args);
                     case "discover_prime_value" -> discoverPrimeValue(args);
                     case "recall_frontier_knowledge" -> recallFrontierKnowledge(args, draft);
+                    case "propose_mechanism" -> proposeMechanism(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
@@ -1799,6 +1836,58 @@ public class MathToolSuite {
             bound = defaultRecallBound(draft);
         }
         return "recall_frontier_knowledge [" + bound + "]:\n" + frontierKnowledge.recallText(bound);
+    }
+
+    /**
+     * Phase 30 Wave 6 — 30.7 P3: parse a proposed mechanism, evaluate it over held-out windows via the
+     * conjecture verifier's substrate, and return the {@link MechanismGate} verdict. Verified-not-proven
+     * framing. Gated: disabled line unless the verifier is wired AND the proposal flag is on.
+     */
+    String proposeMechanism(JsonNode args) {
+        if (!mechanismProposalAvailable()) {
+            return "propose_mechanism: disabled (mechanism proposal is off).";
+        }
+        String dsl = args.path("dsl").asText("");
+        if (dsl == null || dsl.isBlank()) {
+            return "propose_mechanism: 'dsl' is required, e.g. predict(mean_omega) := log(sqrt(mean_divisor_count)).";
+        }
+        com.emergentterrain.research.conjecture.Mechanism m;
+        try {
+            m = com.emergentterrain.research.conjecture.Mechanism.parse(dsl);
+        } catch (RuntimeException e) {
+            return "propose_mechanism: DSL parse error — " + e.getMessage();
+        }
+        long start = args.path("window_start").asLong(0);
+        int size = args.path("window_size").asInt(0);
+        int num = args.path("num_windows").asInt(8);
+        if (start < 1 || size < 1) {
+            return "propose_mechanism: 'window_start' (>=1) and 'window_size' (>=1) are required, within [1, "
+                    + com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N + "].";
+        }
+        java.util.List<java.util.Map<String, Double>> samples;
+        try {
+            samples = conjectureVerifier.sampleWindows(start, size, num);
+        } catch (RuntimeException e) {
+            return "propose_mechanism: could not evaluate windows — " + e.getMessage();
+        }
+        if (samples.size() < 6) {   // need >= 2 folds of MechanismGate.MIN_HELD (3) each
+            return "propose_mechanism: only " + samples.size()
+                    + " in-range window(s) evaluated; choose window_start/size so several windows fit in [1, "
+                    + com.emergentterrain.research.conjecture.ConjectureVerifier.MAX_N + "].";
+        }
+        var verdict = com.emergentterrain.research.conjecture.MechanismGate.evaluate(
+                m, samples, new java.util.HashSet<>(com.emergentterrain.research.conjecture.MathInvariants.vocabulary()),
+                com.emergentterrain.research.conjecture.ConjectureEngine.TOL);
+        if (verdict.admit()) {
+            return String.format(
+                    "propose_mechanism: ACCEPTED — the mechanism for %s closes, is dimensionally consistent, "
+                    + "respects its declared invariants, and regenerates the bound on held-out windows. This is a "
+                    + "VERIFIED RUNNABLE MODEL that reproduces the claim, NOT a proof — report it as such.", m.target());
+        }
+        return String.format(
+                "propose_mechanism: REJECTED (%s) — closes=%s dimensionallyValid=%s invariantsHold=%s regenerates=%s. "
+                + "Revise the mechanism and propose again.", verdict.reason(), verdict.closes(),
+                verdict.dimensionallyValid(), verdict.invariantsHold(), verdict.regenerates());
     }
 
     /**

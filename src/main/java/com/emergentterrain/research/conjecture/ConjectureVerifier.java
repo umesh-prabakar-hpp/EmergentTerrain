@@ -243,6 +243,25 @@ public class ConjectureVerifier {
         return requested;
     }
 
+    /**
+     * Phase 30 30.7 P3 — materialise extracted windows (base/derived scalar maps) for mechanism
+     * evaluation, via the same sidecar substrate as {@link #verify}. Windows that would extend past
+     * {@link #maxN()} are skipped (stay in the trusted-oracle range). Deterministic.
+     */
+    public List<Map<String, Double>> sampleWindows(long windowStart, int windowSize, int numWindows) {
+        MathConjectureSubstrateDelegate sub = substrate();
+        List<Map<String, Double>> out = new ArrayList<>(Math.max(0, numWindows));
+        for (int i = 0; i < numWindows; i++) {
+            long start = windowStart + (long) i * windowSize;
+            if (start < 1 || start + (long) windowSize > maxN()) {
+                break;
+            }
+            Map<String, Double> raw = sub.evaluateWindow((int) start, windowSize);
+            out.add(MathInvariants.extract(raw, start, windowSize));
+        }
+        return out;
+    }
+
     /** Per-window evaluation via the sidecar-backed substrate delegate. */
     private VerifyResult evaluatePerWindow(
             String lhs, String rhs, double k, double c,
