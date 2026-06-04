@@ -4,6 +4,11 @@
 dependency on Phase 22 sidecar satisfied (`julia.enabled: true`).
 `app.julia.sympy.enabled: true`.
 
+> **Flag-name note (2026-06-04):** body sections below predate the
+> Julia-consolidation pivot and still reference `app.sympyProver.*`
+> (the abandoned subprocess design). The live flag namespace is
+> `app.julia.sympy.*` — grep that, not the body's names.
+
 > **Update (2026-05-23):** Implemented and live. `SympyIdentityClient`
 > (JVM) + `prove_identity` tool + sidecar `/prove_identity` route
 > (SymPy embedded via `PyCall.jl`). Probe passed 10/10 (2026-05-22).

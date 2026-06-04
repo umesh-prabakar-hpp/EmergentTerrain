@@ -375,6 +375,11 @@ Operator-side preparation (NOT a PR):
 
 ## Recommended next step
 
+> **Historical framing (note added 2026-06-04):** the "do not start"
+> language below is pre-implementation prose — all four PRs have since
+> **LANDED dormant** (see the Status header). The three pre-conditions
+> remain current as the *activation* gate (flag flips), not a build gate.
+
 **Do not start PR1 yet.** The mechanism is theatre without an
 alternative variant. Three pre-conditions for the PR1 commit:
 

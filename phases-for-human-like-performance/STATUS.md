@@ -71,6 +71,35 @@ evaluator); cgroups RSS sandbox hardening; reuse a library method instead of reg
 
 ---
 
+## Doc-set refresh (2026-06-04)
+
+Supplements the Snapshot's active-set list (refreshed 2026-05-23), which predates the entries
+below:
+
+- **Phase 29 — self-improving paper creation**
+  ([phase-29-self-improving-paper-creation.md](phase-29-self-improving-paper-creation.md),
+  2026-05-27): Tier 1.1 best-of-N + 1.2 eval cascade **implemented and rolled out live**
+  (`best-of-n.enabled`/`eval-cascade.enabled` ON, candidates=3) plus three log-review fixes;
+  Tiers 1.3 / 2.x / 3.x pending. §29.2.3/§29.3.4 carry 2026-06-04 ARC addenda (lesson overlay,
+  prompt-skill registry — both pending).
+- **Phase 30 novelty waves** (the `phase-30-conjecture/` track distinct from the discovery/
+  frontier section above — "Phase 30" names both): W0–W5 shipped (W1/W3 + W4 private-holdout/
+  replication + W5 residual/anomaly flags flipped ON 2026-06-03; stochastic null, MCC, vocab
+  expansion, RAF, mechanism still flag-OFF awaiting their A/B); W6 partial; W7 not started.
+  Authoritative roll-up:
+  [phase-30-conjecture/IMPLEMENTATION-ORDER.md](phase-30-conjecture/IMPLEMENTATION-ORDER.md).
+- **New docs from the AutoResearchClaw review (2026-06-04, commit `81fd5ae`):**
+  [phase-30-conjecture/phase-30-arc-patterns.md](phase-30-conjecture/phase-30-arc-patterns.md)
+  — third external-pattern addendum (pipeline/production layer: figure agent, verified-metrics
+  manifest, refine/pivot + fresh pre-registration, lesson overlay, cost guard, publish-approval
+  gate, paper benchmark; all proposals, nothing built); and
+  [arc-feature-considerations.md](arc-feature-considerations.md) — reference-not-queued notes
+  (voice, calendar, collaboration pub-sub, MCP server, wizard, OpenClaw bridge). The 30.4
+  literature-grounding design in `phase-30-genuinely-novel-claims.md` was updated (layered
+  citation resolution); its 23.8-calibration deferral is unchanged.
+
+---
+
 ## Phase tree
 
 ### Phase 0 — Refactor foundation ✅

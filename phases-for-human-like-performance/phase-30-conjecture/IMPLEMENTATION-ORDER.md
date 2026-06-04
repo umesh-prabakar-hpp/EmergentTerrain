@@ -70,8 +70,8 @@ domain-neutral, no dependencies. Together they collapse 212 → a handful.
 
 | Item | Source | Status | Kills |
 |------|--------|--------|-------|
-| **FIM identifiability gate** | sim #5 | ◐ shipped flag-OFF | `ConjectureIdentifiabilityFilter` — for a slope-claiming bound (k≠0), drops it when the OLS slope's relative standard error over the window samples shows the data is consistent with k=0 (`identifiabilityEnabled`). |
-| **Unit/dimensional-consistency gate** | sim #6 | ◐ shipped flag-OFF | `ConjectureUnitConsistencyFilter` — all O(1)-bounded NT scalars ≤ k·window-magnitude (k>0); generalises `ConjectureDimensionFilter` from densities to the full bounded class (`unitConsistencyEnabled`). |
+| **FIM identifiability gate** | sim #5 | ✅ flag ON 2026-06-03 | `ConjectureIdentifiabilityFilter` — for a slope-claiming bound (k≠0), drops it when the OLS slope's relative standard error over the window samples shows the data is consistent with k=0 (`identifiabilityEnabled`). |
+| **Unit/dimensional-consistency gate** | sim #6 | ✅ flag ON 2026-06-03 | `ConjectureUnitConsistencyFilter` — all O(1)-bounded NT scalars ≤ k·window-magnitude (k>0); generalises `ConjectureDimensionFilter` from densities to the full bounded class (`unitConsistencyEnabled`). |
 | **Copy/tautology suppression** | sim #2 | ✅ shipped | `ConjectureTrivialityFilter` (`trivialityFilterEnabled` ON). |
 | **Convergence/equilibration gate** | sim #9 | ◐ partial | the window_size knob filter / mertens-pathology handling; not a standalone gate. |
 | **Descriptor + dedup bitmask** | sim #11 + ext #1 | ◐ partial | `QualityDiversityArchive` + triviality dedup. |
@@ -99,8 +99,8 @@ Now that the pool is small and graph-structured, keep the *right* things.
 | Item | Source | Status | Notes |
 |------|--------|--------|-------|
 | **Quality-diversity descriptor archive** (one elite per `(variables, derivation-type, mechanism-kind)` cell) | ext #1 | ✅ shipped | `QualityDiversityArchive` |
-| **Clade/lineage-value selection + pseudo-count smoothing** (rank by descendant productivity; fit = eligibility gate only) | ext #2, ext #6 | ◐ shipped flag-OFF | `CladeValueSelector` — ranks the live (Tier-2) investigation queue by clade-value (descendant productivity via `derivedFrom`, Laplace-smoothed) × inverse-popularity (1/(1+cell pop), cell=lhs); replaces rank-by-fit in `nextN` (`cladeValueSelectionEnabled`). Clade term strengthens as composition deepens the graph. |
-| **Sublinear generation budget** (cap new conjectures as `n_validations**α`, α<1) | ext #4 | ◐ shipped flag-OFF | `SublinearGenerationBudget` — the composition cap becomes `floor(n_validations^α)` (n_validations = cumulative confirmedRuns over the live pool), clamped to `compositionPersistCap` (`sublinearBudgetEnabled`, α default 0.5). |
+| **Clade/lineage-value selection + pseudo-count smoothing** (rank by descendant productivity; fit = eligibility gate only) | ext #2, ext #6 | ✅ flag ON 2026-06-03 | `CladeValueSelector` — ranks the live (Tier-2) investigation queue by clade-value (descendant productivity via `derivedFrom`, Laplace-smoothed) × inverse-popularity (1/(1+cell pop), cell=lhs); replaces rank-by-fit in `nextN` (`cladeValueSelectionEnabled`). Clade term strengthens as composition deepens the graph. |
+| **Sublinear generation budget** (cap new conjectures as `n_validations**α`, α<1) | ext #4 | ✅ flag ON 2026-06-03 | `SublinearGenerationBudget` — the composition cap becomes `floor(n_validations^α)` (n_validations = cumulative confirmedRuns over the live pool), clamped to `compositionPersistCap` (`sublinearBudgetEnabled`, α default 0.5). |
 | **Tiered cheap→expensive gate ordering** | ext #5 | ◐ de facto | `mine()` already orders cheap (triviality/dimension/unit) before expensive (FIM/null/replication); not formalised as a config |
 
 **Acceptance:** selection samples parents by clade-value × inverse-popularity (not tightest fit); the
@@ -116,8 +116,8 @@ You must judge novelty honestly before producing it, or Stage-1 generation just 
 |------|--------|--------|-------|
 | **Generative stochastic null + Fano/CV floor** | sim #8 | ◐ shipped flag-OFF | `ConjectureStochasticNull` — permutation-tests \|Spearman ρ\| of lhs↔rhs vs the rhs-shuffled no-effect null + CV floor; wired into `mine()` (`stochasticNullEnabled`, default OFF); emits the per-conjecture p-value the MCC slice will consume. Needs the A/B (zero false-retirement on a control set) before flip. |
 | **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | ◐ shipped flag-OFF | `MultipleComparisonsCorrection` — Bonferroni (FWER) / Benjamini-Hochberg (FDR, default) over the null p-value family; wired into `mine()` two-phase (`multipleComparisonsEnabled`, default OFF; requires the null), so a bound is kept only if its H0 is rejected at the corrected family level over the W1-reduced denominator. |
-| **Private validator the generator can't read + gaming-rate metric** | ext #3 | ◐ shipped flag-OFF | `PrivateHoldoutValidator` — re-checks each surviving bound on PRIVATE windows held out from both the fitter and the `verify_conjecture` prompt; "passed public, failed private" bounds are retired and the gaming rate (failed/tested) is logged. Wired into `mine()` (`privateValidatorEnabled`, default OFF). |
-| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ◐ shipped flag-OFF | `ConjectureReplicationValidator` — K-fold CV of the intercept (refit `c` per fold for the fixed slope `k`, test out-of-fold); the pass rate (folds-held / K) is the stochastic-pass score; below `replicationMinPassRate` → retired. Deterministic windows → the ensemble is the folds, not RNG seeds. Wired into `mine()` (`replicationValidatorEnabled`, default OFF). |
+| **Private validator the generator can't read + gaming-rate metric** | ext #3 | ✅ flag ON 2026-06-03 | `PrivateHoldoutValidator` — re-checks each surviving bound on PRIVATE windows held out from both the fitter and the `verify_conjecture` prompt; "passed public, failed private" bounds are retired and the gaming rate (failed/tested) is logged. Wired into `mine()` (`privateValidatorEnabled`, default OFF). |
+| **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ✅ flag ON 2026-06-03 | `ConjectureReplicationValidator` — K-fold CV of the intercept (refit `c` per fold for the fixed slope `k`, test out-of-fold); the pass rate (folds-held / K) is the stochastic-pass score; below `replicationMinPassRate` → retired. Deterministic windows → the ensemble is the folds, not RNG seeds. Wired into `mine()` (`replicationValidatorEnabled`, default OFF). |
 
 **Acceptance:** a claim only scores on held-out data against a generated null; a known-trivial relation
 and a known-fabricated value are both correctly rejected; the gaming-rate metric is emitted.
@@ -132,6 +132,12 @@ without retiring (no `persistRetired`, corpus unchanged). Turn it on in producti
 would-retire log, hand-check for false-retirement, then flip the individual gate once clean. Verified
 by `ConjectureMinerServiceTest.w4ShadowModeLogsButRetiresNothing` (no W4 reason persisted under shadow).
 
+**Flip status (2026-06-03):** `privateValidatorEnabled` and `replicationValidatorEnabled` flipped ON
+after the shadow A/B (0 retired on the live pool — the two flagged `happy_density` bounds each breach
+only one private window and are spared under the ≥2-window rule; see the yml comments).
+`stochasticNullEnabled` + `multipleComparisonsEnabled` remain OFF pending their own A/B
+(`w4ShadowEnabled` currently OFF — re-arm it to collect their would-retire log).
+
 ---
 
 ## Wave 5 — Generative novelty (Phase 30 Stage 1)
@@ -141,8 +147,8 @@ Claim generation, on a clean pool with honest evaluation.
 | Item | Source | Status | Notes |
 |------|--------|--------|-------|
 | **30.3 compositional derivation** (compose + flatten) | sim #15, 30.3 | ✅ shipped (flag) | `ConjectureComposer` — sound transitive composition with provenance; derived bound is on a new pair (absent from both parents); wired via `compositionPersistEnabled`. |
-| **30.2 residual-structure discovery** (subtract known law, beat null) | 30.2 | ◐ shipped flag-OFF | `ResidualStructureMiner` — removes the OLS rhs-trend, tests whether the residual tracks another scalar beyond the W4 null; probes the most-confirmed live bounds in `mine()` (`residualStructureEnabled`), logs candidates. Persisting `lhs~rhs+z` needs a multivariate claim schema (follow-on). |
-| **30.1 anomaly mining** (keep the exceptions) | 30.1 | ◐ shipped flag-OFF | `AnomalyMiner` — surfaces counterexample-refuted bounds that held ≥ `anomalyMinConfirmed` runs (held-out evidence) then broke surprisingly hard (exp tail vs confirmed slack), surviving an MCC over the family; probed in `mine()` (`anomalyMiningEnabled`), logs candidates. |
+| **30.2 residual-structure discovery** (subtract known law, beat null) | 30.2 | ✅ flag ON 2026-06-03 (log-only) | `ResidualStructureMiner` — removes the OLS rhs-trend, tests whether the residual tracks another scalar beyond the W4 null; probes the most-confirmed live bounds in `mine()` (`residualStructureEnabled`), logs candidates. Persisting `lhs~rhs+z` needs a multivariate claim schema (follow-on). |
+| **30.1 anomaly mining** (keep the exceptions) | 30.1 | ✅ flag ON 2026-06-03 (log-only) | `AnomalyMiner` — surfaces counterexample-refuted bounds that held ≥ `anomalyMinConfirmed` runs (held-out evidence) then broke surprisingly hard (exp tail vs confirmed slack), surviving an MCC over the family; probed in `mine()` (`anomalyMiningEnabled`), logs candidates. |
 | **30.5 vocabulary expansion via closed operator grammar, MDL-gated** | sim #14, 30.5 | ◐ in progress | [`vocabulary-expansion-mdl.md`](vocabulary-expansion-mdl.md). ✅ **fully shipped flag-OFF** (2026-06-03): `OperatorGrammar` (P1) → `MdlGate` (P2) → `VocabularyExpansion` admission (P3a) → `DerivedScalarEntity`/repo persistence + `materialize` extraction + new-pair seeding (P3b). Minimal multiplicative depth-1, held-out-confirmed residual-variance MDL, separate table, non-recursive. Parity preserved (flag-OFF byte-identity). Awaiting the A/B before flip. |
 
 **Acceptance (per 30.x bar in the proposal):** ≥5 surviving anomalies past held-out re-check + MCC;
@@ -199,16 +205,16 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
   vocabulary expansion (30.5) is highest-risk/highest-reward (the proposal flags it "beyond human-level").
   Sequence them last so they sit on a verified foundation.
 
-**Status legend (2026-06-02):** ✅ shipped · ◐ partial / built-but-flag-OFF · ⏳ not started.
+**Status legend (refreshed 2026-06-04):** ✅ shipped · ◐ partial / built-but-flag-OFF · ⏳ not started.
 
-| Wave | Theme | Effort | Payoff | Risk | Status (2026-06-02) |
+| Wave | Theme | Effort | Payoff | Risk | Status (2026-06-04) |
 |------|-------|--------|--------|------|---------------------|
 | 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
-| 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped — triviality/dedup (ON) + window-geometry-LHS exclusion (ON, 2026-06-04), dimension + unit-consistency + FIM-identifiability (built, flags OFF) |
+| 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped + ON — triviality/dedup (ON) + window-geometry-LHS exclusion (ON, 2026-06-04), dimension + unit-consistency + FIM-identifiability (all three ON 2026-06-03) |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
-| 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags OFF); tiered ordering de facto |
-| 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |
-| 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped flag-OFF** — 30.3 composition, 30.2 residual-structure, 30.1 anomaly mining, 30.5 vocabulary expansion (P1–P3b) |
+| 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags ON 2026-06-03); tiered ordering de facto |
+| 4 | evaluation hardening | med | high | low | ✅ **all four shipped** — private-holdout + replication ON 2026-06-03; stochastic null + multiple-comparisons OFF pending their A/B (via `w4ShadowEnabled`) |
+| 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped** — 30.3 composition (ON), 30.2 residual-structure + 30.1 anomaly mining (ON 2026-06-03, log-only), 30.5 vocabulary expansion (P1–P3b, flag OFF awaiting A/B) |
 | 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
 

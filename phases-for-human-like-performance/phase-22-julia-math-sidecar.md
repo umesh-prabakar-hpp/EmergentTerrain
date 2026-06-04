@@ -625,6 +625,12 @@ Conditions 3 and 4 are the only remaining gates.
 
 ## Acceptance for closing this phase
 
+> **Reconciliation note (2026-06-04):** this tail section and §22.7's
+> "Acceptance for closing this phase" drifted apart (3 vs 4 conditions,
+> different numbering). **§22.7 is authoritative**; substance is the same —
+> the two open items are the ≥50%-acceptance corpus refresh and the
+> production-host run of `MathToolSuiteJuliaDelegationTest`.
+
 This doc moves to `archive/` when:
 
 1. ✅ 22.1–22.5 land in commits and tests pass.

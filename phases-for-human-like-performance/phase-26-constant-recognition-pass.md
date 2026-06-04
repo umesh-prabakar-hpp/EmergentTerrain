@@ -1,7 +1,18 @@
 # Phase 26 — Constant Recognition Pass (PSLQ + OEIS Superseeker + LLL)
 
 **Status (2026-05-22):** **SHIPPED + FLAG ON (2026-05-22)** —
-`app.julia.recognise.enabled: true`. Bundles three closely-
+`app.julia.recognise.enabled: true`. *(Scope qualifier, 2026-06-04:
+infrastructure shipped + flag ON; the narration-side `recognise()`
+invocation is still gated by a follow-on slice — see the CAVEAT — so
+the pass is wired but not yet driving narration.)*
+
+> **Flag-name note (2026-06-04):** body sections below predate the
+> Julia-consolidation pivot and still reference `app.recognise.*`
+> (the abandoned subprocess/FPLLL design). The live flag namespace is
+> `app.julia.recognise.*` (LLL sub-flag `app.julia.recognise.lll.enabled`,
+> deliberately OFF, per-paper opt-in).
+
+Bundles three closely-
 related engines from `reference-conjecture-engines.md` into one
 phase because they all answer variants of the same question:
 **"this number / sequence the refinement just produced — is it

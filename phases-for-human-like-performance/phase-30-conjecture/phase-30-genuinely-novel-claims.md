@@ -1,17 +1,20 @@
 # Phase 30 — Genuinely Novel Claims
 
-**Status (updated 2026-06-02):** Partially shipped — sequenced and tracked in
-[`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) (see its wave-status column).
-**Shipped:** Wave 0 investigation rotation (flag ON); Wave 1 triviality/dedup gate
-(ON, dimension gate built-but-OFF); Wave 2 derivation graph + composition
-(`DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer`,
-`compositionPersistEnabled` ON); Wave 3 quality-diversity archive
-(`QualityDiversityArchive`). **Not yet built:** Wave 1 FIM-identifiability / unit
-gates; Wave 3 clade-value selection + sublinear budget + tiered ordering; Waves 4–7
-(evaluation hardening, generative novelty, irreducibility/mechanism, promotion). 30.4
-literature grounding stays deferred per `project_phase23_8_calibration` (generation,
-not retrieval, is the blocker). Each piece ships flag-gated dormant by default
-(`app.research.*.enabled = false`), flipped by the operator after its acceptance bar.
+**Status (updated 2026-06-04):** Mostly shipped — sequenced and tracked in
+[`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) (see its wave-status column,
+the authoritative roll-up). **Shipped + ON:** Waves 0–3 entirely (rotation,
+all W1 gates incl. FIM/unit/dimension flipped 2026-06-03, derivation graph +
+composition, QD archive + clade-value + sublinear budget); W4 private-holdout +
+replication (flipped 2026-06-03 after the shadow A/B); W5 composition +
+residual-structure + anomaly mining (log-only). **Shipped, flag-OFF awaiting
+A/B:** W4 stochastic null + multiple-comparisons correction; W5 30.5 vocabulary
+expansion; W6 RAF iRAF-reporting + 30.7 runnable-mechanism. **Not yet built:**
+W6 behavioral-signature detector (sim #12, low); Wave 7 (30.6 promotion + 30.4
+literature grounding). 30.4 stays deferred per `project_phase23_8_calibration`
+(generation, not retrieval, is the blocker); its retrieval design was updated
+2026-06-04 from the AutoResearchClaw review (see §30.4 and
+[`phase-30-arc-patterns.md`](phase-30-arc-patterns.md)). Each piece ships
+flag-gated dormant by default, flipped by the operator after its acceptance bar.
 
 > **Note (separate track):** the beyond-sieve *discovery* engine (frontier escalation +
 > runtime self-verifying execution, Mertens/divisor/prime) is orthogonal to these
@@ -344,7 +347,7 @@ failure modes resurface. Every piece above inherits these:
 
 ---
 
-## Flag inventory (all default OFF)
+## Flag inventory (proposal-era names — see note)
 
 ```yaml
 app.research.anomaly-miner.enabled            # 30.1
@@ -354,6 +357,13 @@ app.research.literature-retrieval.enabled     # 30.4 (gated on 23.8 calibration)
 app.research.vocabulary-expansion.enabled     # 30.5
 app.research.unexplained-promotion.enabled    # 30.6
 ```
+
+> **Naming note (2026-06-04):** these are the original proposal's notional names. The shipped
+> implementations live under `app.research.conjectureMiner.*` with different keys —
+> `anomalyMiningEnabled` (30.1), `residualStructureEnabled` (30.2), `compositionPersistEnabled`
+> (30.3), `vocabularyExpansionEnabled` (30.5). Only 30.4 (`literature-retrieval`) and 30.6
+> (`unexplained-promotion`) remain unbuilt and have no live flag yet. Current values:
+> `application.yml` is authoritative.
 
 ---
 
