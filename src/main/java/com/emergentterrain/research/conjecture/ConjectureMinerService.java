@@ -861,7 +861,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (n <= 0) {
             return List.of();
         }
-        List<Conjecture> all = repo.findByDomain(domain);
+        // Investigation gate — never serve a window-geometry conjecture as a paper, whatever its
+        // retirement state. The live-store reduce() triviality drop (which my geometry rules feed)
+        // only sees LIVE conjectures; a degenerate geometry bound is typically refuted by
+        // counterexample in its seeding pass and removed from the store BEFORE reduce() runs, then
+        // served from tier 1 (DROPPED_BY_COUNTEREXAMPLE) without ever passing triviality. Filtering
+        // here is the decisive gate for "becomes a paper" — it covers both tiers. (Room b72c4e10
+        // P-b72c-86/87: log_window_start bounds reached publication via exactly this bypass.)
+        List<Conjecture> all = repo.findByDomain(domain).stream()
+                .filter(c -> ConjectureTrivialityFilter.dropReason(mapper.toInequality(c)).isEmpty())
+                .collect(java.util.stream.Collectors.toList());
         if (all.isEmpty()) {
             return List.of();
         }

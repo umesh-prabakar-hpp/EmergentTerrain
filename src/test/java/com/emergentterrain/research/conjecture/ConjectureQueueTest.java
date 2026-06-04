@@ -50,6 +50,30 @@ class ConjectureQueueTest {
     }
 
     @Test
+    void windowGeometryConjecturesAreNeverInvestigated() {
+        // Room b72c4e10 Rec 3: a geometry-LHS bound refuted by counterexample lands in tier 1 and
+        // bypasses the live-store triviality reduce(). The investigation queue must still exclude it
+        // — even though here it is the NEWEST refutation (would otherwise be served first).
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture geomRefuted =
+                build("log_window_start", "max_divisor_count", 2.0, -168.2258, 0, 0.5, null);
+        markRetired(geomRefuted, ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE,
+                Instant.parse("2026-06-04T00:00:00Z"));   // newest
+        Conjecture contentRefuted =
+                build("mertens_per_sqrt_W", "prime_density", 2.0, 0.2431, 0, 0.7, null);
+        markRetired(contentRefuted, ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE,
+                Instant.parse("2026-05-01T00:00:00Z"));   // older
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(geomRefuted, contentRefuted));
+
+        ConjectureMinerService svc = buildService(repo);
+
+        List<Conjecture> served = svc.nextN("math", 10);
+        assertEquals(1, served.size(), "only the content conjecture is investigable");
+        assertEquals("mertens_per_sqrt_W", served.get(0).lhs(),
+                "geometry-LHS bound excluded despite being the newest tier-1 refutation");
+    }
+
+    @Test
     void liveConjecturesSortByConfirmationThenTightness() {
         ConjectureRepository repo = mock(ConjectureRepository.class);
         Conjecture live10runs = build("a", "b", 0.0, 0.5, 10, 0.001, null);
