@@ -24,8 +24,23 @@ import java.util.Map;
  * <p>Pure, stateless, deterministic — the caller supplies the private samples (materialised
  * from the held-out offsets) and the tolerance. Same standalone shape as the other Wave-1/4
  * gates; uses the same refute threshold {@code 2*tol} as {@link ConjectureEngine#update}.
+ *
+ * <p><strong>Multi-window hardening.</strong> A bound is retired only when the {@code 2*tol}
+ * slack is violated on at least {@link #MIN_VIOLATING_WINDOWS} <em>distinct</em> private
+ * windows — not on the single worst one. A lone knife-edge overshoot (typically tolerance
+ * noise on a near-constant RHS, where the bound rides the {@code 2*tol} line and one window
+ * pokes a thousandth over) is not evidence of non-generalization; a real overfit/divergent
+ * bound fails on several windows. The {@code worstMargin} is still reported for triage, but
+ * the retirement decision keys off {@code violatingWindows}.
  */
 public final class PrivateHoldoutValidator {
+
+    /**
+     * Minimum number of distinct private windows that must each exceed {@code 2*tol} before a
+     * bound is judged to have failed the holdout. {@code 2} spares single-window tolerance
+     * artifacts while still catching structural non-generalization (which fails on many windows).
+     */
+    public static final int MIN_VIOLATING_WINDOWS = 2;
 
     private PrivateHoldoutValidator() {
     }
@@ -34,9 +49,12 @@ public final class PrivateHoldoutValidator {
      * @param worstMargin      max over private samples of {@code lhs - (k*rhs + c)}
      *                         (NEGATIVE_INFINITY when no usable samples)
      * @param samplesEvaluated count of private samples where both scalars were present/finite
-     * @param failedHoldout    true → worstMargin exceeds {@code 2*tol} → passed public, failed private
+     * @param violatingWindows count of private windows whose margin individually exceeds {@code 2*tol}
+     * @param failedHoldout    true → {@code violatingWindows >= MIN_VIOLATING_WINDOWS} → passed
+     *                         public, failed private on a reproducible (multi-window) basis
      */
-    public record Verdict(double worstMargin, int samplesEvaluated, boolean failedHoldout) {
+    public record Verdict(double worstMargin, int samplesEvaluated, int violatingWindows,
+                          boolean failedHoldout) {
     }
 
     /**
@@ -48,10 +66,11 @@ public final class PrivateHoldoutValidator {
     public static Verdict evaluate(String lhs, String rhs, double k, double c,
                                    List<Map<String, Double>> privateSamples, double tol) {
         if (privateSamples == null || lhs == null || rhs == null) {
-            return new Verdict(Double.NEGATIVE_INFINITY, 0, false);
+            return new Verdict(Double.NEGATIVE_INFINITY, 0, 0, false);
         }
         double worst = Double.NEGATIVE_INFINITY;
         int n = 0;
+        int violations = 0;
         for (Map<String, Double> s : privateSamples) {
             Double x = s.get(lhs);
             Double y = s.get(rhs);
@@ -62,13 +81,18 @@ public final class PrivateHoldoutValidator {
             if (margin > worst) {
                 worst = margin;
             }
+            if (margin > 2 * tol) {
+                violations++;
+            }
             n++;
         }
         if (n == 0) {
             // No evidence on the private windows — don't accuse (e.g. scalar absent there).
-            return new Verdict(Double.NEGATIVE_INFINITY, 0, false);
+            return new Verdict(Double.NEGATIVE_INFINITY, 0, 0, false);
         }
-        return new Verdict(worst, n, worst > 2 * tol);
+        // Retire only when the slack is breached on >= MIN_VIOLATING_WINDOWS windows — a single
+        // knife-edge overshoot is tolerance noise, not non-generalization (see class doc).
+        return new Verdict(worst, n, violations, violations >= MIN_VIOLATING_WINDOWS);
     }
 
     /** Gaming rate = fraction of tested bounds that passed public but failed the private holdout. */

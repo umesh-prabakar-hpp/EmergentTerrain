@@ -540,7 +540,9 @@ public class ConjectureMinerService implements ConjectureQueue {
                 }
                 tested++;
                 if (v.failedHoldout()) {
-                    if (retireOrShadow(privateShadow, ineq, byKey, "private_validator:failed_holdout")) {
+                    String reason = String.format("private_validator:failed_holdout_windows_%d_worst_%.4f",
+                            v.violatingWindows(), v.worstMargin());
+                    if (retireOrShadow(privateShadow, ineq, byKey, reason)) {
                         kept.add(ineq);
                     } else {
                         gamedDropped++;

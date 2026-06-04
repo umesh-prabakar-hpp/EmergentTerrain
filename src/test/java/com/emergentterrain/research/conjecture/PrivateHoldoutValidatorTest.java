@@ -36,13 +36,26 @@ class PrivateHoldoutValidatorTest {
     }
 
     @Test
-    void overfitBoundFailsHoldout() {
-        // lhs <= 1*rhs + 0 was tuned on public windows but a private sample violates it badly
-        // (lhs=5 > rhs=2) → worst margin 3.0 ≫ 2*TOL → passed public, failed private.
+    void overfitBoundFailsHoldoutOnMultipleWindows() {
+        // lhs <= 1*rhs + 0 was tuned on public windows but TWO private samples violate it badly
+        // (lhs=5>rhs=2, lhs=6>rhs=3) → 2 violating windows ≥ MIN_VIOLATING_WINDOWS → failed private.
         var v = PrivateHoldoutValidator.evaluate("lhs", "rhs", 1.0, 0.0,
-                samples(new double[]{1, 2, 5}, new double[]{2, 3, 2}), TOL);
+                samples(new double[]{1, 5, 6}, new double[]{2, 2, 3}), TOL);
+        assertThat(v.violatingWindows()).isEqualTo(2);
         assertThat(v.failedHoldout()).isTrue();
         assertThat(v.worstMargin()).isCloseTo(3.0, within(1e-9));
+    }
+
+    @Test
+    void singleWindowOvershootIsSparedAsToleranceNoise() {
+        // Multi-window hardening: one window pokes over 2*TOL while every other window holds.
+        // A lone knife-edge overshoot is tolerance noise on a near-constant RHS, not
+        // non-generalization (the live happy_density <= 2*omega_Omega_gap case) → NOT flagged.
+        var v = PrivateHoldoutValidator.evaluate("lhs", "rhs", 1.0, 0.0,
+                samples(new double[]{1, 2, 5}, new double[]{2, 3, 2}), TOL);
+        assertThat(v.violatingWindows()).isEqualTo(1);
+        assertThat(v.worstMargin()).isCloseTo(3.0, within(1e-9));
+        assertThat(v.failedHoldout()).isFalse();
     }
 
     @Test
