@@ -219,9 +219,27 @@ the Phase 23.2 table and the Phase 24 deferrals.
   matches to the novelty assessment in `FormulationService`. A claim within
   cosine-ε of a published abstract's claim is demoted to `KNOWN_RESULT`
   unless it materially extends the match.
+- **Design update (2026-06-04, from the AutoResearchClaw review —
+  [`phase-30-arc-patterns.md`](phase-30-arc-patterns.md)) — still PENDING, deferral
+  unchanged.** If built, layer the retrieval the way ARC's `literature/verify.py`
+  does rather than going straight to embeddings: (1) **exact-ID resolution first**
+  (arXiv ID lookup, then DOI via CrossRef/DataCite), (2) **title search**
+  (OpenAlex + Semantic Scholar + arXiv) with fuzzy-title matching, (3) embedding
+  nearest-neighbor only for survivors, (4) LLM relevance scoring last — with a
+  three-state verdict (**VERIFIED / SUSPICIOUS / HALLUCINATED**, thresholds
+  ≥0.80 / 0.50–0.80 / <0.50 title similarity) instead of a single cosine-ε.
+  Operational details worth copying: source cascading with per-source rate
+  budgets (OpenAlex primary ~10K/day → S2 1K/5min → arXiv 1 req/3s) plus a
+  circuit breaker for graceful degradation; dedup by DOI → arXiv ID → fuzzy
+  title; a JSONL retrieval cache so resumed/repeat runs don't re-pay API calls.
+  ARC implements all of this with zero heavy deps (pure-HTTP clients) — the
+  same is achievable from the JVM with the existing HTTP stack. The same
+  layered resolver doubles as a *citation verifier* for references the
+  narrator emits (the `CitationValidator` today reconciles internally but
+  cannot detect a fabricated-but-plausible external reference).
 - **Acceptance:** the calibration FP rate is recorded; if retrieval ships,
   re-running the 20-paper calibration with retrieval on drops the FP rate
-  below 30%.
+  below 30%, and a planted fabricated reference is flagged HALLUCINATED.
 
 ### 30.5 — Vocabulary / representation expansion [P1, high-risk/high-reward]
 

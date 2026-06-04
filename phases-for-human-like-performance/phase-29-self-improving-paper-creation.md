@@ -392,6 +392,20 @@ are rolled back by) the existing A/B machinery; net acceptance-rate lift vs.
 random-mutation baseline over several refreshes. **Effort:** ~1 week.
 **Depends on:** the A/B + rollback infra (exists).
 
+> **ARC addendum (2026-06-04 — still PENDING).** AutoResearchClaw's
+> `evolution.py` runs the *continuous* complement of this item: every run
+> auto-extracts categorized lessons (SYSTEM/LLM/DATA/CODE/RESEARCH) from
+> stage failures into a JSONL store, and future runs inject the top-k
+> lessons per stage as a **time-decayed (30-day) prompt overlay** — no
+> template mutation, no A/B needed, trivially revertible (delete the
+> JSONL). Their measured effect: −24.8% stage retries, −40% refine cycles.
+> Complementary, not a substitute: the overlay handles the long tail
+> cheaply between 29.2.3's periodic structural changes. ET lesson sources
+> are ready-made: `ReviewPanel` verdicts, `NARRATION_AUDIT` categories, and
+> the W4 shadow would-retire log. Proposed flag
+> `app.research.lessonOverlay.enabled`; full sketch in
+> [`phase-30-conjecture/phase-30-arc-patterns.md`](phase-30-conjecture/phase-30-arc-patterns.md) §B4.
+
 ### 29.2.4 — Failure-class routers → specialized fix prompts
 
 **Source:** DGM hard-codes named failure modes (empty-patch, stochasticity,
@@ -488,6 +502,16 @@ path), new `service/SynthesizedToolRegistry.java`, `SandboxEngine` reuse.
 **Acceptance:** a tool built on paper N is invoked on paper N+k of the same
 domain; sandbox guardrails hold. **Effort:** ~2 weeks. **Highest risk** —
 build last; carries the most surface area (see `phase-19-sandbox-friction.md`).
+
+> **ARC addendum (2026-06-04 — still PENDING).** AutoResearchClaw's
+> `metaclaw_bridge` ships the same lesson→skill loop but at the **prompt
+> level only**: recurring lessons are promoted to reusable SKILL.md files
+> injected into stage prompts — no code synthesis, no execution surface
+> (+18.3% robustness in their controlled A/B). That is a lower-risk first
+> slice of this item: ship the *prompt-skill registry* (persist + inject
+> per-domain prompt skills) first, and add the sandboxed code-tool
+> synthesis as the second slice once 29.2.3's lesson plumbing exists. See
+> [`phase-30-conjecture/phase-30-arc-patterns.md`](phase-30-conjecture/phase-30-arc-patterns.md) §B4.
 
 ---
 
