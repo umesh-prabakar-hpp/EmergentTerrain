@@ -34,11 +34,33 @@ class ConjectureTrivialityFilterTest {
     @Test
     void oneNumberTheoreticSideIsNotDropped() {
         // density bounded by a window-geometry scalar is trivial-ish but NOT a
-        // pure tautology — keep it (a later wave judges it).
+        // pure tautology — keep it (a later wave judges it). The geometry scalar is on
+        // the RHS (a ceiling), not the subject, so the geometry-subject rule is silent.
         assertThat(ConjectureTrivialityFilter.dropReason(
                 ineq("abundant_density", "log_window_size", 2.0, -7.6))).isEmpty();
         assertThat(ConjectureTrivialityFilter.dropReason(
                 ineq("abundant_density", "prime_density", 2.0, 0.09))).isEmpty();
+    }
+
+    @Test
+    void windowGeometrySubjectIsDroppedEvenWithContentRhs() {
+        // Room b72c4e10 Rec 3: a window coordinate as the LHS (the bounded quantity) is
+        // degenerate whatever the RHS — e.g. P-b72c-87 log_window_start <= 2*max_divisor_count.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("log_window_start", "max_divisor_count", 2.0, -168.2258)))
+                .contains("window_geometry_lhs");
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("sqrt_window_size", "mean_divisor_count", 2.0, 0.0))).isTrue();
+    }
+
+    @Test
+    void geometryScalarOnRhsIsNotASubjectDrop() {
+        // A geometry scalar bounding a CONTENT lhs is allowed (binding-regime probe case);
+        // the geometry-subject rule must not fire on the RHS.
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7621))).isFalse();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7621))).isEmpty();
     }
 
     @Test

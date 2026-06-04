@@ -16,13 +16,20 @@ import java.util.Set;
  *
  * <p>Two concerns:
  * <ul>
- *   <li><b>Window-geometry tautology (drop).</b> A bound whose BOTH sides are
- *       monotone transforms of the harness window parameters
- *       ({@code log_window_size}, {@code sqrt_window_size},
- *       {@code log_window_start}) carries no number-theoretic content — it
- *       relates the window the harness itself chose, not the data. These are
- *       dropped. (Note {@code mertens_per_sqrt_W} carries {@code mertens_delta},
- *       so it is NOT geometry; the flagship mertens bound is out of scope here.)</li>
+ *   <li><b>Window-geometry drop.</b> Two content-free shapes are dropped:
+ *       (a) a <b>tautology</b> — BOTH sides are monotone transforms of the harness
+ *       window parameters ({@code log_window_size}, {@code sqrt_window_size},
+ *       {@code log_window_start}), relating the window the harness chose rather than
+ *       the data; and (b) a <b>geometry subject</b> — the LHS (the quantity being
+ *       bounded) is a window-geometry scalar, whatever the RHS. A window coordinate is
+ *       a free harness input, not a measured quantity, so it cannot be the meaningful
+ *       subject of an upper bound (e.g. {@code log_window_start <= 2*max_divisor_count
+ *       - 168.2258}, room b72c4e10 P-b72c-87, is degenerate). A geometry scalar on the
+ *       RHS is still allowed — it can legitimately bound a content scalar, as in the
+ *       binding-regime probe's {@code mertens_per_sqrt_W <= 2*log_window_start + c}
+ *       (see {@link BindingRegimeProbe}). (Note {@code mertens_per_sqrt_W} carries
+ *       {@code mertens_delta}, so it is NOT geometry; the flagship mertens bound is out
+ *       of scope here.)</li>
  *   <li><b>Redundant restatement (dedup, not drop).</b> A degenerate
  *       {@code k=0} bound {@code lhs <= 0*rhs + c} does not depend on
  *       {@code rhs}, so the same constant bound on {@code lhs} is re-emitted
@@ -60,6 +67,17 @@ public final class ConjectureTrivialityFilter {
                 && WINDOW_GEOMETRY_SCALARS.contains(ineq.rhs());
     }
 
+    /**
+     * True iff the LHS — the quantity being bounded — is a window-geometry scalar.
+     * A window coordinate is a free harness input, not a measured quantity, so it
+     * cannot be the meaningful SUBJECT of an upper bound, whatever the RHS. (A
+     * geometry scalar on the RHS is fine and not flagged here — it can bound a content
+     * scalar; see {@link BindingRegimeProbe}.) Subsumes {@link #isWindowGeometryTautology}.
+     */
+    public static boolean isWindowGeometrySubject(Inequality ineq) {
+        return ineq != null && WINDOW_GEOMETRY_SCALARS.contains(ineq.lhs());
+    }
+
     /** True iff {@code k≈0} — a constant ceiling on lhs, independent of rhs. */
     public static boolean isDegenerateConstant(Inequality ineq) {
         return ineq != null && Math.abs(ineq.k()) <= K_EPSILON;
@@ -73,6 +91,9 @@ public final class ConjectureTrivialityFilter {
     public static Optional<String> dropReason(Inequality ineq) {
         if (isWindowGeometryTautology(ineq)) {
             return Optional.of("window_geometry");
+        }
+        if (isWindowGeometrySubject(ineq)) {
+            return Optional.of("window_geometry_lhs");
         }
         return Optional.empty();
     }
