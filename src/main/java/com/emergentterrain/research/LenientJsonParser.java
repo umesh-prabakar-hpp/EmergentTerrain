@@ -12,7 +12,7 @@ import java.util.regex.Pattern;
  * and the paper publishes as NEEDS_REVISION with substandard prose. Median
  * peer score 0.27 on parse-failed vs 0.42 on clean revisions.
  *
- * <p>This class repairs the five most common malformations observed in the
+ * <p>This class repairs the six most common malformations observed in the
  * corpus before delegating to Jackson:
  *
  * <ol>
@@ -20,6 +20,8 @@ import java.util.regex.Pattern;
  *   <li>Prose preamble before the outermost {@code {} and postamble after
  *       the outermost {@code }}.</li>
  *   <li>Trailing commas before {@code }} or {@code ]}.</li>
+ *   <li>Leading {@code +} on numeric values ({@code : +0.5}) — JSON disallows
+ *       it, but LLM tool output emits signed magnitudes.</li>
  *   <li>Unclosed strings at EOF (odd count of unescaped {@code "}).</li>
  *   <li>Unbalanced braces — fewer {@code }} than {@code {} at EOF, append
  *       to match.</li>
@@ -50,6 +52,18 @@ public final class LenientJsonParser {
             Pattern.compile(",(\\s*[}\\]])");
 
     /**
+     * Leading {@code +} on a numeric value (e.g. {@code : +0.52630} or {@code [+0.5,}).
+     * The JSON spec disallows a leading plus, so Jackson throws on signed magnitudes that
+     * LLM tool output routinely emits. The lookbehind restricts the match to a
+     * value-introducing position ({@code :}, {@code [}, or {@code ,}) and the lookahead
+     * requires a following digit (optionally after a dot), so a {@code +} inside a quoted
+     * string or a scientific-notation exponent ({@code 1e+9}) is never touched. Group 1
+     * preserves any whitespace between the structural char and the dropped sign.
+     */
+    private static final Pattern LEADING_PLUS =
+            Pattern.compile("(?<=[:\\[,])(\\s*)\\+(?=\\.?\\d)");
+
+    /**
      * Repair result — pairs the (possibly-modified) text with a flag
      * indicating whether any repair fired. Callers use the flag to stamp
      * call-path recovery markers.
@@ -57,7 +71,7 @@ public final class LenientJsonParser {
     public record RepairResult(String text, boolean repaired) {}
 
     /**
-     * Apply the five repair rules in order. Returns the cleaned text plus a
+     * Apply the six repair rules in order. Returns the cleaned text plus a
      * boolean indicating whether anything changed. Null input returns
      * {@code (null, false)}; empty/blank input returns it unchanged.
      */
@@ -87,6 +101,11 @@ public final class LenientJsonParser {
 
         // 3. Drop trailing commas before } or ].
         s = TRAILING_COMMA.matcher(s).replaceAll("$1");
+
+        // 3b. Strip a leading '+' on numeric values (`: +0.5` / `[+0.5,`). Jackson rejects
+        //     leading-plus numbers; LLM tool output emits signed magnitudes like +0.52630.
+        //     Only fires after a value-introducing :,[ — never inside a quoted string.
+        s = LEADING_PLUS.matcher(s).replaceAll("$1");
 
         // 4. Close any unclosed string at EOF.
         if (hasUnclosedString(s)) {

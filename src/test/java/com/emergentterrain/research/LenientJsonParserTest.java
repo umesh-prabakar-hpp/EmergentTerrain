@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Phase 13 E2 — pins each of the five repair rules in
+ * Phase 13 E2 — pins each of the six repair rules in
  * {@link LenientJsonParser}, plus the round-trip property that Jackson
  * actually accepts the repaired output.
  */
@@ -71,6 +71,71 @@ class LenientJsonParserTest {
         var r = LenientJsonParser.repair(raw);
         assertThat(r.text()).isEqualTo("[1, 2, 3]");
         assertParseable(r.text());
+    }
+
+    // ── Rule 3b: leading '+' on numeric values ─────────────────────────
+
+    @Test
+    void rule3b_stripsLeadingPlusAfterColon() {
+        String raw = "{\"margin\": +0.52630}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.repaired()).isTrue();
+        assertThat(r.text()).isEqualTo("{\"margin\": 0.52630}");
+        assertParseable(r.text());
+    }
+
+    @Test
+    void rule3b_stripsLeadingPlusInArrayElements() {
+        String raw = "{\"xs\": [+0.5, +1, +2.998e8]}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.text()).isEqualTo("{\"xs\": [0.5, 1, 2.998e8]}");
+        assertParseable(r.text());
+    }
+
+    @Test
+    void rule3b_preservesWhitespaceBetweenColonAndSign() {
+        String raw = "{\"a\":  +0.5}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.text()).isEqualTo("{\"a\":  0.5}");
+        assertParseable(r.text());
+    }
+
+    @Test
+    void rule3b_doesNotTouchPlusInsideQuotedString() {
+        // A '+' that's part of a string value must survive untouched.
+        String raw = "{\"note\": \"rose by +0.5 V\"}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.repaired()).isFalse();
+        assertThat(r.text()).isEqualTo(raw);
+        assertParseable(r.text());
+    }
+
+    @Test
+    void rule3b_doesNotTouchScientificExponentPlus() {
+        // 1e+9 is valid JSON; the exponent '+' is not value-introducing.
+        String raw = "{\"big\": 1e+9}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.repaired()).isFalse();
+        assertThat(r.text()).isEqualTo(raw);
+        assertParseable(r.text());
+    }
+
+    @Test
+    void rule3b_realisticSignedMagnitudeRevisionPayload() {
+        // The actual rev:parse_failed signature this batch: signed margins from tool output.
+        String raw = "{\"findings\": {\"1\": \"x\"}, \"margin\": +0.52630, \"lhs\": -0.60000}";
+        var r = LenientJsonParser.repair(raw);
+        assertThat(r.repaired()).isTrue();
+        assertParseable(r.text());
+        assertThat(mapperReadMargin(r.text())).isEqualTo(0.52630);
+    }
+
+    private double mapperReadMargin(String json) {
+        try {
+            return mapper.readTree(json).get("margin").asDouble();
+        } catch (Exception e) {
+            throw new AssertionError("not parseable: " + json, e);
+        }
     }
 
     // ── Rule 4: unclosed string ───────────────────────────────────────

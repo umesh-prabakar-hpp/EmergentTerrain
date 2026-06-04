@@ -56,9 +56,24 @@ public class CitationValidator {
 
     private static final Logger log = LoggerFactory.getLogger(CitationValidator.class);
 
-    /** Generic numeric token. Matches integers, decimals, scientific notation. */
+    /**
+     * Generic numeric token. Matches integers, decimals, scientific notation, and
+     * thousands-grouped integers ({@code 1,450,007}). The grouped alternative
+     * ({@code \d{1,3}(?:,\d{3})+}) must precede the plain {@code \d+} so a comma-grouped
+     * value is captured whole instead of fragmenting into per-group tokens — a fragmented
+     * {@code 200,003} → {@code 200}/{@code 003} matches nothing in the tool trace and used
+     * to inflate unmatched/out-of-tolerance counts into spurious NULL_RESULT downgrades.
+     * A comma followed by anything other than exactly three digits (e.g. list commas like
+     * "1, 2, 3") is not consumed, so genuine separate numbers stay separate. Parse matched
+     * tokens via {@link #parseGrouped} (strips the separators before {@link Double#parseDouble}).
+     */
     private static final Pattern NUMBER = Pattern.compile(
-            "(?<![A-Za-z_])[-+]?\\d+(?:\\.\\d+)?(?:[eE][-+]?\\d+)?(?![A-Za-z_])");
+            "(?<![A-Za-z_])[-+]?(?:\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?(?:[eE][-+]?\\d+)?(?![A-Za-z_])");
+
+    /** Parse a {@link #NUMBER} token, stripping thousands-separator commas first. */
+    private static double parseGrouped(String token) {
+        return Double.parseDouble(token.indexOf(',') < 0 ? token : token.replace(",", ""));
+    }
 
     /** Inline citation marker the LLM is asked to emit immediately after each numeric value. */
     private static final Pattern CALL_MARKER = Pattern.compile("\\[call_\\d+\\]");
@@ -444,7 +459,7 @@ public class CitationValidator {
                 Matcher m = NUMBER.matcher(r);
                 while (m.find()) {
                     try {
-                        double v = Double.parseDouble(m.group());
+                        double v = parseGrouped(m.group());
                         double gap = relativeGap(target, v);
                         if (gap < bestGap) {
                             bestGap = gap;
@@ -503,7 +518,7 @@ public class CitationValidator {
         while (m.find()) {
             double v;
             try {
-                v = Double.parseDouble(m.group());
+                v = parseGrouped(m.group());
             } catch (NumberFormatException ignore) {
                 continue;
             }
@@ -631,7 +646,7 @@ public class CitationValidator {
             String tok = num.group();
             double value;
             try {
-                value = Double.parseDouble(tok);
+                value = parseGrouped(tok);
             } catch (NumberFormatException ignore) {
                 continue;
             }
@@ -675,7 +690,7 @@ public class CitationValidator {
         while (m.find()) {
             String tok = m.group();
             try {
-                double v = Double.parseDouble(tok);
+                double v = parseGrouped(tok);
                 if (withinTolerance(target, v)) return true;
             } catch (NumberFormatException ignore) {
                 // skip

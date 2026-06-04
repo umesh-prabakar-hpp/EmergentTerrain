@@ -63,10 +63,16 @@ public final class NumericalConsistencyValidator {
      */
     private static final Pattern CONCLUSION_COORD = Pattern.compile(
             "(?i)\\b(?:starting\\s+(?:at\\s+)?|found\\s+(?:at\\s+)?|peaks?\\s+(?:at\\s+)?|\\bat\\s+|≈\\s*)"
-                    + "([0-9]{3,}(?:\\.[0-9]+)?)");
+                    + "((?:[0-9]{3,}|[0-9]{1,3}(?:,[0-9]{3})+)(?:\\.[0-9]+)?)");
 
-    /** Any bare numeric token. Used to scan nearby actuals. */
-    private static final Pattern NUMERIC_TOKEN = Pattern.compile("\\b([0-9]+(?:\\.[0-9]+)?)");
+    /**
+     * Any bare numeric token. Used to scan nearby actuals. Accepts thousands-grouped
+     * integers ({@code 228,000}) as one token (the grouped alternative precedes the plain
+     * one) so a coordinate like "228,000" isn't fragmented into 228/000; strip the
+     * separators with {@code .replace(",", "")} before parsing the captured group.
+     */
+    private static final Pattern NUMERIC_TOKEN =
+            Pattern.compile("\\b((?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\\.[0-9]+)?)");
 
     /**
      * Phase 7 F5.5 — a "salient" number is one with a decimal point and ≥2 digits
@@ -377,7 +383,7 @@ public final class NumericalConsistencyValidator {
             Matcher tokens = NUMERIC_TOKEN.matcher(findings);
             scan:
             while (tokens.find()) {
-                double observed = Double.parseDouble(tokens.group(1));
+                double observed = Double.parseDouble(tokens.group(1).replace(",", ""));
                 for (double a : candidateAnchors) {
                     if (Math.abs(observed - a) / Math.abs(a) <= 0.20) {
                         foundNearby = true;
@@ -458,7 +464,7 @@ public final class NumericalConsistencyValidator {
 
         Matcher con = CONCLUSION_COORD.matcher(conclusion);
         while (con.find()) {
-            double coord = Double.parseDouble(con.group(1));
+            double coord = Double.parseDouble(con.group(1).replace(",", ""));
             // Hypothesis range mismatch only fires if NO hypothesis anchor lands
             // within ±50% of the conclusion coord.
             boolean foundCompatible = false;

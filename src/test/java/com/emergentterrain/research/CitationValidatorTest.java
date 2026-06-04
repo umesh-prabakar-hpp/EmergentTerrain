@@ -107,6 +107,23 @@ class CitationValidatorTest {
         assertThat(result.uncitedCount()).isZero();
     }
 
+    @Test
+    void commaGroupedNumber_notFragmentedIntoPhantomProseNumbers() {
+        // Regression (room b72c4e10): "1,450,007" used to split into 1 / 450 / 007 —
+        // phantom prose numbers flagged "no matching numeric_claims entry", inflating
+        // unmatched/out-of-tolerance counts into a false NULL_RESULT downgrade. The
+        // grouped integer must now be ONE cited value that matches its claim + tool result.
+        NarrationResult n = narration(
+                "h",
+                Map.of(1, "The bound held out to x = 1,450,007 [call_1]."),
+                "c",
+                List.of(claim(1450007, "call_1", "findings:1")));
+        var result = validator.validate(n, List.of(call("call_1", "max_x=1450007 held")));
+        assertThat(result.issues()).noneMatch(s -> s.contains("450") || s.contains("007"));
+        assertThat(result.outOfToleranceCount()).isZero();
+        assertThat(result.hasFailures()).isFalse();
+    }
+
     // ────────────────── Check 2: claim coverage ──────────────────
 
     @Test
