@@ -4,11 +4,12 @@
 [`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) (see its wave-status column,
 the authoritative roll-up). **Shipped + ON:** Waves 0–3 entirely (rotation,
 all W1 gates incl. FIM/unit/dimension flipped 2026-06-03, derivation graph +
-composition, QD archive + clade-value + sublinear budget); W4 private-holdout +
-replication (flipped 2026-06-03 after the shadow A/B); W5 composition +
-residual-structure + anomaly mining (log-only). **Shipped, flag-OFF awaiting
-A/B:** W4 stochastic null + multiple-comparisons correction; W5 30.5 vocabulary
-expansion; W6 RAF iRAF-reporting + 30.7 runnable-mechanism. **Not yet built:**
+composition, QD archive + clade-value + sublinear budget); W4 **entirely** —
+private-holdout + replication (2026-06-03), stochastic null + multiple-comparisons
+correction (2026-06-04, null A/B passed on the 2026-06-03 shadow log); W5
+composition + residual-structure + anomaly mining (log-only). **Shipped, flag-OFF
+awaiting A/B:** W5 30.5 vocabulary expansion; W6 RAF iRAF-reporting + 30.7
+runnable-mechanism. **Not yet built:**
 W6 behavioral-signature detector (sim #12, low); Wave 7 (30.6 promotion + 30.4
 literature grounding). 30.4 stays deferred per `project_phase23_8_calibration`
 (generation, not retrieval, is the blocker); its retrieval design was updated

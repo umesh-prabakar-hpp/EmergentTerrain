@@ -114,8 +114,8 @@ You must judge novelty honestly before producing it, or Stage-1 generation just 
 
 | Item | Source | Status | Notes |
 |------|--------|--------|-------|
-| **Generative stochastic null + Fano/CV floor** | sim #8 | ◐ shipped flag-OFF | `ConjectureStochasticNull` — permutation-tests \|Spearman ρ\| of lhs↔rhs vs the rhs-shuffled no-effect null + CV floor; wired into `mine()` (`stochasticNullEnabled`, default OFF); emits the per-conjecture p-value the MCC slice will consume. Needs the A/B (zero false-retirement on a control set) before flip. |
-| **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | ◐ shipped flag-OFF | `MultipleComparisonsCorrection` — Bonferroni (FWER) / Benjamini-Hochberg (FDR, default) over the null p-value family; wired into `mine()` two-phase (`multipleComparisonsEnabled`, default OFF; requires the null), so a bound is kept only if its H0 is rejected at the corrected family level over the W1-reduced denominator. |
+| **Generative stochastic null + Fano/CV floor** | sim #8 | ✅ flag ON 2026-06-04 | `ConjectureStochasticNull` — permutation-tests \|Spearman ρ\| of lhs↔rhs vs the rhs-shuffled no-effect null + CV floor; wired into `mine()` (`stochasticNullEnabled`); emits the per-conjecture p-value the MCC slice consumes. A/B passed (see flip status below). |
+| **Multiple-comparisons correction** (Bonferroni/BH) | 30.1 guard | ✅ flag ON 2026-06-04 | `MultipleComparisonsCorrection` — Bonferroni (FWER) / Benjamini-Hochberg (FDR, default) over the null p-value family; wired into `mine()` two-phase (`multipleComparisonsEnabled`; requires the null), so a bound is kept only if its H0 is rejected at the corrected family level over the W1-reduced denominator. No separate shadow path by design — its A/B is the null's. |
 | **Private validator the generator can't read + gaming-rate metric** | ext #3 | ✅ flag ON 2026-06-03 | `PrivateHoldoutValidator` — re-checks each surviving bound on PRIVATE windows held out from both the fitter and the `verify_conjecture` prompt; "passed public, failed private" bounds are retired and the gaming rate (failed/tested) is logged. Wired into `mine()` (`privateValidatorEnabled`, default OFF). |
 | **Ensemble/seed replication + stochastic-pass semantics** | sim #10, MD | ✅ flag ON 2026-06-03 | `ConjectureReplicationValidator` — K-fold CV of the intercept (refit `c` per fold for the fixed slope `k`, test out-of-fold); the pass rate (folds-held / K) is the stochastic-pass score; below `replicationMinPassRate` → retired. Deterministic windows → the ensemble is the folds, not RNG seeds. Wired into `mine()` (`replicationValidatorEnabled`, default OFF). |
 
@@ -135,8 +135,15 @@ by `ConjectureMinerServiceTest.w4ShadowModeLogsButRetiresNothing` (no W4 reason 
 **Flip status (2026-06-03):** `privateValidatorEnabled` and `replicationValidatorEnabled` flipped ON
 after the shadow A/B (0 retired on the live pool — the two flagged `happy_density` bounds each breach
 only one private window and are spared under the ≥2-window rule; see the yml comments).
-`stochasticNullEnabled` + `multipleComparisonsEnabled` remain OFF pending their own A/B
-(`w4ShadowEnabled` currently OFF — re-arm it to collect their would-retire log).
+
+**Flip status (2026-06-04) — W4 complete:** `stochasticNullEnabled` + `multipleComparisonsEnabled`
+flipped ON. The would-retire log did **not** need a shadow re-arm — the 2026-06-03 shadow run already
+captured it (`logs/archive/et-app-20260603-133911.log`, 16 mine passes, stable set): 7 distinct
+`stochastic_null` lines, all flat-O(1) density cross-fits (`deficient/happy_density` vs
+`mertens_per_sqrt_W`/`prime_density`; `omega_Omega_gap` vs `happy/abundant_density`/`mertens_delta`;
+one `rhs_near_constant_cv` tautology). Hand-checked 2026-06-04: zero genuine relations among them →
+zero false-retirement, A/B bar met. MCC flips with the null (it family-corrects the null p-values;
+no separate shadow path in `mine()` by design). All four W4 gates are now live.
 
 ---
 
@@ -213,7 +220,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped + ON — triviality/dedup (ON) + window-geometry-LHS exclusion (ON, 2026-06-04), dimension + unit-consistency + FIM-identifiability (all three ON 2026-06-03) |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags ON 2026-06-03); tiered ordering de facto |
-| 4 | evaluation hardening | med | high | low | ✅ **all four shipped** — private-holdout + replication ON 2026-06-03; stochastic null + multiple-comparisons OFF pending their A/B (via `w4ShadowEnabled`) |
+| 4 | evaluation hardening | med | high | low | ✅ **all four ON** — private-holdout + replication 2026-06-03; stochastic null + multiple-comparisons 2026-06-04 (null A/B passed on the 2026-06-03 shadow log) |
 | 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped** — 30.3 composition (ON), 30.2 residual-structure + 30.1 anomaly mining (ON 2026-06-03, log-only), 30.5 vocabulary expansion (P1–P3b, flag OFF awaiting A/B) |
 | 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
