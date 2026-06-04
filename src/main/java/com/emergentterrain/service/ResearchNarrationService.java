@@ -2525,7 +2525,8 @@ public class ResearchNarrationService {
                 .append(cv.totalFailureCount())
                 .append(cv.totalFailureCount() == 1 ? " numeric value" : " numeric values")
                 .append(" in this draft that could not be traced to direct tool-call output. ")
-                .append("The hypothesis remains untested in this submission.");
+                .append("No result is claimed on the basis of those values; the computation itself "
+                        + "is recorded in the Methods trace below.");
         if (!cv.issues().isEmpty()) {
             preamble.append(" Specifically: ");
             preamble.append(cv.issues().stream()
@@ -2533,8 +2534,14 @@ public class ResearchNarrationService {
                     .collect(java.util.stream.Collectors.joining("; ")));
             preamble.append(".");
         }
-        String conclusion = "The pre-registered prediction was not verified against direct "
-                + "computational evidence; this paper is recorded as a null result.";
+        // Rec 2 (room b72c4e10): this downgrade runs on a POPULATED trace (citation validation
+        // compares prose against the tool output), so a "not verified / null result" stamp would
+        // contradict the Methods trace and trip DirectionOfFindingValidator's null-with-populated-
+        // trace check. Frame the abstention around the untraceable PROSE numbers, not around the
+        // computation having not run — keep the wording clear of CONCLUSION_NULL phrases.
+        String conclusion = "Some reported numbers could not be traced to the tool-call output "
+                + "(see findings preamble), so no result is claimed here; the underlying "
+                + "computation is recorded in the Methods trace.";
         return new NarrationResult(
                 narration.hypothesis(),
                 Map.of(1, preamble.toString()),

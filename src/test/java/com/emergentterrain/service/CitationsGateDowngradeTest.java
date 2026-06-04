@@ -1,6 +1,7 @@
 package com.emergentterrain.service;
 
 import com.emergentterrain.research.CitationValidator;
+import com.emergentterrain.research.DirectionOfFindingValidator;
 import com.emergentterrain.research.NarrationResult;
 import org.junit.jupiter.api.Test;
 
@@ -49,8 +50,11 @@ class CitationsGateDowngradeTest {
 
         assertThat(downgraded.findings())
                 .startsWith("NULL_RESULT — citation validator flagged 1 numeric value");
+        // Rec 2 (room b72c4e10): the preamble abstains on the untraceable prose numbers; it must
+        // NOT claim "the hypothesis remains untested" (false — the trace is populated).
         assertThat(downgraded.findings())
-                .contains("hypothesis remains untested");
+                .contains("No result is claimed on the basis of those values")
+                .doesNotContain("remains untested");
         assertThat(downgraded.findings())
                 .contains("9471");
     }
@@ -62,8 +66,37 @@ class CitationsGateDowngradeTest {
         NarrationResult downgraded =
                 ResearchNarrationService.downgradeNarrationToNull(buildNarration(), cv);
 
-        assertThat(downgraded.conclusion()).contains("not verified");
-        assertThat(downgraded.conclusion()).contains("null result");
+        // Rec 2: the conclusion abstains around the untraceable numbers, not around the
+        // computation having not run — so it must avoid the CONCLUSION_NULL phrasings that
+        // would contradict the populated Methods trace.
+        assertThat(downgraded.conclusion())
+                .contains("could not be traced to the tool-call output")
+                .contains("no result is claimed");
+        assertThat(downgraded.conclusion())
+                .doesNotContain("not verified")
+                .doesNotContain("null result")
+                .doesNotContain("remains untested");
+    }
+
+    @Test
+    void downgrade_conclusionIsNotInternallyContradictory() {
+        // Rec 2 proof: with a POPULATED trace and trace-citing findings (the smoking gun for
+        // "the computation ran and produced X"), the rewritten null-downgrade conclusion must NOT
+        // flag as internally contradictory in DirectionOfFindingValidator — the contradiction the
+        // old "remains untested" / "not verified" wording produced (P-b72c-79/85/91).
+        CitationValidator.CitationValidationResult cv =
+                new CitationValidator.CitationValidationResult(0, 0, 1, 0, List.of("issue"));
+        NarrationResult downgraded =
+                ResearchNarrationService.downgradeNarrationToNull(buildNarration(), cv);
+
+        List<String> reasons = DirectionOfFindingValidator.validate(
+                "Wien's peak should hold beyond the swept range.",
+                Map.of(1, "The optimal value was verified as 9471 from call_2."),
+                downgraded.conclusion(),
+                /* traceSize */ 2);
+        assertThat(reasons)
+                .as("rewritten downgrade conclusion must not read as a null stamp vs a live trace")
+                .isEmpty();
     }
 
     @Test

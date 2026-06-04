@@ -1355,8 +1355,13 @@ public class UniversityService {
             String preamble = buildNumericInconsistentPreamble(consistencyFailures);
             findingsBlocks = java.util.Map.of(1, preamble);
             findings = preamble;
-            conclusion = "The hypothesis remains untested in this submission "
-                    + "(see findings preamble for the values that could not be traced).";
+            // Rec 2 (room b72c4e10): the trace is populated here (the numeric-consistency check
+            // compares prose against tool output), so a "remains untested" stamp contradicts the
+            // Methods trace and trips DirectionOfFindingValidator. Abstain on the untraceable prose
+            // numbers, not on the computation — keep clear of CONCLUSION_NULL phrasing.
+            conclusion = "Some reported numbers could not be traced to the tool-call output "
+                    + "(see findings preamble), so no result is claimed here; the underlying "
+                    + "computation is recorded in the Methods trace.";
             isNullResult = true;
         }
         boolean validatorRejected = numericallyInconsistent || magnitudeOutOfRange
@@ -3043,7 +3048,8 @@ public class UniversityService {
           .append(reasons.size())
           .append(reasons.size() == 1 ? " numeric value" : " numeric values")
           .append(" in this draft that could not be traced to the tool-call output. ")
-          .append("The hypothesis remains untested in this submission. Specifically: ");
+          .append("No result is claimed on the basis of those values; the computation itself is "
+                  + "recorded in the Methods trace below. Specifically: ");
         int limit = Math.min(3, reasons.size());
         for (int i = 0; i < limit; i++) {
             if (i > 0) sb.append(" ");
