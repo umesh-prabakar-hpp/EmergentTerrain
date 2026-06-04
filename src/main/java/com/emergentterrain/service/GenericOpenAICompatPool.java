@@ -24,7 +24,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.regex.Matcher;
@@ -89,7 +88,7 @@ public class GenericOpenAICompatPool implements LlmPool {
     private final ObjectMapper mapper;
     private final HttpClient http;
     private final List<String> activeModels;
-    private final Semaphore slots;
+    private final LlmConcurrencyLimiter limiter;
     private final AtomicInteger rrIndex = new AtomicInteger();
     /** Per-model rate-limit expiry (epoch-millis). Mirrors the Phase-18 pattern
      *  in the existing pools — {@link #isModelBlocked} consults this so the
@@ -135,7 +134,10 @@ public class GenericOpenAICompatPool implements LlmPool {
         this.cfg = cfg;
         this.mapper = mapper;
         this.requestTimeout = requestTimeout;
-        this.slots = new Semaphore(Math.max(1, parallelism));
+        // Bounded, priority-aware concurrency: caps the wait at requestTimeout (never block the
+        // synchronous research cycle) and reserves >=1 permit for role-tagged research-pipeline
+        // calls so a non-priority (civic-simulation) LLM flood can't lock papers out. Room b72c4e10.
+        this.limiter = new LlmConcurrencyLimiter(parallelism, requestTimeout);
         this.http = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
@@ -278,15 +280,15 @@ public class GenericOpenAICompatPool implements LlmPool {
             throw new IllegalArgumentException(
                     "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
         }
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try { return runToolLoop(modelId, systemPrompt, userPrompt, toolsJson, executor); }
-        finally { slots.release(); }
+        finally { slot.release(); }
     }
 
     @Override public com.emergentterrain.llm.ToolCallResponse callWithTools(
             String systemPrompt, String userPrompt,
             String toolsJson, java.util.function.Function<String, String> executor) {
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try {
             int size = activeModels.size();
             int start = rrIndex.getAndIncrement() % size;
@@ -306,7 +308,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 }
             }
             throw last != null ? last : new RuntimeException("all models exhausted");
-        } finally { slots.release(); }
+        } finally { slot.release(); }
     }
 
     @Override public boolean isModelBlocked(String modelId) {
@@ -373,15 +375,15 @@ public class GenericOpenAICompatPool implements LlmPool {
     }
 
     @Override public String callSync(String prompt) {
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try { return callWithFallback(prompt); }
-        finally { slots.release(); }
+        finally { slot.release(); }
     }
 
     @Override public void callStream(String prompt, Consumer<String> tokenConsumer) {
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try { streamCallWithFallback(prompt, tokenConsumer); }
-        finally { slots.release(); }
+        finally { slot.release(); }
     }
 
     @Override public String callSyncOnModel(String modelId, String prompt) {
@@ -389,9 +391,9 @@ public class GenericOpenAICompatPool implements LlmPool {
             throw new IllegalArgumentException(
                     "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
         }
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try { return syncCallWithBackoff(modelId, prompt, cfg.maxOutputTokens()); }
-        finally { slots.release(); }
+        finally { slot.release(); }
     }
 
     @Override public void callStreamOnModel(String modelId, String prompt, Consumer<String> tokenConsumer) {
@@ -399,9 +401,9 @@ public class GenericOpenAICompatPool implements LlmPool {
             throw new IllegalArgumentException(
                     "GenericOpenAICompatPool(" + cfg.providerKey() + "): unknown model=" + modelId);
         }
-        acquireSlot();
+        LlmConcurrencyLimiter.Permit slot = acquireSlot();
         try { streamCallWithBackoff(modelId, prompt, cfg.maxOutputTokens(), tokenConsumer); }
-        finally { slots.release(); }
+        finally { slot.release(); }
     }
 
     // ── Dispatch ───────────────────────────────────────────────────────────
@@ -1331,12 +1333,15 @@ public class GenericOpenAICompatPool implements LlmPool {
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
-    private void acquireSlot() {
-        try { slots.acquire(); }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("interrupted acquiring slot", e);
-        }
+    /**
+     * Acquire a concurrency permit. Priority = the call carries an {@link LlmCallContext} role
+     * (the research/paper pipeline tags narration/professor/panel/audit/revision); roleless calls
+     * (civic simulation, background) are non-priority and subject to the reservation cap. The wait
+     * is bounded (see {@link LlmConcurrencyLimiter}); on timeout/interrupt this throws and the
+     * caller fails fast rather than stalling.
+     */
+    private LlmConcurrencyLimiter.Permit acquireSlot() {
+        return limiter.acquire(LlmCallContext.currentRole() != null);
     }
 
     private void sleep(long ms) {
