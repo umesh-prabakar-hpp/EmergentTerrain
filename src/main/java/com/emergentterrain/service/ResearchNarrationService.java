@@ -3715,6 +3715,12 @@ public class ResearchNarrationService {
      * "optimum" before the verification tools ran. {@code confidenceScore} /
      * {@code predictedScore} stay valid as JSON meta-fields; the rule only bars
      * stating them (or any uncomputed metric) as measured results in prose.
+     *
+     * <p>Clause (c) added for room b72c4e10: the dominant non-publication cause this batch was the
+     * narrator injecting numbers absent from the trace — textbook/theoretical constants it "knows"
+     * (1/ln 2, a known density) and round-number characterizations ("close to 5",
+     * "approximately 0.14") — which {@code NumericalConsistencyValidator} then nulls (P-b72c-96/98/
+     * 99/102). The clause bars introducing any figure not in the tool output, covering that class.
      */
     static final String FIRST_PASS_METRIC_GUARD_RULE = """
 
@@ -3727,7 +3733,13 @@ public class ResearchNarrationService {
             never in prose as a computed result; (b) do NOT declare one parameter value the \
             definitive optimum unless the raw output above already shows it beating the \
             alternatives — describe the qualitative trend and leave the precise optimum to the \
-            verified revision.""";
+            verified revision; (c) do NOT introduce any numeric value that is not present in the \
+            computation output above — this includes textbook or theoretical constants you happen \
+            to know (a known density, 1/ln 2, an asymptotic mean, and the like), hand-computed \
+            figures, and round-number characterizations such as "close to 5", "approximately \
+            0.14", or "≈ X". Every number in `findings` and `conclusion` must be one the tools \
+            actually returned; to invoke a known constant, name it qualitatively without stating \
+            a figure.""";
 
     /**
      * Append {@link #FIRST_PASS_METRIC_GUARD_RULE} to a first-pass prompt iff the

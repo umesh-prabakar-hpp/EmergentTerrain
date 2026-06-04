@@ -396,6 +396,11 @@ class ResearchNarrationServiceCallPathTest {
         assertThat(guarded).contains("quality score");
         assertThat(guarded).contains("optimum");
         assertThat(guarded).contains("confidenceScore");
+        // Room b72c4e10 clause (c): no untraceable textbook constants or round-number
+        // characterizations — bars the fabrication class that nulled P-b72c-96/98/99/102.
+        assertThat(guarded).contains("not present in the");
+        assertThat(guarded).contains("close to 5");
+        assertThat(guarded).contains("1/ln 2");
     }
 
     @Test
