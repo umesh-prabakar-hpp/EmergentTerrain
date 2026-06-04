@@ -480,7 +480,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                         stochasticNullAlpha, stochasticNullMinCv, seed);
                 switch (nr.reason()) {
                     case "rhs_near_constant_cv" -> {     // degenerate, not a p-value test
-                        if (retireOrShadow(nullShadow, ineq, byKey, "stochastic_null:rhs_near_constant_cv")) {
+                        if (retireOrShadow(nullShadow, ineq, byKey, String.format(
+                                "stochastic_null:rhs_near_constant_cv_%.4f", nr.rhsCv()))) {
                             kept.add(ineq);
                         } else {
                             nullDropped++;
@@ -515,7 +516,17 @@ public class ConjectureMinerService implements ConjectureQueue {
             for (int i = 0; i < testable.size(); i++) {
                 if (keepIt[i]) {
                     kept.add(testable.get(i));
-                } else if (retireOrShadow(nullShadow, testable.get(i), byKey, mccReason)) {
+                    continue;
+                }
+                // Embed the verdict-time evidence (per-conjecture p, and the family size the
+                // BH/Bonferroni threshold was computed over) so the persisted reason is a
+                // self-contained audit witness — distinguishes "clearly null" (p >> alpha)
+                // from "passed raw, killed by the family correction" (p <= alpha), the class
+                // the shadow A/B could not observe. Same precedent as the private validator's
+                // windows/worst-margin suffix.
+                String reason = String.format("%s_p%.4f", mccReason, testablePs.get(i))
+                        + (multipleComparisonsEnabled ? "_m" + testable.size() : "");
+                if (retireOrShadow(nullShadow, testable.get(i), byKey, reason)) {
                     kept.add(testable.get(i));
                 } else {
                     nullDropped++;
