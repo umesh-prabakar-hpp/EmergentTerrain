@@ -130,8 +130,11 @@ stops the pool from being 212 curve-fits. None of it is mertens-specific.
 This note is the **empirical diagnosis**;
 [`phase-30-genuinely-novel-claims.md`](phase-30-genuinely-novel-claims.md) (same folder) is the
 **prescription**. Phase 30's own table calls today's miner one that "surfaces regularities that hold" —
-exactly the triviality measured here. Phase 30 is a *proposal, not queued, all flags OFF*, so the room
-runs pre-Phase-30 — which is why the pool is 212 curve-fits. The fixes map almost one-to-one:
+exactly the triviality measured here. (When first written, Phase 30 was a *proposal, not queued, all
+flags OFF* — the room ran pre-Phase-30, which is why the pool was 212 curve-fits. As of 2026-06-04 most
+of it has shipped: Waves 0–3 entirely ON, W4 private-holdout + replication ON, W5 composition +
+residual-structure + anomaly mining ON; see [`IMPLEMENTATION-ORDER.md`](IMPLEMENTATION-ORDER.md) for the
+authoritative wave status.) The fixes map almost one-to-one:
 
 | Finding here (§3–§5)                                   | Phase 30 remedy                                           |
 |--------------------------------------------------------|-----------------------------------------------------------|
