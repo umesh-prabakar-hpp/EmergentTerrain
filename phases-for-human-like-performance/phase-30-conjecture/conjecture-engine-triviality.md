@@ -150,3 +150,27 @@ So the "discarded arm" 30.1 wants to harvest is nearly empty; fixing retirement 
 **Already shipped:** 30.7's first step (the self-declared `Mechanism kind:` tag) is live — observed in the
 b72c4e10 batch (P-20 `asymptotic_intuition`, P-24 `empirical_fit`) — but, as Phase 30 states, it is
 unverified, matching the "no mechanism" finding above.
+
+---
+
+## 7. Update — structural-trivializer fixes shipped (2026-06-04)
+
+A `/paper-review`-driven session shipped several of the §5.3 engine-level, domain-neutral trivializer
+gates (full set + commit refs: [`../../docs/2026-06-04-pipeline-hardening.md`](../../docs/2026-06-04-pipeline-hardening.md)).
+Most relevant to this note:
+
+- **Window-geometry-LHS exclusion.** A newer degenerate shape had appeared — a window-geometry scalar
+  as the conjecture **LHS** (`log_window_start ≤ 2·log_window_size − c`, `log_window_start ≤
+  2·max_divisor_count − c`; b72c4e10 P-b72c-86/87). A free harness coordinate can't be the bounded
+  *subject*. `ConjectureTrivialityFilter.dropReason` now drops any conjecture whose LHS is in
+  `WINDOW_GEOMETRY_SCALARS` (`isWindowGeometrySubject`), **and** — the decisive gate —
+  `ConjectureMinerService.nextN` filters the investigation queue (both tiers, incl.
+  counterexample-retired) through `dropReason`. The live-store `reduce()` alone missed these because a
+  degenerate geometry bound is counterexample-retired in its seeding pass *before* triviality runs, then
+  served from tier-1 (this is why §3's start-monotone bounds still surfaced). Geometry-as-**RHS** is
+  deliberately kept — that's the binding-regime case (§3 row 1) the probe exists to investigate.
+- Live result: 0 `conjecture/log_window_*` investigations post-fix; the queue shifted toward
+  content-vs-content bounds.
+
+These are the §5 item-3 "gate out the structural trivializers" plumbing — necessary but, as §5 says, not
+sufficient: the standing blocker remains *generation* (items 1–2), not gating.

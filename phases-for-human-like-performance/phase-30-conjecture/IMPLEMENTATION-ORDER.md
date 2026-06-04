@@ -3,9 +3,12 @@
 Dependency- and leverage-ordered roadmap that sequences the original Phase 30 sub-items
 ([`phase-30-genuinely-novel-claims.md`](phase-30-genuinely-novel-claims.md)), the engine-triviality
 fixes ([`conjecture-engine-triviality.md`](conjecture-engine-triviality.md),
-[`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md)), and the two external-pattern
-addenda — the *process* layer ([`phase-30-external-patterns.md`](phase-30-external-patterns.md)) and the
-*content* layer ([`phase-30-simulation-patterns.md`](phase-30-simulation-patterns.md)).
+[`mertens-conjecture-vs-literature.md`](mertens-conjecture-vs-literature.md)), and the external-pattern
+addenda — the *process* layer ([`phase-30-external-patterns.md`](phase-30-external-patterns.md)), the
+*content* layer ([`phase-30-simulation-patterns.md`](phase-30-simulation-patterns.md)), and the
+*pipeline/production* layer ([`phase-30-arc-patterns.md`](phase-30-arc-patterns.md), AutoResearchClaw
+review 2026-06-04 — figures, metrics manifest, refine/pivot, lesson overlay; proposals, not yet
+sequenced into the waves below).
 
 **Governing principle:** *reduce before you generate, represent before you select, verify before you
 promote.* Most of Phase 30's value is unlocked by first making the existing conjecture pool small and
@@ -168,7 +171,7 @@ mechanism compiles to `predict()` and regenerates its claim out-of-sample, respe
 | Item | Source | Gate |
 |------|--------|------|
 | **30.6 anomaly→open-problem promotion** (adversarial replication + clade-value) + **discovery-yield health metric** | 30.6, sim #13 | W3, W4, W6 |
-| **30.4 literature grounding** | 30.4 | **23.8 calibration** (see below) |
+| **30.4 literature grounding** — layered-resolution design updated 2026-06-04 per the ARC review ([`phase-30-arc-patterns.md`](phase-30-arc-patterns.md)); still pending behind the calibration | 30.4 | **23.8 calibration** (see below) |
 
 **Acceptance:** one `UNEXPLAINED_OBSERVATION` paper that cites a surviving anomaly/residual, records ≥N
 failed refutation attempts, carries no literature match, and seeds a `ProgramOpenQuestion`.
@@ -201,13 +204,22 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | Wave | Theme | Effort | Payoff | Risk | Status (2026-06-02) |
 |------|-------|--------|--------|------|---------------------|
 | 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
-| 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped — triviality/dedup (ON), dimension + unit-consistency + FIM-identifiability (built, flags OFF) |
+| 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped — triviality/dedup (ON) + window-geometry-LHS exclusion (ON, 2026-06-04), dimension + unit-consistency + FIM-identifiability (built, flags OFF) |
 | 2 | derivation graph | low-med | enabling | low | ✅ `DerivationGraph`/`DerivationNode`/`DerivationClosure`/`ConjectureComposer` + composition persist (`compositionPersistEnabled` ON) |
 | 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags OFF); tiered ordering de facto |
 | 4 | evaluation hardening | med | high | low | ✅ **all four shipped** (flags OFF) — stochastic null, multiple-comparisons correction, private-holdout/gaming-rate, replication; A/B gates the flips |
 | 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped flag-OFF** — 30.3 composition, 30.2 residual-structure, 30.1 anomaly mining, 30.5 vocabulary expansion (P1–P3b) |
 | 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
 | 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
+
+**Review-driven pipeline fixes (2026-06-04).** A `/paper-review` session shipped production-layer
+hardening alongside the waves above — window-geometry-LHS exclusion (Wave-1 triviality extension, ON;
+see [`conjecture-engine-triviality.md`](conjecture-engine-triviality.md) §7), NULL_RESULT
+coherent-abstention wording, comma-grouped / leading-`+` validator repairs, priority-reserved LLM-pool
+concurrency (fixed civic-flood starvation), and broadened first-pass prose-constant grounding. Full set
++ commit refs + live-verified outcomes: [`../../docs/2026-06-04-pipeline-hardening.md`](../../docs/2026-06-04-pipeline-hardening.md).
+These are the §5.3 "gate out trivializers" + production plumbing; per the calibration note, *generation*
+(Waves 5/7 content) remains the standing blocker, not gating.
 
 > Discovery/frontier work (Mertens/divisor/prime beyond-sieve escalation) is a **separate track** —
 > see [`frontier-escalation-loop.md`](frontier-escalation-loop.md) /

@@ -87,6 +87,10 @@ bash ./scripts/test-setup-fedora-prereqs.sh
 
 ## Scientific Integrity Pipeline
 
+> **Flow diagram:** `docs/paper-creation-flow.md` shows both paper-producing paths (conjecture
+> investigation + discovery/frontier) end-to-end. Latest integrity/throughput fixes:
+> `docs/2026-06-04-pipeline-hardening.md`.
+
 Research papers go through a deterministic integrity layer before any LLM narration call, and a multi-step quality pipeline that uses additional LLM calls to improve per-paper quality:
 
 **Deterministic integrity (no LLM):**
@@ -115,6 +119,16 @@ A substrate that lets the system *compute and verify* numeric results beyond the
 - **Knowledge accumulation + reuse** — validated values, the reusable **verified-method library** (ranked by the cost curve), run-until-converged state, and **OOM/timeout boundary events** persist to the DB (`frontier_records`, `frontier_convergence`, `verified_methods`, `frontier_events`) and survive restart. Runs **resume from the persisted frontier** instead of re-walking. A paper reads the corpus via the read-only `recall_frontier_knowledge` tool with trust carried verbatim — a `FULL` value is reported as *computed-and-verified at x*, a boundary as an *honest negative result about the harness's reach*, never as a proof. The LLM-generated method code is logged to the **log file, the DB, and the paper**.
 
 Honest by construction: it does **not** resolve Mertens (the failure regime ~10¹⁴ is beyond feasible compute) — it computes/extrapolates *toward* the wall with the trust level stated, an OOM is recorded as a *boundary* not a claim, and the renderer's regime caveat keeps "held" from reading as "resolved".
+
+## Documentation
+
+In-repo specs and design notes under `docs/`:
+
+- [`paper-creation-flow.md`](docs/paper-creation-flow.md) — end-to-end flow diagram: conjecture-investigation + discovery/frontier paths and their shared narration → validation → publish tail.
+- [`2026-06-04-pipeline-hardening.md`](docs/2026-06-04-pipeline-hardening.md) — review-driven integrity/throughput fixes (validators, NULL coherent-abstention, geometry-LHS exclusion, priority-reserved LLM pool, prose-constant grounding) with commit refs.
+- [`research-puzzle-spec.md`](docs/research-puzzle-spec.md) · [`bot-lifecycle-spec.md`](docs/bot-lifecycle-spec.md) · [`constitutional-terrain-phase1.md`](docs/constitutional-terrain-phase1.md) · [`llm-cost-analysis.md`](docs/llm-cost-analysis.md)
+
+Phase-30 conjecture/discovery design + tracking: `phases-for-human-like-performance/phase-30-conjecture/`.
 
 ## Tests (summary)
 - `ResultClassificationTest` — all 17 branches of `classifyResult`: DEGENERATE (NaN, Infinity, zero sentinel, zero authorScore), NULL_RESULT (score floor, REFUTED claim, low OBSERVATIONAL), SUPPORTED, PARTIALLY_SUPPORTED, and real computation round-trips.
