@@ -57,6 +57,17 @@ public class RunBudgetTracker {
     private final ConcurrentMap<String, Acc> byProvider = new ConcurrentHashMap<>();
     private final Acc global = new Acc();
     private final AtomicBoolean stopStarted = new AtomicBoolean(false);
+    /**
+     * 2026-06-05 — graceful drain. Set when global calls reach
+     * {@code global.drainStartCalls} ({@code > 0}): new research cycles must not
+     * start ({@link #allowNewResearch()}), in-flight papers keep spending until
+     * done, and {@link #notifyQuiescent} stops the app cleanly once the caller's
+     * in-flight queue empties. {@code maxCalls} remains the hard backstop — a
+     * drain that never quiesces still terminates there. Motivated by
+     * P-b72c-140/141 (2026-06-05): the hard stop killed the first two
+     * beyond-sieve-computing papers mid-pipeline, spend already sunk.
+     */
+    private final AtomicBoolean draining = new AtomicBoolean(false);
     private final java.util.Set<String> warnedNoPrice = ConcurrentHashMap.newKeySet();
 
     public RunBudgetTracker(BudgetProperties props, LlmPricing pricing, ApplicationContext ctx) {
@@ -99,8 +110,43 @@ public class RunBudgetTracker {
         if (pcap != null && pcap.getMaxCalls() > 0 && pc >= pcap.getMaxCalls()) {
             disableProvider(provider, "calls " + pc + " >= " + pcap.getMaxCalls());
         }
+        long drainStart = props.getGlobal().getDrainStartCalls();
+        if (drainStart > 0 && gc >= drainStart && !stopStarted.get()
+                && draining.compareAndSet(false, true)) {
+            log.warn("Run budget DRAINING (global calls {} >= drain-start {}): no new research "
+                            + "cycles will start; in-flight papers complete on the remaining budget; "
+                            + "clean stop when the in-flight queue empties (hard stop at {} calls).",
+                    gc, drainStart, props.getGlobal().getMaxCalls());
+        }
         if (props.getGlobal().getMaxCalls() > 0 && gc >= props.getGlobal().getMaxCalls()) {
             stop("global calls " + gc + " >= " + props.getGlobal().getMaxCalls());
+        }
+    }
+
+    /**
+     * True while new research cycles may start. False once draining or stopping —
+     * the cycle scheduler ({@code ResearchCycleService.runCycle}) consults this
+     * before launching a new paper pipeline. Always true when the budget feature
+     * is disabled.
+     */
+    public boolean allowNewResearch() {
+        return !props.isEnabled() || (!draining.get() && !stopStarted.get());
+    }
+
+    /** True once the drain threshold has been crossed (and until the stop). */
+    public boolean isDraining() {
+        return draining.get();
+    }
+
+    /**
+     * Caller-side drain completion: invoked (e.g. from the in-flight-draft
+     * sweep) when no work remains in flight while draining — stops the app
+     * cleanly with the same exit code as the hard cap, so operator tooling
+     * treats both ends identically. No-op unless draining; idempotent.
+     */
+    public void notifyQuiescent(String what) {
+        if (draining.get() && !stopStarted.get()) {
+            stop("drained — " + what);
         }
     }
 

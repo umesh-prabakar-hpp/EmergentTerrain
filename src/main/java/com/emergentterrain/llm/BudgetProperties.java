@@ -79,11 +79,24 @@ public class BudgetProperties {
         private long maxCalls = 0;
         private long maxInputTokens = 0;
         private long maxOutputTokens = 0;
+        /**
+         * 2026-06-05 — graceful-drain threshold (meaningful on the GLOBAL caps
+         * only; ignored per-provider). When global dispatched calls reach this,
+         * the run enters DRAINING: no NEW research cycles start, in-flight
+         * papers finish on the remaining budget, and the app stops cleanly when
+         * the in-flight queue empties (max-calls remains the hard backstop).
+         * 0 = off (legacy hard stop only). Motivated by P-b72c-140/141: the
+         * hard stop killed the first two beyond-sieve-computing papers ever,
+         * mid-pipeline, with their LLM spend already sunk.
+         */
+        private long drainStartCalls = 0;
 
         public double getMaxCostUsd() { return maxCostUsd; }
         public void setMaxCostUsd(double v) { this.maxCostUsd = v; }
         public long getMaxCalls() { return maxCalls; }
         public void setMaxCalls(long v) { this.maxCalls = v; }
+        public long getDrainStartCalls() { return drainStartCalls; }
+        public void setDrainStartCalls(long v) { this.drainStartCalls = v; }
         public long getMaxInputTokens() { return maxInputTokens; }
         public void setMaxInputTokens(long v) { this.maxInputTokens = v; }
         public long getMaxOutputTokens() { return maxOutputTokens; }

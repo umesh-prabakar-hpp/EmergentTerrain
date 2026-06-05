@@ -51,6 +51,74 @@ class RunBudgetTrackerTest {
         return p;
     }
 
+    // ---- 2026-06-05: graceful drain ----------------------------------------
+
+    @Test
+    void drainThreshold_stopsNewResearch_butKeepsServingCalls() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(10);
+        props.getGlobal().setDrainStartCalls(5);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 4; i++) t.recordCall("groq");
+        assertThat(t.isDraining()).isFalse();
+        assertThat(t.allowNewResearch()).isTrue();
+
+        t.recordCall("groq");   // 5th call crosses drain-start
+        assertThat(t.isDraining()).isTrue();
+        assertThat(t.allowNewResearch()).isFalse();
+        // Draining is NOT a stop: in-flight work keeps calling.
+        assertThatCode(() -> t.checkProviderAvailable("groq")).doesNotThrowAnyException();
+        assertThat(t.isStopRequested()).isFalse();
+        assertThat(t.terminatedWith).hasValue(Integer.MIN_VALUE);
+    }
+
+    @Test
+    void notifyQuiescent_whileDraining_stopsCleanly() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(10);
+        props.getGlobal().setDrainStartCalls(2);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        t.notifyQuiescent("too early");          // not draining yet → no-op
+        assertThat(t.isStopRequested()).isFalse();
+
+        t.recordCall("groq");
+        t.recordCall("groq");                    // drain
+        assertThat(t.isDraining()).isTrue();
+
+        t.notifyQuiescent("in-flight drafts complete");
+        assertThat(t.isStopRequested()).isTrue();
+        assertThat(t.terminatedWith).hasValue(RunBudgetTracker.EXIT_CODE);
+    }
+
+    @Test
+    void hardCap_remainsTheBackstop_pastDrain() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(4);
+        props.getGlobal().setDrainStartCalls(2);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 4; i++) t.recordCall("groq");   // never quiesces
+        assertThat(t.isStopRequested()).isTrue();
+        assertThat(t.terminatedWith).hasValue(RunBudgetTracker.EXIT_CODE);
+    }
+
+    @Test
+    void drainDisabledByDefault_zeroThresholdNeverDrains() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(100);     // drainStartCalls left at 0
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 50; i++) t.recordCall("groq");
+        assertThat(t.isDraining()).isFalse();
+        assertThat(t.allowNewResearch()).isTrue();
+    }
+
     // ---- disabled feature -------------------------------------------------
 
     @Test

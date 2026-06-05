@@ -153,6 +153,23 @@ public class ResearchCycleService {
     }
 
     /**
+     * 2026-06-05 — graceful budget drain. Optional (absent in unit tests / when
+     * the budget feature is off). When the tracker is DRAINING, {@code runCycle}
+     * stops launching new paper pipelines and {@code reapStuckDrafts} reports
+     * quiescence (in-flight queue empty) back to the tracker for the clean stop.
+     */
+    private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRunBudgetTracker(com.emergentterrain.llm.RunBudgetTracker tracker) {
+        this.runBudgetTracker = tracker;
+    }
+
+    /** Logged once per drain so the skip isn't a silent behaviour change. */
+    private final java.util.concurrent.atomic.AtomicBoolean drainSkipLogged =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /**
      * Phase 28 §28.5 — optional sidecar shadow-read wrapper. When Spring
      * resolves a {@link MathPhysicsEngineDelegate} bean (which it does
      * once the @Service is on the classpath — i.e. always in production),
@@ -307,6 +324,14 @@ public class ResearchCycleService {
             fixedDelayString = "${app.research.stuckDraftScanMs:60000}")
     public void reapStuckDrafts() {
         reapStuckDrafts(stuckDraftTtlMs);
+        // 2026-06-05 — graceful drain completion: while DRAINING, an empty
+        // in-flight queue means every paper either published or was reaped
+        // (the TTL sweep above guarantees a hung narration can't pin the
+        // drain open forever) — report quiescence for the clean stop.
+        com.emergentterrain.llm.RunBudgetTracker tracker = runBudgetTracker;
+        if (tracker != null && tracker.isDraining() && inFlightDrafts.isEmpty()) {
+            tracker.notifyQuiescent("in-flight drafts complete (draftQueue=0)");
+        }
     }
 
     /** Reap drafts in-flight longer than {@code ttlMs}; returns the count reclaimed. */
@@ -332,6 +357,16 @@ public class ResearchCycleService {
     public void runCycle(UUID roomId, List<Researcher> pool, Random rng, long gameTick,
                          PopulationEcologyService.PopulationParams popParams,
                          boolean peerReviewEnabled, Context ctx) {
+        // 2026-06-05 — graceful drain: once the run budget enters DRAINING, no new
+        // paper pipeline may start; in-flight drafts finish on the remaining budget.
+        com.emergentterrain.llm.RunBudgetTracker tracker = runBudgetTracker;
+        if (tracker != null && !tracker.allowNewResearch()) {
+            if (drainSkipLogged.compareAndSet(false, true)) {
+                log.info("research: run budget draining — skipping new research cycles; "
+                        + "{} draft(s) in flight will complete", inFlightDrafts.size());
+            }
+            return;
+        }
         Researcher author = tournamentSelect(restrictAuthorPool(pool), rng);
 
         DynamicProblem directive = author.getState().getPendingDirective();
