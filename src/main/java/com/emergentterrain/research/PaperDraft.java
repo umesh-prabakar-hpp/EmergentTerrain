@@ -56,13 +56,24 @@ public record PaperDraft(
          * persistence side in {@code UniversityService.addPaper} copies it
          * onto {@link ResearchPaper#setKind}.
          */
-        PaperKind kind
+        PaperKind kind,
+        /**
+         * Path B (2026-06-05) — the beyond-sieve discovery domain this draft's
+         * conjecture maps to, or null for non-frontier drafts. Set only by the
+         * frontier-framed branch of {@code publishConjectureInvestigation};
+         * consumed by {@code ResearchNarrationService.buildFrontierHint} to put
+         * one suggestive discovery-tool line in front of the professor (the
+         * tool-bearing stage) — the seed findings' steering text only ever
+         * reaches the tool-less first-pass narrator, which narrates the
+         * imperative into a passive caveat (P-b72c-128 trace, 2026-06-04).
+         */
+        FrontierDomain frontierDomain
 ) {
     /**
      * Backwards-compat constructor — every PaperDraft built before Phase
      * 23.4 routes through here and defaults {@code kind} to
      * {@link PaperKind#DOMAIN}. The conjecture-driven branch uses the
-     * canonical 28-arg constructor directly.
+     * 28-arg constructor (or the canonical 29-arg when frontier-framed).
      */
     public PaperDraft(
             UUID roomId, String authorBotId, String domain, String topicName, String title,
@@ -86,5 +97,33 @@ public record PaperDraft(
                 preRegistration, resultClassification,
                 plannerQuestionId,
                 PaperKind.DOMAIN);
+    }
+
+    /**
+     * Pre-frontier-threading compat constructor (the Phase 23.4 canonical
+     * 28-arg shape) — defaults {@code frontierDomain} to null so existing
+     * call sites and tests stay unchanged.
+     */
+    public PaperDraft(
+            UUID roomId, String authorBotId, String domain, String topicName, String title,
+            String rawFindings, String templateHypothesis, String templateConclusion,
+            String methodology, List<String> reviewerBotIds,
+            double peerScore, double authorScore, double anomalyZScore,
+            long gameTick, Instant publishedAt, int generation, String paperId,
+            Integer param1, Double param2, boolean isFollowUp,
+            Double predictedScore, String priorMethodology,
+            List<ResearchPaper> recentPapers, String researchHypothesis,
+            PreRegistration preRegistration, ResultClassification resultClassification,
+            UUID plannerQuestionId, PaperKind kind) {
+        this(roomId, authorBotId, domain, topicName, title,
+                rawFindings, templateHypothesis, templateConclusion,
+                methodology, reviewerBotIds,
+                peerScore, authorScore, anomalyZScore,
+                gameTick, publishedAt, generation, paperId,
+                param1, param2, isFollowUp,
+                predictedScore, priorMethodology,
+                recentPapers, researchHypothesis,
+                preRegistration, resultClassification,
+                plannerQuestionId, kind, null);
     }
 }

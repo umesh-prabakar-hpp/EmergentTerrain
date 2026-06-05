@@ -57,4 +57,40 @@ class PaperDraftKindTest {
 
         assertEquals(PaperKind.CONJECTURE_INVESTIGATION, draft.kind());
     }
+
+    @Test
+    void kindConstructorDefaultsFrontierDomainToNull() {
+        PaperDraft draft = new PaperDraft(
+                UUID.randomUUID(), UUID.randomUUID().toString(),
+                "MATHEMATICS", "Conjecture: abundant_density",
+                "Title", "raw findings", "abundant_density <= 0.2515", "conclusion",
+                "EMPIRICAL", List.of(),
+                0.5, 0.5, 0.0, 100L, Instant.now(),
+                1, "P-test-3", 50, 3.0, false,
+                null, null, List.of(), null,
+                (PreRegistration) null, ResultClassification.SUPPORTED,
+                /* plannerQuestionId = */ null,
+                PaperKind.CONJECTURE_INVESTIGATION);
+
+        assertEquals(null, draft.frontierDomain(),
+                "28-arg constructor must default frontierDomain to null (pre-threading call sites)");
+    }
+
+    @Test
+    void canonicalConstructorAcceptsFrontierDomain() {
+        PaperDraft draft = new PaperDraft(
+                UUID.randomUUID(), UUID.randomUUID().toString(),
+                "MATHEMATICS", "conjecture/max_divisor_count",
+                "Title", "raw findings", "max_divisor_count <= 2*mean_Omega + 101", "conclusion",
+                "EMPIRICAL", List.of(),
+                0.5, 0.5, 0.0, 100L, Instant.now(),
+                1, "P-test-4", 50, 3.0, false,
+                null, null, List.of(), null,
+                (PreRegistration) null, ResultClassification.SUPPORTED,
+                /* plannerQuestionId = */ null,
+                PaperKind.CONJECTURE_INVESTIGATION,
+                FrontierDomain.DIVISOR);
+
+        assertEquals(FrontierDomain.DIVISOR, draft.frontierDomain());
+    }
 }

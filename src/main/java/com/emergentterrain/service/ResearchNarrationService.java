@@ -1823,8 +1823,17 @@ public class ResearchNarrationService {
             // materials, terrestrial, underwater). Null → slot renders
             // empty and the template reads as it did pre-phase-24.
             String srHint = buildSymbolicRegressHint(juliaMathClient, draft.domain());
+            // Path B (2026-06-05) — frontier nudge for the tool-bearing stage. The seed
+            // findings' "gather evidence with discover_*" steering only ever reaches the
+            // tool-less first-pass narrator, which narrates the imperative into a passive
+            // caveat ("any frontier value ... WOULD be computed") — trace-verified on
+            // P-b72c-128: 6/6 frontier-framed papers, zero discover_* calls, because the
+            // professor saw only that caveat while its audit gaps pushed it toward
+            // in-range modesty. Same suggestive-not-prescriptive contract as srHint.
+            String frontierHint = buildFrontierHint(draft);
+            String hints = joinHints(srHint, frontierHint);
             String systemPrompt = buildProfessorSystemPrompt(
-                    promptRegistry, auditSummary, literatureContext, srHint)
+                    promptRegistry, auditSummary, literatureContext, hints)
                     + ((citationToolEnabled && literatureSearch != null) ? CITATION_GROUNDING_RULE : "");
             String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass, literatureContext);
 
@@ -3517,6 +3526,46 @@ public class ResearchNarrationService {
      * ground every prior-work citation in a tool result rather than inventing
      * author-year references.
      */
+    /**
+     * Path B (2026-06-05) — one suggestive frontier line for the professor system
+     * prompt, rendered only for frontier-framed CONJECTURE_INVESTIGATION drafts
+     * ({@link com.emergentterrain.research.PaperDraft#frontierDomain} non-null).
+     * Phrased to coexist with the overclaiming audit rather than fight it:
+     * compute-and-label-honestly is not an overclaim. Suggestive, not
+     * prescriptive — the LLM still decides whether to call (srHint contract).
+     * Null for every other draft, so the template renders exactly as before.
+     */
+    static String buildFrontierHint(com.emergentterrain.research.PaperDraft draft) {
+        if (draft == null || draft.frontierDomain() == null) {
+            return null;
+        }
+        com.emergentterrain.research.FrontierDomain fd = draft.frontierDomain();
+        String compute = fd.discoverTool != null
+                ? "compute it at one x > 2,000,000 via `" + fd.discoverTool + "` and/or consult "
+                : "consult ";
+        return "FRONTIER: this bound concerns " + fd.quantity
+                + ", a quantity computable past the 2,000,000 sieve ceiling. Once the in-range "
+                + "evidence is settled, also " + compute
+                + "`recall_frontier_knowledge` (bound `" + fd.boundKey + "`) for the accumulated "
+                + "frontier record. Report any such value as COMPUTED via a moat-validated method, "
+                + "never as an established fact — one honestly-labelled beyond-sieve data point is "
+                + "stronger evidence than another in-range window.";
+    }
+
+    /** Join optional one-line prompt hints (srHint, frontierHint) — null/blank-safe. */
+    static String joinHints(String... hints) {
+        StringBuilder sb = new StringBuilder();
+        for (String h : hints) {
+            if (h != null && !h.isBlank()) {
+                if (sb.length() > 0) {
+                    sb.append('\n');
+                }
+                sb.append(h);
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
     static final String CITATION_GROUNDING_RULE =
             "\n\nCITATION GROUNDING: To cite prior work, you MUST first call the "
             + "search_literature tool and cite ONLY the exact citation strings it "
@@ -4171,6 +4220,9 @@ public class ResearchNarrationService {
         accumulatedFindings = appendRefinementRecognition(
                 accumulatedFindings, latestRefined, draft.paperId());
 
+        // 2026-06-05 — copy-rebuild must preserve kind + frontierDomain: the 27-arg
+        // compat ctor silently reset kind to DOMAIN (latent) and would drop the
+        // frontier threading the professor frontierHint depends on.
         return new PaperDraft(
                 draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                 draft.title(), accumulatedFindings,
@@ -4182,7 +4234,7 @@ public class ResearchNarrationService {
                 draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
                 draft.recentPapers(), draft.researchHypothesis(),
                 draft.preRegistration(), draft.resultClassification(),
-                draft.plannerQuestionId());
+                draft.plannerQuestionId(), draft.kind(), draft.frontierDomain());
     }
 
     /**
@@ -4299,6 +4351,8 @@ public class ResearchNarrationService {
             if (framed != null) {
                 log.info("LLM statistical framing done paperId={} ms={}", draft.paperId(),
                         System.currentTimeMillis() - start);
+                // 2026-06-05 — preserve kind + frontierDomain through the copy-rebuild
+                // (27-arg compat ctor reset kind to DOMAIN and dropped the frontier flag).
                 return new PaperDraft(
                         draft.roomId(), draft.authorBotId(), draft.domain(), draft.topicName(),
                         draft.title(), framed,
@@ -4310,7 +4364,7 @@ public class ResearchNarrationService {
                         draft.isFollowUp(), draft.predictedScore(), draft.priorMethodology(),
                         draft.recentPapers(), draft.researchHypothesis(),
                         draft.preRegistration(), draft.resultClassification(),
-                        draft.plannerQuestionId());
+                        draft.plannerQuestionId(), draft.kind(), draft.frontierDomain());
             }
         } catch (Exception e) {
             log.warn("LLM statistical framing failed paperId={}: {} — using raw findings",

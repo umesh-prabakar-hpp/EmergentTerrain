@@ -629,7 +629,8 @@ public class ResearchCycleService {
                 null,
                 ResultClassification.SUPPORTED,
                 null,
-                PaperKind.CONJECTURE_INVESTIGATION);
+                PaperKind.CONJECTURE_INVESTIGATION,
+                frontier);   // null for in-range framing; drives the professor frontierHint
 
         Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
         if (narratingCallback != null) {
@@ -691,22 +692,8 @@ public class ResearchCycleService {
      * ({@code recall_frontier_knowledge} reads it), and the per-paper discovery
      * tool name if one exists ({@code null} = recall-only, no per-paper compute).
      */
-    enum FrontierDomain {
-        MERTENS("M(x) = Σ_{n≤x} μ(n) (the cumulative Mertens function)", "mertens_M", "discover_mertens_value"),
-        DIVISOR("D(x) = Σ_{n≤x} d(n) (the Dirichlet divisor summatory function)", "divisor_D", "discover_divisor_value"),
-        PRIME("pi(x) = #{p ≤ x : p prime} (the prime-counting function)", "prime_pi", "discover_prime_value");
-
-        final String quantity;
-        final String boundKey;
-        /** Per-paper compute tool, or null when only the autonomous frontier feeds the corpus (→ recall-only). */
-        final String discoverTool;
-
-        FrontierDomain(String quantity, String boundKey, String discoverTool) {
-            this.quantity = quantity;
-            this.boundKey = boundKey;
-            this.discoverTool = discoverTool;
-        }
-    }
+    // FrontierDomain promoted to a top-level enum (same package, 2026-06-05) so it can be
+    // threaded through PaperDraft to the professor stage's frontierHint.
 
     /**
      * Map a conjecture's scalars to a beyond-sieve discovery domain, or {@code null}

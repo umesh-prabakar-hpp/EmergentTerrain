@@ -39,7 +39,13 @@ public record ReworkDraftSnapshot(
         String researchHypothesis,
         PreRegistration preRegistration,
         ResultClassification resultClassification,
-        PaperKind kind) {
+        PaperKind kind,
+        /**
+         * Path B (2026-06-05) — preserved so a reworked frontier-framed draft
+         * still renders the professor frontierHint on re-narration. Nullable;
+         * pre-existing persisted JSON lacks the key and rehydrates to null.
+         */
+        FrontierDomain frontierDomain) {
 
     /** Capture the re-narration-relevant fields of {@code draft}. */
     public static ReworkDraftSnapshot from(PaperDraft draft) {
@@ -60,7 +66,8 @@ public record ReworkDraftSnapshot(
                 draft.researchHypothesis(),
                 draft.preRegistration(),
                 draft.resultClassification(),
-                draft.kind());
+                draft.kind(),
+                draft.frontierDomain());
     }
 
     /**
@@ -99,6 +106,7 @@ public record ReworkDraftSnapshot(
                 preRegistration,
                 resultClassification,
                 null,                      // plannerQuestionId — outcome already recorded by the original
-                kind);
+                kind,
+                frontierDomain);
     }
 }
