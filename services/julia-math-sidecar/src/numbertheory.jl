@@ -244,6 +244,13 @@ function nt_evaluate_window(start::Integer, size::Integer)
     sum_divisor_count = Int64(0)
     max_divisor_count = 0
     mertens_delta = 0
+    # Phase 30 §5.2 vocabulary enrichment (2026-06-05) — open-behavior scalars:
+    # largest prime gap inside the window (gap records: Cramér-conjecture
+    # territory) and twin-pair count (Hardy–Littlewood territory). Both fall
+    # out of the same single pass.
+    n_twin = 0               # n with n and n+2 both prime (n in window)
+    max_prime_gap = 0        # largest gap between consecutive primes IN the window
+    last_prime = 0           # 0 = no prime seen yet in this window
 
     @inbounds for n in actual_start:(Int(end_) - 1)
         s = nt_sigma(n)
@@ -254,7 +261,15 @@ function nt_evaluate_window(start::Integer, size::Integer)
         end
         # n == perfect (s == 2n) intentionally excluded per JVM substrate.
 
-        nt_is_prime(n) && (n_prime += 1)
+        if nt_is_prime(n)
+            n_prime += 1
+            if last_prime > 0
+                g = n - last_prime
+                g > max_prime_gap && (max_prime_gap = g)
+            end
+            last_prime = n
+            nt_is_prime(n + 2) && (n_twin += 1)
+        end
         nt_is_happy(n) && (n_happy += 1)
 
         sum_omega += nt_omega(n)
@@ -276,6 +291,8 @@ function nt_evaluate_window(start::Integer, size::Integer)
         "mean_divisor_count" => sum_divisor_count * inv,
         "max_divisor_count"  => Float64(max_divisor_count),
         "mertens_delta"      => Float64(mertens_delta),
+        "max_prime_gap"      => Float64(max_prime_gap),
+        "twin_prime_density" => n_twin * inv,
     ]
 end
 

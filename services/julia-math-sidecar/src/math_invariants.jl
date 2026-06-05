@@ -23,6 +23,8 @@ const MATH_BASE_NAMES = String[
     "mean_divisor_count",
     "max_divisor_count",
     "mertens_delta",
+    "max_prime_gap",
+    "twin_prime_density",
 ]
 
 """
@@ -77,6 +79,17 @@ function math_invariants_extract(raw, window_start::Integer, window_size::Intege
     push!(flat, "sqrt_window_size"         => sqrt(ws))
     push!(flat, "log_window_start"         => wstart > 0.0 ? log10(wstart) : 0.0)
     push!(flat, "mertens_per_sqrt_W"       => ws > 0.0 ? mertens / sqrt(ws) : 0.0)
+    # Phase 30 §5.2 open-behavior derived scalars (2026-06-05), JVM-mirrored:
+    # Cramér-normalized record gap (conjecturally O(1), open extremes) and the
+    # Hardy–Littlewood twin ratio (→ 2C₂ ≈ 1.3203 if HL holds — a real constant
+    # the miner can discover). Window center for the gap normalization.
+    gap        = get(raw_lookup, "max_prime_gap",      0.0)
+    twin       = get(raw_lookup, "twin_prime_density", 0.0)
+    prime      = get(raw_lookup, "prime_density",      0.0)
+    center = wstart + ws / 2.0
+    lc = center > 1.0 ? log(center) : 0.0
+    push!(flat, "cramer_gap_ratio" => lc > 0.0 ? gap / (lc * lc) : 0.0)
+    push!(flat, "twin_vs_prime_sq" => prime > 0.0 ? twin / (prime * prime) : 0.0)
 
     return flat
 end
