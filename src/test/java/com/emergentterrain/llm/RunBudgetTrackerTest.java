@@ -133,6 +133,56 @@ class RunBudgetTrackerTest {
         assertThat(t.allowNewResearch()).isTrue();
     }
 
+    // ---- 2026-06-05: auth-class failure auto-disable -----------------------
+
+    @Test
+    void fiveConsecutiveAuthFailures_disableProvider_othersUnaffected() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+        t.recordCall("groq");   // a second live provider keeps the run alive
+
+        for (int i = 0; i < RunBudgetTracker.AUTH_FAILURE_DISABLE_THRESHOLD - 1; i++) {
+            t.recordAuthClassFailure("openrouter", 403);
+        }
+        assertThatCode(() -> t.checkProviderAvailable("openrouter")).doesNotThrowAnyException();
+
+        t.recordAuthClassFailure("openrouter", 403);   // 5th — trips
+        assertThat(t.isExhausted("openrouter")).isTrue();
+        assertThatExceptionOfType(ProviderBudgetExhaustedException.class)
+                .isThrownBy(() -> t.checkProviderAvailable("openrouter"));
+        // The other provider and the run survive.
+        assertThatCode(() -> t.checkProviderAvailable("groq")).doesNotThrowAnyException();
+        assertThat(t.isStopRequested()).isFalse();
+    }
+
+    @Test
+    void successfulCallResetsAuthFailureStreak() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 4; i++) t.recordAuthClassFailure("openrouter", 403);
+        t.recordUsageAndEnforce("openrouter", "any-model", 10, 10);   // success → reset
+        for (int i = 0; i < 4; i++) t.recordAuthClassFailure("openrouter", 403);
+
+        assertThat(t.isExhausted("openrouter")).isFalse();
+    }
+
+    @Test
+    void transientStatusesNeverCountTowardAutoDisable() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 20; i++) {
+            t.recordAuthClassFailure("openrouter", 429);
+            t.recordAuthClassFailure("openrouter", 500);
+            t.recordAuthClassFailure("openrouter", 404);
+        }
+        assertThat(t.isExhausted("openrouter")).isFalse();
+    }
+
     // ---- disabled feature -------------------------------------------------
 
     @Test

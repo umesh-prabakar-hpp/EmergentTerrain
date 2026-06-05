@@ -70,6 +70,20 @@ public class RunBudgetTracker {
     private final AtomicBoolean draining = new AtomicBoolean(false);
     private final java.util.Set<String> warnedNoPrice = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 2026-06-05 — auto-disable on an auth/billing failure streak. A provider whose
+     * key is dead (401/402/403 — invalid, out of credit, "Key limit exceeded") fails
+     * EVERY call, but the router's failover retried it all session: 366 zero-token
+     * dispatches in 6 minutes burned the run budget to the drain threshold with one
+     * paper out (openrouter, 2026-06-05 12:05). After {@value #AUTH_FAILURE_DISABLE_THRESHOLD}
+     * consecutive auth-class failures the provider is disabled exactly like a
+     * per-provider cap breach (routing skips it; the app stops only if every relevant
+     * provider is gone). 429/5xx are transient and never count; any successful call
+     * resets the streak.
+     */
+    static final int AUTH_FAILURE_DISABLE_THRESHOLD = 5;
+    private final ConcurrentMap<String, AtomicLong> authFailureStreak = new ConcurrentHashMap<>();
+
     public RunBudgetTracker(BudgetProperties props, LlmPricing pricing, ApplicationContext ctx) {
         this.props = props;
         this.pricing = pricing;
@@ -167,8 +181,30 @@ public class RunBudgetTracker {
      * enforce the token/cost caps. Per-provider breach disables the provider;
      * global breach stops the app. Does not throw — the call already happened.
      */
+    /**
+     * Report an auth/billing-class HTTP failure (401 unauthorized, 402 payment
+     * required, 403 forbidden — e.g. OpenRouter "Key limit exceeded"). Called by the
+     * provider pools from their non-200 branch. Disables the provider after
+     * {@link #AUTH_FAILURE_DISABLE_THRESHOLD} consecutive occurrences. Other status
+     * codes are ignored here (429 has its own backoff in the pools; 5xx are
+     * transient).
+     */
+    public void recordAuthClassFailure(String provider, int statusCode) {
+        if (!props.isEnabled() || provider == null) return;
+        if (statusCode != 401 && statusCode != 402 && statusCode != 403) return;
+        long streak = authFailureStreak
+                .computeIfAbsent(provider, k -> new AtomicLong()).incrementAndGet();
+        if (streak >= AUTH_FAILURE_DISABLE_THRESHOLD) {
+            disableProvider(provider, "HTTP " + statusCode + " ×" + streak
+                    + " consecutive — key invalid / limit exceeded? (auth-class auto-disable)");
+        }
+    }
+
     public void recordUsageAndEnforce(String provider, String model, long inputTokens, long outputTokens) {
         if (!props.isEnabled() || provider == null) return;
+        // A completed call with usage = the provider's key works; reset the
+        // auth-failure streak so transient blips never accumulate to a disable.
+        authFailureStreak.remove(provider);
 
         double cost = pricing.costUsd(provider, model, inputTokens, outputTokens);
         if (!pricing.hasPrice(provider, model) && warnedNoPrice.add(provider + "/" + model)) {

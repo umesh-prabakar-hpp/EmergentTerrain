@@ -114,6 +114,17 @@ public class GenericOpenAICompatPool implements LlmPool {
     /** Run-scoped $/token budget accounting; null-safe (off ⇒ no accounting). */
     @Autowired(required = false)
     private com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
+
+    /**
+     * 2026-06-05 — forward an auth/billing-class HTTP failure (401/402/403) to the
+     * tracker's consecutive-failure auto-disable. Null-safe; the tracker ignores
+     * other status codes, so callers pass whatever non-200/429/404 they saw.
+     */
+    private void reportAuthClassFailure(int statusCode) {
+        if (runBudgetTracker != null) {
+            runBudgetTracker.recordAuthClassFailure(cfg.providerKey(), statusCode);
+        }
+    }
     /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
     @Autowired(required = false)
     private ToolSchemaCachePolicy toolSchemaCachePolicy;
@@ -553,6 +564,12 @@ public class GenericOpenAICompatPool implements LlmPool {
                     // Phase 20.11 §migration (NVIDIA parity) — paid-tier 404
                     // permanent disable when a body marker matches.
                     checkPermanent404(modelId, resp.body());
+                } else {
+                    // 2026-06-05 — auth/billing-class statuses (401/402/403, e.g.
+                    // OpenRouter "Key limit exceeded") feed the tracker's consecutive-
+                    // failure auto-disable, so a dead key costs ~5 budget calls,
+                    // not a session (the 12:05 403 storm: 366 calls in 6 min).
+                    reportAuthClassFailure(resp.statusCode());
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
@@ -728,6 +745,8 @@ public class GenericOpenAICompatPool implements LlmPool {
                     if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
                 } else if (respStatus == 404) {
                     checkPermanent404(modelId, body);
+                } else {
+                    reportAuthClassFailure(respStatus);   // 2026-06-05 — see chat path
                 }
                 throw new RuntimeException(cfg.providerKey() + " stream API error " + respStatus + ": " + body);
             }
@@ -880,6 +899,8 @@ public class GenericOpenAICompatPool implements LlmPool {
                             if (budgetGateMetrics != null) budgetGateMetrics.recordUpstream429(cfg.providerKey());
                         } else if (resp.statusCode() == 404) {
                             checkPermanent404(modelId, resp.body());
+                        } else {
+                            reportAuthClassFailure(resp.statusCode());   // 2026-06-05 — see chat path
                         }
                         throw new RuntimeException(cfg.providerKey() + " API error "
                                 + resp.statusCode() + ": " + resp.body());
