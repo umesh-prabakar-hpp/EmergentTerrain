@@ -108,6 +108,20 @@ class RunBudgetTrackerTest {
     }
 
     @Test
+    void discretionarySpend_blockedWhileDraining_allowedBefore() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(10);
+        props.getGlobal().setDrainStartCalls(2);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        assertThat(t.allowDiscretionarySpend()).isTrue();
+        t.recordCall("groq");
+        t.recordCall("groq");                    // drain
+        assertThat(t.allowDiscretionarySpend()).isFalse();
+    }
+
+    @Test
     void drainDisabledByDefault_zeroThresholdNeverDrains() {
         BudgetProperties props = new BudgetProperties();
         props.setEnabled(true);

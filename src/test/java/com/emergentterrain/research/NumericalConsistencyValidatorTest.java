@@ -929,6 +929,23 @@ class NumericalConsistencyValidatorTest {
     }
 
     @Test
+    void rec2b_unitIntervalIsADensityDomainNotARangeClaim() {
+        // P-b72c-141: prose stating the joint density "lives in [0, 1)" was read as
+        // an unexecuted scan range. Integer bounds pass the fractional guard and
+        // span 1 can never be covered — the unit interval must be exempt.
+        String hypothesis = "Joint prime-and-happy density across the surveyed windows.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "As a fraction the joint density necessarily lies in [0, 1); observed 0.025.");
+        String conclusion = "No anomaly.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                scan(400, 800, 0));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
+    }
+
+    @Test
     void rec1c_realGapIsNotMergedAcross() {
         // [1,500) and [800,1300) leave [500,800) unscanned — a claim spanning the
         // gap must still flag; merging must respect real gaps, not bridge them.

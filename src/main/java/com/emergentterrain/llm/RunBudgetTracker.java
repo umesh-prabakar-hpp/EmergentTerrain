@@ -139,6 +139,18 @@ public class RunBudgetTracker {
     }
 
     /**
+     * Semantic alias of {@link #allowNewResearch()} for non-research background
+     * consumers (policy consultations, government digests). 2026-06-05 drain
+     * post-mortem: 33 of the 60-call reserve went to policy consultations,
+     * starving the in-flight paper the drain existed to protect (P-b72c-145
+     * lost at the hard stop). Discretionary chatter has no value in a draining
+     * session — gate it on this.
+     */
+    public boolean allowDiscretionarySpend() {
+        return allowNewResearch();
+    }
+
+    /**
      * Caller-side drain completion: invoked (e.g. from the in-flight-draft
      * sweep) when no work remains in flight while draining — stops the app
      * cleanly with the same exit code as the hard cap, so operator tooling

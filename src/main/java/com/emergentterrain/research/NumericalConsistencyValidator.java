@@ -1079,6 +1079,12 @@ public final class NumericalConsistencyValidator {
             // observed-scalar spread ("[0.7513, 0.7536)", P-b72c-120) — and
             // treating it as an unexecuted scan range false-NULLs the paper.
             if (a != Math.floor(a) || b != Math.floor(b)) continue;
+            // 2026-06-05 rec #2 — "[0, 1)" is the canonical VALUE DOMAIN of a density /
+            // fraction, not a scan-range claim (P-b72c-141 false-NULL: prose stating the
+            // joint density lives in [0, 1) was read as an unexecuted range; integer
+            // bounds, so the fractional-bound guard above passes it, and span 1 means no
+            // executed range could ever cover it). Skip exactly the unit interval.
+            if (a == 0.0 && b == 1.0) continue;
 
             // Pass when SOME executed range covers [a, b] within ±1% on each
             // edge. Slack matches F5_5_RELATIVE_TOLERANCE so a prose

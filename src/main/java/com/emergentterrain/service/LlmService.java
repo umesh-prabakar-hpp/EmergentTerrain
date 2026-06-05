@@ -48,9 +48,34 @@ public class LlmService {
         log.info("LlmService: primary={} fast={}", router.primaryModel(), router.fastModel());
     }
 
+    /**
+     * 2026-06-05 — graceful-drain gate for discretionary background spend.
+     * Optional (absent in unit tests / when the budget feature is off). While
+     * the run budget is DRAINING, digests and policy consultations skip so the
+     * reserve goes to in-flight papers (the 08:01 drain post-mortem: 33/60
+     * reserve calls went to policy consultations; P-b72c-145 lost).
+     */
+    private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRunBudgetTracker(com.emergentterrain.llm.RunBudgetTracker tracker) {
+        this.runBudgetTracker = tracker;
+    }
+
+    /** True when discretionary background LLM spend should be skipped (drain/stop). */
+    private boolean discretionarySpendBlocked(String what) {
+        com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
+        if (t != null && !t.allowDiscretionarySpend()) {
+            log.debug("LLM {} skipped — run budget draining (reserve goes to in-flight papers)", what);
+            return true;
+        }
+        return false;
+    }
+
     // --- Public triggers ---
 
     public void generateGovernmentDigestIfAbsent(UUID roomId, GovernmentState state) {
+        if (discretionarySpendBlocked("government digest")) return;
         long now = System.currentTimeMillis();
         String kind = "government_digest";
         String cooldownKey = cooldownKey(roomId, kind);
@@ -90,6 +115,7 @@ public class LlmService {
     // --- Synchronous consultation ---
 
     public String consultPolicySync(String prompt) {
+        if (discretionarySpendBlocked("policy consultation")) return null;
         if (!consultSlot.tryAcquire()) {
             log.debug("LLM consult slot busy - skipping policy consultation");
             return null;
