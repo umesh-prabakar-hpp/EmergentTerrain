@@ -186,4 +186,29 @@ class MathToolSuiteDiscoveryTest {
                 "{\"dsl\":\"predict(y) := square(x)\",\"window_start\":1000,\"window_size\":1000}"));
         assertThat(out).contains("disabled");
     }
+
+    // ── scalar_window_stats (2026-06-05) — gating (no conjecture verifier wired here) ─────
+
+    @Test
+    void scalarStatsToolNotAdvertisedWithoutVerifier() {
+        MathToolSuite suite = new MathToolSuite(null, OM);
+        suite.setScalarStatsToolEnabled(true);   // flag on, but no conjecture verifier wired
+        assertThat(suite.toolsJson(true, false)).doesNotContain("scalar_window_stats");
+    }
+
+    @Test
+    void scalarStatsToolNotAdvertisedWhenFlagOff() {
+        MathToolSuite suite = new MathToolSuite(null, OM);
+        assertThat(suite.toolsJson(true, false)).doesNotContain("scalar_window_stats");
+    }
+
+    @Test
+    void scalarStatsHandlerDisabledWithoutVerifier() throws Exception {
+        MathToolSuite suite = new MathToolSuite(null, OM);
+        suite.setScalarStatsToolEnabled(true);
+        String out = suite.scalarWindowStats(OM.readTree(
+                "{\"lhs\":\"max_divisor_count\",\"window_start\":1000,"
+                        + "\"window_size\":1000,\"num_windows\":10}"));
+        assertThat(out).contains("disabled");
+    }
 }

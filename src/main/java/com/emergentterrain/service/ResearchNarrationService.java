@@ -807,12 +807,17 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.mechanismProposalEnabled:false}")
     private boolean mechanismProposalFlag;
 
+    /** 2026-06-05 — gate for the scalar_window_stats professor tool. OFF by default. */
+    @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.scalarStatsToolEnabled:false}")
+    private boolean scalarStatsToolFlag;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
             toolSuite.setDiscoveryService(discoveryService);
             toolSuite.setFrontierKnowledge(frontierKnowledge);
             toolSuite.setMechanismProposalEnabled(mechanismProposalFlag);
+            toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the
         // static revision-prompt builders can read it). Domain-neutral; OFF by default.

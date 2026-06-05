@@ -70,7 +70,8 @@ public class MathToolSuite {
             "GPU eval of",
             "Sandboxed computation —",
             "verify_conjecture:",
-            "symbolic_regress:");
+            "symbolic_regress:",
+            "scalar_window_stats:");
 
     /**
      * Phase 17 P8b — is this tool-call result a real computational
@@ -392,6 +393,18 @@ public class MathToolSuite {
 
     public void setMechanismProposalEnabled(boolean enabled) {
         this.mechanismProposalEnabled = enabled;
+    }
+
+    /** 2026-06-05 — gate for the scalar_window_stats tool (set by ResearchNarrationService). */
+    private volatile boolean scalarStatsToolEnabled = false;
+
+    public void setScalarStatsToolEnabled(boolean enabled) {
+        this.scalarStatsToolEnabled = enabled;
+    }
+
+    /** scalar_window_stats needs the verifier (its sampleWindows substrate) AND its gate. */
+    private boolean scalarStatsAvailable() {
+        return conjectureVerifier != null && scalarStatsToolEnabled;
     }
 
     /** The propose_mechanism tool needs the conjecture verifier (for windows) AND its own gate on. */
@@ -722,7 +735,8 @@ public class MathToolSuite {
                 divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
                 recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "",
-                mechanismProposalAvailable() ? PROPOSE_MECHANISM_TOOL_JSON : "");
+                (mechanismProposalAvailable() ? PROPOSE_MECHANISM_TOOL_JSON : "")
+                        + (scalarStatsAvailable() ? SCALAR_WINDOW_STATS_TOOL_JSON : ""));
     }
 
     /**
@@ -950,6 +964,33 @@ public class MathToolSuite {
      * Phase 30 Wave 6 — 30.7 P3: propose a runnable mechanism for the bound being written about, and
      * have it gate-checked. Advertised only when {@link #mechanismProposalAvailable()}.
      */
+    /**
+     * 2026-06-05 — deterministic per-window scalar statistics. Exists because the
+     * panel's follow-up computations (HCN divisor growth, cross-scalar correlation
+     * over refuted windows — P-b72c-121's open questions) kept dying on the sandbox
+     * loop cap across three sessions. Same trust class as verify_conjecture: pure
+     * arithmetic over the trusted sieve substrate, no LLM/sandbox spend.
+     */
+    private static final String SCALAR_WINDOW_STATS_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"scalar_window_stats",
+                "description":"Compute deterministic statistics of one or two window scalars across consecutive windows: min/max (with the window start achieving the max), mean, and — when two scalars are given — the Pearson and Spearman correlation between them across the windows. Use this instead of run_sandboxed_code for divisor-count growth probes, scalar trend checks, or correlation questions (it has no loop limit). Scalars are the same names verify_conjecture uses (e.g. max_divisor_count, mean_divisor_count, mertens_per_sqrt_W, prime_density).",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "lhs":{"type":"string","description":"Scalar to summarize (required)"},
+                    "rhs":{"type":"string","description":"Optional second scalar; adds Pearson+Spearman correlation with lhs"},
+                    "window_start":{"type":"integer","description":"First window start (>= 1)"},
+                    "window_size":{"type":"integer","description":"Window size (100..50000)"},
+                    "num_windows":{"type":"integer","description":"Consecutive windows (1..200; windows past the 2,000,000 sieve ceiling are skipped)"}
+                  },
+                  "required":["lhs","window_start","window_size","num_windows"]
+                }
+              }
+            }""";
+
     private static final String PROPOSE_MECHANISM_TOOL_JSON = """
             ,{
               "type":"function",
@@ -1006,6 +1047,7 @@ public class MathToolSuite {
                     case "discover_prime_value" -> discoverPrimeValue(args);
                     case "recall_frontier_knowledge" -> recallFrontierKnowledge(args, draft);
                     case "propose_mechanism" -> proposeMechanism(args);
+                    case "scalar_window_stats" -> scalarWindowStats(args);
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
@@ -1846,6 +1888,74 @@ public class MathToolSuite {
             bound = defaultRecallBound(draft);
         }
         return "recall_frontier_knowledge [" + bound + "]:\n" + frontierKnowledge.recallText(bound);
+    }
+
+    /**
+     * 2026-06-05 — scalar_window_stats: deterministic min/max/argmax/mean of one window
+     * scalar (optionally Pearson+Spearman vs a second) over consecutive windows, via the
+     * verifier's {@code sampleWindows} substrate. Replaces the sandbox-loop-capped
+     * computations the panel keeps requesting (P-b72c-121's HCN-growth and correlation
+     * open questions). The "Invalid scalar_window_stats call:" reject prefix keeps
+     * rejected ranges out of the validator's executed-range union; the success prefix is
+     * in {@link #SUCCESS_PREFIXES} (a computed stat is real evidence).
+     */
+    String scalarWindowStats(JsonNode args) {
+        if (!scalarStatsAvailable()) {
+            return "scalar_window_stats: disabled (verifier not wired or tool off).";
+        }
+        String lhs = args.path("lhs").asText(null);
+        String rhsRaw = args.path("rhs").asText("");
+        String rhs = rhsRaw == null || rhsRaw.isBlank() ? null : rhsRaw;
+        long windowStart = args.path("window_start").asLong(0);
+        int windowSize   = args.path("window_size").asInt(0);
+        int numWindows   = args.path("num_windows").asInt(0);
+
+        java.util.List<String> vocab = com.emergentterrain.research.conjecture.MathInvariants.vocabulary();
+        if (lhs == null || !vocab.contains(lhs)) {
+            return "Invalid scalar_window_stats call: unknown lhs scalar '" + lhs
+                    + "'. Valid scalars: " + String.join(", ", vocab);
+        }
+        if (rhs != null && !vocab.contains(rhs)) {
+            return "Invalid scalar_window_stats call: unknown rhs scalar '" + rhs
+                    + "'. Valid scalars: " + String.join(", ", vocab);
+        }
+        if (windowStart < 1 || windowSize < 100 || windowSize > 50_000
+                || numWindows < 1 || numWindows > 200) {
+            return "Invalid scalar_window_stats call: require window_start >= 1, "
+                    + "window_size in [100, 50000], num_windows in [1, 200].";
+        }
+
+        java.util.List<java.util.Map<String, Double>> samples =
+                conjectureVerifier.sampleWindows(windowStart, windowSize, numWindows);
+        com.emergentterrain.research.conjecture.ScalarWindowStats.Result r =
+                com.emergentterrain.research.conjecture.ScalarWindowStats.compute(
+                        samples, lhs, rhs, windowStart, windowSize);
+        if (r == null) {
+            return "scalar_window_stats: no usable windows — the requested range may extend past "
+                    + "the 2,000,000 sieve ceiling, or the scalar was absent from every window.";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("scalar_window_stats: %s%s over %d window(s) of size %d starting at %d.%n",
+                lhs, rhs == null ? "" : " vs " + rhs, r.windows(), windowSize, windowStart));
+        appendSeries(sb, r.lhs());
+        if (r.rhs() != null) {
+            appendSeries(sb, r.rhs());
+            if (r.pearson() != null) {
+                sb.append(String.format("  correlation over %d windows: Pearson %+.4f, Spearman %+.4f%n",
+                        r.windows(), r.pearson(), r.spearman()));
+            } else {
+                sb.append("  correlation: undefined (a scalar is constant over these windows, or < 3 windows)\n");
+            }
+        }
+        sb.append("  (deterministic computation over the trusted sieve substrate; windows past "
+                + "x=2,000,000 were skipped)");
+        return sb.toString();
+    }
+
+    private static void appendSeries(StringBuilder sb,
+            com.emergentterrain.research.conjecture.ScalarWindowStats.Series s) {
+        sb.append(String.format("  %s: n=%d min=%+.5f max=%+.5f (at window start %d) mean=%+.5f%n",
+                s.name(), s.n(), s.min(), s.max(), s.argmaxWindowStart(), s.mean()));
     }
 
     /**
