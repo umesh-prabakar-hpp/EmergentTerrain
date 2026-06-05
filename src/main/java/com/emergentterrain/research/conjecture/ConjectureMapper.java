@@ -70,7 +70,14 @@ public class ConjectureMapper {
     }
 
     private void copyMutableFields(Inequality ineq, Conjecture entity) {
-        entity.setConfirmedRuns(ineq.confirmedRuns);
+        // 2026-06-05 — HIGH-WATER MARK, not overwrite. The empty-pool re-seed loop
+        // regenerates every retired pair fresh each pass (confirmedRuns 0–1 before its
+        // counterexample) and re-saved that low count over the row's history, so the
+        // whole corpus decayed to max(confirmed_runs)=1 — silently starving every
+        // consumer of held-out evidence: anomaly mining (30.1, "0 surviving" forever),
+        // and the 30.5 vocabulary-expansion anomaly-stratum targets (budget 0).
+        // confirmedRuns now records the most runs this relation EVER survived.
+        entity.setConfirmedRuns(Math.max(entity.confirmedRuns(), ineq.confirmedRuns));
         entity.setP99Slack(ineq.p99Slack);
         entity.setDroppedByKnob(ineq.droppedByKnob);
         entity.setConfirmedConfigsJson(writeJson(ineq.confirmedConfigs));

@@ -686,10 +686,17 @@ public class ConjectureMinerService implements ConjectureQueue {
                 for (VocabularyExpansion.Target t : targets) {
                     taken.add(t.lhs() + "≤" + t.rhs());
                 }
+                // Threshold 1, not anomalyMinConfirmed: the corpus's historical
+                // confirmedRuns were clobbered to ≤1 by the pre-high-water re-save
+                // loop (see ConjectureMapper.copyMutableFields), so ≥5 selects an
+                // empty set today. ≥1 = held at least one full run before breaking —
+                // weak but real held-out evidence; the desc sort keeps the best
+                // evidence leading, and as the high-water mark re-accumulates the
+                // same code naturally serves stronger targets.
                 List<Inequality> anomalyStratum = new ArrayList<>();
                 for (Conjecture c : existing) {
                     if (DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob())
-                            && c.confirmedRuns() >= anomalyMinConfirmed) {
+                            && c.confirmedRuns() >= 1) {
                         anomalyStratum.add(mapper.toInequality(c));
                     }
                 }
