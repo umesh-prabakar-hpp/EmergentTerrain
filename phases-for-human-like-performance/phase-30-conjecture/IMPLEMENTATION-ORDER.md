@@ -183,7 +183,7 @@ mechanism compiles to `predict()` and regenerates its claim out-of-sample, respe
 
 | Item | Source | Gate |
 |------|--------|------|
-| **30.6 anomaly→open-problem promotion** (adversarial replication + clade-value) + **discovery-yield health metric** | 30.6, sim #13 | W3, W4, W6 |
+| **30.6 anomaly→open-problem promotion** — ✅ **shipped + ON 2026-06-05** (`842f9c6`): `AnomalyPromotionGate` (N adversarial re-verification attempts, both regimes, fresh deterministic windows) → `promoted_anomaly_at` stamp (clobber-proof JPQL) → one `PaperKind.ANOMALY_PROMOTION` UNEXPLAINED_OBSERVATION paper per promotion → `ProgramOpenQuestion` seeded at publish. No-op until the high-water `confirmedRuns` mark reaccumulates past `anomalyMinConfirmed` (same ramp as 30.5). Discovery-yield health metric not yet built. | 30.6, sim #13 | W3, W4, W6 (all ON) |
 | **30.4 literature grounding** — layered-resolution design updated 2026-06-04 per the ARC review ([`phase-30-arc-patterns.md`](phase-30-arc-patterns.md)); still pending behind the calibration | 30.4 | **23.8 calibration** (see below) |
 
 **Acceptance:** one `UNEXPLAINED_OBSERVATION` paper that cites a surviving anomaly/residual, records ≥N
@@ -223,7 +223,7 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 4 | evaluation hardening | med | high | low | ✅ **all four ON** — private-holdout + replication 2026-06-03; stochastic null + multiple-comparisons 2026-06-04 (null A/B passed on the 2026-06-03 shadow log) |
 | 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped + ON** — 30.3 composition (ON), 30.2 residual-structure + 30.1 anomaly mining (ON 2026-06-03, log-only), 30.5 vocabulary expansion (ON 2026-06-05, A/B live via anomaly-stratum targets) |
 | 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
-| 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ⏳ not started; 30.4 literature grounding **deferred** (calibration: generation is the blocker) |
+| 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ◐ 30.6 promotion **shipped + ON 2026-06-05** (no-op until confirmedRuns reaccumulate; acceptance = first UNEXPLAINED_OBSERVATION promotion paper); 30.4 literature grounding **deferred** (calibration: generation is the blocker); discovery-yield metric ⏳ |
 
 **Review-driven pipeline fixes (2026-06-04).** A `/paper-review` session shipped production-layer
 hardening alongside the waves above — window-geometry-LHS exclusion (Wave-1 triviality extension, ON;
