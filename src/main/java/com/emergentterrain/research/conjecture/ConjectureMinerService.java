@@ -664,14 +664,43 @@ public class ConjectureMinerService implements ConjectureQueue {
                     .filter(e -> !known.contains(e.render()))   // don't re-admit existing scalars
                     .limit(VOCAB_CANDIDATE_CAP)
                     .toList();
-            List<VocabularyExpansion.Target> targets = store.stream()
+            // Targets: live survivors first. When the live pool is thin — the post-W4
+            // steady state is 0 survivors, which made this whole block a silent no-op
+            // (empty targets AND nValidations=0 ⇒ sublinear budget 0) — fall back to
+            // the anomaly stratum: counterexample-retired bounds that held ≥
+            // anomalyMinConfirmed runs first. Those are the relations with enough
+            // held-out evidence to carry residual structure worth explaining; a
+            // refuted BOUND still has a fittable lhs~rhs relation, which is all the
+            // MDL residual test consumes. (2026-06-05, unblocking the 30.5 A/B.)
+            List<VocabularyExpansion.Target> targets = new ArrayList<>(store.stream()
                     .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
                     .limit(VOCAB_TARGET_CAP)
                     .map(i -> new VocabularyExpansion.Target(i.lhs, i.rhs))
-                    .toList();
+                    .toList());
             long nValidations = 0;
             for (Inequality ineq : store) {
                 nValidations += ineq.confirmedRuns();
+            }
+            if (targets.size() < VOCAB_TARGET_CAP) {
+                java.util.Set<String> taken = new java.util.HashSet<>();
+                for (VocabularyExpansion.Target t : targets) {
+                    taken.add(t.lhs() + "≤" + t.rhs());
+                }
+                List<Inequality> anomalyStratum = new ArrayList<>();
+                for (Conjecture c : existing) {
+                    if (DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob())
+                            && c.confirmedRuns() >= anomalyMinConfirmed) {
+                        anomalyStratum.add(mapper.toInequality(c));
+                    }
+                }
+                anomalyStratum.sort(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns));
+                for (Inequality ineq : anomalyStratum) {
+                    if (targets.size() >= VOCAB_TARGET_CAP) break;
+                    if (taken.add(ineq.lhs + "≤" + ineq.rhs)) {
+                        targets.add(new VocabularyExpansion.Target(ineq.lhs, ineq.rhs));
+                        nValidations += ineq.confirmedRuns;
+                    }
+                }
             }
             int budget = SublinearGenerationBudget.budget(nValidations, sublinearBudgetAlpha, VOCAB_ADMIT_CAP);
             MdlGate.Params params = new MdlGate.Params(
