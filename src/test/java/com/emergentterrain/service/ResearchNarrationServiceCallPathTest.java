@@ -553,11 +553,18 @@ class ResearchNarrationServiceCallPathTest {
             ResearchNarrationService.proseIntegrityEnabled = true;
             String out = ResearchNarrationService.withProseIntegrity("BASE");
             assertThat(out).startsWith("BASE").contains("PROSE INTEGRITY");
-            // covers: untraceable number, un-executed range, FAILED-call citation
+            // covers: untraceable number, un-executed range, FAILED-call citation,
+            // and (2026-06-05) unsourced uncertainty/± claims — the clause mirrors
+            // UnsourcedClaimValidator's triggers (±, uncertainty, derivative, error)
+            // + same-sentence [call_N] contract, which took three 0.72+ papers in
+            // two sessions (P-b72c-146/164/168).
             assertThat(out)
                     .containsIgnoringCase("appears in a tool-call result")
                     .containsIgnoringCase("ranges/intervals the tool calls actually")
-                    .containsIgnoringCase("FAILED");
+                    .containsIgnoringCase("FAILED")
+                    .containsIgnoringCase("uncertainty, error bound, ± margin, or derivative")
+                    .containsIgnoringCase("SAME sentence")
+                    .containsIgnoringCase("never recompute");
             // domain-neutral: no domain-specific terms baked in
             assertThat(out.toLowerCase())
                     .doesNotContain("mertens").doesNotContain("prime").doesNotContain("density");

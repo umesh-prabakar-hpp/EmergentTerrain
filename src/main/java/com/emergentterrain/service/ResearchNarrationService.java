@@ -3940,6 +3940,10 @@ public class ResearchNarrationService {
             the union of the executed ranges.
             - Never cite a `[call_N]` marked FAILED / errored / rejected in the trace, and \
             never reference a call index that does not exist — a failed call produced no data.
+            - State an uncertainty, error bound, ± margin, or derivative ONLY as a tool result \
+            gives it, with the `[call_N]` citation in the SAME sentence — copy the ± value \
+            verbatim from the result string; never recompute, estimate, or invent one. If no \
+            tool output quantifies the uncertainty, say nothing about it.
             """;
 
     /** Flag-gated activation of {@link #PROSE_INTEGRITY_ADDENDUM} (static mirror of the
