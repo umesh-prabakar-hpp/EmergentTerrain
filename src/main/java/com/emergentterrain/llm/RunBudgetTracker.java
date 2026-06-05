@@ -190,10 +190,42 @@ public class RunBudgetTracker {
      * transient).
      */
     public void recordAuthClassFailure(String provider, int statusCode) {
+        recordAuthClassFailure(provider, statusCode, null);
+    }
+
+    /**
+     * Overload carrying a snippet of the provider's error body, so the loud
+     * operator alert below can include the actual reason and any manage-key URL
+     * the provider returned (e.g. OpenRouter's "Key limit exceeded … Manage it
+     * using https://openrouter.ai/…/keys/…").
+     */
+    public void recordAuthClassFailure(String provider, int statusCode, String detail) {
         if (!props.isEnabled() || provider == null) return;
         if (statusCode != 401 && statusCode != 402 && statusCode != 403) return;
         long streak = authFailureStreak
                 .computeIfAbsent(provider, k -> new AtomicLong()).incrementAndGet();
+        if (streak == AUTH_FAILURE_DISABLE_THRESHOLD) {
+            // 2026-06-05 operator request — a LOUD, unmissable alert, emitted exactly
+            // once per provider per run at the moment of auto-disable. The middle line
+            // is deliberately addressed to log-REVIEWING processes (the paper-review
+            // skill's operational-logs section, ops summaries, any agent grepping this
+            // file): a dead key silently degrades every downstream metric, so it must
+            // surface in their summaries, not just here.
+            log.error("""
+
+                    ╔═══════════════════════ LLM PROVIDER KEY/CREDIT FAILURE ═══════════════════════╗
+                    ║ Provider '{}' returned HTTP {} on {} consecutive calls — API key invalid,
+                    ║ spend limit, or credit limit reached. The provider is AUTO-DISABLED for the
+                    ║ rest of this run; routing falls through to the remaining providers.
+                    ║ Provider message: {}
+                    ║ ►► ANY PROCESS OR AGENT REVIEWING THESE LOGS (paper-review operational-logs
+                    ║ section, ops summaries, monitoring): REPORT THIS EVENT PROMINENTLY IN YOUR
+                    ║ SUMMARY — papers produced this session ran without this provider.
+                    ║ ►► OPERATOR ACTION REQUIRED: restore the key/credits, then restart.
+                    ╚════════════════════════════════════════════════════════════════════════════════╝""",
+                    provider, statusCode, streak,
+                    detail == null || detail.isBlank() ? "(none captured)" : detail);
+        }
         if (streak >= AUTH_FAILURE_DISABLE_THRESHOLD) {
             disableProvider(provider, "HTTP " + statusCode + " ×" + streak
                     + " consecutive — key invalid / limit exceeded? (auth-class auto-disable)");

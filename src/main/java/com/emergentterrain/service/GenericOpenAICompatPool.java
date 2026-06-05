@@ -118,11 +118,22 @@ public class GenericOpenAICompatPool implements LlmPool {
     /**
      * 2026-06-05 — forward an auth/billing-class HTTP failure (401/402/403) to the
      * tracker's consecutive-failure auto-disable. Null-safe; the tracker ignores
-     * other status codes, so callers pass whatever non-200/429/404 they saw.
+     * other status codes, so callers pass whatever non-200/429/404 they saw. The
+     * body snippet feeds the tracker's loud operator alert (it usually carries the
+     * provider's reason + manage-key URL); truncated and flattened for one-line use.
      */
     private void reportAuthClassFailure(int statusCode) {
+        reportAuthClassFailure(statusCode, null);
+    }
+
+    private void reportAuthClassFailure(int statusCode, String body) {
         if (runBudgetTracker != null) {
-            runBudgetTracker.recordAuthClassFailure(cfg.providerKey(), statusCode);
+            String detail = body == null ? null
+                    : body.replaceAll("\\s+", " ").trim();
+            if (detail != null && detail.length() > 240) {
+                detail = detail.substring(0, 240) + "…";
+            }
+            runBudgetTracker.recordAuthClassFailure(cfg.providerKey(), statusCode, detail);
         }
     }
     /** Phase 20.3 — cached tool-schema policy. Null-safe (off ⇒ legacy behavior). */
@@ -569,7 +580,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                     // OpenRouter "Key limit exceeded") feed the tracker's consecutive-
                     // failure auto-disable, so a dead key costs ~5 budget calls,
                     // not a session (the 12:05 403 storm: 366 calls in 6 min).
-                    reportAuthClassFailure(resp.statusCode());
+                    reportAuthClassFailure(resp.statusCode(), resp.body());
                 }
                 throw new RuntimeException(cfg.providerKey() + " API error " + resp.statusCode() + ": " + resp.body());
             }
@@ -746,7 +757,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                 } else if (respStatus == 404) {
                     checkPermanent404(modelId, body);
                 } else {
-                    reportAuthClassFailure(respStatus);   // 2026-06-05 — see chat path
+                    reportAuthClassFailure(respStatus, body);   // 2026-06-05 — see chat path
                 }
                 throw new RuntimeException(cfg.providerKey() + " stream API error " + respStatus + ": " + body);
             }
@@ -900,7 +911,7 @@ public class GenericOpenAICompatPool implements LlmPool {
                         } else if (resp.statusCode() == 404) {
                             checkPermanent404(modelId, resp.body());
                         } else {
-                            reportAuthClassFailure(resp.statusCode());   // 2026-06-05 — see chat path
+                            reportAuthClassFailure(resp.statusCode(), resp.body());   // 2026-06-05 — see chat path
                         }
                         throw new RuntimeException(cfg.providerKey() + " API error "
                                 + resp.statusCode() + ": " + resp.body());
