@@ -94,6 +94,20 @@ below:
   manifest, refine/pivot + fresh pre-registration, lesson overlay, cost guard, publish-approval
   gate, paper benchmark; all proposals, nothing built); and
   [arc-feature-considerations.md](arc-feature-considerations.md) — reference-not-queued notes
+- **Phase 31 — cross-run research memory & composition**
+  ([phase-31-research-memory/](phase-31-research-memory/), 2026-06-04, **proposal — nothing
+  built**): fourth external-pattern review, over seven fresh clones (mem0, LightMem, agentmemory,
+  claude-memory-compiler, gpt-researcher, karpathy/autoresearch, Auto-Deep-Research). Thesis: the
+  uncovered layer is **cross-run knowledge** — papers/REVIEW_REPORT reset on restart, no method
+  carryover beyond frontier `verified_methods`, panel/gate/audit signals emitted and dropped,
+  three-way provenance fragmentation. Items 31.1–31.6 adopt the capture → consolidate → recall →
+  lint loop (typed memory store, contradiction-resolving consolidation, index-first recall,
+  procedural skills as the 29.3.4 first slice, provenance unification); 31.7–31.10 add synthesis
+  papers, persona binding, fixed-budget commensurability, and a pipeline experiment journal.
+  Sequencing + flag inventory:
+  [phase-31-research-memory/IMPLEMENTATION-ORDER.md](phase-31-research-memory/IMPLEMENTATION-ORDER.md);
+  per-repo adopted/covered/rejected dispositions:
+  [phase-31-research-memory/phase-31-repo-survey.md](phase-31-research-memory/phase-31-repo-survey.md).
   (voice, calendar, collaboration pub-sub, MCP server, wizard, OpenClaw bridge). The 30.4
   literature-grounding design in `phase-30-genuinely-novel-claims.md` was updated (layered
   citation resolution); its 23.8-calibration deferral is unchanged.
