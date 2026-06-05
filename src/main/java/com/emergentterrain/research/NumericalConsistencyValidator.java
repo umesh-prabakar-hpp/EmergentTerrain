@@ -523,11 +523,20 @@ public final class NumericalConsistencyValidator {
         }
         if (permitted.isEmpty()) return;
 
+        // 2026-06-05 rec #1 — canonical CI multipliers are methodological constants,
+        // not fabricated results, WHEN the trace itself reports confidence intervals.
+        // P-b72c-131 was struck for citing 1.96, which is verifiably the multiplier
+        // behind the trace's own half-widths (1.96·√(0.025·0.975/400) = 0.0153 ≈ the
+        // reported ±0.015). Gated on CI context so a bare 1.96 in a non-CI paper still
+        // flags — the allowlist never applies where no interval was computed.
+        boolean traceHasCi = traceContainsConfidenceIntervals(trace);
+
         Matcher m = SALIENT_NUMBER.matcher(findings);
         while (m.find()) {
             double n;
             try { n = Double.parseDouble(m.group(1)); }
             catch (NumberFormatException ex) { continue; }
+            if (traceHasCi && isCanonicalCiConstant(n)) continue;
             if (!isPermittedNumber(n, permitted)
                     && !isDerivedOneStep(n, hypothesisCoeffs, perResultNumbers, permitted)) {
                 reasons.add(String.format(
@@ -624,6 +633,36 @@ public final class NumericalConsistencyValidator {
             // magnitude are not reconciled. This was the dominant residual
             // false-NULL source in the post-rotation a3289005 batch.
             if (sameMantissaDifferentScale(value, p)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 2026-06-05 rec #1 — the canonical two-sided normal CI multipliers for the
+     * 90% / 95% / 99% levels. A narrator explaining how the trace's intervals were
+     * constructed legitimately cites these; they are textbook constants that by
+     * definition trace to no tool output. Deliberately a tiny closed set — NOT a
+     * general "well-known constants" registry, which would erode the fabrication
+     * catch one plausible constant at a time.
+     */
+    private static final double[] CANONICAL_CI_CONSTANTS = {1.645, 1.96, 2.576};
+
+    /** True when {@code value} is one of {@link #CANONICAL_CI_CONSTANTS} (±1%). */
+    static boolean isCanonicalCiConstant(double value) {
+        for (double c : CANONICAL_CI_CONSTANTS) {
+            if (Math.abs(value - c) / c <= F5_5_RELATIVE_TOLERANCE) return true;
+        }
+        return false;
+    }
+
+    /** True when any tool result reports a confidence interval ("% CI"). */
+    static boolean traceContainsConfidenceIntervals(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null) return false;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv != null && inv.resultJson() != null && inv.resultJson().contains("% CI")) {
+                return true;
+            }
         }
         return false;
     }

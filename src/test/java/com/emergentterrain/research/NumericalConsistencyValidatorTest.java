@@ -823,6 +823,48 @@ class NumericalConsistencyValidatorTest {
     }
 
     @Test
+    void rec1b_canonicalCiConstantPassesWhenTraceReportsIntervals() {
+        // P-b72c-131: prose cites 1.96 as the CI-construction multiplier; the trace's
+        // own half-widths are 1.96-derived (1.96·√(0.025·0.975/400) ≈ ±0.015). A
+        // methodological constant, not a fabricated result — no flag.
+        String hypothesis = "Joint prime-and-happy density in [500,900) near the independence model.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Intervals are normal approximations using the 1.96 multiplier at the 95% level.");
+        String conclusion = "No anomaly detected.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"predicate\":\"isPrime AND isHappy\",\"range_start\":500,\"range_end\":900}",
+                        "fraction satisfying predicate = 0.025 ± 0.015 (95% CI, n=400).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("1.96"));
+    }
+
+    @Test
+    void rec1b_canonicalCiConstantStillFlagsWithoutCiContext() {
+        // Same 1.96 citation but the trace reports NO confidence intervals — the
+        // allowlist must not apply; an unexplained 1.96 stays a fabrication flag.
+        String hypothesis = "Bound study.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The decisive scaling factor is 1.96 across all sampled windows.");
+        String conclusion = "Factor confirmed.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "verify_conjecture",
+                        "{\"lhs\":\"mertens_delta\",\"k\":2,\"c\":17.0,\"window_start\":200000,"
+                                + "\"window_size\":5000,\"num_windows\":5}",
+                        "HELD. Per-window: start=200000 lhs=-60.00000 rhs_scalar=+0.08230 holds",
+                        0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons)
+                .anyMatch(r -> r.contains("1.96") && r.contains("not within ±1%"));
+    }
+
+    @Test
     void rec2_fractionalBoundIntervalIsNotARangeClaim() {
         // P-b72c-120: "[0.7513, 0.7536)" is an observed-scalar band, not a scan
         // range — fractional bounds must not trigger scope overreach.

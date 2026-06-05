@@ -612,7 +612,7 @@ public class MathToolSuite {
                   "type":"function",
                   "function":{
                     "name":"run_predicate_scan",
-                    "description":"Scan integers in [range_start, range_end) satisfying a number-theoretic predicate and measure a statistic. Use to test whether a specific property holds in a different integer range.",
+                    "description":"Scan integers in [range_start, range_end) satisfying a number-theoretic predicate and measure a statistic. Use to test whether a specific property holds in a different integer range. The span per call is capped at 500: to cover a wider range, call this tool several times over ADJACENT sub-ranges (e.g. [800,1300) then [1300,1800)) and report each sub-range separately — never describe results over a range you did not scan.",
                     "parameters":{
                       "type":"object",
                       "properties":{
@@ -1183,7 +1183,17 @@ public class MathToolSuite {
         String hypothesis = args.path("hypothesis").asText("");
         if (predicate == null || rangeStart < 1 || rangeEnd <= rangeStart
                 || rangeEnd - rangeStart > DynamicComputeEngine.MAX_RANGE) {
-            return "Invalid predicate scan: range must be ≥1 and span ≤ " + DynamicComputeEngine.MAX_RANGE;
+            // 2026-06-05 — inform, don't just reject: the recurring failure mode is a
+            // wide-range request rejected here, followed by prose that claims the
+            // never-scanned range anyway (P-b72c-131 [100,1900), P-b72c-124 [1000,1400)
+            // — both NULL'd as scope overreach). Tell the model the repair path so the
+            // wide claim becomes several real scans instead of an unexecuted assertion.
+            return "Invalid predicate scan: range must be ≥1 and span ≤ "
+                    + DynamicComputeEngine.MAX_RANGE
+                    + ". To cover a wider range, issue several calls over ADJACENT sub-ranges"
+                    + " (e.g. [a, a+" + DynamicComputeEngine.MAX_RANGE + ") then"
+                    + " [a+" + DynamicComputeEngine.MAX_RANGE + ", a+" + 2 * DynamicComputeEngine.MAX_RANGE
+                    + ")) and report each separately; do NOT describe results over a range you did not scan.";
         }
         for (String token : predicate.replace(" AND ", "|").replace(" OR ", "|").split("\\|")) {
             if (!VALID_PREDICATES.contains(token.trim()))
