@@ -45,4 +45,15 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     @Transactional
     @Query("update Conjecture c set c.lastInvestigatedAt = :ts where c.id = :id")
     int stampInvestigated(@Param("id") UUID id, @Param("ts") Instant ts);
+
+    /**
+     * Phase 30 Wave 7 — 30.6: targeted stamp for an anomaly that survived the
+     * adversarial promotion gate. Same single-writer/JPQL pattern (and rationale)
+     * as {@link #stampInvestigated}: the column is {@code updatable=false} so the
+     * miner's pass-long re-save loop cannot clobber it.
+     */
+    @Modifying
+    @Transactional
+    @Query("update Conjecture c set c.promotedAnomalyAt = :ts where c.id = :id")
+    int stampPromotedAnomaly(@Param("id") UUID id, @Param("ts") Instant ts);
 }

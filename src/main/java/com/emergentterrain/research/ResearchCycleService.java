@@ -386,6 +386,16 @@ public class ResearchCycleService {
         // anomalyTracker are intentionally untouched on this branch —
         // conjecture papers don't roll the catalog at all.
         if (conjectureTopicProvider != null) {
+            // Phase 30 Wave 7 — 30.6: a promoted anomaly outranks ordinary conjecture
+            // selection (rare by construction: requires surviving the adversarial
+            // replication gate; self-limiting: one paper per promotion stamp).
+            java.util.Optional<com.emergentterrain.research.conjecture.Conjecture> promoted =
+                    conjectureTopicProvider.selectPromotedAnomaly(domain);
+            if (promoted.isPresent()) {
+                conjectureTopicProvider.markInvestigated(promoted.get());
+                publishAnomalyPromotion(roomId, author, promoted.get(), gameTick, ctx);
+                return;
+            }
             java.util.Optional<com.emergentterrain.research.conjecture.Conjecture> conjecture =
                     conjectureTopicProvider.selectConjecture(domain, rng);
             if (conjecture.isPresent()) {
@@ -681,6 +691,97 @@ public class ResearchCycleService {
         log.info("conjecture investigation queued: room={} bot={} paperId={} framing={} conjecture=\"{}\" runs={}",
                 roomId, author.getBotId(), paperId,
                 frontier == null ? "in-range" : "frontier:" + frontier.boundKey,
+                String.format("%s <= %+.4f * %s + %+.4f",
+                        conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c()),
+                conjecture.confirmedRuns());
+    }
+
+    /**
+     * Phase 30 Wave 7 — 30.6: publish a promoted anomaly as an UNEXPLAINED_OBSERVATION
+     * investigation. The seed framing states exactly what is established (held N runs in
+     * its regime, broke hard elsewhere, the break REPLICATED across adversarial
+     * refutation attempts, no OEIS match) and instructs the professor to attack it again
+     * with its tools, label honestly (UNEXPLAINED_OBSERVATION, never SUPPORTED), and
+     * close with the open question. Kind {@link PaperKind#ANOMALY_PROMOTION} drives the
+     * publish-time {@code ProgramOpenQuestion} seeding in {@code UniversityService}.
+     */
+    void publishAnomalyPromotion(
+            UUID roomId,
+            Researcher author,
+            com.emergentterrain.research.conjecture.Conjecture conjecture,
+            long gameTick,
+            Context ctx) {
+        String paperId = ctx.nextPaperId(roomId);
+        String topicName = "anomaly/" + conjecture.lhs();
+        String title = String.format(
+                "Unexplained regime-dependence of %s (held bound %s ≤ %+.4f · %s + %+.4f broke and replicated)",
+                conjecture.lhs(), conjecture.lhs(),
+                conjecture.k(), conjecture.rhs(), conjecture.c());
+        FrontierDomain frontier = conjectureFrontierFramingEnabled
+                ? frontierDomainFor(conjecture.lhs(), conjecture.rhs()) : null;
+
+        String hypothesis = String.format(
+                "ANOMALY (promoted open problem): the bound `%s ≤ %+.4f · %s + %+.4f` was a real "
+                        + "pattern first — confirmed across %d run(s) in its mined regime — then broke "
+                        + "surprisingly hard elsewhere, and the break REPLICATED under %s independent "
+                        + "adversarial re-verification attempts (fresh windows, both regimes). No OEIS "
+                        + "match is known. The open question: WHAT distinguishes the regimes? This paper "
+                        + "characterizes the regime-dependence; it does not claim the bound.",
+                conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c(),
+                conjecture.confirmedRuns(), "multiple");
+        String findings = String.format(
+                "Promotion record for %s ≤ %+.4f · %s + %+.4f: confirmed %d run(s), then "
+                        + "counterexample-refuted; the violation reproduced under fresh adversarial "
+                        + "probes in the break regime while the hold regime stayed clean (promotion "
+                        + "gate). Investigate with your tools: verify_conjecture in BOTH regimes; "
+                        + "scalar_window_stats to characterize where the transition happens and what "
+                        + "the scalars do across it; search_literature for prior work. Label this "
+                        + "UNEXPLAINED_OBSERVATION — the honest outcome here is a well-characterized "
+                        + "open problem, NOT a supported claim. If your probes refute the anomaly "
+                        + "(violations in the hold regime, or the break vanishing), say so plainly: "
+                        + "a refuted anomaly is a valid null result.",
+                conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c(),
+                conjecture.confirmedRuns());
+        String conclusion = "State what is established (the replicated regime-dependence), what is "
+                + "open (its cause), and the sharpest form of the open question your evidence "
+                + "supports. No proof claims; no asymptotic claims beyond the probed ranges.";
+
+        double peerScore = 0.5;   // neutral seed; the panel re-scores on content
+        PaperDraft draft = new PaperDraft(
+                roomId, author.getBotId(),
+                author.getDomain(),
+                topicName,
+                title,
+                findings, hypothesis, conclusion,
+                "EMPIRICAL",
+                List.of(),
+                peerScore, peerScore,
+                0.0,
+                gameTick, Instant.now(),
+                author.getGeneration(), paperId,
+                null, null,
+                false,
+                null, null,
+                ctx.getPublishedPapers(roomId, 5),
+                author.getState().getResearchHypothesis(),
+                null,
+                ResultClassification.SUPPORTED,
+                null,
+                PaperKind.ANOMALY_PROMOTION,
+                frontier);
+
+        Consumer<PaperDraft> narratingCallback = ctx.narratingCallback();
+        if (narratingCallback != null) {
+            markDraftInFlight(draft.paperId());
+            narratingCallback.accept(draft);
+        } else {
+            ctx.publishPaper(draft, new NarrationResult(
+                    hypothesis, findings, conclusion, null, null, 0.5, List.of()));
+        }
+        papersSinceTerm.merge(roomId, 1, Integer::sum);
+        author.recordPublished(peerScore);
+        log.info("ANOMALY PROMOTION queued: room={} bot={} paperId={} conjecture=\"{}\" confirmedRuns={}",
+                roomId, author.getBotId(), paperId,
                 String.format("%s <= %+.4f * %s + %+.4f",
                         conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c()),
                 conjecture.confirmedRuns());

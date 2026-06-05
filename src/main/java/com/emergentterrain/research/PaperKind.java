@@ -29,5 +29,16 @@ public enum PaperKind {
      * this value is the persistence-side handle so the kind can be recorded
      * once the upstream wiring is ready.
      */
-    CONJECTURE_INVESTIGATION
+    CONJECTURE_INVESTIGATION,
+
+    /**
+     * Phase 30 Wave 7 — 30.6: an UNEXPLAINED_OBSERVATION investigation of an
+     * anomaly that survived the adversarial promotion gate (a bound that held
+     * >= N runs, broke surprisingly hard, replicated under fresh refutation
+     * attempts, and matches no OEIS entry). At publish, papers of this kind
+     * seed a {@link ProgramOpenQuestion} so future cycles deliberately
+     * re-target the anomaly. Safe enum addition: persisted via
+     * {@link PaperKindConverter} (@Convert, name string — no CHECK constraint).
+     */
+    ANOMALY_PROMOTION
 }

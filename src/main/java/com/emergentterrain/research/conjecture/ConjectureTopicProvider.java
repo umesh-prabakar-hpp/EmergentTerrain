@@ -72,6 +72,24 @@ public class ConjectureTopicProvider {
     }
 
     /**
+     * Phase 30 Wave 7 — 30.6: a promoted anomaly awaiting its
+     * UNEXPLAINED_OBSERVATION investigation, or empty. No {@code paperShare}
+     * roll — a gate-surviving anomaly is rare by construction and self-limiting
+     * (one paper per promotion stamp; see the miner's {@code nextPromotedAnomaly}).
+     * Same substrate gate as ordinary conjecture selection.
+     */
+    public Optional<Conjecture> selectPromotedAnomaly(String domain) {
+        if (queue.isEmpty()) {
+            return Optional.empty();
+        }
+        String substrate = conjectureDomainKey(domain);
+        if (!allowedSubstrates.contains(substrate)) {
+            return Optional.empty();
+        }
+        return queue.get().nextPromotedAnomaly(substrate);
+    }
+
+    /**
      * Roll the paperShare probability; if it fires AND the queue is
      * present AND non-empty, return the next conjecture. Otherwise return
      * empty (caller falls back to the catalog path).

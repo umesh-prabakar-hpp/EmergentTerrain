@@ -189,6 +189,24 @@ public class ConjectureMinerService implements ConjectureQueue {
     // Phase 30 Wave 5 — anomaly mining (30.1); observability hook, no persistence yet.
     private final boolean anomalyMiningEnabled;
     private final int anomalyMinConfirmed;
+    /** Phase 30 Wave 7 — 30.6 promotion gate (needs the verifier; see setConjectureVerifier). */
+    private final boolean anomalyPromotionEnabled;
+    private final int promotionRefutationAttempts;
+    /** Hold-regime probe anchor for the promotion gate (inside the miner's training regime). */
+    static final long PROMOTION_HOLD_START = 100_000L;
+    static final int PROMOTION_WINDOW_SIZE = 1_000;
+
+    /**
+     * Optional — the promotion gate's re-verification surface. Set by the narration
+     * layer (which owns the verifier bean); absent in unit tests and when conjecture
+     * verification is unwired, in which case promotion is silently skipped.
+     */
+    private volatile ConjectureVerifier conjectureVerifier;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setConjectureVerifier(ConjectureVerifier verifier) {
+        this.conjectureVerifier = verifier;
+    }
     // Phase 30 Wave 5 — vocabulary expansion (30.5 P3a admission); observability, no persistence yet.
     private final boolean vocabularyExpansionEnabled;
     private final int vocabularyExpansionDepth;
@@ -277,6 +295,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.residualStructureEnabled = props.isResidualStructureEnabled();
         this.anomalyMiningEnabled = props.isAnomalyMiningEnabled();
         this.anomalyMinConfirmed = props.getAnomalyMinConfirmed();
+        this.anomalyPromotionEnabled = props.isAnomalyPromotionEnabled();
+        this.promotionRefutationAttempts = props.getPromotionRefutationAttempts();
         this.vocabularyExpansionEnabled = props.isVocabularyExpansionEnabled();
         this.vocabularyExpansionDepth = props.getVocabularyExpansionDepth();
         this.rafClosureEnabled = props.isRafClosureEnabled();
@@ -649,6 +669,41 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             log.info("anomaly mining — {} refuted candidate(s) examined, {} surviving anomalies past MCC",
                     refutedPool.size(), anomalies.size());
+
+            // Phase 30 Wave 7 — 30.6 adversarial promotion. The TOP MCC survivor (one per
+            // pass — promotion is rare by construction) that has no OEIS match and no prior
+            // promotion stamp is re-verified at fresh windows in BOTH regimes, each attempt
+            // trying to refute the anomaly's regime-dependence. Survivors are stamped
+            // (targeted JPQL — updatable=false column) and the paper pipeline serves them
+            // as UNEXPLAINED_OBSERVATION investigations. Skipped silently when the verifier
+            // isn't wired (unit tests / verification off).
+            ConjectureVerifier verifier = conjectureVerifier;
+            if (anomalyPromotionEnabled && verifier != null && !anomalies.isEmpty()) {
+                AnomalyMiner.Anomaly top = anomalies.get(0);
+                String key = keyOf(top.lhs(), top.rhs());
+                Conjecture entity = byKey.get(key);
+                boolean oeisMatch = entity != null && entity.oeisMatchJson() != null
+                        && !entity.oeisMatchJson().isEmpty()
+                        && entity.oeisMatchJson().contains("\"has_match\":true");
+                if (entity != null && entity.promotedAnomalyAt() == null && !oeisMatch) {
+                    Inequality ineq = mapper.toInequality(entity);
+                    AnomalyPromotionGate.Verdict v = AnomalyPromotionGate.replicate(
+                            ineq, verifier::verify,
+                            PROMOTION_HOLD_START, PROMOTION_WINDOW_SIZE,
+                            promotionRefutationAttempts);
+                    if (v.survived()) {
+                        repo.stampPromotedAnomaly(entity.id(), Instant.now());
+                        log.info("ANOMALY PROMOTED — {} <= {}*{} + {} survived {} adversarial "
+                                        + "refutation attempts (held {} runs, no OEIS match); queued "
+                                        + "for UNEXPLAINED_OBSERVATION investigation",
+                                top.lhs(), entity.k(), top.rhs(), entity.c(),
+                                v.attempts(), top.confirmedRuns());
+                    } else {
+                        log.info("anomaly promotion gate — {} <= k*{} REFUTED ({})",
+                                top.lhs(), top.rhs(), v.reason());
+                    }
+                }
+            }
         }
 
         // Phase 30 Wave 5 — vocabulary expansion (30.5 P3, flag-gated OFF). Enumerate grammar
@@ -968,6 +1023,26 @@ public class ConjectureMinerService implements ConjectureQueue {
     /** Epoch-ms of last investigation; {@link Long#MIN_VALUE} = never (sorts first under rotation). */
     private static long investigatedAtOf(Conjecture c) {
         return c.lastInvestigatedAt() == null ? Long.MIN_VALUE : c.lastInvestigatedAt().toEpochMilli();
+    }
+
+    /**
+     * Phase 30 Wave 7 — 30.6: the next promoted anomaly awaiting its
+     * UNEXPLAINED_OBSERVATION investigation. A row qualifies while it has a
+     * promotion stamp NEWER than its last investigation (or was never
+     * investigated) — so each promotion yields exactly one paper:
+     * {@code markInvestigated} on consumption pushes {@code lastInvestigatedAt}
+     * past {@code promotedAnomalyAt}, retiring it from this queue until a future
+     * re-promotion re-stamps it. Geometry-trivial rows are excluded like
+     * everywhere else.
+     */
+    @Override
+    public java.util.Optional<Conjecture> nextPromotedAnomaly(String domain) {
+        return repo.findByDomain(domain).stream()
+                .filter(c -> c.promotedAnomalyAt() != null)
+                .filter(c -> c.lastInvestigatedAt() == null
+                        || c.lastInvestigatedAt().isBefore(c.promotedAnomalyAt()))
+                .filter(c -> ConjectureTrivialityFilter.dropReason(mapper.toInequality(c)).isEmpty())
+                .min(Comparator.comparing(Conjecture::promotedAnomalyAt));
     }
 
     /**

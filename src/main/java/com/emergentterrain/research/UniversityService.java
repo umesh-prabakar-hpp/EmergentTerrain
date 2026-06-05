@@ -1833,6 +1833,20 @@ public class UniversityService {
                     "Follow-up at param1=" + narration.followUp().param1()
                     + " param2=" + narration.followUp().param2());
         }
+        // Phase 30 Wave 7 — 30.6 acceptance bar (d): an anomaly-promotion paper seeds a
+        // ProgramOpenQuestion so future cycles deliberately re-target the unexplained
+        // regime-dependence (the same surprise→question wiring the Phase 2 path uses).
+        if (draft.kind() == PaperKind.ANOMALY_PROMOTION) {
+            UUID authorId = parseBotIdSafely(draft.authorBotId());
+            if (authorId != null) {
+                researchProgramService.recordOpenQuestion(authorId, draft.domain(),
+                        "UNEXPLAINED (promoted anomaly, " + draft.paperId() + "): " + draft.title()
+                                + " — survived adversarial replication, no OEIS match; "
+                                + "explain or refute the regime-dependence.");
+                log.info("UniversityService: anomaly-promotion open question seeded paperId={}",
+                        draft.paperId());
+            }
+        }
 
         // Phase 2 Iter 1: score the paper against the bot's running prior, then
         // fold the new sample in. High-surprise events get logged as a new open

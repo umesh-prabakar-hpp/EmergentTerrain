@@ -122,6 +122,19 @@ public class Conjecture {
     private Instant lastInvestigatedAt;
 
     /**
+     * Phase 30 Wave 7 — 30.6: set when this counterexample-refuted bound survived
+     * the adversarial promotion gate (held in its confirmed regime AND its break
+     * replicated across N fresh refutation attempts, no OEIS match) — making it a
+     * promotable UNEXPLAINED_OBSERVATION candidate the paper pipeline can select.
+     * Nullable (never promoted); additive column. {@code updatable = false} for the
+     * same reason as {@code lastInvestigatedAt}: only the targeted JPQL stamp
+     * ({@code ConjectureRepository.stampPromotedAnomaly}) writes it, so the miner's
+     * pass-long re-save loop can never clobber a mid-pass stamp.
+     */
+    @jakarta.persistence.Column(updatable = false)
+    private Instant promotedAnomalyAt;
+
+    /**
      * Phase 30 integration step 2 — when non-null, this conjecture was synthesized
      * by {@link ConjectureComposer} as a sound 1-step composition of two parent
      * bounds rather than mined from sample windows. Value is the two parent
@@ -162,6 +175,7 @@ public class Conjecture {
     public Instant updatedAt()             { return updatedAt; }
     public Instant promotedAt()            { return promotedAt; }
     public Instant lastInvestigatedAt()    { return lastInvestigatedAt; }
+    public Instant promotedAnomalyAt()     { return promotedAnomalyAt; }
     public String derivedFrom()            { return derivedFrom; }
 
     // Targeted setters — mutated by the mapper during update cycles.
@@ -177,5 +191,6 @@ public class Conjecture {
     public void setUpdatedAt(Instant t)                   { this.updatedAt = t; }
     public void setPromotedAt(Instant t)                  { this.promotedAt = t; }
     public void setLastInvestigatedAt(Instant t)          { this.lastInvestigatedAt = t; }
+    public void setPromotedAnomalyAt(Instant t)           { this.promotedAnomalyAt = t; }
     public void setDerivedFrom(String s)                  { this.derivedFrom = s; }
 }

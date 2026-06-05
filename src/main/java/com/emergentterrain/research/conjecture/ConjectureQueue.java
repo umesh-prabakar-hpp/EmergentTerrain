@@ -29,4 +29,14 @@ public interface ConjectureQueue {
     default void markInvestigated(Conjecture conjecture) {
         // no-op by default
     }
+
+    /**
+     * Phase 30 Wave 7 — 30.6: the next anomaly that survived the adversarial
+     * promotion gate and has not yet been investigated as an
+     * UNEXPLAINED_OBSERVATION (promotion stamp newer than its last
+     * investigation). Default empty; implemented by the miner.
+     */
+    default Optional<Conjecture> nextPromotedAnomaly(String domain) {
+        return Optional.empty();
+    }
 }

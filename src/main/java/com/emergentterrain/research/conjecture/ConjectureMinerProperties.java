@@ -46,6 +46,9 @@ public class ConjectureMinerProperties {
     // Wave 5 — anomaly mining (30.1); reuses stochasticNullAlpha + multipleComparisonsMethod.
     private boolean anomalyMiningEnabled = false;
     private int anomalyMinConfirmed = 5;
+    /** Phase 30 Wave 7 — 30.6 anomaly→open-problem promotion (adversarial gate + paper). */
+    private boolean anomalyPromotionEnabled = false;
+    private int promotionRefutationAttempts = 3;
     // Wave 5 — vocabulary expansion (30.5 P3a admission); reuses stochasticNull* + sublinearBudgetAlpha.
     private boolean vocabularyExpansionEnabled = false;
     private int vocabularyExpansionDepth = 1;
@@ -119,6 +122,12 @@ public class ConjectureMinerProperties {
 
     public int getAnomalyMinConfirmed() { return anomalyMinConfirmed; }
     public void setAnomalyMinConfirmed(int v) { this.anomalyMinConfirmed = v; }
+
+    public boolean isAnomalyPromotionEnabled() { return anomalyPromotionEnabled; }
+    public void setAnomalyPromotionEnabled(boolean v) { this.anomalyPromotionEnabled = v; }
+
+    public int getPromotionRefutationAttempts() { return promotionRefutationAttempts; }
+    public void setPromotionRefutationAttempts(int v) { this.promotionRefutationAttempts = v; }
 
     public boolean isVocabularyExpansionEnabled() { return vocabularyExpansionEnabled; }
     public void setVocabularyExpansionEnabled(boolean v) { this.vocabularyExpansionEnabled = v; }
