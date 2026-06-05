@@ -884,6 +884,67 @@ class NumericalConsistencyValidatorTest {
         assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
     }
 
+    // -------- 2026-06-05 rec #1: executed-range union merging --------
+
+    private static com.emergentterrain.llm.ToolInvocation scan(int start, int end, int round) {
+        return new com.emergentterrain.llm.ToolInvocation(
+                "run_predicate_scan",
+                "{\"predicate\":\"isPrime AND isHappy\",\"range_start\":" + start
+                        + ",\"range_end\":" + end + "}",
+                "fraction satisfying predicate = 0.025 ± 0.015 (95% CI, n=" + (end - start) + ").",
+                round, "call_" + (round + 1));
+    }
+
+    @Test
+    void rec1c_adjacentLadderUnionCoversSummaryClaim() {
+        // P-b72c-138: the 5-rung adjacent ladder the decomposition guidance teaches,
+        // honestly summarized over its union — must NOT flag.
+        String hypothesis = "Joint prime-and-happy density across [1, 1500).";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Across the full surveyed range [1, 1500) the joint density stays near 0.025.");
+        String conclusion = "No anomaly.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                scan(1, 300, 0), scan(300, 600, 1), scan(600, 900, 2),
+                scan(900, 1200, 3), scan(1200, 1500, 4));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
+    }
+
+    @Test
+    void rec1c_claimBeyondMergedUnionStillFlags() {
+        // P-b72c-137: union reaches 1000; prose claims [1000, 1400) — true overreach.
+        String hypothesis = "Density study.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The trend persists into [1000, 1400) as well.");
+        String conclusion = "Persistent trend.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                scan(100, 600, 0), scan(600, 1000, 1));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
+                && r.contains("[1000, 1400)"));
+    }
+
+    @Test
+    void rec1c_realGapIsNotMergedAcross() {
+        // [1,500) and [800,1300) leave [500,800) unscanned — a claim spanning the
+        // gap must still flag; merging must respect real gaps, not bridge them.
+        String hypothesis = "Density study.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Across [1, 1300) the density is flat.");
+        String conclusion = "Flat.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                scan(1, 500, 0), scan(800, 1300, 1));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
+                && r.contains("[1, 1300)"));
+    }
+
     // -------- Phase 16 #7: inline "Computation N" stub --------
 
     @Test

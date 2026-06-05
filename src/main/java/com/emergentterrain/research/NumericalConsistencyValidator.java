@@ -1032,6 +1032,31 @@ public final class NumericalConsistencyValidator {
         }
         if (executed.isEmpty()) return;
 
+        // 2026-06-05 rec #1 — COALESCE adjacent/overlapping executed intervals before the
+        // coverage test. The reason text always said "the executed-range union does not
+        // cover it", but the loop below tested each prose claim against SINGLE intervals —
+        // so a paper that ran the adjacent ladder the span-decomposition guidance teaches
+        // ([1,300)+[300,600)+[600,900)+[900,1200)+[1200,1500), P-b72c-138) and honestly
+        // summarized "over [1, 1500)" was false-NULL'd for the exact behaviour we steer it
+        // toward. Merge with the same ±1% edge slack the coverage test uses, so window
+        // ladders with hairline gaps still fuse; a REAL gap (e.g. [1,500) vs [800,1300))
+        // stays unmerged and a claim spanning it still flags (P-b72c-137's [1000,1400)
+        // beyond a union ending at 1000 remains a true positive).
+        executed.sort(java.util.Comparator.comparingDouble(e -> e[0]));
+        List<double[]> merged = new ArrayList<>();
+        for (double[] ex : executed) {
+            if (!merged.isEmpty()) {
+                double[] last = merged.get(merged.size() - 1);
+                double joinSlack = Math.max(Math.abs(last[1]), 1.0) * F5_5_RELATIVE_TOLERANCE;
+                if (ex[0] <= last[1] + joinSlack) {
+                    last[1] = Math.max(last[1], ex[1]);
+                    continue;
+                }
+            }
+            merged.add(new double[]{ex[0], ex[1]});
+        }
+        executed = merged;
+
         // Parse "[a, b)" or "[a, b]" from hypothesis + findings.
         Pattern bracketRange = Pattern.compile(
                 "\\[\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*[\\)\\]]");
