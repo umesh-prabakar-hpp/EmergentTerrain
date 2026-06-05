@@ -733,6 +733,115 @@ class NumericalConsistencyValidatorTest {
         assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
     }
 
+    // -------- 2026-06-04 rec #1/#2: derived arithmetic + value-band ranges --------
+    // Fixtures are the five P-b72c-115…120 strikes that zeroed the batch.
+
+    @Test
+    void rec1_pB72c115_coeffTimesTraceValuePasses() {
+        // P-b72c-115: prose decomposes the bound into k·rhs_scalar = 2×0.172 = 0.344
+        // (the panel explicitly asked for this decomposition). One step over the
+        // hypothesis coefficient and a trace number — traceable, no flag.
+        String hypothesis = "mertens_delta <= +2.0000 * happy_density + +17.6690";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "At the worst window the rhs contribution k*happy_density reaches 0.344 "
+                        + "against the observed excursion.");
+        String conclusion = "The fixed-intercept bound is refuted.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "verify_conjecture",
+                        "{\"lhs\":\"mertens_delta\",\"k\":2,\"c\":17.669,"
+                                + "\"window_start\":200000,\"window_size\":5000,\"num_windows\":10}",
+                        "REFUTED. Per-window: start=230000 lhs=+54.00000 rhs_scalar=+0.17200 "
+                                + "bound=+18.01300 margin=+36.01980 REFUTED", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("0.344"));
+    }
+
+    @Test
+    void rec1_pB72c118_sameCallCiEndpointPasses() {
+        // P-b72c-118: prose cites the CI low endpoint 0.006 = 0.023 − 0.017, both
+        // numbers from the same predicate-scan result. No flag.
+        String hypothesis = "Joint prime-and-happy density in [400,700) near the independence model.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The joint fraction's confidence band reaches down to 0.006 at its lower edge.");
+        String conclusion = "No structural uptick detected.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"predicate\":\"isPrime AND isHappy\",\"range_start\":400,\"range_end\":700}",
+                        "fraction satisfying predicate = 0.023 ± 0.017 (95% CI, n=300) "
+                                + "(baseline 0.045, deviation -0.022).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("'0.006'"));
+    }
+
+    @Test
+    void rec1_pB72c120_coeffTimesSameCallSpreadPasses() {
+        // P-b72c-120: prose cites 0.0046 = 2 × (0.7536 − 0.7513) — hypothesis
+        // coefficient times the observed same-call scalar spread. No flag.
+        String hypothesis = "mertens_delta <= +2.0000 * deficient_density + +16.5014";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "The rhs contribution varies by only 0.0046 across the sampled windows.");
+        String conclusion = "Scale-dependent refutation recorded.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "verify_conjecture",
+                        "{\"lhs\":\"mertens_delta\",\"k\":2,\"c\":16.5014,"
+                                + "\"window_start\":300000,\"window_size\":10000,\"num_windows\":5}",
+                        "HELD. Per-window: start=300000 rhs_scalar=+0.75130 holds "
+                                + "start=340000 rhs_scalar=+0.75360 holds", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("0.0046"));
+    }
+
+    @Test
+    void rec1_pB72c119_phantomPeerValueStillFlags() {
+        // P-b72c-119: prose cites "prior researcher value" 0.64 — genuinely
+        // untraceable (no one-step combination of hypothesis/trace numbers
+        // produces it). The derived-arithmetic fallback must NOT launder it.
+        String hypothesis = "Joint prime-and-happy density in [400,800) approaches ~0.150.";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "Prior measurements reported densities of 0.64 in lower ranges.");
+        String conclusion = "The discrepancy remains unexplained.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan",
+                        "{\"predicate\":\"isPrime AND isHappy\",\"range_start\":400,\"range_end\":800}",
+                        "fraction satisfying predicate = 0.025 ± 0.015 (95% CI, n=400) "
+                                + "(baseline 0.025, deviation +0.000).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons)
+                .anyMatch(r -> r.contains("0.64") && r.contains("not within ±1%"));
+    }
+
+    @Test
+    void rec2_fractionalBoundIntervalIsNotARangeClaim() {
+        // P-b72c-120: "[0.7513, 0.7536)" is an observed-scalar band, not a scan
+        // range — fractional bounds must not trigger scope overreach.
+        String hypothesis = "mertens_delta <= +2.0000 * deficient_density + +16.5014";
+        java.util.Map<Integer, String> findings = java.util.Map.of(1,
+                "deficient_density stayed within [0.7513, 0.7536) across all sampled windows.");
+        String conclusion = "Bound refuted at the 1.4M region only.";
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation(
+                        "verify_conjecture",
+                        "{\"lhs\":\"mertens_delta\",\"k\":2,\"c\":16.5014,"
+                                + "\"window_start\":300000,\"window_size\":10000,\"num_windows\":5}",
+                        "HELD across 5 window(s).", 0, "call_1"));
+
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                hypothesis, findings, conclusion, trace);
+        assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
+    }
+
     // -------- Phase 16 #7: inline "Computation N" stub --------
 
     @Test

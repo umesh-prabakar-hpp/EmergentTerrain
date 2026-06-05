@@ -754,6 +754,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         }
 
         // Persist survivors: update existing entities in place, insert new ones.
+        // freshen() so a survivor's save can't carry a pass-start-stale
+        // lastInvestigatedAt over a mid-pass markInvestigated stamp.
         int oeisAnnotated = 0;
         for (Inequality ineq : store) {
             String key = keyOf(ineq.lhs, ineq.rhs);
@@ -761,6 +763,7 @@ public class ConjectureMinerService implements ConjectureQueue {
             if (entity == null) {
                 entity = mapper.toEntity(ineq, DOMAIN);
             } else {
+                entity = freshen(entity, byKey, key);
                 mapper.apply(ineq, entity);
             }
             String annotation = oeisAnnotator.annotate(ineq.lhs, ineq.rhs);
@@ -941,8 +944,15 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (conjecture == null) {
             return;
         }
-        conjecture.setLastInvestigatedAt(Instant.now());
-        repo.save(conjecture);
+        Instant now = Instant.now();
+        conjecture.setLastInvestigatedAt(now);   // keep the caller's in-memory view consistent
+        // Targeted column UPDATE instead of a whole-entity save — a save() here both
+        // loses to and competes with the miner's pass-long stale-snapshot saves
+        // (see ConjectureRepository.stampInvestigated). Fall back to save() for a
+        // transient (unsaved) conjecture, which has no row to stamp.
+        if (conjecture.id() == null || repo.stampInvestigated(conjecture.id(), now) == 0) {
+            repo.save(conjecture);
+        }
     }
 
     private List<Map<String, Double>> materialize(Run run, List<DerivedScalar> admitted) {
@@ -990,6 +1000,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                 // Newly-seeded then immediately retired in the same pass — persist anyway so the witness lands.
                 entity = mapper.toEntity(ineq, DOMAIN);
             } else {
+                entity = freshen(entity, byKey, key);
                 mapper.apply(ineq, entity);
             }
             if (entity.droppedByKnob() == null) {
@@ -998,6 +1009,27 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             repo.save(entity);
         }
+    }
+
+    /**
+     * Re-fetch the current row for a pass-start snapshot entity so saving it cannot
+     * clobber columns written mid-pass by other writers — markInvestigated's rotation
+     * stamp in particular. The byKey map is loaded once at the top of {@code mine()}
+     * and a pass now runs ~10 s (empty-pool re-seed churn); saving those stale
+     * snapshots rewrites every column, which erased {@code lastInvestigatedAt} stamps
+     * landing mid-pass and re-served the same conjecture to concurrent paper cycles
+     * (P-b72c-115/116 duplicate, 2026-06-04). Falls back to the snapshot when the
+     * row is gone; refreshes the byKey entry so later writes this pass reuse it.
+     */
+    private Conjecture freshen(Conjecture snapshot, Map<String, Conjecture> byKey, String key) {
+        if (snapshot.id() == null) {
+            return snapshot;
+        }
+        Conjecture fresh = repo.findById(snapshot.id()).orElse(snapshot);
+        if (fresh != snapshot) {
+            byKey.put(key, fresh);
+        }
+        return fresh;
     }
 
     private static String keyOf(String lhs, String rhs) {

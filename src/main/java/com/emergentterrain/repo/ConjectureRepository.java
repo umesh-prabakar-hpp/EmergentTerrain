@@ -2,7 +2,12 @@ package com.emergentterrain.repo;
 
 import com.emergentterrain.research.conjecture.Conjecture;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,4 +28,21 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     List<Conjecture> findByDomainAndConfirmedRunsGreaterThanEqual(String domain, int minRuns);
 
     long countByDomain(String domain);
+
+    /**
+     * Phase 30 Wave 0 rotation — targeted column write for
+     * {@code markInvestigated}. A whole-entity {@code save()} loses against the
+     * miner's pass-long stale snapshot: {@code mine()} loads its byKey map at
+     * pass start and {@code persistRetired} saves those entities up to ~10 s
+     * later (post-W4-flip re-seed churn), overwriting any
+     * {@code lastInvestigatedAt} written in between — which re-serves the same
+     * conjecture to concurrent paper cycles (P-b72c-115/116 duplicate,
+     * 2026-06-04: marked 19:18:50.171 inside the 19:18:49–59 pass window).
+     * Updating only this column cannot be clobbered by entity saves that don't
+     * include it in their UPDATE, and itself touches nothing else.
+     */
+    @Modifying
+    @Transactional
+    @Query("update Conjecture c set c.lastInvestigatedAt = :ts where c.id = :id")
+    int stampInvestigated(@Param("id") UUID id, @Param("ts") Instant ts);
 }

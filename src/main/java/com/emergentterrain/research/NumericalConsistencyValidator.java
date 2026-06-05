@@ -498,9 +498,27 @@ public final class NumericalConsistencyValidator {
         List<Double> permitted = new ArrayList<>();
         collectAllNumbers(hypothesis, permitted);
         collectAllNumbers(conclusion, permitted);
+        // 2026-06-04 rec #1 — one-step derived-arithmetic sources. The hypothesis's own
+        // constants (k, c) and each single tool result's numbers are kept separately so a
+        // prose value that is one arithmetic step over them — k·x, or x±y / x·y of two
+        // numbers the SAME computation produced — is traceable, not fabricated. The
+        // panel routinely asks the revision to decompose a bound into k·rhs_scalar
+        // (P-b72c-115/116: 0.344 = 2×0.172, 0.265 = 2×0.1325) or to state a CI band /
+        // observed spread (P-b72c-118: 0.006 = 0.023−0.017; P-b72c-120: 0.0046 =
+        // 2×(0.7536−0.7513)); the single-number ±1% match was nulling exactly the
+        // arithmetic the panel requested. Scope is deliberately tight: coefficients
+        // come from the hypothesis only, and pairs must come from one result — global
+        // cross-call pairing over hundreds of trace numbers would match almost any
+        // value by chance and launder genuine fabrications.
+        List<Double> hypothesisCoeffs = new ArrayList<>();
+        collectAllNumbers(hypothesis, hypothesisCoeffs);
+        List<List<Double>> perResultNumbers = new ArrayList<>();
         for (com.emergentterrain.llm.ToolInvocation inv : trace) {
             if (inv != null && inv.resultJson() != null) {
                 collectAllNumbers(inv.resultJson(), permitted);
+                List<Double> single = new ArrayList<>();
+                collectAllNumbers(inv.resultJson(), single);
+                perResultNumbers.add(single);
             }
         }
         if (permitted.isEmpty()) return;
@@ -510,7 +528,8 @@ public final class NumericalConsistencyValidator {
             double n;
             try { n = Double.parseDouble(m.group(1)); }
             catch (NumberFormatException ex) { continue; }
-            if (!isPermittedNumber(n, permitted)) {
+            if (!isPermittedNumber(n, permitted)
+                    && !isDerivedOneStep(n, hypothesisCoeffs, perResultNumbers, permitted)) {
                 reasons.add(String.format(
                         "Findings cites salient value '%s' that is not within ±1%% of any number in "
                                 + "the hypothesis, conclusion, or tool-call trace results.",
@@ -607,6 +626,69 @@ public final class NumericalConsistencyValidator {
             if (sameMantissaDifferentScale(value, p)) return true;
         }
         return false;
+    }
+
+    /**
+     * 2026-06-04 rec #1 — true when {@code value} is one arithmetic step away from
+     * traceable sources: {@code a·x} for a hypothesis constant {@code a} and any
+     * permitted number {@code x}, or {@code x±y} for two numbers from
+     * the SAME tool result (optionally scaled by a hypothesis constant). Used only
+     * as a fallback after {@link #isPermittedNumber} fails on the unitless salient
+     * branch — the unit-anchored branch stays strict because derived-formula
+     * divergence (multi-step, wrong by far more than one operation) is exactly what
+     * it exists to catch. Coefficients of 0 and 1 are skipped (identity / degenerate).
+     */
+    static boolean isDerivedOneStep(double value, List<Double> hypothesisCoeffs,
+                                    List<List<Double>> perResultNumbers,
+                                    List<Double> permitted) {
+        // a·x — hypothesis coefficient times any permitted source number. STRICT
+        // matching only (no sameMantissaDifferentScale fallback): composing the
+        // coefficient division with the scale-tolerant branch laundered phantom
+        // values whose quotient merely shares a mantissa with a source across
+        // decades (0.64/800 = 8e-4 ~ mantissa of 800 — the P-b72c-119 fabrication
+        // would have passed).
+        for (double a : hypothesisCoeffs) {
+            if (!Double.isFinite(a) || Math.abs(a) < 1e-12 || a == 1.0) continue;
+            double quotient = value / a;
+            for (double p : permitted) {
+                if (withinTolerance(quotient, p) || withinTolerance(quotient, Math.abs(p))) {
+                    return true;
+                }
+            }
+        }
+        // x±y of two numbers the same computation produced, optionally
+        // scaled by a hypothesis coefficient (covers k·(max−min) spreads).
+        // Products are deliberately excluded — no observed false-positive class
+        // needs them, and same-call products over a ~65-number verify result
+        // would offer thousands of candidate values to launder against.
+        for (List<Double> result : perResultNumbers) {
+            int sz = result.size();
+            for (int i = 0; i < sz; i++) {
+                double x = result.get(i);
+                for (int j = i + 1; j < sz; j++) {
+                    double y = result.get(j);
+                    double sum = x + y;
+                    double diff = Math.abs(x - y);
+                    if (withinTolerance(value, sum) || withinTolerance(value, diff)) {
+                        return true;
+                    }
+                    for (double a : hypothesisCoeffs) {
+                        if (!Double.isFinite(a) || Math.abs(a) < 1e-12 || a == 1.0) continue;
+                        if (withinTolerance(value, a * sum) || withinTolerance(value, a * diff)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /** ±1% relative match (same band as {@link #isPermittedNumber}'s strict branch). */
+    private static boolean withinTolerance(double value, double candidate) {
+        if (!Double.isFinite(candidate)) return false;
+        if (candidate == 0.0) return value == 0.0;
+        return Math.abs(value - candidate) / Math.abs(candidate) <= F5_5_RELATIVE_TOLERANCE;
     }
 
     /**
@@ -926,6 +1008,13 @@ public final class NumericalConsistencyValidator {
                 b = Double.parseDouble(pm.group(2));
             } catch (NumberFormatException ex) { continue; }
             if (b <= a) continue;
+            // 2026-06-04 rec #2 — only integer-like bounds are scan-range claims.
+            // Every executed range here is an integer window over ℕ (range_start/
+            // range_end, window_start + size·n). A fractional-bound interval in
+            // prose is a VALUE band — a CI ("[0.006, 0.04)", P-b72c-118) or an
+            // observed-scalar spread ("[0.7513, 0.7536)", P-b72c-120) — and
+            // treating it as an unexecuted scan range false-NULLs the paper.
+            if (a != Math.floor(a) || b != Math.floor(b)) continue;
 
             // Pass when SOME executed range covers [a, b] within ±1% on each
             // edge. Slack matches F5_5_RELATIVE_TOLERANCE so a prose
