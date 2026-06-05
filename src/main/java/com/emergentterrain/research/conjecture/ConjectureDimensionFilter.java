@@ -38,7 +38,8 @@ public final class ConjectureDimensionFilter {
 
     /** Number-theoretic densities — proper fractions in {@code [0,1]}. */
     public static final Set<String> DENSITY_SCALARS = Set.of(
-            "abundant_density", "deficient_density", "prime_density", "happy_density");
+            "abundant_density", "deficient_density", "prime_density", "happy_density",
+            "twin_prime_density");   // Phase 30 §5.2 (2026-06-05) — a [0,1] density like the others
 
     /** Harness window-magnitude functions (unbounded, grow with the chosen window). */
     public static final Set<String> WINDOW_MAGNITUDE_SCALARS =

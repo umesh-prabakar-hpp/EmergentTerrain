@@ -31,7 +31,16 @@ public final class MathInvariants {
             "mean_Omega",
             "mean_divisor_count",
             "max_divisor_count",
-            "mertens_delta"
+            "mertens_delta",
+            // Phase 30 §5.2 vocabulary enrichment (2026-06-05) — open-behavior
+            // scalars per the triviality diagnosis's own prescription ("target
+            // objects whose growth/extrema are genuinely unknown"): the largest
+            // prime gap inside the window (Cramér territory) and the twin-pair
+            // density (Hardy–Littlewood territory). Computed sidecar-side in the
+            // same single window pass (numbertheory.jl); mirrored in the
+            // sidecar's math_invariants.jl.
+            "max_prime_gap",
+            "twin_prime_density"
     );
 
     public static final Map<String, Function<Map<String, Double>, Double>> DERIVED = derivedMap();
@@ -61,6 +70,27 @@ public final class MathInvariants {
                 r -> {
                     double w = r.getOrDefault("_window_size", 0.0);
                     return w > 0 ? r.get("mertens_delta") / Math.sqrt(w) : 0.0;
+                });
+        // Phase 30 §5.2 (2026-06-05) — the two normalized open-behavior forms.
+        // cramer_gap_ratio: max in-window prime gap over ln²(window center) —
+        // conjecturally O(1) (Cramér), with genuinely unknown extreme behavior;
+        // exactly the "O(1) object with open fluctuations" class the triviality
+        // diagnosis prescribed. twin_vs_prime_sq: twin density over prime
+        // density squared — under Hardy–Littlewood this tends to 2C₂ ≈ 1.3203,
+        // a REAL mathematical constant the miner/recognizer can discover.
+        m.put("cramer_gap_ratio",
+                r -> {
+                    double start = r.getOrDefault("_window_start", 0.0);
+                    double w = r.getOrDefault("_window_size", 0.0);
+                    double center = start + w / 2.0;
+                    if (center <= 1.0) return 0.0;
+                    double lc = Math.log(center);
+                    return r.getOrDefault("max_prime_gap", 0.0) / (lc * lc);
+                });
+        m.put("twin_vs_prime_sq",
+                r -> {
+                    double p = r.getOrDefault("prime_density", 0.0);
+                    return p > 0 ? r.getOrDefault("twin_prime_density", 0.0) / (p * p) : 0.0;
                 });
         return m;
     }

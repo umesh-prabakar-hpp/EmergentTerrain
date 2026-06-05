@@ -36,7 +36,10 @@ public final class ConjectureUnitConsistencyFilter {
     /** O(1)-bounded number-theoretic scalars (densities + the bounded derived quantities). */
     public static final Set<String> BOUNDED_NT_SCALARS = Stream.concat(
             ConjectureDimensionFilter.DENSITY_SCALARS.stream(),
-            Stream.of("abundant_minus_deficient", "omega_Omega_gap", "mertens_per_sqrt_W"))
+            Stream.of("abundant_minus_deficient", "omega_Omega_gap", "mertens_per_sqrt_W",
+                    // Phase 30 §5.2 (2026-06-05) — O(1)-in-observed-regimes like
+                    // mertens_per_sqrt_W: Cramér-normalized gap and the HL twin ratio.
+                    "cramer_gap_ratio", "twin_vs_prime_sq"))
             .collect(Collectors.toUnmodifiableSet());
 
     /** Harness window-magnitude scalars (unbounded, not number theory). */

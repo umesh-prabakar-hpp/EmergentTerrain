@@ -16,9 +16,43 @@ import static org.assertj.core.api.Assertions.within;
 class MathInvariantsExtensionTest {
 
     private static Map<String, Double> raw() {
-        return Map.of("prime_density", 0.12, "mean_omega", 2.1, "mean_Omega", 2.8,
+        Map<String, Double> m = new java.util.HashMap<>(Map.of(
+                "prime_density", 0.12, "mean_omega", 2.1, "mean_Omega", 2.8,
                 "mertens_delta", -3.0, "abundant_density", 0.24, "deficient_density", 0.74,
-                "happy_density", 0.14, "mean_divisor_count", 6.0, "max_divisor_count", 12.0);
+                "happy_density", 0.14, "mean_divisor_count", 6.0, "max_divisor_count", 12.0));
+        m.put("max_prime_gap", 34.0);
+        m.put("twin_prime_density", 0.019);
+        return m;
+    }
+
+    // ── Phase 30 §5.2 (2026-06-05) — open-behavior scalar math ─────────────────
+
+    @Test
+    void cramerGapRatioNormalizesByLogSquaredWindowCenter() {
+        // center = 1000 + 500/2 = 1250; ln(1250) ≈ 7.1309; gap/ln² ≈ 34/50.85.
+        Map<String, Double> flat = MathInvariants.extract(raw(), 1000, 500);
+        double lc = Math.log(1250.0);
+        org.assertj.core.api.Assertions.assertThat(flat.get("cramer_gap_ratio"))
+                .isCloseTo(34.0 / (lc * lc), org.assertj.core.api.Assertions.within(1e-12));
+    }
+
+    @Test
+    void twinVsPrimeSqIsTheHardyLittlewoodRatio() {
+        // 0.019 / 0.12² ≈ 1.3194 — near 2C₂ ≈ 1.3203 by construction of the fixture.
+        Map<String, Double> flat = MathInvariants.extract(raw(), 1000, 500);
+        org.assertj.core.api.Assertions.assertThat(flat.get("twin_vs_prime_sq"))
+                .isCloseTo(0.019 / (0.12 * 0.12), org.assertj.core.api.Assertions.within(1e-12));
+    }
+
+    @Test
+    void newScalarsDegradeToZeroNotNaNOnMissingInputs() {
+        Map<String, Double> flat = MathInvariants.extract(Map.of(), 0, 0);
+        org.assertj.core.api.Assertions.assertThat(flat.get("cramer_gap_ratio")).isZero();
+        org.assertj.core.api.Assertions.assertThat(flat.get("twin_vs_prime_sq")).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.vocabulary())
+                .contains("max_prime_gap", "twin_prime_density",
+                        "cramer_gap_ratio", "twin_vs_prime_sq");
     }
 
     @Test
