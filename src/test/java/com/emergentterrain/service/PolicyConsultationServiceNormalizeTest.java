@@ -20,7 +20,7 @@ class PolicyConsultationServiceNormalizeTest {
     private final ObjectMapper mapper = new ObjectMapper();
     private final PolicyConsultationService svc =
             new PolicyConsultationService(/*llmService*/ null, mapper,
-                    /*hintAcceptanceRate*/ 0.6);
+                    /*hintAcceptanceRate*/ 0.6, /*consultCooldownSeconds*/ 0);
 
     @Test void leaves_pure_string_summary_alone() {
         String in = "{\"summary\":\"trust is rising\",\"outlook\":\"hopeful\","

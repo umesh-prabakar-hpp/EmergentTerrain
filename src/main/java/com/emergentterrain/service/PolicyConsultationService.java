@@ -85,11 +85,22 @@ public class PolicyConsultationService {
     private final ConcurrentHashMap<UUID, ConsultationRecord> lastConsultation = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<UUID, PendingResult> pendingResults = new ConcurrentHashMap<>();
 
+    /**
+     * 2026-06-05 — per-room consultation cooldown. Consultations fired on every
+     * government change with only an in-flight guard (~every 20–40 s in practice),
+     * consuming ~20–30% of each 500-call session budget — civic chatter competing
+     * with papers all session, and 33 of the 60-call drain reserve in the 06-05
+     * post-mortem. Seconds; {@code <= 0} disables the cooldown (legacy behaviour).
+     */
+    private final long consultCooldownMs;
+
     public PolicyConsultationService(LlmService llmService, ObjectMapper objectMapper,
-                                     @Value("${app.ai.hintAcceptanceRate:0.6}") double hintAcceptanceRate) {
+                                     @Value("${app.ai.hintAcceptanceRate:0.6}") double hintAcceptanceRate,
+                                     @Value("${app.ai.policyConsultCooldownSeconds:120}") long consultCooldownSeconds) {
         this.llmService = llmService;
         this.objectMapper = objectMapper;
         this.hintAcceptanceRate = Math.max(0.0, Math.min(1.0, hintAcceptanceRate));
+        this.consultCooldownMs = consultCooldownSeconds * 1000L;
     }
 
     // ---- Public API ----
@@ -101,6 +112,16 @@ public class PolicyConsultationService {
      */
     public void triggerAsync(UUID roomId, GovernmentState snapshot) {
         if (Boolean.TRUE.equals(inFlight.get(roomId))) {
+            return;
+        }
+        // 2026-06-05 — cooldown: skip when the room consulted within the window.
+        // Bounds civic LLM spend to ~window-rate so papers get the budget; the
+        // next government change AFTER the window fires normally.
+        ConsultationRecord recent = lastConsultation.get(roomId);
+        if (consultCooldownMs > 0 && recent != null
+                && Instant.now().toEpochMilli() - recent.at().toEpochMilli() < consultCooldownMs) {
+            log.debug("Policy consultation cooldown — room={} last={}s ago", roomId,
+                    (Instant.now().toEpochMilli() - recent.at().toEpochMilli()) / 1000);
             return;
         }
         inFlight.put(roomId, Boolean.TRUE);
