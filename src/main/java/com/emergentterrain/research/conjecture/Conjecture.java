@@ -105,6 +105,18 @@ public class Conjecture {
      * it — P-b72c-121/122 (2026-06-04 21:02): cycle #1's stamp at 21:02:23.9 fell
      * between pass #1's freshen and save of the same row, was erased, and the
      * NULL-stamped row then won the updatedAt tiebreak and was re-served 15 s later.
+     *
+     * <p><b>Verification status (2026-06-04 22:30 session, first run on this fix):</b>
+     * 6/6 queued conjectures distinct, all 6 stamps persisted, 77/77 tier-1 rows
+     * stamped — the watch item passed. CAVEAT: all six stamps happened to land
+     * BETWEEN mine passes (each pass ~10 s of every ~5 min ⇒ ~3% mid-pass odds per
+     * stamp, ~17% that any of the six exercised the exact race window), so the
+     * empty-pool-era mid-pass collision path has not been empirically stressed.
+     * The guarantee is structural — entity UPDATE statements simply no longer
+     * contain this column — not yet battle-tested. If a same-conjecture pair ever
+     * again publishes ~15 s apart shortly after startup, re-open this: the residual
+     * suspect would be the pure selection race (two cycles both reading nextN()
+     * before either stamp commits), which is a different, much narrower window.
      */
     @jakarta.persistence.Column(updatable = false)
     private Instant lastInvestigatedAt;
