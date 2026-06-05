@@ -122,10 +122,49 @@ class RunBudgetTrackerTest {
     }
 
     @Test
-    void drainDisabledByDefault_zeroThresholdNeverDrains() {
+    void drainThresholdDerivedFromMaxCallsMinusReserve() {
+        // 2026-06-05 — no explicit drain-start: threshold = maxCalls − reserve.
         BudgetProperties props = new BudgetProperties();
         props.setEnabled(true);
-        props.getGlobal().setMaxCalls(100);     // drainStartCalls left at 0
+        props.getGlobal().setMaxCalls(10);
+        props.getGlobal().setDrainReserveCalls(4);   // derived threshold = 6
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 5; i++) t.recordCall("groq");
+        assertThat(t.isDraining()).isFalse();
+        t.recordCall("groq");   // 6th — crosses the derived threshold
+        assertThat(t.isDraining()).isTrue();
+        assertThat(t.isStopRequested()).isFalse();
+    }
+
+    @Test
+    void explicitDrainStartOverridesTheDerivation() {
+        BudgetProperties.Caps c = new BudgetProperties.Caps();
+        c.setMaxCalls(500);
+        c.setDrainReserveCalls(60);
+        assertThat(c.effectiveDrainStartCalls()).isEqualTo(440);   // derived
+        c.setDrainStartCalls(300);
+        assertThat(c.effectiveDrainStartCalls()).isEqualTo(300);   // override wins
+    }
+
+    @Test
+    void derivationDisabledOnUnlimitedMaxOrSwallowingReserve() {
+        BudgetProperties.Caps c = new BudgetProperties.Caps();
+        c.setDrainReserveCalls(60);                                // maxCalls = 0 (unlimited)
+        assertThat(c.effectiveDrainStartCalls()).isZero();
+        c.setMaxCalls(50);                                         // reserve >= max
+        assertThat(c.effectiveDrainStartCalls()).isZero();
+        c.setMaxCalls(500);
+        c.setDrainReserveCalls(0);                                 // reserve off
+        assertThat(c.effectiveDrainStartCalls()).isZero();
+    }
+
+    @Test
+    void drainDisabledWhenReserveAndStartBothOff() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCalls(100);
+        props.getGlobal().setDrainReserveCalls(0);   // derivation off, no explicit start
         TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
 
         for (int i = 0; i < 50; i++) t.recordCall("groq");

@@ -90,6 +90,16 @@ public class BudgetProperties {
          * mid-pipeline, with their LLM spend already sunk.
          */
         private long drainStartCalls = 0;
+        /**
+         * 2026-06-05 — derive the drain threshold from {@code maxCalls} instead of
+         * hardcoding it: drain starts at {@code maxCalls - drainReserveCalls}, so
+         * raising the session budget moves the threshold automatically. An ABSOLUTE
+         * reserve (not a fraction) because its job is "finish the in-flight papers,"
+         * whose cost (~2 pipelines ≈ 60 calls) does not scale with budget size.
+         * {@code drainStartCalls > 0} overrides the derivation; reserve {@code <= 0}
+         * or {@code >= maxCalls} (or maxCalls unlimited) → drain off unless overridden.
+         */
+        private long drainReserveCalls = 60;
 
         public double getMaxCostUsd() { return maxCostUsd; }
         public void setMaxCostUsd(double v) { this.maxCostUsd = v; }
@@ -97,6 +107,23 @@ public class BudgetProperties {
         public void setMaxCalls(long v) { this.maxCalls = v; }
         public long getDrainStartCalls() { return drainStartCalls; }
         public void setDrainStartCalls(long v) { this.drainStartCalls = v; }
+        public long getDrainReserveCalls() { return drainReserveCalls; }
+        public void setDrainReserveCalls(long v) { this.drainReserveCalls = v; }
+
+        /**
+         * The drain threshold actually enforced: the explicit {@link #drainStartCalls}
+         * when set, else {@code maxCalls - drainReserveCalls} when both are positive
+         * and the difference is, else 0 (drain off).
+         */
+        public long effectiveDrainStartCalls() {
+            if (drainStartCalls > 0) {
+                return drainStartCalls;
+            }
+            if (maxCalls > 0 && drainReserveCalls > 0 && maxCalls - drainReserveCalls > 0) {
+                return maxCalls - drainReserveCalls;
+            }
+            return 0;
+        }
         public long getMaxInputTokens() { return maxInputTokens; }
         public void setMaxInputTokens(long v) { this.maxInputTokens = v; }
         public long getMaxOutputTokens() { return maxOutputTokens; }

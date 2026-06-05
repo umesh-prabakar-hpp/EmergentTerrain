@@ -124,7 +124,7 @@ public class RunBudgetTracker {
         if (pcap != null && pcap.getMaxCalls() > 0 && pc >= pcap.getMaxCalls()) {
             disableProvider(provider, "calls " + pc + " >= " + pcap.getMaxCalls());
         }
-        long drainStart = props.getGlobal().getDrainStartCalls();
+        long drainStart = props.getGlobal().effectiveDrainStartCalls();
         if (drainStart > 0 && gc >= drainStart && !stopStarted.get()
                 && draining.compareAndSet(false, true)) {
             log.warn("Run budget DRAINING (global calls {} >= drain-start {}): no new research "
