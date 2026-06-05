@@ -96,7 +96,17 @@ public class Conjecture {
      * (consumption mark). Drives investigation rotation in
      * {@link ConjectureMinerService#nextN} so the same refuted conjecture is not
      * re-served every cycle. Nullable (never investigated); additive column.
+     *
+     * <p>{@code updatable = false}: ONLY {@code ConjectureRepository.stampInvestigated}
+     * (JPQL bulk UPDATE, which bypasses entity column metadata) may write this after
+     * insert. Entity-level saves omit the column entirely, so the miner's pass-long
+     * re-save loop can never clobber a stamp landing mid-pass. The freshen() re-read
+     * narrowed that race to the per-row read→apply→save window but could not close
+     * it — P-b72c-121/122 (2026-06-04 21:02): cycle #1's stamp at 21:02:23.9 fell
+     * between pass #1's freshen and save of the same row, was erased, and the
+     * NULL-stamped row then won the updatedAt tiebreak and was re-served 15 s later.
      */
+    @jakarta.persistence.Column(updatable = false)
     private Instant lastInvestigatedAt;
 
     /**
