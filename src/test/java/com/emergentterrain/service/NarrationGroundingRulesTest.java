@@ -71,4 +71,37 @@ class NarrationGroundingRulesTest {
         assertThat(ResearchNarrationService.EXECUTED_SCOPE_RULE).doesNotContain("\":");
         assertThat(ResearchNarrationService.DEFINITION_GROUNDING_RULE).doesNotContain("\":");
     }
+
+    // ---- 2026-06-06 rec #1: dynamic executed-union rule ----
+
+    @Test
+    void executedUnionNamesTheActualCoverage() {
+        // P-b72c-249's shape: scans covered [400,800); prose claimed [800,1200).
+        // The dynamic rule must NAME the union so the reviser can't misread it.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
+                        "{\"range_start\":400,\"range_end\":800}", "fraction = 0.025", 0, "c1"),
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"window_start\":800,\"window_size\":100,\"num_windows\":4}",
+                        "HELD across 4 window(s)", 1, "c2"));
+        String out = ResearchNarrationService.appendExecutedUnion(BASE, true, trace);
+        assertThat(out).startsWith(BASE)
+                .contains("EXECUTED COVERAGE")
+                .contains("[400, 1200)")          // fused union, named exactly
+                .contains("INSIDE this union");
+    }
+
+    @Test
+    void executedUnionGatesAndDegradesQuietly() {
+        assertThat(ResearchNarrationService.appendExecutedUnion(BASE, false,
+                java.util.List.of())).isEqualTo(BASE);
+        assertThat(ResearchNarrationService.appendExecutedUnion(BASE, true, null))
+                .isEqualTo(BASE);   // empty union → unchanged
+        // No JSON output field introduced.
+        assertThat(ResearchNarrationService.appendExecutedUnion(BASE, true,
+                java.util.List.of(new com.emergentterrain.llm.ToolInvocation(
+                        "run_predicate_scan", "{\"range_start\":1,\"range_end\":5}",
+                        "ok", 0, "c1"))))
+                .doesNotContain("\":");
+    }
 }

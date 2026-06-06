@@ -2159,13 +2159,15 @@ public class ResearchNarrationService {
             // numbers in the working material) lands last and most salient.
             String revisionPromptBase = appendManifestMissRule(
                     appendDefinitionGrounding(
-                            appendExecutedScopeGrounding(
-                                    appendNoveltyPreservation(
-                                            buildRevisionPromptFromSynthesis(
-                                                    promptRegistry, draft, firstPass, professorSynthesis,
-                                                    literatureContext),
-                                            revisionNoveltyPreservationEnabled),
-                                    executedScopeGroundingEnabled),
+                            appendExecutedUnion(
+                                    appendExecutedScopeGrounding(
+                                            appendNoveltyPreservation(
+                                                    buildRevisionPromptFromSynthesis(
+                                                            promptRegistry, draft, firstPass, professorSynthesis,
+                                                            literatureContext),
+                                                    revisionNoveltyPreservationEnabled),
+                                            executedScopeGroundingEnabled),
+                                    executedScopeGroundingEnabled, profTrace),
                             definitionGroundingEnabled),
                     draft, firstPass, professorSynthesis, profTrace);
             // rec #4 follow-up — ground the [call_N] contract by appending the real
@@ -4080,6 +4082,44 @@ public class ResearchNarrationService {
      */
     static String appendExecutedScopeGrounding(String prompt, boolean enabled) {
         return enabled ? prompt + EXECUTED_SCOPE_RULE : prompt;
+    }
+
+    /**
+     * 2026-06-06 review rec #1 — the DYNAMIC half of executed-scope grounding
+     * (the VALUE PROVENANCE pattern applied to ranges). The static
+     * {@link #EXECUTED_SCOPE_RULE} says "stay inside the executed ranges";
+     * this names them — computed by the SAME
+     * {@code NumericalConsistencyValidator.executedRangeUnion} the publish
+     * gate tests against, so the prompt and the gate can never disagree.
+     * Scope overreach was the dominant residual defect class when this landed
+     * (P-b72c-212/229/244/249/250 — the density family chronically claims
+     * adjacent unexecuted intervals). Empty union or any failure returns the
+     * prompt unchanged.
+     */
+    static String appendExecutedUnion(String prompt, boolean enabled,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (!enabled) return prompt;
+        try {
+            java.util.List<double[]> union = com.emergentterrain.research
+                    .NumericalConsistencyValidator.executedRangeUnion(trace);
+            if (union.isEmpty()) return prompt;
+            StringBuilder ranges = new StringBuilder();
+            for (double[] r : union) {
+                if (ranges.length() > 0) ranges.append(" ∪ ");
+                ranges.append('[').append(trimNum(r[0])).append(", ")
+                        .append(trimNum(r[1])).append(')');
+            }
+            return prompt + "\nEXECUTED COVERAGE — your tool calls covered exactly: "
+                    + ranges + ". Every interval you state results over must lie INSIDE "
+                    + "this union; never extrapolate to adjacent, wider, or finer ranges "
+                    + "no call swept.";
+        } catch (Exception e) {
+            return prompt;
+        }
+    }
+
+    private static String trimNum(double v) {
+        return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
     }
 
     /**

@@ -1116,6 +1116,36 @@ class NumericalConsistencyValidatorTest {
     }
 
     @Test
+    void executedRangeUnion_extractsAndCoalesces() {
+        // A predicate-scan range and an adjacent verify window-ladder fuse;
+        // a genuinely separated scan stays its own interval.
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
+                        "{\"range_start\":400,\"range_end\":800}", "fraction = 0.025", 0, "c1"),
+                new com.emergentterrain.llm.ToolInvocation("verify_conjecture",
+                        "{\"window_start\":800,\"window_size\":100,\"num_windows\":4}",
+                        "HELD across 4 window(s)", 1, "c2"),
+                new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
+                        "{\"range_start\":5000,\"range_end\":6000}", "fraction = 0.1", 2, "c3"));
+        java.util.List<double[]> union =
+                NumericalConsistencyValidator.executedRangeUnion(trace);
+        assertThat(union).hasSize(2);
+        assertThat(union.get(0)[0]).isEqualTo(400.0);
+        assertThat(union.get(0)[1]).isEqualTo(1200.0);   // 800 + 4·100, fused
+        assertThat(union.get(1)[0]).isEqualTo(5000.0);
+    }
+
+    @Test
+    void executedRangeUnion_skipsErroredCalls() {
+        java.util.List<com.emergentterrain.llm.ToolInvocation> trace = java.util.List.of(
+                new com.emergentterrain.llm.ToolInvocation("run_predicate_scan",
+                        "{\"range_start\":200000,\"range_end\":1000000}",
+                        "Invalid predicate scan: span exceeds cap", 0, "c1"));
+        assertThat(NumericalConsistencyValidator.executedRangeUnion(trace)).isEmpty();
+        assertThat(NumericalConsistencyValidator.executedRangeUnion(null)).isEmpty();
+    }
+
+    @Test
     void structuralReasonsStayWithTheLadder() {
         // P-b72c-244's live scope catch and the other structural classes
         // must NOT classify as value-tracing — they survive enforce.

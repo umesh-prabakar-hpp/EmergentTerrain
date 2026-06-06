@@ -995,9 +995,23 @@ public final class NumericalConsistencyValidator {
             java.util.List<com.emergentterrain.llm.ToolInvocation> trace,
             List<String> reasons) {
         if (trace == null || trace.isEmpty()) return;
+        List<double[]> executed = executedRangeUnion(trace);
+        if (executed.isEmpty()) return;
+        findScopeOverreachAgainst(hypothesis, findings, executed, reasons);
+    }
 
-        // Collect executed ranges from the trace.
+    /**
+     * 2026-06-06 review rec #1 (dynamic executed-scope rule) — the
+     * executed-range union as a reusable primitive: extraction (range pairs +
+     * window ladders, errored/rejected calls skipped) plus the ±1%-slack
+     * coalesce. Public so the revision stage can NAME the union in its prompt
+     * — the same compute the publish gate tests against, so prompt and gate
+     * can never disagree about what was covered.
+     */
+    public static List<double[]> executedRangeUnion(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
         List<double[]> executed = new ArrayList<>();
+        if (trace == null || trace.isEmpty()) return executed;
         Pattern rangeArgs = Pattern.compile(
                 "(?i)\"(?:range_start|start)\"\\s*:\\s*\"?(-?[0-9]+(?:\\.[0-9]+)?)\"?"
                         + "[^}]*?"
@@ -1049,7 +1063,7 @@ public final class NumericalConsistencyValidator {
                 } catch (NumberFormatException ignored) {}
             }
         }
-        if (executed.isEmpty()) return;
+        if (executed.isEmpty()) return executed;
 
         // 2026-06-05 rec #1 — COALESCE adjacent/overlapping executed intervals before the
         // coverage test. The reason text always said "the executed-range union does not
@@ -1074,8 +1088,13 @@ public final class NumericalConsistencyValidator {
             }
             merged.add(new double[]{ex[0], ex[1]});
         }
-        executed = merged;
+        return merged;
+    }
 
+    /** The coverage test against a precomputed union (split from findScopeOverreach). */
+    private static void findScopeOverreachAgainst(
+            String hypothesis, String findings,
+            List<double[]> executed, List<String> reasons) {
         // Parse "[a, b)" or "[a, b]" from hypothesis + findings.
         Pattern bracketRange = Pattern.compile(
                 "\\[\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*[\\)\\]]");
