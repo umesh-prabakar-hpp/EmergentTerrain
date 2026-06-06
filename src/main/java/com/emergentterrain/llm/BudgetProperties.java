@@ -100,6 +100,16 @@ public class BudgetProperties {
          * or {@code >= maxCalls} (or maxCalls unlimited) → drain off unless overridden.
          */
         private long drainReserveCalls = 60;
+        /**
+         * 2026-06-05 — the COST dimension's drain reserve (USD), symmetric with
+         * {@link #drainReserveCalls}: drain starts at {@code maxCostUsd −
+         * drainReserveCostUsd}. Added after the 19:59 session ended on the $5
+         * ceiling at only 326/500 calls — cost had become the binding dimension
+         * (richer 20-scalar prompts + metered openrouter) and the call-only drain
+         * never engaged, hard-killing P-b72c-183/184 in flight. ~$0.50 covers
+         * two pipelines at observed $/paper. {@code <= 0} disables.
+         */
+        private double drainReserveCostUsd = 0.50;
 
         public double getMaxCostUsd() { return maxCostUsd; }
         public void setMaxCostUsd(double v) { this.maxCostUsd = v; }
@@ -121,6 +131,23 @@ public class BudgetProperties {
             }
             if (maxCalls > 0 && drainReserveCalls > 0 && maxCalls - drainReserveCalls > 0) {
                 return maxCalls - drainReserveCalls;
+            }
+            return 0;
+        }
+
+        public double getDrainReserveCostUsd() { return drainReserveCostUsd; }
+        public void setDrainReserveCostUsd(double v) { this.drainReserveCostUsd = v; }
+
+        /**
+         * The cost-dimension drain threshold (USD): {@code maxCostUsd −
+         * drainReserveCostUsd} when both are positive and the difference is,
+         * else 0 (cost-drain off). No explicit-override variant — set the
+         * reserve to place the threshold.
+         */
+        public double effectiveDrainStartCostUsd() {
+            if (maxCostUsd > 0 && drainReserveCostUsd > 0
+                    && maxCostUsd - drainReserveCostUsd > 0) {
+                return maxCostUsd - drainReserveCostUsd;
             }
             return 0;
         }

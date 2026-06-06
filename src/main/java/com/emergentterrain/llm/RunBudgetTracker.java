@@ -255,6 +255,21 @@ public class RunBudgetTracker {
         global.costUsd.add(cost);
         double gcost = global.costUsd.sum();
 
+        // 2026-06-05 — cost-dimension drain, symmetric with the call-count drain in
+        // recordCall. The 19:59 session hit the $5 ceiling at 326/500 calls (cost had
+        // become the binding dimension) and the call-only drain never engaged —
+        // hard stop, two papers lost in flight. Same shared DRAINING state, same
+        // quiescent-stop path; the maxCostUsd breach below stays the hard backstop.
+        double costDrainStart = props.getGlobal().effectiveDrainStartCostUsd();
+        if (costDrainStart > 0 && gcost >= costDrainStart && !stopStarted.get()
+                && draining.compareAndSet(false, true)) {
+            log.warn("Run budget DRAINING (global cost ${} >= drain-start ${}): no new research "
+                            + "cycles will start; in-flight papers complete on the remaining budget; "
+                            + "clean stop when the in-flight queue empties (hard stop at ${}).",
+                    String.format("%.4f", gcost), String.format("%.4f", costDrainStart),
+                    String.format("%.2f", props.getGlobal().getMaxCostUsd()));
+        }
+
         BudgetProperties.Caps pcap = props.getProviders().get(provider);
         if (pcap != null) {
             String why = breach(pcap, pin, pout, pcost);

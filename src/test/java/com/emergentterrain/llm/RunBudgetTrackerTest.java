@@ -160,6 +160,58 @@ class RunBudgetTrackerTest {
     }
 
     @Test
+    void costDrain_tripsAtCostThreshold_withoutStopping() {
+        // 2026-06-05 — $5 cap, $0.50 reserve → drain at $4.50. groq llama pricing:
+        // 1M in + 1M out = $0.59 + $0.79 = $1.38/call-equivalent below.
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCostUsd(5.00);
+        props.getGlobal().setDrainReserveCostUsd(0.50);
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 3; i++) {   // 3 × $1.38 = $4.14 < $4.50
+            t.recordUsageAndEnforce("groq", "llama-3.3-70b-versatile", 1_000_000, 1_000_000);
+        }
+        assertThat(t.isDraining()).isFalse();
+
+        t.recordUsageAndEnforce("groq", "llama-3.3-70b-versatile", 1_000_000, 1_000_000); // $5.52?? no — $4.14+$1.38=$5.52 exceeds cap
+        // The 4th call crosses BOTH $4.50 (drain) and $5.00 (hard stop) — the
+        // breach check fires the stop. Verify drain engaged before/with it.
+        assertThat(t.isDraining()).isTrue();
+    }
+
+    @Test
+    void costDrain_engagesBeforeHardCap_whenStepsAreSmall() {
+        BudgetProperties props = new BudgetProperties();
+        props.setEnabled(true);
+        props.getGlobal().setMaxCostUsd(5.00);
+        props.getGlobal().setDrainReserveCostUsd(1.50);   // drain at $3.50
+        TestableTracker t = new TestableTracker(props, pricingWithGroqLlama());
+
+        for (int i = 0; i < 3; i++) {   // $4.14 total — past $3.50, below $5
+            t.recordUsageAndEnforce("groq", "llama-3.3-70b-versatile", 1_000_000, 1_000_000);
+        }
+        assertThat(t.isDraining()).isTrue();
+        assertThat(t.isStopRequested()).isFalse();        // draining, NOT stopped
+        assertThat(t.allowNewResearch()).isFalse();
+        t.notifyQuiescent("in-flight drafts complete");
+        assertThat(t.terminatedWith).hasValue(RunBudgetTracker.EXIT_CODE);
+    }
+
+    @Test
+    void costDrainDerivation_offWhenUnconfiguredOrSwallowing() {
+        BudgetProperties.Caps c = new BudgetProperties.Caps();
+        c.setDrainReserveCostUsd(0.50);                    // no maxCostUsd
+        assertThat(c.effectiveDrainStartCostUsd()).isZero();
+        c.setMaxCostUsd(0.40);                             // reserve >= max
+        assertThat(c.effectiveDrainStartCostUsd()).isZero();
+        c.setMaxCostUsd(5.00);
+        assertThat(c.effectiveDrainStartCostUsd()).isEqualTo(4.50);
+        c.setDrainReserveCostUsd(0);                       // reserve off
+        assertThat(c.effectiveDrainStartCostUsd()).isZero();
+    }
+
+    @Test
     void drainDisabledWhenReserveAndStartBothOff() {
         BudgetProperties props = new BudgetProperties();
         props.setEnabled(true);
