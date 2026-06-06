@@ -19,7 +19,7 @@ parked into a phase doc. This file is in the always-live set (never archived).
 
 | Item | Blocker | Next action |
 |---|---|---|
-| **Wave 3 calibration run** | label set has ZERO Reject rows → Reject-recall n/a → deploy bar cannot pass | (a) re-run `scripts/backfill-review-verdicts.sh` against the old `a3289005` report archives (they carry the Reject-heavy era: RLC clones, broken simulators) if on disk; (b) then one dedicated app start with `ET_REVIEW_CALIBRATION=1` (~25 calls) |
+| **Wave 3 calibration run** | label set has ZERO Reject rows → Reject-recall n/a → deploy bar cannot pass | 2026-06-06 checked: a3289005 report archives are NOT on disk — Reject labels must accumulate naturally (none in 7 sessions, itself a quality signal). Revisit the bar or wait; then one dedicated start with `ET_REVIEW_CALIBRATION=1` (~25 calls) |
 | Wave 4 — 32.5 literature-grounding sidecar (PaperQA2) | none for the BUILD (dormant anytime); FLIP gated on first promotion paper | build py-sidecar `/ground/claim` + curated NT corpus per `phase-32-manuscript-grounding.md` §32.5; 32.6's citation-API-only guard rides with it |
 | 32.6 small guards (second-pass refinement, reference-position check) | none | ride along with any narration PR |
 | Figure agent (ARC §B1) | parked until papers have figures | re-survey AI-Scientist-v2 VLM machinery when scheduled |
@@ -28,9 +28,9 @@ parked into a phase doc. This file is in the always-live set (never archived).
 
 | Item | Why it's next | Status |
 |---|---|---|
-| **31.1 capture layer** (`research_memory` store + deterministic writers) | the five-paper cramer convergence (214/218/222/232/240: ceiling ≈0.43–0.45 on [3×10⁵, 1.8×10⁶], violated <2.5×10⁵) has NO assembler — every session adds a tile to a map nothing can see | not started; 31.6 prerequisite shipped `b50dca8` |
-| 31.2 consolidation / 31.3 recall / 31.7 synthesis papers | downstream of 31.1 | not started |
-| `memory_audit` log | deferred until 31.1 produces the first mutation | by design |
+| **31.1 capture layer** (`research_memory` store + deterministic writers) | the five-paper cramer convergence (214/218/222/232/240: ceiling ≈0.43–0.45 on [3×10⁵, 1.8×10⁶], violated <2.5×10⁵) has NO assembler — every session adds a tile to a map nothing can see | ✅ **shipped 2026-06-06** — `ResearchMemoryEntity/Repository/Service` (append-only, SHA-256 insert-or-reinforce, room/bot/run scoping) + two writers (paper-outcome FACT at publish; retirement FACT in `persistRetired`, reseed-churn-safe via hash dedup). Flag ON (capture-only). Acceptance: next session, every published/retired artifact has ≥1 row; replay-stable counts |
+| 31.2 consolidation / 31.3 recall / 31.7 synthesis papers | downstream of 31.1 — **next builds**; 31.7's first target is the cramer-convergence synthesis | not started |
+| `memory_audit` log | 31.1 now produces mutations to record — unblocked, fold into 31.2 | was deferred |
 
 ## 4. Carried small / conditional
 

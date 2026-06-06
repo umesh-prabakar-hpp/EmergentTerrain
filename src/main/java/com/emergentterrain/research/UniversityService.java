@@ -380,6 +380,15 @@ public class UniversityService {
             "${app.research.manifest.capture.enabled:false}")
     private boolean manifestCaptureEnabled;
 
+    /** Phase 31 §31.1 — optional memory capture (write-only; publish never depends on it). */
+    private volatile com.emergentterrain.research.memory.ResearchMemoryService researchMemory;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setResearchMemory(
+            com.emergentterrain.research.memory.ResearchMemoryService researchMemory) {
+        this.researchMemory = researchMemory;
+    }
+
     /**
      * Phase 32 Wave 1 (32.2) — manifest traceability validator mode.
      * {@code off} (default) is bit-identical to the pre-manifest pipeline;
@@ -1977,6 +1986,22 @@ public class UniversityService {
         }
 
         addPaper(draft.roomId(), paper);
+        // Phase 31 §31.1 — one outcome FACT per published paper (write-only,
+        // hash-deduped, best-effort). The acceptance bar's "every published
+        // artifact has >=1 memory row with resolvable sourceRefs".
+        if (researchMemory != null && researchMemory.enabled()) {
+            researchMemory.capture(
+                    com.emergentterrain.research.memory.ResearchMemoryEntity.TYPE_FACT,
+                    String.format("paper outcome: %s topic=%s status=%s classification=%s "
+                                    + "peer=%.3f hypothesis=%s",
+                            draft.paperId(), draft.topicName(), paperStatus,
+                            draft.resultClassification(),
+                            adjustedScore,
+                            hypothesis == null ? "" :
+                                    hypothesis.substring(0, Math.min(hypothesis.length(), 160))),
+                    draft.paperId(),
+                    draft.topicName(), draft.domain(), draft.roomId(), draft.authorBotId());
+        }
         // Phase 32 Wave 0 (32.1) — capture the verified-values manifest beside
         // the paper. Best-effort and write-only: any failure logs and moves on.
         if (manifestCaptureEnabled) {

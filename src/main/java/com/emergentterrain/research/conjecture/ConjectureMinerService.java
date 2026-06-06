@@ -1122,6 +1122,19 @@ public class ConjectureMinerService implements ConjectureQueue {
         return false;
     }
 
+    /**
+     * Phase 31 §31.1 — optional memory capture for retirements (write-only;
+     * the miner never depends on it). Optional-autowired so tests and
+     * memory-less contexts construct unchanged.
+     */
+    private volatile com.emergentterrain.research.memory.ResearchMemoryService researchMemory;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setResearchMemory(
+            com.emergentterrain.research.memory.ResearchMemoryService researchMemory) {
+        this.researchMemory = researchMemory;
+    }
+
     private void persistRetired(
             List<Inequality> retired,
             Map<String, Conjecture> byKey,
@@ -1141,7 +1154,24 @@ public class ConjectureMinerService implements ConjectureQueue {
                 entity.setUpdatedAt(Instant.now());
             }
             repo.save(entity);
+            // 31.1 capture — one FACT per retirement, content-hash deduped so a
+            // re-seed/re-retire cycle of the same inequality reinforces rather
+            // than duplicating (the [[feedback_no_reseed_skip]] churn stays).
+            com.emergentterrain.research.memory.ResearchMemoryService mem = researchMemory;
+            if (mem != null && mem.enabled()) {
+                mem.capture(
+                        com.emergentterrain.research.memory.ResearchMemoryEntity.TYPE_FACT,
+                        String.format("conjecture retired: %s <= %s*%s + %s — reason=%s runs=%d",
+                                ineq.lhs, trimD(ineq.k), ineq.rhs, trimD(ineq.c),
+                                reason, entity.confirmedRuns()),
+                        "miner:" + reason,
+                        "conjecture/" + ineq.lhs, DOMAIN, null, null);
+            }
         }
+    }
+
+    private static String trimD(double v) {
+        return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
     }
 
     /**
