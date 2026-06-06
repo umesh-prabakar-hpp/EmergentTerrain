@@ -111,5 +111,11 @@ function math_invariants_vocabulary()::Vector{String}
     push!(out, "sqrt_window_size")
     push!(out, "log_window_start")
     push!(out, "mertens_per_sqrt_W")
+    # Phase 30 §5.2 (2026-06-06 review rec #3) — the two open-behavior derived
+    # scalars were computed by math_invariants_flat above but missing here, so
+    # /conjecture/verify rejected them with bad_request and the JVM fell back
+    # to the per-window path (P-b72c-214's three verify calls).
+    push!(out, "cramer_gap_ratio")
+    push!(out, "twin_vs_prime_sq")
     return out
 end
