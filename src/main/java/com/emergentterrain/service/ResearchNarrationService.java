@@ -128,6 +128,54 @@ public class ResearchNarrationService {
     private int professorEmptyTraceRetries;
 
     /**
+     * Phase 32 Wave 2 (32.3) — off-target corrective re-run ("pivot", the
+     * deterministic arm). When a conjecture draft's professor trace never
+     * invoked {@code verify_conjecture} with the PRE-REGISTERED lhs
+     * ({@code ScoreCalibration.hypothesisLhsUncovered} — P-b72c-210/215/217's
+     * shape), re-run the professor once with an explicit corrective note
+     * naming the preregistered pair, instead of letting the draft sail into
+     * the publish gate's NEEDS_REVISION. The hypothesis is NOT amended — it
+     * was correctly pre-registered; the trace went off-target — so this is
+     * the corrective-re-run arm of 32.3. The amend-hypothesis arm (genuine
+     * mis-specification discovered mid-investigation) is deferred until a
+     * real fixture exists. Drain-aware: a pivot is discretionary spend and
+     * never starts while the run budget is draining. false = today's
+     * behavior, bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value("${app.research.pivot.enabled:false}")
+    private boolean pivotEnabled;
+    @org.springframework.beans.factory.annotation.Value("${app.research.pivot.max-refinements:1}")
+    private int pivotMaxRefinements;
+
+    /** Drain gate for discretionary salvage spend (mirrors LlmService's optional setter). */
+    private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setRunBudgetTracker(com.emergentterrain.llm.RunBudgetTracker tracker) {
+        this.runBudgetTracker = tracker;
+    }
+
+    private boolean pivotSpendAllowed() {
+        com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
+        return t == null || t.allowDiscretionarySpend();
+    }
+
+    /**
+     * The corrective instruction appended to the professor user prompt on an
+     * off-target re-run. Names the preregistered lhs and mandates at least one
+     * on-target verify call — without forbidding additional exploration (the
+     * P-b72c-222 regime-probe behavior stays welcome).
+     */
+    static String buildPivotNote(String preregisteredLhs) {
+        return "\n\nPIVOT NOTE — your previous investigation never invoked "
+                + "verify_conjecture with the PRE-REGISTERED lhs '" + preregisteredLhs
+                + "'. The hypothesis under test is the pre-registered inequality: at "
+                + "least one verify_conjecture call MUST use lhs=\"" + preregisteredLhs
+                + "\" (additional calls on other scalars or regimes remain welcome). "
+                + "Re-run the investigation accordingly.";
+    }
+
+    /**
      * rec #8 — when on, a narration that hits the wall-clock timeout publishes its
      * already-produced first-pass (routed to NEEDS_REVISION) instead of abandoning
      * the paper. The a3289005 batch lost papers (981, 986, 988, 990–993) this way:
@@ -1963,6 +2011,52 @@ public class ResearchNarrationService {
             callPath.add("prof:" + abbrev(router.primaryModel()) + ":ok");
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
+
+            // Phase 32 Wave 2 (32.3) — off-target corrective re-run. Sits AFTER
+            // the D3 gate (trace verified non-empty) so a failed re-run can fall
+            // back to the original synthesis without re-suppression risk; the
+            // re-run uses its OWN ToolMetrics so the original's counters stay
+            // intact on the keep-original path. If the re-run is still
+            // off-target, the publish gate routes to NEEDS_REVISION exactly as
+            // today — the gate stops being the last line and becomes the
+            // pivot's backstop.
+            int pivotReruns = 0;
+            while (pivotEnabled && pivotReruns < pivotMaxRefinements
+                    && draft.topicName() != null
+                    && draft.topicName().startsWith("conjecture/")
+                    && com.emergentterrain.research.ScoreCalibration
+                            .hypothesisLhsUncovered(draft.topicName(), profTrace)
+                    && pivotSpendAllowed()) {
+                pivotReruns++;
+                String preregLhs = draft.topicName()
+                        .substring("conjecture/".length()).trim();
+                callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
+                log.info("LLM professor tools: off-target trace (preregistered lhs '{}' "
+                                + "never verified) — corrective re-run {}/{} paperId={}",
+                        preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
+                MathToolSuite.ToolMetrics pivotMetrics = new MathToolSuite.ToolMetrics();
+                String pivotPrompt = userPrompt + buildPivotNote(preregLhs);
+                com.emergentterrain.llm.ToolCallResponse pivotResponse =
+                        com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
+                                router.callPrimaryWithTools(
+                                        systemPrompt, pivotPrompt, toolsJson,
+                                        toolSuite.buildExecutor(draft, pivotMetrics),
+                                        pivotMetrics::reset));
+                if (pivotResponse.synthesis() != null && !pivotResponse.synthesis().isBlank()
+                        && pivotResponse.trace() != null && !pivotResponse.trace().isEmpty()
+                        && pivotMetrics.totalSuccesses() > 0) {
+                    professorSynthesis = pivotResponse.synthesis();
+                    profTrace = pivotResponse.trace();
+                    callPath.add(com.emergentterrain.research.ScoreCalibration
+                            .hypothesisLhsUncovered(draft.topicName(), profTrace)
+                            ? "prereg:pivot:still_offtarget"
+                            : "prereg:pivot:on_target");
+                } else {
+                    // Keep the original synthesis/trace; the gate decides.
+                    callPath.add("prereg:pivot:rerun_unusable");
+                    break;
+                }
+            }
 
             // 2026-06-05 review rec #1 — recognize a conjecture investigation's FITTED
             // CONSTANT (threaded via draft.param2). P-b72c-177 mined the ceiling 1.3128
