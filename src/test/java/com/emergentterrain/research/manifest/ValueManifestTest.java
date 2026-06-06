@@ -95,6 +95,21 @@ class ValueManifestTest {
     }
 
     @Test
+    void p241_toolArgBaseline_resolves() {
+        // "the pre-registered prediction of 0.140" lived only in the scan's
+        // ARGS (baseline=0.140); the result never echoed it.
+        ValueManifest m = ValueManifest.capture(null, List.of(
+                new ToolInvocation("run_predicate_scan",
+                        "{\"predicate\":\"isPrime AND isHappy\",\"range_start\":400,"
+                                + "\"range_end\":800,\"baseline\":0.140}",
+                        "fraction satisfying predicate = 0.025 ± 0.015", 0, "c1")));
+        assertThat(m.resolve(0.140)).isPresent();
+        assertThat(m.resolve(0.140).get().description()).startsWith("a1_");
+        // And the output still resolves alongside.
+        assertThat(m.resolve(0.025)).isPresent();
+    }
+
+    @Test
     void p229_hypothesisMinusToolValue_resolves() {
         // First shadow-session finding (P-b72c-229): "a post-hoc deviation of
         // 0.147 from the predicted value" = preregistered 0.180 − observed

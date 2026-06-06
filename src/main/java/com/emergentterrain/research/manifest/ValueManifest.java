@@ -91,24 +91,43 @@ public final class ValueManifest {
                 ToolInvocation call = trace.get(i);
                 List<Double> values = new ArrayList<>();
                 perCall.add(values);
-                if (call == null || call.resultJson() == null) continue;
+                if (call == null) continue;
                 String producedBy = "call_" + (i + 1);
                 int seq = 0;
                 Set<String> seen = new LinkedHashSet<>();
-                Matcher m = NUMERIC_TOKEN.matcher(call.resultJson());
-                while (m.find()) {
-                    String rendering = m.group();
-                    if (!seen.add(rendering)) continue;
-                    double v = parse(rendering);
-                    if (Double.isNaN(v)) continue;
-                    if (seq >= MAX_ENTRIES_PER_CALL) {
-                        truncated.add(producedBy);
-                        break;
+                // ARGS first — preregistered inputs (baseline, k, c, window
+                // coordinates) are provenance the result may never echo
+                // (P-b72c-241's baseline=0.140). Sharing the per-call value
+                // list with outputs lets input-vs-output derivations resolve.
+                if (call.argsJson() != null) {
+                    Matcher a = NUMERIC_TOKEN.matcher(call.argsJson());
+                    while (a.find()) {
+                        String rendering = a.group();
+                        if (!seen.add(rendering)) continue;
+                        double v = parse(rendering);
+                        if (Double.isNaN(v)) continue;
+                        entries.add(new ManifestEntry(
+                                "a" + (i + 1) + "_" + (++seq), v, rendering,
+                                producedBy, ManifestEntry.Kind.TOOL_INPUT));
+                        values.add(v);
                     }
-                    entries.add(new ManifestEntry(
-                            "m" + (i + 1) + "_" + (++seq), v, rendering,
-                            producedBy, ManifestEntry.Kind.TOOL_OUTPUT));
-                    values.add(v);
+                }
+                if (call.resultJson() != null) {
+                    Matcher m = NUMERIC_TOKEN.matcher(call.resultJson());
+                    while (m.find()) {
+                        String rendering = m.group();
+                        if (!seen.add(rendering)) continue;
+                        double v = parse(rendering);
+                        if (Double.isNaN(v)) continue;
+                        if (seq >= MAX_ENTRIES_PER_CALL) {
+                            truncated.add(producedBy);
+                            break;
+                        }
+                        entries.add(new ManifestEntry(
+                                "m" + (i + 1) + "_" + (++seq), v, rendering,
+                                producedBy, ManifestEntry.Kind.TOOL_OUTPUT));
+                        values.add(v);
+                    }
                 }
             }
         }
@@ -270,7 +289,11 @@ public final class ValueManifest {
                     .append("\",").append(e.value())
                     .append(",\"").append(e.rendering())
                     .append("\",\"").append(e.producedBy())
-                    .append("\",\"").append(e.kind() == ManifestEntry.Kind.TOOL_OUTPUT ? "T" : "H")
+                    .append("\",\"").append(switch (e.kind()) {
+                        case TOOL_OUTPUT -> "T";
+                        case TOOL_INPUT -> "I";
+                        case HYPOTHESIS_CONSTANT -> "H";
+                    })
                     .append("\"]");
         }
         sb.append("],\"truncatedCalls\":[");

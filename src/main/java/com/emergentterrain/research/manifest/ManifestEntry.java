@@ -28,6 +28,13 @@ public record ManifestEntry(
     public enum Kind {
         /** Parsed from an executed tool call's result text. */
         TOOL_OUTPUT,
+        /**
+         * Parsed from an executed tool call's ARGUMENTS — preregistered
+         * baselines, k/c, window coordinates. Inputs are provenance too
+         * (P-b72c-241: "the pre-registered prediction of 0.140" lived only in
+         * {@code baseline=0.140} of the scan args; the result never echoed it).
+         */
+        TOOL_INPUT,
         /** Parsed from the pre-registered hypothesis (k, c, ranges). */
         HYPOTHESIS_CONSTANT
     }
