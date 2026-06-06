@@ -166,8 +166,8 @@ public class ResearchNarrationService {
      * returns the prompt unchanged — this is best-effort steering, never a
      * narration blocker.
      */
-    private String appendManifestMissRule(String prompt, NarrationResult firstPass,
-            String professorSynthesis,
+    private String appendManifestMissRule(String prompt, PaperDraft draft,
+            NarrationResult firstPass, String professorSynthesis,
             java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
         if (!"enforce".equals(manifestValidatorMode)) return prompt;
         try {
@@ -189,6 +189,11 @@ public class ResearchNarrationService {
                 if (tokens.length() > 0) tokens.append(", ");
                 tokens.append('\'').append(miss.token()).append('\'');
             }
+            // Logged so the publish-side enforce line can be diffed against
+            // this pre-revision count — the catch-at-generation efficacy
+            // metric (named misses the reviser actually fixed).
+            log.info("manifest-revision-rule: paperId={} preRevisionMisses={} tokens=[{}]",
+                    draft.paperId(), stats.misses().size(), tokens);
             return prompt + "\n\nVALUE PROVENANCE (the publish gate routes the paper to "
                     + "NEEDS_REVISION on violation): these numbers in the working material "
                     + "trace to NO tool result, tool argument, or one-step derivation: "
@@ -2162,7 +2167,7 @@ public class ResearchNarrationService {
                                             revisionNoveltyPreservationEnabled),
                                     executedScopeGroundingEnabled),
                             definitionGroundingEnabled),
-                    firstPass, professorSynthesis, profTrace);
+                    draft, firstPass, professorSynthesis, profTrace);
             // rec #4 follow-up — ground the [call_N] contract by appending the real
             // tagged trace, so the reviser cites real IDs instead of inventing them
             // (P-a328-993/994). Flag-gated for A/B against the instruction-only state.
