@@ -147,6 +147,59 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.pivot.max-refinements:1}")
     private int pivotMaxRefinements;
 
+    /**
+     * Phase 32 Wave 1 enforce (32.2) — mirrored mode flag so the REVISION
+     * stage can pre-check the working material against the manifest and name
+     * the unprovenanced values in the revision prompt, instead of letting the
+     * publish gate bounce the finished paper. Catch-at-generation; the gate
+     * stays as the backstop.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.manifest.validator-mode:off}")
+    private String manifestValidatorMode;
+
+    /**
+     * Dynamic revision rule (enforce mode only): run the manifest validator
+     * over the pre-revision material (professor synthesis + first-pass prose)
+     * and, if values miss, append a rule NAMING them with the three honest
+     * outs (cite / show arithmetic / remove). Empty-miss or any failure
+     * returns the prompt unchanged — this is best-effort steering, never a
+     * narration blocker.
+     */
+    private String appendManifestMissRule(String prompt, NarrationResult firstPass,
+            String professorSynthesis,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (!"enforce".equals(manifestValidatorMode)) return prompt;
+        try {
+            com.emergentterrain.research.manifest.ValueManifest manifest =
+                    com.emergentterrain.research.manifest.ValueManifest.capture(
+                            firstPass != null ? firstPass.hypothesis() : null, trace);
+            java.util.Map<Integer, String> blocks = new java.util.TreeMap<>();
+            if (professorSynthesis != null) blocks.put(1, professorSynthesis);
+            if (firstPass != null && firstPass.findings() != null) {
+                blocks.put(2, firstPass.findings());
+            }
+            com.emergentterrain.research.manifest.ManifestTraceabilityValidator.Stats stats =
+                    com.emergentterrain.research.manifest.ManifestTraceabilityValidator
+                            .validate(manifest, blocks,
+                                    firstPass != null ? firstPass.conclusion() : null);
+            if (stats.misses().isEmpty()) return prompt;
+            StringBuilder tokens = new StringBuilder();
+            for (var miss : stats.misses()) {
+                if (tokens.length() > 0) tokens.append(", ");
+                tokens.append('\'').append(miss.token()).append('\'');
+            }
+            return prompt + "\n\nVALUE PROVENANCE (the publish gate routes the paper to "
+                    + "NEEDS_REVISION on violation): these numbers in the working material "
+                    + "trace to NO tool result, tool argument, or one-step derivation: "
+                    + tokens + ". For each, either cite its exact source from the trace, "
+                    + "show its arithmetic from cited values in the same sentence, or "
+                    + "REMOVE the claim.";
+        } catch (Exception e) {
+            return prompt;
+        }
+    }
+
     /** Drain gate for discretionary salvage spend (mirrors LlmService's optional setter). */
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
 
@@ -2096,15 +2149,20 @@ public class ResearchNarrationService {
             // Grounding rules (REVIEW_REPORT b72c4e10 §1 rec #4/#5) wrap the
             // base revision prompt; each is independently flag-gated and OFF by
             // default, so this is a no-op until flipped.
-            String revisionPromptBase = appendDefinitionGrounding(
-                    appendExecutedScopeGrounding(
-                            appendNoveltyPreservation(
-                                    buildRevisionPromptFromSynthesis(
-                                            promptRegistry, draft, firstPass, professorSynthesis,
-                                            literatureContext),
-                                    revisionNoveltyPreservationEnabled),
-                            executedScopeGroundingEnabled),
-                    definitionGroundingEnabled);
+            // Phase 32 enforce — the manifest pre-check wraps OUTERMOST so its
+            // dynamic VALUE PROVENANCE block (naming the specific unprovenanced
+            // numbers in the working material) lands last and most salient.
+            String revisionPromptBase = appendManifestMissRule(
+                    appendDefinitionGrounding(
+                            appendExecutedScopeGrounding(
+                                    appendNoveltyPreservation(
+                                            buildRevisionPromptFromSynthesis(
+                                                    promptRegistry, draft, firstPass, professorSynthesis,
+                                                    literatureContext),
+                                            revisionNoveltyPreservationEnabled),
+                                    executedScopeGroundingEnabled),
+                            definitionGroundingEnabled),
+                    firstPass, professorSynthesis, profTrace);
             // rec #4 follow-up — ground the [call_N] contract by appending the real
             // tagged trace, so the reviser cites real IDs instead of inventing them
             // (P-a328-993/994). Flag-gated for A/B against the instruction-only state.
