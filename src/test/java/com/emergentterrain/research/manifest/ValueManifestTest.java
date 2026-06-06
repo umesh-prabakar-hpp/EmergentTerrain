@@ -95,6 +95,19 @@ class ValueManifestTest {
     }
 
     @Test
+    void p229_hypothesisMinusToolValue_resolves() {
+        // First shadow-session finding (P-b72c-229): "a post-hoc deviation of
+        // 0.147 from the predicted value" = preregistered 0.180 − observed
+        // 0.033 [call_4]. The prediction-vs-observation gap must resolve.
+        ValueManifest m = ValueManifest.capture(
+                "joint density is near 0.180 in [300, 750)",
+                List.of(verify("fraction satisfying predicate = 0.033 ± 0.017")));
+        Optional<ValueManifest.Resolution> r = m.resolve(0.147);
+        assertThat(r).isPresent();
+        assertThat(r.get().description()).startsWith("derived:|0.18-0.033|@hyp");
+    }
+
+    @Test
     void crossCallArithmeticDoesNotResolve() {
         // The same two numbers split across calls: stays unresolvable —
         // matching the ladder's conservative same-call rule.
@@ -117,15 +130,17 @@ class ValueManifestTest {
     // ── JSON sidecar ────────────────────────────────────────────────────────
 
     @Test
-    void jsonRoundTripShapeIsStable() {
+    void jsonColumnarShapeIsStable() {
+        // Columnar after P-b72c-230's 705-entry manifest hit 70KB in
+        // per-entry-object form; kind is T (tool) / H (hypothesis).
         ValueManifest m = ValueManifest.capture("k = 2.0",
                 List.of(verify("margin -0.01261")));
         String json = m.toJson();
         assertThat(json)
-                .startsWith("{\"entries\":[")
-                .contains("\"rendering\":\"-0.01261\"")
-                .contains("\"producedBy\":\"call_1\"")
-                .contains("\"kind\":\"TOOL_OUTPUT\"")
+                .startsWith("{\"cols\":[\"label\",\"value\",\"rendering\",\"producedBy\",\"kind\"],"
+                        + "\"rows\":[")
+                .contains("[\"m1_1\",-0.01261,\"-0.01261\",\"call_1\",\"T\"]")
+                .contains("[\"h_1\",2.0,\"2.0\",\"hypothesis\",\"H\"]")
                 .endsWith("\"truncatedCalls\":[]}");
     }
 }

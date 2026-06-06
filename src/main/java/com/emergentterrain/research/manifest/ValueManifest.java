@@ -148,6 +148,27 @@ public final class ValueManifest {
                 }
             }
         }
+        // h±x — hypothesis constant plus/minus a tool value (P-b72c-229's
+        // first-shadow-session finding: "deviation of 0.147" = preregistered
+        // 0.180 − observed 0.033, prose-labeled "computed post-hoc". The
+        // prediction-vs-observation gap is the single most natural honest
+        // derivation a results section makes; strict tolerance only.
+        for (double h : hypothesisConstants) {
+            if (h == 0.0) continue;
+            for (int c = 0; c < perCallValues.size(); c++) {
+                for (double x : perCallValues.get(c)) {
+                    if (x == 0.0) continue;
+                    if (matches(value, Math.abs(h - x))) {
+                        return Optional.of(new Resolution("derived:|" + trim(h)
+                                + "-" + trim(x) + "|@hyp,call_" + (c + 1), null));
+                    }
+                    if (matches(value, h + x)) {
+                        return Optional.of(new Resolution("derived:" + trim(h)
+                                + "+" + trim(x) + "@hyp,call_" + (c + 1), null));
+                    }
+                }
+            }
+        }
         // x±y over values from the SAME call.
         for (int c = 0; c < perCallValues.size(); c++) {
             List<Double> vs = perCallValues.get(c);
@@ -204,22 +225,26 @@ public final class ValueManifest {
     }
 
     /**
-     * Compact JSON for the sidecar file. Hand-rolled: every field is a numeric
-     * token or a {@code [A-Za-z0-9_]} label, so no escaping is required; this
-     * keeps the class dependency-free.
+     * Columnar JSON for the sidecar file — {@code cols} header + one row per
+     * entry. Chosen over per-entry objects after P-b72c-230's 705-entry
+     * verify-heavy manifest hit 70KB in object form (repeated keys dominate);
+     * columnar cuts ~60% while staying self-describing. Hand-rolled: every
+     * field is a numeric token or a {@code [A-Za-z0-9_]} label, so no
+     * escaping is required and the class stays dependency-free.
      */
     public String toJson() {
-        StringBuilder sb = new StringBuilder(entries.size() * 64 + 128);
-        sb.append("{\"entries\":[");
+        StringBuilder sb = new StringBuilder(entries.size() * 40 + 160);
+        sb.append("{\"cols\":[\"label\",\"value\",\"rendering\",\"producedBy\",\"kind\"],"
+                + "\"rows\":[");
         for (int i = 0; i < entries.size(); i++) {
             ManifestEntry e = entries.get(i);
             if (i > 0) sb.append(',');
-            sb.append("{\"label\":\"").append(e.label())
-                    .append("\",\"value\":").append(e.value())
-                    .append(",\"rendering\":\"").append(e.rendering())
-                    .append("\",\"producedBy\":\"").append(e.producedBy())
-                    .append("\",\"kind\":\"").append(e.kind())
-                    .append("\"}");
+            sb.append("[\"").append(e.label())
+                    .append("\",").append(e.value())
+                    .append(",\"").append(e.rendering())
+                    .append("\",\"").append(e.producedBy())
+                    .append("\",\"").append(e.kind() == ManifestEntry.Kind.TOOL_OUTPUT ? "T" : "H")
+                    .append("\"]");
         }
         sb.append("],\"truncatedCalls\":[");
         for (int i = 0; i < truncatedCalls.size(); i++) {
