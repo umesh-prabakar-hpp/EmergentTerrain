@@ -127,6 +127,32 @@ below:
   (voice, calendar, collaboration pub-sub, MCP server, wizard, OpenClaw bridge). The 30.4
   literature-grounding design in `phase-30-genuinely-novel-claims.md` was updated (layered
   citation resolution); its 23.8-calibration deferral is unchanged.
+- **Phase 33 — OpenAlex literature acquisition & external citation resolution**
+  ([phase-33-openalex-literature/](phase-33-openalex-literature/), 2026-06-06, **scoping
+  proposal — nothing built**): scopes the external-data layer that 30.4 (layered resolver) and
+  32.5 (grounding-sidecar corpus) both assume but never specified, against the OpenAlex API as
+  of June 2026 — keys mandatory since 2026-02 + $1/day usage-credit pricing (the 30.4 "~10K/day"
+  budget is the dead keyless model), hosted full-text (PDF/TEI) for ~60M OA works, extended +
+  semantic search. Items: 33.1 client/key-custody/credit-ledger, 33.2 offline corpus build
+  (≈$10, free-tier trickle; feeds 32.5), 33.3 dormant citation resolver (implements the 30.4
+  design update; flip rides the same first-promotion trigger as 32.5), 33.4 record-only
+  semantic-search probe. Deferral discipline unchanged.
+  Sequencing + flags:
+  [phase-33-openalex-literature/IMPLEMENTATION-ORDER.md](phase-33-openalex-literature/IMPLEMENTATION-ORDER.md).
+- **Phase 34 — self-revising discovery (categorical framework review)**
+  ([phase-34-self-revising-discovery/](phase-34-self-revising-discovery/), 2026-06-06, **scoping
+  proposal — nothing built**): sixth external-pattern review, over a theory paper rather than a code
+  clone — Wang & Buehler, *Self-Revising Discovery Systems for Science* (arXiv:2606.01444v1; same
+  MIT LAMM lineage as ScienceClaw/SciAgents/ProtAgents/Sparks). Supplies a formal vocabulary +
+  non-subjective acceptance criteria for distinctions ET makes by heuristic: retrieval/search/
+  **discovery** trichotomy (most ET papers are *search*, not regime-changing discovery — makes
+  "generation is the blocker" measurable, 34.1), the Kan-obstruction = forced-residual signature of
+  discovery (sharpens 30.5 vocab-expansion via a generator- vs composite-reachable audit + the 30.6
+  promotion residual, 34.2), MDL-on-widening-evidence / non-monotone-R²-is-correct anti-pattern
+  guard (names ET's anti-stagnation behavior, 34.3), rejected-alternatives-as-durable-provenance
+  (34.4, hard-depends on 31.6) and a per-claim discovery-cost metric (34.5). Mostly diagnostic, not
+  new subsystems. Detail + scoping:
+  [phase-34-self-revising-discovery/phase-34-patterns.md](phase-34-self-revising-discovery/phase-34-patterns.md).
 
 ---
 
