@@ -169,4 +169,30 @@ class UnsourcedClaimValidatorTest {
         assertThat(UnsourcedClaimValidator.validate(findings, ""))
                 .anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
     }
+
+    // ── Flagged-sentence snippet in the reason (2026-06-06 rec #2) ──────────
+
+    @Test
+    void reasonCarriesFlaggedSentenceSnippet() {
+        // P-b72c-219: the downgrade rewrote Findings before publication, so the
+        // strike was unclassifiable post-hoc. The reason must quote the sentence.
+        String findings = "The uncertainty band spans 0.3 units at the boundary.";
+        List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
+        assertThat(reasons).hasSize(1);
+        assertThat(reasons.get(0))
+                .startsWith("unsourced_claim:uncertainty")   // stamp token intact
+                .contains("Sentence: \"The uncertainty band spans 0.3 units");
+    }
+
+    @Test
+    void snippetTruncatesLongSentencesAt60Chars() {
+        String longSentence = "The uncertainty in this extended discussion of the "
+                + "propagated error term is 0.5 across every window we examined "
+                + "in the full sweep.";
+        List<String> reasons = UnsourcedClaimValidator.validate(longSentence, "");
+        assertThat(reasons).hasSize(1);
+        String quoted = reasons.get(0).substring(reasons.get(0).indexOf("Sentence: \"") + 11);
+        assertThat(quoted).hasSizeLessThanOrEqualTo(63);   // 60 + ellipsis + closing quote
+        assertThat(quoted).contains("…");
+    }
 }

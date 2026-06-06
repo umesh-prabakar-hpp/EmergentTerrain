@@ -113,6 +113,21 @@ public class ResearchNarrationService {
     private final Semaphore narrationSlot;
 
     /**
+     * 2026-06-06 review rec #3 — bounded resample on a professor empty trace.
+     * ~2/3 of professor invocations decline tools (temperature-0.7 stochastic:
+     * the same topics succeed on other draws), and the D3 suppression then
+     * discards the 4–6 upstream calls already spent on the draft — roughly
+     * half a session's call budget. A pure resample (identical prompts — NOT
+     * coercion: the prompt's "you do not need to use tools" opt-out stays, and
+     * a draft whose retries all decline still suppresses honestly) salvages
+     * the sunk pipeline for one extra call per attempt. 0 disables (today's
+     * behavior, bit-identical).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.professor.empty-trace-retries:0}")
+    private int professorEmptyTraceRetries;
+
+    /**
      * rec #8 — when on, a narration that hits the wall-clock timeout publishes its
      * already-produced first-pass (routed to NEEDS_REVISION) instead of abandoning
      * the paper. The a3289005 batch lost papers (981, 986, 988, 990–993) this way:
@@ -1884,6 +1899,36 @@ public class ResearchNarrationService {
                 log.warn("LLM professor tools: blank synthesis paperId={} ms={} — draft suppressed",
                         draft.paperId(), System.currentTimeMillis() - start);
                 return null;
+            }
+            // 2026-06-06 review rec #3 — resample-on-empty (see the field javadoc).
+            // Sits between the blank check and the D3 suppression so a rescued
+            // draft flows through the unchanged D3 gate; an unrescued one reaches
+            // it with the retries stamped for the call-path audit trail. Runs
+            // within the draft's existing narration slot/budget; drain semantics
+            // unchanged (in-flight drafts are expected to complete on the reserve).
+            int emptyTraceResamples = 0;
+            while ((metrics.totalSuccesses() == 0 || profTrace == null || profTrace.isEmpty())
+                    && emptyTraceResamples < professorEmptyTraceRetries) {
+                emptyTraceResamples++;
+                callPath.add("prof:empty_trace_resample:n=" + emptyTraceResamples);
+                log.info("LLM professor tools: empty trace — resampling ({}/{}) paperId={}",
+                        emptyTraceResamples, professorEmptyTraceRetries, draft.paperId());
+                metrics.reset();
+                com.emergentterrain.llm.ToolCallResponse resample =
+                        com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
+                                router.callPrimaryWithTools(
+                                        systemPrompt, userPrompt, toolsJson,
+                                        toolSuite.buildExecutor(draft, metrics),
+                                        metrics::reset));
+                if (resample.synthesis() != null && !resample.synthesis().isBlank()) {
+                    professorSynthesis = resample.synthesis();
+                    profTrace = resample.trace();
+                    for (String skipped : resample.skippedModels()) {
+                        callPath.add("prof:budget_fallback:from=" + abbrev(skipped));
+                    }
+                }
+                // A blank resample keeps the original synthesis; the loop exits
+                // via the retry budget and the D3 gate below decides.
             }
             // Phase 12 D3 — widen the suppression gate. Phase 10's `>= 3 rejects
             // AND 0 successes` threshold only caught safety-rejected calls; it

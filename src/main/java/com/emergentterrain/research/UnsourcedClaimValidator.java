@@ -111,6 +111,12 @@ public final class UnsourcedClaimValidator {
                 && !ANY_DIGIT.matcher(sentence).find();
     }
 
+    /** First ~60 chars of the flagged sentence, whitespace-collapsed, for the reason text. */
+    private static String snippet(String sentence) {
+        String collapsed = sentence.strip().replaceAll("\\s+", " ");
+        return collapsed.length() <= 60 ? collapsed : collapsed.substring(0, 60) + "…";
+    }
+
     /**
      * Returns a list of {@code unsourced_claim:<type>} reasons, one per
      * trigger fired without a same-sentence {@code [call_N]} match. Empty
@@ -151,10 +157,18 @@ public final class UnsourcedClaimValidator {
             }
         }
         for (Map.Entry<Trigger, Integer> e : firstHitSentence.entrySet()) {
+            // 2026-06-06 review rec #2 — carry a short snippet of the flagged
+            // sentence. A downgrade can rewrite Findings before publication
+            // (P-b72c-219), leaving the strike unclassifiable from the
+            // persisted artifact; the snippet makes every firing auditable
+            // from the log alone. The call-path stamp builder only reads the
+            // claim-type token, so the suffix is stamp-safe.
             reasons.add(String.format(
                     "unsourced_claim:%s — first occurrence in sentence %d "
-                            + "of Findings/Conclusion has no paired [call_N] reference.",
-                    e.getKey().label, e.getValue() + 1));
+                            + "of Findings/Conclusion has no paired [call_N] reference. "
+                            + "Sentence: \"%s\"",
+                    e.getKey().label, e.getValue() + 1,
+                    snippet(sentences[e.getValue()])));
         }
         return reasons;
     }
