@@ -4081,9 +4081,10 @@ public class ResearchNarrationService {
 
             PROSE INTEGRITY (every claim must trace to the tool results above; the validator \
             downgrades the paper to a null result otherwise — so OMIT, do not assert):
-            - State a number ONLY if it appears in a tool-call result above (or you derive it \
-            from such numbers and show the arithmetic). Never introduce a value, percentage, \
-            or margin that no tool call produced.
+            - State a number ONLY if it appears in a tool-call result or its arguments above \
+            (preregistered baselines and bound parameters count), or you derive it from such \
+            numbers and SHOW the arithmetic in the same sentence. Never introduce a value, \
+            percentage, or margin that no tool call produced.
             - Describe results ONLY over the ranges/intervals the tool calls actually \
             evaluated. Do not claim a trend, statistic, or value over any interval — wider, \
             shifted, or finer — that no tool call covered; your stated range must lie within \

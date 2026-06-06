@@ -382,12 +382,15 @@ public class UniversityService {
 
     /**
      * Phase 32 Wave 1 (32.2) — manifest traceability validator mode.
-     * {@code off} (default) is bit-identical to today; {@code shadow} runs
-     * {@code ManifestTraceabilityValidator} beside the existing ladder,
-     * logging a per-paper agreement line and stamping
+     * {@code off} (default) is bit-identical to the pre-manifest pipeline;
+     * {@code shadow} runs {@code ManifestTraceabilityValidator} beside the
+     * ladder, logging a per-paper agreement line and stamping
      * {@code publish:manifest_miss:warn} — never routing. {@code enforce}
-     * is reserved for the Wave 1 flip (narration constraint + ladder
-     * consolidation) and is NOT implemented yet — it behaves as shadow.
+     * (flipped 2026-06-06 after the 4-session A/B) makes the manifest the
+     * value-provenance authority: a miss routes to NEEDS_REVISION and the
+     * ladder's value-tracing reason classes retire to manifest lookup
+     * ({@code NumericalConsistencyValidator.isValueTracingReason}); the
+     * ladder's structural classes keep routing unchanged.
      */
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.manifest.validator-mode:off}")
@@ -1317,18 +1320,36 @@ public class UniversityService {
                 ? NumericalConsistencyValidator.validate(hypothesis, findingsBlocks, conclusion,
                         narration.toolCallTrace())
                 : List.of();
+        // Phase 32 Wave 1 ENFORCE (32.2, flipped 2026-06-06 after the 4-session
+        // shadow A/B: value arms 3/3 FP, manifest 0 missed fabrications) — the
+        // ladder's VALUE-TRACING reason classes consolidate onto manifest
+        // lookup; its STRUCTURAL classes (executed-range union, Conclusion
+        // consistency, call-marker integrity) stay and route exactly as today
+        // (P-b72c-244's scope catch is the live proof they earn their keep).
+        if ("enforce".equals(manifestValidatorMode) && !consistencyFailures.isEmpty()) {
+            List<String> retired = consistencyFailures.stream()
+                    .filter(NumericalConsistencyValidator::isValueTracingReason)
+                    .toList();
+            if (!retired.isEmpty()) {
+                log.info("numerical-consistency value-arm reasons retired to manifest "
+                        + "paperId={} retired={}", draft.paperId(), retired);
+                consistencyFailures = consistencyFailures.stream()
+                        .filter(r -> !NumericalConsistencyValidator.isValueTracingReason(r))
+                        .toList();
+            }
+        }
         boolean numericallyInconsistent = !consistencyFailures.isEmpty();
         if (numericallyInconsistent) {
             log.warn("numerical-consistency check failed paperId={} reasons={}",
                     draft.paperId(), consistencyFailures);
         }
-        // Phase 32 Wave 1 (32.2, shadow) — resolve every salient prose number
-        // against the verified-values manifest. SHADOW CONTRACT: stamp-only,
-        // never routes; the per-paper stats line is the ladder-agreement diff
-        // that gates the enforce flip (>=2 sessions at >=95% agreement + >=1
-        // net-new catch + zero new FP classes). mode=off is bit-identical.
+        // Phase 32 Wave 1 (32.2) — resolve every salient prose number against
+        // the verified-values manifest. shadow: stamp-only (`:warn`), never
+        // routes. enforce: a miss is a revisable content defect and routes to
+        // NEEDS_REVISION — the manifest is now the value-provenance authority.
         boolean manifestShadowFlagged = false;
-        if ("shadow".equals(manifestValidatorMode)) {
+        boolean manifestMissRoutes = false;
+        if ("shadow".equals(manifestValidatorMode) || "enforce".equals(manifestValidatorMode)) {
             try {
                 com.emergentterrain.research.manifest.ValueManifest shadowManifest =
                         com.emergentterrain.research.manifest.ValueManifest.capture(
@@ -1338,21 +1359,24 @@ public class UniversityService {
                                 .ManifestTraceabilityValidator.validate(
                                         shadowManifest, findingsBlocks, conclusion);
                 manifestShadowFlagged = !shadowStats.misses().isEmpty();
-                log.info("manifest-shadow: paperId={} salient={} resolved={} allowlisted={} "
+                manifestMissRoutes = manifestShadowFlagged
+                        && "enforce".equals(manifestValidatorMode);
+                log.info("manifest-{}: paperId={} salient={} resolved={} allowlisted={} "
                                 + "boundExempt={} misses={} ladderStrikes={}",
+                        manifestValidatorMode,
                         draft.paperId(), shadowStats.salient(), shadowStats.resolved(),
                         shadowStats.allowlisted(), shadowStats.boundExempt(),
                         shadowStats.misses().size(),
                         consistencyFailures.size() + unsourcedClaimFailures.size());
                 if (manifestShadowFlagged) {
-                    log.warn("manifest-shadow misses paperId={} reasons={}",
-                            draft.paperId(),
+                    log.warn("manifest-{} misses paperId={} reasons={}",
+                            manifestValidatorMode, draft.paperId(),
                             com.emergentterrain.research.manifest
                                     .ManifestTraceabilityValidator.reasons(shadowStats));
                 }
             } catch (Exception e) {
-                log.warn("manifest-shadow failed paperId={} (no effect on publication): {}",
-                        draft.paperId(), e.getMessage());
+                log.warn("manifest-{} failed paperId={} (treated as no-miss): {}",
+                        manifestValidatorMode, draft.paperId(), e.getMessage());
             }
         }
         // Phase 5 B2 — flag papers whose findings contain magnitudes outside the
@@ -1554,6 +1578,13 @@ public class UniversityService {
             // the professor stage against the preregistered pair.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (manifestMissRoutes) {
+            // Phase 32 Wave 1 enforce — a salient prose number resolves to no
+            // manifest entry, derivation, rounding, or percent-scale match.
+            // Same tier as the other revisable content defects: revision fixes
+            // it by sourcing the value or dropping the claim.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (directionOfFindingInverted) {
             // Phase 14 F4 — Conclusion polarity inversion. Same tier as F3:
             // revision can fix the prose by aligning the verdict with the
@@ -1692,12 +1723,15 @@ public class UniversityService {
                     ? "publish:hypothesis_lhs_uncovered→needs_revision"
                     : persistedCallPath + " → publish:hypothesis_lhs_uncovered→needs_revision";
         }
-        // Phase 32 Wave 1 — shadow-only stamp; never routes (`:warn` suffix so
-        // the refresh can grep the would-be-route rate before the enforce flip).
+        // Phase 32 Wave 1 — manifest-miss stamp: `→needs_revision` under
+        // enforce (routes), `:warn` under shadow (audit-only).
         if (manifestShadowFlagged) {
+            String manifestStamp = manifestMissRoutes
+                    ? "publish:manifest_miss→needs_revision"
+                    : "publish:manifest_miss:warn";
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
-                    ? "publish:manifest_miss:warn"
-                    : persistedCallPath + " → publish:manifest_miss:warn";
+                    ? manifestStamp
+                    : persistedCallPath + " → " + manifestStamp;
         }
         // 2026-05-29 (review fix #2) — additive stamp for literal TODO/placeholder stubs.
         if (placeholderStub) {

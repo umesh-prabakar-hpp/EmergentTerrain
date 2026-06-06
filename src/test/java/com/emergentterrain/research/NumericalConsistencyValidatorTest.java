@@ -1095,4 +1095,39 @@ class NumericalConsistencyValidatorTest {
         List<String> reasons = NumericalConsistencyValidator.validate(hypothesis, findings, conclusion);
         assertThat(reasons).anyMatch(r -> r.contains("close to 9"));
     }
+
+    // ── Phase 32 enforce — the value-tracing / structural split ─────────────
+
+    @Test
+    void valueTracingReasonsClassified() {
+        // The four classes that retire to manifest lookup under enforce.
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Findings cites salient value '0.019' that is not within ±1% of any number..."))
+                .isTrue();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Findings cites unit-anchored value '97 %' that is not within ±1%..."))
+                .isTrue();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Findings cites '60 %' as an unsourced framing value — round-number target..."))
+                .isTrue();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Findings cites confidence interval '0.025 ± 0.015' but the matching tool result..."))
+                .isTrue();
+    }
+
+    @Test
+    void structuralReasonsStayWithTheLadder() {
+        // P-b72c-244's live scope catch and the other structural classes
+        // must NOT classify as value-tracing — they survive enforce.
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Prose claims results over range [1100, 1450) but no tool call executed..."))
+                .isFalse();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Conclusion claims values are 'close to 9%' but no Findings value lands..."))
+                .isFalse();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(
+                "Findings cites '[call_7]' which does not appear in the persisted tool-call trace"))
+                .isFalse();
+        assertThat(NumericalConsistencyValidator.isValueTracingReason(null)).isFalse();
+    }
 }

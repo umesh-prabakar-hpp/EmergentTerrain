@@ -585,6 +585,25 @@ public final class NumericalConsistencyValidator {
         }
     }
 
+    /**
+     * Phase 32 Wave 1 enforce (32.2) — the value-tracing/scope split. These
+     * four reason classes re-derive a prose number against the trace by
+     * value-matching; under {@code manifest.validator-mode: enforce} the
+     * manifest traceability validator owns that job (4-session shadow A/B:
+     * the value arms went 3/3 FP while the manifest went 0 missed
+     * fabrications), so UniversityService filters them out. Every other
+     * reason class — executed-range union, Conclusion-vs-Findings
+     * consistency, call-marker integrity, computation-count — is structural
+     * and stays: P-b72c-244's scope catch is the live proof.
+     */
+    public static boolean isValueTracingReason(String reason) {
+        if (reason == null) return false;
+        return reason.startsWith("Findings cites salient value")
+                || reason.startsWith("Findings cites unit-anchored value")
+                || reason.contains("as an unsourced framing value")
+                || reason.startsWith("Findings cites confidence interval");
+    }
+
     private static void collectAllNumbers(String text, List<Double> sink) {
         if (text == null) return;
         // Use a broader regex than NUMERIC_TOKEN — also picks up scientific notation
