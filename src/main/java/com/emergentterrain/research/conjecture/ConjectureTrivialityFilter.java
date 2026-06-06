@@ -95,7 +95,31 @@ public final class ConjectureTrivialityFilter {
         if (isWindowGeometrySubject(ineq)) {
             return Optional.of("window_geometry_lhs");
         }
+        // 2026-06-06 review rec #2 — non-finite mined parameters. P-b72c-237
+        // was served c = −Infinity (an unsatisfiable bound, trivially REFUTED
+        // every window); a NaN/±Inf k or c can never express a real claim.
+        if (ineq != null && (!Double.isFinite(ineq.k()) || !Double.isFinite(ineq.c()))) {
+            return Optional.of("nonfinite_parameter");
+        }
+        // 2026-06-06 review rec #1 — derived-vs-component pairing. A derived
+        // scalar bounded against (or bounding) one of its own definition's
+        // components is structurally coupled whatever the parameters:
+        // P-b72c-236 scored a record 0.888 on the identity a−d ≈ 2a−1.
+        // Symmetric, and lhs==rhs is the degenerate case of the same rule.
+        if (isComponentPairing(ineq)) {
+            return Optional.of("derived_component");
+        }
         return Optional.empty();
+    }
+
+    /** True iff lhs==rhs, or either side's DERIVED definition references the other. */
+    static boolean isComponentPairing(Inequality ineq) {
+        if (ineq == null || ineq.lhs() == null || ineq.rhs() == null) return false;
+        if (ineq.lhs().equals(ineq.rhs())) return true;
+        return MathInvariants.DERIVED_COMPONENTS
+                        .getOrDefault(ineq.lhs(), Set.of()).contains(ineq.rhs())
+                || MathInvariants.DERIVED_COMPONENTS
+                        .getOrDefault(ineq.rhs(), Set.of()).contains(ineq.lhs());
     }
 
     /**

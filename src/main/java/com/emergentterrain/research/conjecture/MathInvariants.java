@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 
 /**
@@ -94,6 +95,24 @@ public final class MathInvariants {
                 });
         return m;
     }
+
+    /**
+     * 2026-06-06 review rec #1 — which scalars each DERIVED form is computed
+     * FROM (window-geometry inputs excluded; those have their own W1 rule).
+     * Source of truth for the derived-vs-component triviality exclusion: a
+     * conjecture pairing a derived scalar against one of its own components
+     * is structurally coupled regardless of parameters — P-b72c-236 scored an
+     * all-time-record 0.888 on the *identity* a−d ≈ 2a−1 (densities sum to
+     * ≈1), and P-b72c-235 spent a session slot refuting another dressing of
+     * the same pairing. Maintained by hand next to {@link #derivedMap()};
+     * keep the two in sync when adding a derived scalar.
+     */
+    public static final Map<String, Set<String>> DERIVED_COMPONENTS = Map.of(
+            "abundant_minus_deficient", Set.of("abundant_density", "deficient_density"),
+            "omega_Omega_gap", Set.of("mean_omega", "mean_Omega"),
+            "mertens_per_sqrt_W", Set.of("mertens_delta"),
+            "cramer_gap_ratio", Set.of("max_prime_gap"),
+            "twin_vs_prime_sq", Set.of("twin_prime_density", "prime_density"));
 
     private MathInvariants() {}
 

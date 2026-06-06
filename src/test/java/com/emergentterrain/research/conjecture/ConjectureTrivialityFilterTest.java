@@ -146,4 +146,46 @@ class ConjectureTrivialityFilterTest {
         assertThat(ConjectureTrivialityFilter.dropReason(null)).isEmpty();
         assertThat(ConjectureTrivialityFilter.isDegenerateConstant(null)).isFalse();
     }
+
+    // ── 2026-06-06 review recs #1/#2 (P-b72c-235/236/237 fixtures) ──────────
+
+    @Test
+    void p237_nonfiniteIntercept_dropped() {
+        // Served live: twin_prime_density ≤ 2·prime_density + (−Infinity).
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("twin_prime_density", "prime_density", 2.0, Double.NEGATIVE_INFINITY)))
+                .contains("nonfinite_parameter");
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("prime_density", "happy_density", Double.NaN, 0.5)))
+                .contains("nonfinite_parameter");
+    }
+
+    @Test
+    void p236_derivedVsComponent_dropped_bothDirections() {
+        // The record-scoring identity: a−d ≈ 2a−1 by construction.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("abundant_minus_deficient", "abundant_density", 2.0, -1.114)))
+                .contains("derived_component");
+        // Symmetric: bounding the component BY its derived form.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("abundant_density", "abundant_minus_deficient", 2.0, 0.7)))
+                .contains("derived_component");
+        // lhs==rhs is the degenerate case of the same rule.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("prime_density", "prime_density", 2.0, 1.14)))
+                .contains("derived_component");
+    }
+
+    @Test
+    void productivePairingsSurviveTheComponentRule() {
+        // The flagship mertens bound (geometry RHS is allowed; mertens_delta
+        // is mertens_per_sqrt_W's component but log_window_start is not).
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7)))
+                .isEmpty();
+        // The convergence family's pairing (P-b72c-214): no cross-reference.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("cramer_gap_ratio", "mertens_per_sqrt_W", 0.0, 0.4522)))
+                .isEmpty();
+    }
 }
