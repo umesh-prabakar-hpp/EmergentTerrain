@@ -170,6 +170,16 @@ class UnsourcedClaimValidatorTest {
                 .anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
     }
 
+    @Test
+    void p239_absenceNoun_alsoExempt() {
+        // P-b72c-239: "Given the wide relative uncertainty and the absence of
+        // finer-grained scans…" — hedging flagged because the cue list had
+        // only the adjective "absent", not the noun "absence".
+        String findings = "Given the wide relative uncertainty and the absence of "
+                + "finer-grained scans, no stronger claim is made.";
+        assertThat(UnsourcedClaimValidator.validate(findings, "")).isEmpty();
+    }
+
     // ── Flagged-sentence snippet in the reason (2026-06-06 rec #2) ──────────
 
     @Test

@@ -102,7 +102,7 @@ public final class UnsourcedClaimValidator {
      * structurally unaffected — their trigger is itself a number.
      */
     private static final Pattern NEGATION_CUE = Pattern.compile(
-            "(?i)\\b(?:no|not|none|never|without|absent|lack(?:s|ing)?|"
+            "(?i)\\b(?:no|not|none|never|without|absen(?:t|ce)|lack(?:s|ing)?|"
                     + "unavailable|unreported|unquantified)\\b");
     private static final Pattern ANY_DIGIT = Pattern.compile("[0-9]");
 
