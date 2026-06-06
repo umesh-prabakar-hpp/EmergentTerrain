@@ -185,6 +185,33 @@ public final class ValueManifest {
                 }
             }
         }
+        // Range end: start + count·size over SAME-call values (P-b72c-236's
+        // second-shadow-session finding: "ranges (150,000–170,000, …)" where
+        // the scan was scalar_window_stats — no per-window dump, so the end
+        // coordinate is three-operand arithmetic over the call's own header
+        // values). Bounded: count must be a small positive integer (≤ 10⁴),
+        // start/size positive — the window-sweep geometry, nothing else.
+        for (int c = 0; c < perCallValues.size(); c++) {
+            List<Double> vs = perCallValues.get(c);
+            // O(n³) probe — restricted to header-style calls (stats summaries,
+            // ~15 values). Per-window dumps carry their range ends literally
+            // and resolve directly, so they never need this rule.
+            if (vs.size() > 50) continue;
+            for (double count : vs) {
+                if (count <= 0 || count > 10_000 || count != Math.rint(count)) continue;
+                for (double size : vs) {
+                    if (size <= 0) continue;
+                    for (double start : vs) {
+                        if (start <= 0) continue;
+                        if (matches(value, start + count * size)) {
+                            return Optional.of(new Resolution("derived:" + trim(start)
+                                    + "+" + trim(count) + "*" + trim(size)
+                                    + "@call_" + (c + 1), null));
+                        }
+                    }
+                }
+            }
+        }
         return Optional.empty();
     }
 

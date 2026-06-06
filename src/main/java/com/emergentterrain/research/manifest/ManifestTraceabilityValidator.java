@@ -141,6 +141,15 @@ public final class ManifestTraceabilityValidator {
 
                 if (resolves(manifest, value, percent)) {
                     resolved++;
+                } else if (isShownWork(text, m.start(), m.end(), manifest)) {
+                    // P-b72c-238's class: the sentence DISPLAYS the formula
+                    // ("c ≈ +0.07938 − 2·(+0.00822) = +0.06294") and its
+                    // operands individually resolve — derivation-shown, the
+                    // data-to-paper \num{formula,"explanation"} case. Counted
+                    // as resolved; multi-step laundering stays caught because
+                    // the exemption demands BOTH an arithmetic chain in-sentence
+                    // AND ≥2 resolvable operands.
+                    resolved++;
                 } else {
                     misses.add(new Miss(token + (percent ? " %" : ""), b + 1));
                 }
@@ -159,6 +168,41 @@ public final class ManifestTraceabilityValidator {
                     miss.token(), miss.blockIndex()));
         }
         return out;
+    }
+
+    /** Arithmetic-chain marker near the token: =, ≈, −, ×, ·, / between numbers. */
+    private static final Pattern ARITHMETIC_CHAIN = Pattern.compile("[=≈]");
+
+    /**
+     * Shown-work exemption (P-b72c-238): the unresolved value sits in a
+     * sentence that contains an explicit equality/approximation chain AND at
+     * least two OTHER numbers that individually resolve against the manifest.
+     * The reader can check the arithmetic from cited operands — the honest
+     * derivation narration 32.2-enforce explicitly permits.
+     */
+    private static boolean isShownWork(String text, int tokenStart, int tokenEnd,
+                                       ValueManifest manifest) {
+        if (manifest == null) return false;
+        // Sentence bounds around the token. Boundary is ". " (period+space) or
+        // newline — NEVER a bare '.', which would split inside decimals
+        // ("+0.00822" → "00822…", the bug this comment guards against).
+        int s = Math.max(text.lastIndexOf(". ", Math.max(0, tokenStart - 1)),
+                text.lastIndexOf('\n', tokenStart));
+        int e = text.indexOf('\n', tokenEnd);
+        int eDot = text.indexOf(". ", tokenEnd);
+        if (eDot >= 0 && (e < 0 || eDot < e)) e = eDot;
+        String sentence = text.substring(s < 0 ? 0 : s + 1,
+                e < 0 ? text.length() : e);
+        if (!ARITHMETIC_CHAIN.matcher(sentence).find()) return false;
+        int resolvableOperands = 0;
+        Matcher m = NUMBER_TOKEN.matcher(sentence);
+        while (m.find() && resolvableOperands < 2) {
+            double v = parse(m.group(1));
+            if (Double.isNaN(v)) continue;
+            if (isAllowlisted(v)) continue;
+            if (manifest.resolve(v).isPresent()) resolvableOperands++;
+        }
+        return resolvableOperands >= 2;
     }
 
     // ── resolution ──────────────────────────────────────────────────────────

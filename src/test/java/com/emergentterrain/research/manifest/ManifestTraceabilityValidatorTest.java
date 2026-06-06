@@ -124,6 +124,36 @@ class ManifestTraceabilityValidatorTest {
     }
 
     @Test
+    void p236_rangeEndArithmetic_resolves() {
+        // Second shadow session: "(150,000–170,000)" where the call was a
+        // stats summary (no per-window dump) — 170,000 = 150000 + 20·1000.
+        ValueManifest m = manifest(null,
+                "stats over 20 window(s) of size 1000 starting at 150000: mean +0.5");
+        assertThat(run(m, "This holds across the range 150,000–170,000 here.", "")
+                .misses()).isEmpty();
+    }
+
+    @Test
+    void p238_shownWorkFormula_exempt() {
+        // "c ≈ +0.07938 − 2·(+0.00822) = +0.06294" — operands resolve, the
+        // formula is displayed; the residual is derivation-shown.
+        ValueManifest m = manifest("prime_density ≤ 2·twin_prime_density + c",
+                "means: prime_density +0.07938 twin_prime_density +0.00822");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "Solving gives c ≈ +0.07938 − 2·(+0.00822) = +0.06294 as a bound.", "");
+        assertThat(s.misses()).isEmpty();
+    }
+
+    @Test
+    void shownWorkWithoutResolvableOperands_stillMisses() {
+        // An equals sign alone must not launder: operands here trace to nothing.
+        ValueManifest m = manifest(null, "value 5.5 recorded");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "Thus 33.33 = 11.11 × 3.0001 in this configuration.", "");
+        assertThat(s.misses()).isNotEmpty();
+    }
+
+    @Test
     void nullAndEmptyInputsAreSafe() {
         assertThat(ManifestTraceabilityValidator.validate(null, null, null).salient())
                 .isZero();
