@@ -380,6 +380,19 @@ public class UniversityService {
             "${app.research.manifest.capture.enabled:false}")
     private boolean manifestCaptureEnabled;
 
+    /**
+     * Phase 32 Wave 1 (32.2) — manifest traceability validator mode.
+     * {@code off} (default) is bit-identical to today; {@code shadow} runs
+     * {@code ManifestTraceabilityValidator} beside the existing ladder,
+     * logging a per-paper agreement line and stamping
+     * {@code publish:manifest_miss:warn} — never routing. {@code enforce}
+     * is reserved for the Wave 1 flip (narration constraint + ladder
+     * consolidation) and is NOT implemented yet — it behaves as shadow.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.manifest.validator-mode:off}")
+    private String manifestValidatorMode;
+
     /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
     private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
             java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
@@ -1275,6 +1288,39 @@ public class UniversityService {
             log.warn("numerical-consistency check failed paperId={} reasons={}",
                     draft.paperId(), consistencyFailures);
         }
+        // Phase 32 Wave 1 (32.2, shadow) — resolve every salient prose number
+        // against the verified-values manifest. SHADOW CONTRACT: stamp-only,
+        // never routes; the per-paper stats line is the ladder-agreement diff
+        // that gates the enforce flip (>=2 sessions at >=95% agreement + >=1
+        // net-new catch + zero new FP classes). mode=off is bit-identical.
+        boolean manifestShadowFlagged = false;
+        if ("shadow".equals(manifestValidatorMode)) {
+            try {
+                com.emergentterrain.research.manifest.ValueManifest shadowManifest =
+                        com.emergentterrain.research.manifest.ValueManifest.capture(
+                                hypothesis, narration.toolCallTrace());
+                com.emergentterrain.research.manifest.ManifestTraceabilityValidator.Stats
+                        shadowStats = com.emergentterrain.research.manifest
+                                .ManifestTraceabilityValidator.validate(
+                                        shadowManifest, findingsBlocks, conclusion);
+                manifestShadowFlagged = !shadowStats.misses().isEmpty();
+                log.info("manifest-shadow: paperId={} salient={} resolved={} allowlisted={} "
+                                + "boundExempt={} misses={} ladderStrikes={}",
+                        draft.paperId(), shadowStats.salient(), shadowStats.resolved(),
+                        shadowStats.allowlisted(), shadowStats.boundExempt(),
+                        shadowStats.misses().size(),
+                        consistencyFailures.size() + unsourcedClaimFailures.size());
+                if (manifestShadowFlagged) {
+                    log.warn("manifest-shadow misses paperId={} reasons={}",
+                            draft.paperId(),
+                            com.emergentterrain.research.manifest
+                                    .ManifestTraceabilityValidator.reasons(shadowStats));
+                }
+            } catch (Exception e) {
+                log.warn("manifest-shadow failed paperId={} (no effect on publication): {}",
+                        draft.paperId(), e.getMessage());
+            }
+        }
         // Phase 5 B2 — flag papers whose findings contain magnitudes outside the
         // physically-reasonable range for their (domain, topic).
         // Phase 7 F2 — Map overload concatenates blocks before checking magnitudes.
@@ -1611,6 +1657,13 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:hypothesis_lhs_uncovered→needs_revision"
                     : persistedCallPath + " → publish:hypothesis_lhs_uncovered→needs_revision";
+        }
+        // Phase 32 Wave 1 — shadow-only stamp; never routes (`:warn` suffix so
+        // the refresh can grep the would-be-route rate before the enforce flip).
+        if (manifestShadowFlagged) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:manifest_miss:warn"
+                    : persistedCallPath + " → publish:manifest_miss:warn";
         }
         // 2026-05-29 (review fix #2) — additive stamp for literal TODO/placeholder stubs.
         if (placeholderStub) {
