@@ -103,4 +103,64 @@ class ScoreCalibrationTest {
         assertFalse(ScoreCalibration.probedBindingRegime("{\"k\":2,\"c\":-7.7}"));
         assertFalse(ScoreCalibration.probedBindingRegime(null));
     }
+
+    // ---- hypothesisLhsUncovered (2026-06-06 review rec #1) ----
+
+    @Test
+    void p210_lhsSwappedForAnotherScalar_uncovered() {
+        // P-b72c-210: topic conjecture/twin_vs_prime_sq, every call lhs=prime_density.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"prime_density\",\"rhs\":\"prime_density\",\"k\":2,\"c\":1.14}",
+                        "HELD"),
+                verify("{\"lhs\":\"prime_density\",\"rhs\":\"prime_density\",\"k\":2,\"c\":1.14}",
+                        "HELD"));
+        assertTrue(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/twin_vs_prime_sq", trace));
+    }
+
+    @Test
+    void p215_pairNeverInvoked_uncovered() {
+        // P-b72c-215: topic conjecture/cramer_gap_ratio; only off-target verify
+        // calls and a scalar_window_stats call — the preregistered LHS never ran.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"omega_Omega_gap\",\"rhs\":\"omega_Omega_gap\",\"k\":1,\"c\":0}",
+                        "HELD"),
+                other("scalar_window_stats"),
+                verify("{\"lhs\":\"omega_Omega_gap\",\"rhs\":\"mean_omega\",\"k\":2,\"c\":-1.0898}",
+                        "HELD"));
+        assertTrue(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/cramer_gap_ratio", trace));
+    }
+
+    @Test
+    void p214_lhsExercised_covered() {
+        // P-b72c-214 shape: the hypothesis LHS appears in at least one call.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"cramer_gap_ratio\",\"rhs\":\"mertens_per_sqrt_W\",\"k\":0,\"c\":0.4522}",
+                        "HELD"));
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/cramer_gap_ratio", trace));
+    }
+
+    @Test
+    void lhsCoverageToleratesArgWhitespace() {
+        List<ToolInvocation> trace = List.of(
+                verify("{ \"lhs\" : \"cramer_gap_ratio\", \"k\":0 }", "HELD"));
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/cramer_gap_ratio", trace));
+    }
+
+    @Test
+    void nonConjectureTopicsAndEmptyTraces_notGated() {
+        // Non-conjecture topic: never gated, whatever the trace.
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "isAbundant AND isHappy Density",
+                List.of(other("run_predicate_scan"))));
+        // Empty/null trace: missing-methods gate owns that case.
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/cramer_gap_ratio", List.of()));
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/cramer_gap_ratio", null));
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(null, List.of(other("x"))));
+    }
 }

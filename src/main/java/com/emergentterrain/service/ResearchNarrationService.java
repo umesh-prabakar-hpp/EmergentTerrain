@@ -4313,9 +4313,13 @@ public class ResearchNarrationService {
             return synthesis;
         }
         try {
+            // 2026-06-06 review rec #4 — the sidecar's /recognise/constant accepts
+            // only basis BASIC|PHYSICS; passing the paper domain ("MATHEMATICS")
+            // bad_request'd every call (10× in the 05:14 session). BASIC is the
+            // number-theory/general basis.
             com.emergentterrain.research.recognise.RecognitionResult result =
                     constantRecognitionService.recogniseConstant(
-                            Double.toString(c), "MATHEMATICS",
+                            Double.toString(c), "BASIC",
                             "conjecture-constant paper=" + draft.paperId());
             if (result instanceof
                     com.emergentterrain.research.recognise.RecognitionResult.PrimaryHit hit) {

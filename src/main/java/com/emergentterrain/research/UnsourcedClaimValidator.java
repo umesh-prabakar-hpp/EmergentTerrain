@@ -89,6 +89,29 @@ public final class UnsourcedClaimValidator {
     private static final Pattern CALL_REF = Pattern.compile("\\[call_\\d+\\]");
 
     /**
+     * 2026-06-06 review rec #2 — absence/meta exemption. A sentence that
+     * asserts the ABSENCE of an analysis ("no uncertainty analysis is
+     * therefore reported", "no standard error was produced") has, by its
+     * nature, no tool call to cite — flagging it penalizes exactly the
+     * honest hedging the pipeline wants more of (P-b72c-214's strike).
+     *
+     * <p>Exempt iff the sentence carries a negation cue AND no digit:
+     * a digit means a concrete value is being claimed (the original
+     * laundering target, e.g. "error no greater than 0.5"), so any
+     * numeric sentence keeps the full check. PLUS_MINUS triggers are
+     * structurally unaffected — their trigger is itself a number.
+     */
+    private static final Pattern NEGATION_CUE = Pattern.compile(
+            "(?i)\\b(?:no|not|none|never|without|absent|lack(?:s|ing)?|"
+                    + "unavailable|unreported|unquantified)\\b");
+    private static final Pattern ANY_DIGIT = Pattern.compile("[0-9]");
+
+    private static boolean isAbsenceMeta(String sentence) {
+        return NEGATION_CUE.matcher(sentence).find()
+                && !ANY_DIGIT.matcher(sentence).find();
+    }
+
+    /**
      * Returns a list of {@code unsourced_claim:<type>} reasons, one per
      * trigger fired without a same-sentence {@code [call_N]} match. Empty
      * map / null inputs short-circuit to empty. Multiple offending claims
@@ -118,10 +141,11 @@ public final class UnsourcedClaimValidator {
             String s = sentences[i];
             if (s.isBlank()) continue;
             boolean hasCallRef = CALL_REF.matcher(s).find();
+            boolean absenceMeta = isAbsenceMeta(s);   // rec #2 exemption
             for (Trigger t : Trigger.values()) {
                 if (firstHitSentence.containsKey(t)) continue;  // already flagged
                 Matcher tm = t.pattern.matcher(s);
-                if (tm.find() && !hasCallRef) {
+                if (tm.find() && !hasCallRef && !absenceMeta) {
                     firstHitSentence.put(t, i);
                 }
             }

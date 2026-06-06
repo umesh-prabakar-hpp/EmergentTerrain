@@ -139,4 +139,34 @@ class UnsourcedClaimValidatorTest {
         assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
         assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:error"));
     }
+
+    // ── Absence/meta exemption (2026-06-06 review rec #2) ──────────────────
+
+    @Test
+    void p214_absenceOfUncertaintyAnalysis_exempt() {
+        // P-b72c-214's struck sentence — a negation asserting the ABSENCE of an
+        // uncertainty analysis. Nothing to cite; flagging it punishes honest hedging.
+        String findings = "No fitting procedure, confidence interval, or standard "
+                + "error on this intercept was produced by the available tools; no "
+                + "uncertainty analysis is therefore reported, and the value should "
+                + "be understood as an empirically derived upper bound.";
+        assertThat(UnsourcedClaimValidator.validate(findings, "")).isEmpty();
+    }
+
+    @Test
+    void negatedSentenceWithConcreteValue_stillFlagged() {
+        // A digit means a concrete claim is being made — the exemption must not
+        // launder "error no greater than 0.5" style sentences.
+        String findings = "The uncertainty is no greater than 0.5 degrees at the crossover.";
+        assertThat(UnsourcedClaimValidator.validate(findings, ""))
+                .anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
+    }
+
+    @Test
+    void positiveUncertaintyProseWithoutNegation_stillFlagged() {
+        // No negation cue → exemption does not apply (pre-existing behavior kept).
+        String findings = "The uncertainty grows sharply across the regime.";
+        assertThat(UnsourcedClaimValidator.validate(findings, ""))
+                .anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
+    }
 }

@@ -350,6 +350,20 @@ public class UniversityService {
             "${app.research.binding-regime-coverage-gate.enabled:false}")
     private boolean bindingRegimeCoverageGateEnabled;
 
+    /**
+     * 2026-06-06 review rec #1 — hypothesis-LHS coverage gate. Sibling of the
+     * binding-regime gate, covering the orthogonal hole: a conjecture paper
+     * whose trace never invoked {@code verify_conjecture} with the hypothesis's
+     * own LHS scalar never tested its hypothesis at all ({@link
+     * ScoreCalibration#hypothesisLhsUncovered}). The binding-regime gate only
+     * sees SUPPORTED classifications, so P-b72c-215 (no positive claim, honest
+     * "Critical Gap" prose, every call off-target) still reached PUBLISHED.
+     * Classification-independent; routes to NEEDS_REVISION. Default OFF.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.hypothesis-lhs-coverage-gate.enabled:false}")
+    private boolean hypothesisLhsCoverageGateEnabled;
+
     /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
     private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
             java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
@@ -1050,6 +1064,20 @@ public class UniversityService {
                     + "(SUPPORTED conjecture with confirmatory-only verify_conjecture trace)",
                     draft.paperId());
         }
+        // 2026-06-06 review rec #1 — hypothesis-LHS coverage gate. A conjecture
+        // paper whose trace never ran verify_conjecture with the hypothesis's own
+        // LHS never tested its hypothesis (P-b72c-210: all calls lhs=prime_density
+        // under a twin_vs_prime_sq topic; P-b72c-215: pair never invoked, published
+        // with a self-described "Critical Gap"). Classification-independent sibling
+        // of the binding-regime gate. Default flag-off; bit-identical when off.
+        boolean hypothesisLhsUncovered = hypothesisLhsCoverageGateEnabled
+                && ScoreCalibration.hypothesisLhsUncovered(
+                        draft.topicName(), narration.toolCallTrace());
+        if (hypothesisLhsUncovered) {
+            log.warn("hypothesis-lhs-coverage check failed paperId={} "
+                    + "(conjecture topic '{}' has no verify_conjecture call with its LHS)",
+                    draft.paperId(), draft.topicName());
+        }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.
         // Warn-only: stamps the call path + logs, never routes the paper.
         // Sibling check to SinglePointSweep but operates on the hypothesis
@@ -1424,6 +1452,12 @@ public class UniversityService {
             // the SUPPORTED claim can stand.
             paperStatus = "NEEDS_REVISION";
             reviewState = ReviewState.REVISABLE_DEFECT;
+        } else if (hypothesisLhsUncovered) {
+            // 2026-06-06 rec #1 — conjecture paper that never ran verify_conjecture
+            // with its own hypothesis LHS. Same tier: revision fixes it by re-running
+            // the professor stage against the preregistered pair.
+            paperStatus = "NEEDS_REVISION";
+            reviewState = ReviewState.REVISABLE_DEFECT;
         } else if (directionOfFindingInverted) {
             // Phase 14 F4 — Conclusion polarity inversion. Same tier as F3:
             // revision can fix the prose by aligning the verdict with the
@@ -1555,6 +1589,12 @@ public class UniversityService {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
                     ? "publish:binding_regime_uncovered→needs_revision"
                     : persistedCallPath + " → publish:binding_regime_uncovered→needs_revision";
+        }
+        // 2026-06-06 rec #1 — additive stamp for hypothesis-LHS under-coverage.
+        if (hypothesisLhsUncovered) {
+            persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                    ? "publish:hypothesis_lhs_uncovered→needs_revision"
+                    : persistedCallPath + " → publish:hypothesis_lhs_uncovered→needs_revision";
         }
         // 2026-05-29 (review fix #2) — additive stamp for literal TODO/placeholder stubs.
         if (placeholderStub) {

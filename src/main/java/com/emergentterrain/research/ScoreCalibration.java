@@ -92,6 +92,42 @@ public final class ScoreCalibration {
         return usesConjectureVerification(trace) && !hasAdversarialCoverage(trace);
     }
 
+    /**
+     * 2026-06-06 review rec #1 — hypothesis-LHS coverage. A conjecture paper
+     * (topic {@code "conjecture/<lhs>"}) whose trace never invokes
+     * {@code verify_conjecture} with that lhs never evaluated its own
+     * hypothesis, whatever else it computed. Two same-batch signatures:
+     * P-b72c-210 (every call used {@code lhs="prime_density"} under a
+     * twin_vs_prime_sq topic, producing a tautology the paper then blamed on
+     * the harness) and P-b72c-215 (the preregistered pair never invoked; the
+     * paper published a self-described "Critical Gap"). The binding-regime
+     * gate only catches the SUPPORTED-classified variant; this one is
+     * classification-independent.
+     *
+     * <p>Empty/null traces return {@code false} — the missing-methods gate
+     * owns that case. Non-conjecture topics return {@code false}.
+     */
+    public static boolean hypothesisLhsUncovered(String topic, List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/")) {
+            return false;
+        }
+        String lhs = topic.substring("conjecture/".length()).trim();
+        if (lhs.isEmpty() || trace == null || trace.isEmpty()) {
+            return false;
+        }
+        String needle = "\"lhs\":\"" + lhs + "\"";
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())) {
+                continue;
+            }
+            String args = call.argsJson();
+            if (args != null && args.replace(" ", "").contains(needle)) {
+                return false;   // hypothesis LHS was exercised at least once
+            }
+        }
+        return true;   // conjecture topic, non-empty trace, LHS never tested
+    }
+
     public static boolean hasAdversarialCoverage(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return false;
