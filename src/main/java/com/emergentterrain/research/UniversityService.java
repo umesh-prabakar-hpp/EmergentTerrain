@@ -364,6 +364,22 @@ public class UniversityService {
             "${app.research.hypothesis-lhs-coverage-gate.enabled:false}")
     private boolean hypothesisLhsCoverageGateEnabled;
 
+    /**
+     * Phase 32 Wave 0 (32.1) — verified-values manifest capture. When on,
+     * every published paper gets a {@code .manifest.json} sidecar beside its
+     * markdown: each numeric value from the hypothesis and the executed
+     * tool-call results, with label / literal rendering / producing call.
+     * Write-only in this wave — nothing reads or routes on it; it powers the
+     * Wave 1 shadow validator ({@code app.research.manifest.validator-mode})
+     * and is the substrate the validator ladder's number-tracing eventually
+     * consolidates onto. See
+     * {@code phases-for-human-like-performance/phase-32-manuscript-grounding/}.
+     * Default OFF; capture failures never affect publication.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.manifest.capture.enabled:false}")
+    private boolean manifestCaptureEnabled;
+
     /** rec #4 — {@code [call_N]} marker with optional leading whitespace; group 2 is the index. */
     private static final java.util.regex.Pattern CALL_MARKER_INDEXED =
             java.util.regex.Pattern.compile("(\\s?)\\[call_(\\d+)\\]");
@@ -1840,6 +1856,24 @@ public class UniversityService {
         }
 
         addPaper(draft.roomId(), paper);
+        // Phase 32 Wave 0 (32.1) — capture the verified-values manifest beside
+        // the paper. Best-effort and write-only: any failure logs and moves on.
+        if (manifestCaptureEnabled) {
+            try {
+                com.emergentterrain.research.manifest.ValueManifest manifest =
+                        com.emergentterrain.research.manifest.ValueManifest.capture(
+                                hypothesis, narration.toolCallTrace());
+                writeManifestSidecar(draft.roomId(), paper, manifest.toJson());
+                log.info("manifest: paperId={} entries={} calls={} truncatedCalls={} "
+                                + "(phase-32 wave-0 capture-only)",
+                        draft.paperId(), manifest.entryCount(), manifest.callCount(),
+                        manifest.truncatedCalls().isEmpty()
+                                ? "none" : manifest.truncatedCalls());
+            } catch (Exception e) {
+                log.warn("manifest capture failed paperId={} (publication unaffected): {}",
+                        draft.paperId(), e.getMessage());
+            }
+        }
         researchCycleService.decrementDraftQueue(draft.paperId());
         // Surface BOTH the scientific classification and the post-audit workflow
         // status. draft.resultClassification() is the peer-review label (e.g.
@@ -2638,6 +2672,27 @@ public class UniversityService {
             }
         } catch (IOException e) {
             log.warn("Failed to overwrite paper file {}: {}", paper.paperId(), e.getMessage());
+        }
+    }
+
+    /**
+     * Phase 32 Wave 0 (32.1) — write the manifest sidecar with the same
+     * basename as {@link #writePaperToFile}'s markdown, suffixed
+     * {@code .manifest.json}, so the pairing is self-evident in the room dir
+     * and in `/paper-review`.
+     */
+    private void writeManifestSidecar(UUID roomId, ResearchPaper paper, String json) {
+        try {
+            Path roomDir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
+            Files.createDirectories(roomDir);
+            String topicSlug = paper.topic().toLowerCase()
+                    .replaceAll("[^a-z0-9]+", "-").replaceAll("^-|-$", "");
+            String dateStr = FILE_DATE_FMT.format(paper.publishedAt());
+            String filename = "%s_%s_%s_%s.manifest.json"
+                    .formatted(dateStr, paper.domain().toLowerCase(), topicSlug, paper.paperId());
+            Files.writeString(roomDir.resolve(filename), json);
+        } catch (IOException e) {
+            log.warn("Failed to write manifest sidecar {}: {}", paper.paperId(), e.getMessage());
         }
     }
 
