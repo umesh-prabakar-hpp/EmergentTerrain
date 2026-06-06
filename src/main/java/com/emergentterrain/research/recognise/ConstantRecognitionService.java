@@ -142,6 +142,23 @@ public class ConstantRecognitionService {
         if (pslqClient != null && pslqClient.isAvailable()) {
             try {
                 Optional<PslqRecogniserClient.PslqHit> hit = pslqClient.recognise(value, basis);
+                if (hit.isPresent() && !isPlausibleRelation(hit.get().relation())) {
+                    // 2026-06-06 — plausibility guard. PSLQ at high precision over a
+                    // multi-element basis ALWAYS finds some integer relation for a
+                    // low-precision input (a mined/fitted constant carries ~4-6
+                    // significant digits of fit noise); the spurious signature is a
+                    // dense relation with large coefficients — or one that excludes
+                    // the target entirely (zero target coefficient = a "relation"
+                    // among the basis constants themselves, impossible over Q and
+                    // therefore pure precision artifact, rendered as ".../0").
+                    // Live fixtures: P-b72c-217 (8-term, /0) and P-b72c-220.
+                    // Credible identifications are sparse: pi^2/6, e^gamma — one or
+                    // two terms, small coefficients. Falls through to LLL.
+                    log.info("recogniseConstant PSLQ relation rejected by plausibility "
+                            + "guard (context={}): {}", context,
+                            renderRelation(hit.get().relation()));
+                    hit = Optional.empty();
+                }
                 if (hit.isPresent()) {
                     PslqRecogniserClient.PslqHit h = hit.get();
                     String handle = "cite-recognised:pslq:" + sanitiseHandle(h.name());
@@ -212,6 +229,45 @@ public class ConstantRecognitionService {
         String collapsed = name.replaceAll("\\s+", "_")
                 .replaceAll("[^A-Za-z0-9_+\\-^()*/.]", "");
         return collapsed.length() <= 60 ? collapsed : collapsed.substring(0, 60);
+    }
+
+    /** Max nonzero non-target terms a credible PSLQ identification may carry. */
+    static final int MAX_RELATION_TERMS = 2;
+    /** Max |coefficient| a credible PSLQ identification may carry. */
+    static final int MAX_RELATION_COEFFICIENT = 12;
+
+    /**
+     * Sparsity + participation guard for PSLQ relations (see the inline
+     * comment at the call site). Accepts iff (a) the {@code <target>} term
+     * is present with a nonzero coefficient, (b) at most
+     * {@link #MAX_RELATION_TERMS} non-target terms are nonzero (and at
+     * least one is), and (c) every nonzero coefficient has magnitude
+     * ≤ {@link #MAX_RELATION_COEFFICIENT}. Engine-agnostic: applies to any
+     * basis (number-theory or physical constants alike).
+     */
+    static boolean isPlausibleRelation(
+            java.util.List<PslqRecogniserClient.RelationTerm> relation) {
+        if (relation == null || relation.isEmpty()) {
+            return false;
+        }
+        boolean targetParticipates = false;
+        int nonzeroOthers = 0;
+        for (PslqRecogniserClient.RelationTerm t : relation) {
+            int c = t.coefficient();
+            if (c == 0) {
+                continue;
+            }
+            if (Math.abs(c) > MAX_RELATION_COEFFICIENT) {
+                return false;
+            }
+            if ("<target>".equals(t.basisName())) {
+                targetParticipates = true;
+            } else {
+                nonzeroOthers++;
+            }
+        }
+        return targetParticipates && nonzeroOthers >= 1
+                && nonzeroOthers <= MAX_RELATION_TERMS;
     }
 
     /** Render a PSLQ relation as a short evidence string for the audit row. */

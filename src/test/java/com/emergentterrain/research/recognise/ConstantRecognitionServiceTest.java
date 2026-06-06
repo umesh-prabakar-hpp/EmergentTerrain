@@ -83,6 +83,67 @@ class ConstantRecognitionServiceTest {
         assertThat(result).isInstanceOf(RecognitionResult.NoMatch.class);
     }
 
+    // ── PSLQ relation plausibility guard (2026-06-06) ───────────────────────
+
+    private static PslqRecogniserClient.RelationTerm term(int c, String name) {
+        return new PslqRecogniserClient.RelationTerm(c, name);
+    }
+
+    @Test
+    void plausibility_p217_zeroTargetCoefficient_rejected() {
+        // P-b72c-217 live fixture: 8-term relation, target coefficient 0 — a
+        // "relation" among the basis constants themselves (precision artifact,
+        // rendered ".../0").
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(0, "<target>"), term(-6, "1"), term(-11, "pi"),
+                term(7, "pi^2"), term(-4, "e"), term(-6, "ln(2)"),
+                term(-2, "ln(3)"), term(-5, "gamma"), term(-7, "zeta(3)"))))
+                .isFalse();
+    }
+
+    @Test
+    void plausibility_denseRelation_rejected() {
+        // P-b72c-220 shape: target participates but the relation is dense —
+        // guaranteed-findable noise for a 4-6 sig-fig mined constant.
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(1, "<target>"), term(-2, "1"), term(3, "pi"),
+                term(-2, "pi^2"), term(5, "e"), term(-6, "ln(2)"),
+                term(-6, "ln(3)"))))
+                .isFalse();
+    }
+
+    @Test
+    void plausibility_sparseSmallCoefficients_accepted() {
+        // zeta(2) = pi^2/6 — the smoke-test hit: [[-6,"<target>"],[1,"pi^2"]].
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(-6, "<target>"), term(0, "1"), term(0, "pi"),
+                term(1, "pi^2"), term(0, "e"))))
+                .isTrue();
+        // Two-term combination still credible (e.g. a*pi + b*ln2).
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(2, "<target>"), term(-3, "pi"), term(1, "ln(2)"))))
+                .isTrue();
+    }
+
+    @Test
+    void plausibility_oversizedCoefficient_rejected() {
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(1, "<target>"), term(-13, "pi"))))
+                .isFalse();
+    }
+
+    @Test
+    void plausibility_degenerateShapes_rejected() {
+        // Target alone (value = 0 claim) and empty/null relations.
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(3, "<target>"))))
+                .isFalse();
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of()))
+                .isFalse();
+        assertThat(ConstantRecognitionService.isPlausibleRelation(null))
+                .isFalse();
+    }
+
     @Test
     void recogniseSequence_oeisUnavailable_returnsNoMatch_skipsLookup() {
         AtomicInteger lookups = new AtomicInteger();
