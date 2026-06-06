@@ -79,7 +79,7 @@ class PublishPaperTest {
         ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
         ReplicationService replicationService = new ReplicationService(papersRepo, botRepo, mapper);
         service = new UniversityService(
-                0L, tempDir.toString(), 3, false,
+                0L, tempDir.toString(), "archive", false, 3, false,
                 botRepo,
                 papersRepo,
                 mock(PaperCitationRepository.class),

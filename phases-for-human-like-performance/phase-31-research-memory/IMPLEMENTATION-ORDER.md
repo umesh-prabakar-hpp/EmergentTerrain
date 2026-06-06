@@ -41,9 +41,15 @@ fragmentation. No LLM, no schema risk beyond one audit table.
 
 | Item | Flag | Acceptance |
 |---|---|---|
-| Retention: archive instead of truncate `research/<roomId>/` | `app.university.researchOutputRetention` | post-restart, `/paper-review` sees prior papers |
-| Startup reconciliation check (markdown ↔ DB ↔ llm-trace by paperId) | `app.research.provenance.reconcile.enabled` | zero orphans clean / planted orphan flagged |
-| `memory_audit` append-only log | — (rides the above) | every later 31.x mutation lands a row |
+| Retention: archive instead of truncate `research/<roomId>/` | `app.university.researchOutputRetention` | ✅ **shipped 2026-06-06** — survey found archiving already live (`archivePreviousRunDirs`); the config adds `retain` (default `archive` = bit-identical). Post-restart `/paper-review` sees prior papers in `research/archive/<room>-<stamp>/` |
+| Startup reconciliation check (markdown ↔ DB ↔ llm-trace by paperId) | `app.research.provenance.reconcile.enabled` | ✅ **shipped 2026-06-06** (`ProvenanceReconciler`, flag ON — read-only). Both acceptance cases test-pinned: clean run zero orphans / planted orphan flagged. Severities: md-without-DB WARNs; trace-without-DB counted (expected D3 suppression); DB-without-md counted (expected under archive) |
+| `memory_audit` append-only log | — (rides the above) | ⏳ deferred until a 31.x mutation exists to record (31.1 capture is the first writer) |
+
+> **2026-06-06 addendum — the 32.4 verdict store landed with this wave**
+> (`scripts/backfill-review-verdicts.sh`): harvests every REVIEW_REPORT
+> per-paper table (archived rooms + live) into `research/review-verdicts.csv`.
+> First run: 148 rows from 30 reports — past the ≥100 calibration target for
+> phase-32 Wave 3; older reports need column normalization at calibration time.
 
 ## Wave 1 — Capture (31.1) — *write-only shadow*
 

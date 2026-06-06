@@ -14,6 +14,10 @@ public interface ResearchPaperRepository extends JpaRepository<ResearchPaper, St
     /** All papers for a room, oldest first. Used to seed the in-memory cache on first access. */
     List<ResearchPaper> findByRoomIdOrderByTickAsc(UUID roomId);
 
+    /** Phase 31 §31.6 — id-only projection for the startup provenance reconciler. */
+    @Query("select p.paperId from ResearchPaper p")
+    List<String> findAllPaperIds();
+
     long countByRoomId(UUID roomId);
 
     /**

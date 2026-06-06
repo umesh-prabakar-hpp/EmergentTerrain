@@ -441,6 +441,8 @@ public class UniversityService {
     public UniversityService(
             @Value("${app.university.researchIntervalMs:15000}") long researchIntervalMs,
             @Value("${app.university.researchOutputDir:research}") String researchOutputDir,
+            @Value("${app.university.researchOutputRetention:archive}") String researchOutputRetention,
+            @Value("${app.research.provenance.reconcile.enabled:false}") boolean provenanceReconcileEnabled,
             @Value("${app.university.maxDraftBacklog:3}") int maxDraftBacklog,
             @Value("${app.university.peerReviewEnabled:true}") boolean peerReviewEnabled,
             RoomBotRepository botRepository,
@@ -746,7 +748,39 @@ public class UniversityService {
         } catch (IOException e) {
             log.warn("Could not create research output directory {}: {}", researchOutputDir, e.getMessage());
         }
-        archivePreviousRunDirs(this.researchOutputDir);
+        // Phase 31 §31.6 (gap #20) — retention is now an operator decision.
+        // `archive` (default) is the pre-31.6 behavior: prior runs' room dirs
+        // move to research/archive/<room>-<stamp>/. `retain` keeps them in
+        // place so /paper-review sees the cross-restart corpus in one dir
+        // (paper-ID uniqueness across restarts is already guaranteed by the
+        // DB-backed counter in nextPaperId).
+        if ("retain".equalsIgnoreCase(researchOutputRetention)) {
+            log.info("UniversityService: researchOutputRetention=retain — prior run's room "
+                    + "dirs kept in place (31.6)");
+        } else {
+            archivePreviousRunDirs(this.researchOutputDir);
+        }
+        // Phase 31 §31.6 (gap #21) — startup reconciliation across the three
+        // provenance stores (markdown / DB / llm-traces). Read-only; orphan
+        // severities documented on ProvenanceReconciler.
+        if (provenanceReconcileEnabled) {
+            try {
+                java.util.Set<String> dbIds =
+                        new java.util.TreeSet<>(papersRepository.findAllPaperIds());
+                com.emergentterrain.research.provenance.ProvenanceReconciler.Result rec =
+                        com.emergentterrain.research.provenance.ProvenanceReconciler.reconcile(
+                                this.researchOutputDir,
+                                this.researchOutputDir.resolve("llm-traces"),
+                                dbIds);
+                log.info(rec.summaryLine());
+                for (String orphan : rec.mdWithoutDb()) {
+                    log.warn("provenance-reconcile ORPHAN: markdown {} has no DB row "
+                            + "(artifact published without persistence, or row lost)", orphan);
+                }
+            } catch (Exception e) {
+                log.warn("provenance-reconcile failed (startup continues): {}", e.getMessage());
+            }
+        }
 
         // Hand the replication service a cache-aware paper lookup so its mutations
         // are visible in the in-memory `published` cache without a re-read, and a
