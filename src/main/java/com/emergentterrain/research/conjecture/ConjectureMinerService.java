@@ -198,11 +198,14 @@ public class ConjectureMinerService implements ConjectureQueue {
 
     /**
      * 2026-06-06 — docket head-of-line-blocking fix: candidates the gate already
-     * REFUTED at their current evidence state, keyed {@code lhs|rhs|confirmedRuns}.
-     * Without this the top MCC survivor was re-heard every pass with identical
-     * (deterministic) verdicts — six times in the 02:19 session — while the other
-     * eligibles never got a hearing. More confirmed runs = new evidence = a fresh
-     * hearing (the key changes). In-memory: a restart re-hears once, harmlessly
+     * REFUTED this run, keyed {@code lhs|rhs} (strengthened from
+     * {@code lhs|rhs|confirmedRuns} after the 03:48 session showed the
+     * runs-suffixed key was ineffective for an oscillating candidate: it
+     * re-confirms in its hold regime every pass, so its runs — and the key —
+     * kept changing, and it interleaved back onto the docket forever). A gate
+     * refutation is STRUCTURAL (fresh hold-regime windows violate the bound);
+     * accumulating more confirmations cannot cure that, so the verdict stands
+     * for the run. In-memory: a restart grants one fresh hearing, harmlessly
      * (verifier-only, deterministic, zero LLM spend).
      */
     private final java.util.Set<String> promotionRefuted = java.util.concurrent.ConcurrentHashMap.newKeySet();
@@ -701,8 +704,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                             && !entity.oeisMatchJson().isEmpty()
                             && entity.oeisMatchJson().contains("\"has_match\":true");
                     if (oeisMatch) continue;
-                    String hearingKey = key + "|" + cand.confirmedRuns();
-                    if (promotionRefuted.contains(hearingKey)) continue;
+                    if (promotionRefuted.contains(key)) continue;   // structural refutation stands
 
                     Inequality ineq = mapper.toInequality(entity);
                     AnomalyPromotionGate.Verdict v = AnomalyPromotionGate.replicate(
@@ -717,7 +719,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                                 cand.lhs(), entity.k(), cand.rhs(), entity.c(),
                                 v.attempts(), cand.confirmedRuns());
                     } else {
-                        promotionRefuted.add(hearingKey);
+                        promotionRefuted.add(key);
                         log.info("anomaly promotion gate — {} <= k*{} REFUTED ({})",
                                 cand.lhs(), cand.rhs(), v.reason());
                     }
