@@ -212,9 +212,9 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
   vocabulary expansion (30.5) is highest-risk/highest-reward (the proposal flags it "beyond human-level").
   Sequence them last so they sit on a verified foundation.
 
-**Status legend (refreshed 2026-06-04):** ✅ shipped · ◐ partial / built-but-flag-OFF · ⏳ not started.
+**Status legend (refreshed 2026-06-06):** ✅ shipped · ◐ partial / built-but-flag-OFF · ⏳ not started.
 
-| Wave | Theme | Effort | Payoff | Risk | Status (2026-06-04) |
+| Wave | Theme | Effort | Payoff | Risk | Status (2026-06-06) |
 |------|-------|--------|--------|------|---------------------|
 | 0 | retirement + domain | low | high | low | ✅ investigation rotation shipped (`investigationRotationEnabled` ON); domain-field on `Inequality` **deferred** (parity risk) |
 | 1 | cheap rejection gates | low | **highest** | low | ✅ all gates shipped + ON — triviality/dedup (ON) + window-geometry-LHS exclusion (ON, 2026-06-04), dimension + unit-consistency + FIM-identifiability (all three ON 2026-06-03) |
@@ -222,8 +222,8 @@ failed refutation attempts, carries no literature match, and seeds a `ProgramOpe
 | 3 | selection/diversity | med | high | low | ✅ QD archive + clade-value selection + sublinear generation budget shipped (flags ON 2026-06-03); tiered ordering de facto |
 | 4 | evaluation hardening | med | high | low | ✅ **all four ON** — private-holdout + replication 2026-06-03; stochastic null + multiple-comparisons 2026-06-04 (null A/B passed on the 2026-06-03 shadow log) |
 | 5 | generation (Stage 1) | med-high | high | med | ✅ **all shipped + ON** — 30.3 composition (ON), 30.2 residual-structure + 30.1 anomaly mining (ON 2026-06-03, log-only), 30.5 vocabulary expansion (ON 2026-06-05, A/B live via anomaly-stratum targets) |
-| 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped (flags OFF); only behavioral-signature detector (sim #12, low) remains |
-| 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ◐ 30.6 promotion **shipped + ON 2026-06-05** (no-op until confirmedRuns reaccumulate; acceptance = first UNEXPLAINED_OBSERVATION promotion paper); 30.4 literature grounding **deferred** (calibration: generation is the blocker); discovery-yield metric ⏳ |
+| 6 | irreducibility + mechanism | **high** | high | med | ◐ RAF iRAF-reporting + 30.7 runnable-mechanism shipped, **flags ON 2026-06-05** (`rafClosureEnabled`, `mechanismProposalEnabled`); only behavioral-signature detector (sim #12, low) remains |
+| 7 | promotion (Stage 2) | med | med | med (gated on calibration) | ◐ 30.6 promotion **shipped + ON 2026-06-05** (hearings live since 2026-06-06 — all REFUTED so far, correctly; acceptance = first UNEXPLAINED_OBSERVATION promotion paper); 30.4 literature grounding **deferred** (calibration: generation is the blocker; engine selected 2026-06-06 → phase-32 §32.5/PaperQA2); discovery-yield metric ✅ shipped 2026-06-05 (`DiscoveryYieldReporter`, 5-min funnel line) |
 
 **Review-driven pipeline fixes (2026-06-04).** A `/paper-review` session shipped production-layer
 hardening alongside the waves above — window-geometry-LHS exclusion (Wave-1 triviality extension, ON;
