@@ -197,6 +197,17 @@ public class ConjectureMinerService implements ConjectureQueue {
     static final int PROMOTION_WINDOW_SIZE = 1_000;
 
     /**
+     * 2026-06-06 — docket head-of-line-blocking fix: candidates the gate already
+     * REFUTED at their current evidence state, keyed {@code lhs|rhs|confirmedRuns}.
+     * Without this the top MCC survivor was re-heard every pass with identical
+     * (deterministic) verdicts — six times in the 02:19 session — while the other
+     * eligibles never got a hearing. More confirmed runs = new evidence = a fresh
+     * hearing (the key changes). In-memory: a restart re-hears once, harmlessly
+     * (verifier-only, deterministic, zero LLM spend).
+     */
+    private final java.util.Set<String> promotionRefuted = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /**
      * Optional — the promotion gate's re-verification surface. Set by the narration
      * layer (which owns the verifier bean); absent in unit tests and when conjecture
      * verification is unwired, in which case promotion is silently skipped.
@@ -679,13 +690,20 @@ public class ConjectureMinerService implements ConjectureQueue {
             // isn't wired (unit tests / verification off).
             ConjectureVerifier verifier = conjectureVerifier;
             if (anomalyPromotionEnabled && verifier != null && !anomalies.isEmpty()) {
-                AnomalyMiner.Anomaly top = anomalies.get(0);
-                String key = keyOf(top.lhs(), top.rhs());
-                Conjecture entity = byKey.get(key);
-                boolean oeisMatch = entity != null && entity.oeisMatchJson() != null
-                        && !entity.oeisMatchJson().isEmpty()
-                        && entity.oeisMatchJson().contains("\"has_match\":true");
-                if (entity != null && entity.promotedAnomalyAt() == null && !oeisMatch) {
+                // 2026-06-06 — walk DOWN the MCC ranking past already-refuted (at current
+                // evidence) / already-promoted / OEIS-matched candidates: one fresh hearing
+                // per pass instead of re-hearing the blocked top forever.
+                for (AnomalyMiner.Anomaly cand : anomalies) {
+                    String key = keyOf(cand.lhs(), cand.rhs());
+                    Conjecture entity = byKey.get(key);
+                    if (entity == null || entity.promotedAnomalyAt() != null) continue;
+                    boolean oeisMatch = entity.oeisMatchJson() != null
+                            && !entity.oeisMatchJson().isEmpty()
+                            && entity.oeisMatchJson().contains("\"has_match\":true");
+                    if (oeisMatch) continue;
+                    String hearingKey = key + "|" + cand.confirmedRuns();
+                    if (promotionRefuted.contains(hearingKey)) continue;
+
                     Inequality ineq = mapper.toInequality(entity);
                     AnomalyPromotionGate.Verdict v = AnomalyPromotionGate.replicate(
                             ineq, verifier::verify,
@@ -696,12 +714,14 @@ public class ConjectureMinerService implements ConjectureQueue {
                         log.info("ANOMALY PROMOTED — {} <= {}*{} + {} survived {} adversarial "
                                         + "refutation attempts (held {} runs, no OEIS match); queued "
                                         + "for UNEXPLAINED_OBSERVATION investigation",
-                                top.lhs(), entity.k(), top.rhs(), entity.c(),
-                                v.attempts(), top.confirmedRuns());
+                                cand.lhs(), entity.k(), cand.rhs(), entity.c(),
+                                v.attempts(), cand.confirmedRuns());
                     } else {
+                        promotionRefuted.add(hearingKey);
                         log.info("anomaly promotion gate — {} <= k*{} REFUTED ({})",
-                                top.lhs(), top.rhs(), v.reason());
+                                cand.lhs(), cand.rhs(), v.reason());
                     }
+                    break;   // one hearing per pass, as before
                 }
             }
         }
