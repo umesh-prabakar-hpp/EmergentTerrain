@@ -666,7 +666,7 @@ public class ResearchCycleService {
                 0.0,
                 gameTick, Instant.now(),
                 author.getGeneration(), paperId,
-                null, null,
+                null, conjecture.c(),   // param2 carries the fitted constant for §26.4-style recognition
                 false,
                 null, null,
                 ctx.getPublishedPapers(roomId, 5),
@@ -759,7 +759,7 @@ public class ResearchCycleService {
                 0.0,
                 gameTick, Instant.now(),
                 author.getGeneration(), paperId,
-                null, null,
+                null, conjecture.c(),   // fitted constant → conjecture-constant recognition
                 false,
                 null, null,
                 ctx.getPublishedPapers(roomId, 5),

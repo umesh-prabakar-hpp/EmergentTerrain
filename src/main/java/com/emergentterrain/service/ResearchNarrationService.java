@@ -1919,6 +1919,17 @@ public class ResearchNarrationService {
             log.info("LLM professor tools: synthesis_len={} paperId={} ms={}",
                     professorSynthesis.length(), draft.paperId(), System.currentTimeMillis() - start);
 
+            // 2026-06-05 review rec #1 — recognize a conjecture investigation's FITTED
+            // CONSTANT (threaded via draft.param2). P-b72c-177 mined the ceiling 1.3128
+            // on twin_vs_prime_sq — 0.6% from the Hardy–Littlewood 2C₂ = 1.32032 — and
+            // published it as an arbitrary number because §26.4 recognition only ran on
+            // dynamic-path refinement values. Same best-effort contract: a PrimaryHit
+            // appends its citation line to the synthesis (the revision narrates it; the
+            // cite-recognised handle stays mechanically verifiable); any failure passes
+            // through silently.
+            professorSynthesis = appendConjectureConstantRecognition(
+                    professorSynthesis, draft);
+
             // Gate may have tripped during the professor tool loop. The professor's
             // synthesis is already complete and the tokens already spent; suppress
             // only the revision stream, keep firstPass as the published narrative.
@@ -4268,6 +4279,61 @@ public class ResearchNarrationService {
      * close to zero (PSLQ has no chance to find a meaningful
      * relation), or the orchestrator bean is missing / unavailable.
      */
+    /**
+     * 2026-06-05 review rec #1 — recognize the fitted constant of a conjecture-class
+     * paper (CONJECTURE_INVESTIGATION / ANOMALY_PROMOTION). The constant {@code c}
+     * arrives via {@code draft.param2()} (set by the publish paths in
+     * {@code ResearchCycleService}); domain MATHEMATICS. Same best-effort contract
+     * as {@link #appendRefinementRecognition}: PrimaryHit → citation line appended;
+     * anything else → input returned unchanged.
+     */
+    String appendConjectureConstantRecognition(String synthesis, PaperDraft draft) {
+        if (synthesis == null || draft == null || draft.param2() == null) return synthesis;
+        if (draft.kind() != com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION
+                && draft.kind() != com.emergentterrain.research.PaperKind.ANOMALY_PROMOTION) {
+            return synthesis;
+        }
+        double c = draft.param2();
+        if (!Double.isFinite(c) || Math.abs(c) < 1e-10) return synthesis;
+        // Near-match FIRST: PSLQ/LLL find exact relations and correctly never match
+        // a mined (noisy) constant — the catalog match is what fires in practice.
+        java.util.Optional<com.emergentterrain.research.recognise.NamedConstantNearMatch.Match>
+                near = com.emergentterrain.research.recognise.NamedConstantNearMatch.match(c);
+        if (near.isPresent()) {
+            log.info("conjecture-constant near-match paperId={} c={} -> {} (relErr={}%)",
+                    draft.paperId(), c, near.get().constant().symbol(),
+                    String.format("%.2f", near.get().relErr() * 100));
+            return synthesis + "\n\nCONSTANT RECOGNITION (near-match, not an identification) — "
+                    + "the conjecture's fitted constant " + near.get().describe(c)
+                    + ". If this identification is plausible given your evidence, NAME the "
+                    + "constant in the findings and discuss the connection (as a conjecture, "
+                    + "not a proof); if the numeric agreement looks coincidental, say why.";
+        }
+        if (constantRecognitionService == null || !constantRecognitionService.isAvailable()) {
+            return synthesis;
+        }
+        try {
+            com.emergentterrain.research.recognise.RecognitionResult result =
+                    constantRecognitionService.recogniseConstant(
+                            Double.toString(c), "MATHEMATICS",
+                            "conjecture-constant paper=" + draft.paperId());
+            if (result instanceof
+                    com.emergentterrain.research.recognise.RecognitionResult.PrimaryHit hit) {
+                log.info("conjecture-constant recognition hit paperId={} c={} name={} handle={}",
+                        draft.paperId(), c, hit.displayName(), hit.citationHandle());
+                return synthesis + "\n\nCONSTANT RECOGNITION — the conjecture's fitted constant "
+                        + c + " was recognised as: " + hit.formatAsCitationLine()
+                        + "\nIf the identification is plausible given your evidence, NAME the "
+                        + "constant in the findings and discuss the connection; if the numeric "
+                        + "agreement looks coincidental, say why.";
+            }
+        } catch (Exception e) {
+            log.debug("conjecture-constant recognition skipped paperId={}: {}",
+                    draft.paperId(), e.getMessage());
+        }
+        return synthesis;
+    }
+
     private String appendRefinementRecognition(String findings,
             MathPhysicsEngine.ResearchResult latestRefined,
             String paperId) {
