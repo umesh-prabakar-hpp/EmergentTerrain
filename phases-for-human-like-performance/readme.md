@@ -659,3 +659,7 @@ But:
 Those are civilization properties.
 
 And your architecture is already unusually compatible with them.
+
+---
+
+**See also:** [guiding-doc-scientist-qualities.md](guiding-doc-scientist-qualities.md) — north-star on the qualities of a successful scientist (Fred Ramsdell, 2025 Nobel laureate) mapped to ET design as a decision lens.
