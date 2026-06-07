@@ -150,8 +150,13 @@ below:
   discovery (sharpens 30.5 vocab-expansion via a generator- vs composite-reachable audit + the 30.6
   promotion residual, 34.2), MDL-on-widening-evidence / non-monotone-R²-is-correct anti-pattern
   guard (names ET's anti-stagnation behavior, 34.3), rejected-alternatives-as-durable-provenance
-  (34.4, hard-depends on 31.6) and a per-claim discovery-cost metric (34.5). Mostly diagnostic, not
-  new subsystems. Detail + scoping:
+  (34.4, hard-depends on 31.6) and a per-claim discovery-cost metric (34.5). **Honest disposition
+  (revised): most of phase-34 is NOT worth building now** — the paper describes a limitation ET
+  already diagnosed (23.8: generation, not retrieval, is the blocker) and is silent on ET's actual
+  bottleneck (how to *generate* a regime transition); it offers an audit for new vocabulary, not a
+  generator. Adopt only **34.3** (a non-monotone-R² gate-checklist guard, ~footnote); keep the
+  summary as a vocabulary/lens for 30.5/30.6; **park 34.1/34.2/34.4/34.5** until 30.5/30.6 actually
+  produce discovery candidates worth measuring. Detail + argument:
   [phase-34-self-revising-discovery/phase-34-patterns.md](phase-34-self-revising-discovery/phase-34-patterns.md).
 
 ---

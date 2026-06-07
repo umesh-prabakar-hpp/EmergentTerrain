@@ -36,6 +36,17 @@ heuristic:
 - **Rejected alternatives + old commitments as durable inspectable provenance** — ET wipes these on
   room reset; recording them is net-new and hard-depends on phase-31 §31.6 (34.4, 34.5).
 
-Most items are *diagnostic*, not new subsystems. Lightest honest win: **34.1** — a one-session
-novelty-type stamp distribution that quantifies how rarely the room does discovery in the strong
-sense.
+## Honest disposition (see [`phase-34-patterns.md`](phase-34-patterns.md) for the full argument)
+
+**Most of phase-34 is not worth building right now.** The paper describes a limitation ET has
+already diagnosed (the 23.8 calibration: corpus is 100% known-result verification, *generation, not
+retrieval, is the blocker*). It gives ET better *vocabulary to measure* that limitation but is
+silent on ET's actual bottleneck — how to *generate* a regime transition. It offers an **audit** for
+new vocabulary (30.5's job), not a **generator** for it.
+
+- **Adopt 34.3** — a one-line gate-authoring-checklist guard (the non-monotone-R² anti-pattern).
+  Cheap, real, the only buildable win today.
+- **Keep this summary** as a vocabulary/lens for the already-queued 30.5/30.6 work.
+- **Park 34.1 / 34.2 / 34.4 / 34.5** — each re-measures the known blocker (~0 output until discovery
+  actually happens), duplicates existing irreducibility/MDL checks, or hard-depends on unbuilt
+  phase-31. Revisit only after 30.5/30.6 produce discovery candidates worth measuring.
