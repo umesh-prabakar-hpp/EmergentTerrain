@@ -49,10 +49,23 @@ prose:
 So the paper's headline "regime extension" (`ModeConditionedCompliance` = a *product* of two
 factors) is reachable only because products of existing alphabet factors are already in the search
 space — not because anything invents a new type. Generation = **LLM-free-proposes within a fixed,
-hand-authored space; a deterministic MDL/AIC gate selects.** This is exactly ET's situation, and
-the code offers no escape from it.
+hand-authored space; a deterministic MDL/AIC gate selects.**
 
-**Net:** adopt one cheap guard; keep the rest as a reading lens for 30.5/30.6.
+**This is not a dead end — it is a map of the gap.** The one axis that separates constrained search
+from genuine discovery is whether the **vocabulary grows**: whether a successful composition is
+*promoted into the alphabet and reused*, expanding the search space over time. BreakingTheWorld
+**freezes** its alphabet — that is its ceiling. ET's **30.5** is designed to do the opposite: admit
+new DERIVED scalars into the vocabulary when they earn it on MDL + irreducibility. On the axis that
+actually matters, **30.5's design is ahead of this paper's released code.** The lesson is therefore
+*not* "generation is hopeless / don't chase it" — it is "the audit/gate half is the cheap, already-
+solved part (this paper); the vocabulary-growth half is the open, valuable part, and 30.5 is ET's
+bet on it." The right reference class for that bet is **library / abstraction learning** (DreamCoder
+et al.), not category theory — see
+[`generation-engine-library-learning.md`](generation-engine-library-learning.md) for the queued
+follow-up review.
+
+**Net:** adopt one cheap guard from this paper; keep its vocabulary as a lens for 30.5/30.6;
+treat **building 30.5** (not more audit machinery) as the real generation-side priority.
 
 ---
 
