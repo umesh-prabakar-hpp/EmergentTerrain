@@ -30,6 +30,28 @@ studies quietly confirm this: the "discovery" in Builder/Breaker came from a fro
 (GPT-5.5, `reasoning_effort=high`) proposing DAG edits, with the category theory as post-hoc
 bookkeeping over what the LLM did.
 
+**Confirmed at the code level (2026-06-06).** The three released repos were cloned and inspected
+(`/opt/apps/ide/vscode/ai/reference-from-github/{scienceclaw, scienceclaw-categoryscienceclaw-mechanics,
+infinite, BreakingTheWorld}`; see the NOTES file there). The code is *stronger* evidence than the
+prose:
+- `BreakingTheWorld/src/dag_search.py` — the Builder's "generation" is **four hardcoded random
+  mutation operators** (add/remove/swap/perturb, fixed weights) sampling from a **hardcoded 6-type
+  factor alphabet** (`Const, Ident, Pow, IndLE, ReLU, IndEq`). The LLM seed phase proposes only
+  *combinations* of those factors, constrained by a strict JSON schema (off-schema proposals
+  silently dropped). New factor types cannot be proposed at all.
+- `scienceclaw/` — hypothesis/skill generation is LLM **selection/composition of a static skill
+  catalog**; the artifact mutator is topology-only (no new payload keys, no LLM). No auto-extension
+  of the type ontology.
+- `categoryscienceclaw/` (mechanics branch) — **purely audit/gate/proof** (schema validation,
+  Kan-transport audit, AIC gate, residual computation). Zero generation; `formalize.py` imports an
+  existing run and types it post-hoc.
+
+So the paper's headline "regime extension" (`ModeConditionedCompliance` = a *product* of two
+factors) is reachable only because products of existing alphabet factors are already in the search
+space — not because anything invents a new type. Generation = **LLM-free-proposes within a fixed,
+hand-authored space; a deterministic MDL/AIC gate selects.** This is exactly ET's situation, and
+the code offers no escape from it.
+
 **Net:** adopt one cheap guard; keep the rest as a reading lens for 30.5/30.6.
 
 ---
