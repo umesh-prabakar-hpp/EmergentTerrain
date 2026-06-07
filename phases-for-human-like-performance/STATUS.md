@@ -139,25 +139,16 @@ below:
   semantic-search probe. Deferral discipline unchanged.
   Sequencing + flags:
   [phase-33-openalex-literature/IMPLEMENTATION-ORDER.md](phase-33-openalex-literature/IMPLEMENTATION-ORDER.md).
-- **Phase 34 — self-revising discovery (categorical framework review)**
-  ([phase-34-self-revising-discovery/](phase-34-self-revising-discovery/), 2026-06-06, **scoping
-  proposal — nothing built**): sixth external-pattern review, over a theory paper rather than a code
-  clone — Wang & Buehler, *Self-Revising Discovery Systems for Science* (arXiv:2606.01444v1; same
-  MIT LAMM lineage as ScienceClaw/SciAgents/ProtAgents/Sparks). Supplies a formal vocabulary +
-  non-subjective acceptance criteria for distinctions ET makes by heuristic: retrieval/search/
-  **discovery** trichotomy (most ET papers are *search*, not regime-changing discovery — makes
-  "generation is the blocker" measurable, 34.1), the Kan-obstruction = forced-residual signature of
-  discovery (sharpens 30.5 vocab-expansion via a generator- vs composite-reachable audit + the 30.6
-  promotion residual, 34.2), MDL-on-widening-evidence / non-monotone-R²-is-correct anti-pattern
-  guard (names ET's anti-stagnation behavior, 34.3), rejected-alternatives-as-durable-provenance
-  (34.4, hard-depends on 31.6) and a per-claim discovery-cost metric (34.5). **Honest disposition
-  (revised): most of phase-34 is NOT worth building now** — the paper describes a limitation ET
-  already diagnosed (23.8: generation, not retrieval, is the blocker) and is silent on ET's actual
-  bottleneck (how to *generate* a regime transition); it offers an audit for new vocabulary, not a
-  generator. Adopt only **34.3** (a non-monotone-R² gate-checklist guard, ~footnote); keep the
-  summary as a vocabulary/lens for 30.5/30.6; **park 34.1/34.2/34.4/34.5** until 30.5/30.6 actually
-  produce discovery candidates worth measuring. Detail + argument:
-  [phase-34-self-revising-discovery/phase-34-patterns.md](phase-34-self-revising-discovery/phase-34-patterns.md).
+- **Categorical-framework review (Wang & Buehler)** — folded into the phase-30 conjecture track as
+  [phase-30-conjecture/phase-30-categorical-patterns.md](phase-30-conjecture/phase-30-categorical-patterns.md)
+  (was briefly a standalone "phase 34" folder; collapsed because the buildable content is one
+  guard). Theory paper, *Self-Revising Discovery Systems for Science* (arXiv:2606.01444v1; same MIT
+  LAMM lineage as the other phase-30 source repos). **Honest disposition: most of it is NOT worth
+  building** — it describes a limitation ET already diagnosed (23.8: generation, not retrieval, is
+  the blocker) and is silent on ET's actual bottleneck (how to *generate* a regime transition).
+  Adopt only the MDL-on-widening-evidence / non-monotone-R² gate-checklist guard; keep the
+  retrieval/search/**discovery** + Kan-obstruction + generator-/composite-reachable vocabulary as a
+  reading lens for 30.5/30.6; park the rest.
 
 ---
 
