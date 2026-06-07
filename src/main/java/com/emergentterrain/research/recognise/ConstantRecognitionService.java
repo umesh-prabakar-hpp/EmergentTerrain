@@ -252,6 +252,7 @@ public class ConstantRecognitionService {
         }
         boolean targetParticipates = false;
         int nonzeroOthers = 0;
+        boolean anyTranscendentalBasis = false;
         for (PslqRecogniserClient.RelationTerm t : relation) {
             int c = t.coefficient();
             if (c == 0) {
@@ -264,10 +265,19 @@ public class ConstantRecognitionService {
                 targetParticipates = true;
             } else {
                 nonzeroOthers++;
+                if (!"1".equals(t.basisName())) {
+                    anyTranscendentalBasis = true;
+                }
             }
         }
+        // 2026-06-06 (P-b72c-262) — a relation whose only non-target basis
+        // element is the constant "1" asserts merely that the value is a
+        // small rational ("8 = 8·1") — true and useless; not an
+        // identification. At least one genuinely mathematical basis element
+        // (pi, e, gamma, zeta(3), …) must participate.
         return targetParticipates && nonzeroOthers >= 1
-                && nonzeroOthers <= MAX_RELATION_TERMS;
+                && nonzeroOthers <= MAX_RELATION_TERMS
+                && anyTranscendentalBasis;
     }
 
     /** Render a PSLQ relation as a short evidence string for the audit row. */

@@ -133,6 +133,24 @@ class ConstantRecognitionServiceTest {
     }
 
     @Test
+    void p262_rationalOnlyRelation_rejected() {
+        // Live fixture: c=8.0 "recognized" as -(-8*1) — sparse and
+        // small-coefficient, but the only basis element is the constant 1:
+        // it asserts the value is rational, which identifies nothing.
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(-1, "<target>"), term(-8, "1"))))
+                .isFalse();
+        // pi^2/6 keeps passing: a transcendental basis element participates.
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(-6, "<target>"), term(1, "pi^2"))))
+                .isTrue();
+        // Mixed rational+transcendental (a*pi + b) also stays plausible.
+        assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
+                term(2, "<target>"), term(-3, "pi"), term(1, "1"))))
+                .isTrue();
+    }
+
+    @Test
     void plausibility_degenerateShapes_rejected() {
         // Target alone (value = 0 claim) and empty/null relations.
         assertThat(ConstantRecognitionService.isPlausibleRelation(List.of(
