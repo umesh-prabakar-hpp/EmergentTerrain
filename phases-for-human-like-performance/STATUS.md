@@ -127,18 +127,16 @@ below:
   (voice, calendar, collaboration pub-sub, MCP server, wizard, OpenClaw bridge). The 30.4
   literature-grounding design in `phase-30-genuinely-novel-claims.md` was updated (layered
   citation resolution); its 23.8-calibration deferral is unchanged.
-- **Phase 33 — OpenAlex literature acquisition & external citation resolution**
-  ([phase-33-openalex-literature/](phase-33-openalex-literature/), 2026-06-06, **scoping
-  proposal — nothing built**): scopes the external-data layer that 30.4 (layered resolver) and
-  32.5 (grounding-sidecar corpus) both assume but never specified, against the OpenAlex API as
-  of June 2026 — keys mandatory since 2026-02 + $1/day usage-credit pricing (the 30.4 "~10K/day"
-  budget is the dead keyless model), hosted full-text (PDF/TEI) for ~60M OA works, extended +
-  semantic search. Items: 33.1 client/key-custody/credit-ledger, 33.2 offline corpus build
-  (≈$10, free-tier trickle; feeds 32.5), 33.3 dormant citation resolver (implements the 30.4
-  design update; flip rides the same first-promotion trigger as 32.5), 33.4 record-only
-  semantic-search probe. Deferral discipline unchanged.
-  Sequencing + flags:
-  [phase-33-openalex-literature/IMPLEMENTATION-ORDER.md](phase-33-openalex-literature/IMPLEMENTATION-ORDER.md).
+- **OpenAlex corpus & external citation resolver** — folded into phase-32 as
+  [phase-32-manuscript-grounding/phase-32-openalex-corpus.md](phase-32-manuscript-grounding/phase-32-openalex-corpus.md)
+  (was briefly a standalone "phase 33" folder; collapsed because it is precisely the §32.5 corpus
+  build plus the deferred 30.4 resolver, not a separate concern). Scopes the external-data layer
+  both designs assume against the OpenAlex API as of June 2026 — keys mandatory since 2026-02 +
+  $1/day usage-credit pricing (the 30.4 "~10K/day" budget is the dead keyless model), hosted
+  full-text (PDF/TEI) for ~60M OA works. Items: client/credit-ledger, offline corpus build (≈$10
+  trickle; feeds §32.5), dormant citation resolver (implements the 30.4 design update; flip rides
+  the §32.5 first-promotion trigger), record-only semantic-search probe. Deferral discipline
+  unchanged; all flag-gated OFF.
 - **Categorical-framework review (Wang & Buehler)** — folded into the phase-30 conjecture track as
   [phase-30-conjecture/phase-30-categorical-patterns.md](phase-30-conjecture/phase-30-categorical-patterns.md)
   (was briefly a standalone "phase 34" folder; collapsed because the buildable content is one
