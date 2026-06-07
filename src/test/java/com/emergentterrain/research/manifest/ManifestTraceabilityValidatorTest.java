@@ -84,6 +84,33 @@ class ManifestTraceabilityValidatorTest {
     }
 
     @Test
+    void percentDescaleDoesNotLaunderThroughDerivations() {
+        // Commit-review fixture: fabricated 1230 must NOT resolve via
+        // 1230/100 = 12.3 = 3·4.1 (hypothesis coefficient × tool value).
+        // The /100 descale now requires a real % suffix, and scaled probes
+        // hit direct entries + rounding only — never the derivation ladder.
+        ValueManifest m = ValueManifest.capture("bound ≤ 3 · rhs + 0.5",
+                java.util.List.of(new ToolInvocation("verify_conjecture", "{}",
+                        "scalar = 4.1 observed", 0, "c1")));
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "The aggregate reaches 1230.0 in this regime.", "");
+        assertThat(s.misses()).hasSize(1);
+        // And with an explicit % suffix, scaled DIRECT matches still work.
+        ValueManifest m2 = ValueManifest.capture(null,
+                java.util.List.of(new ToolInvocation("run_predicate_scan", "{}",
+                        "fraction = 0.123 measured", 0, "c1")));
+        assertThat(run(m2, "Roughly 12.30 % of the population qualifies.", "")
+                .misses()).isEmpty();
+    }
+
+    @Test
+    void boundPrefixExemptSurvivesWideSpacing() {
+        ValueManifest m = manifest(null, "exact p 0.000412");
+        assertThat(run(m, "Significant at p <   0.0042 with wide spacing.", "")
+                .boundExempt()).isEqualTo(1);
+    }
+
+    @Test
     void boundPrefixExempt() {
         // "< 0.0042" states a bound, not a measurement (0.0042 chosen off the
         // allowlist — canonical alphas like 0.001 are allowlisted first).

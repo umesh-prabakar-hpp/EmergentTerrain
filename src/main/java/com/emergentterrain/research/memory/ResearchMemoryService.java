@@ -59,6 +59,20 @@ public class ResearchMemoryService {
      */
     public Optional<UUID> capture(String type, String content, String sourceRefs,
             String topic, String domain, UUID roomId, String botId) {
+        return captureAt(type, content, sourceRefs, topic, domain, roomId, botId, null);
+    }
+
+    /**
+     * 31.2's cursor-correct crystal write: capture with an explicit
+     * {@code createdAt} (the consolidation cursor boundary). Null = now.
+     */
+    public Optional<UUID> captureAt(String type, String content, String sourceRefs,
+            String topic, String domain, Instant createdAt) {
+        return captureAt(type, content, sourceRefs, topic, domain, null, null, createdAt);
+    }
+
+    private Optional<UUID> captureAt(String type, String content, String sourceRefs,
+            String topic, String domain, UUID roomId, String botId, Instant createdAt) {
         if (!enabled || content == null || content.isBlank()) {
             return Optional.empty();
         }
@@ -73,7 +87,23 @@ public class ResearchMemoryService {
             }
             ResearchMemoryEntity row = new ResearchMemoryEntity(
                     type, content, hash, sourceRefs, topic, domain, roomId, botId, runId);
-            repository.save(row);
+            if (createdAt != null) {
+                row.pinCreatedAt(createdAt);
+            }
+            try {
+                repository.save(row);
+            } catch (org.springframework.dao.DataIntegrityViolationException race) {
+                // 2026-06-06 commit-review fix: concurrent identical captures —
+                // the loser hits uq_memory_content_hash; convert to the
+                // reinforce it semantically was, instead of losing the count.
+                Optional<ResearchMemoryEntity> winner = repository.findByContentHash(hash);
+                if (winner.isPresent()) {
+                    winner.get().reinforce();
+                    repository.save(winner.get());
+                    return Optional.of(winner.get().id());
+                }
+                throw race;
+            }
             return Optional.of(row.id());
         } catch (Exception e) {
             log.warn("research-memory capture failed (pipeline unaffected) type={}: {}",

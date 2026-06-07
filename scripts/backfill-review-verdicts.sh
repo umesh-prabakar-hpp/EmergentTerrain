@@ -27,18 +27,41 @@ harvest() {
     local reviewed
     reviewed="$(grep -m1 -oE '\*\*Last updated:\*\* [0-9-]+' "$report" | grep -oE '[0-9-]+$' || true)"
     [ -n "$reviewed" ] || reviewed="$(date -r "$report" +%F)"
-    # Per-paper ratings rows: | P-xxxx-N | topic | peer | status | verdict | key issue |
+    # 2026-06-06 commit-review fix — HEADER-DRIVEN column mapping. Report eras
+    # vary their column order (some put Status before Peer; one era added a
+    # Label column); the old hardcoded f[2..7] transposed peer/status across
+    # the whole harvest. Now the table's own header row maps name -> index.
+    # All free-text fields are uniformly quoted with "" escaping.
     awk -v rev="$reviewed" -v src="$source" '
-        /^## Per-paper ratings/ { inTable=1; next }
-        /^## / { inTable=0 }
-        inTable && /^\| *P-[0-9a-f]+-[0-9]+ *\|/ {
+        function clean(s) { gsub(/^ +| +$/, "", s); gsub(/\*/, "", s); return s }
+        function csv(s)   { gsub(/"/, "\"\"", s); return "\"" s "\"" }
+        /^## Per-paper ratings/ { inSection=1; next }
+        /^## / { inSection=0 }
+        inSection && /^\|/ && !haveHeader {
+            n = split($0, h, /\|/)
+            for (i = 2; i <= n; i++) {
+                col = tolower(clean(h[i]))
+                if (col ~ /^paper/)        idP = i
+                else if (col ~ /^topic/)   idT = i
+                else if (col ~ /^peer/)    idPe = i
+                else if (col ~ /^status/)  idS = i
+                else if (col ~ /^verdict/) idV = i
+                else if (col ~ /^key/)     idK = i
+            }
+            if (idP && idV) haveHeader = 1
+            next
+        }
+        inSection && haveHeader && /^\| *P-[0-9a-f]+-[0-9]+ *\|/ {
             n = split($0, f, /\|/)
-            if (n < 7) next
-            for (i = 2; i <= 7; i++) { gsub(/^ +| +$/, "", f[i]) }
-            # CSV-escape commas/quotes in free-text fields.
-            for (i in f) { gsub(/"/, "\"\"", f[i]) }
-            printf "%s,\"%s\",%s,%s,\"%s\",\"%s\",%s,%s\n",
-                   f[2], f[3], f[4], f[5], f[6], f[7], rev, src
+            paperId = clean(f[idP])
+            topic   = idT  ? clean(f[idT])  : ""
+            peer    = idPe ? clean(f[idPe]) : ""
+            status  = idS  ? clean(f[idS])  : ""
+            verdict = idV  ? clean(f[idV])  : ""
+            key     = idK  ? clean(f[idK])  : ""
+            printf "%s,%s,%s,%s,%s,%s,%s,%s\n",
+                   paperId, csv(topic), csv(peer), csv(status),
+                   csv(verdict), csv(key), rev, src
         }' "$report" >> "$tmp"
 }
 

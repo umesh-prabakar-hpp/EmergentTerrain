@@ -43,7 +43,7 @@ public class ResearchMemoryEntity {
     public static final String TYPE_INSIGHT = "INSIGHT";
 
     @Id
-    @GeneratedValue
+    @GeneratedValue(strategy = jakarta.persistence.GenerationType.UUID)
     private UUID id;
 
     @Column(nullable = false)
@@ -131,6 +131,11 @@ public class ResearchMemoryEntity {
     void supersedes(UUID olderId) {
         this.supersedesId = olderId;
         this.version = this.version + 1;
+    }
+
+    /** 31.2's crystal-cursor write ONLY — pin createdAt to the cursor boundary. */
+    void pinCreatedAt(java.time.Instant at) {
+        this.createdAt = at;
     }
 
     public Instant createdAt() { return createdAt; }

@@ -2032,6 +2032,13 @@ public class ResearchNarrationService {
                     for (String skipped : resample.skippedModels()) {
                         callPath.add("prof:budget_fallback:from=" + abbrev(skipped));
                     }
+                    // 2026-06-06 commit-review fix: the sandbox_reject stamp
+                    // above described the DISCARDED draft's metrics; re-stamp
+                    // the resample's count so the persisted call path matches
+                    // the trace that actually published.
+                    if (metrics.sandboxRejectCount() > 0) {
+                        callPath.add("sandbox_reject:resample=" + metrics.sandboxRejectCount());
+                    }
                 }
                 // A blank resample keeps the original synthesis; the loop exits
                 // via the retry budget and the D3 gate below decides.

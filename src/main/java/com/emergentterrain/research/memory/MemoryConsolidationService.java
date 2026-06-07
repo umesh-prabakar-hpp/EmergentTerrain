@@ -127,15 +127,24 @@ public class MemoryConsolidationService {
         int superseded = supersedeRefutedConfirms(facts);
         int lessons = synthesizeGroupLessons(facts);
 
-        // Run crystal — the pass record AND the next pass's cursor.
-        memoryService.capture(ResearchMemoryEntity.TYPE_INSIGHT,
+        // Run crystal — the pass record AND the next pass's cursor. 2026-06-06
+        // commit-review fix: the cursor must be the createdAt of the LAST
+        // CONSUMED row, not the crystal's own wall-clock — synthesis takes
+        // seconds, and a FACT persisted by a concurrent publish during that
+        // window would land createdAt < crystal.createdAt and be skipped
+        // FOREVER under the old scheme. With cursor = max(consumed), mid-pass
+        // writes are strictly after it and picked up next pass. (Residual
+        // edge: a row sharing the exact microsecond of the last consumed row
+        // — accepted; reprocessing safety makes even that benign.)
+        Instant maxConsumed = facts.get(facts.size() - 1).createdAt();
+        memoryService.captureAt(ResearchMemoryEntity.TYPE_INSIGHT,
                 String.format("consolidation pass: newFacts=%d superseded=%d lessons=%d "
                                 + "topics=%s at=%s",
                         facts.size(), superseded, lessons,
                         facts.stream().map(ResearchMemoryEntity::topic).distinct().sorted()
                                 .toList(),
                         Instant.now()),
-                "consolidation", CRYSTAL_TOPIC, "META", null, null);
+                "consolidation", CRYSTAL_TOPIC, "META", maxConsumed);
         log.info("memory-consolidation: newFacts={} superseded={} lessons={} (cursor was {})",
                 facts.size(), superseded, lessons, cursor);
         return new PassResult(facts.size(), superseded, lessons, lessons > 0);
@@ -157,11 +166,21 @@ public class MemoryConsolidationService {
             List<ResearchMemoryEntity> candidates = repository
                     .findByTypeAndTopicAndIsLatestTrueOrderByCreatedAtAsc(
                             ResearchMemoryEntity.TYPE_FACT, fact.topic());
+            boolean pointerSet = false;
             for (ResearchMemoryEntity older : candidates) {
                 if (!older.createdAt().isBefore(fact.createdAt())) continue;
                 if (!CONFIRM_OUTCOME.matcher(older.content()).find()) continue;
                 older.markSuperseded();
-                fact.supersedes(older.id());
+                // 2026-06-06 commit-review fix: supersedesId is a SINGLE
+                // pointer — setting it per match overwrote all but the last
+                // lineage link and bumped version once per match. Point it at
+                // the OLDEST superseded confirm only (candidates are
+                // createdAt-ascending); the full fan-in lineage lives in the
+                // per-pair INFO line below, which is part of the audit record.
+                if (!pointerSet) {
+                    fact.supersedes(older.id());
+                    pointerSet = true;
+                }
                 repository.save(older);
                 repository.save(fact);
                 superseded++;

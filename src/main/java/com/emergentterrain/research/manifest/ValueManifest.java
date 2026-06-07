@@ -142,17 +142,21 @@ public final class ValueManifest {
      * Resolve a prose-cited value against the manifest at the ladder's ±1%
      * tolerance, magnitude-symmetric (prose cites unsigned magnitudes of
      * signed trace values). Direct entries win; one-step derivations
-     * (hypothesis {@code a·x} with a ∉ {0, ±1}, STRICT tolerance only — the
-     * P-b72c-119 laundering lesson; same-call {@code x±y}) are checked next
-     * and described explicitly. Empty = untraceable at one step.
+     * (hypothesis {@code a·x}; {@code h±x}; same-call {@code x±y};
+     * range-end) are checked next and described explicitly.
+     *
+     * <p>Laundering guards are STRUCTURAL, not tolerance-based (2026-06-06
+     * commit-review correction — an earlier comment claimed a stricter band
+     * that never existed): {@code a ∉ {0, ±1}} on coefficients, same-call
+     * grouping on {@code x±y}, the ≤50-value header-call bound on range-end,
+     * and NO mantissa-scale fallback anywhere in the derivation pass (the
+     * P-b72c-119 lesson). All matching uses the single {@link #REL_TOL} band.
+     * Empty = untraceable at one step.
      */
     public Optional<Resolution> resolve(double value) {
         if (!Double.isFinite(value)) return Optional.empty();
-        for (ManifestEntry e : entries) {
-            if (matches(value, e.value())) {
-                return Optional.of(new Resolution(e.label(), e));
-            }
-        }
+        Optional<Resolution> direct = resolveDirect(value);
+        if (direct.isPresent()) return direct;
         // a·x — hypothesis constant times any tool value.
         for (double a : hypothesisConstants) {
             if (a == 0.0 || Math.abs(a) == 1.0) continue;
@@ -229,6 +233,24 @@ public final class ValueManifest {
                         }
                     }
                 }
+            }
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Direct-entry resolution only (no derivations). 2026-06-06
+     * commit-review fix: the validator's percent-scale probes must NOT run
+     * the full derivation ladder on the scaled value — a fabricated 1230
+     * resolved via 1230/100 = 3·4.1 (hypothesis-constant × tool value), the
+     * exact composition laundering the review flagged. Scaled probes get
+     * direct entries (±1%, magnitude-symmetric) and nothing else.
+     */
+    public Optional<Resolution> resolveDirect(double value) {
+        if (!Double.isFinite(value)) return Optional.empty();
+        for (ManifestEntry e : entries) {
+            if (matches(value, e.value())) {
+                return Optional.of(new Resolution(e.label(), e));
             }
         }
         return Optional.empty();

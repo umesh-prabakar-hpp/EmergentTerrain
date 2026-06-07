@@ -133,7 +133,9 @@ public final class ManifestTraceabilityValidator {
                     allowlisted++;
                     continue;
                 }
-                String prefix = text.substring(Math.max(0, m.start() - 3), m.start());
+                // 8-char lookback (commit-review fix: 3 chars missed "p <   x"
+                // with 3+ spaces); BOUND_PREFIX anchors the operator at the end.
+                String prefix = text.substring(Math.max(0, m.start() - 8), m.start());
                 if (BOUND_PREFIX.matcher(prefix).find()) {
                     boundExempt++;
                     continue;
@@ -214,13 +216,18 @@ public final class ManifestTraceabilityValidator {
         // precision — try the source set at the cited number's granularity by
         // probing a half-ulp band around the cited value.
         if (resolvesByRounding(manifest, value)) return true;
-        // Percent 100x ambiguity — both directions, with rounding on each.
-        if (percent || value > 1.0) {
-            if (manifest.resolve(value / 100.0).isPresent()
+        // Percent 100x ambiguity. 2026-06-06 commit-review fix: (a) the /100
+        // descale fires ONLY on an actual % suffix — the old `|| value > 1.0`
+        // descaled every large salient number; (b) scaled probes resolve
+        // against DIRECT entries + rounding only, never the derivation ladder
+        // (a fabricated 1230 resolved via 1230/100 = 3·4.1 — hypothesis
+        // coefficient × tool value — the composition-laundering path).
+        if (percent) {
+            if (manifest.resolveDirect(value / 100.0).isPresent()
                     || resolvesByRounding(manifest, value / 100.0)) return true;
         }
         if (value < 1.0) {
-            if (manifest.resolve(value * 100.0).isPresent()
+            if (manifest.resolveDirect(value * 100.0).isPresent()
                     || resolvesByRounding(manifest, value * 100.0)) return true;
         }
         return false;
