@@ -118,6 +118,24 @@ public class ResearchMemoryEntity {
         this.lastAccessedAt = Instant.now();
     }
 
+    /**
+     * 31.2 consolidation ONLY — mark this row superseded by a newer one.
+     * History is never deleted: the row stays queryable, lineage via the
+     * superseder's {@code supersedesId}.
+     */
+    void markSuperseded() {
+        this.isLatest = false;
+    }
+
+    /** 31.2 consolidation ONLY — chain this (newer) row to the row it supersedes. */
+    void supersedes(UUID olderId) {
+        this.supersedesId = olderId;
+        this.version = this.version + 1;
+    }
+
+    public Instant createdAt() { return createdAt; }
+    public UUID supersedesId() { return supersedesId; }
+
     public UUID id() { return id; }
     public String type() { return type; }
     public String content() { return content; }
