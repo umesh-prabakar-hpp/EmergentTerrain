@@ -205,6 +205,15 @@ public class ResearchNarrationService {
         }
     }
 
+    /** Phase 31 §31.3 — optional recall (read-only; narration never depends on it). */
+    private volatile com.emergentterrain.research.memory.MemoryRecallService memoryRecallService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setMemoryRecallService(
+            com.emergentterrain.research.memory.MemoryRecallService memoryRecallService) {
+        this.memoryRecallService = memoryRecallService;
+    }
+
     /** Drain gate for discretionary salvage spend (mirrors LlmService's optional setter). */
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
 
@@ -1961,7 +1970,15 @@ public class ResearchNarrationService {
             String systemPrompt = buildProfessorSystemPrompt(
                     promptRegistry, auditSummary, literatureContext, hints)
                     + ((citationToolEnabled && literatureSearch != null) ? CITATION_GROUNDING_RULE : "");
-            String userPrompt   = buildProfessorUserPrompt(promptRegistry, draft, firstPass, literatureContext);
+            // Phase 31 §31.3 — index-first recall: append the compiled
+            // cross-run lessons for this topic (context, not instructions).
+            // The convergence case: a cramer_gap_ratio investigation recalls
+            // the consolidated lesson over its prior dressings. Best-effort,
+            // budget-capped, flag-gated OFF; empty block when nothing recalls.
+            String recallBlock = (memoryRecallService != null && memoryRecallService.enabled())
+                    ? memoryRecallService.recallBlock(draft.topicName()) : "";
+            String userPrompt   = buildProfessorUserPrompt(
+                    promptRegistry, draft, firstPass, literatureContext) + recallBlock;
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
             // the persisted LLM Call Path. Reviewers can then tell whether a Findings

@@ -23,4 +23,12 @@ public interface ResearchMemoryRepository extends JpaRepository<ResearchMemoryEn
     /** 31.2 — the latest pass crystal; its createdAt is the consolidation cursor. */
     Optional<ResearchMemoryEntity> findFirstByTypeAndTopicOrderByCreatedAtDesc(
             String type, String topic);
+
+    /**
+     * 31.3 — the recall candidate pool: live LESSON rows for a topic (the
+     * compiled cross-run knowledge), newest first. Ranking/trimming happens
+     * in MemoryRecallService — the query just bounds the read.
+     */
+    java.util.List<ResearchMemoryEntity> findByTypeAndTopicAndIsLatestTrueOrderByCreatedAtDesc(
+            String type, String topic);
 }

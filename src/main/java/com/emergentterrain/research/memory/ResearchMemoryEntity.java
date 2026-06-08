@@ -148,6 +148,13 @@ public class ResearchMemoryEntity {
     public int strength() { return strength; }
     public int reinforcements() { return reinforcements; }
     public String sourceRefs() { return sourceRefs; }
+
+    /** 31.3 — compact source pointer for the recall block (first ~60 chars). */
+    public String sourceRefsShort() {
+        if (sourceRefs == null || sourceRefs.isBlank()) return "memory";
+        String s = sourceRefs.replaceAll("\\s+", " ").strip();
+        return s.length() <= 60 ? s : s.substring(0, 60) + "…";
+    }
     public String topic() { return topic; }
     public UUID roomId() { return roomId; }
     public String runId() { return runId; }
