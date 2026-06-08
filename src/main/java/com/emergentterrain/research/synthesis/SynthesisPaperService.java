@@ -1,0 +1,313 @@
+package com.emergentterrain.research.synthesis;
+
+import com.emergentterrain.research.EvidenceLabel;
+import com.emergentterrain.research.PaperKind;
+import com.emergentterrain.research.ResearchPaper;
+import com.emergentterrain.research.memory.ResearchMemoryEntity;
+import com.emergentterrain.research.memory.ResearchMemoryRepository;
+import com.emergentterrain.repo.ResearchPaperRepository;
+import com.emergentterrain.research.synthesis.SynthesisComposer.SourcePaper;
+import com.emergentterrain.service.LlmRouter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+/**
+ * Phase 31 §31.7 — the synthesis-paper orchestrator. Composes a review paper
+ * over the room's own prior papers on one topic family (the kernel —
+ * {@link SynthesisComposer} / {@link SynthesisWarrant} / {@link SynthesisLabelCap}
+ * — supplies the pure pieces; this wires them to the corpus, the router, and
+ * persistence).
+ *
+ * <p>One pass: pick the most-warranted family (≥{@code minSources} cite-able
+ * papers, none yet synthesized this window) → outline call → draft each section
+ * with a digest of the already-written sections (anti-repetition) → enforce
+ * that every {@code [P-…]} in the prose is a cited source → cap the evidence
+ * label at the weakest source → persist as {@link PaperKind#SYNTHESIS}.
+ * {@code NULL_SYNTHESIS} (the corpus doesn't support a synthesis) is a
+ * first-class outcome that publishes nothing.
+ *
+ * <p>Scheduled low-frequency, flag-gated OFF, drain-aware. The compose core is
+ * router-free-testable via an injectable synthesizer.
+ */
+@Service
+public class SynthesisPaperService {
+
+    private static final Logger log = LoggerFactory.getLogger(SynthesisPaperService.class);
+
+    private static final Pattern PAPER_CITE = Pattern.compile("\\[(P-[0-9a-f]{4}-[0-9]+)\\]");
+    private static final Pattern TITLE_JSON = Pattern.compile("\"([^\"]{1,120})\"");
+
+    private final ResearchPaperRepository papersRepository;
+    private final ResearchMemoryRepository memoryRepository;
+    private final LlmRouter router;
+    private final boolean enabled;
+    private final int minSources;
+    private final int minSections;
+    private final int maxSections;
+    private final Path researchOutputDir;
+
+    private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
+
+    /** Test seam — replaces the router (one prompt → one completion). */
+    private Function<String, String> synthesizer;
+
+    @Autowired(required = false)
+    public void setRunBudgetTracker(com.emergentterrain.llm.RunBudgetTracker tracker) {
+        this.runBudgetTracker = tracker;
+    }
+
+    public SynthesisPaperService(ResearchPaperRepository papersRepository,
+            ResearchMemoryRepository memoryRepository, LlmRouter router,
+            @Value("${app.research.synthesis.enabled:false}") boolean enabled,
+            @Value("${app.research.synthesis.minSources:5}") int minSources,
+            @Value("${app.research.synthesis.minSections:3}") int minSections,
+            @Value("${app.research.synthesis.maxSections:6}") int maxSections,
+            @Value("${app.university.researchOutputDir:research}") String researchOutputDir) {
+        this.papersRepository = papersRepository;
+        this.memoryRepository = memoryRepository;
+        this.router = router;
+        this.enabled = enabled;
+        this.minSources = minSources;
+        this.minSections = minSections;
+        this.maxSections = maxSections;
+        this.researchOutputDir = Path.of(researchOutputDir);
+        this.synthesizer = prompt -> com.emergentterrain.llm.LlmCallContext.withRole(
+                "synthesis", () -> this.router.callForRole("synthesis", prompt));
+    }
+
+    void setSynthesizer(Function<String, String> synthesizer) {
+        this.synthesizer = synthesizer;
+    }
+
+    public boolean enabled() {
+        return enabled;
+    }
+
+    /** The composed outcome (null-synthesis carries no body). */
+    public record SynthesisResult(String family, String title, String bodyMarkdown,
+                                  EvidenceLabel label, List<String> citedIds,
+                                  List<String> uncitedViolations, boolean isNull,
+                                  String nullReason) {
+        public boolean publishable() {
+            return !isNull && bodyMarkdown != null && !bodyMarkdown.isBlank();
+        }
+    }
+
+    /** Every 6h, off the hot path; composes at most one synthesis per pass. */
+    @Scheduled(initialDelay = 1_200_000, fixedDelay = 21_600_000)
+    public void scheduledPass() {
+        if (!enabled) return;
+        com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
+        if (t != null && !t.allowDiscretionarySpend()) return;   // drain-aware
+        try {
+            runOnePass();
+        } catch (Exception e) {
+            log.warn("synthesis pass failed (no paper produced): {}", e.getMessage());
+        }
+    }
+
+    /**
+     * Pick a warranted family across the corpus and compose+persist one
+     * synthesis. Returns the result, or empty when nothing is warranted /
+     * the outline declined.
+     */
+    public Optional<SynthesisResult> runOnePass() {
+        List<SourcePaper> citeable = citeableCorpus();
+        List<SynthesisWarrant.Warrant> warrants =
+                SynthesisWarrant.warranted(citeable, minSources);
+        for (SynthesisWarrant.Warrant w : warrants) {
+            if (alreadySynthesized(w.family())) continue;
+            String lesson = lessonFor(w.family());
+            SynthesisResult r = compose("MATHEMATICS", w, lesson);
+            if (r.isNull()) {
+                log.info("synthesis: family={} NULL_SYNTHESIS ({})", w.family(), r.nullReason());
+                continue;   // try the next warranted family
+            }
+            persist(r, w);
+            log.info("synthesis PUBLISHED family={} sections={} cited={} label={} violations={}",
+                    r.family(), r.bodyMarkdown().split("\n## ").length - 1,
+                    r.citedIds().size(), r.label(), r.uncitedViolations().size());
+            return Optional.of(r);
+        }
+        return Optional.empty();
+    }
+
+    // ── compose (router-free testable) ────────────────────────────────────────
+
+    public SynthesisResult compose(String domain, SynthesisWarrant.Warrant w, String lesson) {
+        List<SourcePaper> sources = w.sources();
+        String outline = synthesizer.apply(SynthesisComposer.buildOutlinePrompt(
+                domain, w.family(), lesson, sources, minSections, maxSections));
+        if (SynthesisComposer.isNullSynthesis(outline)) {
+            return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
+                    true, outline.strip());
+        }
+        List<String> titles = parseTitles(outline);
+        if (titles.isEmpty()) {
+            return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
+                    true, "outline produced no parseable section titles");
+        }
+        StringBuilder body = new StringBuilder();
+        StringBuilder digest = new StringBuilder();
+        for (String title : titles) {
+            String section = synthesizer.apply(SynthesisComposer.buildSectionPrompt(
+                    title, w.family(), digest.toString(), sources));
+            if (section == null || section.isBlank()) continue;
+            body.append("\n## ").append(title).append("\n\n").append(section.strip()).append('\n');
+            // Digest = section title + first sentence, for the next section's
+            // anti-repetition context (kept short to stay in budget).
+            digest.append("- ").append(title).append(": ")
+                    .append(firstSentence(section)).append('\n');
+        }
+        if (body.length() == 0) {
+            return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
+                    true, "no sections drafted");
+        }
+        Set<String> sourceIds = sources.stream().map(SourcePaper::paperId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> cited = new ArrayList<>();
+        List<String> violations = new ArrayList<>();
+        Matcher m = PAPER_CITE.matcher(body);
+        Set<String> seen = new LinkedHashSet<>();
+        while (m.find()) {
+            String id = m.group(1);
+            if (!seen.add(id)) continue;
+            if (sourceIds.contains(id)) cited.add(id);
+            else violations.add(id);          // cited a paper not in the warrant corpus
+        }
+        EvidenceLabel label = SynthesisLabelCap.applyCap(EvidenceLabel.EMPIRICAL_RESULT,
+                sources.stream().map(s -> parseLabel(s.evidenceLabel())).toList());
+        String title = "Synthesis: " + w.family() + " across " + sources.size() + " papers";
+        return new SynthesisResult(w.family(), title, body.toString(), label,
+                List.copyOf(cited), List.copyOf(violations), false, null);
+    }
+
+    // ── corpus / lesson / dedup ───────────────────────────────────────────────
+
+    private List<SourcePaper> citeableCorpus() {
+        List<SourcePaper> out = new ArrayList<>();
+        for (ResearchPaper p : papersRepository.findAll()) {
+            if (p == null || p.kind() == PaperKind.SYNTHESIS) continue;
+            if (!"PUBLISHED".equalsIgnoreCase(p.status())) continue;   // cite-worthy only
+            out.add(new SourcePaper(p.paperId(), p.topic(),
+                    p.evidenceLabel() == null ? "CONJECTURE" : p.evidenceLabel().name(),
+                    p.peerScore(), oneLine(p.conclusion())));
+        }
+        return out;
+    }
+
+    private String lessonFor(String family) {
+        return memoryRepository.findByTypeAndTopicAndIsLatestTrueOrderByCreatedAtDesc(
+                        ResearchMemoryEntity.TYPE_LESSON, family).stream()
+                .findFirst().map(ResearchMemoryEntity::content).orElse(null);
+    }
+
+    private boolean alreadySynthesized(String family) {
+        for (ResearchPaper p : papersRepository.findAll()) {
+            if (p != null && p.kind() == PaperKind.SYNTHESIS
+                    && ("synthesis/" + family).equalsIgnoreCase(p.topic())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // ── persist ───────────────────────────────────────────────────────────────
+
+    private void persist(SynthesisResult r, SynthesisWarrant.Warrant w) {
+        // A citation violation routes to NEEDS_REVISION (the synthesis cited a
+        // paper outside its corpus); otherwise PUBLISHED at the capped label.
+        String status = r.uncitedViolations().isEmpty() ? "PUBLISHED" : "NEEDS_REVISION";
+        UUID roomId = anyRoomId();
+        String paperId = "SYN-" + w.family().replaceAll("[^A-Za-z0-9]+", "_")
+                + "-" + Integer.toHexString(r.bodyMarkdown().hashCode());
+        ResearchPaper paper = new ResearchPaper(paperId, roomId, "synthesizer",
+                "MATHEMATICS", "synthesis/" + w.family(), r.title(),
+                "", "SYNTHESIS", r.bodyMarkdown(),
+                lastSection(r.bodyMarkdown()), List.of(), 0.0, status,
+                0L, Instant.now(), 0, 0.0, "synthesis", "synthesis:31.7");
+        paper.setKind(PaperKind.SYNTHESIS);
+        paper.setEvidenceLabel(r.label());
+        try {
+            papersRepository.save(paper);
+        } catch (Exception e) {
+            log.warn("synthesis persist (DB) failed family={}: {}", w.family(), e.getMessage());
+        }
+        writeMarkdown(roomId, paper, r);
+    }
+
+    private void writeMarkdown(UUID roomId, ResearchPaper paper, SynthesisResult r) {
+        try {
+            Path dir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
+            Files.createDirectories(dir);
+            String md = "# " + paper.title() + "\n\n**Kind**: SYNTHESIS  |  **Evidence Label**: "
+                    + r.label() + "  |  **Status**: " + paper.status() + "  |  **Sources**: "
+                    + r.citedIds().size() + "\n\n---\n" + r.bodyMarkdown();
+            Files.writeString(dir.resolve(paper.paperId() + ".synthesis.md"), md);
+        } catch (Exception e) {
+            log.warn("synthesis markdown write failed {}: {}", paper.paperId(), e.getMessage());
+        }
+    }
+
+    // ── small helpers ─────────────────────────────────────────────────────────
+
+    static List<String> parseTitles(String outline) {
+        List<String> titles = new ArrayList<>();
+        if (outline == null) return titles;
+        Matcher m = TITLE_JSON.matcher(outline);
+        while (m.find()) titles.add(m.group(1).strip());
+        return titles;
+    }
+
+    private static String firstSentence(String s) {
+        if (s == null) return "";
+        String t = s.strip();
+        int dot = t.indexOf(". ");
+        String first = dot > 0 ? t.substring(0, dot) : t;
+        return first.length() <= 120 ? first : first.substring(0, 120);
+    }
+
+    private static String oneLine(String s) {
+        if (s == null) return "";
+        String t = s.replaceAll("\\s+", " ").strip();
+        return t.length() <= 160 ? t : t.substring(0, 160);
+    }
+
+    private static String lastSection(String body) {
+        int i = body.lastIndexOf("\n## ");
+        return i < 0 ? "" : body.substring(i).replaceFirst("\n## [^\n]*\n+", "");
+    }
+
+    private static EvidenceLabel parseLabel(String name) {
+        try {
+            return name == null ? EvidenceLabel.CONJECTURE : EvidenceLabel.valueOf(name);
+        } catch (IllegalArgumentException e) {
+            return EvidenceLabel.CONJECTURE;
+        }
+    }
+
+    private UUID anyRoomId() {
+        for (ResearchPaper p : papersRepository.findAll()) {
+            if (p != null && p.roomId() != null) return p.roomId();
+        }
+        return new UUID(0L, 0L);
+    }
+}
