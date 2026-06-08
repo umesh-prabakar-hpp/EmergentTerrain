@@ -94,6 +94,12 @@ public class GenericOpenAICompatPool implements LlmPool {
      *  in the existing pools — {@link #isModelBlocked} consults this so the
      *  registry's availability filter skips blocked models. */
     private final ConcurrentHashMap<String, Long> rateLimitExpiry = new ConcurrentHashMap<>();
+    /** 2026-06-08 — how long to block a model after it returns a provider
+     *  usage-cap sentinel (see {@link #checkUsageLimit}). The cap message names
+     *  a reset time, but parsing it (am/pm + timezone) is fragile, so we use a
+     *  fixed, self-healing cadence: the model is retried after this window and
+     *  re-blocked if still capped. */
+    private static final long USAGE_LIMIT_BLOCK_MS = 15 * 60 * 1000L;
     /** Phase 9 follow-on — models that failed initial selection tests and are
      *  awaiting periodic re-probing by {@code ModelRetestService}. Kept in the
      *  pool's published {@link #modelIds()} (so {@link PrimaryModelRegistry} /
@@ -1003,6 +1009,19 @@ public class GenericOpenAICompatPool implements LlmPool {
                 } else {
                     String content = message.path("content").asText("");
                     if (content.isBlank()) content = message.path("reasoning").asText("");
+                    // 2026-06-08 — provider usage-cap sentinel. A subscription-
+                    // backed model (e.g. legacy-ai) returns HTTP 200
+                    // with a short "You've hit your limit · resets <time>" body
+                    // and NO tool_calls when its quota is exhausted. Untreated,
+                    // the loop reads that as "model declined to call tools" →
+                    // empty trace → the narration stage burns its resamples and
+                    // suppresses the paper with no signal in the app log (only
+                    // the raw llm-traces jsonl carries the message). Treat it
+                    // like a 429: block the model and throw so the request fails
+                    // over to a non-capped handle. Only meaningful when the trace
+                    // is empty — a cap message arriving after real tool calls is
+                    // ignored (the partial trace is the paper's evidence).
+                    if (trace.isEmpty()) checkUsageLimit(modelId, content);
                     if (!trace.isEmpty()) {
                         log.info("GenericOpenAICompatPool({}) tools: loop closed model={} calls={} rounds=[{}..{}]",
                                 cfg.providerKey(), modelId, trace.size(),
@@ -1149,6 +1168,43 @@ public class GenericOpenAICompatPool implements LlmPool {
                     cfg.providerKey(), modelId, backend);
             rateLimitExpiry.put(modelId, System.currentTimeMillis() + 5 * 60 * 1000L);
         }
+    }
+
+    /**
+     * 2026-06-08 — recognise a provider usage-cap sentinel. A subscription-backed
+     * model returns a short body like
+     * {@code "You've hit your limit · resets 4:10pm (America/New_York)"} (HTTP 200,
+     * {@code finish_reason=stop}, no tool_calls) when its quota is exhausted.
+     * Matched tightly — a short body carrying BOTH "hit your limit" and "reset" —
+     * so a long paper that merely discusses rate limits never trips it.
+     */
+    static boolean isUsageLimitSentinel(String content) {
+        if (content == null) return false;
+        String c = content.strip();
+        if (c.isEmpty() || c.length() > 200) return false;
+        String lower = c.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("hit your limit") && lower.contains("reset");
+    }
+
+    /**
+     * Block-and-throw when a tool-call response is a usage-cap sentinel
+     * ({@link #isUsageLimitSentinel}). Mirrors {@link #checkBackendExclusion}'s
+     * post-200 block, but also throws: the capped response carries no tool calls,
+     * so the request must fail over to another handle rather than degrade to an
+     * empty trace. The model is blocked for {@link #USAGE_LIMIT_BLOCK_MS} so the
+     * rest of the wave skips it instead of re-hitting the cap. No-op otherwise.
+     */
+    private void checkUsageLimit(String modelId, String content) {
+        if (!isUsageLimitSentinel(content)) return;
+        String msg = content.strip();
+        log.warn("GenericOpenAICompatPool({}): model={} returned a provider usage-cap message "
+                        + "(\"{}\") — blocking {} min and failing over",
+                cfg.providerKey(), modelId,
+                msg.length() > 90 ? msg.substring(0, 90) + "…" : msg,
+                USAGE_LIMIT_BLOCK_MS / 60000L);
+        rateLimitExpiry.put(modelId, System.currentTimeMillis() + USAGE_LIMIT_BLOCK_MS);
+        throw new RuntimeException("usage limit (provider cap) model=" + modelId
+                + " — failing over to next handle");
     }
 
     /**
