@@ -3594,7 +3594,17 @@ public class ResearchNarrationService {
             + "mechanism — there is none; this is pure number theory (so do not claim, nor "
             + "let a reviewer demand, a physical mechanism).\n"
             + "4. Keep every numeric claim traceable to the conjecture's mining history or "
-            + "to verify_conjecture output.";
+            + "to verify_conjecture output.\n"
+            + "5. GROWTH-ANCHOR STEP (2026-06-08): if the LHS is a quantity that GROWS with x — "
+            + "e.g. max_prime_gap (~ln^2 x by Cramer), mean_divisor_count / max_divisor_count "
+            + "(~log x) — then a flat per-window feature makes k*rhs+c near-constant and the "
+            + "seeded bound WILL refute. In that case you MUST also propose-and-verify (a real "
+            + "verify_conjecture call, not just a correlation) at least one ALTERNATIVE bound "
+            + "whose rhs is a GROWTH ANCHOR that can track that growth: log_sq_window_start (the "
+            + "ln^2 x / Cramer scale — use this for max_prime_gap), or log_window_start / "
+            + "sqrt_window_start (for log- / sqrt-growing LHS). Report whether the growth-anchor "
+            + "bound HELD or REFUTED across the held-out windows — a growth-anchor bound that "
+            + "HOLDS across the range is THE result of the paper, not the flat-feature refutation.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
