@@ -55,6 +55,27 @@ class MathInvariantsExtensionTest {
                         "cramer_gap_ratio", "twin_vs_prime_sq");
     }
 
+    // ── 2026-06-08 — growth anchors (so a bound can track a growing LHS) ───────
+
+    @Test
+    void growthAnchorsComputeAndJoinTheVocabulary() {
+        Map<String, Double> flat = MathInvariants.extract(raw(), 1000, 500);
+        org.assertj.core.api.Assertions.assertThat(flat.get("sqrt_window_start"))
+                .isCloseTo(Math.sqrt(1000.0), org.assertj.core.api.Assertions.within(1e-12));
+        double lc = Math.log(1250.0);   // center = window_start + window_size/2
+        org.assertj.core.api.Assertions.assertThat(flat.get("log_sq_window_start"))
+                .isCloseTo(lc * lc, org.assertj.core.api.Assertions.within(1e-12));
+        org.assertj.core.api.Assertions.assertThat(MathInvariants.vocabulary())
+                .contains("sqrt_window_start", "log_sq_window_start");
+    }
+
+    @Test
+    void growthAnchorsDegradeToZeroOnMissingInputs() {
+        Map<String, Double> flat = MathInvariants.extract(Map.of(), 0, 0);
+        org.assertj.core.api.Assertions.assertThat(flat.get("sqrt_window_start")).isZero();
+        org.assertj.core.api.Assertions.assertThat(flat.get("log_sq_window_start")).isZero();
+    }
+
     @Test
     void emptyAdmittedReproducesBaseVocabulary() {
         assertThat(MathInvariants.vocabulary(List.of())).isEqualTo(MathInvariants.vocabulary());

@@ -63,6 +63,30 @@ class ConjectureTrivialityFilterTest {
                 ineq("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7621))).isEmpty();
     }
 
+    // ---- 2026-06-08 growth anchors: RHS allowed (track growth), LHS barred ----
+
+    @Test
+    void growthAnchorOnRhsBoundingGrowingLhsIsAllowed() {
+        // The whole point: max_prime_gap ≤ k·log_sq_window_start + c (the Cramér
+        // form) and mean_divisor_count ≤ k·sqrt_window_start + c must NOT drop —
+        // a growth anchor on the RHS is a valid bounding term, like log_window_start.
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("max_prime_gap", "log_sq_window_start", 2.0, 0.0))).isFalse();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("max_prime_gap", "log_sq_window_start", 2.0, 0.0))).isEmpty();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("mean_divisor_count", "sqrt_window_start", 1.0, 0.0))).isEmpty();
+    }
+
+    @Test
+    void growthAnchorAsLhsIsDroppedLikeOtherGeometryScalars() {
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("log_sq_window_start", "max_prime_gap", 2.0, 0.0)))
+                .contains("window_geometry_lhs");
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("sqrt_window_start", "mean_divisor_count", 2.0, 0.0))).isTrue();
+    }
+
     @Test
     void mertensBoundIsNotGeometryTautology() {
         // mertens_per_sqrt_W carries mertens_delta, so it is NOT geometry; the

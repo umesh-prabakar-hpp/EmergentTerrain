@@ -53,7 +53,10 @@ public final class ConjectureTrivialityFilter {
      * {@code _window_size} / {@code _window_start}.
      */
     public static final Set<String> WINDOW_GEOMETRY_SCALARS =
-            Set.of("log_window_size", "sqrt_window_size", "log_window_start");
+            Set.of("log_window_size", "sqrt_window_size", "log_window_start",
+                    // 2026-06-08 — growth anchors (see MathInvariants): valid as
+                    // RHS bounding terms, barred as an LHS like the others.
+                    "sqrt_window_start", "log_sq_window_start");
 
     /** {@code |k|} at or below this counts as a degenerate constant bound (k=0). */
     public static final double K_EPSILON = 1e-9;

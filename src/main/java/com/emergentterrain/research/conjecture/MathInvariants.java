@@ -64,6 +64,26 @@ public final class MathInvariants {
                     double s = r.getOrDefault("_window_start", 0.0);
                     return s > 0 ? Math.log10(s) : 0.0;
                 });
+        // 2026-06-08 — growth anchors so the single-feature affine miner can
+        // propose a bound that TRACKS a growing LHS instead of pinning the RHS
+        // near a constant feature. Every k·feature+c bound on a growing quantity
+        // (mean_divisor_count ~ log x; max_prime_gap ~ ln²x by Cramér) is
+        // trivially refuted when the feature is flat; an RHS whose own growth
+        // matches the LHS lets e.g. max_prime_gap ≤ k·log_sq_window_start + c
+        // (the Cramér form) actually hold across the sieve range. Like
+        // log_window_start these are window-geometry RHS terms (barred as an LHS
+        // by ConjectureTrivialityFilter.WINDOW_GEOMETRY_SCALARS).
+        m.put("sqrt_window_start",
+                r -> Math.sqrt(r.getOrDefault("_window_start", 0.0)));
+        m.put("log_sq_window_start",
+                r -> {
+                    double start = r.getOrDefault("_window_start", 0.0);
+                    double w = r.getOrDefault("_window_size", 0.0);
+                    double center = start + w / 2.0;
+                    if (center <= 1.0) return 0.0;
+                    double lc = Math.log(center);   // natural log — the Cramér ln²x scale
+                    return lc * lc;
+                });
         // Natural Mertens-conjecture scaling: |M(N)| / sqrt(N) stays O(1)
         // in observed regimes even though the original Mertens conjecture
         // is asymptotically false.
