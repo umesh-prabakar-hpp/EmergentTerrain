@@ -37,6 +37,56 @@ class UnsourcedClaimValidatorTest {
     }
 
     @Test
+    void p313_phantomIndependentVerificationWithoutCallRef_flagged() {
+        // P-b72c-313: prose invented "the professor's independent verification
+        // confirmed the same count of 11 happy primes" — no such tool call
+        // exists in the trace. The "[600, 1000)" interval is NOT a [call_N] ref,
+        // and the digit 11 means it isn't honest absence-hedging.
+        String findings = "The scan returned 0.028 [call_5]. "
+                + "The professor's independent verification confirmed the same "
+                + "count of 11 happy primes in [600, 1000).";
+        List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
+        assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void phantomVerifiedIndependently_flagged() {
+        // "verified independently" word-order variant.
+        String findings = "The bound holds on the slice. "
+                + "This was verified independently to within 2 units.";
+        List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
+        assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void realToolVerificationWithCallRef_passes() {
+        // A genuine verify_conjecture call carries its [call_N] in-sentence.
+        String findings = "An independent verification via verify_conjecture "
+                + "[call_2] confirmed the bound held on the held-out slice.";
+        assertThat(UnsourcedClaimValidator.validate(findings, ""))
+                .noneMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void independentVariableProse_doesNotFlagPhantomVerification() {
+        // "independent" not adjacent to a verify-verb must NOT fire — guards
+        // against FPs on "independent variable" / "separate analysis".
+        String findings = "The independent variable was the window start, "
+                + "and a separate analysis of 100 windows showed no trend.";
+        assertThat(UnsourcedClaimValidator.validate(findings, ""))
+                .noneMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void absenceOfIndependentVerification_exempt() {
+        // Honest hedging: negation cue + no digit → absence-meta exemption.
+        String findings = "No independent verification of this count was "
+                + "performed, so the value is reported as provisional.";
+        assertThat(UnsourcedClaimValidator.validate(findings, ""))
+                .noneMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
     void uncertaintyWithoutCallRef_flagged() {
         String findings = "Call 1 returned the canonical value [call_1]. "
                 + "Quoted uncertainty for the derived quantity is ±0.02 across the regime.";

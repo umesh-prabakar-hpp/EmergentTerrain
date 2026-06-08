@@ -321,7 +321,10 @@ public class PromptTemplateRegistry {
                      on at least one held-out window the miner did not sample. Report the \
                      worst-margin witness, even when the bound HELD. If the tool refutes \
                      the bound on a held-out slice, narrate the counterexample — that is the \
-                     paper.
+                     paper. When you quote the worst-margin witness, take the observed LHS \
+                     value from the SAME per-window row (same `start=`) as that worst \
+                     margin — the trace lists `lhs` and `margin` side by side per window; \
+                     never pair the worst margin with a different window's `lhs`.
 
                 The reviewer panel will judge whether your `findings` actually contains a \
                 mechanism and an adversarial check. The text-heuristic floor blocks any \

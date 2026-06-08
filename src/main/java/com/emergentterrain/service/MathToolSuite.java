@@ -632,7 +632,7 @@ public class MathToolSuite {
                         "predicate":{"type":"string","description":"Property filter: tokens from isPrime isHappy collatzTerminates isAbundant isPerfect joined with AND or OR"},
                         "range_start":{"type":"integer","description":"Range start (≥1)"},
                         "range_end":{"type":"integer","description":"Range end (range_end − range_start ≤ 500)"},
-                        "metric":{"type":"string","description":"One of: fraction_satisfying, mean_of:collatzSteps, max_of:collatzSteps, mean_of:sigmaSum"},
+                        "metric":{"type":"string","description":"EXACTLY one of these four tokens, copied verbatim with no extra words: fraction_satisfying | mean_of:collatzSteps | max_of:collatzSteps | mean_of:sigmaSum. For ANY density / proportion / 'fraction of integers that are …' question, use fraction_satisfying. Only collatzSteps and sigmaSum statistics exist — there is NO divisor-count and NO omega (distinct-prime-factor) metric, so do not request those."},
                         "baseline":{"type":"number","description":"Hypothesized value for comparison"},
                         "hypothesis":{"type":"string","description":"What you predict this will show"}
                       },
@@ -1457,6 +1457,17 @@ public class MathToolSuite {
         // spaces and lowercase, so "mean_of:collatzSteps", "mean of collatz
         // steps" and "Mean Collatz Steps" all reduce to one key.
         String key = m.toLowerCase().replaceAll("[\\s_:()\\-]+", " ").trim();
+        // 2026-06-08 review rec 3 — any "fraction …" / "proportion …" /
+        // "… satisfying …" phrasing collapses to the sole density metric.
+        // The professor stage repeatedly emitted free-form variants the
+        // exact-token switch missed ("fraction satisfying predicate",
+        // "fraction of integers that are prime"), burning 1–3 tool rounds per
+        // density paper (P-b72c-308/-309/-313). fraction_satisfying is the
+        // ONLY fraction the tool computes, so the collapse is unambiguous.
+        if (key.startsWith("fraction") || key.startsWith("proportion")
+                || key.contains("satisfying")) {
+            return "fraction_satisfying";
+        }
         return switch (key) {
             case "density", "densities", "fraction", "proportion", "frequency",
                  "relative frequency", "fraction satisfying", "satisfying fraction" ->

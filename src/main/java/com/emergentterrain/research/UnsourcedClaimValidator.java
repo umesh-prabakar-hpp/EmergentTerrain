@@ -53,6 +53,22 @@ public final class UnsourcedClaimValidator {
      * then checks the surrounding sentence for a {@code [call_N]} marker.
      */
     private enum Trigger {
+        // 2026-06-08 review rec 2 — a claim that an INDEPENDENT / SEPARATE
+        // party (re-)verified, validated, confirmed, reproduced or recomputed
+        // a result. In this pipeline the only verification that happens is a
+        // tool call (verify_conjecture, a predicate scan) that carries its own
+        // [call_N]; so an "independent verification" phrasing with no paired
+        // [call_N] in the sentence is a fabricated process claim, not a real
+        // one. P-b72c-313 invented "the professor's independent verification
+        // confirmed the same count of 11 happy primes" with no such call in
+        // the trace. High precision by design: requires the independent/
+        // separate cue ADJACENT to the verify-verb, so "independent variable"
+        // / "separate analysis" / a "## Adversarial Check" header never fire.
+        PHANTOM_VERIFICATION("phantom_verification", Pattern.compile(
+                "(?i)\\b(?:independent(?:ly)?|separate(?:ly)?)\\s+"
+                        + "(?:verif\\w+|validat\\w+|confirm\\w+|reproduc\\w+|re-?comput\\w+)"
+                        + "|(?i)\\b(?:verif\\w+|confirm\\w+|validat\\w+|reproduc\\w+)"
+                        + "\\s+(?:independently|separately)\\b")),
         // "the derivative of X", "dy/dx", "∂f/∂x", "per unit <var> derivative".
         DERIVATIVE("derivative", Pattern.compile(
                 "(?i)\\bderivative\\b|\\bd[A-Za-z_][A-Za-z_0-9]?/d[A-Za-z_]\\b|∂[A-Za-z_]/∂[A-Za-z_]")),
