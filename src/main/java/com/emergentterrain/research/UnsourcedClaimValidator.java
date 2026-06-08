@@ -53,22 +53,25 @@ public final class UnsourcedClaimValidator {
      * then checks the surrounding sentence for a {@code [call_N]} marker.
      */
     private enum Trigger {
-        // 2026-06-08 review rec 2 — a claim that an INDEPENDENT / SEPARATE
-        // party (re-)verified, validated, confirmed, reproduced or recomputed
-        // a result. In this pipeline the only verification that happens is a
-        // tool call (verify_conjecture, a predicate scan) that carries its own
-        // [call_N]; so an "independent verification" phrasing with no paired
-        // [call_N] in the sentence is a fabricated process claim, not a real
-        // one. P-b72c-313 invented "the professor's independent verification
-        // confirmed the same count of 11 happy primes" with no such call in
-        // the trace. High precision by design: requires the independent/
-        // separate cue ADJACENT to the verify-verb, so "independent variable"
-        // / "separate analysis" / a "## Adversarial Check" header never fire.
+        // 2026-06-08 review rec 2 — a claim that some OTHER agent independently
+        // (re-)verified / confirmed / validated a result the tool trace does not
+        // contain. P-b72c-313 invented "the professor's independent verification
+        // confirmed the same count of 11 happy primes" with no such call. The
+        // fabrication signature is an ACTOR ATTRIBUTION (the professor/referee/
+        // oracle "verified/confirmed …") or the standalone NOUN "independent
+        // verification". 2026-06-08 (live FP on P-b72c-317): the first cut also
+        // fired on legitimate methodology prose — "three independent
+        // verify_conjecture sweeps", "30 independently verified windows" — which
+        // describe the author's OWN real tool calls. The tool name
+        // verify_conjecture and the adjective "verified" are NOT a claimed
+        // external verification, so the pattern now requires (a) a named actor,
+        // or (b) the noun "verification" (never the verify_conjecture token).
+        // The in-sentence [call_N] exemption still clears genuinely-cited prose.
         PHANTOM_VERIFICATION("phantom_verification", Pattern.compile(
-                "(?i)\\b(?:independent(?:ly)?|separate(?:ly)?)\\s+"
-                        + "(?:verif\\w+|validat\\w+|confirm\\w+|reproduc\\w+|re-?comput\\w+)"
-                        + "|(?i)\\b(?:verif\\w+|confirm\\w+|validat\\w+|reproduc\\w+)"
-                        + "\\s+(?:independently|separately)\\b")),
+                "(?i)\\b(?:professor|referee|oracle|colleague|auditor|expert)(?:'?s)?\\s+"
+                        + "(?:\\w+\\s+){0,2}?(?:verif\\w+|validat\\w+|confirm\\w+|reproduc\\w+)"
+                        + "|(?i)\\b(?:independent|external|separate|third[- ]?party)\\s+"
+                        + "(?:re-?)?verification\\b")),
         // "the derivative of X", "dy/dx", "∂f/∂x", "per unit <var> derivative".
         DERIVATIVE("derivative", Pattern.compile(
                 "(?i)\\bderivative\\b|\\bd[A-Za-z_][A-Za-z_0-9]?/d[A-Za-z_]\\b|∂[A-Za-z_]/∂[A-Za-z_]")),

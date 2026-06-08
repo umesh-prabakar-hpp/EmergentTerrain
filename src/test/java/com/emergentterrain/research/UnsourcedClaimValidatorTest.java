@@ -50,12 +50,38 @@ class UnsourcedClaimValidatorTest {
     }
 
     @Test
-    void phantomVerifiedIndependently_flagged() {
-        // "verified independently" word-order variant.
+    void actorAttributedVerification_flagged() {
+        // Actor-attributed fabrication beyond "professor": an oracle/referee
+        // claimed to have confirmed a result with no [call_N].
         String findings = "The bound holds on the slice. "
-                + "This was verified independently to within 2 units.";
+                + "The oracle separately confirmed the count of 11 in a held-out check.";
         List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
         assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void standaloneIndependentVerificationNoun_flagged() {
+        // The NOUN "independent verification" (not the verify_conjecture tool)
+        // asserted with no [call_N].
+        String findings = "An independent verification established the same "
+                + "count of 11 happy primes.";
+        List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
+        assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+    }
+
+    @Test
+    void legitIndependentVerifyConjectureSweeps_doesNotFlag() {
+        // 2026-06-08 live FP (P-b72c-317): an accurate description of the
+        // author's OWN real tool calls — the verify_conjecture tool name and the
+        // adjective "verified" are NOT a claimed external verification.
+        String f1 = "Three independent verify_conjecture sweeps refuted the "
+                + "conjecture on all 30 windows tested.";
+        String f2 = "The bound is violated across all 30 independently verified "
+                + "windows spanning x in [200000, 1950000).";
+        assertThat(UnsourcedClaimValidator.validate(f1, ""))
+                .noneMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
+        assertThat(UnsourcedClaimValidator.validate(f2, ""))
+                .noneMatch(r -> r.startsWith("unsourced_claim:phantom_verification"));
     }
 
     @Test
