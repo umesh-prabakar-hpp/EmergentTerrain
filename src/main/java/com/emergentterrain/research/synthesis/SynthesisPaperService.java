@@ -166,6 +166,9 @@ public class SynthesisPaperService {
             return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
                     true, outline.strip());
         }
+        log.info("synthesis outline (family {}): {}", w.family(),
+                outline == null ? "null"
+                        : outline.strip().substring(0, Math.min(outline.strip().length(), 240)));
         List<String> titles = parseTitles(outline);
         if (titles.isEmpty()) {
             return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
@@ -174,7 +177,15 @@ public class SynthesisPaperService {
         StringBuilder body = new StringBuilder();
         StringBuilder digest = new StringBuilder();
         int leaked = 0;
-        for (String title : titles) {
+        int sectionNo = 0;
+        for (String rawTitle : titles) {
+            sectionNo++;
+            // Render guard (synthesis #2): an outline that parsed to a
+            // letter-less title (e.g. ",") must not render as "## ,". Fall
+            // back to a numbered heading; the diagnostic outline log above
+            // captures the raw format for the parser fix.
+            String title = rawTitle != null && rawTitle.matches(".*[A-Za-z].*")
+                    ? rawTitle : "Section " + sectionNo;
             String section = synthesizer.apply(SynthesisComposer.buildSectionPrompt(
                     title, w.family(), digest.toString(), sources));
             if (section == null || section.isBlank()) continue;
