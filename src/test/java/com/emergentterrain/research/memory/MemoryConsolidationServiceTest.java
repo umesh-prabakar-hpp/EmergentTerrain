@@ -69,6 +69,31 @@ class MemoryConsolidationServiceTest {
             return store.stream().filter(r -> type.equals(r.type()) && topic.equals(r.topic()))
                     .max(Comparator.comparing(ResearchMemoryEntity::createdAt));
         });
+        // 2026-06-08 backlog-draining lesson path: topics with >=min FACTs and
+        // no live LESSON, biggest first.
+        lenient().when(repo.findTopicsNeedingLesson(org.mockito.ArgumentMatchers.anyInt()))
+                .thenAnswer(inv -> {
+            int min = inv.getArgument(0);
+            java.util.Map<String, Long> factCounts = store.stream()
+                    .filter(r -> ResearchMemoryEntity.TYPE_FACT.equals(r.type()) && r.topic() != null)
+                    .collect(java.util.stream.Collectors.groupingBy(
+                            ResearchMemoryEntity::topic, java.util.stream.Collectors.counting()));
+            java.util.Set<String> haveLesson = store.stream()
+                    .filter(r -> ResearchMemoryEntity.TYPE_LESSON.equals(r.type()) && r.isLatest())
+                    .map(ResearchMemoryEntity::topic)
+                    .collect(java.util.stream.Collectors.toSet());
+            return factCounts.entrySet().stream()
+                    .filter(e -> e.getValue() >= min && !haveLesson.contains(e.getKey()))
+                    .sorted(java.util.Map.Entry.<String, Long>comparingByValue().reversed())
+                    .map(java.util.Map.Entry::getKey).toList();
+        });
+        lenient().when(repo.findByTypeAndTopicOrderByCreatedAtAsc(anyString(), anyString()))
+                .thenAnswer(inv -> {
+            String type = inv.getArgument(0);
+            String topic = inv.getArgument(1);
+            return store.stream().filter(r -> type.equals(r.type()) && topic.equals(r.topic()))
+                    .sorted(Comparator.comparing(ResearchMemoryEntity::createdAt)).toList();
+        });
         lenient().when(repo.findByContentHash(anyString())).thenAnswer(inv ->
                 store.stream().filter(r -> r.contentHash().equals(inv.getArgument(0)))
                         .findFirst());
@@ -160,6 +185,33 @@ class MemoryConsolidationServiceTest {
         });
         capped.runPass();
         assertThat(calls.get()).isZero();
+    }
+
+    @Test
+    void deferredGroupsDrainAcrossPasses_evenAfterCursorAdvances() throws Exception {
+        // THE bug fix: pass 1 caps at 1 lesson and advances the cursor past
+        // ALL facts; the deferred topic must still consolidate next pass
+        // (cursor-independent), not be orphaned forever.
+        Instant t0 = Instant.now().minusSeconds(600);
+        for (int i = 0; i < 3; i++) {
+            row(ResearchMemoryEntity.TYPE_FACT, "big topic fact " + i, "conjecture/cramer", t0.plusSeconds(i));
+        }
+        for (int i = 0; i < 3; i++) {
+            row(ResearchMemoryEntity.TYPE_FACT, "other fact " + i, "conjecture/other", t0.plusSeconds(10 + i));
+        }
+        MemoryConsolidationService svc = service(1);   // cap = 1 lesson/pass
+
+        MemoryConsolidationService.PassResult p1 = svc.runPass();
+        assertThat(p1.lessons()).isEqualTo(1);
+        // No NEW facts arrive — cursor advanced past everything.
+        MemoryConsolidationService.PassResult p2 = svc.runPass();
+        assertThat(p2.newRows()).isZero();             // no fresh facts
+        assertThat(p2.lessons()).isEqualTo(1);         // but the deferred group drains
+        // Both topics now have lessons; a third pass is a true no-op.
+        assertThat(svc.runPass().lessons()).isZero();
+        assertThat(store.stream()
+                .filter(e -> ResearchMemoryEntity.TYPE_LESSON.equals(e.type())).count())
+                .isEqualTo(2);
     }
 
     @Test

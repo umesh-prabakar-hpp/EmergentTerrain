@@ -109,45 +109,41 @@ public class MemoryConsolidationService {
     public record PassResult(int newRows, int superseded, int lessons, boolean ranLlm) {}
 
     public PassResult runPass() {
+        // SUPERSESSION is incremental on new retirements (cursor-based; the
+        // op is idempotent — a re-seen retirement finds its confirms already
+        // non-live and no-ops, so an imperfect cursor is harmless).
         Instant cursor = repository
                 .findFirstByTypeAndTopicOrderByCreatedAtDesc(
                         ResearchMemoryEntity.TYPE_INSIGHT, CRYSTAL_TOPIC)
                 .map(ResearchMemoryEntity::createdAt)
                 .orElse(Instant.EPOCH);
-        List<ResearchMemoryEntity> fresh =
-                repository.findByCreatedAtAfterOrderByCreatedAtAsc(cursor);
-        // Only consolidate FACTs; crystals/lessons from prior passes are outputs.
-        List<ResearchMemoryEntity> facts = fresh.stream()
-                .filter(r -> ResearchMemoryEntity.TYPE_FACT.equals(r.type()))
-                .toList();
-        if (facts.isEmpty()) {
-            return new PassResult(0, 0, 0, false);   // no-op on unchanged input
+        List<ResearchMemoryEntity> freshFacts =
+                repository.findByCreatedAtAfterOrderByCreatedAtAsc(cursor).stream()
+                        .filter(r -> ResearchMemoryEntity.TYPE_FACT.equals(r.type()))
+                        .toList();
+        int superseded = supersedeRefutedConfirms(freshFacts);
+
+        // LESSON synthesis is BACKLOG-DRAINING and cursor-INDEPENDENT
+        // (2026-06-08 fix: the cap-and-defer left the cursor unable to revisit
+        // deferred groups — pass 1 advanced past all 939 facts so cramer's 55
+        // and 20 other groups were orphaned. "Topic has ≥min facts and no live
+        // lesson" is the durable incremental state; each pass drains up to the
+        // cap, and a topic with a lesson is permanently skipped).
+        int lessons = synthesizeUnconsolidatedTopics();
+
+        boolean didWork = !freshFacts.isEmpty() || lessons > 0;
+        // Crystal advances the supersession cursor to the newest fact seen.
+        Instant nextCursor = freshFacts.isEmpty()
+                ? cursor : freshFacts.get(freshFacts.size() - 1).createdAt();
+        if (didWork) {
+            memoryService.captureAt(ResearchMemoryEntity.TYPE_INSIGHT,
+                    String.format("consolidation pass: newFacts=%d superseded=%d lessons=%d at=%s",
+                            freshFacts.size(), superseded, lessons, Instant.now()),
+                    "consolidation", CRYSTAL_TOPIC, "META", nextCursor);
         }
-
-        int superseded = supersedeRefutedConfirms(facts);
-        int lessons = synthesizeGroupLessons(facts);
-
-        // Run crystal — the pass record AND the next pass's cursor. 2026-06-06
-        // commit-review fix: the cursor must be the createdAt of the LAST
-        // CONSUMED row, not the crystal's own wall-clock — synthesis takes
-        // seconds, and a FACT persisted by a concurrent publish during that
-        // window would land createdAt < crystal.createdAt and be skipped
-        // FOREVER under the old scheme. With cursor = max(consumed), mid-pass
-        // writes are strictly after it and picked up next pass. (Residual
-        // edge: a row sharing the exact microsecond of the last consumed row
-        // — accepted; reprocessing safety makes even that benign.)
-        Instant maxConsumed = facts.get(facts.size() - 1).createdAt();
-        memoryService.captureAt(ResearchMemoryEntity.TYPE_INSIGHT,
-                String.format("consolidation pass: newFacts=%d superseded=%d lessons=%d "
-                                + "topics=%s at=%s",
-                        facts.size(), superseded, lessons,
-                        facts.stream().map(ResearchMemoryEntity::topic).distinct().sorted()
-                                .toList(),
-                        Instant.now()),
-                "consolidation", CRYSTAL_TOPIC, "META", maxConsumed);
         log.info("memory-consolidation: newFacts={} superseded={} lessons={} (cursor was {})",
-                facts.size(), superseded, lessons, cursor);
-        return new PassResult(facts.size(), superseded, lessons, lessons > 0);
+                freshFacts.size(), superseded, lessons, cursor);
+        return new PassResult(freshFacts.size(), superseded, lessons, lessons > 0);
     }
 
     // ── step 1: deterministic supersession ──────────────────────────────────
@@ -191,21 +187,19 @@ public class MemoryConsolidationService {
         return superseded;
     }
 
-    // ── step 2: group → LESSON ───────────────────────────────────────────────
+    // ── step 2: backlog-draining group → LESSON ──────────────────────────────
 
-    private int synthesizeGroupLessons(List<ResearchMemoryEntity> freshFacts) {
-        Map<String, List<ResearchMemoryEntity>> byTopic = new LinkedHashMap<>();
-        for (ResearchMemoryEntity f : freshFacts) {
-            if (f.topic() == null) continue;
-            byTopic.computeIfAbsent(f.topic(), k -> new ArrayList<>()).add(f);
-        }
+    private int synthesizeUnconsolidatedTopics() {
+        // Topics with >=min FACTs and no live LESSON yet, biggest first — so
+        // the highest-evidence cross-run patterns (cramer: 55 facts) compile
+        // soonest. Cursor-independent: "no lesson" IS the incremental state.
+        List<String> topics = repository.findTopicsNeedingLesson(minGroupSize);
         int calls = 0;
         int lessons = 0;
-        for (Map.Entry<String, List<ResearchMemoryEntity>> group : byTopic.entrySet()) {
-            if (group.getValue().size() < minGroupSize) continue;
+        for (String topic : topics) {
             if (calls >= maxLlmCallsPerPass) {
-                log.info("memory-consolidation: LLM cap reached ({}); {} group(s) deferred "
-                        + "to the next pass", maxLlmCallsPerPass, byTopic.size());
+                log.info("memory-consolidation: LLM cap reached ({}); {} topic(s) remain "
+                        + "for the next pass", maxLlmCallsPerPass, topics.size() - calls);
                 break;
             }
             com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
@@ -213,11 +207,15 @@ public class MemoryConsolidationService {
                 log.info("memory-consolidation: draining — synthesis deferred");
                 break;
             }
+            List<ResearchMemoryEntity> group = repository
+                    .findByTypeAndTopicOrderByCreatedAtAsc(
+                            ResearchMemoryEntity.TYPE_FACT, topic);
+            if (group.size() < minGroupSize) continue;   // raced below threshold
             StringBuilder factList = new StringBuilder();
-            for (ResearchMemoryEntity f : group.getValue()) {
+            for (ResearchMemoryEntity f : group) {
                 factList.append("- ").append(f.content()).append('\n');
             }
-            String prompt = "These observations about topic '" + group.getKey()
+            String prompt = "These observations about topic '" + topic
                     + "' accumulated across research runs:\n" + factList
                     + "\nSynthesize ONE durable lesson (<= 300 chars, plain text, no "
                     + "preamble) capturing the cross-run pattern — what keeps happening "
@@ -228,14 +226,15 @@ public class MemoryConsolidationService {
                 if (lesson != null && !lesson.isBlank()) {
                     memoryService.capture(ResearchMemoryEntity.TYPE_LESSON,
                             lesson.strip(),
-                            group.getValue().stream()
-                                    .map(f -> f.id().toString()).toList().toString(),
-                            group.getKey(), "MATHEMATICS", null, null);
+                            "synthesized from " + group.size() + " facts",
+                            topic, "MATHEMATICS", null, null);
                     lessons++;
+                    log.info("memory-consolidation: lesson synthesized topic={} fromFacts={}",
+                            topic, group.size());
                 }
             } catch (Exception e) {
                 log.warn("memory-consolidation: synthesis failed for topic {}: {}",
-                        group.getKey(), e.getMessage());
+                        topic, e.getMessage());
             }
         }
         return lessons;
