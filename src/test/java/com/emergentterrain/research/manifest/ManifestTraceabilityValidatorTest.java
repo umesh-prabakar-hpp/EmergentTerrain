@@ -111,6 +111,18 @@ class ManifestTraceabilityValidatorTest {
     }
 
     @Test
+    void p272_rangeBoundaryIntegers_notManifestMisses() {
+        // "results over range [2000, 2500)" — the bracket bounds are SCOPE
+        // claims (executed-range arm's job); the manifest must not flag them
+        // as untraceable values. A real value outside any bracket still flags.
+        ValueManifest m = manifest(null, "HELD across windows");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "Prose claims results over range [2000, 2500) and cites 4321.5 here.", "");
+        assertThat(s.misses()).extracting(ManifestTraceabilityValidator.Miss::token)
+                .containsExactly("4321.5");   // only the non-bracket value
+    }
+
+    @Test
     void boundPrefixExempt() {
         // "< 0.0042" states a bound, not a measurement (0.0042 chosen off the
         // allowlist — canonical alphas like 0.001 are allowlisted first).

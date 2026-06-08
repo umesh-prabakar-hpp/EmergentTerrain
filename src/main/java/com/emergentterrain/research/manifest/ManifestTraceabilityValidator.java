@@ -69,6 +69,20 @@ public final class ManifestTraceabilityValidator {
     /** {@code [call_N]} markers — their digits are provenance, not claims. */
     private static final Pattern CALL_REF = Pattern.compile("\\[call_\\d+\\]");
 
+    /** {@code [a, b)} / {@code [a, b]} interval — scope-arm territory. */
+    private static final Pattern BRACKET_RANGE = Pattern.compile(
+            "\\[\\s*-?[0-9][0-9,]*(?:\\.[0-9]+)?\\s*,\\s*-?[0-9][0-9,]*(?:\\.[0-9]+)?\\s*[)\\]]");
+
+    /** Char mask marking positions inside a bracket-range literal. */
+    private static boolean[] bracketRangeMask(String text) {
+        boolean[] mask = new boolean[text.length()];
+        Matcher m = BRACKET_RANGE.matcher(text);
+        while (m.find()) {
+            for (int i = m.start(); i < m.end(); i++) mask[i] = true;
+        }
+        return mask;
+    }
+
     /** A {@code <=} / {@code <} / {@code >=} / {@code >} / {@code ≤} / {@code ≥} just before the number. */
     private static final Pattern BOUND_PREFIX = Pattern.compile("[<>≤≥]\\s*$");
 
@@ -117,10 +131,18 @@ public final class ManifestTraceabilityValidator {
             if (block == null || block.isBlank()) continue;
             // Strip provenance markers so call indices never count as claims.
             String text = CALL_REF.matcher(block).replaceAll(" ");
+            // 2026-06-08 (P-b72c-272) — range-boundary integers inside a
+            // "[a, b)"/"[a, b]" interval are SCOPE claims owned by the
+            // executed-range arm; the manifest must not double-flag them as
+            // untraceable values (it was flagging both 2000 and 2500 of a
+            // "[2000, 2500)" overreach the scope arm already caught). Mask
+            // the bracket spans before tokenizing.
+            boolean[] inRange = bracketRangeMask(text);
             Set<String> seenInBlock = new LinkedHashSet<>();
             Matcher m = NUMBER_TOKEN.matcher(text);
             while (m.find()) {
                 String token = m.group(1);
+                if (m.start() < inRange.length && inRange[m.start()]) continue;
                 if (!seenInBlock.add(token)) continue;   // one verdict per literal per block
                 double value = parse(token);
                 if (Double.isNaN(value)) continue;
