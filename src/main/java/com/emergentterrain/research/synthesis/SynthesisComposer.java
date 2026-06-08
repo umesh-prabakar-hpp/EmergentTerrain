@@ -70,9 +70,35 @@ public final class SynthesisComposer {
         appendSources(sb, sources);
         sb.append("\nRules: every claim that names a number, a bound, or an outcome carries the "
                 + "[paperId] it came from in the same sentence; make no claim the corpus does not "
-                + "support; do not restate the already-written sections. Plain prose, no preamble, "
-                + "<= 1200 chars.");
+                + "support; do not restate the already-written sections.\n"
+                + "OUTPUT FORMAT — CRITICAL: write ONLY the finished section prose exactly as it "
+                + "will appear in the published paper. Do NOT think out loud, plan, restate this "
+                + "task, mention \"the section\"/\"we need to\"/\"already-written\", or add any "
+                + "preamble or meta-commentary. Begin directly with the first sentence of the "
+                + "section. <= 1200 chars.");
         return sb.toString();
+    }
+
+    /**
+     * Defensive strip: a section draft that still leaks the model's planning
+     * (despite the OUTPUT FORMAT rule) is detected and discarded by the
+     * orchestrator. Returns true if the text reads as chain-of-thought rather
+     * than section prose. (P-b72c synthesis #1: section 2 emitted "We need to
+     * write the section … The task: …" verbatim.)
+     */
+    public static boolean looksLikeLeakedReasoning(String section) {
+        if (section == null) return false;
+        String head = section.stripLeading();
+        String lower = head.toLowerCase(java.util.Locale.ROOT);
+        // Markers of the model addressing the task instead of writing the paper.
+        return lower.startsWith("we need to")
+                || lower.startsWith("we should")
+                || lower.startsWith("the task")
+                || lower.startsWith("let's")
+                || lower.startsWith("first, ")
+                || lower.contains("write the section \"")
+                || lower.contains("already-written sections")
+                || lower.contains("we'll need to check");
     }
 
     private static void appendSources(StringBuilder sb, List<SourcePaper> sources) {

@@ -96,4 +96,48 @@ class SynthesisPaperServiceTest {
                 .containsExactly("The shared ceiling", "Where bounds disagree", "Open");
         assertThat(SynthesisPaperService.parseTitles("not json")).isEmpty();
     }
+
+    @Test
+    void leakedReasoningSections_majorityNullsTheSynthesis() {
+        SynthesisPaperService s = svc();
+        java.util.concurrent.atomic.AtomicInteger n = new java.util.concurrent.atomic.AtomicInteger();
+        s.setSynthesizer(prompt -> {
+            if (prompt.contains("Propose between")) return "[\"Clean\",\"Leak A\",\"Leak B\"]";
+            int i = n.incrementAndGet();
+            return i == 1 ? "The ceiling holds at ~0.45 [P-b72c-214]."
+                    : "We need to write the section. The task: synthesize [P-b72c-232].";
+        });
+        SynthesisPaperService.SynthesisResult r =
+                s.compose("MATHEMATICS", cramerWarrant(), null);
+        assertThat(r.isNull()).isTrue();                 // 2/3 leaked → don't publish a stub
+        assertThat(r.nullReason()).contains("leaked reasoning");
+    }
+
+    @Test
+    void oneLeakAmongCleanSections_dropsJustThatSection() {
+        SynthesisPaperService s = svc();
+        java.util.concurrent.atomic.AtomicInteger n = new java.util.concurrent.atomic.AtomicInteger();
+        s.setSynthesizer(prompt -> {
+            if (prompt.contains("Propose between")) return "[\"A\",\"B\",\"C\"]";
+            int i = n.incrementAndGet();
+            return i == 2 ? "We need to write the section B here [P-b72c-218]."
+                    : "Clean prose for the section [P-b72c-214].";
+        });
+        SynthesisPaperService.SynthesisResult r =
+                s.compose("MATHEMATICS", cramerWarrant(), null);
+        assertThat(r.isNull()).isFalse();
+        assertThat(r.bodyMarkdown()).contains("## A").contains("## C")
+                .doesNotContain("## B");                 // the one leak dropped
+    }
+
+    @Test
+    void leakDetector_recognizesPlanningHeads() {
+        assertThat(SynthesisComposer.looksLikeLeakedReasoning(
+                "We need to write the section ...")).isTrue();
+        assertThat(SynthesisComposer.looksLikeLeakedReasoning(
+                "The task: synthesize the corpus")).isTrue();
+        assertThat(SynthesisComposer.looksLikeLeakedReasoning(
+                "The window-local Cramer ratio is bounded by 0.45 [P-1].")).isFalse();
+        assertThat(SynthesisComposer.looksLikeLeakedReasoning(null)).isFalse();
+    }
 }

@@ -167,19 +167,34 @@ public class SynthesisPaperService {
         }
         StringBuilder body = new StringBuilder();
         StringBuilder digest = new StringBuilder();
+        int leaked = 0;
         for (String title : titles) {
             String section = synthesizer.apply(SynthesisComposer.buildSectionPrompt(
                     title, w.family(), digest.toString(), sources));
             if (section == null || section.isBlank()) continue;
+            // Defensive (synthesis #1, P-b72c max_divisor): a section that
+            // leaks the model's planning instead of prose is dropped, never
+            // published. The OUTPUT FORMAT rule in the prompt is the primary
+            // guard; this is the backstop.
+            if (SynthesisComposer.looksLikeLeakedReasoning(section)) {
+                leaked++;
+                log.warn("synthesis: section '{}' leaked reasoning — dropped (family {})",
+                        title, w.family());
+                continue;
+            }
             body.append("\n## ").append(title).append("\n\n").append(section.strip()).append('\n');
             // Digest = section title + first sentence, for the next section's
             // anti-repetition context (kept short to stay in budget).
             digest.append("- ").append(title).append(": ")
                     .append(firstSentence(section)).append('\n');
         }
-        if (body.length() == 0) {
+        // If most sections leaked, the compose is unreliable — null it rather
+        // than publish a one-section stub.
+        if (body.length() == 0 || leaked > titles.size() / 2) {
             return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
-                    true, "no sections drafted");
+                    true, body.length() == 0 ? "no usable sections drafted"
+                            : "majority of sections leaked reasoning (" + leaked + "/"
+                                    + titles.size() + ")");
         }
         Set<String> sourceIds = sources.stream().map(SourcePaper::paperId)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
