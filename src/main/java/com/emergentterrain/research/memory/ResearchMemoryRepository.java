@@ -47,7 +47,8 @@ public interface ResearchMemoryRepository extends JpaRepository<ResearchMemoryEn
             group by m.topic
             having count(m) >= :minSize
             order by count(m) desc""")
-    java.util.List<String> findTopicsNeedingLesson(int minSize);
+    java.util.List<String> findTopicsNeedingLesson(
+            @org.springframework.data.repository.query.Param("minSize") int minSize);
 
     /** 31.2 — all FACT rows for a topic (the synthesis input for that group). */
     java.util.List<ResearchMemoryEntity> findByTypeAndTopicOrderByCreatedAtAsc(
