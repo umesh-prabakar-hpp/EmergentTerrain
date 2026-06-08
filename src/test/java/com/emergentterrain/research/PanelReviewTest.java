@@ -82,6 +82,45 @@ class PanelReviewTest {
         assertThat(PanelReview.parse(null, "groq/x")).isEmpty();
     }
 
+    // ── 2026-06-08 lenient recovery: deepseek-v4-pro prepends prose / fences ──
+
+    @Test
+    void prosePrefixedJsonIsRecovered() {
+        // The live failure: reviewer emits "We think… {…}", which the direct
+        // readTree rejected with "Unrecognized token 'We'". Extract the object.
+        String raw = "We think the paper is solid but the mechanism is thin.\n"
+                + "{\"grades\":{\"honesty\":0.8,\"completeness\":0.7,\"rigor\":0.6,\"novelty\":0.3},"
+                + "\"recommendations\":[\"tighten the bound\"]}";
+        var review = PanelReview.parse(raw, "openrouter/deepseek/deepseek-v4-pro");
+        assertThat(review).isPresent();
+        assertThat(review.get().grades().honesty()).isEqualTo(0.8);
+        assertThat(review.get().recommendations()).containsExactly("tighten the bound");
+    }
+
+    @Test
+    void markdownFencedJsonIsRecovered() {
+        String raw = "```json\n{\"grades\":{\"honesty\":0.5,\"completeness\":0.5,"
+                + "\"rigor\":0.5,\"novelty\":0.5}}\n```";
+        assertThat(PanelReview.parse(raw, "groq/x")).isPresent();
+    }
+
+    @Test
+    void bracesInsideStringValuesDoNotUnbalanceExtraction() {
+        // A '}' inside a string must not close the object early.
+        String raw = "Here is my review: {\"grades\":{\"honesty\":0.4,"
+                + "\"completeness\":0.4,\"rigor\":0.4,\"novelty\":0.4},"
+                + "\"recommendations\":[\"fix the set {a,b} notation\"]}";
+        var review = PanelReview.parse(raw, "groq/x");
+        assertThat(review).isPresent();
+        assertThat(review.get().recommendations()).containsExactly("fix the set {a,b} notation");
+    }
+
+    @Test
+    void proseWithNoJsonObjectStillFails() {
+        assertThat(PanelReview.parse("I cannot review this paper at this time.", "groq/x"))
+                .isEmpty();
+    }
+
     @Test
     void contradictionsMissingTraceIdxOrProseAreDropped() {
         String json = """

@@ -370,6 +370,34 @@ public class ReviewPanelService {
             }, panelExecutor));
         }
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+
+        // 2026-06-08 — seat failover. When a picked reviewer comes back
+        // unparseable (observed: deepseek-v4-pro emitting prose, caught by
+        // PanelReview.parse after the lenient retry), the seat would simply
+        // drop and the panel degrade to 1/2 (a non-informative single-reviewer
+        // agreement). Backfill the shortfall from spare independent models not
+        // in the original pick — "if a seat still fails, try the next model" —
+        // so one provider's format non-compliance doesn't sink the panel.
+        if (reviews.size() < picks.size()) {
+            java.util.Set<String> triedIds = new java.util.HashSet<>();
+            for (ModelHandle h : picks) triedIds.add(h.reviewerId());
+            for (ModelHandle spare : independents) {
+                if (reviews.size() >= picks.size()) break;
+                if (!triedIds.add(spare.reviewerId())) continue;   // already a picked seat / duplicate
+                try {
+                    com.emergentterrain.llm.LlmCallContext.withPaperId(paperId,
+                            () -> callReviewer(spare, prompt)).ifPresent(r -> {
+                        reviews.add(r);
+                        log.info("ReviewPanelService: paperId={} seat backfilled by spare "
+                                + "reviewer={} after a primary seat failed to parse",
+                                paperId, spare.reviewerId());
+                    });
+                } catch (RuntimeException e) {
+                    log.warn("ReviewPanelService: spare reviewer={} dropped ({})",
+                            spare.reviewerId(), e.getClass().getSimpleName());
+                }
+            }
+        }
         long ms = System.currentTimeMillis() - start;
 
         PanelOutcome outcome = PanelOutcome.aggregate(new ArrayList<>(reviews));

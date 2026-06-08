@@ -96,9 +96,13 @@ public record PanelReview(
      */
     public static Optional<PanelReview> parse(String rawJson, String reviewerId) {
         if (rawJson == null || rawJson.isBlank()) return Optional.empty();
+        JsonNode root = readObjectLenient(rawJson);
+        if (root == null) {
+            log.warn("PanelReview.parse: reviewer={} raw_len={} failed: no parseable JSON object",
+                    reviewerId, rawJson.length());
+            return Optional.empty();
+        }
         try {
-            JsonNode root = MAPPER.readTree(rawJson.trim());
-            if (!root.isObject()) return Optional.empty();
             Grades grades = parseGrades(root.path("grades"));
             if (grades == null) return Optional.empty();
             List<Integer> cited     = parseIntArray(root.path("cited_calls"));
@@ -113,6 +117,58 @@ public record PanelReview(
                     reviewerId, rawJson.length(), e.getMessage());
             return Optional.empty();
         }
+    }
+
+    /**
+     * 2026-06-08 — tolerant object read (the generic JSON nudge). Some reviewers
+     * (observed: openrouter/deepseek-v4-pro, 6×/session) prepend prose ("We think
+     * …") or wrap the object in a ```json fence, so a direct {@code readTree}
+     * fails on the first token ("Unrecognized token 'We'") and the seat drops.
+     * Try a clean parse first, then fall back to extracting the first
+     * brace-balanced {@code {…}} object from the surrounding text. Returns the
+     * object node, or null if no JSON object can be recovered.
+     */
+    private static JsonNode readObjectLenient(String rawJson) {
+        String s = rawJson.trim();
+        try {
+            JsonNode n = MAPPER.readTree(s);
+            if (n != null && n.isObject()) return n;
+        } catch (Exception ignore) { /* prose-wrapped — fall through to extraction */ }
+        String obj = firstBalancedObject(s);
+        if (obj == null) return null;
+        try {
+            JsonNode n = MAPPER.readTree(obj);
+            return (n != null && n.isObject()) ? n : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * First brace-balanced {@code {…}} substring, respecting JSON string literals
+     * and escapes so braces inside string values don't unbalance the scan.
+     * Returns null when there is no complete object.
+     */
+    static String firstBalancedObject(String s) {
+        int start = s.indexOf('{');
+        if (start < 0) return null;
+        int depth = 0;
+        boolean inStr = false, esc = false;
+        for (int i = start; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (inStr) {
+                if (esc) esc = false;
+                else if (ch == '\\') esc = true;
+                else if (ch == '"') inStr = false;
+            } else if (ch == '"') {
+                inStr = true;
+            } else if (ch == '{') {
+                depth++;
+            } else if (ch == '}') {
+                if (--depth == 0) return s.substring(start, i + 1);
+            }
+        }
+        return null;
     }
 
     /**
