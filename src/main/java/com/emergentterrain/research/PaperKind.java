@@ -40,5 +40,16 @@ public enum PaperKind {
      * re-target the anomaly. Safe enum addition: persisted via
      * {@link PaperKindConverter} (@Convert, name string — no CHECK constraint).
      */
-    ANOMALY_PROMOTION
+    ANOMALY_PROMOTION,
+
+    /**
+     * Phase 31 §31.7 — a SYNTHESIS (review) paper composed over the room's own
+     * prior papers on one topic family: what they collectively say, where they
+     * conflict, what holds, what is open. Outline-first, multi-section, every
+     * claim cited by paperId; evidence label capped at the weakest cited
+     * source ({@link com.emergentterrain.research.synthesis.SynthesisLabelCap}).
+     * Safe enum addition: persisted via {@link PaperKindConverter} (@Convert,
+     * name string — no CHECK constraint to go stale).
+     */
+    SYNTHESIS
 }
