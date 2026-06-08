@@ -54,8 +54,10 @@ class MemoryRecallServiceTest {
                 eq(ResearchMemoryEntity.TYPE_LESSON), anyString()))
                 .thenReturn(List.of(old, hot));
 
-        String block = svc(repo, true, 5, 600).recallBlock("conjecture/cramer_gap_ratio");
-        assertThat(block).contains("## Prior lessons (compiled");
+        String block = svc(repo, true, 5, 1000).recallBlock("conjecture/cramer_gap_ratio");
+        assertThat(block).contains("## Prior lessons for this family");
+        // rec #1 anti-short-circuit framing: the verification mandate is present.
+        assertThat(block).contains("MUST still run").contains("TEST this");
         // HOT must rank above OLD (appear first).
         assertThat(block.indexOf("HOT")).isLessThan(block.indexOf("OLD"));
         assertThat(block).contains("[ref:conjecture/cramer_gap_ratio]");   // source pointer

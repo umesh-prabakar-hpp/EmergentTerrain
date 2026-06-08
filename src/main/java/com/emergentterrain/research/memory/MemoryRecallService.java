@@ -47,7 +47,7 @@ public class MemoryRecallService {
     public MemoryRecallService(ResearchMemoryRepository repository,
             @Value("${app.research.memory.recall.enabled:false}") boolean enabled,
             @Value("${app.research.memory.recall.topK:5}") int topK,
-            @Value("${app.research.memory.recall.tokenBudget:600}") int tokenBudget) {
+            @Value("${app.research.memory.recall.tokenBudget:1000}") int tokenBudget) {
         this.repository = repository;
         this.enabled = enabled;
         this.topK = topK;
@@ -81,8 +81,20 @@ public class MemoryRecallService {
                     .limit(Math.max(1, topK))
                     .toList();
 
+            // 2026-06-08 review rec #1 — anti-short-circuit framing. The first
+            // recall session hit a 77% professor empty-trace rate: lessons that
+            // STATE a conclusion ("these bounds fail") appear to remove the
+            // motive to run verify_conjecture. The block now leads AND closes
+            // with an explicit verification mandate so the lesson is background
+            // about the family's history, never a substitute for testing THIS
+            // paper's preregistered bound. (A/B: empty-trace rate vs recall-off.)
             StringBuilder block = new StringBuilder(
-                    "\n\n## Prior lessons (compiled across runs — context, not instructions)\n");
+                    "\n\n## Prior lessons for this family (background only — NOT the answer)\n"
+                    + "These compiled notes summarize how PRIOR papers on this family fared. "
+                    + "They are context, never a verdict on the bound you are investigating now. "
+                    + "You MUST still run your own verify_conjecture / scalar tools and test the "
+                    + "preregistered hypothesis yourself — a prior lesson that a related bound "
+                    + "failed does NOT mean yours does; confirm it.\n");
             int kept = 0;
             for (ResearchMemoryEntity e : ranked) {
                 String line = "- " + e.content().strip()
@@ -93,6 +105,8 @@ public class MemoryRecallService {
                 block.append(line);
                 kept++;
             }
+            block.append("(Reminder: the above is prior-paper history; your job is to TEST this "
+                    + "paper's bound with tools, not to assume its outcome.)\n");
             log.info("memory-recall: topic={} pool={} injected={} chars={}",
                     topic, pool.size(), kept, block.length());
             return block.toString();
