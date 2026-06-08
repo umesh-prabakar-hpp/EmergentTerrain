@@ -111,8 +111,14 @@ public class SynthesisPaperService {
         }
     }
 
-    /** Every 6h, off the hot path; composes at most one synthesis per pass. */
-    @Scheduled(initialDelay = 1_200_000, fixedDelay = 21_600_000)
+    /**
+     * First pass 4 min after startup, then every 6h. 2026-06-08: the original
+     * 20-min initialDelay collided with the ~22-min budget-limited session
+     * length — synthesis fired in a razor-thin window at drain and risked the
+     * drain-skip. 4 min composes well before drain, off the hot path (capture/
+     * consolidation/recall have settled by then).
+     */
+    @Scheduled(initialDelay = 240_000, fixedDelay = 21_600_000)
     public void scheduledPass() {
         if (!enabled) return;
         com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
