@@ -502,6 +502,9 @@ public class UniversityService {
             @Value("${app.research.topic-clone-backoff.enabled:false}") boolean topicCloneBackoffEnabled,
             @Value("${app.research.topic-clone-backoff.window-size:5}") int topicCloneBackoffWindow,
             @Value("${app.research.topic-clone-backoff.max-retries:3}") int topicCloneBackoffMaxRetries,
+            @Value("${app.research.low-yield-backoff.enabled:false}") boolean lowYieldBackoffEnabled,
+            @Value("${app.research.low-yield-backoff.peer-ceiling:0.60}") double lowYieldPeerCeiling,
+            @Value("${app.research.low-yield-backoff.null-decay:0.70}") double lowYieldNullDecay,
             @Value("${app.research.unsourced-claim.enabled:false}") boolean unsourcedClaimEnabled,
             @Value("${app.research.unsourced-claim.mode:warn}") String unsourcedClaimMode,
             @Value("${app.research.prose-baseline-drift.enabled:false}") boolean proseBaselineDriftEnabled,
@@ -715,12 +718,21 @@ public class UniversityService {
         this.researchCycleService.setTopicCloneBackoffEnabled(topicCloneBackoffEnabled);
         this.researchCycleService.setTopicCloneBackoffWindow(topicCloneBackoffWindow);
         this.researchCycleService.setTopicCloneBackoffMaxRetries(topicCloneBackoffMaxRetries);
+        this.researchCycleService.setLowYieldBackoffEnabled(lowYieldBackoffEnabled);
+        this.researchCycleService.setLowYieldPeerCeiling(lowYieldPeerCeiling);
+        this.researchCycleService.setLowYieldNullDecay(lowYieldNullDecay);
         if (topicCloneBackoffEnabled) {
             log.info("UniversityService: topic-clone-backoff ENABLED (window={}, "
                     + "maxRetries={}) — bot topic selection probabilistically resamples "
                     + "when (domain, topic) has accumulated REJECTED priors in recent "
                     + "history. Phase 16 P7.",
                     topicCloneBackoffWindow, topicCloneBackoffMaxRetries);
+        }
+        if (lowYieldBackoffEnabled) {
+            log.info("UniversityService: low-yield-backoff ENABLED (peerCeiling={}, "
+                    + "nullDecay={}) — the topic backoff ALSO cools a topic dominated by "
+                    + "low-peer NULL_RESULTs (the density floor). Requires topic-clone-backoff ON.",
+                    lowYieldPeerCeiling, lowYieldNullDecay);
         }
         // Phase 4b — let the planner consult the per-room exploration-trigger
         // threshold from this service. Setter wiring avoids a constructor cycle.

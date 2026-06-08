@@ -281,6 +281,25 @@ public class ResearchCycleService {
     private volatile int topicCloneBackoffWindow     = 5;
     private volatile int topicCloneBackoffMaxRetries = 3;
 
+    // 2026-06-08 — yield-aware (low-yield-null) backoff: density-family
+    // down-weight. When on, the topic-clone backoff ALSO cools a topic whose
+    // recent history is dominated by low-peer NULL_RESULTs (the density floor).
+    private volatile boolean lowYieldBackoffEnabled = false;
+    private volatile double lowYieldPeerCeiling = 0.60;
+    private volatile double lowYieldNullDecay   = 0.70;
+
+    public void setLowYieldBackoffEnabled(boolean enabled) {
+        this.lowYieldBackoffEnabled = enabled;
+    }
+
+    public void setLowYieldPeerCeiling(double ceiling) {
+        this.lowYieldPeerCeiling = ceiling;
+    }
+
+    public void setLowYieldNullDecay(double decay) {
+        this.lowYieldNullDecay = decay;
+    }
+
     public void setTopicCloneBackoffEnabled(boolean enabled) {
         this.topicCloneBackoffEnabled = enabled;
     }
@@ -431,13 +450,25 @@ public class ResearchCycleService {
                     () -> MathPhysicsEngine.selectTopicIndex(
                             domainForResample, author.selectTopic(rng), topicsV2Enabled, rng),
                     idx -> MathPhysicsEngine.topicName(domainForResample, idx));
-            int finalIndex = TopicCloneBackoff.applyBackoff(
-                    initialTopic, initialName, domain, historyForBackoff,
-                    resample, topicCloneBackoffMaxRetries, rng);
+            // 2026-06-08 — yield-aware variant cools the density floor too (a
+            // topic dominated by low-peer NULLs); rejection-only otherwise.
+            int finalIndex = lowYieldBackoffEnabled
+                    ? TopicCloneBackoff.applyYieldAwareBackoff(
+                            initialTopic, initialName, domain, historyForBackoff,
+                            resample, topicCloneBackoffMaxRetries,
+                            lowYieldPeerCeiling, lowYieldNullDecay, rng)
+                    : TopicCloneBackoff.applyBackoff(
+                            initialTopic, initialName, domain, historyForBackoff,
+                            resample, topicCloneBackoffMaxRetries, rng);
             if (finalIndex != initialTopic) {
-                log.info("topic-clone backoff: bot={} domain={} initial={} (rej={}) → final={}",
+                log.info("topic-clone backoff: bot={} domain={} initial={} "
+                                + "(rej={} lowYieldNull={}) → final={}",
                         author.getBotId(), domain, initialName,
                         TopicCloneBackoff.countRecentRejections(historyForBackoff, domain, initialName),
+                        lowYieldBackoffEnabled
+                                ? TopicCloneBackoff.countRecentLowYieldNulls(
+                                        historyForBackoff, domain, initialName, lowYieldPeerCeiling)
+                                : 0,
                         MathPhysicsEngine.topicName(domain, finalIndex));
             }
             topicIndex = finalIndex;

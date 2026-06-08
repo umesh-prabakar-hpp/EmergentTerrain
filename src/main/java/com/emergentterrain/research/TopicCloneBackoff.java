@@ -74,6 +74,54 @@ public final class TopicCloneBackoff {
     }
 
     /**
+     * 2026-06-08 (review rec — density-family down-weight) — yield-aware keep
+     * probability. Generalizes the rejection backoff to a SECOND, gentler
+     * cooling signal: a topic that keeps producing low-value NULL_RESULTs is
+     * exhausted even though it never gets REJECTED. The density predicate
+     * family (isAbundant/isPrime/isHappy) nulls almost every cycle at peer
+     * 0.3–0.7 while conjecture-bound topics publish their refutations — so
+     * counting low-yield nulls cools the floor without touching the
+     * productive topics.
+     *
+     * <p>{@code 0.5^rejections · nullDecay^lowYieldNulls}. A single honest
+     * null is fine (the system VALUES honest negatives), so {@code nullDecay}
+     * (default 0.7) cools more slowly than a rejection: one null → keep 0.7,
+     * three → 0.34, five → 0.17 — explore a topic, but move on once it's
+     * repeatedly dry.
+     */
+    public static double keepProbability(int rejectionCount, int lowYieldNullCount,
+                                         double nullDecay) {
+        double p = keepProbability(Math.max(0, rejectionCount));
+        if (lowYieldNullCount > 0) {
+            p *= Math.pow(nullDecay, lowYieldNullCount);
+        }
+        return p;
+    }
+
+    /**
+     * Count NULL_RESULT papers for {@code (domain, topicName)} whose peer score
+     * is at or below {@code peerCeiling} — the "low-yield null" signal. A
+     * high-peer null (a sharp, well-argued negative) is NOT low-yield and is
+     * excluded, so the backoff only cools the genuinely dry topics.
+     */
+    public static int countRecentLowYieldNulls(List<ResearchPaper> recentPapers,
+                                               String domain, String topicName,
+                                               double peerCeiling) {
+        if (recentPapers == null || recentPapers.isEmpty()) return 0;
+        if (domain == null || topicName == null) return 0;
+        int n = 0;
+        for (ResearchPaper p : recentPapers) {
+            if (p == null) continue;
+            if (!"NULL_RESULT".equalsIgnoreCase(p.status())) continue;
+            if (p.peerScore() > peerCeiling) continue;
+            if (p.domain() == null || !p.domain().equalsIgnoreCase(domain)) continue;
+            if (p.topic() == null  || !p.topic().equalsIgnoreCase(topicName)) continue;
+            n++;
+        }
+        return n;
+    }
+
+    /**
      * Apply the backoff to a candidate topic index. Returns the original
      * {@code initialTopicIndex} when the topic should be kept, or invokes
      * {@code resample} up to {@code maxRetries} times when the keep-roll
@@ -117,6 +165,40 @@ public final class TopicCloneBackoff {
             // Decided to resample. If we've used all retries, return the
             // current candidate even though the keep-roll failed — never
             // block on an entirely cooled domain.
+            if (attempt == maxRetries) return currentIndex;
+            TopicCandidate next = resample.next();
+            if (next == null) return currentIndex;
+            currentIndex = next.index();
+            currentTopic = next.name();
+        }
+        return currentIndex;
+    }
+
+    /**
+     * 2026-06-08 — yield-aware backoff: same resample loop, but the keep-roll
+     * combines rejections AND low-yield nulls ({@link #keepProbability(int,
+     * int, double)}). When {@code peerCeiling}/{@code nullDecay} make the null
+     * term a no-op (e.g. nullDecay=1.0), behaviour is identical to the
+     * rejection-only {@link #applyBackoff}. Returns the index AND whether a
+     * resample happened (so the caller can log only real moves).
+     */
+    public static int applyYieldAwareBackoff(int initialTopicIndex,
+                                             String initialTopicName,
+                                             String domain,
+                                             List<ResearchPaper> recentPapers,
+                                             ResampleSupplier resample,
+                                             int maxRetries,
+                                             double peerCeiling,
+                                             double nullDecay,
+                                             Random rng) {
+        if (maxRetries <= 0 || resample == null || rng == null) return initialTopicIndex;
+        int currentIndex    = initialTopicIndex;
+        String currentTopic = initialTopicName;
+        for (int attempt = 0; attempt <= maxRetries; attempt++) {
+            int rejections = countRecentRejections(recentPapers, domain, currentTopic);
+            int lowYield = countRecentLowYieldNulls(recentPapers, domain, currentTopic, peerCeiling);
+            double keepProb = keepProbability(rejections, lowYield, nullDecay);
+            if (rng.nextDouble() < keepProb) return currentIndex;
             if (attempt == maxRetries) return currentIndex;
             TopicCandidate next = resample.next();
             if (next == null) return currentIndex;

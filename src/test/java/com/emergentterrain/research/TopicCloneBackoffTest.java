@@ -9,6 +9,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * Phase 16 P7 — unit tests for the topic-clone scheduler backoff utility.
@@ -193,12 +194,81 @@ class TopicCloneBackoffTest {
     }
 
     private static ResearchPaper paper(String paperId, String domain, String topic, String status) {
+        return paper(paperId, domain, topic, status, 0.42);
+    }
+
+    private static ResearchPaper paper(String paperId, String domain, String topic,
+            String status, double peer) {
         return new ResearchPaper(
                 paperId, UUID.randomUUID(), "bot-1",
                 domain, topic,
                 "title", "hyp", "THEORETICAL", "findings", "conclusion",
-                List.of("rev-1"), 0.42, status,
+                List.of("rev-1"), peer, status,
                 100L, Instant.now(), 0, 0.0,
                 "test-model", "test:path");
+    }
+
+    // ── 2026-06-08 yield-aware (density-family) backoff ─────────────────────
+
+    @org.junit.jupiter.api.Test
+    void lowYieldNulls_coolGentlerThanRejections() {
+        // nullDecay=0.7: one null keeps 0.7, three keep 0.343 — gentler than
+        // rejections' 0.5/0.125.
+        assertThat(TopicCloneBackoff.keepProbability(0, 1, 0.7)).isEqualTo(0.7, within(1e-9));
+        assertThat(TopicCloneBackoff.keepProbability(0, 3, 0.7))
+                .isEqualTo(0.343, within(1e-9));
+        // Rejections and nulls compound.
+        assertThat(TopicCloneBackoff.keepProbability(1, 1, 0.7))
+                .isEqualTo(0.35, within(1e-9));
+        // No nulls → identical to the rejection-only function.
+        assertThat(TopicCloneBackoff.keepProbability(2, 0, 0.7))
+                .isEqualTo(TopicCloneBackoff.keepProbability(2));
+    }
+
+    @org.junit.jupiter.api.Test
+    void countLowYieldNulls_respectsPeerCeilingAndStatus() {
+        List<ResearchPaper> history = List.of(
+                paper("P-1", "M", "density", "NULL_RESULT", 0.42),   // counts
+                paper("P-2", "M", "density", "NULL_RESULT", 0.55),   // counts
+                paper("P-3", "M", "density", "NULL_RESULT", 0.81),   // high peer → excluded
+                paper("P-4", "M", "density", "PUBLISHED",   0.40),   // not a null → excluded
+                paper("P-5", "M", "OTHER",   "NULL_RESULT", 0.30));  // other topic → excluded
+        assertThat(TopicCloneBackoff.countRecentLowYieldNulls(history, "M", "density", 0.60))
+                .isEqualTo(2);
+    }
+
+    @org.junit.jupiter.api.Test
+    void yieldAwareBackoff_resamplesAwayFromDryNullTopic() {
+        // Three low-yield nulls → keep ≈ 0.343; an rng that always rolls high
+        // forces the resample to a fresh (clean) topic.
+        List<ResearchPaper> history = List.of(
+                paper("P-1", "M", "density", "NULL_RESULT", 0.40),
+                paper("P-2", "M", "density", "NULL_RESULT", 0.45),
+                paper("P-3", "M", "density", "NULL_RESULT", 0.50));
+        TopicCloneBackoff.ResampleSupplier toClean =
+                () -> new TopicCloneBackoff.TopicCandidate(9, "conjecture/cramer");
+        Random alwaysResample = new Random() {
+            @Override public double nextDouble() { return 0.99; }
+        };
+        int result = TopicCloneBackoff.applyYieldAwareBackoff(
+                0, "density", "M", history, toClean, 3, 0.60, 0.70, alwaysResample);
+        assertThat(result).isEqualTo(9);   // moved off the dry density topic
+    }
+
+    @org.junit.jupiter.api.Test
+    void yieldAwareBackoff_keepsAProductiveTopic() {
+        // A topic with only PUBLISHED priors has zero strikes → always kept,
+        // even with an always-resample rng.
+        List<ResearchPaper> history = List.of(
+                paper("P-1", "M", "conjecture/mertens", "PUBLISHED", 0.81),
+                paper("P-2", "M", "conjecture/mertens", "PUBLISHED", 0.75));
+        Random alwaysResample = new Random() {
+            @Override public double nextDouble() { return 0.99; }
+        };
+        int result = TopicCloneBackoff.applyYieldAwareBackoff(
+                4, "conjecture/mertens", "M", history,
+                () -> new TopicCloneBackoff.TopicCandidate(7, "x"),
+                3, 0.60, 0.70, alwaysResample);
+        assertThat(result).isEqualTo(4);   // kept
     }
 }
