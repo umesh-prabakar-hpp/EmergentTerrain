@@ -53,7 +53,14 @@ public class SynthesisPaperService {
     private static final Logger log = LoggerFactory.getLogger(SynthesisPaperService.class);
 
     private static final Pattern PAPER_CITE = Pattern.compile("\\[(P-[0-9a-f]{4}-[0-9]+)\\]");
-    private static final Pattern TITLE_JSON = Pattern.compile("\"([^\"]{1,120})\"");
+    // 2026-06-08 (synthesis #2): cap was 120 — a 125-char descriptive title
+    // (real, from the live outline) failed to match, so the regex desynced and
+    // captured the ", " array separators as titles (→ "## ,"), corrupting
+    // every title AFTER the long one too. Raising the MAX to 250 keeps the
+    // regex aligned (the long title now matches). Min stays 1 — the
+    // letter-less render guard (compose loop) catches any stray separator
+    // capture, so no min cap is needed and short titles still parse.
+    private static final Pattern TITLE_JSON = Pattern.compile("\"([^\"]{1,250})\"");
 
     private final ResearchPaperRepository papersRepository;
     private final ResearchMemoryRepository memoryRepository;

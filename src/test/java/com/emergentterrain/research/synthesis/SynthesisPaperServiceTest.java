@@ -98,6 +98,23 @@ class SynthesisPaperServiceTest {
     }
 
     @Test
+    void parseTitles_handlesLongDescriptiveTitles_noSeparatorCapture() {
+        // synthesis #2 live fixture: a 125-char title between two others. The
+        // old {1,120} cap failed on it and captured the ", " separators as
+        // "," titles, corrupting the parse for every title after it.
+        String longTitle = "A common negative lesson: 2 feature plus constant "
+                + "models fail across prime, density, Mertens, and additive-arithmetic "
+                + "predictors over the tested range";  // > 120 chars
+        String outline = "[\"Systematic refutation of affine bounds\",\"" + longTitle
+                + "\",\"Robustness of the conclusion\"]";
+        List<String> titles = SynthesisPaperService.parseTitles(outline);
+        assertThat(titles).containsExactly(
+                "Systematic refutation of affine bounds", longTitle,
+                "Robustness of the conclusion");
+        assertThat(titles).noneMatch(t -> t.equals(",") || t.isBlank());
+    }
+
+    @Test
     void leakedReasoningSections_majorityNullsTheSynthesis() {
         SynthesisPaperService s = svc();
         java.util.concurrent.atomic.AtomicInteger n = new java.util.concurrent.atomic.AtomicInteger();
