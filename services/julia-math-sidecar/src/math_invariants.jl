@@ -78,6 +78,14 @@ function math_invariants_extract(raw, window_start::Integer, window_size::Intege
     push!(flat, "log_window_size"          => ws > 0.0 ? log10(ws) : 0.0)
     push!(flat, "sqrt_window_size"         => sqrt(ws))
     push!(flat, "log_window_start"         => wstart > 0.0 ? log10(wstart) : 0.0)
+    # 2026-06-08 — growth anchors (JVM MathInvariants mirror): sqrt(window_start)
+    # and ln²(window center) — natural log, the Cramér ln²x scale. Computed
+    # IDENTICALLY to the JVM so a miner-seeded (k,c) matches the verifier here.
+    push!(flat, "sqrt_window_start"        => sqrt(wstart))
+    push!(flat, "log_sq_window_start"      => begin
+        c = wstart + ws / 2.0
+        c > 1.0 ? log(c)^2 : 0.0
+    end)
     push!(flat, "mertens_per_sqrt_W"       => ws > 0.0 ? mertens / sqrt(ws) : 0.0)
     # Phase 30 §5.2 open-behavior derived scalars (2026-06-05), JVM-mirrored:
     # Cramér-normalized record gap (conjecturally O(1), open extremes) and the
@@ -110,6 +118,8 @@ function math_invariants_vocabulary()::Vector{String}
     push!(out, "log_window_size")
     push!(out, "sqrt_window_size")
     push!(out, "log_window_start")
+    push!(out, "sqrt_window_start")      # 2026-06-08 growth anchors (JVM mirror)
+    push!(out, "log_sq_window_start")
     push!(out, "mertens_per_sqrt_W")
     # Phase 30 §5.2 (2026-06-06 review rec #3) — the two open-behavior derived
     # scalars were computed by math_invariants_flat above but missing here, so
