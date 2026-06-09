@@ -178,6 +178,20 @@ public class UniversityService {
      */
     private final boolean unsourcedClaimEnabled;
     private final String  unsourcedClaimMode;
+
+    /**
+     * 2026-06-08 — fabricated tool-output attribution detector
+     * ({@link ToolOutputAttributionValidator}): prose that claims "call_N
+     * returned X" where X is absent from call_N's result (P-b72c-77627413).
+     * Field-injected (not constructor) so PublishPaperTest's positional
+     * construction is untouched; default OFF + warn, flipped on after burn-in.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.tool-output-attribution.enabled:false}")
+    private boolean toolOutputAttributionEnabled;
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.tool-output-attribution.mode:warn}")
+    private String toolOutputAttributionMode;
     /**
      * Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
      * declares a parameter range (e.g. "from 400nm to 700nm") but
@@ -1220,6 +1234,18 @@ public class UniversityService {
         if (unsourcedClaimFlagged) {
             log.warn("unsourced-claim check failed paperId={} mode={} reasons={}",
                     draft.paperId(), unsourcedClaimMode, unsourcedClaimFailures);
+        }
+        // 2026-06-08 — fabricated tool-output attribution: prose claims "call_N
+        // returned X" where X is absent from call_N's result (P-b72c-77627413's
+        // invented "452.74 returned by call_1"). Warn-mode, flag-gated OFF; the
+        // panel already catches it, this adds a deterministic pre-panel signal.
+        List<String> toolOutputAttributionFailures = toolOutputAttributionEnabled
+                ? ToolOutputAttributionValidator.validate(
+                        findingsBlocks, conclusion, narration.toolCallTrace())
+                : List.of();
+        if (!toolOutputAttributionFailures.isEmpty()) {
+            log.warn("tool-output-attribution check failed paperId={} mode={} reasons={}",
+                    draft.paperId(), toolOutputAttributionMode, toolOutputAttributionFailures);
         }
         // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose cites a
         // baseline value (e.g. "≈ 0.300") that no run_predicate_scan tool
