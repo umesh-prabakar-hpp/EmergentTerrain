@@ -246,6 +246,23 @@ class UnsourcedClaimValidatorTest {
                 .anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
     }
 
+    // ── 2026-06-08 sentence splitter: break on markdown headers / blank lines ──
+
+    @Test
+    void markdownHeaderSplitsSoSnippetIsTheContentSentence() {
+        // A header after a sentence-end must split, so a flagged sentence's
+        // snippet is the content sentence — not the prior clause merged across
+        // "### Adversarial Check" (the old splitter's capital/bracket lookahead
+        // failed on '#', merging "…choice." with the section that follows).
+        String findings = "The refutation is robust to this parameter choice.\n\n"
+                + "### Adversarial Check\n"
+                + "The uncertainty grows sharply across the regime.";
+        List<String> reasons = UnsourcedClaimValidator.validate(findings, "");
+        assertThat(reasons).anyMatch(r -> r.startsWith("unsourced_claim:uncertainty"));
+        assertThat(reasons).anyMatch(r -> r.contains("Sentence: \"The uncertainty grows"));
+        assertThat(reasons).noneMatch(r -> r.contains("parameter choice"));
+    }
+
     @Test
     void p239_absenceNoun_alsoExempt() {
         // P-b72c-239: "Given the wide relative uncertainty and the absence of

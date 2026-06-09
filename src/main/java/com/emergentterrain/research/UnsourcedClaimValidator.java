@@ -101,9 +101,19 @@ public final class UnsourcedClaimValidator {
      *  Negative-lookbehind for common abbreviations would help; not done
      *  here because the corpus prose rarely uses "e.g." style without a
      *  trailing comma, and over-engineering the splitter risks merging
-     *  sentences and hiding violations. */
+     *  sentences and hiding violations.
+     *
+     *  <p>2026-06-08 — ALSO break on a markdown header ("## …", "### …") and a
+     *  blank-line section break. The findings prose embeds section headers
+     *  ("## Mechanism", "### Adversarial Check"); a header after a "…choice."
+     *  failed the capital/paren/bracket lookahead (it starts with '#'), so the
+     *  sentence before a header merged with the content after it — mislocating
+     *  every sentence-scoped validator's flagged-sentence snippet (the
+     *  phantom_verification FP that pointed at the wrong leading clause). */
     private static final Pattern SENTENCE_SPLIT = Pattern.compile(
-            "(?<=[.!?])\\s+(?=[A-Z(\\[]|$)");
+            "(?<=[.!?])\\s+(?=[A-Z(\\[]|$)"          // sentence end → capital/paren/bracket/EOL
+                    + "|\\s*\\n\\s*#{1,6}[^\\n]*(?:\\n|$)" // a whole markdown header line (consumed)
+                    + "|\\n[ \\t]*\\n");                   // a blank-line section/paragraph break
 
     private static final Pattern CALL_REF = Pattern.compile("\\[call_\\d+\\]");
 
