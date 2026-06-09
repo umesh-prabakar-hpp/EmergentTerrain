@@ -46,10 +46,17 @@ public final class ToolOutputAttributionValidator {
      */
     private static final Pattern CALL_OUTPUT_CLAIM = Pattern.compile(
             "(?i)\\[?call_(\\d+)\\]?\\s+"
+                    // 2026-06-09 — STRONG output verbs only. Dropped shows/showed/
+                    // found: those describe what a call REVEALS (a correlation, a
+                    // range), not a scalar it returned — FP on "[call_4] shows that
+                    // at x=200,000 the correlation is …" (P-b72c-77627448).
                     + "(?:returned|yielded|produced|output|outputs|gave|gives|returns|"
-                    + "computed|reported|reports|shows|showed|found)\\b"
+                    + "computed|reported|reports)\\b"
                     + "[^0-9\\n]{0,40}?"
-                    + "([+-]?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
+                    // comma-grouped integers ("200,000") match as ONE token so they
+                    // aren't truncated to "200" (which then mismatched the result).
+                    + "([+-]?[0-9]{1,3}(?:,[0-9]{3})+"
+                    + "|[+-]?[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)");
 
     /** Any numeric token, for scanning a result JSON. */
     private static final Pattern NUMBER = Pattern.compile(
@@ -97,7 +104,7 @@ public final class ToolOutputAttributionValidator {
             String callId = "call_" + m.group(1);
             String token  = m.group(2);
             double claimed;
-            try { claimed = Double.parseDouble(token); }
+            try { claimed = Double.parseDouble(token.replace(",", "")); }
             catch (NumberFormatException e) { continue; }
             if (!isSalient(token, claimed)) continue;   // skip structural counts
 

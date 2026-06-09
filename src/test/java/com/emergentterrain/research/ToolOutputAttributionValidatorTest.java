@@ -90,4 +90,38 @@ class ToolOutputAttributionValidatorTest {
         assertThat(ToolOutputAttributionValidator.validate(
                 java.util.Map.of(1, "call_1 returned 452.74."), "", List.of())).isEmpty();
     }
+
+    // ── 2026-06-09 burn-in FP fixes (P-b72c-77627448) ────────────────────────
+
+    @Test
+    void showsACorrelationOverACoordinateRange_isNotFlagged() {
+        // "shows" describes a revealed correlation/range, not a scalar output;
+        // and "200,000" is a window coordinate (present in call_4's result).
+        String findings = "For comparison, [call_4] shows that at x=200,000-299,000 "
+                + "the Pearson correlation is +0.31.";
+        List<ToolInvocation> trace = List.of(call("call_4",
+                "scalar_window_stats over 100 windows of size 1000 starting at 200000. correlation +0.31"));
+        assertThat(ToolOutputAttributionValidator.validate(
+                java.util.Map.of(1, findings), "", trace)).isEmpty();
+    }
+
+    @Test
+    void commaGroupedNumberParsesWhole_notTruncated() {
+        // "200,000" must parse as 200000 (in the result), not "200" (which isn't),
+        // so it does not falsely flag.
+        String findings = "call_1 returned 200,000 scanned integers in the sweep.";
+        List<ToolInvocation> trace = List.of(call("call_1", "{\"scanned\":200000}"));
+        assertThat(ToolOutputAttributionValidator.validate(
+                java.util.Map.of(1, findings), "", trace)).isEmpty();
+    }
+
+    @Test
+    void commaGroupedFabrication_stillFlagged() {
+        // A genuinely fabricated comma-number IS still caught.
+        String findings = "call_1 returned 5,000,000 as the divisor sum.";
+        List<ToolInvocation> trace = List.of(call("call_1", "{\"D\":77896938}"));
+        assertThat(ToolOutputAttributionValidator.validate(
+                java.util.Map.of(1, findings), "", trace))
+                .anyMatch(r -> r.startsWith("tool_output_attribution:fabricated_output"));
+    }
 }
