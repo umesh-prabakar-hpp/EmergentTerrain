@@ -3602,9 +3602,18 @@ public class ResearchNarrationService {
             + "verify_conjecture call, not just a correlation) at least one ALTERNATIVE bound "
             + "whose rhs is a GROWTH ANCHOR that can track that growth: log_sq_window_start (the "
             + "ln^2 x / Cramer scale — use this for max_prime_gap), or log_window_start / "
-            + "sqrt_window_start (for log- / sqrt-growing LHS). Report whether the growth-anchor "
-            + "bound HELD or REFUTED across the held-out windows — a growth-anchor bound that "
-            + "HOLDS across the range is THE result of the paper, not the flat-feature refutation.";
+            + "sqrt_window_start (for log- / sqrt-growing LHS). To COUNT as a survived bound (not a "
+            + "lucky easy-region hold) you MUST: (a) test the growth-anchor bound on the SAME "
+            + "held-out windows where the flat seeded bound was REFUTED — and at the LARGEST x you "
+            + "reached — never only a low-x region; a bound that holds near x=200,000 but is "
+            + "untested where the flat bound failed has NOT survived. (b) Fit a TIGHT coefficient: "
+            + "pick the SMALLEST k (with c near 0) for which it still HELDs, so the worst-margin is "
+            + "close to 0 — a bound that holds only with huge slack (e.g. k=1 leaving margin -89) is "
+            + "trivially loose and does not count; iterate k down via repeated verify_conjecture "
+            + "calls until the worst-margin is small but still holds. Report the tight k and the "
+            + "worst-margin AT THE FAILURE REGION. A growth-anchor bound that HOLDS TIGHTLY ACROSS "
+            + "THE WINDOWS WHERE THE FLAT BOUND FAILED is THE result of the paper — a bound that "
+            + "SURVIVED adversarial testing — not the flat-feature refutation.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
