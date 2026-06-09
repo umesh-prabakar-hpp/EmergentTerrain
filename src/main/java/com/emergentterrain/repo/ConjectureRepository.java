@@ -56,4 +56,20 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     @Transactional
     @Query("update Conjecture c set c.promotedAnomalyAt = :ts where c.id = :id")
     int stampPromotedAnomaly(@Param("id") UUID id, @Param("ts") Instant ts);
+
+    /** 2026-06-09 — lookup for the investigation write-back: the one row per
+     *  (domain, lhs, rhs), whatever its state (live or retired). */
+    java.util.Optional<Conjecture> findFirstByDomainAndLhsAndRhs(
+            String domain, String lhs, String rhs);
+
+    /**
+     * 2026-06-09 — targeted stamp for a bound an investigation proved HELD at the
+     * failure region. Same single-writer/JPQL pattern as the other stamps; the
+     * column is {@code updatable=false} so the miner's re-save loop can't clobber
+     * the discovery→pool audit trail.
+     */
+    @Modifying
+    @Transactional
+    @Query("update Conjecture c set c.investigationVerifiedAt = :ts where c.id = :id")
+    int stampInvestigationVerified(@Param("id") UUID id, @Param("ts") Instant ts);
 }

@@ -192,6 +192,15 @@ public class UniversityService {
     @org.springframework.beans.factory.annotation.Value(
             "${app.research.tool-output-attribution.mode:warn}")
     private String toolOutputAttributionMode;
+
+    /**
+     * 2026-06-09 — discovery→pool write-back service (step 1). Field-injected
+     * (optional) so PublishPaperTest's positional construction is untouched
+     * (null in non-Spring tests). The service is flag-gated OFF by default.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.conjecture.ConjectureInvestigationWriteBackService
+            conjectureWriteBackService;
     /**
      * Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
      * declares a parameter range (e.g. "from 400nm to 700nm") but
@@ -1246,6 +1255,20 @@ public class UniversityService {
         if (!toolOutputAttributionFailures.isEmpty()) {
             log.warn("tool-output-attribution check failed paperId={} mode={} reasons={}",
                     draft.paperId(), toolOutputAttributionMode, toolOutputAttributionFailures);
+        }
+        // 2026-06-09 — discovery→pool write-back (step 1): when a
+        // conjecture-investigation professor proved a bound HELD at the failure
+        // region, revive/insert it into the conjecture pool with the tuned (k,c)
+        // so the relation becomes a selectable topic. Flag-gated OFF in the
+        // service; field-injected so PublishPaperTest is untouched.
+        if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
+                && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+            try {
+                conjectureWriteBackService.writeBack(narration.toolCallTrace());
+            } catch (RuntimeException e) {
+                log.warn("investigation-write-back failed paperId={} ({})",
+                        draft.paperId(), e.getMessage());
+            }
         }
         // 2026-05-21 review §1 rec #4 follow-up — Hypothesis prose cites a
         // baseline value (e.g. "≈ 0.300") that no run_predicate_scan tool

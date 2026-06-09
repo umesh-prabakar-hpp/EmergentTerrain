@@ -135,6 +135,18 @@ public class Conjecture {
     private Instant promotedAnomalyAt;
 
     /**
+     * 2026-06-09 — set when a conjecture-investigation paper's professor proved
+     * THIS (lhs,rhs) bound HELD at the failure region via verify_conjecture, and
+     * the write-back service revived/inserted it with the professor's tuned (k,c).
+     * Durable audit trail of the discovery→pool loop. {@code updatable = false}
+     * for the same reason as the other stamps: only the targeted JPQL stamp
+     * ({@code ConjectureRepository.stampInvestigationVerified}) writes it, so the
+     * miner's pass-long re-save loop can never clobber it.
+     */
+    @jakarta.persistence.Column(updatable = false)
+    private Instant investigationVerifiedAt;
+
+    /**
      * Phase 30 integration step 2 — when non-null, this conjecture was synthesized
      * by {@link ConjectureComposer} as a sound 1-step composition of two parent
      * bounds rather than mined from sample windows. Value is the two parent
@@ -176,6 +188,7 @@ public class Conjecture {
     public Instant promotedAt()            { return promotedAt; }
     public Instant lastInvestigatedAt()    { return lastInvestigatedAt; }
     public Instant promotedAnomalyAt()     { return promotedAnomalyAt; }
+    public Instant investigationVerifiedAt() { return investigationVerifiedAt; }
     public String derivedFrom()            { return derivedFrom; }
 
     // Targeted setters — mutated by the mapper during update cycles.
