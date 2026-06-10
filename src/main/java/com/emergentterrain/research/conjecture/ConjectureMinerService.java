@@ -393,7 +393,11 @@ public class ConjectureMinerService implements ConjectureQueue {
         // not a restatement). Empty unless compositions have been persisted.
         java.util.Set<String> derivedKeys = new java.util.HashSet<>();
         for (Conjecture e : existing) {
-            if (e.droppedByKnob() == null) {
+            // Lever D — a non-BOUND row (CONSTANT/OSCILLATION measured-invariant survivor) is a verified
+            // MEASUREMENT, not an inequality. It stays live + selectable in the DB but must NOT enter the
+            // seed/update loop: a one-sided counterexample test would refute a converging/oscillating
+            // quantity (e.g. a CONSTANT row's lhs sits just above its limit on some windows).
+            if (e.droppedByKnob() == null && e.isBound()) {
                 store.add(mapper.toInequality(e));
                 if (e.derivedFrom() != null) {
                     derivedKeys.add(keyOf(e.lhs(), e.rhs()));

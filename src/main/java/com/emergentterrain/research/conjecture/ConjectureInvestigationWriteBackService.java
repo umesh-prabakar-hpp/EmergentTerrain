@@ -69,6 +69,24 @@ public class ConjectureInvestigationWriteBackService {
                     + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)"
                     + "(?: at window starting [0-9]+\\. relative slack: ([0-9.]+))?");
 
+    // 2026-06-10 (lever D) — measured-invariant result lines (frames 1-3). A CONVERGED constant
+    // (verify_constant / verify_growth) or a centred OSCILLATES envelope (verify_oscillation) at the
+    // failure region is a verified MEASUREMENT, persisted as a kind-tagged pool survivor.
+    // .*? is reluctant and (no DOTALL) stays within the single summary line — the measured tools emit
+    // one-line results (unlike verify_conjecture's per-window detail). [^.]/[^|] can't be used: dev values
+    // contain '.' and the oscillation line contains '|' (mean|.|, max|lhs|).
+    private static final Pattern CONST_CONVERGED = Pattern.compile(
+            "verify_constant: ([a-zA-Z_]+) ~ [+-]?[0-9.]+ over [0-9]+ window\\(s\\) of size [0-9]+ "
+                    + "starting at ([0-9]+)\\. CONVERGED to target ([+-]?[0-9.]+):.*?relative spread ([0-9.]+)");
+    private static final Pattern GROWTH_CONVERGED = Pattern.compile(
+            "verify_growth: ([a-zA-Z_]+) in [a-z]+ coords ~ [+-]?[0-9.]+ over [0-9]+ window\\(s\\) of size "
+                    + "[0-9]+ starting at ([0-9]+)\\. CONVERGED to growth constant ([+-]?[0-9.]+):"
+                    + ".*?relative spread ([0-9.]+)");
+    private static final Pattern OSC_ENVELOPE = Pattern.compile(
+            "verify_oscillation: ([a-zA-Z_]+) over [0-9]+ window\\(s\\) of size [0-9]+ starting at ([0-9]+):"
+                    // [0-9]+\.[0-9]+ (not [0-9.]+) so the trailing sentence period isn't grabbed into the value.
+                    + ".*?OSCILLATES.*?envelope max\\|[a-zA-Z_]+\\|/[a-zA-Z_]+ = ([0-9]+\\.[0-9]+)");
+
     private final ConjectureRepository repo;
 
     @Value("${app.research.investigation-write-back.enabled:false}")
@@ -80,10 +98,59 @@ public class ConjectureInvestigationWriteBackService {
 
     public boolean enabled() { return enabled; }
 
+    /** Result-frame kinds for measured-invariant survivors (lever D). */
+    public static final String KIND_CONSTANT = "CONSTANT";
+    public static final String KIND_OSCILLATION = "OSCILLATION";
+
     /** One HELD bound parsed from an investigation trace. {@code relSlack} is the binding-window
      *  relative slack ({@code |margin|/|bound|}) if the line carried it, else {@code null}. */
     public record HeldBound(String lhs, String rhs, double k, double c,
                             int numWindows, long windowStart, double worstMargin, Double relSlack) {}
+
+    /** One measured-invariant survivor parsed from a frame-1/2/3 result line: a CONSTANT limit
+     *  ({@code lhs → value}) or an OSCILLATION envelope ({@code max|lhs|/scale ≤ value}). */
+    public record MeasuredInvariant(String kind, String lhs, double value,
+                                    long windowStart, double relativeSpread) {}
+
+    /**
+     * Extract every distinct measured-invariant (frame 1-3) survivor from a professor trace: a
+     * verify_constant / verify_growth CONVERGED line (→ CONSTANT) or a verify_oscillation OSCILLATES
+     * line with an envelope (→ OSCILLATION). Static + pure for testing without a repository.
+     */
+    public static List<MeasuredInvariant> parseMeasured(List<ToolInvocation> trace) {
+        List<MeasuredInvariant> out = new ArrayList<>();
+        if (trace == null) return out;
+        Set<String> seen = new LinkedHashSet<>();
+        for (ToolInvocation inv : trace) {
+            if (inv == null || inv.resultJson() == null) continue;
+            String r = inv.resultJson();
+            collect(out, seen, CONST_CONVERGED.matcher(r), KIND_CONSTANT, /*spreadGroup*/4);
+            collect(out, seen, GROWTH_CONVERGED.matcher(r), KIND_CONSTANT, 4);
+            collect(out, seen, OSC_ENVELOPE.matcher(r), KIND_OSCILLATION, /*no spread*/-1);
+        }
+        return out;
+    }
+
+    private static void collect(List<MeasuredInvariant> out, Set<String> seen, Matcher m,
+                                String kind, int spreadGroup) {
+        while (m.find()) {
+            try {
+                String lhs = m.group(1);
+                long start = Long.parseLong(m.group(2));
+                double value = Double.parseDouble(m.group(3));
+                double spread = spreadGroup > 0 ? Double.parseDouble(m.group(spreadGroup)) : 0.0;
+                if (seen.add(kind + "|" + lhs)) {
+                    out.add(new MeasuredInvariant(kind, lhs, value, start, spread));
+                }
+            } catch (NumberFormatException ignore) { /* skip malformed */ }
+        }
+    }
+
+    /** A measured invariant is worth persisting when it was measured AT the failure region (high x) —
+     *  an easy low-x measurement of a slowly-converging quantity proves little. */
+    static boolean measuredWritable(MeasuredInvariant m) {
+        return m.windowStart() >= FAILURE_REGION_MIN_X;
+    }
 
     /**
      * Extract every distinct HELD verify_conjecture bound from a professor trace.
@@ -169,12 +236,13 @@ public class ConjectureInvestigationWriteBackService {
             }
         }
         List<HeldBound> bounds = parseHeldBounds(trace);
+        List<MeasuredInvariant> measured = parseMeasured(trace);   // lever D — frames 1-3 survivors
         // Lever F observability — ALWAYS log the funnel, including the parsed=0 case (previously a silent
         // early return). This distinguishes "hook never fired for this paper" (no log at all) from "hook
         // fired but the union held no parseable HELD bound" (this line).
-        if (bounds.isEmpty()) {
+        if (bounds.isEmpty() && measured.isEmpty()) {
             log.info("investigation-write-back: paperId={} received {} tool-call(s) "
-                    + "({} verify, {} with HELD-summary), parsed 0 HELD bound(s)",
+                    + "({} verify, {} with HELD-summary), parsed 0 HELD bound(s), 0 measured invariant(s)",
                     paperId, traceSize, verifyCalls, heldSummaries);
             return 0;
         }
@@ -207,13 +275,60 @@ public class ConjectureInvestigationWriteBackService {
                     + "(received {} tool-call(s): {} verify, {} HELD-summary, {} parsed, {} writable relation(s))",
                     paperId, written, traceSize, verifyCalls, heldSummaries, bounds.size(),
                     tightestByRelation.size());
-        } else {
-            log.info("investigation-write-back: paperId={} wrote 0 — received {} tool-call(s): {} verify, "
+        } else if (!bounds.isEmpty()) {
+            log.info("investigation-write-back: paperId={} wrote 0 bound(s) — received {} tool-call(s): {} verify, "
                     + "{} HELD-summary, {} parsed, 0 writable (failure-region x>={}, >={} windows, rel-slack<={})",
                     paperId, traceSize, verifyCalls, heldSummaries, bounds.size(),
                     FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
         }
+        // Lever D — persist measured-invariant survivors (frames 1-3): a CONVERGED constant or an
+        // OSCILLATES envelope at the failure region becomes a kind-tagged pool survivor the miner won't
+        // re-test as a bound. One per (kind,lhs); decision A then keeps it live like a verified bound.
+        for (MeasuredInvariant mi : measured) {
+            boolean ok = measuredWritable(mi);
+            log.info("investigation-write-back: paperId={} measured {} {} = {} @{} (rel-spread {}) -> {}",
+                    paperId, mi.kind(), mi.lhs(), mi.value(), mi.windowStart(), mi.relativeSpread(),
+                    ok ? "PERSIST" : "reject:sub-failure-region");
+            if (!ok) continue;
+            try {
+                written += upsertMeasured(mi, now) ? 1 : 0;
+            } catch (RuntimeException e) {
+                log.warn("investigation-write-back: measured upsert failed for {} {} ({})",
+                        mi.kind(), mi.lhs(), e.getMessage());
+            }
+        }
         return written;
+    }
+
+    /** Upsert a measured-invariant survivor as a kind-tagged conjecture row: a CONSTANT stores the limit
+     *  as {@code (k=0, c=value)}; an OSCILLATION stores the envelope as {@code c}. Stamped
+     *  investigationVerifiedAt so decision A protects it; rhs is a sentinel naming the frame. The miner
+     *  skips non-BOUND rows, so a k=0 measurement is never counterexample-tested as a one-sided bound. */
+    private boolean upsertMeasured(MeasuredInvariant mi, Instant now) {
+        String rhs = "_" + mi.kind().toLowerCase() + "_";   // sentinel: not a real rhs scalar
+        Optional<Conjecture> ex = repo.findFirstByDomainAndLhsAndRhs(DOMAIN, mi.lhs(), rhs);
+        Conjecture row;
+        if (ex.isPresent()) {
+            row = ex.get();
+            row.setC(mi.value());
+            if (row.confirmedRuns() < 1) row.setConfirmedRuns(1);
+            row.setDroppedByKnob(null);
+            row.setKind(mi.kind());
+            row.setUpdatedAt(now);
+            repo.save(row);
+            log.info("investigation-write-back: {} {} = {} @{} — measured-invariant survivor updated",
+                    mi.kind(), mi.lhs(), mi.value(), mi.windowStart());
+        } else {
+            row = new Conjecture(DOMAIN, mi.lhs(), rhs, 0.0, mi.value());
+            row.setKind(mi.kind());
+            row.setConfirmedRuns(1);
+            row.setUpdatedAt(now);
+            row = repo.save(row);
+            log.info("investigation-write-back: {} {} = {} @{} — measured-invariant survivor inserted",
+                    mi.kind(), mi.lhs(), mi.value(), mi.windowStart());
+        }
+        repo.stampInvestigationVerified(row.id(), now);
+        return true;
     }
 
     private boolean upsert(HeldBound b, Instant now) {

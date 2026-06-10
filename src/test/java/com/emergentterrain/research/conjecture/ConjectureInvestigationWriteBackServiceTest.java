@@ -139,6 +139,65 @@ class ConjectureInvestigationWriteBackServiceTest {
         assertThat(ConjectureInvestigationWriteBackService.parseHeldBounds(null)).isEmpty();
     }
 
+    // ── Lever D — measured-invariant (frames 1-3) parsing ──────────────────────────────────
+
+    private static final String CONST_CONVERGED =
+            "verify_constant: twin_vs_prime_sq ~ 1.32050 over 5 window(s) of size 10000 starting at "
+            + "1800000. CONVERGED to target 1.32032: worst |dev| 0.00210 at window starting 1900000, "
+            + "relative spread 0.0016 (tol 0.0500).";
+    private static final String GROWTH_CONVERGED =
+            "verify_growth: max_divisor_count in wigert coords ~ 0.69500 over 5 window(s) of size 10000 "
+            + "starting at 1800000. CONVERGED to growth constant 0.69315: worst |dev| 0.01000 at window "
+            + "starting 1900000, relative spread 0.0144 (tol 0.1000).";
+    private static final String OSC_ENVELOPE =
+            "verify_oscillation: mertens_delta over 5 window(s) of size 10000 starting at 1800000: "
+            + "4 sign change(s), amplitude 140.00000 at window starting 1600000, mean +4.00000, "
+            + "mean|.| 88.00000. OSCILLATES (centred near 0). envelope max|mertens_delta|/sqrt_window_start = 0.12000.";
+
+    @Test
+    void parsesConstantConvergence_asConstantInvariant() {
+        var ms = ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(CONST_CONVERGED)));
+        assertThat(ms).hasSize(1);
+        var m = ms.get(0);
+        assertThat(m.kind()).isEqualTo(ConjectureInvestigationWriteBackService.KIND_CONSTANT);
+        assertThat(m.lhs()).isEqualTo("twin_vs_prime_sq");
+        assertThat(m.value()).isEqualTo(1.32032);
+        assertThat(m.windowStart()).isEqualTo(1_800_000L);
+        assertThat(m.relativeSpread()).isEqualTo(0.0016);
+    }
+
+    @Test
+    void parsesGrowthConvergence_asConstantInvariant() {
+        var m = ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(GROWTH_CONVERGED))).get(0);
+        assertThat(m.kind()).isEqualTo(ConjectureInvestigationWriteBackService.KIND_CONSTANT);
+        assertThat(m.lhs()).isEqualTo("max_divisor_count");
+        assertThat(m.value()).isEqualTo(0.69315);
+    }
+
+    @Test
+    void parsesOscillationEnvelope_asOscillationInvariant() {
+        var m = ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(OSC_ENVELOPE))).get(0);
+        assertThat(m.kind()).isEqualTo(ConjectureInvestigationWriteBackService.KIND_OSCILLATION);
+        assertThat(m.lhs()).isEqualTo("mertens_delta");
+        assertThat(m.value()).isEqualTo(0.12000);
+    }
+
+    @Test
+    void doesNotParseNonConvergedConstant() {
+        String notConverged = CONST_CONVERGED.replace("CONVERGED to target", "NOT converged to target");
+        assertThat(ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(notConverged)))).isEmpty();
+    }
+
+    @Test
+    void measuredWritable_requiresFailureRegion() {
+        var failureRegion = new ConjectureInvestigationWriteBackService.MeasuredInvariant(
+                "CONSTANT", "twin_vs_prime_sq", 1.32032, 1_800_000L, 0.0016);
+        var lowX = new ConjectureInvestigationWriteBackService.MeasuredInvariant(
+                "CONSTANT", "twin_vs_prime_sq", 1.32032, 200_000L, 0.0016);
+        assertThat(ConjectureInvestigationWriteBackService.measuredWritable(failureRegion)).isTrue();
+        assertThat(ConjectureInvestigationWriteBackService.measuredWritable(lowX)).isFalse();
+    }
+
     @Test
     void rejectReason_writable_isEmpty() {
         HeldBound tight = ConjectureInvestigationWriteBackService.parseHeldBounds(

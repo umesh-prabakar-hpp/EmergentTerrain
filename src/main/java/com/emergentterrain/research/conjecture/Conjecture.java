@@ -158,6 +158,16 @@ public class Conjecture {
      */
     private String derivedFrom;
 
+    /**
+     * 2026-06-10 (lever D) — result-frame discriminator. {@code null}/"BOUND" = a one-sided inequality
+     * {@code lhs ≤ k·rhs + c} (the mined default). "CONSTANT" = a measured limit {@code lhs → c} (frame
+     * 1/3: twin_vs_prime_sq → 2C₂, or a Wigert growth constant). "OSCILLATION" = a centred, sign-changing
+     * quantity with bounded envelope {@code c} (frame 2: mertens_delta). A non-BOUND row is a verified
+     * MEASUREMENT, not an inequality, so the miner does NOT re-test it as a bound (a one-sided test would
+     * counterexample a converging/oscillating quantity). Nullable; additive column; null treated as BOUND.
+     */
+    private String kind;
+
     protected Conjecture() {}  // for JPA
 
     public Conjecture(String domain, String lhs, String rhs, double k, double c) {
@@ -190,8 +200,12 @@ public class Conjecture {
     public Instant promotedAnomalyAt()     { return promotedAnomalyAt; }
     public Instant investigationVerifiedAt() { return investigationVerifiedAt; }
     public String derivedFrom()            { return derivedFrom; }
+    /** Result frame; null persists as "BOUND". See the {@code kind} field. */
+    public String kind()                   { return kind == null ? "BOUND" : kind; }
+    public boolean isBound()               { return kind == null || "BOUND".equals(kind); }
 
     // Targeted setters — mutated by the mapper during update cycles.
+    public void setKind(String kind)                      { this.kind = kind; }
     public void setK(double k)                            { this.k = k; }
     public void setC(double c)                            { this.c = c; }
     public void setConfirmedRuns(int n)                   { this.confirmedRuns = n; }
