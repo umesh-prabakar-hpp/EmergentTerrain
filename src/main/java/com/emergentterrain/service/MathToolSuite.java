@@ -70,6 +70,7 @@ public class MathToolSuite {
             "GPU eval of",
             "Sandboxed computation —",
             "verify_conjecture:",
+            "verify_constant:",
             "symbolic_regress:",
             "scalar_window_stats:");
 
@@ -724,7 +725,7 @@ public class MathToolSuite {
                     }
                   }
                 }%s%s%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
-                conjectureVerifier == null ? "" : verifyConjectureToolJson(),
+                conjectureVerifier == null ? "" : (verifyConjectureToolJson() + verifyConstantToolJson()),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
@@ -848,6 +849,33 @@ public class MathToolSuite {
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
                   },
                   "required":["lhs","rhs","k","c","window_start","window_size"]
+                }
+              }
+            }""").formatted(maxWork, maxN, maxN, maxWork);
+    }
+
+    /** 2026-06-10 (lever D, frame 1) — the constant-convergence companion tool, advertised whenever
+     *  verify_conjecture is (both need the conjecture verifier). */
+    private String verifyConstantToolJson() {
+        long maxWork = conjectureVerifier.maxWork();
+        long maxN = conjectureVerifier.maxN();
+        return ("""
+            ,{
+              "type":"function",
+              "function":{
+                "name":"verify_constant",
+                "description":"2026-06-10 — verify that a scalar CONVERGES TO A CONSTANT, on a held-out window slice. Use this (NOT verify_conjecture) when the lhs's real content is a LIMIT, not a one-sided bound: a normalized ratio that plateaus — e.g. twin_vs_prime_sq → the Hardy–Littlewood twin constant 2C₂ ≈ 1.32032, or cramer_gap_ratio → a Cramér-type constant. Evaluates num_windows disjoint windows of window_size starting at window_start and computes the mean value and the worst |lhs − target| (two-sided). With 'target' supplied, reports CONVERGED (worst relative deviation ≤ tol) or NOT; without it, estimates the limit as the mean and reports the spread. A flat/oscillating/ratio quantity that REFUTES every `lhs ≤ k·rhs + c` bound is exactly the case for this tool — the result of such a paper is the measured constant + its convergence, not a refuted inequality. Same caps as verify_conjecture: WORK window_size × num_windows ≤ %d; RANGE window_start + window_size × num_windows ≤ %d. Valid lhs scalars: the same vocabulary as verify_conjecture (twin_vs_prime_sq, cramer_gap_ratio, mertens_per_sqrt_W, the densities, etc.).",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "lhs":{"type":"string","description":"Scalar whose convergence to a constant is tested."},
+                    "target":{"type":"number","description":"The conjectured limit (e.g. 1.32032 for twin_vs_prime_sq → 2C₂). Omit to estimate it empirically from the windows."},
+                    "tol":{"type":"number","description":"Relative tolerance for CONVERGED (worst |dev| / |target| ≤ tol). Default 0.05."},
+                    "window_start":{"type":"integer","description":"First integer in the first window. Pick a held-out, high-x offset. window_start + window_size × num_windows ≤ %d."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                  },
+                  "required":["lhs","window_start","window_size"]
                 }
               }
             }""").formatted(maxWork, maxN, maxN, maxWork);
@@ -1042,6 +1070,7 @@ public class MathToolSuite {
                     case "run_symbolic"       -> runSymbolic(args);
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
+                    case "verify_constant"    -> verifyConstant(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
                     case "discover_divisor_value" -> discoverDivisorValue(args);
                     case "discover_prime_value" -> discoverPrimeValue(args);
@@ -2164,6 +2193,78 @@ public class MathToolSuite {
                     "\n  start=%d  lhs=%+.5f  rhs_scalar=%+.5f  bound=%+.5f  margin=%+.5f  %s",
                     w.windowStart(), w.lhsValue(), w.rhsValue(), k * w.rhsValue() + c,
                     w.margin(), w.holds() ? "holds" : "REFUTED"));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 2026-06-10 (lever D, frame 1) — verify_constant: the two-sided constant-convergence companion to
+     * verify_conjecture. For a scalar whose real content is a LIMIT (a normalized ratio that plateaus —
+     * twin_vs_prime_sq → 2C₂, cramer_gap_ratio → a Cramér constant), this measures the value across
+     * held-out failure-region windows and tests {@code |lhs − target|} (or the spread, if no target),
+     * instead of forcing a one-sided {@code lhs ≤ k·rhs + c} bound the quantity doesn't fit. Same WORK
+     * and RANGE caps as verify_conjecture; failures returned as plain text (no throw) for the tool loop.
+     */
+    private String verifyConstant(JsonNode args) {
+        if (conjectureVerifier == null) {
+            return "verify_constant not configured: the conjecture miner package isn't wired into this MathToolSuite instance.";
+        }
+        String lhs = args.path("lhs").asText("");
+        if (lhs.isBlank()) {
+            return "Missing 'lhs' scalar name.";
+        }
+        Double target = args.has("target") && !args.path("target").isNull()
+                ? args.path("target").asDouble() : null;
+        double tol = args.path("tol").asDouble(0.05);
+        long windowStart = args.path("window_start").asLong(-1);
+        int windowSize = args.path("window_size").asInt(-1);
+        int numWindows = args.path("num_windows").asInt(
+                com.emergentterrain.research.conjecture.ConjectureVerifier.DEFAULT_NUM_WINDOWS);
+        if (windowStart < 0 || windowSize <= 0 || numWindows <= 0) {
+            return "Invalid window: window_start >= 0, window_size > 0, num_windows > 0 required.";
+        }
+        long work = (long) windowSize * numWindows;
+        if (work > conjectureVerifier.maxWork()) {
+            return String.format("WORK cap exceeded: window_size × num_windows = %d > %d.",
+                    work, conjectureVerifier.maxWork());
+        }
+        if (windowStart + work > conjectureVerifier.maxN()) {
+            return String.format("RANGE cap exceeded: window_start + window_size × num_windows = %d > %d (oracle range).",
+                    windowStart + work, conjectureVerifier.maxN());
+        }
+        java.util.List<java.util.Map<String, Double>> windows;
+        try {
+            windows = conjectureVerifier.sampleWindows(windowStart, windowSize, numWindows);
+        } catch (RuntimeException e) {
+            return "verify_constant evaluation failed: " + e.getMessage();
+        }
+        if (windows.isEmpty()) {
+            return "No windows evaluated for verify_constant (range past the oracle limit?).";
+        }
+        double[] values = new double[windows.size()];
+        long[] starts = new long[windows.size()];
+        for (int i = 0; i < windows.size(); i++) {
+            java.util.Map<String, Double> w = windows.get(i);
+            values[i] = w.getOrDefault(lhs, 0.0);
+            starts[i] = w.getOrDefault("_window_start",
+                    (double) (windowStart + (long) i * windowSize)).longValue();
+        }
+        com.emergentterrain.research.conjecture.ConstantConvergence.Assessment a =
+                com.emergentterrain.research.conjecture.ConstantConvergence.assess(values, starts, target, tol);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "verify_constant: %s ~ %.5f over %d window(s) of size %d starting at %d. ",
+                lhs, a.mean(), windows.size(), windowSize, windowStart));
+        if (target != null) {
+            sb.append(String.format(
+                    "%s target %.5f: worst |dev| %.5f at window starting %d, relative spread %.4f (tol %.4f).",
+                    a.converged() ? "CONVERGED to" : "NOT converged to",
+                    target, a.worstDeviation(), a.worstWindowStart(), a.relativeSpread(), tol));
+        } else {
+            sb.append(String.format(
+                    "no target — estimated limit %.5f (range [%.5f, %.5f]), relative spread %.4f %s.",
+                    a.estimate(), a.min(), a.max(), a.relativeSpread(),
+                    a.converged() ? "(settled within tol)" : "(not yet settled)"));
         }
         return sb.toString();
     }

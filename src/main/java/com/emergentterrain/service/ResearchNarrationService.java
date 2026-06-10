@@ -3652,7 +3652,19 @@ public class ResearchNarrationService {
             + "window): treat it as your tightness gauge and keep iterating k/c at the failure region "
             + "until it is SMALL (aim <= 0.25) — a HELD bound whose relative slack is still large is "
             + "loose and will not be retained as a survivor, so report the (k, c) at your SMALLEST "
-            + "achieved relative slack.";
+            + "achieved relative slack.\n"
+            + "6. CONSTANT-CONVERGENCE STEP (2026-06-10): some LHS quantities are NOT bounds at all — "
+            + "their real content is a LIMIT they converge to. A normalized RATIO that plateaus is the "
+            + "signature: twin_vs_prime_sq → the Hardy-Littlewood twin constant 2C2 ≈ 1.32032, "
+            + "cramer_gap_ratio → a Cramer-type constant. For such an LHS, BOTH a flat-feature bound AND "
+            + "a growth-anchor bound are the wrong object (the quantity neither grows nor sits under a "
+            + "moving ceiling — it SETTLES). Do NOT force a `lhs <= k*rhs + c` inequality on it. Instead "
+            + "use the verify_constant tool on the high-x failure-region windows to MEASURE the converged "
+            + "value and its deviation (supply the known target where one exists, e.g. 1.32032 for "
+            + "twin_vs_prime_sq; omit it to estimate the limit empirically). The RESULT of such a paper "
+            + "is the measured constant + how tightly it has converged (the relative spread), reported "
+            + "from verify_constant output — NOT a refuted inequality. A ratio that REFUTES every bound "
+            + "you try but CONVERGES under verify_constant is a successful measurement, not a null.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
