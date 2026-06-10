@@ -71,6 +71,8 @@ public class MathToolSuite {
             "Sandboxed computation —",
             "verify_conjecture:",
             "verify_constant:",
+            "verify_oscillation:",
+            "verify_growth:",
             "symbolic_regress:",
             "scalar_window_stats:");
 
@@ -725,7 +727,8 @@ public class MathToolSuite {
                     }
                   }
                 }%s%s%s%s%s%s%s%s%s]""".formatted(dynamicTool, runSymDesc, runSymExprDesc,
-                conjectureVerifier == null ? "" : (verifyConjectureToolJson() + verifyConstantToolJson()),
+                conjectureVerifier == null ? "" : (verifyConjectureToolJson() + verifyConstantToolJson()
+                        + verifyOscillationToolJson() + verifyGrowthToolJson()),
                 (juliaMathClient != null && juliaMathClient.isPysrAvailable())
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
@@ -872,6 +875,58 @@ public class MathToolSuite {
                     "target":{"type":"number","description":"The conjectured limit (e.g. 1.32032 for twin_vs_prime_sq → 2C₂). Omit to estimate it empirically from the windows."},
                     "tol":{"type":"number","description":"Relative tolerance for CONVERGED (worst |dev| / |target| ≤ tol). Default 0.05."},
                     "window_start":{"type":"integer","description":"First integer in the first window. Pick a held-out, high-x offset. window_start + window_size × num_windows ≤ %d."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                  },
+                  "required":["lhs","window_start","window_size"]
+                }
+              }
+            }""").formatted(maxWork, maxN, maxN, maxWork);
+    }
+
+    /** 2026-06-10 (lever D, frame 2) — oscillation/sign-change measurement tool. */
+    private String verifyOscillationToolJson() {
+        long maxWork = conjectureVerifier.maxWork();
+        long maxN = conjectureVerifier.maxN();
+        return ("""
+            ,{
+              "type":"function",
+              "function":{
+                "name":"verify_oscillation",
+                "description":"2026-06-10 — measure the OSCILLATION of a scalar that swings around zero, on a held-out window slice. Use this (NOT verify_conjecture) when the lhs changes sign and has no one-sided bound — the canonical case is mertens_delta (the Mertens function M(x), which changes sign infinitely often; the RH-relevant statement is that the normalized envelope |M(x)|/√x stays bounded). Reports sign changes, amplitude, near-zero mean, and — when you pass scale_rhs (e.g. sqrt_window_start) — the bounded envelope max|lhs|/scale. A sign-changing quantity that REFUTES every `lhs ≤ k*rhs + c` bound but oscillates with a bounded envelope is a successful measurement, not a null. Same caps as verify_conjecture: WORK window_size × num_windows ≤ %d; RANGE window_start + window_size × num_windows ≤ %d.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "lhs":{"type":"string","description":"The oscillating scalar (e.g. mertens_delta)."},
+                    "scale_rhs":{"type":"string","description":"Optional scale scalar for the envelope max|lhs|/scale (e.g. sqrt_window_start for |M|/√x). Omit to skip the envelope."},
+                    "window_start":{"type":"integer","description":"First integer in the first window (held-out, high-x). window_start + window_size × num_windows ≤ %d."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                  },
+                  "required":["lhs","window_start","window_size"]
+                }
+              }
+            }""").formatted(maxWork, maxN, maxN, maxWork);
+    }
+
+    /** 2026-06-10 (lever D, frame 3) — super-log growth-scale measurement tool. */
+    private String verifyGrowthToolJson() {
+        long maxWork = conjectureVerifier.maxWork();
+        long maxN = conjectureVerifier.maxN();
+        return ("""
+            ,{
+              "type":"function",
+              "function":{
+                "name":"verify_growth",
+                "description":"2026-06-10 — measure the GROWTH RATE of a super-logarithmic scalar, on a held-out window slice. Use this (NOT verify_conjecture) when the lhs grows faster than any power of log x so no log_window_start anchor can bound it — the canonical case is max_divisor_count, which by Wigert grows like exp(ln2·ln x/ln ln x), i.e. log(d_max)·ln ln x/ln x → ln2 ≈ 0.69315. Transforms each window's lhs into the growth coordinate (scale='wigert': log(lhs)·ln ln x/ln x; or 'loglog': lhs·ln ln x/ln x) and reports whether that converges to the growth constant (target defaults to ln2 for 'wigert'). A quantity that refutes every bound but whose Wigert ratio approaches ln2 is a successful growth-law measurement. Same caps as verify_conjecture: WORK window_size × num_windows ≤ %d; RANGE window_start + window_size × num_windows ≤ %d.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "lhs":{"type":"string","description":"The super-log-growing scalar (e.g. max_divisor_count)."},
+                    "scale":{"type":"string","description":"Growth coordinate: 'wigert' (log(lhs)·lnln x/ln x, default) or 'loglog' (lhs·lnln x/ln x)."},
+                    "target":{"type":"number","description":"The conjectured growth constant. Defaults to ln2≈0.69315 for 'wigert'. Omit (with non-wigert scale) to estimate empirically."},
+                    "tol":{"type":"number","description":"Relative tolerance for CONVERGED. Default 0.10 (the Wigert limit is approached slowly)."},
+                    "window_start":{"type":"integer","description":"First integer in the first window (held-out, high-x). window_start + window_size × num_windows ≤ %d."},
                     "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
                   },
@@ -1071,6 +1126,8 @@ public class MathToolSuite {
                     case "run_gpu_eval"       -> runGpuEval(args);
                     case "verify_conjecture"  -> verifyConjecture(args);
                     case "verify_constant"    -> verifyConstant(args);
+                    case "verify_oscillation" -> verifyOscillation(args);
+                    case "verify_growth"      -> verifyGrowth(args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
                     case "discover_divisor_value" -> discoverDivisorValue(args);
                     case "discover_prime_value" -> discoverPrimeValue(args);
@@ -2267,6 +2324,149 @@ public class MathToolSuite {
                     a.converged() ? "(settled within tol)" : "(not yet settled)"));
         }
         return sb.toString();
+    }
+
+    /**
+     * 2026-06-10 (lever D, frame 2) — verify_oscillation: the result-frame for a scalar that oscillates
+     * around zero (mertens_delta = the Mertens function). Reports sign changes, amplitude, near-zero mean,
+     * and — given a scale scalar (e.g. sqrt_window_start) — the bounded envelope max|lhs|/scale (the
+     * RH-relevant |M(x)|/√x). A one-sided bound is the wrong object for such a quantity.
+     */
+    private String verifyOscillation(JsonNode args) {
+        if (conjectureVerifier == null) {
+            return "verify_oscillation not configured: the conjecture miner package isn't wired in.";
+        }
+        String lhs = args.path("lhs").asText("");
+        if (lhs.isBlank()) {
+            return "Missing 'lhs' scalar name.";
+        }
+        String scaleRhs = args.path("scale_rhs").asText("");
+        Object[] sampled = sampleScalarWindows(args);
+        if (sampled[0] instanceof String err) {
+            return err;
+        }
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Double>> windows =
+                (java.util.List<java.util.Map<String, Double>>) sampled[0];
+        long windowStart = (long) sampled[1];
+        int windowSize = (int) sampled[2];
+        double[] values = new double[windows.size()];
+        long[] starts = new long[windows.size()];
+        double[] scale = scaleRhs.isBlank() ? null : new double[windows.size()];
+        for (int i = 0; i < windows.size(); i++) {
+            java.util.Map<String, Double> w = windows.get(i);
+            values[i] = w.getOrDefault(lhs, 0.0);
+            starts[i] = w.getOrDefault("_window_start",
+                    (double) (windowStart + (long) i * windowSize)).longValue();
+            if (scale != null) scale[i] = w.getOrDefault(scaleRhs, 0.0);
+        }
+        com.emergentterrain.research.conjecture.OscillationAssessment.Assessment a =
+                com.emergentterrain.research.conjecture.OscillationAssessment.assess(values, starts, scale);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "verify_oscillation: %s over %d window(s) of size %d starting at %d: %d sign change(s), "
+                        + "amplitude %.5f at window starting %d, mean %+.5f, mean|.| %.5f. %s",
+                lhs, windows.size(), windowSize, windowStart, a.signChanges(), a.amplitude(),
+                a.ampWindowStart(), a.mean(), a.meanAbs(),
+                a.oscillates() ? "OSCILLATES (centred near 0)." : "one-sided (not a centred oscillation)."));
+        if (scale != null && !Double.isNaN(a.envelope())) {
+            sb.append(String.format(" envelope max|%s|/%s = %.5f.", lhs, scaleRhs, a.envelope()));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 2026-06-10 (lever D, frame 3) — verify_growth: the result-frame for a super-logarithmic quantity
+     * (max_divisor_count ~ exp(ln2·ln x/ln ln x)). Transforms each window's lhs into the growth
+     * coordinate (default 'wigert': log(lhs)·ln ln x/ln x → ln2) and tests convergence of that to a
+     * constant via the same machinery as verify_constant.
+     */
+    private String verifyGrowth(JsonNode args) {
+        if (conjectureVerifier == null) {
+            return "verify_growth not configured: the conjecture miner package isn't wired in.";
+        }
+        String lhs = args.path("lhs").asText("");
+        if (lhs.isBlank()) {
+            return "Missing 'lhs' scalar name.";
+        }
+        String scale = args.path("scale").asText("wigert");
+        Double target = args.has("target") && !args.path("target").isNull()
+                ? args.path("target").asDouble()
+                : ("wigert".equals(scale)
+                        ? com.emergentterrain.research.conjecture.GrowthScale.WIGERT_LIMIT : null);
+        double tol = args.path("tol").asDouble(0.10);
+        Object[] sampled = sampleScalarWindows(args);
+        if (sampled[0] instanceof String err) {
+            return err;
+        }
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, Double>> windows =
+                (java.util.List<java.util.Map<String, Double>>) sampled[0];
+        long windowStart = (long) sampled[1];
+        int windowSize = (int) sampled[2];
+        double[] values = new double[windows.size()];
+        long[] starts = new long[windows.size()];
+        try {
+            for (int i = 0; i < windows.size(); i++) {
+                java.util.Map<String, Double> w = windows.get(i);
+                long start = w.getOrDefault("_window_start",
+                        (double) (windowStart + (long) i * windowSize)).longValue();
+                starts[i] = start;
+                values[i] = com.emergentterrain.research.conjecture.GrowthScale.transform(
+                        scale, w.getOrDefault(lhs, 0.0), start);
+            }
+        } catch (IllegalArgumentException e) {
+            return "verify_growth: " + e.getMessage();
+        }
+        com.emergentterrain.research.conjecture.ConstantConvergence.Assessment a =
+                com.emergentterrain.research.conjecture.ConstantConvergence.assess(values, starts, target, tol);
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "verify_growth: %s in %s coords ~ %.5f over %d window(s) of size %d starting at %d. ",
+                lhs, scale, a.mean(), windows.size(), windowSize, windowStart));
+        if (target != null) {
+            sb.append(String.format(
+                    "%s growth constant %.5f: worst |dev| %.5f at window starting %d, relative spread %.4f (tol %.4f).",
+                    a.converged() ? "CONVERGED to" : "approaching (not yet within tol)",
+                    target, a.worstDeviation(), a.worstWindowStart(), a.relativeSpread(), tol));
+        } else {
+            sb.append(String.format("estimated growth constant %.5f (range [%.5f, %.5f]), relative spread %.4f.",
+                    a.estimate(), a.min(), a.max(), a.relativeSpread()));
+        }
+        return sb.toString();
+    }
+
+    /** Shared cap-check + window sampling for the frame-2/3 measurement tools. Returns
+     *  {@code [List<Map> windows, Long windowStart, Integer windowSize]} on success, or
+     *  {@code [String error]} on a cap/argument failure (mirrors verify_conjecture's caps). */
+    private Object[] sampleScalarWindows(JsonNode args) {
+        long windowStart = args.path("window_start").asLong(-1);
+        int windowSize = args.path("window_size").asInt(-1);
+        int numWindows = args.path("num_windows").asInt(
+                com.emergentterrain.research.conjecture.ConjectureVerifier.DEFAULT_NUM_WINDOWS);
+        if (windowStart < 0 || windowSize <= 0 || numWindows <= 0) {
+            return new Object[]{"Invalid window: window_start >= 0, window_size > 0, num_windows > 0 required."};
+        }
+        long work = (long) windowSize * numWindows;
+        if (work > conjectureVerifier.maxWork()) {
+            return new Object[]{String.format("WORK cap exceeded: window_size × num_windows = %d > %d.",
+                    work, conjectureVerifier.maxWork())};
+        }
+        if (windowStart + work > conjectureVerifier.maxN()) {
+            return new Object[]{String.format(
+                    "RANGE cap exceeded: window_start + window_size × num_windows = %d > %d (oracle range).",
+                    windowStart + work, conjectureVerifier.maxN())};
+        }
+        java.util.List<java.util.Map<String, Double>> windows;
+        try {
+            windows = conjectureVerifier.sampleWindows(windowStart, windowSize, numWindows);
+        } catch (RuntimeException e) {
+            return new Object[]{"window evaluation failed: " + e.getMessage()};
+        }
+        if (windows.isEmpty()) {
+            return new Object[]{"No windows evaluated (range past the oracle limit?)."};
+        }
+        return new Object[]{windows, windowStart, windowSize};
     }
 
     /**

@@ -3664,7 +3664,25 @@ public class ResearchNarrationService {
             + "twin_vs_prime_sq; omit it to estimate the limit empirically). The RESULT of such a paper "
             + "is the measured constant + how tightly it has converged (the relative spread), reported "
             + "from verify_constant output — NOT a refuted inequality. A ratio that REFUTES every bound "
-            + "you try but CONVERGES under verify_constant is a successful measurement, not a null.";
+            + "you try but CONVERGES under verify_constant is a successful measurement, not a null.\n"
+            + "7. OSCILLATION STEP (2026-06-10): if the LHS swings around ZERO and changes sign (the "
+            + "signature: mertens_delta = the Mertens function M(x), which is negative as often as "
+            + "positive), then NO one-sided `lhs <= k*rhs + c` bound can hold — it refutes the moment M "
+            + "dips the other way. Use the verify_oscillation tool on the high-x windows: it reports the "
+            + "sign changes, amplitude, near-zero mean, and — pass scale_rhs=sqrt_window_start — the "
+            + "bounded ENVELOPE max|M|/√x (the Riemann-Hypothesis-relevant quantity; the Mertens "
+            + "conjecture |M|<√x is false, but |M|=O(√x·...) is the real object). The result is the "
+            + "envelope + sign-change structure, not a refuted bound.\n"
+            + "8. SUPER-LOG GROWTH STEP (2026-06-10): if the LHS grows FASTER than any power of log x so "
+            + "even a log_sq_window_start anchor refutes (the signature: max_divisor_count, the maximal "
+            + "divisor count, ~ exp(ln2·ln x/ln ln x) by Wigert), use the verify_growth tool: it "
+            + "transforms log(lhs)·ln ln x/ln x and tests convergence to the Wigert growth constant "
+            + "ln2 ≈ 0.69315 (approached slowly, so a wide tol is expected). The result is the measured "
+            + "growth law (the Wigert ratio approaching ln2), not a refuted bound. "
+            + "In ALL of steps 5-8: pick the ONE frame that matches the LHS's actual behaviour — a "
+            + "growing bound (5), a converging constant (6), a centred oscillation (7), or super-log "
+            + "growth (8) — and report THAT measurement as the paper's result; do not keep forcing the "
+            + "default inequality on a quantity it does not fit.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
