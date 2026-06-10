@@ -1279,10 +1279,20 @@ public class UniversityService {
                 java.util.List<com.emergentterrain.llm.ToolInvocation> trace = narration.toolCallTrace();
                 java.util.List<com.emergentterrain.llm.ToolInvocation> union =
                         new java.util.ArrayList<>(trace == null ? java.util.List.of() : trace);
+                int winnerCalls = union.size();
+                int accumulatedCalls = 0;
                 if (investigationTraceAccumulator != null) {
-                    union.addAll(investigationTraceAccumulator.drain(draft.paperId()));
+                    java.util.List<com.emergentterrain.llm.ToolInvocation> drained =
+                            investigationTraceAccumulator.drain(draft.paperId());
+                    accumulatedCalls = drained.size();
+                    union.addAll(drained);
                 }
-                conjectureWriteBackService.writeBack(union);
+                // Lever F observability — name the paper and show winner-trace vs accumulated-candidate
+                // contribution, so a capture miss pinpoints hook-fired-vs-accumulator-empty.
+                log.info("investigation-write-back hook: paperId={} winner-trace={} call(s), "
+                                + "accumulated-candidates={} call(s)",
+                        draft.paperId(), winnerCalls, accumulatedCalls);
+                conjectureWriteBackService.writeBack(union, draft.paperId());
             } catch (RuntimeException e) {
                 log.warn("investigation-write-back failed paperId={} ({})",
                         draft.paperId(), e.getMessage());

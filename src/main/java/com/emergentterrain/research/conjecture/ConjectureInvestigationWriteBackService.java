@@ -136,15 +136,28 @@ public class ConjectureInvestigationWriteBackService {
         return a.worstMargin() >= b.worstMargin() ? a : b;   // held margins are <=0; closer to 0 = tighter
     }
 
+    /** Backward-compatible overload (no paperId) — used by tests/non-paper callers. */
+    public int writeBack(List<ToolInvocation> trace) {
+        return writeBack(trace, "?");
+    }
+
     /**
-     * Write back every writable HELD bound from the trace. Returns the count
-     * written. No-op (returns 0) when the flag is OFF or the trace has none.
+     * Write back every writable HELD bound from the trace. Returns the count written. No-op (returns 0)
+     * when the flag is OFF. {@code paperId} appears in every funnel log so a capture miss names the paper.
      */
     @Transactional
-    public int writeBack(List<ToolInvocation> trace) {
+    public int writeBack(List<ToolInvocation> trace, String paperId) {
         if (!enabled) return 0;
+        int traceSize = trace == null ? 0 : trace.size();
         List<HeldBound> bounds = parseHeldBounds(trace);
-        if (bounds.isEmpty()) return 0;
+        // Lever F observability — ALWAYS log the funnel, including the parsed=0 case (previously a silent
+        // early return). This distinguishes "hook never fired for this paper" (no log at all) from "hook
+        // fired but the union held no HELD bound" (this line), which cost a session to tell apart.
+        if (bounds.isEmpty()) {
+            log.info("investigation-write-back: paperId={} received {} tool-call(s), parsed 0 HELD bound(s)",
+                    paperId, traceSize);
+            return 0;
+        }
         // Lever A — collapse to the TIGHTEST writable bound per relation (not the first in trace).
         Map<String, HeldBound> tightestByRelation = new LinkedHashMap<>();
         for (HeldBound b : bounds) {
@@ -162,17 +175,14 @@ public class ConjectureInvestigationWriteBackService {
                         b.lhs(), b.rhs(), e.getMessage());
             }
         }
-        // Always log when bounds were parsed — a parsed-but-nothing-written pass (all gated as loose /
-        // sub-region / trivial) used to be silent and cost a session to diagnose (lever F). Spell out the
-        // funnel so a capture miss is visible in one line.
         if (written > 0) {
-            log.info("investigation-write-back: wrote {} HELD bound(s) into the conjecture pool "
-                    + "(parsed {} HELD, {} writable relation(s))",
-                    written, bounds.size(), tightestByRelation.size());
+            log.info("investigation-write-back: paperId={} wrote {} HELD bound(s) into the conjecture pool "
+                    + "(received {} tool-call(s), parsed {} HELD, {} writable relation(s))",
+                    paperId, written, traceSize, bounds.size(), tightestByRelation.size());
         } else {
-            log.info("investigation-write-back: parsed {} HELD bound(s) but wrote 0 — none writable "
-                    + "(failure-region x>={}, >={} windows, rel-slack<={}, non-trivial)",
-                    bounds.size(), FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
+            log.info("investigation-write-back: paperId={} parsed {} HELD bound(s) (of {} tool-call(s)) "
+                    + "but wrote 0 — none writable (failure-region x>={}, >={} windows, rel-slack<={}, non-trivial)",
+                    paperId, bounds.size(), traceSize, FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
         }
         return written;
     }

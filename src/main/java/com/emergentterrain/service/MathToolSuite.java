@@ -2077,10 +2077,14 @@ public class MathToolSuite {
         // the bound is loose everywhere. Reported for HELD bounds both to nudge the professor to
         // iterate k/c toward a small slack and as the parseable tightness signal the discovery→pool
         // write-back gates on (ConjectureInvestigationWriteBackService). Smaller = tighter.
+        // 2026-06-10 fix — find the binding window by MAX margin directly, not by matching
+        // worstWindowStart(): for a log_window_* bound the binding-regime auto-probe appends windows
+        // below the requested start, and worstWindowStart() didn't always equal a windows() entry, so
+        // the lookup silently missed and no slack was emitted (B's gate went inert for growth anchors).
+        // The max-margin window is the binding window by definition and is always present.
         if (result.held()) {
             result.windows().stream()
-                    .filter(w -> w.windowStart() == result.worstWindowStart())
-                    .findFirst()
+                    .max(java.util.Comparator.comparingDouble(w -> w.margin()))
                     .ifPresent(w -> {
                         double bound = k * w.rhsValue() + c;
                         double denom = Math.max(Math.abs(bound), 1e-9);
