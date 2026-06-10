@@ -30,6 +30,15 @@ public class ConjectureMinerProperties {
     private double identifiabilityMaxRelStdErr = 1.0;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
+    // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
+    // investigationVerifiedAt (a professor proved its bound HELD at the failure region via the
+    // discovery→pool write-back) is spared from EMPIRICAL retirement on sub-failure-region evidence:
+    // a counterexample below FAILURE_REGION_FLOOR no longer retires it (the bound is asymptotic —
+    // the professor only ever claimed it at high x), and the stochastic-null / private-holdout /
+    // replication heuristics defer to that verification. STRUCTURAL gates (knob/triviality/dimension/
+    // unit) still apply, and a genuine counterexample AT x >= FAILURE_REGION_FLOOR still retires it.
+    // Default OFF; closes the loop where every write-back revival was erased on the next mine pass.
+    private boolean respectInvestigationVerified = false;
     // Wave 3 — clade-value × inverse-popularity selection (replaces rank-by-fit for live conjectures).
     private boolean cladeValueSelectionEnabled = false;
     // Observability.
@@ -89,6 +98,9 @@ public class ConjectureMinerProperties {
 
     public boolean isInvestigationRotationEnabled() { return investigationRotationEnabled; }
     public void setInvestigationRotationEnabled(boolean v) { this.investigationRotationEnabled = v; }
+
+    public boolean isRespectInvestigationVerified() { return respectInvestigationVerified; }
+    public void setRespectInvestigationVerified(boolean v) { this.respectInvestigationVerified = v; }
 
     public boolean isCladeValueSelectionEnabled() { return cladeValueSelectionEnabled; }
     public void setCladeValueSelectionEnabled(boolean v) { this.cladeValueSelectionEnabled = v; }

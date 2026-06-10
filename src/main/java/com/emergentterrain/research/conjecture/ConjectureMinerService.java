@@ -49,6 +49,14 @@ public class ConjectureMinerService implements ConjectureQueue {
 
     private static final String DOMAIN = "math";
 
+    /**
+     * 2026-06-10 — decision A. The failure-region floor (x): a bound a professor verified HELD here
+     * (stamped {@code investigationVerifiedAt} by {@link ConjectureInvestigationWriteBackService})
+     * is asymptotic — it is only ever claimed at x &gt;= this floor, so a counterexample BELOW it is
+     * expected and must not retire the stamped row. Matches the write-back's {@code FAILURE_REGION_MIN_X}.
+     */
+    static final long FAILURE_REGION_FLOOR = 1_000_000L;
+
     /** Mining plan — matches the Python prototype's RUNS exactly. */
     private record Run(String name, int windowSize, int[] offsets) {}
 
@@ -116,6 +124,15 @@ public class ConjectureMinerService implements ConjectureQueue {
      * peek ordering). See phase-30-conjecture/IMPLEMENTATION-ORDER.md Wave 0.
      */
     private final boolean investigationRotationEnabled;
+
+    /**
+     * 2026-06-10 — decision A: when ON, a row stamped {@code investigationVerifiedAt} is spared from
+     * empirical retirement on sub-failure-region evidence (a counterexample below
+     * {@link #FAILURE_REGION_FLOOR}, or the stochastic-null / private-holdout / replication
+     * heuristics). It remains subject to structural gates and to a genuine counterexample at
+     * x &gt;= the floor. Default OFF. See {@link ConjectureInvestigationWriteBackService}.
+     */
+    private final boolean respectInvestigationVerified;
 
     /**
      * Phase 30 integration (observability) — when ON, each mine pass logs a
@@ -285,6 +302,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.trivialityFilterEnabled = props.isTrivialityFilterEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
+        this.respectInvestigationVerified = props.isRespectInvestigationVerified();
         this.substrateMetricsEnabled = props.isSubstrateMetricsEnabled();
         this.compositionPersistEnabled = props.isCompositionPersistEnabled();
         this.compositionPersistCap = props.getCompositionPersistCap();
@@ -340,6 +358,10 @@ public class ConjectureMinerService implements ConjectureQueue {
                 anomalyMiningEnabled ? "ON (minConfirmed=" + anomalyMinConfirmed + ")" : "OFF",
                 vocabularyExpansionEnabled ? "ON (depth=" + vocabularyExpansionDepth + ")" : "OFF",
                 rafClosureEnabled ? "ON" : "OFF");
+        if (respectInvestigationVerified) {
+            log.info("conjecture miner — decision A ON: investigation-verified rows spared from "
+                    + "empirical retirement below the failure-region floor (x={})", FAILURE_REGION_FLOOR);
+        }
     }
 
     /**
@@ -408,8 +430,18 @@ public class ConjectureMinerService implements ConjectureQueue {
                 ConjectureEngine.UpdateResult ur = ConjectureEngine.update(
                         store, run.name(), configHash, samples);
                 totalConfirmed += ur.confirmed();
-                totalRetiredByCounterexample += ur.retired();
-                persistRetired(ur.retiredItems(), byKey, DROPPED_BY_COUNTEREXAMPLE);
+                // Decision A: an investigation-verified bound is asymptotic — refuted below the
+                // failure-region floor is expected, not a refutation of what the professor claimed.
+                // Spare those (re-add to store so in-region runs/gates still re-test them); a
+                // counterexample AT x >= the floor still retires normally.
+                List<Inequality> toRetire = ur.retiredItems();
+                if (respectInvestigationVerified && !toRetire.isEmpty()) {
+                    List<Inequality> spared = new ArrayList<>();
+                    toRetire = sparingSubRegionVerified(toRetire, byKey, spared);
+                    store.addAll(spared);
+                }
+                totalRetiredByCounterexample += toRetire.size();   // spared rows are not retirements
+                persistRetired(toRetire, byKey, DROPPED_BY_COUNTEREXAMPLE);
             }
         }
 
@@ -1114,12 +1146,68 @@ public class ConjectureMinerService implements ConjectureQueue {
      * {@code false} (DROP). Lets the W4 gates be A/B-validated against the live pool with no risk.
      */
     private boolean retireOrShadow(boolean shadow, Inequality ineq, Map<String, Conjecture> byKey, String reason) {
+        // Decision A: the stochastic-null / private-holdout / replication heuristics are empirical
+        // objections a professor's failure-region verification supersedes — none of them tests AT the
+        // failure region with the discriminating power of verify_conjecture, and the offending
+        // signal (near-constant rhs, public/private slack, fold instability) is a small-window
+        // artifact for an asymptotic bound. Spare a stamped row from all three (KEEP it live).
+        if (respectInvestigationVerified && investigationVerified(ineq, byKey)) {
+            log.info("decision-A — sparing investigation-verified {} <= k*{} from empirical retire "
+                    + "(reason {}); professor's failure-region verification supersedes",
+                    ineq.lhs, ineq.rhs, reason);
+            return true;
+        }
         if (shadow) {
             log.info("W4 shadow — WOULD-RETIRE {} <= k*{} (reason {})", ineq.lhs, ineq.rhs, reason);
             return true;
         }
         persistRetired(List.of(ineq), byKey, reason);
         return false;
+    }
+
+    /** True when the row backing this inequality carries a professor's failure-region verification. */
+    private boolean investigationVerified(Inequality ineq, Map<String, Conjecture> byKey) {
+        Conjecture e = byKey.get(keyOf(ineq.lhs, ineq.rhs));
+        return e != null && e.investigationVerifiedAt() != null;
+    }
+
+    /**
+     * Decision A — partition counterexample-retired items: a stamped (investigation-verified) row
+     * whose worst refuting window is BELOW {@link #FAILURE_REGION_FLOOR} is moved into {@code sparedOut}
+     * (kept live, re-tested by in-region runs) instead of retired. Everything else — unstamped rows,
+     * and stamped rows genuinely refuted at x &gt;= the floor — is returned for normal retirement.
+     */
+    private List<Inequality> sparingSubRegionVerified(
+            List<Inequality> retired, Map<String, Conjecture> byKey, List<Inequality> sparedOut) {
+        List<Inequality> stillRetire = new ArrayList<>(retired.size());
+        for (Inequality ineq : retired) {
+            long tick = worstWitnessTick(ineq);
+            if (spareFromCounterexample(investigationVerified(ineq, byKey), tick)) {
+                sparedOut.add(ineq);
+                log.info("decision-A — sparing investigation-verified {} <= k*{} from counterexample "
+                        + "at x={} (< failure-region floor {}); verified asymptotically at the failure region",
+                        ineq.lhs, ineq.rhs, tick, FAILURE_REGION_FLOOR);
+            } else {
+                stillRetire.add(ineq);
+            }
+        }
+        return stillRetire;
+    }
+
+    /**
+     * Decision A's boundary, pure for unit testing: spare a counterexample-retire only when the row is
+     * investigation-verified AND the refuting window is BELOW {@link #FAILURE_REGION_FLOOR}. An
+     * unverified row, or a verified row refuted at or above the floor, is NOT spared (retires normally).
+     */
+    static boolean spareFromCounterexample(boolean verified, long witnessTick) {
+        return verified && witnessTick < FAILURE_REGION_FLOOR;
+    }
+
+    /** The x (window start) of the most recent refuting witness, or {@link Long#MAX_VALUE} if none
+     *  (treated as in-region so a witness-less retire is never spared). */
+    static long worstWitnessTick(Inequality ineq) {
+        List<Witness> w = ineq.refutedBy();
+        return w.isEmpty() ? Long.MAX_VALUE : w.get(w.size() - 1).tick();
     }
 
     /**
