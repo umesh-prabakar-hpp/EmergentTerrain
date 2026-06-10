@@ -152,7 +152,6 @@ public class ConjectureInvestigationWriteBackService {
             tightestByRelation.merge(b.lhs() + "|" + b.rhs(), b,
                     ConjectureInvestigationWriteBackService::tighter);
         }
-        if (tightestByRelation.isEmpty()) return 0;
         Instant now = Instant.now();
         int written = 0;
         for (HeldBound b : tightestByRelation.values()) {
@@ -163,9 +162,17 @@ public class ConjectureInvestigationWriteBackService {
                         b.lhs(), b.rhs(), e.getMessage());
             }
         }
+        // Always log when bounds were parsed — a parsed-but-nothing-written pass (all gated as loose /
+        // sub-region / trivial) used to be silent and cost a session to diagnose (lever F). Spell out the
+        // funnel so a capture miss is visible in one line.
         if (written > 0) {
-            log.info("investigation-write-back: wrote {} HELD bound(s) into the conjecture pool",
-                    written);
+            log.info("investigation-write-back: wrote {} HELD bound(s) into the conjecture pool "
+                    + "(parsed {} HELD, {} writable relation(s))",
+                    written, bounds.size(), tightestByRelation.size());
+        } else {
+            log.info("investigation-write-back: parsed {} HELD bound(s) but wrote 0 — none writable "
+                    + "(failure-region x>={}, >={} windows, rel-slack<={}, non-trivial)",
+                    bounds.size(), FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
         }
         return written;
     }

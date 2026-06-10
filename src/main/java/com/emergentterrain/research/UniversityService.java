@@ -202,6 +202,14 @@ public class UniversityService {
     private com.emergentterrain.research.conjecture.ConjectureInvestigationWriteBackService
             conjectureWriteBackService;
     /**
+     * Lever F (2026-06-10) — union of all best-of-N candidates' professor traces by paperId, so the
+     * write-back below captures a verified bound from a LOSING candidate, not only the winning
+     * narration's trace. Optional/field-injected like the service above.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.conjecture.InvestigationTraceAccumulator
+            investigationTraceAccumulator;
+    /**
      * Paper-review 2026-05-22 fix 4 — flag papers whose Hypothesis text
      * declares a parameter range (e.g. "from 400nm to 700nm") but
      * whose persisted tool-call trace covers less than half of it.
@@ -1264,7 +1272,17 @@ public class UniversityService {
         if (conjectureWriteBackService != null && conjectureWriteBackService.enabled()
                 && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
             try {
-                conjectureWriteBackService.writeBack(narration.toolCallTrace());
+                // Lever F — write back over the UNION of every best-of-N candidate's professor trace
+                // (a bound a losing candidate proved HELD would otherwise be lost), not just the
+                // winning narration's. The winner's trace is in the accumulator too, but union +
+                // de-dup in writeBack makes including narration.toolCallTrace() harmless and robust.
+                java.util.List<com.emergentterrain.llm.ToolInvocation> trace = narration.toolCallTrace();
+                java.util.List<com.emergentterrain.llm.ToolInvocation> union =
+                        new java.util.ArrayList<>(trace == null ? java.util.List.of() : trace);
+                if (investigationTraceAccumulator != null) {
+                    union.addAll(investigationTraceAccumulator.drain(draft.paperId()));
+                }
+                conjectureWriteBackService.writeBack(union);
             } catch (RuntimeException e) {
                 log.warn("investigation-write-back failed paperId={} ({})",
                         draft.paperId(), e.getMessage());
