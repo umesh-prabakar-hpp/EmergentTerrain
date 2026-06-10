@@ -142,13 +142,13 @@ class ConjectureInvestigationWriteBackServiceTest {
     // ── Lever D — measured-invariant (frames 1-3) parsing ──────────────────────────────────
 
     private static final String CONST_CONVERGED =
-            "verify_constant: twin_vs_prime_sq ~ 1.32050 over 5 window(s) of size 10000 starting at "
-            + "1800000. CONVERGED to target 1.32032: worst |dev| 0.00210 at window starting 1900000, "
-            + "relative spread 0.0016 (tol 0.0500).";
+            "verify_constant: twin_vs_prime_sq ~ 1.31817 over 20 window(s) of size 5000 starting at "
+            + "1800000. CONVERGED to target 1.32032: mean rel-dev 0.0016, per-window spread 0.2900 "
+            + "(worst |dev| 0.37088 at window starting 2010000) (tol 0.0500).";
     private static final String GROWTH_CONVERGED =
             "verify_growth: max_divisor_count in wigert coords ~ 0.69500 over 5 window(s) of size 10000 "
-            + "starting at 1800000. CONVERGED to growth constant 0.69315: worst |dev| 0.01000 at window "
-            + "starting 1900000, relative spread 0.0144 (tol 0.1000).";
+            + "starting at 1800000. CONVERGED to growth constant 0.69315: mean rel-dev 0.0144, "
+            + "per-window spread 0.0500 (worst |dev| 0.03000 at window starting 1900000) (tol 0.1000).";
     private static final String OSC_ENVELOPE =
             "verify_oscillation: mertens_delta over 5 window(s) of size 10000 starting at 1800000: "
             + "4 sign change(s), amplitude 140.00000 at window starting 1600000, mean +4.00000, "

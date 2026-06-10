@@ -17,18 +17,24 @@ public final class ConstantConvergence {
     private ConstantConvergence() {}
 
     /**
-     * @param mean          arithmetic mean of the per-window values
+     * @param mean          arithmetic mean of the per-window values — the LIMIT estimate
      * @param min           smallest window value
      * @param max           largest window value
      * @param estimate      the constant being tested against: {@code target} if supplied, else {@code mean}
      * @param worstDeviation the largest {@code |value − estimate|} over the windows
      * @param worstWindowStart the window start at which {@code worstDeviation} occurred
-     * @param relativeSpread {@code worstDeviation / max(|estimate|, eps)} — the tightness of convergence
-     * @param converged     true when {@code relativeSpread ≤ tol}
+     * @param relativeSpread {@code worstDeviation / |estimate|} — per-window SAMPLING NOISE (informative,
+     *                       not a convergence test): a sparse quantity (twin primes) is noisy per window
+     *                       even when its mean has converged
+     * @param meanRelDeviation {@code |mean − target| / |target|} when a target is given (0 otherwise) —
+     *                       the actual CONVERGENCE signal: does the average approach the limit?
+     * @param converged     with a target: {@code meanRelDeviation ≤ tol} (the mean reached the limit;
+     *                       window noise is averaged out). Without a target: {@code relativeSpread ≤ tol}
+     *                       (the values have settled).
      */
     public record Assessment(double mean, double min, double max, double estimate,
                              double worstDeviation, long worstWindowStart,
-                             double relativeSpread, boolean converged) {}
+                             double relativeSpread, double meanRelDeviation, boolean converged) {}
 
     private static final double EPS = 1e-12;
 
@@ -64,6 +70,12 @@ public final class ConstantConvergence {
             }
         }
         double relSpread = worstDev / Math.max(Math.abs(estimate), EPS);
-        return new Assessment(mean, min, max, estimate, worstDev, worstStart, relSpread, relSpread <= tol);
+        // Convergence is about the MEAN reaching the limit, not every noisy window: a sparse quantity
+        // (twin primes in a 5k window) deviates per-window even once its average has converged. With a
+        // target, judge |mean − target|; without one, the empirical limit IS the mean, so fall back to
+        // the spread (have the values settled?).
+        double meanRelDev = target != null ? Math.abs(mean - target) / Math.max(Math.abs(target), EPS) : 0.0;
+        boolean converged = target != null ? (meanRelDev <= tol) : (relSpread <= tol);
+        return new Assessment(mean, min, max, estimate, worstDev, worstStart, relSpread, meanRelDev, converged);
     }
 }

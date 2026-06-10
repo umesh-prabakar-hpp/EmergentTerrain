@@ -77,11 +77,11 @@ public class ConjectureInvestigationWriteBackService {
     // contain '.' and the oscillation line contains '|' (mean|.|, max|lhs|).
     private static final Pattern CONST_CONVERGED = Pattern.compile(
             "verify_constant: ([a-zA-Z_]+) ~ [+-]?[0-9.]+ over [0-9]+ window\\(s\\) of size [0-9]+ "
-                    + "starting at ([0-9]+)\\. CONVERGED to target ([+-]?[0-9.]+):.*?relative spread ([0-9.]+)");
+                    + "starting at ([0-9]+)\\. CONVERGED to target ([+-]?[0-9.]+): mean rel-dev ([0-9.]+)");
     private static final Pattern GROWTH_CONVERGED = Pattern.compile(
             "verify_growth: ([a-zA-Z_]+) in [a-z]+ coords ~ [+-]?[0-9.]+ over [0-9]+ window\\(s\\) of size "
-                    + "[0-9]+ starting at ([0-9]+)\\. CONVERGED to growth constant ([+-]?[0-9.]+):"
-                    + ".*?relative spread ([0-9.]+)");
+                    + "[0-9]+ starting at ([0-9]+)\\. CONVERGED to growth constant ([+-]?[0-9.]+): "
+                    + "mean rel-dev ([0-9.]+)");
     private static final Pattern OSC_ENVELOPE = Pattern.compile(
             "verify_oscillation: ([a-zA-Z_]+) over [0-9]+ window\\(s\\) of size [0-9]+ starting at ([0-9]+):"
                     // [0-9]+\.[0-9]+ (not [0-9.]+) so the trailing sentence period isn't grabbed into the value.

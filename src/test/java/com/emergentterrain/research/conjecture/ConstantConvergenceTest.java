@@ -24,6 +24,18 @@ class ConstantConvergenceTest {
     }
 
     @Test
+    void convergesByMean_despiteNoisyWindows() {
+        // The twin_vs_prime_sq case observed live: twin primes are sparse, so per-window values swing
+        // wildly, but the MEAN sits on 2C₂. Convergence must be judged by the mean, not the worst window.
+        double[] v = {1.05, 1.60, 1.20, 1.55, 1.30};   // mean = 1.34
+        long[] s = {1_000_000, 1_200_000, 1_400_000, 1_600_000, 1_800_000};
+        Assessment a = ConstantConvergence.assess(v, s, 1.34, 0.05);
+        assertThat(a.relativeSpread()).isGreaterThan(0.15);   // noisy per window
+        assertThat(a.meanRelDeviation()).isLessThan(0.01);    // but the mean is on target
+        assertThat(a.converged()).isTrue();                   // judged by the mean, not the worst window
+    }
+
+    @Test
     void divergesFromTarget_whenOff() {
         double[] v = {1.10, 1.15, 1.20, 1.25};           // trending, not at 1.32
         long[] s = {1_000_000, 1_200_000, 1_500_000, 1_800_000};

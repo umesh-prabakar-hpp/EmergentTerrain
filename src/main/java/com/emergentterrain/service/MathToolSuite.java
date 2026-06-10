@@ -2313,13 +2313,18 @@ public class MathToolSuite {
                 "verify_constant: %s ~ %.5f over %d window(s) of size %d starting at %d. ",
                 lhs, a.mean(), windows.size(), windowSize, windowStart));
         if (target != null) {
+            // Convergence is judged by the MEAN's deviation from the target (the limit), with the
+            // per-window spread reported as sampling noise — a sparse quantity (twin primes) is noisy
+            // per window even once its average has converged.
             sb.append(String.format(
-                    "%s target %.5f: worst |dev| %.5f at window starting %d, relative spread %.4f (tol %.4f).",
+                    "%s target %.5f: mean rel-dev %.4f, per-window spread %.4f (worst |dev| %.5f at window "
+                            + "starting %d) (tol %.4f).",
                     a.converged() ? "CONVERGED to" : "NOT converged to",
-                    target, a.worstDeviation(), a.worstWindowStart(), a.relativeSpread(), tol));
+                    target, a.meanRelDeviation(), a.relativeSpread(), a.worstDeviation(),
+                    a.worstWindowStart(), tol));
         } else {
             sb.append(String.format(
-                    "no target — estimated limit %.5f (range [%.5f, %.5f]), relative spread %.4f %s.",
+                    "no target — estimated limit %.5f (range [%.5f, %.5f]), per-window spread %.4f %s.",
                     a.estimate(), a.min(), a.max(), a.relativeSpread(),
                     a.converged() ? "(settled within tol)" : "(not yet settled)"));
         }
@@ -2426,11 +2431,13 @@ public class MathToolSuite {
                 lhs, scale, a.mean(), windows.size(), windowSize, windowStart));
         if (target != null) {
             sb.append(String.format(
-                    "%s growth constant %.5f: worst |dev| %.5f at window starting %d, relative spread %.4f (tol %.4f).",
+                    "%s growth constant %.5f: mean rel-dev %.4f, per-window spread %.4f (worst |dev| %.5f at "
+                            + "window starting %d) (tol %.4f).",
                     a.converged() ? "CONVERGED to" : "approaching (not yet within tol)",
-                    target, a.worstDeviation(), a.worstWindowStart(), a.relativeSpread(), tol));
+                    target, a.meanRelDeviation(), a.relativeSpread(), a.worstDeviation(),
+                    a.worstWindowStart(), tol));
         } else {
-            sb.append(String.format("estimated growth constant %.5f (range [%.5f, %.5f]), relative spread %.4f.",
+            sb.append(String.format("estimated growth constant %.5f (range [%.5f, %.5f]), per-window spread %.4f.",
                     a.estimate(), a.min(), a.max(), a.relativeSpread()));
         }
         return sb.toString();
