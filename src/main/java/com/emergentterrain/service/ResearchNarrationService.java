@@ -2156,6 +2156,16 @@ public class ResearchNarrationService {
                     break;
                 }
             }
+            // Lever F (2026-06-10 fix) — capture the FINAL professor trace, after the resample/pivot
+            // passes may have REPLACED profTrace (lines above). The pivot re-run is exactly the
+            // preregistered-LHS growth-anchor verification — where the tight bound is proven — so the
+            // first-pass capture (right after the initial profResponse) misses it for a LOSING candidate
+            // whose pivot found the bound. add() is additive + parse de-dups, so capturing both passes
+            // is safe and gives the write-back the complete per-candidate verify set.
+            if (investigationTraceAccumulator != null
+                    && draft.kind() == com.emergentterrain.research.PaperKind.CONJECTURE_INVESTIGATION) {
+                investigationTraceAccumulator.add(draft.paperId(), profTrace);
+            }
 
             // 2026-06-05 review rec #1 — recognize a conjecture investigation's FITTED
             // CONSTANT (threaded via draft.param2). P-b72c-177 mined the ceiling 1.3128
