@@ -3620,7 +3620,12 @@ public class ResearchNarrationService {
             + "leaving margin -89) is trivially loose and does not count. Report the tight (k, c) and the "
             + "worst-margin AT THE FAILURE REGION. A growth-anchor bound that HOLDS TIGHTLY ACROSS "
             + "THE WINDOWS WHERE THE FLAT BOUND FAILED is THE result of the paper — a bound that "
-            + "SURVIVED adversarial testing — not the flat-feature refutation.";
+            + "SURVIVED adversarial testing — not the flat-feature refutation. Each HELD "
+            + "verify_conjecture now reports a 'relative slack' (|margin|/|bound| at the binding "
+            + "window): treat it as your tightness gauge and keep iterating k/c at the failure region "
+            + "until it is SMALL (aim <= 0.25) — a HELD bound whose relative slack is still large is "
+            + "loose and will not be retained as a survivor, so report the (k, c) at your SMALLEST "
+            + "achieved relative slack.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────

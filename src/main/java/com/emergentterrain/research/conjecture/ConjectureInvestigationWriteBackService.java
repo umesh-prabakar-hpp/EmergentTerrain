@@ -10,8 +10,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -49,12 +51,23 @@ public class ConjectureInvestigationWriteBackService {
     private static final long FAILURE_REGION_MIN_X = 1_000_000L;
     /** Require some adversarial coverage. */
     private static final int MIN_WINDOWS = 3;
+    /**
+     * 2026-06-10 (tight-bound frontier, lever B) — the most a written-back bound may slack at its
+     * binding window: {@code |margin| / |bound|} above this is "loose" — the flat-feature refutation
+     * dressed up, not a tight survivor — and is NOT enshrined in the pool. A bound with no parsed
+     * relative-slack figure (older traces / non-emitting paths) is admitted as before (lenient).
+     * Lenient ceiling: rejects egregiously loose bounds (e.g. a k=1 growth anchor at ~0.65) while
+     * still admitting numerically-tight survivors.
+     */
+    private static final double MAX_REL_SLACK = 0.25;
 
-    /** Parses a verify_conjecture result line (MathToolSuite format). */
+    /** Parses a verify_conjecture result line (MathToolSuite format). The trailing relative-slack
+     *  figure is OPTIONAL (HELD lines emit it since 2026-06-10; refuted/older lines do not). */
     private static final Pattern HELD = Pattern.compile(
             "verify_conjecture: ([a-zA-Z_]+) <= ([+-][0-9.]+) \\* ([a-zA-Z_]+) \\+ "
                     + "([+-][0-9.]+) HELD across ([0-9]+) window\\(s\\) of size [0-9]+ "
-                    + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)");
+                    + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)"
+                    + "(?: at window starting [0-9]+\\. relative slack: ([0-9.]+))?");
 
     private final ConjectureRepository repo;
 
@@ -67,9 +80,10 @@ public class ConjectureInvestigationWriteBackService {
 
     public boolean enabled() { return enabled; }
 
-    /** One HELD bound parsed from an investigation trace. */
+    /** One HELD bound parsed from an investigation trace. {@code relSlack} is the binding-window
+     *  relative slack ({@code |margin|/|bound|}) if the line carried it, else {@code null}. */
     public record HeldBound(String lhs, String rhs, double k, double c,
-                            int numWindows, long windowStart, double worstMargin) {}
+                            int numWindows, long windowStart, double worstMargin, Double relSlack) {}
 
     /**
      * Extract every distinct HELD verify_conjecture bound from a professor trace.
@@ -90,21 +104,36 @@ public class ConjectureInvestigationWriteBackService {
                     int nw = Integer.parseInt(m.group(5));
                     long start = Long.parseLong(m.group(6));
                     double margin = Double.parseDouble(m.group(7));
+                    Double relSlack = m.group(8) == null ? null : Double.valueOf(m.group(8));
                     String key = lhs + "|" + rhs + "|" + k + "|" + c + "|" + start;
-                    if (seen.add(key)) out.add(new HeldBound(lhs, rhs, k, c, nw, start, margin));
+                    if (seen.add(key)) out.add(new HeldBound(lhs, rhs, k, c, nw, start, margin, relSlack));
                 } catch (NumberFormatException ignore) { /* skip malformed */ }
             }
         }
         return out;
     }
 
-    /** True when the bound is worth writing back: held at the failure region, with
-     *  adversarial coverage, and a legal (non-window-geometry-subject) inequality. */
+    /** True when the bound is worth writing back: held at the failure region, with adversarial
+     *  coverage, TIGHT enough at its binding window (lever B), and a legal (non-window-geometry-
+     *  subject) inequality. A bound with no parsed relative-slack figure passes the tightness check
+     *  (lenient — older/non-emitting lines). */
     static boolean writable(HeldBound b) {
         if (b.windowStart() < FAILURE_REGION_MIN_X) return false;
         if (b.numWindows() < MIN_WINDOWS) return false;
+        if (b.relSlack() != null && b.relSlack() > MAX_REL_SLACK) return false;   // lever B: no loose survivors
         return ConjectureTrivialityFilter.dropReason(
                 new Inequality(b.lhs(), b.rhs(), b.k(), b.c())).isEmpty();
+    }
+
+    /** Lever A — among several HELD verifications of the SAME relation, the tightest: smallest parsed
+     *  relative slack, tiebroken by the worst margin closest to 0 (bounds with a parsed slack rank
+     *  ahead of those without). Used so the pool keeps the professor's tight fit, not whichever
+     *  verify call happened to appear first in the trace (typically the loose probe). */
+    static HeldBound tighter(HeldBound a, HeldBound b) {
+        double sa = a.relSlack() == null ? Double.POSITIVE_INFINITY : a.relSlack();
+        double sb = b.relSlack() == null ? Double.POSITIVE_INFINITY : b.relSlack();
+        if (sa != sb) return sa < sb ? a : b;
+        return a.worstMargin() >= b.worstMargin() ? a : b;   // held margins are <=0; closer to 0 = tighter
     }
 
     /**
@@ -116,12 +145,17 @@ public class ConjectureInvestigationWriteBackService {
         if (!enabled) return 0;
         List<HeldBound> bounds = parseHeldBounds(trace);
         if (bounds.isEmpty()) return 0;
-        Instant now = Instant.now();
-        int written = 0;
-        Set<String> done = new LinkedHashSet<>();
+        // Lever A — collapse to the TIGHTEST writable bound per relation (not the first in trace).
+        Map<String, HeldBound> tightestByRelation = new LinkedHashMap<>();
         for (HeldBound b : bounds) {
             if (!writable(b)) continue;
-            if (!done.add(b.lhs() + "|" + b.rhs())) continue;   // one upsert per relation
+            tightestByRelation.merge(b.lhs() + "|" + b.rhs(), b,
+                    ConjectureInvestigationWriteBackService::tighter);
+        }
+        if (tightestByRelation.isEmpty()) return 0;
+        Instant now = Instant.now();
+        int written = 0;
+        for (HeldBound b : tightestByRelation.values()) {
             try {
                 written += upsert(b, now) ? 1 : 0;
             } catch (RuntimeException e) {
@@ -148,19 +182,23 @@ public class ConjectureInvestigationWriteBackService {
             row.setDroppedByKnob(null);   // revive: the professor proved it holds
             row.setUpdatedAt(now);
             repo.save(row);
-            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{} — revived from {} "
+            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{}{} — revived from {} "
                             + "with professor fit (was {})",
-                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), wasState,
+                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), tightnessTag(b), wasState,
                     String.format("k≈%.2f", row.k()));
         } else {
             row = new Conjecture(DOMAIN, b.lhs(), b.rhs(), b.k(), b.c());
             row.setConfirmedRuns(1);
             row.setUpdatedAt(now);
             row = repo.save(row);
-            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{} — inserted new live relation",
-                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart());
+            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{}{} — inserted new live relation",
+                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), tightnessTag(b));
         }
         repo.stampInvestigationVerified(row.id(), now);
         return true;
+    }
+
+    private static String tightnessTag(HeldBound b) {
+        return b.relSlack() == null ? "" : String.format(" (rel-slack %.4f)", b.relSlack());
     }
 }

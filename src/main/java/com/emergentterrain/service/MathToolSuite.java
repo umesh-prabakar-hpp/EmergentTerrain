@@ -2071,6 +2071,25 @@ public class MathToolSuite {
                 result.windowsEvaluated(), windowSize, windowStart));
         sb.append(String.format("worst margin: %+.5f at window starting %d.",
                 result.worstMargin(), result.worstWindowStart()));
+        // 2026-06-10 (tight-bound frontier) — relative slack at the binding (worst-margin)
+        // window: |margin| / |bound|. The worst margin is the window where the lhs sits CLOSEST
+        // to the ceiling, so this is the bound's tightest point; if even there the slack is large,
+        // the bound is loose everywhere. Reported for HELD bounds both to nudge the professor to
+        // iterate k/c toward a small slack and as the parseable tightness signal the discovery→pool
+        // write-back gates on (ConjectureInvestigationWriteBackService). Smaller = tighter.
+        if (result.held()) {
+            result.windows().stream()
+                    .filter(w -> w.windowStart() == result.worstWindowStart())
+                    .findFirst()
+                    .ifPresent(w -> {
+                        double bound = k * w.rhsValue() + c;
+                        double denom = Math.max(Math.abs(bound), 1e-9);
+                        double relSlack = Math.abs(w.margin()) / denom;
+                        sb.append(String.format(
+                                " relative slack: %.4f (|margin|/|bound|, smaller = tighter).",
+                                relSlack));
+                    });
+        }
         // Log-base label (room b72c4e10, REVIEW_REPORT §1 rec #2): the
         // log_window_* scalars are base-10 (MathInvariants uses Math.log10), but
         // "log" reads as natural log in the RH-conditional O(sqrt(x) log x)
