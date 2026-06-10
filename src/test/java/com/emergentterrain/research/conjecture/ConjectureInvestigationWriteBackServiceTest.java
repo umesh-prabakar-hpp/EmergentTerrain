@@ -138,4 +138,23 @@ class ConjectureInvestigationWriteBackServiceTest {
     void nullTrace_yieldsNoBounds() {
         assertThat(ConjectureInvestigationWriteBackService.parseHeldBounds(null)).isEmpty();
     }
+
+    @Test
+    void rejectReason_writable_isEmpty() {
+        HeldBound tight = ConjectureInvestigationWriteBackService.parseHeldBounds(
+                List.of(verify(HELD_TIGHT))).get(0);
+        assertThat(ConjectureInvestigationWriteBackService.rejectReason(tight)).isEmpty();
+    }
+
+    @Test
+    void rejectReason_namesTheFailingGate() {
+        HeldBound subRegion = new HeldBound("max_prime_gap", "log_sq_window_start",
+                1.0, 0.0, 10, 200_003L, -89.0, null);
+        assertThat(ConjectureInvestigationWriteBackService.rejectReason(subRegion))
+                .startsWith("sub-failure-region");
+        HeldBound loose = new HeldBound("max_prime_gap", "log_sq_window_start",
+                1.0, 0.0, 10, 1_800_000L, -135.0, 0.65);
+        assertThat(ConjectureInvestigationWriteBackService.rejectReason(loose))
+                .startsWith("too-loose");
+    }
 }

@@ -118,11 +118,18 @@ public class ConjectureInvestigationWriteBackService {
      *  subject) inequality. A bound with no parsed relative-slack figure passes the tightness check
      *  (lenient — older/non-emitting lines). */
     static boolean writable(HeldBound b) {
-        if (b.windowStart() < FAILURE_REGION_MIN_X) return false;
-        if (b.numWindows() < MIN_WINDOWS) return false;
-        if (b.relSlack() != null && b.relSlack() > MAX_REL_SLACK) return false;   // lever B: no loose survivors
+        return rejectReason(b).isEmpty();
+    }
+
+    /** The first criterion barring this bound from write-back, or "" if writable. Diagnostic twin of
+     *  {@link #writable} — its reason string is logged per bound so a non-write names the failing gate. */
+    static String rejectReason(HeldBound b) {
+        if (b.windowStart() < FAILURE_REGION_MIN_X) return "sub-failure-region(x=" + b.windowStart() + ")";
+        if (b.numWindows() < MIN_WINDOWS) return "too-few-windows(" + b.numWindows() + ")";
+        if (b.relSlack() != null && b.relSlack() > MAX_REL_SLACK) return "too-loose(rel-slack=" + b.relSlack() + ")";
         return ConjectureTrivialityFilter.dropReason(
-                new Inequality(b.lhs(), b.rhs(), b.k(), b.c())).isEmpty();
+                new Inequality(b.lhs(), b.rhs(), b.k(), b.c()))
+                .map(r -> "trivial(" + r + ")").orElse("");
     }
 
     /** Lever A — among several HELD verifications of the SAME relation, the tightest: smallest parsed
@@ -149,14 +156,34 @@ public class ConjectureInvestigationWriteBackService {
     public int writeBack(List<ToolInvocation> trace, String paperId) {
         if (!enabled) return 0;
         int traceSize = trace == null ? 0 : trace.size();
+        // Diagnostic counters — separate "trace lacked the verify outputs" from "regex missed HELD
+        // summaries" from "writability gate rejected them". verifyCalls = tool results that ARE verify
+        // outputs; heldSummaries = those whose summary says HELD; parsed = those the regex turned into a
+        // HeldBound. heldSummaries >> parsed ⇒ a format/regex miss; verifyCalls small ⇒ trace truncation.
+        int verifyCalls = 0, heldSummaries = 0;
+        if (trace != null) {
+            for (ToolInvocation inv : trace) {
+                if (inv == null || inv.resultJson() == null) continue;
+                if (inv.resultJson().contains("verify_conjecture:")) verifyCalls++;
+                if (inv.resultJson().contains(" HELD across ")) heldSummaries++;
+            }
+        }
         List<HeldBound> bounds = parseHeldBounds(trace);
         // Lever F observability — ALWAYS log the funnel, including the parsed=0 case (previously a silent
         // early return). This distinguishes "hook never fired for this paper" (no log at all) from "hook
-        // fired but the union held no HELD bound" (this line), which cost a session to tell apart.
+        // fired but the union held no parseable HELD bound" (this line).
         if (bounds.isEmpty()) {
-            log.info("investigation-write-back: paperId={} received {} tool-call(s), parsed 0 HELD bound(s)",
-                    paperId, traceSize);
+            log.info("investigation-write-back: paperId={} received {} tool-call(s) "
+                    + "({} verify, {} with HELD-summary), parsed 0 HELD bound(s)",
+                    paperId, traceSize, verifyCalls, heldSummaries);
             return 0;
+        }
+        // Per-bound diagnosis: log every parsed bound and the exact gate that bars it (or WRITE).
+        for (HeldBound b : bounds) {
+            String reason = rejectReason(b);
+            log.info("investigation-write-back: paperId={} bound {} <= {}*{} + {} @{} (windows={}, rel-slack={}) -> {}",
+                    paperId, b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), b.numWindows(),
+                    b.relSlack(), reason.isEmpty() ? "WRITABLE" : "reject:" + reason);
         }
         // Lever A — collapse to the TIGHTEST writable bound per relation (not the first in trace).
         Map<String, HeldBound> tightestByRelation = new LinkedHashMap<>();
@@ -177,12 +204,14 @@ public class ConjectureInvestigationWriteBackService {
         }
         if (written > 0) {
             log.info("investigation-write-back: paperId={} wrote {} HELD bound(s) into the conjecture pool "
-                    + "(received {} tool-call(s), parsed {} HELD, {} writable relation(s))",
-                    paperId, written, traceSize, bounds.size(), tightestByRelation.size());
+                    + "(received {} tool-call(s): {} verify, {} HELD-summary, {} parsed, {} writable relation(s))",
+                    paperId, written, traceSize, verifyCalls, heldSummaries, bounds.size(),
+                    tightestByRelation.size());
         } else {
-            log.info("investigation-write-back: paperId={} parsed {} HELD bound(s) (of {} tool-call(s)) "
-                    + "but wrote 0 — none writable (failure-region x>={}, >={} windows, rel-slack<={}, non-trivial)",
-                    paperId, bounds.size(), traceSize, FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
+            log.info("investigation-write-back: paperId={} wrote 0 — received {} tool-call(s): {} verify, "
+                    + "{} HELD-summary, {} parsed, 0 writable (failure-region x>={}, >={} windows, rel-slack<={})",
+                    paperId, traceSize, verifyCalls, heldSummaries, bounds.size(),
+                    FAILURE_REGION_MIN_X, MIN_WINDOWS, MAX_REL_SLACK);
         }
         return written;
     }
