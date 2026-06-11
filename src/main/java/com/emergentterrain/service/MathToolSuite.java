@@ -62,6 +62,11 @@ public class MathToolSuite {
      * <p>Visibility is package-private so unit tests pin the contract
      * without standing up the full executor.
      */
+    /** 2026-06-11 (rec 2) — above this binding-window relative slack, verify_conjecture suggests the
+     *  tightest holding k so the professor stops leaving a bound at a loose textbook constant. Matches the
+     *  write-back's MAX_REL_SLACK (a bound the pool would reject as too-loose gets a tighten suggestion). */
+    static final double MAX_REL_SLACK_SUGGEST = 0.25;
+
     static final java.util.List<String> SUCCESS_PREFIXES = java.util.List.of(
             "Param sweep (",
             "Predicate scan:",
@@ -88,6 +93,22 @@ public class MathToolSuite {
             if (result.startsWith(prefix)) return true;
         }
         return false;
+    }
+
+    /**
+     * 2026-06-11 (rec 2) — the tightest k for which {@code lhs ≤ k*rhs + c} still holds every window:
+     * {@code max_i (lhs_i − c)/rhs_i} (the k at which the worst window is exactly tight). Windows with a
+     * ~0 rhs are skipped. Returns {@link Double#NEGATIVE_INFINITY} if none usable. Package-private + pure.
+     */
+    static double tightestHoldingK(double[] lhs, double[] rhs, double c) {
+        double k = Double.NEGATIVE_INFINITY;
+        if (lhs == null || rhs == null || lhs.length != rhs.length) return k;
+        for (int i = 0; i < lhs.length; i++) {
+            if (Math.abs(rhs[i]) > 1e-9) {
+                k = Math.max(k, (lhs[i] - c) / rhs[i]);
+            }
+        }
+        return k;
     }
 
     /**
@@ -2169,16 +2190,32 @@ public class MathToolSuite {
         // the lookup silently missed and no slack was emitted (B's gate went inert for growth anchors).
         // The max-margin window is the binding window by definition and is always present.
         if (result.held()) {
-            result.windows().stream()
-                    .max(java.util.Comparator.comparingDouble(w -> w.margin()))
-                    .ifPresent(w -> {
-                        double bound = k * w.rhsValue() + c;
-                        double denom = Math.max(Math.abs(bound), 1e-9);
-                        double relSlack = Math.abs(w.margin()) / denom;
-                        sb.append(String.format(
-                                " relative slack: %.4f (|margin|/|bound|, smaller = tighter).",
-                                relSlack));
-                    });
+            var binding = result.windows().stream()
+                    .max(java.util.Comparator.comparingDouble(w -> w.margin()));
+            double relSlack = binding
+                    .map(w -> Math.abs(w.margin()) / Math.max(Math.abs(k * w.rhsValue() + c), 1e-9))
+                    .orElse(0.0);
+            sb.append(String.format(
+                    " relative slack: %.4f (|margin|/|bound|, smaller = tighter).", relSlack));
+            // 2026-06-11 (rec 2) — a bound that HELDs but is LOOSE is being left at a textbook asymptotic
+            // constant (e.g. Cramér's k=1 for max_prime_gap, ~2x loose at reachable x). Compute the
+            // TIGHTEST k that still holds these windows — max over windows of (lhs − c)/rhs, the k at which
+            // the worst window is exactly tight — and hand it to the professor, so it tightens to the
+            // EMPIRICAL fit (which the pool retains) instead of stopping at the loose theoretical value.
+            if (relSlack > MAX_REL_SLACK_SUGGEST) {
+                double[] lhsVals = result.windows().stream().mapToDouble(w -> w.lhsValue()).toArray();
+                double[] rhsVals = result.windows().stream().mapToDouble(w -> w.rhsValue()).toArray();
+                double kTight = tightestHoldingK(lhsVals, rhsVals, c);
+                if (Double.isFinite(kTight) && kTight > 0 && kTight < k) {
+                    double kSuggest = Math.ceil(kTight * 1000.0) / 1000.0;   // a hair above, so it still holds
+                    sb.append(String.format(
+                            " LOOSE: the tightest k that holds these windows is ~%.4f (your largest "
+                                    + "(lhs−c)/rhs ratio) — re-verify at k=%.4f (keep c=%+.4f) for a TIGHT bound "
+                                    + "the pool will retain; do NOT stop at a textbook asymptotic constant that "
+                                    + "leaves this much slack.",
+                            kTight, kSuggest, c));
+                }
+            }
         }
         // Log-base label (room b72c4e10, REVIEW_REPORT §1 rec #2): the
         // log_window_* scalars are base-10 (MathInvariants uses Math.log10), but
