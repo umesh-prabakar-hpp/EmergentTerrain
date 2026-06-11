@@ -139,6 +139,26 @@ class ConjectureInvestigationWriteBackServiceTest {
         assertThat(ConjectureInvestigationWriteBackService.parseHeldBounds(null)).isEmpty();
     }
 
+    @Test
+    void parseHeldBounds_findsEveryBoundInOneBlob() {
+        // The trace-file path (rec 2 facet B) wraps the whole .jsonl as ONE synthetic ToolInvocation;
+        // parseHeldBounds must regex-sweep it and find every distinct HELD line, not just the first.
+        String fileLike = HELD_TIGHT + "\n ...json noise... \n"
+                + "verify_conjecture: max_prime_gap <= +0.4990 * log_sq_window_start + +0.0000 HELD across "
+                + "10 window(s) of size 5000 starting at 1500000. worst margin: -0.50000 at window starting "
+                + "1500000. relative slack: 0.0100 (|margin|/|bound|, smaller = tighter).";
+        var bounds = ConjectureInvestigationWriteBackService.parseHeldBounds(List.of(verify(fileLike)));
+        assertThat(bounds).extracting(HeldBound::k).contains(0.72, 0.499);
+    }
+
+    @Test
+    void traceFromFile_guardsBlankAndSentinelPaperId() {
+        var svc = new ConjectureInvestigationWriteBackService(null);   // researchOutputDir stays null
+        assertThat(svc.traceFromFile(null)).isEmpty();
+        assertThat(svc.traceFromFile("")).isEmpty();
+        assertThat(svc.traceFromFile("?")).isEmpty();
+    }
+
     // ── Lever D — measured-invariant (frames 1-3) parsing ──────────────────────────────────
 
     private static final String CONST_CONVERGED =

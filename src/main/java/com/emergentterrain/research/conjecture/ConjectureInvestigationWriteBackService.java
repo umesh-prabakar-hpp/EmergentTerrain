@@ -8,6 +8,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -91,6 +95,14 @@ public class ConjectureInvestigationWriteBackService {
 
     @Value("${app.research.investigation-write-back.enabled:false}")
     private boolean enabled;
+
+    /** 2026-06-11 (rec 2, facet B) — the persisted per-paper LLM trace (research/llm-traces/{id}.jsonl)
+     *  is ground truth: it holds EVERY verify call across all best-of-N candidates and rounds, while the
+     *  in-memory union (winner + accumulator) has repeatedly proven a lossy subset (the tight
+     *  max_prime_gap fit found by a losing candidate didn't reach the write-back). Reading the file as a
+     *  supplementary source guarantees capture. Path mirrors LlmTraceWriter (researchOutputDir/llm-traces). */
+    @Value("${app.university.researchOutputDir:research}")
+    private String researchOutputDir;
 
     public ConjectureInvestigationWriteBackService(ConjectureRepository repo) {
         this.repo = repo;
@@ -219,13 +231,37 @@ public class ConjectureInvestigationWriteBackService {
     }
 
     /**
+     * The persisted per-paper trace file wrapped as a single synthetic {@link ToolInvocation} so the
+     * parse regexes sweep the whole file (echoes de-dup). Empty list when the file is absent/unreadable
+     * (tracing disabled, no-paper, or pre-flush) — the in-memory union is then the only source.
+     */
+    List<ToolInvocation> traceFromFile(String paperId) {
+        if (paperId == null || paperId.isBlank() || "?".equals(paperId)) return List.of();
+        try {
+            Path f = Paths.get(researchOutputDir, "llm-traces", paperId + ".jsonl");
+            if (!Files.isReadable(f)) return List.of();
+            String content = Files.readString(f);
+            return List.of(new ToolInvocation("_trace_file", "{}", content, 0, null));
+        } catch (IOException | RuntimeException e) {
+            log.warn("investigation-write-back: could not read trace file for {} ({})", paperId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * Write back every writable HELD bound from the trace. Returns the count written. No-op (returns 0)
      * when the flag is OFF. {@code paperId} appears in every funnel log so a capture miss names the paper.
      */
     @Transactional
     public int writeBack(List<ToolInvocation> trace, String paperId) {
         if (!enabled) return 0;
-        int traceSize = trace == null ? 0 : trace.size();
+        // Rec 2 facet B — union the in-memory trace with the persisted ground-truth file, so a tight fit
+        // a losing best-of-N candidate found (and the in-memory union dropped) is still captured.
+        List<ToolInvocation> fileTrace = traceFromFile(paperId);
+        List<ToolInvocation> all = new ArrayList<>(trace == null ? List.of() : trace);
+        all.addAll(fileTrace);
+        trace = all;
+        int traceSize = trace.size();
         // Diagnostic counters — separate "trace lacked the verify outputs" from "regex missed HELD
         // summaries" from "writability gate rejected them". verifyCalls = tool results that ARE verify
         // outputs; heldSummaries = those whose summary says HELD; parsed = those the regex turned into a
