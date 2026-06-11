@@ -139,7 +139,10 @@ public class ConjectureInvestigationWriteBackService {
                 long start = Long.parseLong(m.group(2));
                 double value = Double.parseDouble(m.group(3));
                 double spread = spreadGroup > 0 ? Double.parseDouble(m.group(spreadGroup)) : 0.0;
-                if (seen.add(kind + "|" + lhs)) {
+                // Keep every distinct (kind,lhs,window) — the write-back picks the DEEPEST-x measurement
+                // per relation (mirrors lever A): the professor often measures the same invariant at
+                // several windows, and a low-x one must not shadow a failure-region one.
+                if (seen.add(kind + "|" + lhs + "|" + start)) {
                     out.add(new MeasuredInvariant(kind, lhs, value, start, spread));
                 }
             } catch (NumberFormatException ignore) { /* skip malformed */ }
@@ -283,12 +286,19 @@ public class ConjectureInvestigationWriteBackService {
         }
         // Lever D — persist measured-invariant survivors (frames 1-3): a CONVERGED constant or an
         // OSCILLATES envelope at the failure region becomes a kind-tagged pool survivor the miner won't
-        // re-test as a bound. One per (kind,lhs); decision A then keeps it live like a verified bound.
+        // re-test as a bound. Collapse to the DEEPEST-x measurement per (kind,lhs) — the professor often
+        // measures the same invariant at several windows; a low-x one must not shadow a failure-region one
+        // (the first-not-best bug lever A fixed for bounds). Decision A then keeps it live.
+        Map<String, MeasuredInvariant> deepestByRelation = new LinkedHashMap<>();
         for (MeasuredInvariant mi : measured) {
+            deepestByRelation.merge(mi.kind() + "|" + mi.lhs(), mi,
+                    (a, b) -> a.windowStart() >= b.windowStart() ? a : b);
+        }
+        for (MeasuredInvariant mi : deepestByRelation.values()) {
             boolean ok = measuredWritable(mi);
-            log.info("investigation-write-back: paperId={} measured {} {} = {} @{} (rel-spread {}) -> {}",
-                    paperId, mi.kind(), mi.lhs(), mi.value(), mi.windowStart(), mi.relativeSpread(),
-                    ok ? "PERSIST" : "reject:sub-failure-region");
+            log.info("investigation-write-back: paperId={} measured {} {} = {} @{} (deepest of relation) -> {}",
+                    paperId, mi.kind(), mi.lhs(), mi.value(), mi.windowStart(),
+                    ok ? "PERSIST" : "reject:sub-failure-region(x=" + mi.windowStart() + ")");
             if (!ok) continue;
             try {
                 written += upsertMeasured(mi, now) ? 1 : 0;

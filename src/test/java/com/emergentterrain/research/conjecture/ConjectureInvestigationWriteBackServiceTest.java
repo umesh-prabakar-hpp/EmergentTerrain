@@ -183,6 +183,19 @@ class ConjectureInvestigationWriteBackServiceTest {
     }
 
     @Test
+    void keepsMeasurementsAtDistinctWindows_soDeepestCanBeChosen() {
+        // The live bug: a low-x measurement (300k) shadowed the failure-region one (1.9M) because the
+        // parse deduped to the first per (kind,lhs). Now both windows survive parsing.
+        String lowX = OSC_ENVELOPE.replace("starting at 1800000", "starting at 300000");
+        String deep = OSC_ENVELOPE.replace("starting at 1800000", "starting at 1900000");
+        var ms = ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(lowX), verify(deep)));
+        assertThat(ms).hasSize(2);
+        assertThat(ms).extracting(
+                ConjectureInvestigationWriteBackService.MeasuredInvariant::windowStart)
+                .containsExactlyInAnyOrder(300_000L, 1_900_000L);
+    }
+
+    @Test
     void doesNotParseNonConvergedConstant() {
         String notConverged = CONST_CONVERGED.replace("CONVERGED to target", "NOT converged to target");
         assertThat(ConjectureInvestigationWriteBackService.parseMeasured(List.of(verify(notConverged)))).isEmpty();
