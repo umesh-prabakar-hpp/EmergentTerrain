@@ -69,6 +69,13 @@ public class SynthesisPaperService {
     private final int minSources;
     private final int minSections;
     private final int maxSections;
+    /**
+     * 2026-06-11 — evidence-based re-synthesis. 0 (default) = legacy one-synthesis-per-family-ever (the
+     * permanent dedup). When &gt; 0, a family is re-synthesized once it has gained at least this many NEW
+     * cite-able (PUBLISHED, non-synthesis) source papers SINCE its most-recent synthesis — so a stale
+     * review refreshes when the corpus has genuinely grown, without re-reviewing unchanged families.
+     */
+    private final int reSynthesisMinNewSources;
     private final Path researchOutputDir;
 
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
@@ -87,6 +94,7 @@ public class SynthesisPaperService {
             @Value("${app.research.synthesis.minSources:5}") int minSources,
             @Value("${app.research.synthesis.minSections:3}") int minSections,
             @Value("${app.research.synthesis.maxSections:6}") int maxSections,
+            @Value("${app.research.synthesis.reSynthesisMinNewSources:0}") int reSynthesisMinNewSources,
             @Value("${app.university.researchOutputDir:research}") String researchOutputDir) {
         this.papersRepository = papersRepository;
         this.memoryRepository = memoryRepository;
@@ -95,6 +103,7 @@ public class SynthesisPaperService {
         this.minSources = minSources;
         this.minSections = minSections;
         this.maxSections = maxSections;
+        this.reSynthesisMinNewSources = reSynthesisMinNewSources;
         this.researchOutputDir = Path.of(researchOutputDir);
         this.synthesizer = prompt -> com.emergentterrain.llm.LlmCallContext.withRole(
                 "synthesis", () -> this.router.callForRole("synthesis", prompt));
@@ -259,14 +268,42 @@ public class SynthesisPaperService {
                 .findFirst().map(ResearchMemoryEntity::content).orElse(null);
     }
 
+    /**
+     * Whether {@code family} should be SKIPPED this pass. Never synthesized → compose (false). Once
+     * synthesized: with {@link #reSynthesisMinNewSources} ≤ 0 it is a permanent skip (legacy
+     * one-per-family-ever). With it &gt; 0, the family is re-synthesized — returns false — once it has
+     * gained at least that many NEW cite-able (PUBLISHED, non-synthesis) sources SINCE its most-recent
+     * synthesis, so a stale review refreshes only when the corpus has genuinely grown.
+     */
     private boolean alreadySynthesized(String family) {
+        Instant lastSynth = null;
         for (ResearchPaper p : papersRepository.findAll()) {
             if (p != null && p.kind() == PaperKind.SYNTHESIS
                     && ("synthesis/" + family).equalsIgnoreCase(p.topic())) {
-                return true;
+                Instant t = p.publishedAt();
+                if (t != null && (lastSynth == null || t.isAfter(lastSynth))) lastSynth = t;
             }
         }
-        return false;
+        long newSources = 0;
+        if (reSynthesisMinNewSources > 0) {
+            final Instant since = lastSynth;
+            newSources = papersRepository.findAll().stream()
+                    .filter(p -> p != null && p.kind() != PaperKind.SYNTHESIS)
+                    .filter(p -> "PUBLISHED".equalsIgnoreCase(p.status()))
+                    .filter(p -> family.equalsIgnoreCase(p.topic()))
+                    .filter(p -> p.publishedAt() != null && p.publishedAt().isAfter(since))
+                    .count();
+        }
+        return shouldSkipFamily(/*everSynthesized*/ true, newSources, reSynthesisMinNewSources);
+    }
+
+    /** Pure skip/compose decision (package-private for unit tests). Never synthesized → compose (false);
+     *  synthesized with {@code minNewSources ≤ 0} → permanent skip (true); else skip until the family has
+     *  gained {@code minNewSources} new sources since its last synthesis. */
+    static boolean shouldSkipFamily(boolean everSynthesized, long newSourcesSinceLast, int minNewSources) {
+        if (!everSynthesized) return false;          // compose
+        if (minNewSources <= 0) return true;         // legacy permanent dedup
+        return newSourcesSinceLast < minNewSources;  // not enough new evidence yet → skip
     }
 
     // ── persist ───────────────────────────────────────────────────────────────

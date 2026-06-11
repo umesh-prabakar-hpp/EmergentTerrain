@@ -20,7 +20,7 @@ class SynthesisPaperServiceTest {
         return new SynthesisPaperService(
                 mock(com.emergentterrain.repo.ResearchPaperRepository.class),
                 mock(com.emergentterrain.research.memory.ResearchMemoryRepository.class),
-                null, true, 5, 3, 6, "research");
+                null, true, 5, 3, 6, /*reSynthesisMinNewSources*/ 0, "research");
     }
 
     private static SourcePaper src(String id, String label, double peer) {
@@ -35,6 +35,18 @@ class SynthesisPaperServiceTest {
                 src("P-b72c-222", "CONJECTURE", 0.72),
                 src("P-b72c-232", "EMPIRICAL_RESULT", 0.82),
                 src("P-b72c-240", "CONJECTURE", 0.71)));
+    }
+
+    @Test
+    void reSynthesisDecision_composesNewRefreshesGrownSkipsUnchanged() {
+        // never synthesized → always compose
+        assertThat(SynthesisPaperService.shouldSkipFamily(false, 0, 5)).isFalse();
+        assertThat(SynthesisPaperService.shouldSkipFamily(false, 99, 0)).isFalse();
+        // synthesized, re-synthesis OFF (0) → permanent skip (legacy one-per-family)
+        assertThat(SynthesisPaperService.shouldSkipFamily(true, 99, 0)).isTrue();
+        // synthesized, evidence-based: skip until enough NEW sources accrue, then re-synthesize
+        assertThat(SynthesisPaperService.shouldSkipFamily(true, 4, 5)).isTrue();    // 4 < 5 → skip
+        assertThat(SynthesisPaperService.shouldSkipFamily(true, 5, 5)).isFalse();   // 5 ≥ 5 → re-synthesize
     }
 
     @Test
