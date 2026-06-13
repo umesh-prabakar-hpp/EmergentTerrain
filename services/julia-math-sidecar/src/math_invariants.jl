@@ -25,6 +25,8 @@ const MATH_BASE_NAMES = String[
     "mertens_delta",
     "max_prime_gap",
     "twin_prime_density",
+    "omega_ek_ratio",       # 2026-06-13 Erdős–Kac: Var(Ω)/ln ln x → 1
+    "dirichlet_error",      # 2026-06-13 Dirichlet divisor error Δ(x)/x^{1/4}
 ]
 
 """

@@ -207,6 +207,23 @@ function nt_is_happy(n::Integer)
 end
 
 """
+    nt_divisor_summatory(x) -> Int64
+
+D(x) = Σ_{n≤x} d(n), via the hyperbola method in O(√x):
+`2·Σ_{d≤√x} floor(x/d) − floor(√x)²`. Used for the Dirichlet divisor error term
+Δ(x) = D(x) − x(ln x + 2γ − 1).
+"""
+function nt_divisor_summatory(x::Integer)::Int64
+    x < 1 && return Int64(0)
+    sq = isqrt(x)                       # floor(sqrt(x))
+    s = Int64(0)
+    @inbounds for d in 1:sq
+        s += div(Int64(x), Int64(d))    # floor(x/d)
+    end
+    return 2 * s - Int64(sq) * Int64(sq)
+end
+
+"""
     nt_evaluate_window(start, size) -> Vector{Pair{String,Float64}}
 
 Per-window aggregate of nine scalars over `[start, start+size)`.
@@ -241,6 +258,7 @@ function nt_evaluate_window(start::Integer, size::Integer)
     n_happy = 0
     sum_omega = Int64(0)
     sum_big_omega = Int64(0)
+    sum_big_omega_sq = Int64(0)   # 2026-06-13 — Σ Ω(n)² for the Erdős–Kac variance
     sum_divisor_count = Int64(0)
     max_divisor_count = 0
     mertens_delta = 0
@@ -273,7 +291,9 @@ function nt_evaluate_window(start::Integer, size::Integer)
         nt_is_happy(n) && (n_happy += 1)
 
         sum_omega += nt_omega(n)
-        sum_big_omega += nt_big_omega(n)
+        bo = nt_big_omega(n)
+        sum_big_omega += bo
+        sum_big_omega_sq += Int64(bo) * Int64(bo)
         d = nt_divisor_count(n)
         sum_divisor_count += d
         d > max_divisor_count && (max_divisor_count = d)
@@ -281,6 +301,19 @@ function nt_evaluate_window(start::Integer, size::Integer)
     end
 
     inv = 1.0 / actual_size
+    # 2026-06-13 second-order BASE scalars (single source of truth here; MathInvariants.BASE
+    # lists them and passes them through, so Java and Julia agree by construction). Erdős–Kac:
+    # Var(Ω)/ln ln x → 1; Dirichlet divisor error Δ(x)/x^{1/4} (oscillates, bounded iff the
+    # Dirichlet conjecture |Δ|=O(x^{1/4+ε}) holds). x = requested window centre.
+    mO     = sum_big_omega * inv
+    mOsq   = sum_big_omega_sq * inv
+    ovar   = mOsq - mO * mO                                  # Var(Ω) over the window
+    cx     = start + div(size, 2)
+    lnc    = cx > 1 ? log(Float64(cx)) : 0.0                 # ln(centre)
+    ek     = lnc > 1.0 ? ovar / log(lnc) : 0.0              # Var(Ω) / ln ln x  → 1
+    gamma  = 0.5772156649015329
+    ddelta = cx > 0 ? Float64(nt_divisor_summatory(cx)) - Float64(cx) * (lnc + 2 * gamma - 1.0) : 0.0
+    derr   = cx > 0 ? ddelta / Float64(cx)^0.25 : 0.0        # Δ(x) / x^{1/4}
     return Pair{String,Float64}[
         "abundant_density"   => n_abundant * inv,
         "deficient_density"  => n_deficient * inv,
@@ -293,6 +326,8 @@ function nt_evaluate_window(start::Integer, size::Integer)
         "mertens_delta"      => Float64(mertens_delta),
         "max_prime_gap"      => Float64(max_prime_gap),
         "twin_prime_density" => n_twin * inv,
+        "omega_ek_ratio"     => ek,
+        "dirichlet_error"    => derr,
     ]
 end
 
