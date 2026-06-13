@@ -28,4 +28,44 @@ class PivotNoteTest {
         assertThat(note).contains("remain welcome");
         assertThat(note).doesNotContain("only").doesNotContain("ONLY");
     }
+
+    // ── 2026-06-13 — second-order note: enforce engagement, leave the object to the model ──
+
+    @Test
+    void secondOrderNoteNamesLhsAndDemandsAFrameButNotAScalar() {
+        String note = ResearchNarrationService.buildSecondOrderNote("mean_omega");
+        assertThat(note)
+                .contains("'mean_omega'")
+                .contains("verify_constant")
+                .contains("verify_oscillation")
+                .contains("verify_growth")
+                .contains("Choose the second-order object");   // determination stays with the model
+        // It must NOT hardcode the specific scalar — that would hand-author the math insight.
+        assertThat(note).doesNotContain("omega_ek_ratio").doesNotContain("omega_Omega_gap");
+    }
+
+    // ── 2026-06-13 — in-flight re-run gate (replaces the drain latch for re-runs) ──
+
+    @Test
+    void inFlightReRun_blockedOnlyAtHardStop() {
+        // Hard stop → never (app terminating), regardless of draining/cap.
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(true, true, 2, 0)).isFalse();
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(true, false, 2, 0)).isFalse();
+    }
+
+    @Test
+    void inFlightReRun_preDrainIsUnbounded() {
+        // Not draining → always allowed (normal budget covers it; per-paper cap applies elsewhere).
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, false, 2, 99)).isTrue();
+    }
+
+    @Test
+    void inFlightReRun_whileDrainingIsCappedByReserve() {
+        // Draining → allowed under the cap, blocked at/after it (protects the reserve).
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, true, 2, 0)).isTrue();
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, true, 2, 1)).isTrue();
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, true, 2, 2)).isFalse();
+        // cap <= 0 disables the cap (still allowed while draining).
+        assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, true, 0, 99)).isTrue();
+    }
 }

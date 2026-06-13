@@ -164,6 +164,38 @@ public class ResearchNarrationService {
     private boolean secondOrderGateEnabled;
 
     /**
+     * Phase 32 Wave 2 (32.3, 2026-06-13) — reclassify the corrective re-run
+     * (off-target pivot + second-order gate, which share one loop) from
+     * discretionary spend to IN-FLIGHT-COMPLETION spend. A re-run improves a
+     * paper already in {@code inFlightDrafts} before it publishes, so it belongs
+     * to the drain contract's "in-flight papers finish on the reserve" promise,
+     * not to the "stop optional spend" bucket. When true, a re-run may run until
+     * the HARD stop ({@code isStopRequested}) rather than only until drain-start —
+     * drawing on the enlarged cost-drain reserve (2026-06-13 raised $1.00→$1.30).
+     * Re-runs that fire WHILE DRAINING (the ones that consume the reserve) are
+     * bounded by {@code pivotMaxRerunsPerRun} so the aggregate stays inside it;
+     * pre-drain re-runs use the normal budget and are bounded only by
+     * {@code pivotMaxRefinements} per paper. false = today's drain-gated behavior,
+     * bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.pivot.complete-in-flight:false}")
+    private boolean pivotCompleteInFlight;
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.pivot.max-reruns-per-run:2}")
+    private int pivotMaxRerunsPerRun;
+
+    /**
+     * Count of corrective re-runs dispatched WHILE DRAINING this run (one JVM =
+     * one run, so this is naturally per-run and never needs reset). Bounds reserve
+     * consumption under {@link #pivotCompleteInFlight}. Soft bound: the
+     * check-then-increment isn't atomic across concurrently-narrating drafts, so it
+     * may overshoot by one under load — the hard cost cap remains the real backstop.
+     */
+    private final java.util.concurrent.atomic.AtomicInteger pivotDrainRerunsThisRun =
+            new java.util.concurrent.atomic.AtomicInteger();
+
+    /**
      * Phase 32 Wave 1 enforce (32.2) — mirrored mode flag so the REVISION
      * stage can pre-check the working material against the manifest and name
      * the unprovenanced values in the revision prompt, instead of letting the
@@ -241,6 +273,43 @@ public class ResearchNarrationService {
     private boolean pivotSpendAllowed() {
         com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
         return t == null || t.allowDiscretionarySpend();
+    }
+
+    /**
+     * Pure in-flight re-run decision (unit-tested without Spring). A re-run is
+     * in-flight-paper completion, so it may run until the HARD stop, not merely
+     * until drain-start. Pre-drain it rides the normal budget (unbounded here,
+     * bounded per-paper by {@code pivotMaxRefinements}); while draining it draws on
+     * the reserve and is capped at {@code maxRerunsPerRun} (≤0 disables the cap).
+     */
+    static boolean pivotRerunAllowedInFlight(boolean stopRequested, boolean draining,
+            int maxRerunsPerRun, int drainRerunsSoFar) {
+        if (stopRequested) {
+            return false;          // hard stop — the app is terminating; no further calls
+        }
+        if (!draining) {
+            return true;           // pre-drain — normal budget covers it
+        }
+        return maxRerunsPerRun <= 0 || drainRerunsSoFar < maxRerunsPerRun;
+    }
+
+    /**
+     * Whether a corrective re-run may run for the current (in-flight) draft.
+     * Legacy mode ({@code pivotCompleteInFlight=false}): the drain-gated
+     * discretionary rule (stops at drain-start). In-flight mode: delegates to
+     * {@link #pivotRerunAllowedInFlight} so the re-run completes the in-flight
+     * paper on the reserve, bounded per-run while draining.
+     */
+    private boolean pivotRerunAllowed() {
+        if (!pivotCompleteInFlight) {
+            return pivotSpendAllowed();
+        }
+        com.emergentterrain.llm.RunBudgetTracker t = runBudgetTracker;
+        if (t == null) {
+            return true;
+        }
+        return pivotRerunAllowedInFlight(t.isStopRequested(), t.isDraining(),
+                pivotMaxRerunsPerRun, pivotDrainRerunsThisRun.get());
     }
 
     /**
@@ -2171,7 +2240,7 @@ public class ResearchNarrationService {
             while (pivotReruns < pivotMaxRefinements
                     && draft.topicName() != null
                     && draft.topicName().startsWith("conjecture/")
-                    && pivotSpendAllowed()) {
+                    && pivotRerunAllowed()) {
                 String topic = draft.topicName();
                 boolean offTarget = pivotEnabled
                         && com.emergentterrain.research.ScoreCalibration
@@ -2183,6 +2252,12 @@ public class ResearchNarrationService {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
                 pivotReruns++;
+                // Count this re-run against the per-run reserve cap only if it
+                // fires while draining (those are the ones drawing on the reserve).
+                com.emergentterrain.llm.RunBudgetTracker pivotBudget = runBudgetTracker;
+                if (pivotCompleteInFlight && pivotBudget != null && pivotBudget.isDraining()) {
+                    pivotDrainRerunsThisRun.incrementAndGet();
+                }
                 String preregLhs = topic.substring("conjecture/".length()).trim();
                 String pivotPrompt;
                 if (offTarget) {
