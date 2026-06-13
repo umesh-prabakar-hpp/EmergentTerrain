@@ -98,6 +98,11 @@ function math_invariants_extract(raw, window_start::Integer, window_size::Intege
     lc = center > 1.0 ? log(center) : 0.0
     push!(flat, "cramer_gap_ratio" => lc > 0.0 ? gap / (lc * lc) : 0.0)
     push!(flat, "twin_vs_prime_sq" => prime > 0.0 ? twin / (prime * prime) : 0.0)
+    # 2026-06-13 second-order (JVM MathInvariants mirror): mean_divisor_count − ln(center) → ≈ 2γ
+    # (γ = Euler–Mascheroni), the constant after the textbook ~ln x divisor law. Natural log of the
+    # window center, computed IDENTICALLY to the JVM so verify_constant matches the miner.
+    mdc = get(raw_lookup, "mean_divisor_count", 0.0)
+    push!(flat, "mean_divisor_excess" => center > 1.0 ? mdc - log(center) : 0.0)
 
     return flat
 end
@@ -127,5 +132,6 @@ function math_invariants_vocabulary()::Vector{String}
     # to the per-window path (P-b72c-214's three verify calls).
     push!(out, "cramer_gap_ratio")
     push!(out, "twin_vs_prime_sq")
+    push!(out, "mean_divisor_excess")    # 2026-06-13 second-order (JVM mirror): → ≈ 2γ
     return out
 end
