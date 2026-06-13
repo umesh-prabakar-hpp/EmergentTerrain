@@ -86,6 +86,23 @@ class MathInvariantsExtensionTest {
     }
 
     @Test
+    void erdosKacAndDirichletAreBasePassThroughScalarsInVocabulary() {
+        // omega_ek_ratio + dirichlet_error are computed sidecar-side (numbertheory.jl) and PASS THROUGH
+        // MathInvariants.extract as BASE scalars — so Java and Julia agree by construction.
+        Map<String, Double> r = new java.util.HashMap<>(raw());
+        r.put("omega_ek_ratio", 0.97);
+        r.put("dirichlet_error", -0.42);
+        Map<String, Double> flat = MathInvariants.extract(r, 1000, 500);
+        org.assertj.core.api.Assertions.assertThat(flat.get("omega_ek_ratio")).isEqualTo(0.97);
+        org.assertj.core.api.Assertions.assertThat(flat.get("dirichlet_error")).isEqualTo(-0.42);
+        org.assertj.core.api.Assertions.assertThat(MathInvariants.vocabulary())
+                .contains("omega_ek_ratio", "dirichlet_error");
+        // absent in raw → 0.0 (BASE getOrDefault), never NaN
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 1000, 500).get("omega_ek_ratio")).isZero();
+    }
+
+    @Test
     void growthAnchorsDegradeToZeroOnMissingInputs() {
         Map<String, Double> flat = MathInvariants.extract(Map.of(), 0, 0);
         org.assertj.core.api.Assertions.assertThat(flat.get("sqrt_window_start")).isZero();

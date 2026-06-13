@@ -41,7 +41,14 @@ public final class MathInvariants {
             // same single window pass (numbertheory.jl); mirrored in the
             // sidecar's math_invariants.jl.
             "max_prime_gap",
-            "twin_prime_density"
+            "twin_prime_density",
+            // 2026-06-13 second-order BASE scalars — computed in the sidecar sieve
+            // (numbertheory.jl) and passed through here, so Java/Julia agree by construction.
+            // Erdős–Kac variance ratio Var(Ω)/ln ln x → 1 (verify_constant target 1); Dirichlet
+            // divisor error Δ(x)/x^{1/4} (oscillates, bounded iff the Dirichlet conjecture holds —
+            // verify_oscillation). Both require a sidecar restart to register.
+            "omega_ek_ratio",
+            "dirichlet_error"
     );
 
     public static final Map<String, Function<Map<String, Double>, Double>> DERIVED = derivedMap();
