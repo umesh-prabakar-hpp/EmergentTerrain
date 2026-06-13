@@ -69,6 +69,22 @@ class MathInvariantsExtensionTest {
                 .contains("sqrt_window_start", "log_sq_window_start");
     }
 
+    // ── 2026-06-13 — second-order: mean_divisor_count − ln(center) → ≈ 2γ ──────
+
+    @Test
+    void meanDivisorExcessSubtractsNaturalLogOfCenterAndJoinsVocabulary() {
+        Map<String, Double> r = new java.util.HashMap<>(raw());
+        r.put("mean_divisor_count", 8.0);
+        Map<String, Double> flat = MathInvariants.extract(r, 1000, 500);   // center = 1250
+        org.assertj.core.api.Assertions.assertThat(flat.get("mean_divisor_excess"))
+                .isCloseTo(8.0 - Math.log(1250.0), org.assertj.core.api.Assertions.within(1e-12));
+        org.assertj.core.api.Assertions.assertThat(MathInvariants.vocabulary())
+                .contains("mean_divisor_excess");
+        // degrades to 0 (not NaN) when the window is degenerate
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 0, 0).get("mean_divisor_excess")).isZero();
+    }
+
     @Test
     void growthAnchorsDegradeToZeroOnMissingInputs() {
         Map<String, Double> flat = MathInvariants.extract(Map.of(), 0, 0);

@@ -113,6 +113,24 @@ public final class MathInvariants {
                     double p = r.getOrDefault("prime_density", 0.0);
                     return p > 0 ? r.getOrDefault("twin_prime_density", 0.0) / (p * p) : 0.0;
                 });
+        // 2026-06-13 (second-order step) — mean_divisor_count grows (~ln x), so it is not a
+        // constant/bound target; its SECOND-ORDER content is the constant after the main term: the local
+        // average of d(n) over a window tends to ln(center) + 2γ (γ = Euler–Mascheroni), so
+        // mean_divisor_count − ln(center) converges to ≈ 2γ ≈ 1.1544 — a verify_constant target that
+        // recovers Euler's gamma from the divisor function (the leading log law is textbook; this is the
+        // result). Natural log of the window center, matching log_sq_window_start / cramer_gap_ratio.
+        // Mirrored IDENTICALLY in the sidecar's math_invariants.jl (same iteration order). NOTE: empirical
+        // — verify_constant with no target measures the limit, which pins the constant regardless of the
+        // exact local-vs-cumulative correction (2γ vs 2γ−1).
+        m.put("mean_divisor_excess",
+                r -> {
+                    double start = r.getOrDefault("_window_start", 0.0);
+                    double w = r.getOrDefault("_window_size", 0.0);
+                    double center = start + w / 2.0;
+                    return center > 1.0
+                            ? r.getOrDefault("mean_divisor_count", 0.0) - Math.log(center)
+                            : 0.0;
+                });
         return m;
     }
 
@@ -132,7 +150,8 @@ public final class MathInvariants {
             "omega_Omega_gap", Set.of("mean_omega", "mean_Omega"),
             "mertens_per_sqrt_W", Set.of("mertens_delta"),
             "cramer_gap_ratio", Set.of("max_prime_gap"),
-            "twin_vs_prime_sq", Set.of("twin_prime_density", "prime_density"));
+            "twin_vs_prime_sq", Set.of("twin_prime_density", "prime_density"),
+            "mean_divisor_excess", Set.of("mean_divisor_count"));
 
     private MathInvariants() {}
 
