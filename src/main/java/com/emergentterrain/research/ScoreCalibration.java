@@ -128,6 +128,63 @@ public final class ScoreCalibration {
         return true;   // conjecture topic, non-empty trace, LHS never tested
     }
 
+    /**
+     * The LHS quantities whose <i>leading order</i> is a textbook closed-form law
+     * — so a paper that only bounds them confirms the known asymptotic, which is a
+     * non-result (the novelty is the next term). This set is the ONLY mathematical
+     * knowledge the engagement gate carries: it scopes WHICH topics must go past
+     * the leading order. It deliberately does NOT map a topic to "the" second-order
+     * scalar — the professor LLM picks that object (the directive's SECOND-ORDER
+     * STEP gives it the menu). The gate enforces <i>engagement</i>; the model owns
+     * <i>determination</i>. Keep this in sync with the directive's enumeration, not
+     * with the scalar vocabulary.
+     */
+    public static final java.util.Set<String> LEADING_ORDER_LHS = java.util.Set.of(
+            "mean_omega", "mean_Omega", "mean_divisor_count", "max_divisor_count",
+            "abundant_density", "deficient_density", "happy_density", "prime_density");
+
+    /**
+     * The result-frame tools that engage second-order structure (a converged
+     * constant, an oscillation envelope, a growth law) — as opposed to
+     * {@code verify_conjecture}, which only tests a bound on the raw quantity.
+     * Using ANY of these on a leading-order topic counts as engagement; the gate
+     * does not inspect WHICH scalar the frame was pointed at (that is the model's
+     * determination).
+     */
+    private static final java.util.Set<String> SECOND_ORDER_FRAMES = java.util.Set.of(
+            "verify_constant", "verify_oscillation", "verify_growth");
+
+    /**
+     * True when a conjecture investigation on a TEXTBOOK-leading-order LHS
+     * ({@link #LEADING_ORDER_LHS}) never engaged a single second-order frame
+     * ({@link #SECOND_ORDER_FRAMES}) — i.e. it stopped at the bound frame and so
+     * could only confirm the known asymptotic. The deterministic <i>engagement</i>
+     * trigger for the second-order corrective re-run: the app detects "you stopped
+     * at the leading order"; the re-run note then asks the model to choose and
+     * measure the right second-order object. Mirrors {@link #hypothesisLhsUncovered}'s
+     * contract: non-conjecture topics, topics outside the leading-order set, and
+     * empty/null traces all return {@code false} (the missing-methods gate owns the
+     * empty case; off-target coverage is a separate gate).
+     */
+    public static boolean secondOrderEngagementSkipped(String topic, List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/")) {
+            return false;
+        }
+        String lhs = topic.substring("conjecture/".length()).trim();
+        if (!LEADING_ORDER_LHS.contains(lhs)) {
+            return false;   // no textbook leading order to go past — nothing to enforce
+        }
+        if (trace == null || trace.isEmpty()) {
+            return false;   // missing-methods gate owns the empty-trace case
+        }
+        for (ToolInvocation call : trace) {
+            if (call != null && SECOND_ORDER_FRAMES.contains(call.functionName())) {
+                return false;   // a second-order frame was engaged — the model chose the object
+            }
+        }
+        return true;   // leading-order topic, non-empty trace, no second-order frame used at all
+    }
+
     public static boolean hasAdversarialCoverage(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return false;

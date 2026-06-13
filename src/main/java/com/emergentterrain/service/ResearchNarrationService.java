@@ -148,6 +148,22 @@ public class ResearchNarrationService {
     private int pivotMaxRefinements;
 
     /**
+     * Phase 32 Wave 2 (32.3, 2026-06-13) — second-order ENGAGEMENT gate. Shares the
+     * pivot's corrective-re-run machinery and budget but is independently toggleable.
+     * When on, a conjecture draft on a textbook-leading-order LHS
+     * ({@code ScoreCalibration.secondOrderEngagementSkipped}) whose professor trace
+     * never engaged a second-order frame (verify_constant/oscillation/growth) earns
+     * one corrective re-run that asks the professor to go past the leading order. The
+     * DETERMINATION of which second-order object to measure stays with the model (the
+     * directive's SECOND-ORDER STEP is the menu); the app only enforces that it goes
+     * deeper. Subject to the same {@code pivotMaxRefinements} / drain gate as the
+     * off-target pivot. false = today's behavior, bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.second-order-gate.enabled:false}")
+    private boolean secondOrderGateEnabled;
+
+    /**
      * Phase 32 Wave 1 enforce (32.2) — mirrored mode flag so the REVISION
      * stage can pre-check the working material against the manifest and name
      * the unprovenanced values in the revision prompt, instead of letting the
@@ -240,6 +256,29 @@ public class ResearchNarrationService {
                 + "least one verify_conjecture call MUST use lhs=\"" + preregisteredLhs
                 + "\" (additional calls on other scalars or regimes remain welcome). "
                 + "Re-run the investigation accordingly.";
+    }
+
+    /**
+     * The corrective instruction appended on a second-order ENGAGEMENT re-run
+     * (Phase 32 Wave 2, 2026-06-13). The app has deterministically detected that a
+     * textbook-leading-order LHS was investigated with only the bound frame — never
+     * a second-order frame. This note enforces engagement but deliberately does NOT
+     * name the scalar: which second-order object fits the quantity (the constant
+     * after the main term, the variance/fluctuation, or the error term) is the
+     * professor's determination — the directive's SECOND-ORDER STEP holds the menu.
+     * The app guarantees the model goes deeper; the model decides where.
+     */
+    static String buildSecondOrderNote(String preregisteredLhs) {
+        return "\n\nSECOND-ORDER NOTE — your investigation of '" + preregisteredLhs
+                + "' used only the bound frame (verify_conjecture) and never engaged a "
+                + "second-order frame (verify_constant / verify_oscillation / verify_growth). "
+                + "This LHS has a TEXTBOOK leading-order law, so bounding it only confirms the "
+                + "known asymptotic — that is not a result. The result is the SECOND-ORDER "
+                + "structure: the constant AFTER the main term, the variance / fluctuation of "
+                + "the quantity, or its error term. Choose the second-order object that fits '"
+                + preregisteredLhs + "' (the SECOND-ORDER STEP in your instructions lists the "
+                + "objects reachable with the existing scalars and the frame each one needs) and "
+                + "MEASURE it with the matching frame. Re-run the investigation accordingly.";
     }
 
     /**
@@ -2119,26 +2158,52 @@ public class ResearchNarrationService {
             // off-target, the publish gate routes to NEEDS_REVISION exactly as
             // today — the gate stops being the last line and becomes the
             // pivot's backstop.
+            // The corrective re-run has two independent triggers sharing this loop
+            // and its budget (pivotMaxRefinements / drain gate): (1) off-target —
+            // the preregistered LHS was never verified (pivotEnabled); (2)
+            // second-order engagement — a textbook-leading-order LHS was bounded but
+            // no second-order frame was engaged (secondOrderGateEnabled). Off-target
+            // takes priority: covering the LHS at all is more fundamental than going
+            // past its leading order. Both notes only STEER — the off-target note
+            // names the pair to verify; the second-order note demands engagement but
+            // leaves the choice of object to the model (the directive holds the menu).
             int pivotReruns = 0;
-            while (pivotEnabled && pivotReruns < pivotMaxRefinements
+            while (pivotReruns < pivotMaxRefinements
                     && draft.topicName() != null
                     && draft.topicName().startsWith("conjecture/")
-                    && com.emergentterrain.research.ScoreCalibration
-                            .hypothesisLhsUncovered(draft.topicName(), profTrace)
                     && pivotSpendAllowed()) {
+                String topic = draft.topicName();
+                boolean offTarget = pivotEnabled
+                        && com.emergentterrain.research.ScoreCalibration
+                                .hypothesisLhsUncovered(topic, profTrace);
+                boolean secondOrderSkipped = !offTarget && secondOrderGateEnabled
+                        && com.emergentterrain.research.ScoreCalibration
+                                .secondOrderEngagementSkipped(topic, profTrace);
+                if (!offTarget && !secondOrderSkipped) {
+                    break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
+                }
                 pivotReruns++;
-                String preregLhs = draft.topicName()
-                        .substring("conjecture/".length()).trim();
-                callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
-                log.info("LLM professor tools: off-target trace (preregistered lhs '{}' "
-                                + "never verified) — corrective re-run {}/{} paperId={}",
-                        preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
+                String preregLhs = topic.substring("conjecture/".length()).trim();
+                String pivotPrompt;
+                if (offTarget) {
+                    callPath.add("prereg:pivot:offtarget_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: off-target trace (preregistered lhs '{}' "
+                                    + "never verified) — corrective re-run {}/{} paperId={}",
+                            preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
+                    pivotPrompt = userPrompt + buildPivotNote(preregLhs);
+                } else {
+                    callPath.add("prereg:pivot:secondorder_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: leading-order-only trace (lhs '{}' bounded but no "
+                                    + "second-order frame engaged) — second-order re-run {}/{} paperId={}",
+                            preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
+                    pivotPrompt = userPrompt + buildSecondOrderNote(preregLhs);
+                }
                 MathToolSuite.ToolMetrics pivotMetrics = new MathToolSuite.ToolMetrics();
-                String pivotPrompt = userPrompt + buildPivotNote(preregLhs);
+                final String pivotPromptFinal = pivotPrompt;
                 com.emergentterrain.llm.ToolCallResponse pivotResponse =
                         com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
                                 router.callPrimaryWithTools(
-                                        systemPrompt, pivotPrompt, toolsJson,
+                                        systemPrompt, pivotPromptFinal, toolsJson,
                                         toolSuite.buildExecutor(draft, pivotMetrics),
                                         pivotMetrics::reset));
                 if (pivotResponse.synthesis() != null && !pivotResponse.synthesis().isBlank()
@@ -2146,10 +2211,17 @@ public class ResearchNarrationService {
                         && pivotMetrics.totalSuccesses() > 0) {
                     professorSynthesis = pivotResponse.synthesis();
                     profTrace = pivotResponse.trace();
-                    callPath.add(com.emergentterrain.research.ScoreCalibration
-                            .hypothesisLhsUncovered(draft.topicName(), profTrace)
+                    boolean stillOff = pivotEnabled
+                            && com.emergentterrain.research.ScoreCalibration
+                                    .hypothesisLhsUncovered(topic, profTrace);
+                    boolean stillSkipped = secondOrderGateEnabled
+                            && com.emergentterrain.research.ScoreCalibration
+                                    .secondOrderEngagementSkipped(topic, profTrace);
+                    callPath.add(stillOff
                             ? "prereg:pivot:still_offtarget"
-                            : "prereg:pivot:on_target");
+                            : stillSkipped
+                                    ? "prereg:pivot:still_leadingorder"
+                                    : "prereg:pivot:on_target");
                 } else {
                     // Keep the original synthesis/trace; the gate decides.
                     callPath.add("prereg:pivot:rerun_unusable");

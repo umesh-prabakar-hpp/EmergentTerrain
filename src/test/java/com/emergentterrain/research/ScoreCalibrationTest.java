@@ -163,4 +163,51 @@ class ScoreCalibrationTest {
                 "conjecture/cramer_gap_ratio", null));
         assertFalse(ScoreCalibration.hypothesisLhsUncovered(null, List.of(other("x"))));
     }
+
+    // ── 2026-06-13 — second-order ENGAGEMENT gate ─────────────────────────────
+
+    @Test
+    void leadingOrderTopicWithOnlyBoundFrame_isSkipped() {
+        // mean_omega has a textbook leading order (~ ln ln x); a trace that only
+        // bounds it never reaches the second-order structure → engagement skipped.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"mean_omega\",\"rhs\":\"log_log_center\",\"k\":1}", "REFUTED"),
+                verify("{\"lhs\":\"mean_omega\",\"rhs\":\"log_log_center\",\"k\":2}", "HELD"));
+        assertTrue(ScoreCalibration.secondOrderEngagementSkipped("conjecture/mean_omega", trace));
+    }
+
+    @Test
+    void leadingOrderTopicThatEngagesASecondOrderFrame_notSkipped() {
+        // Any second-order frame (here verify_constant) counts as engagement — the
+        // gate does NOT inspect which scalar it was pointed at (the model's choice).
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"mean_omega\",\"rhs\":\"log_log_center\",\"k\":1}", "REFUTED"),
+                other("verify_constant"));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped("conjecture/mean_omega", trace));
+        // verify_oscillation and verify_growth likewise engage.
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
+                "conjecture/mean_divisor_count", List.of(other("verify_oscillation"))));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
+                "conjecture/max_divisor_count", List.of(other("verify_growth"))));
+    }
+
+    @Test
+    void nonLeadingOrderTopic_neverSkipped() {
+        // cramer_gap_ratio is itself a second-order ratio — there is no textbook
+        // leading order to go past, so the gate never fires even with a bound-only trace.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"cramer_gap_ratio\",\"k\":0,\"c\":0.45}", "HELD"));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
+                "conjecture/cramer_gap_ratio", trace));
+    }
+
+    @Test
+    void secondOrderGate_nonConjectureAndEmptyTraces_notGated() {
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
+                "isAbundant AND isHappy Density", List.of(other("run_predicate_scan"))));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
+                "conjecture/mean_omega", List.of()));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped("conjecture/mean_omega", null));
+        assertFalse(ScoreCalibration.secondOrderEngagementSkipped(null, List.of(other("x"))));
+    }
 }
