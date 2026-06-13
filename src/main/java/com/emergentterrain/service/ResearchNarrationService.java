@@ -3690,7 +3690,24 @@ public class ResearchNarrationService {
             + "In ALL of steps 5-8: pick the ONE frame that matches the LHS's actual behaviour — a "
             + "growing bound (5), a converging constant (6), a centred oscillation (7), or super-log "
             + "growth (8) — and report THAT measurement as the paper's result; do not keep forcing the "
-            + "default inequality on a quantity it does not fit.";
+            + "default inequality on a quantity it does not fit.\n"
+            + "9. SECOND-ORDER STEP (2026-06-13): several LHS quantities have a TEXTBOOK leading-order law, "
+            + "and confirming it is NOT a result — the novelty is the NEXT term. If the LHS is one of these, "
+            + "do not stop at the leading order; investigate the second-order structure with the frame that "
+            + "fits it: (a) mean_Omega ~ ln ln x and mean_omega ~ ln ln x are both trivial — but their gap "
+            + "omega_Omega_gap converges to the prime-power correction constant Sum_p 1/(p(p-1)) ≈ 0.77316, "
+            + "so verify_constant(omega_Omega_gap, target=0.77316) is the real result. (b) mean_divisor_count "
+            + "~ ln x is trivial — the interesting object is the constant AFTER the main term (the local "
+            + "divisor density tends to ln x + 2*gamma, gamma=Euler-Mascheroni) and the famous Dirichlet "
+            + "divisor error term; lacking a direct scalar, at least state and probe these, don't just "
+            + "report the log law. (c) a predicate DENSITY that tends to a known constant is a "
+            + "constant-convergence target: abundant_or_prime density tends to the abundant density "
+            + "≈ 0.2476 (the prime part vanishes), so verify_constant(abundant_density, target=0.2476); and "
+            + "a prime-involving density that tends to 0 is trivial unless you test INDEPENDENCE — e.g. "
+            + "(happy-prime density)*ln x tends to the happy density iff happiness and primality are "
+            + "independent, which IS a result. The principle: when a quantity's leading order is known "
+            + "textbook, the paper's contribution is the measured second-order constant / error / "
+            + "fluctuation, via the matching frame — never the leading order itself.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────
