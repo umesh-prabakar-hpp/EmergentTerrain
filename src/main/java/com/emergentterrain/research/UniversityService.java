@@ -421,6 +421,16 @@ public class UniversityService {
     }
 
     /**
+     * Phase 32 (paper-pipeline-quality-brief Change 6, capture point) — when on, persist each published
+     * paper's EXACT predicate-scan counts (keyed by predicate) so a later cross-paper reconciliation pass
+     * ({@link CrossPaperCountValidator}) can check overlapping ranges for mutually-impossible counts.
+     * Write-only/best-effort; publish never depends on it. false = no capture.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.cross-paper-count.enabled:false}")
+    private boolean crossPaperCountEnabled;
+
+    /**
      * Phase 32 Wave 1 (32.2) — manifest traceability validator mode.
      * {@code off} (default) is bit-identical to the pre-manifest pipeline;
      * {@code shadow} runs {@code ManifestTraceabilityValidator} beside the
@@ -2090,6 +2100,25 @@ public class UniversityService {
                                     hypothesis.substring(0, Math.min(hypothesis.length(), 160))),
                     draft.paperId(),
                     draft.topicName(), draft.domain(), draft.roomId(), draft.authorBotId());
+        }
+        // 2026-06-14 (brief Change 6, capture point) — persist this paper's EXACT predicate-scan counts
+        // keyed by PREDICATE (not the paper topic), so same-predicate papers collate and a later
+        // reconciliation pass (CrossPaperCountValidator) can flag overlapping ranges with
+        // mutually-impossible counts. Write-only/best-effort.
+        if (crossPaperCountEnabled && researchMemory != null && researchMemory.enabled()) {
+            try {
+                for (CrossPaperCountValidator.ScanCount sc
+                        : CrossPaperCountValidator.fromTrace(narration.toolCallTrace())) {
+                    researchMemory.capture(
+                            com.emergentterrain.research.memory.ResearchMemoryEntity.TYPE_FACT,
+                            CrossPaperCountValidator.toFact(sc),
+                            draft.paperId(), sc.predicate(), draft.domain(),
+                            draft.roomId(), draft.authorBotId());
+                }
+            } catch (Exception e) {
+                log.warn("cross-paper-count capture failed paperId={}: {}",
+                        draft.paperId(), e.getMessage());
+            }
         }
         // Phase 32 Wave 0 (32.1) — capture the verified-values manifest beside
         // the paper. Best-effort and write-only: any failure logs and moves on.
