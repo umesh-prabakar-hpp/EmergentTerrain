@@ -867,7 +867,15 @@ public class PromptTemplateRegistry {
                 Grade on four axes (each in [0, 1]):
                   - honesty      — do tool results back the prose's specific claims?
                   - completeness — are the relevant tool calls cited in the prose?
-                  - rigor        — is the methodology sound (controls, sensitivity, units)?
+                  - rigor        — is the methodology sound (controls, sensitivity, units)? This
+                                   INCLUDES well-posedness: is the measured quantity itself well-defined?
+                                   Penalize rigor (and flag in `contradictions`) if the quantity is
+                                   representation-dependent — depends on an arbitrary base/units/window/
+                                   encoding (e.g. happy numbers are base-10 specific) — is treated as
+                                   having a limit or density that does not exist, or reports an
+                                   uncertainty invalid for the object (a confidence interval on an
+                                   exhaustive census). A paper can be honest, complete, and rigorous in
+                                   EXECUTION yet measure something that should not have been measured.
                   - novelty      — does this materially extend the prior literature?
 
                 For lists of indices, refer to tool-call entries by their 1-based position in
