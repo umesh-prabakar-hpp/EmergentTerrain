@@ -249,6 +249,23 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void looseGrowthAnchor_capturesFailureRegionWindowsFromRefutedFlatBound() {
+        // The flat bound REFUTED at 300000 (the failure region); the growth anchor held loose at 1.2M.
+        // The tighten must target the failure-region windows, not the benign ones.
+        var s = ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of(
+                verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_window_size\",\"k\":2,\"c\":53.6,"
+                        + "\"window_start\":300000,\"window_size\":1000,\"num_windows\":50}",
+                        "verify_conjecture: ... REFUTED across 50 window(s) starting at 300000"),
+                verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":1,\"c\":0,"
+                        + "\"window_start\":1200000,\"window_size\":5000,\"num_windows\":20}", LOOSE_HELD)));
+        assertNotNull(s);
+        assertEquals("0.4880", s.suggestedK());
+        assertEquals("300000", s.failStart());   // the REFUTED (failure) region, not 1.2M
+        assertEquals("1000", s.failSize());
+        assertEquals("50", s.failNum());
+    }
+
+    @Test
     void looseGrowthAnchor_nullWhenSubsequentTightHold() {
         // The professor DID re-verify tight (a HELD with no re-verify suggestion) → nothing to enforce.
         assertNull(ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of(

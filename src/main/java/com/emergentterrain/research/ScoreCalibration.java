@@ -226,45 +226,67 @@ public final class ScoreCalibration {
         return m.find() ? m.group(1) : null;
     }
 
-    /** The verify tool's tight-k suggestion on a loose-but-HELD growth-anchor bound: the rhs (growth
-     *  anchor) and c from the call args, and the suggested tighter k parsed from the result. */
-    public record TightenSuggestion(String rhs, String c, String suggestedK) {}
+    /**
+     * The verify tool's tight-k suggestion on a loose-but-HELD growth-anchor bound. {@code rhs}/{@code c}
+     * and the suggested tighter {@code suggestedK} come from the HELD call; {@code failStart}/
+     * {@code failSize}/{@code failNum} are the window params of the FLAT bound's REFUTED call — the
+     * failure region where a real bound must hold. The suggested k is only tight for the windows the tool
+     * measured (often benign); the capturable bound is the tightest k that holds the FAILURE region, which
+     * can be larger. Failure params are null when the trace has no REFUTED call to point at.
+     */
+    public record TightenSuggestion(String rhs, String c, String suggestedK,
+            String failStart, String failSize, String failNum) {}
 
     /**
      * Non-null when a conjecture trace HELD a growth-anchor bound only LOOSELY — the verify tool emitted
      * its "re-verify at k=…" tight-k suggestion (it does so iff the hold leaves slack past the tightness
      * gate) — AND the professor never followed up with a tight hold (a HELD result carrying NO such
      * suggestion). The deterministic trigger for the tight-k corrective re-run: the tool already
-     * DETERMINED the tight constant; the app only enforces that the professor captures it (P-b72c-77627560
-     * held max_prime_gap ≤ 1·(ln x)² loose, was told to re-verify at k≈0.488, and didn't — so the tight
-     * Cramér survivor was lost). Returns the first loose suggestion (rhs/c/k). Non-conjecture / empty
-     * traces → null.
+     * DETERMINED a tight constant; the app enforces that the professor captures it AT THE FAILURE REGION
+     * (P-b72c-77627560 held max_prime_gap ≤ 1·(ln x)² loose in a BENIGN region, was told k≈0.488, didn't
+     * re-verify — and 0.488 refutes at the 338k failure region, which needs k≈0.531). Also captures the
+     * first REFUTED call's window params so the re-run can target the binding region. Non-conjecture /
+     * empty traces → null.
      */
     public static TightenSuggestion looseGrowthAnchorUntightened(String topic, List<ToolInvocation> trace) {
         if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
             return null;
         }
-        TightenSuggestion loose = null;
+        String looseRhs = null, looseC = null, looseK = null;
+        String failStart = null, failSize = null, failNum = null;
         boolean tightHeldExists = false;
         for (ToolInvocation call : trace) {
             if (call == null || !"verify_conjecture".equals(call.functionName())) {
                 continue;
             }
             String result = call.resultJson();
-            if (result == null || !result.contains("HELD")) {
-                continue;   // REFUTED summaries say "REFUTED across …"; per-window "holds" is lowercase
+            if (result == null) {
+                continue;
+            }
+            if (result.contains("REFUTED") && failStart == null) {
+                // The flat bound's failure region — the windows where a real bound must hold.
+                failStart = numArg(call.argsJson(), "window_start");
+                failSize = numArg(call.argsJson(), "window_size");
+                failNum = numArg(call.argsJson(), "num_windows");
+                continue;   // REFUTED summary carries no "HELD"
+            }
+            if (!result.contains("HELD")) {
+                continue;
             }
             java.util.regex.Matcher km = SUGGEST_K.matcher(result);
             if (km.find()) {
-                if (loose == null) {
-                    loose = new TightenSuggestion(
-                            strArg(call.argsJson(), "rhs"), numArg(call.argsJson(), "c"), km.group(1));
+                if (looseK == null) {
+                    looseRhs = strArg(call.argsJson(), "rhs");
+                    looseC = numArg(call.argsJson(), "c");
+                    looseK = km.group(1);
                 }
             } else {
                 tightHeldExists = true;   // a HELD with no LOOSE suggestion is already tight
             }
         }
-        return (loose != null && !tightHeldExists) ? loose : null;
+        return (looseK != null && !tightHeldExists)
+                ? new TightenSuggestion(looseRhs, looseC, looseK, failStart, failSize, failNum)
+                : null;
     }
 
     public static java.util.List<String> secondOrderScalarsEngaged(List<ToolInvocation> trace) {

@@ -62,25 +62,29 @@ class PivotNoteTest {
     // ── 2026-06-14 — tight-k re-run note: enforce the tool's own tight-k suggestion ──
 
     @Test
-    void tightenNoteNamesLhsRhsCAndTheToolSuggestedK() {
+    void tightenNoteTargetsFailureRegionWindowsAndClimbsK() {
         String note = ResearchNarrationService.buildTightenNote("max_prime_gap",
                 new com.emergentterrain.research.ScoreCalibration.TightenSuggestion(
-                        "log_sq_window_start", "0", "0.4880"));
+                        "log_sq_window_start", "0", "0.4880", "300000", "1000", "50"));
         org.assertj.core.api.Assertions.assertThat(note)
                 .contains("'max_prime_gap'")
-                .contains("k=0.4880")
+                .contains("FAILURE REGION")
+                .contains("window_start=300000")
+                .contains("window_size=1000")
+                .contains("num_windows=50")
                 .contains("rhs=\"log_sq_window_start\"")
-                .contains("c=0")
-                .contains("TIGHT")
-                .contains("failure region");
+                .contains("INCREASE k")           // climb k upward, not pin the benign-region value
+                .contains("0.4880");
     }
 
     @Test
-    void tightenNoteOmitsRhsAndCWhenAbsent() {
+    void tightenNoteFallsBackWhenNoFailureWindowsCaptured() {
         String note = ResearchNarrationService.buildTightenNote("max_prime_gap",
-                new com.emergentterrain.research.ScoreCalibration.TightenSuggestion(null, null, "0.5"));
+                new com.emergentterrain.research.ScoreCalibration.TightenSuggestion(
+                        null, null, "0.5", null, null, null));
         org.assertj.core.api.Assertions.assertThat(note)
-                .contains("k=0.5").doesNotContain("rhs=").doesNotContain(", c=");
+                .contains("k≈0.5").contains("flat bound REFUTED")
+                .doesNotContain("window_start=").doesNotContain("rhs=");
     }
 
     // ── 2026-06-13 — survivor-aware fallback guard: cite established constants ──

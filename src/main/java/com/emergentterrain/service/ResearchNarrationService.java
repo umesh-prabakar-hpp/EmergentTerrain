@@ -394,13 +394,27 @@ public class ResearchNarrationService {
     static String buildTightenNote(String lhs, com.emergentterrain.research.ScoreCalibration.TightenSuggestion s) {
         String rhs = s.rhs();
         String c = s.c();
-        return "\n\nTIGHTEN NOTE — your growth-anchor bound on '" + lhs + "' HELD, but the verify tool "
-                + "reported it is LOOSE and named the tightest k that holds these windows as ~"
-                + s.suggestedK() + ". You did NOT re-verify at it — a loose hold is not a result, the TIGHT "
-                + "machine-found constant is. Re-run verify_conjecture with lhs=\"" + lhs + "\""
-                + (rhs != null ? ", rhs=\"" + rhs + "\"" : "") + ", k=" + s.suggestedK()
-                + (c != null ? ", c=" + c : "") + " on the SAME windows — especially the failure region "
-                + "where the flat bound was refuted — so the tight bound is captured into the pool.";
+        StringBuilder b = new StringBuilder();
+        b.append("\n\nTIGHTEN NOTE — your growth-anchor bound on '").append(lhs).append("' HELD, but only ")
+                .append("LOOSELY; the verify tool named the tightest k for the windows you tested as ~")
+                .append(s.suggestedK()).append(". You did NOT re-verify, and you tested the anchor in a ")
+                .append("benign region — a k that is tight there can REFUTE at the FAILURE region where the ")
+                .append("flat bound broke, so ~").append(s.suggestedK()).append(" is NOT necessarily the ")
+                .append("capturable bound. ");
+        if (s.failStart() != null) {
+            b.append("Re-verify the growth anchor AT THE FAILURE REGION — verify_conjecture lhs=\"")
+                    .append(lhs).append("\"").append(rhs != null ? ", rhs=\"" + rhs + "\"" : "")
+                    .append(c != null ? ", c=" + c : "").append(", window_start=").append(s.failStart())
+                    .append(s.failSize() != null ? ", window_size=" + s.failSize() : "")
+                    .append(s.failNum() != null ? ", num_windows=" + s.failNum() : "")
+                    .append(" (the windows where the flat bound REFUTED). ");
+        } else {
+            b.append("Re-verify the growth anchor on the windows where the flat bound REFUTED. ");
+        }
+        b.append("Start at k≈").append(s.suggestedK()).append(" and INCREASE k until it HOLDS with a small ")
+                .append("margin THERE — the tightest k that holds the FAILURE region is the real capturable ")
+                .append("bound (the loose benign-region value is not). That tight k is the result.");
+        return b.toString();
     }
 
     /**
