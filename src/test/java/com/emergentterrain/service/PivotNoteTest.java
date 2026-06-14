@@ -59,6 +59,25 @@ class PivotNoteTest {
         assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, false, 2, 99)).isTrue();
     }
 
+    // ── 2026-06-14 — Change 4: reviewer classification corrected on a conclusion inversion ──
+
+    @Test
+    void classificationLineCorrectedWhenSupportedSeedIsInverted() {
+        // inverted SUPPORTED → the reviewer is steered to the actual finding, NOT told "SUPPORTED".
+        String corrected = ResearchNarrationService.classificationLineText("SUPPORTED", true);
+        org.assertj.core.api.Assertions.assertThat(corrected)
+                .contains("INVERTS")
+                .contains("ACTUAL finding")
+                .doesNotContain("Result classification: SUPPORTED\n");
+        // not inverted → the stored label verbatim (legacy).
+        org.assertj.core.api.Assertions.assertThat(
+                ResearchNarrationService.classificationLineText("SUPPORTED", false))
+                .isEqualTo("Result classification: SUPPORTED\n");
+        org.assertj.core.api.Assertions.assertThat(
+                ResearchNarrationService.classificationLineText("NULL_RESULT", false))
+                .isEqualTo("Result classification: NULL_RESULT\n");
+    }
+
     // ── 2026-06-14 — tight-k re-run note: enforce the tool's own tight-k suggestion ──
 
     @Test

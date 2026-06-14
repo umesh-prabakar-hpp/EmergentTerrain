@@ -268,7 +268,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);
         NarrationResult narration = new NarrationResult(
                 "hypothesis text", "findings text", "conclusion text", null, null, 0.8, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration, false);
         assertThat(prompt).contains("hypothesis text").contains("findings text").contains("conclusion text");
     }
 
@@ -277,7 +277,7 @@ class LlmServiceQualityPipelineTest {
         PaperDraft draft = draftWithPreReg(new PreRegistration(
                 "hyp", "value near 0.3", "no correlation", ""));
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration, false);
         assertThat(prompt).contains("value near 0.3");
     }
 
@@ -285,7 +285,7 @@ class LlmServiceQualityPipelineTest {
     void critiquePromptIncludesClassification() {
         PaperDraft draft = minimalDraft(ResultClassification.NULL_RESULT);
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration, false);
         assertThat(prompt).contains("NULL_RESULT");
     }
 
@@ -460,7 +460,7 @@ class LlmServiceQualityPipelineTest {
     void critiquePromptForMathsDraftIncludesDynamicExperimentOption() {
         PaperDraft draft = minimalDraft(ResultClassification.SUPPORTED);  // MATHEMATICS, param1=42
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.8, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration, false);
         assertThat(prompt).contains("dynamic");
         assertThat(prompt).contains("isPrime");
         assertThat(prompt).contains("fraction_satisfying");
@@ -471,7 +471,7 @@ class LlmServiceQualityPipelineTest {
         // Dynamic paper has param1 == null
         PaperDraft draft = dynamicPaperDraft();
         NarrationResult narration = new NarrationResult("h", "f", "c", null, null, 0.5, List.of());
-        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration);
+        String prompt = ResearchNarrationService.buildCritiquePrompt(REGISTRY, draft, narration, false);
         assertThat(prompt).contains("No additional computation is possible");
     }
 

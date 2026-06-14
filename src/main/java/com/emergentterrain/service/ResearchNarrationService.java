@@ -178,6 +178,17 @@ public class ResearchNarrationService {
     private boolean tightenGateEnabled;
 
     /**
+     * Phase 32 (paper-pipeline-quality-brief Change 4) — when on, the result-classification line shown to
+     * the SCORING REVIEWER is corrected to reflect the paper's actual finding. Conjecture drafts are
+     * seeded SUPPORTED (ResearchCycleService); the professor often refutes the bound, and the divergence
+     * was caught only at the publish gate (direction_inversion) — AFTER reviewers scored against a label
+     * contradicting the conclusion. false = today's behavior (raw stored label), bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.reviewer-classification-fix.enabled:false}")
+    private boolean reviewerClassificationFixEnabled;
+
+    /**
      * Phase 32 Wave 2 (32.3, 2026-06-13) — reclassify the corrective re-run
      * (off-target pivot + second-order gate, which share one loop) from
      * discretionary spend to IN-FLIGHT-COMPLETION spend. A re-run improves a
@@ -3658,7 +3669,7 @@ public class ResearchNarrationService {
                                                             List<String> callPath) {
         try {
             long critiqueStart = System.currentTimeMillis();
-            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass));
+            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass, reviewerClassificationFixEnabled));
             CritiqueResult critique = parseCritiqueResult(critiqueResponse);
 
             if (!critique.hasActionableFeedback()) {
@@ -3734,7 +3745,7 @@ public class ResearchNarrationService {
                                                           List<String> callPath) {
         try {
             long critiqueStart = System.currentTimeMillis();
-            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass));
+            String critiqueResponse = router.callFast(buildCritiquePrompt(promptRegistry, draft, firstPass, reviewerClassificationFixEnabled));
             CritiqueResult critique = parseCritiqueResult(critiqueResponse);
 
             if (!critique.hasActionableFeedback()) {
@@ -3846,12 +3857,44 @@ public class ResearchNarrationService {
         }
     }
 
+    /**
+     * Brief Change 4 — the classification line shown to the scoring reviewer. Reuses the publish gate's
+     * own {@link com.emergentterrain.research.DirectionOfFindingValidator}: when it flags the conclusion
+     * as inverting a SUPPORTED seed, the label is corrected so a reviewer is never told "SUPPORTED" about
+     * a refutation. {@code enabled=false} → the raw stored label (today's behavior). Empty if no label.
+     */
+    static String reviewerClassLine(PaperDraft draft, NarrationResult narration, boolean enabled) {
+        if (draft.resultClassification() == null) {
+            return "";
+        }
+        String stored = draft.resultClassification().toString();
+        if (!enabled || narration == null) {
+            return classificationLineText(stored, false);
+        }
+        boolean inverted = !com.emergentterrain.research.DirectionOfFindingValidator.validate(
+                narration.hypothesis(), narration.findingsMap(), narration.conclusion(),
+                narration.toolCallTrace() == null ? 0 : narration.toolCallTrace().size()).isEmpty();
+        return classificationLineText(stored,
+                inverted && draft.resultClassification() == ResultClassification.SUPPORTED);
+    }
+
+    /** Pure (tested): the reviewer classification line — corrected when the conclusion inverts a
+     *  SUPPORTED seed, else the stored label verbatim. */
+    static String classificationLineText(String storedLabel, boolean invertedFromSupported) {
+        if (invertedFromSupported) {
+            return "Result classification: the paper's conclusion INVERTS its pre-registered SUPPORTED "
+                    + "expectation — score against the paper's ACTUAL finding (the SUPPORTED seed label is "
+                    + "stale; the pre-registered claim was not borne out)\n";
+        }
+        return "Result classification: " + storedLabel + "\n";
+    }
+
     static String buildCritiquePrompt(PromptTemplateRegistry registry,
-                                       PaperDraft draft, NarrationResult narration) {
+                                       PaperDraft draft, NarrationResult narration,
+                                       boolean correctClassification) {
         String preRegLine = draft.preRegistration() != null
                 ? "Pre-registered prediction: " + draft.preRegistration().prediction() + "\n" : "";
-        String classLine  = draft.resultClassification() != null
-                ? "Result classification: " + draft.resultClassification() + "\n" : "";
+        String classLine  = reviewerClassLine(draft, narration, correctClassification);
 
         boolean canParam   = draft.param1() != null
                 && MathPhysicsEngine.topicIndex(draft.domain(), draft.topicName()) >= 0;
