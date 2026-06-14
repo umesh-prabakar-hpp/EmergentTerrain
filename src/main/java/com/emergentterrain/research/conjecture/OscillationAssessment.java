@@ -29,6 +29,19 @@ public final class OscillationAssessment {
     public record Assessment(int signChanges, double amplitude, double mean, double meanAbs,
                              double envelope, long ampWindowStart, boolean oscillates) {}
 
+    /**
+     * Whether an oscillation is genuinely centred near zero — {@code |mean|} small relative to the mean
+     * ABSOLUTE value (the typical magnitude). Distinct from {@link Assessment#oscillates()}, which checks
+     * the mean against the AMPLITUDE (the peak): a one-sign-biased series (e.g. {@code dirichlet_error} =
+     * Δ(x)/x^{1/4}, which is genuinely net-positive at reachable x even though its sign-symmetric
+     * oscillation is an x→∞ property) passes the amplitude test while averaging far from 0. The per-call
+     * label uses this tighter test so it stops asserting "centred near 0" for a clearly biased series.
+     * Degenerate {@code meanAbs ≤ 0} → centred (nothing to bias).
+     */
+    public static boolean centredNearZero(double mean, double meanAbs) {
+        return meanAbs <= 0.0 || Math.abs(mean) <= 0.5 * meanAbs;
+    }
+
     private static final double EPS = 1e-12;
 
     /**

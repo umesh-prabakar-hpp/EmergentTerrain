@@ -2404,13 +2404,29 @@ public class MathToolSuite {
         }
         com.emergentterrain.research.conjecture.OscillationAssessment.Assessment a =
                 com.emergentterrain.research.conjecture.OscillationAssessment.assess(values, starts, scale);
+        // 2026-06-14 — data-driven centering verdict. The old text hardcoded "centred near 0" off
+        // oscillates() (which only checks mean-vs-amplitude), so a one-sign-biased series like
+        // dirichlet_error (genuinely net-positive at reachable x; its sign-symmetry is an x→∞ property)
+        // was mislabelled centred. Keep the "OSCILLATES" token in the biased case so the write-back
+        // envelope-survivor parser still matches — the envelope is valid regardless of centering.
+        String oscLabel;
+        if (!a.oscillates()) {
+            oscLabel = "one-sided (not a centred oscillation).";
+        } else if (com.emergentterrain.research.conjecture.OscillationAssessment
+                .centredNearZero(a.mean(), a.meanAbs())) {
+            oscLabel = "OSCILLATES (centred near 0).";
+        } else {
+            oscLabel = String.format(
+                    "OSCILLATES but biased one sign over the tested range (mean %+.5f vs mean|.| %.5f — "
+                            + "NOT centred near 0 here; centring at 0 is an asymptotic property not yet "
+                            + "visible at reachable x).", a.mean(), a.meanAbs());
+        }
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
                 "verify_oscillation: %s over %d window(s) of size %d starting at %d: %d sign change(s), "
                         + "amplitude %.5f at window starting %d, mean %+.5f, mean|.| %.5f. %s",
                 lhs, windows.size(), windowSize, windowStart, a.signChanges(), a.amplitude(),
-                a.ampWindowStart(), a.mean(), a.meanAbs(),
-                a.oscillates() ? "OSCILLATES (centred near 0)." : "one-sided (not a centred oscillation)."));
+                a.ampWindowStart(), a.mean(), a.meanAbs(), oscLabel));
         if (scale != null && !Double.isNaN(a.envelope())) {
             sb.append(String.format(" envelope max|%s|/%s = %.5f.", lhs, scaleRhs, a.envelope()));
         }

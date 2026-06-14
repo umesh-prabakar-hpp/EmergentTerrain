@@ -40,4 +40,20 @@ class OscillationAssessmentTest {
                 new double[]{1, -1}, new long[]{1, 2}, new double[]{1.0}))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    // ── 2026-06-14 — centredNearZero: |mean| small vs mean|.| (tighter than oscillates()) ──
+
+    @Test
+    void centredNearZero_trueForBalancedOscillation_falseForOneSignBias() {
+        // Balanced around 0: |mean| ≪ mean|.| → centred.
+        assertThat(OscillationAssessment.centredNearZero(0.02, 1.20)).isTrue();
+        // dirichlet_error in-range: mean +0.999 vs mean|.| 1.185 → 0.84 of magnitude → NOT centred.
+        assertThat(OscillationAssessment.centredNearZero(0.99911, 1.18474)).isFalse();
+        assertThat(OscillationAssessment.centredNearZero(1.17606, 1.29500)).isFalse();
+        // At the half threshold counts as centred; just past does not.
+        assertThat(OscillationAssessment.centredNearZero(0.5, 1.0)).isTrue();
+        assertThat(OscillationAssessment.centredNearZero(0.51, 1.0)).isFalse();
+        // Degenerate magnitude → centred (nothing to bias).
+        assertThat(OscillationAssessment.centredNearZero(0.0, 0.0)).isTrue();
+    }
 }
