@@ -39,11 +39,14 @@ public class DynamicComputeEngine {
         double fraction = (double) count / n;
         double deviation = Math.abs(fraction - problem.baseline());
 
-        double se = Math.sqrt(Math.max(0, fraction * (1 - fraction)) / n);
-        double ci = 1.96 * se;
-        int dp = (se > 1e-9) ? Math.max(0, -(int) Math.floor(Math.log10(se))) : 4;
-        String fmt = "%." + dp + "f";
-        String propStr = (fmt + " ± " + fmt + " (95%% CI, n=%d)").formatted(fraction, ci, n);
+        // 2026-06-14 (Change 5) — this scan enumerates the ENTIRE [start,end) interval (n = end - start),
+        // so it is an EXHAUSTIVE CENSUS, not a sample: there is no sampling uncertainty, and a Wald
+        // confidence interval here is a tooling artifact that downstream stages then waste prose
+        // debunking. Report the EXACT count and fraction with NO interval. (Reserve CIs for a genuine
+        // sample; this path never samples.)
+        String propStr = "%d/%d = %.5f (exact count over the full interval; exhaustive census — no "
+                .formatted(count, n, fraction)
+                + "sampling uncertainty, no confidence interval)";
 
         MathPhysicsEngine.ClaimStatus status =
                 deviation <= Math.max(0.01, problem.baseline() * 0.15) ? MathPhysicsEngine.ClaimStatus.SUPPORTED
