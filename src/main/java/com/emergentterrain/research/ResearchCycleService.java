@@ -70,6 +70,18 @@ public class ResearchCycleService {
      */
     private final ConcurrentHashMap<String, Long> inFlightDrafts = new ConcurrentHashMap<>();
 
+    /**
+     * Phase 32 (brief Change 1) — optional well-posedness gate. When present and enabled, an ill-posed
+     * directive (representation-dependent, no-limiting-value, tooling-artifact…) gets a caveat prepended
+     * to its hypothesis so the writer opens by stating it. Caveat-first, best-effort; null = no-op.
+     */
+    private volatile WellPosednessGate wellPosednessGate;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setWellPosednessGate(WellPosednessGate gate) {
+        this.wellPosednessGate = gate;
+    }
+
     /** Age (ms) after which an in-flight draft is presumed hung and its slot reclaimed. */
     @org.springframework.beans.factory.annotation.Value("${app.research.stuckDraftTtlMs:600000}")
     private long stuckDraftTtlMs;
@@ -391,6 +403,7 @@ public class ResearchCycleService {
         DynamicProblem directive = author.getState().getPendingDirective();
         if (directive != null) {
             author.getState().setPendingDirective(null);
+            directive = applyWellPosednessCaveat(directive);   // brief Change 1 — annotate ill-posed topics
             runDynamicCycle(roomId, author, pool, directive, rng, gameTick, peerReviewEnabled, ctx);
             return;
         }
@@ -928,6 +941,37 @@ public class ResearchCycleService {
                         + "continued holding is computed evidence — never a proof. Frame any frontier value as "
                         + "\"computed via a moat-validated method\", with no claim about the underlying conjecture.",
                 c.p99Slack(), c.confirmedRuns());
+    }
+
+    /**
+     * Brief Change 1 — run the well-posedness gate on a directive and, if it flags ill-posedness, prepend
+     * the caveat to the hypothesis so the writer opens by stating it (caveat-first, never dropped — per
+     * inform-don't-suppress). Best-effort: returns the directive unchanged when the gate is absent,
+     * disabled, admits, or throws. The caveat rides {@code hypothesis} → {@code templateHypothesis} →
+     * the writer seed.
+     */
+    private DynamicProblem applyWellPosednessCaveat(DynamicProblem d) {
+        WellPosednessGate gate = wellPosednessGate;
+        if (gate == null || d == null) {
+            return d;
+        }
+        try {
+            String topic = "Quantity/predicate: " + d.predicate() + "; metric: " + d.metric()
+                    + (d.hypothesis() != null && !d.hypothesis().isBlank()
+                            ? "; stated hypothesis: " + d.hypothesis() : "");
+            String caveat = WellPosednessGate.caveatFor(gate.assess(topic));
+            if (caveat.isBlank()) {
+                return d;
+            }
+            log.info("research: well-posedness caveat attached — predicate='{}' metric='{}'",
+                    d.predicate(), d.metric());
+            String newHyp = caveat
+                    + (d.hypothesis() != null && !d.hypothesis().isBlank() ? "\n\n" + d.hypothesis() : "");
+            return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
+                    d.predicate(), d.metric(), d.baseline(), newHyp);
+        } catch (Exception e) {
+            return d;   // never block the research cycle on the gate
+        }
     }
 
     // ---- Dynamic cycle ----
