@@ -137,7 +137,10 @@ echo "── observations (do not affect exit code) ─────────�
 # Gate fires + outcome, read from the per-paper call-path lines.
 SO_FIRES=$(grep -c 'secondorder_rerun' "$LOG" 2>/dev/null); SO_FIRES=${SO_FIRES:-0}
 OT_FIRES=$(grep -c 'offtarget_rerun' "$LOG" 2>/dev/null); OT_FIRES=${OT_FIRES:-0}
-info "second-order re-run fires: $SO_FIRES   off-target re-run fires: $OT_FIRES"
+TI_FIRES=$(grep -c 'tighten_rerun' "$LOG" 2>/dev/null); TI_FIRES=${TI_FIRES:-0}
+TI_STILL=$(grep -c 'pivot:still_loose' "$LOG" 2>/dev/null); TI_STILL=${TI_STILL:-0}
+info "corrective re-run fires — second-order: $SO_FIRES  off-target: $OT_FIRES  tighten: $TI_FIRES (still_loose: $TI_STILL)"
+[ "$TI_FIRES" -gt 0 ] && info "  tight-k captures (tighten fired → not still_loose): $((TI_FIRES - TI_STILL)) — a captured tight growth-anchor bound is a Q4 novelty candidate"
 
 # ── second-order COVERAGE (authoritative; from the per-paper engaged/uncovered
 #    stamps — distinguishes self-engaged / gate-forced / the silent miss, which

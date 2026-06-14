@@ -205,6 +205,68 @@ public final class ScoreCalibration {
      * object each leading-order paper reached — is visible in the log without opening
      * the paper's Methods.
      */
+    private static final java.util.regex.Pattern SUGGEST_K =
+            java.util.regex.Pattern.compile("re-verify at k=([0-9.]+)");
+
+    private static String strArg(String argsJson, String key) {
+        if (argsJson == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"").matcher(argsJson);
+        return m.find() ? m.group(1) : null;
+    }
+
+    private static String numArg(String argsJson, String key) {
+        if (argsJson == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("\"" + key + "\"\\s*:\\s*(-?[0-9.]+)").matcher(argsJson);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /** The verify tool's tight-k suggestion on a loose-but-HELD growth-anchor bound: the rhs (growth
+     *  anchor) and c from the call args, and the suggested tighter k parsed from the result. */
+    public record TightenSuggestion(String rhs, String c, String suggestedK) {}
+
+    /**
+     * Non-null when a conjecture trace HELD a growth-anchor bound only LOOSELY — the verify tool emitted
+     * its "re-verify at k=…" tight-k suggestion (it does so iff the hold leaves slack past the tightness
+     * gate) — AND the professor never followed up with a tight hold (a HELD result carrying NO such
+     * suggestion). The deterministic trigger for the tight-k corrective re-run: the tool already
+     * DETERMINED the tight constant; the app only enforces that the professor captures it (P-b72c-77627560
+     * held max_prime_gap ≤ 1·(ln x)² loose, was told to re-verify at k≈0.488, and didn't — so the tight
+     * Cramér survivor was lost). Returns the first loose suggestion (rhs/c/k). Non-conjecture / empty
+     * traces → null.
+     */
+    public static TightenSuggestion looseGrowthAnchorUntightened(String topic, List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
+            return null;
+        }
+        TightenSuggestion loose = null;
+        boolean tightHeldExists = false;
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())) {
+                continue;
+            }
+            String result = call.resultJson();
+            if (result == null || !result.contains("HELD")) {
+                continue;   // REFUTED summaries say "REFUTED across …"; per-window "holds" is lowercase
+            }
+            java.util.regex.Matcher km = SUGGEST_K.matcher(result);
+            if (km.find()) {
+                if (loose == null) {
+                    loose = new TightenSuggestion(
+                            strArg(call.argsJson(), "rhs"), numArg(call.argsJson(), "c"), km.group(1));
+                }
+            } else {
+                tightHeldExists = true;   // a HELD with no LOOSE suggestion is already tight
+            }
+        }
+        return (loose != null && !tightHeldExists) ? loose : null;
+    }
+
     public static java.util.List<String> secondOrderScalarsEngaged(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return java.util.List.of();

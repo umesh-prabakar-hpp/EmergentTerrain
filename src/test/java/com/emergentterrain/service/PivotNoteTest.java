@@ -59,6 +59,30 @@ class PivotNoteTest {
         assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, false, 2, 99)).isTrue();
     }
 
+    // ── 2026-06-14 — tight-k re-run note: enforce the tool's own tight-k suggestion ──
+
+    @Test
+    void tightenNoteNamesLhsRhsCAndTheToolSuggestedK() {
+        String note = ResearchNarrationService.buildTightenNote("max_prime_gap",
+                new com.emergentterrain.research.ScoreCalibration.TightenSuggestion(
+                        "log_sq_window_start", "0", "0.4880"));
+        org.assertj.core.api.Assertions.assertThat(note)
+                .contains("'max_prime_gap'")
+                .contains("k=0.4880")
+                .contains("rhs=\"log_sq_window_start\"")
+                .contains("c=0")
+                .contains("TIGHT")
+                .contains("failure region");
+    }
+
+    @Test
+    void tightenNoteOmitsRhsAndCWhenAbsent() {
+        String note = ResearchNarrationService.buildTightenNote("max_prime_gap",
+                new com.emergentterrain.research.ScoreCalibration.TightenSuggestion(null, null, "0.5"));
+        org.assertj.core.api.Assertions.assertThat(note)
+                .contains("k=0.5").doesNotContain("rhs=").doesNotContain(", c=");
+    }
+
     // ── 2026-06-13 — survivor-aware fallback guard: cite established constants ──
 
     @Test

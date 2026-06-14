@@ -164,6 +164,20 @@ public class ResearchNarrationService {
     private boolean secondOrderGateEnabled;
 
     /**
+     * Phase 32 Wave 2 (32.3, 2026-06-14) — tight-k re-run gate. Third trigger on the shared corrective-
+     * re-run loop: when a conjecture trace HELD a growth-anchor bound only LOOSELY and the verify tool
+     * told the professor the tighter k that holds, but the professor never re-verified at it
+     * ({@code ScoreCalibration.looseGrowthAnchorUntightened}), force one re-run at the suggested k so the
+     * tight machine-found constant is captured (P-b72c-77627560 left the tight Cramér bound
+     * max_prime_gap ≲ 0.488·(ln x)² on the table). Determination is the TOOL's (it computed the tight k);
+     * the app only enforces the follow-up. Same drain/in-flight/budget contract as the other two
+     * triggers. false = today's behavior, bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.tighten-gate.enabled:false}")
+    private boolean tightenGateEnabled;
+
+    /**
      * Phase 32 Wave 2 (32.3, 2026-06-13) — reclassify the corrective re-run
      * (off-target pivot + second-order gate, which share one loop) from
      * discretionary spend to IN-FLIGHT-COMPLETION spend. A re-run improves a
@@ -369,6 +383,24 @@ public class ResearchNarrationService {
                 + preregisteredLhs + "' (the SECOND-ORDER STEP in your instructions lists the "
                 + "objects reachable with the existing scalars and the frame each one needs) and "
                 + "MEASURE it with the matching frame. Re-run the investigation accordingly.";
+    }
+
+    /**
+     * The tight-k re-run note (2026-06-14): the professor held a growth-anchor bound loosely and the
+     * verify tool already named the tighter k — this enforces the follow-up the professor skipped. The
+     * tight k comes from the TOOL (deterministic), so this names it explicitly; that is enforcing the
+     * tool's own determination, not hand-authoring a constant.
+     */
+    static String buildTightenNote(String lhs, com.emergentterrain.research.ScoreCalibration.TightenSuggestion s) {
+        String rhs = s.rhs();
+        String c = s.c();
+        return "\n\nTIGHTEN NOTE — your growth-anchor bound on '" + lhs + "' HELD, but the verify tool "
+                + "reported it is LOOSE and named the tightest k that holds these windows as ~"
+                + s.suggestedK() + ". You did NOT re-verify at it — a loose hold is not a result, the TIGHT "
+                + "machine-found constant is. Re-run verify_conjecture with lhs=\"" + lhs + "\""
+                + (rhs != null ? ", rhs=\"" + rhs + "\"" : "") + ", k=" + s.suggestedK()
+                + (c != null ? ", c=" + c : "") + " on the SAME windows — especially the failure region "
+                + "where the flat bound was refuted — so the tight bound is captured into the pool.";
     }
 
     /**
@@ -2316,7 +2348,12 @@ public class ResearchNarrationService {
                 boolean secondOrderSkipped = !offTarget && secondOrderGateEnabled
                         && com.emergentterrain.research.ScoreCalibration
                                 .secondOrderEngagementSkipped(topic, profTrace);
-                if (!offTarget && !secondOrderSkipped) {
+                com.emergentterrain.research.ScoreCalibration.TightenSuggestion tighten =
+                        (!offTarget && !secondOrderSkipped && tightenGateEnabled)
+                        ? com.emergentterrain.research.ScoreCalibration
+                                .looseGrowthAnchorUntightened(topic, profTrace)
+                        : null;
+                if (!offTarget && !secondOrderSkipped && tighten == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
                 pivotReruns++;
@@ -2334,12 +2371,19 @@ public class ResearchNarrationService {
                                     + "never verified) — corrective re-run {}/{} paperId={}",
                             preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
                     pivotPrompt = userPrompt + buildPivotNote(preregLhs);
-                } else {
+                } else if (secondOrderSkipped) {
                     callPath.add("prereg:pivot:secondorder_rerun:n=" + pivotReruns);
                     log.info("LLM professor tools: leading-order-only trace (lhs '{}' bounded but no "
                                     + "second-order frame engaged) — second-order re-run {}/{} paperId={}",
                             preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
                     pivotPrompt = userPrompt + buildSecondOrderNote(preregLhs);
+                } else {
+                    callPath.add("prereg:pivot:tighten_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: loose growth anchor (lhs '{}' held but untightened; "
+                                    + "tool suggested k~{}) — tighten re-run {}/{} paperId={}",
+                            preregLhs, tighten.suggestedK(), pivotReruns, pivotMaxRefinements,
+                            draft.paperId());
+                    pivotPrompt = userPrompt + buildTightenNote(preregLhs, tighten);
                 }
                 MathToolSuite.ToolMetrics pivotMetrics = new MathToolSuite.ToolMetrics();
                 final String pivotPromptFinal = pivotPrompt;
@@ -2360,11 +2404,16 @@ public class ResearchNarrationService {
                     boolean stillSkipped = secondOrderGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .secondOrderEngagementSkipped(topic, profTrace);
+                    boolean stillLoose = tightenGateEnabled
+                            && com.emergentterrain.research.ScoreCalibration
+                                    .looseGrowthAnchorUntightened(topic, profTrace) != null;
                     callPath.add(stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped
                                     ? "prereg:pivot:still_leadingorder"
-                                    : "prereg:pivot:on_target");
+                                    : stillLoose
+                                            ? "prereg:pivot:still_loose"
+                                            : "prereg:pivot:on_target");
                 } else {
                     // Keep the original synthesis/trace; the gate decides.
                     callPath.add("prereg:pivot:rerun_unusable");

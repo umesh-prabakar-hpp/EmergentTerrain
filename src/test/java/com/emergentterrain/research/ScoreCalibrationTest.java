@@ -7,6 +7,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -223,6 +225,48 @@ class ScoreCalibrationTest {
                 List.of(verify("{\"lhs\":\"mean_omega\"}", "HELD"))));
         assertEquals(List.of(), ScoreCalibration.secondOrderScalarsEngaged(List.of()));
         assertEquals(List.of(), ScoreCalibration.secondOrderScalarsEngaged(null));
+    }
+
+    // ── 2026-06-14 — tight-k re-run gate (looseGrowthAnchorUntightened) ───────
+
+    private static final String LOOSE_HELD =
+            "verify_conjecture: max_prime_gap <= +1.0000 * log_sq_window_start + +0.0000 HELD across 20 "
+            + "window(s). worst margin: -100.91487. relative slack: 0.5125. LOOSE: the tightest k that "
+            + "holds these windows is ~0.4875 — re-verify at k=0.4880 (keep c=+0.0000) for a TIGHT bound.";
+    private static final String TIGHT_HELD =
+            "verify_conjecture: max_prime_gap <= +0.4880 * log_sq_window_start + +0.0000 HELD across 20 "
+            + "window(s). worst margin: -2.10000. relative slack: 0.0110.";   // no re-verify suggestion
+
+    @Test
+    void looseGrowthAnchor_firesWhenHeldLooseAndNotTightened() {
+        var s = ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of(
+                verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":1,\"c\":0}",
+                        LOOSE_HELD)));
+        assertNotNull(s);
+        assertEquals("0.4880", s.suggestedK());
+        assertEquals("log_sq_window_start", s.rhs());
+        assertEquals("0", s.c());
+    }
+
+    @Test
+    void looseGrowthAnchor_nullWhenSubsequentTightHold() {
+        // The professor DID re-verify tight (a HELD with no re-verify suggestion) → nothing to enforce.
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of(
+                verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":1,\"c\":0}",
+                        LOOSE_HELD),
+                verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":0.488,\"c\":0}",
+                        TIGHT_HELD))));
+    }
+
+    @Test
+    void looseGrowthAnchor_nullForRefutedNonConjectureAndEmpty() {
+        // A REFUTED trace has no HELD summary → null.
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of(
+                verify("{\"lhs\":\"max_prime_gap\"}", "verify_conjecture: ... REFUTED across 50 window(s)"))));
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened("isAbundant Density", List.of(
+                verify("{}", LOOSE_HELD))));
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_prime_gap", List.of()));
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened(null, null));
     }
 
     @Test
