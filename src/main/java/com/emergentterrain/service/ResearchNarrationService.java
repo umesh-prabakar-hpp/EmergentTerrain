@@ -2303,6 +2303,34 @@ public class ResearchNarrationService {
                     break;
                 }
             }
+            // Second-order coverage stamp (2026-06-13) — for any leading-order
+            // conjecture topic, record ONE outcome on the FINAL trace so coverage is
+            // visible in the log without opening the paper's Methods, and the silent
+            // miss (skipped + re-run blocked by drain/cap) stops being invisible:
+            //   second-order:engaged:<scalar(s)>  — reached a second-order object
+            //   second-order:uncovered            — leading-order only (the miss)
+            // Pure observation (no spend); gated on the gate flag so it's inert when off.
+            if (secondOrderGateEnabled && draft.topicName() != null
+                    && draft.topicName().startsWith("conjecture/")) {
+                String loLhs = draft.topicName().substring("conjecture/".length()).trim();
+                if (com.emergentterrain.research.ScoreCalibration.LEADING_ORDER_LHS.contains(loLhs)) {
+                    if (com.emergentterrain.research.ScoreCalibration
+                            .secondOrderEngagementSkipped(draft.topicName(), profTrace)) {
+                        callPath.add("second-order:uncovered");
+                        log.info("second-order: paperId={} lhs={} leading-order-only "
+                                + "(no second-order frame engaged; re-run not applied)",
+                                draft.paperId(), loLhs);
+                    } else {
+                        java.util.List<String> scalars = com.emergentterrain.research.ScoreCalibration
+                                .secondOrderScalarsEngaged(profTrace);
+                        String joined = scalars.isEmpty() ? "frame" : String.join("+", scalars);
+                        callPath.add("second-order:engaged:" + joined);
+                        log.info("second-order: paperId={} lhs={} engaged second-order frame on [{}]",
+                                draft.paperId(), loLhs, joined);
+                    }
+                }
+            }
+
             // Lever F (2026-06-10 fix) — capture the FINAL professor trace, after the resample/pivot
             // passes may have REPLACED profTrace (lines above). The pivot re-run is exactly the
             // preregistered-LHS growth-anchor verification — where the tight bound is proven — so the

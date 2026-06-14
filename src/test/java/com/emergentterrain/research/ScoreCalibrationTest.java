@@ -202,6 +202,30 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void secondOrderScalarsEngaged_extractsDistinctFrameLhsInOrder() {
+        // The model's chosen objects: the lhs of each second-order-frame call.
+        List<ToolInvocation> trace = List.of(
+                verify("{\"lhs\":\"mean_omega\",\"rhs\":\"log_log_center\",\"k\":1}", "REFUTED"),
+                new ToolInvocation("verify_constant",
+                        "{\"lhs\":\"omega_ek_ratio\",\"target\":1.0}", "CONVERGED", 0, "c1"),
+                new ToolInvocation("verify_constant",
+                        "{ \"lhs\" : \"omega_ek_ratio\" , \"target\":1.0}", "CONVERGED", 0, "c2"),
+                new ToolInvocation("verify_growth",
+                        "{\"lhs\":\"mean_divisor_excess\"}", "approaching", 0, "c3"));
+        // distinct, first-seen order; bound frame (verify_conjecture) ignored; whitespace tolerant.
+        assertEquals(List.of("omega_ek_ratio", "mean_divisor_excess"),
+                ScoreCalibration.secondOrderScalarsEngaged(trace));
+    }
+
+    @Test
+    void secondOrderScalarsEngaged_emptyWhenNoFrameOrNoTrace() {
+        assertEquals(List.of(), ScoreCalibration.secondOrderScalarsEngaged(
+                List.of(verify("{\"lhs\":\"mean_omega\"}", "HELD"))));
+        assertEquals(List.of(), ScoreCalibration.secondOrderScalarsEngaged(List.of()));
+        assertEquals(List.of(), ScoreCalibration.secondOrderScalarsEngaged(null));
+    }
+
+    @Test
     void secondOrderGate_nonConjectureAndEmptyTraces_notGated() {
         assertFalse(ScoreCalibration.secondOrderEngagementSkipped(
                 "isAbundant AND isHappy Density", List.of(other("run_predicate_scan"))));

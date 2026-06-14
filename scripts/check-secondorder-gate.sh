@@ -139,28 +139,30 @@ SO_FIRES=$(grep -c 'secondorder_rerun' "$LOG" 2>/dev/null); SO_FIRES=${SO_FIRES:
 OT_FIRES=$(grep -c 'offtarget_rerun' "$LOG" 2>/dev/null); OT_FIRES=${OT_FIRES:-0}
 info "second-order re-run fires: $SO_FIRES   off-target re-run fires: $OT_FIRES"
 
-if [ "$SO_FIRES" -gt 0 ]; then
-    # Per paper: did the re-run reach on_target, or stay still_leadingorder?
-    grep -E 'LLM call path paperId=.*secondorder_rerun' "$LOG" | while read -r line; do
-        pid=$(echo "$line" | grep -oE 'paperId=P-[a-z0-9-]+' | head -1)
-        if echo "$line" | grep -q 'still_leadingorder'; then
-            echo "      $pid — fired, but re-run STILL leading-order (note may be weak)"
-        elif echo "$line" | grep -q 'pivot:on_target'; then
-            echo "      $pid — fired → on_target (engaged a second-order frame ✓)"
-        else
-            echo "      $pid — fired (outcome stamp not on this line)"
-        fi
-    done
-else
-    # Zero fires is only notable if leading-order topics actually appeared.
-    LO_TOPICS=$(grep -oE 'conjecture/(mean_omega|mean_Omega|mean_divisor_count|max_divisor_count|abundant_density|deficient_density|happy_density|prime_density)' "$LOG" | sort -u | paste -sd, -)
-    if [ -n "$LO_TOPICS" ]; then
-        info "0 second-order fires, but leading-order topics appeared: $LO_TOPICS"
-        info "  → either they self-engaged a frame (good), or every eligible paper"
-        info "    landed after the cap/hard-stop. Inspect those papers' Methods."
-    else
-        info "0 second-order fires — no leading-order topic surfaced this run (gate N/A)"
+# ── second-order COVERAGE (authoritative; from the per-paper engaged/uncovered
+#    stamps — distinguishes self-engaged / gate-forced / the silent miss, which
+#    fire-count alone cannot. Pre-stamp build logs show "no stamps").
+ENG_IDS=$(grep -E 'second-order: paperId=.*engaged second-order' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
+UNC_IDS=$(grep -E 'second-order: paperId=.*leading-order-only' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
+RERUN_IDS=$(grep -E 'secondorder_rerun|second-order re-run' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
+SO_ENGAGED=$(echo -n "$ENG_IDS" | grep -c 'P-' || true)
+SO_UNCOV=$(echo -n "$UNC_IDS" | grep -c 'P-' || true)
+LO_TOTAL=$((SO_ENGAGED + SO_UNCOV))
+if [ "$LO_TOTAL" -gt 0 ]; then
+    GF=$(comm -12 <(echo "$ENG_IDS") <(echo "$RERUN_IDS") | grep -c 'P-' || true)
+    SELF=$((SO_ENGAGED - GF))
+    info "second-order coverage: $SO_ENGAGED/$LO_TOTAL leading-order papers reached a target ($SELF self-engaged, $GF gate-forced)"
+    SCALARS=$(grep -oE 'engaged second-order frame on \[[^]]+\]' "$LOG" \
+        | sed -E 's/.*\[([^]]+)\]/\1/' | tr '+' '\n' | grep -v '^$' | sort | uniq -c \
+        | awk '{printf "%s×%s  ", $1, $2}')
+    [ -n "$SCALARS" ] && info "  scalars reached: $SCALARS"
+    if [ "$SO_UNCOV" -gt 0 ]; then
+        STILL=$(comm -12 <(echo "$UNC_IDS") <(echo "$RERUN_IDS") | grep -c 'P-' || true)
+        warn "  $SO_UNCOV uncovered — the miss the gate exists to prevent ($STILL fired-but-still-leading-order, $((SO_UNCOV - STILL)) never-fired/blocked)"
+        echo "$UNC_IDS" | sed 's/^/      uncovered: /'
     fi
+else
+    info "second-order coverage: no engaged/uncovered stamps (pre-stamp build, or no leading-order topic this run)"
 fi
 
 # Drain / reserve headroom actually consumed.

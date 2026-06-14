@@ -185,6 +185,43 @@ public final class ScoreCalibration {
         return true;   // leading-order topic, non-empty trace, no second-order frame used at all
     }
 
+    private static final java.util.regex.Pattern LHS_ARG =
+            java.util.regex.Pattern.compile("\"lhs\"\\s*:\\s*\"([^\"]+)\"");
+
+    private static String extractLhsArg(String argsJson) {
+        if (argsJson == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = LHS_ARG.matcher(argsJson);
+        return m.find() ? m.group(1) : null;
+    }
+
+    /**
+     * The distinct second-order objects a trace actually measured — the {@code lhs}
+     * of every {@code verify_constant}/{@code verify_oscillation}/{@code verify_growth}
+     * call, in first-seen order. This is the scalar the MODEL chose (the gate enforces
+     * engagement; this records the determination). Empty when no second-order frame was
+     * used. Used to stamp {@code second-order:engaged:<scalar>} so coverage — and which
+     * object each leading-order paper reached — is visible in the log without opening
+     * the paper's Methods.
+     */
+    public static java.util.List<String> secondOrderScalarsEngaged(List<ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) {
+            return java.util.List.of();
+        }
+        java.util.LinkedHashSet<String> out = new java.util.LinkedHashSet<>();
+        for (ToolInvocation call : trace) {
+            if (call == null || !SECOND_ORDER_FRAMES.contains(call.functionName())) {
+                continue;
+            }
+            String lhs = extractLhsArg(call.argsJson());
+            if (lhs != null && !lhs.isEmpty()) {
+                out.add(lhs);
+            }
+        }
+        return new java.util.ArrayList<>(out);
+    }
+
     public static boolean hasAdversarialCoverage(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return false;
