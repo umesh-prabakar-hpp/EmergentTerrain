@@ -1856,6 +1856,39 @@ public class UniversityService {
                     ? "publish:range_coverage_under:warn"
                     : persistedCallPath + " → publish:range_coverage_under:warn";
         }
+        // 2026-06-14 (brief Change 6, validate-at-publish) — reconcile this paper's exact predicate-scan
+        // counts against prior papers' persisted counts (same predicate, overlapping ranges). The check
+        // is mechanical (containment/same-range), LLM-independent. Warn-only stamp (matches the warn→
+        // downgrade convention); runs BEFORE the capture below so it compares against prior papers only.
+        if (crossPaperCountEnabled && researchMemory != null && researchMemory.enabled()) {
+            try {
+                java.util.List<CrossPaperCountValidator.ScanCount> reconcile =
+                        new java.util.ArrayList<>(
+                                CrossPaperCountValidator.fromTrace(narration.toolCallTrace()));
+                java.util.Set<String> preds = new java.util.HashSet<>();
+                for (CrossPaperCountValidator.ScanCount sc : reconcile) {
+                    preds.add(sc.predicate());
+                }
+                for (String pred : preds) {
+                    for (String fact : researchMemory.factContentsForTopic(pred)) {
+                        CrossPaperCountValidator.ScanCount prior = CrossPaperCountValidator.fromFact(fact);
+                        if (prior != null) {
+                            reconcile.add(prior);
+                        }
+                    }
+                }
+                java.util.List<String> inconsistencies = CrossPaperCountValidator.validate(reconcile);
+                if (!inconsistencies.isEmpty()) {
+                    log.warn("cross-paper-count check failed paperId={} reasons={}",
+                            draft.paperId(), inconsistencies);
+                    persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())
+                            ? "publish:cross_paper_count_inconsistent:warn"
+                            : persistedCallPath + " → publish:cross_paper_count_inconsistent:warn";
+                }
+            } catch (Exception e) {
+                log.warn("cross-paper-count check error paperId={}: {}", draft.paperId(), e.getMessage());
+            }
+        }
         // Phase 14 F4 — additive stamp for polarity inversions.
         if (directionOfFindingInverted) {
             persistedCallPath = (persistedCallPath == null || persistedCallPath.isBlank())

@@ -54,6 +54,26 @@ public class ResearchMemoryService {
     }
 
     /**
+     * Brief Change 6 — the FACT contents stored under a topic (e.g. a predicate scan's predicate),
+     * oldest first. Read-only, best-effort: empty when disabled, the topic is blank, or the query
+     * throws. Lets the cross-paper reconciliation pass recall prior papers' exact counts.
+     */
+    public java.util.List<String> factContentsForTopic(String topic) {
+        if (!enabled() || topic == null || topic.isBlank()) {
+            return java.util.List.of();
+        }
+        try {
+            return repository.findByTypeAndTopicOrderByCreatedAtAsc(
+                            ResearchMemoryEntity.TYPE_FACT, topic).stream()
+                    .map(ResearchMemoryEntity::content)
+                    .filter(java.util.Objects::nonNull)
+                    .toList();
+        } catch (Exception e) {
+            return java.util.List.of();
+        }
+    }
+
+    /**
      * Insert-or-reinforce one memory. Returns the row's id when captured
      * (new or reinforced), empty when the flag is off or capture failed.
      */
