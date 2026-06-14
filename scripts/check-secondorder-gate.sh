@@ -146,7 +146,12 @@ info "corrective re-run fires — second-order: $SO_FIRES  off-target: $OT_FIRES
 #    stamps — distinguishes self-engaged / gate-forced / the silent miss, which
 #    fire-count alone cannot. Pre-stamp build logs show "no stamps").
 ENG_IDS=$(grep -E 'second-order: paperId=.*engaged second-order' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
-UNC_IDS=$(grep -E 'second-order: paperId=.*leading-order-only' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
+# best-of-N emits one second-order line per CANDIDATE, so a paper can have both an engaged (winning
+# candidate) and a leading-order-only (losing candidate) line. The published outcome is engaged, so a
+# paper in ENG_IDS is NOT uncovered — subtract it (prevents the P-570-style false "uncovered" flag).
+UNC_IDS=$(comm -23 \
+    <(grep -E 'second-order: paperId=.*leading-order-only' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u) \
+    <(echo "$ENG_IDS"))
 RERUN_IDS=$(grep -E 'secondorder_rerun|second-order re-run' "$LOG" | grep -oE 'P-[A-Za-z0-9-]+' | sort -u)
 SO_ENGAGED=$(echo -n "$ENG_IDS" | grep -c 'P-' || true)
 SO_UNCOV=$(echo -n "$UNC_IDS" | grep -c 'P-' || true)
