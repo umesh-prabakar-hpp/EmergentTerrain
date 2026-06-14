@@ -27,6 +27,14 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     /** Promoted conjectures for a domain (≥ PROMOTE_RUNS confirmed runs). */
     List<Conjecture> findByDomainAndConfirmedRunsGreaterThanEqual(String domain, int minRuns);
 
+    /**
+     * 2026-06-13 — the survivor-aware fallback guard's lookup: rows of a given {@code kind}
+     * (e.g. "CONSTANT") for a domain. A CONSTANT-kind row is a CONVERGED, theorem-locked
+     * second-order constant survivor — the cite-don't-re-measure set, distinct from the living
+     * OSCILLATION/BOUND rows the miner intentionally re-evaluates each run.
+     */
+    List<Conjecture> findByDomainAndKind(String domain, String kind);
+
     long countByDomain(String domain);
 
     /**

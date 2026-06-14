@@ -196,6 +196,18 @@ public class ResearchNarrationService {
             new java.util.concurrent.atomic.AtomicInteger();
 
     /**
+     * Phase 32 Wave 2 (32.3, 2026-06-13) — survivor-aware fallback guard. When on, the professor
+     * prompt for a conjecture paper is told which second-order CONSTANTS are already converged
+     * survivors in the pool, so it CITES them rather than re-measuring (a theorem-locked constant
+     * can't flip — re-measuring is duplication; the verify budget belongs on the open /
+     * not-yet-established object). Generic: it lists whatever the pool holds (data), names no scalar
+     * itself, and leaves cite-vs-measure to the model. false = today's behavior, bit-identical.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.established-constant-cite.enabled:false}")
+    private boolean establishedConstantCiteEnabled;
+
+    /**
      * Phase 32 Wave 1 enforce (32.2) — mirrored mode flag so the REVISION
      * stage can pre-check the working material against the manifest and name
      * the unprovenanced values in the revision prompt, instead of letting the
@@ -268,6 +280,15 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     public void setRunBudgetTracker(com.emergentterrain.llm.RunBudgetTracker tracker) {
         this.runBudgetTracker = tracker;
+    }
+
+    /** Read-only pool access for the survivor-aware fallback guard (optional; narration never
+     *  depends on it — a null repo or any failure just omits the established-constant note). */
+    private volatile com.emergentterrain.repo.ConjectureRepository conjectureRepository;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setConjectureRepository(com.emergentterrain.repo.ConjectureRepository repo) {
+        this.conjectureRepository = repo;
     }
 
     private boolean pivotSpendAllowed() {
@@ -348,6 +369,52 @@ public class ResearchNarrationService {
                 + preregisteredLhs + "' (the SECOND-ORDER STEP in your instructions lists the "
                 + "objects reachable with the existing scalars and the frame each one needs) and "
                 + "MEASURE it with the matching frame. Re-run the investigation accordingly.";
+    }
+
+    /**
+     * The survivor-aware fallback guard's directive addendum (2026-06-13): names the converged
+     * CONSTANT survivors already in the pool so the professor cites them instead of re-measuring.
+     * Pure + tested; generic (lists whatever is passed, names no scalar itself); empty list → "".
+     * Determination stays with the model — this supplies the FACT (these are established), the model
+     * decides cite-vs-measure.
+     */
+    static String buildEstablishedConstantNote(java.util.List<String> establishedConstants) {
+        if (establishedConstants == null || establishedConstants.isEmpty()) {
+            return "";
+        }
+        return "\n\nALREADY-ESTABLISHED CONSTANTS — these second-order constants are converged "
+                + "survivors in this room's pool: " + String.join(", ", establishedConstants)
+                + ". A converged constant is theorem-locked (it does not change between runs), so CITE "
+                + "the established value rather than spending verify budget re-measuring it. If your "
+                + "topic's textbook second-order object is already listed here, it is done — direct your "
+                + "verification at the OPEN or not-yet-established object instead.";
+    }
+
+    /**
+     * Fetch the room's converged CONSTANT survivors and format the cite-don't-re-measure addendum.
+     * Best-effort context: gated off by default, no-ops without the repo, and any failure returns ""
+     * so narration never depends on it. Only CONSTANT-kind rows (theorem-locked) are surfaced — the
+     * living OSCILLATION/BOUND rows are intentionally re-measured/re-evaluated each run.
+     */
+    private String establishedConstantNote(PaperDraft draft) {
+        if (!establishedConstantCiteEnabled) {
+            return "";
+        }
+        com.emergentterrain.repo.ConjectureRepository repo = conjectureRepository;
+        if (repo == null || draft == null || draft.topicName() == null
+                || !draft.topicName().startsWith("conjecture/")) {
+            return "";
+        }
+        try {
+            // "math" = the conjecture-pool domain (ConjectureInvestigationWriteBackService.DOMAIN).
+            java.util.List<String> consts = repo.findByDomainAndKind("math", "CONSTANT").stream()
+                    .filter(c -> c.lhs() != null && !c.lhs().isBlank())
+                    .map(c -> c.lhs() + " → " + String.format(java.util.Locale.ROOT, "%.4f", c.c()))
+                    .distinct().sorted().toList();
+            return buildEstablishedConstantNote(consts);
+        } catch (Exception e) {
+            return "";   // best-effort; never block narration
+        }
     }
 
     /**
@@ -2095,7 +2162,8 @@ public class ResearchNarrationService {
             String recallBlock = (memoryRecallService != null && memoryRecallService.enabled())
                     ? memoryRecallService.recallBlock(draft.topicName()) : "";
             String userPrompt   = buildProfessorUserPrompt(
-                    promptRegistry, draft, firstPass, literatureContext) + recallBlock;
+                    promptRegistry, draft, firstPass, literatureContext) + recallBlock
+                    + establishedConstantNote(draft);   // survivor-aware fallback guard (cite, don't re-measure)
 
             // Phase 5 C3 — collect per-paper sandbox-reject counts and surface them on
             // the persisted LLM Call Path. Reviewers can then tell whether a Findings

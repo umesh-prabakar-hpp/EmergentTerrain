@@ -59,6 +59,28 @@ class PivotNoteTest {
         assertThat(ResearchNarrationService.pivotRerunAllowedInFlight(false, false, 2, 99)).isTrue();
     }
 
+    // ── 2026-06-13 — survivor-aware fallback guard: cite established constants ──
+
+    @Test
+    void establishedConstantNoteListsSurvivorsAndSaysCiteNotReMeasure() {
+        String note = ResearchNarrationService.buildEstablishedConstantNote(
+                java.util.List.of("mean_divisor_excess → 1.1544", "twin_vs_prime_sq → 1.3203"));
+        org.assertj.core.api.Assertions.assertThat(note)
+                .contains("mean_divisor_excess → 1.1544")
+                .contains("twin_vs_prime_sq → 1.3203")
+                .contains("CITE")
+                .contains("re-measuring")
+                .contains("OPEN or not-yet-established");
+    }
+
+    @Test
+    void establishedConstantNoteIsEmptyWhenNoSurvivors() {
+        org.assertj.core.api.Assertions.assertThat(
+                ResearchNarrationService.buildEstablishedConstantNote(java.util.List.of())).isEmpty();
+        org.assertj.core.api.Assertions.assertThat(
+                ResearchNarrationService.buildEstablishedConstantNote(null)).isEmpty();
+    }
+
     @Test
     void inFlightReRun_whileDrainingIsCappedByReserve() {
         // Draining → allowed under the cap, blocked at/after it (protects the reserve).
