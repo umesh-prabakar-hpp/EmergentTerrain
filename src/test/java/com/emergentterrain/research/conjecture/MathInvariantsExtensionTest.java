@@ -109,6 +109,44 @@ class MathInvariantsExtensionTest {
         org.assertj.core.api.Assertions.assertThat(flat.get("log_sq_window_start")).isZero();
     }
 
+    // ── 2026-06-14 — Wigert growth anchor for max_divisor_count (§1 rec #1) ─────
+
+    @Test
+    void wigertBoundIsExpLogOverLogLogCenterAndJoinsVocabulary() {
+        Map<String, Double> flat = MathInvariants.extract(raw(), 1000, 500);   // center = 1250
+        double lc = Math.log(1250.0);
+        double expected = Math.exp(lc / Math.log(lc));
+        org.assertj.core.api.Assertions.assertThat(flat.get("wigert_bound"))
+                .isCloseTo(expected, org.assertj.core.api.Assertions.within(1e-9));
+        org.assertj.core.api.Assertions.assertThat(MathInvariants.vocabulary())
+                .contains("wigert_bound");
+    }
+
+    @Test
+    void wigertBoundTracksMaxDivisorGrowthSoAFlatGapCannotRefuteIt() {
+        // The anchor grows with x at the divisor maximal-order rate, so the ratio of a realistic
+        // max_divisor_count to the anchor stays O(1) across decades — the property that lets a
+        // k·wigert_bound + c bound HOLD where a flat-feature bound is refuted by construction.
+        double small = MathInvariants.extract(raw(), 300_000, 5_000).get("wigert_bound");
+        double large = MathInvariants.extract(raw(), 1_500_000, 5_000).get("wigert_bound");
+        org.assertj.core.api.Assertions.assertThat(large).isGreaterThan(small);   // monotone in x
+        // measured peaks (P-b72c-77627585 / -77627584): 192 @300k, 240 @1.5M — both within a small
+        // multiple of the anchor (ratios ≈1.3 and ≈1.13), i.e. one k∈grid + tight c upper-bounds them.
+        org.assertj.core.api.Assertions.assertThat(192.0 / small).isLessThan(2.0);
+        org.assertj.core.api.Assertions.assertThat(240.0 / large).isLessThan(2.0);
+    }
+
+    @Test
+    void wigertBoundDegradesToZeroNotOverflowOnDegenerateWindow() {
+        // center ≤ e ⇒ ln ln(center) ≤ 0; must return 0.0, never NaN/Infinity.
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 0, 0).get("wigert_bound")).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 1, 0).get("wigert_bound")).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(raw(), 1000, 500).get("wigert_bound")).isFinite();
+    }
+
     @Test
     void emptyAdmittedReproducesBaseVocabulary() {
         assertThat(MathInvariants.vocabulary(List.of())).isEqualTo(MathInvariants.vocabulary());

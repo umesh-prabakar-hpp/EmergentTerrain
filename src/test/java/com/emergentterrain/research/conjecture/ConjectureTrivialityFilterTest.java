@@ -88,6 +88,20 @@ class ConjectureTrivialityFilterTest {
     }
 
     @Test
+    void wigertBoundIsAValidRhsAnchorButBarredAsLhs() {
+        // §1 rec #1: max_divisor_count ≤ k·wigert_bound + c (the Wigert form) must NOT drop —
+        // it is the divisor twin of the Cramér anchor above.
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("max_divisor_count", "wigert_bound", 2.0, 0.0))).isFalse();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("max_divisor_count", "wigert_bound", 2.0, 0.0))).isEmpty();
+        // ...but wigert_bound as the SUBJECT of a bound is geometry, dropped like the others.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("wigert_bound", "max_divisor_count", 2.0, 0.0)))
+                .contains("window_geometry_lhs");
+    }
+
+    @Test
     void mertensBoundIsNotGeometryTautology() {
         // mertens_per_sqrt_W carries mertens_delta, so it is NOT geometry; the
         // flagship bound must stay out of this filter's scope.

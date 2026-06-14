@@ -138,6 +138,31 @@ public final class MathInvariants {
                             ? r.getOrDefault("mean_divisor_count", 0.0) - Math.log(center)
                             : 0.0;
                 });
+        // 2026-06-14 (room b72c4e10 REVIEW_REPORT §1 rec #1) — the WIGERT growth anchor
+        // for max_divisor_count. max_divisor_count grows super-logarithmically (Wigert: the
+        // maximal order of d(n) is exp((ln2+o(1))·ln n/ln ln n)), so every flat-feature RHS
+        // (mean_divisor_excess→2γ, dirichlet_error, omega_ek_ratio→1) makes k·rhs+c near-constant
+        // and is REFUTED by construction — the exact failure mode of P-b72c-77627584/-585/-587,
+        // whose own conclusions all name this anchor as the cure. This is the divisor twin of
+        // log_sq_window_start (the Cramér ln²x anchor that lets max_prime_gap ≤ k·log_sq_window_start
+        // + c actually hold; live survivor a7c881a9, k=0.649). Unit-coefficient form exp(ln x/ln ln x):
+        // since the true Wigert constant ln2 ≈ 0.693 < 1, this DOMINATES d(n) asymptotically (a safe
+        // upper proxy), while at reachable x the measured Wigert coordinate sits at ≈1.0 (verify_growth
+        // reported 1.0008/1.019/1.018/1.010 across the batch) so a k∈grid + tight c HOLDS on the very
+        // windows the flat bounds died on. Pure window geometry (center only) — barred as an LHS by
+        // ConjectureTrivialityFilter.WINDOW_GEOMETRY_SCALARS, valid as RHS. Mirrored IDENTICALLY in the
+        // sidecar's math_invariants.jl (same guards) for offline-miner parity.
+        m.put("wigert_bound",
+                r -> {
+                    double start = r.getOrDefault("_window_start", 0.0);
+                    double w = r.getOrDefault("_window_size", 0.0);
+                    double center = start + w / 2.0;
+                    if (center <= Math.E) return 0.0;   // need ln(center) > 1 so ln ln(center) > 0
+                    double lc = Math.log(center);
+                    double llc = Math.log(lc);
+                    double v = Math.exp(lc / llc);
+                    return Double.isFinite(v) ? v : 0.0;
+                });
         return m;
     }
 

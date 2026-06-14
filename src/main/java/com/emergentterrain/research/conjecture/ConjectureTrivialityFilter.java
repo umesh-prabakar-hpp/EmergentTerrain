@@ -56,7 +56,10 @@ public final class ConjectureTrivialityFilter {
             Set.of("log_window_size", "sqrt_window_size", "log_window_start",
                     // 2026-06-08 — growth anchors (see MathInvariants): valid as
                     // RHS bounding terms, barred as an LHS like the others.
-                    "sqrt_window_start", "log_sq_window_start");
+                    "sqrt_window_start", "log_sq_window_start",
+                    // 2026-06-14 — the Wigert anchor exp(ln x/ln ln x) for max_divisor_count
+                    // (room b72c4e10 §1 rec #1). Pure window geometry: RHS-valid, LHS-barred.
+                    "wigert_bound");
 
     /** {@code |k|} at or below this counts as a degenerate constant bound (k=0). */
     public static final double K_EPSILON = 1e-9;
