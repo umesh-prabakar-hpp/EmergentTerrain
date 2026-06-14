@@ -263,4 +263,49 @@ class ConjectureMinerServiceTest {
                 String.format("pure bound for %s: expected c=%+.4f, got %+.4f (delta %+.6f)",
                         lhs, expectedC, c.c(), delta));
     }
+
+    // ── 2026-06-14 — surgical incremental re-seed: new-pairs-only core ─────────
+
+    @Test
+    void incrementalReseed_seedsOnlyGenuinelyNewVocabularyPairs() {
+        // max_divisor_count vs wigert_bound: positively correlated but pearson ≈ 0.4 (< 0.98), so
+        // the pair survives seed()'s near-identity drop — the case that matters for the growth anchor.
+        double[] mdc = {12, 24, 18, 30};
+        double[] wig = {20, 21, 23, 22};
+        double[] mde = {1.1, 1.0, 1.2, 0.9};
+        List<Map<String, Double>> samples = new ArrayList<>();
+        for (int i = 0; i < mdc.length; i++) {
+            Map<String, Double> s = new HashMap<>();
+            s.put("max_divisor_count", mdc[i]);
+            s.put("wigert_bound", wig[i]);
+            s.put("mean_divisor_excess", mde[i]);
+            samples.add(s);
+        }
+        List<String> vocab = List.of("max_divisor_count", "wigert_bound", "mean_divisor_excess");
+
+        // (max_divisor_count, mean_divisor_excess) already exists in the pool (a retired flat bound);
+        // (max_divisor_count, wigert_bound) is brand new.
+        var known = new java.util.HashSet<>(List.of("max_divisor_count|mean_divisor_excess"));
+
+        List<Inequality> fresh = ConjectureMinerService.newVocabularyPairSeeds(
+                samples, vocab, known, List.of());
+        List<String> keys = fresh.stream().map(i -> i.lhs() + "|" + i.rhs()).toList();
+        assertTrue(keys.contains("max_divisor_count|wigert_bound"),
+                "the new growth-anchor pair must be seeded: " + keys);
+        assertTrue(!keys.contains("max_divisor_count|mean_divisor_excess"),
+                "an already-known (retired) pair must NOT be re-flooded: " + keys);
+
+        // steady state: once the wigert pair is also persisted, the helper returns it no more.
+        var bothKnown = new java.util.HashSet<>(known);
+        bothKnown.add("max_divisor_count|wigert_bound");
+        assertTrue(ConjectureMinerService.newVocabularyPairSeeds(samples, vocab, bothKnown, List.of())
+                        .stream().noneMatch(i -> (i.lhs() + "|" + i.rhs()).equals("max_divisor_count|wigert_bound")),
+                "a persisted pair must not be re-seeded (self-limiting)");
+
+        // a pair present only in the LIVE store is excluded too.
+        Inequality live = new Inequality("wigert_bound", "mean_divisor_excess", 1.0, 0.0);
+        assertTrue(ConjectureMinerService.newVocabularyPairSeeds(samples, vocab, known, List.of(live))
+                        .stream().noneMatch(i -> (i.lhs() + "|" + i.rhs()).equals("wigert_bound|mean_divisor_excess")),
+                "a pair already in the live store must not be re-seeded");
+    }
 }

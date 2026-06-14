@@ -106,6 +106,7 @@ public class ConjectureMinerService implements ConjectureQueue {
      * phase-30-conjecture/IMPLEMENTATION-ORDER.md Wave 1.
      */
     private final boolean trivialityFilterEnabled;
+    private final boolean incrementalReseedEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -300,6 +301,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.oeisAnnotator = oeisAnnotator;
         this.substrate = substrate;
         this.trivialityFilterEnabled = props.isTrivialityFilterEnabled();
+        this.incrementalReseedEnabled = props.isIncrementalReseedEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -419,6 +421,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         List<Map<String, Double>> allSamples =
                 collectSamples ? new ArrayList<>() : List.of();
 
+        boolean firstPass = true;
         for (Run run : RUNS) {
             List<Map<String, Double>> samples = materialize(run, activeAdmitted);
             String configHash = "W" + run.windowSize();
@@ -427,7 +430,8 @@ public class ConjectureMinerService implements ConjectureQueue {
                 allSamples.addAll(samples);
             }
 
-            if (store.isEmpty()) {
+            boolean storeWasEmpty = store.isEmpty();
+            if (storeWasEmpty) {
                 store = ConjectureEngine.seed(samples, MathInvariants.vocabulary(activeAdmitted));
                 log.debug("seeded {} candidate inequalities from run {}", store.size(), run.name());
             } else {
@@ -447,6 +451,27 @@ public class ConjectureMinerService implements ConjectureQueue {
                 totalRetiredByCounterexample += toRetire.size();   // spared rows are not retirements
                 persistRetired(toRetire, byKey, DROPPED_BY_COUNTEREXAMPLE);
             }
+
+            // 2026-06-14 — surgical incremental re-seed (flag-gated OFF). The full seed above only
+            // fires on an EMPTY pool, so a base-vocabulary addition (e.g. wigert_bound) would stay
+            // dormant in a populated pool until a destructive wipe. On the FIRST pass over a NON-empty
+            // pool, inject the genuinely-NEW vocabulary (lhs,rhs) pairs — those absent from the pool
+            // entirely (live AND retired = byKey.keySet()) — seeded from this run's samples like the
+            // empty-pool path, so the held-out runs below update-test them. Skipped when the pool was
+            // empty (the seed already enumerated every pair). New-only: never re-floods retired pairs,
+            // so paper-type mix (paperShare-gated) and volume are unchanged — it adds a handful of
+            // high-value candidates and lets the downstream filters judge them like any seed.
+            if (incrementalReseedEnabled && firstPass && !storeWasEmpty) {
+                List<Inequality> newPairs = newVocabularyPairSeeds(
+                        samples, MathInvariants.vocabulary(activeAdmitted), byKey.keySet(), store);
+                if (!newPairs.isEmpty()) {
+                    store.addAll(newPairs);
+                    Inequality ex = newPairs.get(0);
+                    log.info("incremental re-seed — {} new vocabulary pair(s) seeded into the live pool "
+                            + "(new-only, e.g. {} <= k*{} + c)", newPairs.size(), ex.lhs(), ex.rhs());
+                }
+            }
+            firstPass = false;
         }
 
         // Phase 30 step 2.5 — derived (composed) conjectures are exempt from the
@@ -1264,6 +1289,31 @@ public class ConjectureMinerService implements ConjectureQueue {
 
     private static String trimD(double v) {
         return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
+    }
+
+    /**
+     * 2026-06-14 — the new-pairs-only core of the incremental re-seed (pure + static, so it is unit
+     * tested directly). Runs the full {@link ConjectureEngine#seed} over the vocabulary, then keeps
+     * ONLY the fitted pairs whose {@code (lhs,rhs)} key is absent from BOTH the persisted pool
+     * ({@code knownKeys} = every existing row, live AND retired) and the current live {@code store}.
+     * That activates a base-vocabulary addition (e.g. wigert_bound) without a wipe while never
+     * re-flooding already-seen (incl. retired) pairs — the surgical contract that keeps paper-type
+     * mix and volume unchanged. Returns an empty list once the new pairs have persisted (steady state).
+     */
+    static List<Inequality> newVocabularyPairSeeds(
+            List<Map<String, Double>> samples, List<String> vocabulary,
+            java.util.Set<String> knownKeys, List<Inequality> liveStore) {
+        java.util.Set<String> known = new java.util.HashSet<>(knownKeys);
+        for (Inequality s : liveStore) {
+            known.add(keyOf(s.lhs(), s.rhs()));
+        }
+        List<Inequality> out = new ArrayList<>();
+        for (Inequality seeded : ConjectureEngine.seed(samples, vocabulary)) {
+            if (!known.contains(keyOf(seeded.lhs(), seeded.rhs()))) {
+                out.add(seeded);
+            }
+        }
+        return out;
     }
 
     /**

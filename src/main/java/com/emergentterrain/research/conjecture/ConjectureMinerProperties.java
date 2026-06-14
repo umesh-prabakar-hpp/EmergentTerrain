@@ -28,6 +28,15 @@ public class ConjectureMinerProperties {
     private boolean unitConsistencyEnabled = false;
     private boolean identifiabilityEnabled = false;
     private double identifiabilityMaxRelStdErr = 1.0;
+    // 2026-06-14 — surgical incremental re-seed. The full seed() only fires on an EMPTY pool
+    // (mine() store.isEmpty()), so a base-vocabulary addition (e.g. wigert_bound) never enters a
+    // populated pool until a destructive wipe. When ON, each pass also seeds the genuinely-NEW
+    // (lhs,rhs) vocabulary pairs absent from the pool entirely (live AND retired) into the live
+    // store — activating new scalars without a wipe and preserving verified survivors. New-only by
+    // design (never re-floods retired pairs), so it does not change paper-type mix (paperShare-gated)
+    // or volume — it adds a handful of high-value candidates. Self-limiting: once the new pairs
+    // persist, later passes find 0 new and no-op.
+    private boolean incrementalReseedEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -83,6 +92,9 @@ public class ConjectureMinerProperties {
 
     public boolean isTrivialityFilterEnabled() { return trivialityFilterEnabled; }
     public void setTrivialityFilterEnabled(boolean v) { this.trivialityFilterEnabled = v; }
+
+    public boolean isIncrementalReseedEnabled() { return incrementalReseedEnabled; }
+    public void setIncrementalReseedEnabled(boolean v) { this.incrementalReseedEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }
