@@ -105,6 +105,19 @@ function math_invariants_extract(raw, window_start::Integer, window_size::Intege
     # window center, computed IDENTICALLY to the JVM so verify_constant matches the miner.
     mdc = get(raw_lookup, "mean_divisor_count", 0.0)
     push!(flat, "mean_divisor_excess" => center > 1.0 ? mdc - log(center) : 0.0)
+    # 2026-06-14 (room b72c4e10 §1 rec #1) — Wigert growth anchor for max_divisor_count:
+    # exp(ln(center)/ln ln(center)), the maximal-order scale of d(n). Unit coefficient dominates
+    # d(n) asymptotically (true Wigert constant ln2 < 1) yet is ≈tight at reachable x. JVM
+    # MathInvariants mirror — computed IDENTICALLY (same Math.E guard, same isfinite overflow guard)
+    # so a miner-seeded (k,c) on wigert_bound matches the verifier. Pure geometry (window center).
+    push!(flat, "wigert_bound" => begin
+        if center <= ℯ
+            0.0
+        else
+            lc = log(center); llc = log(lc); v = exp(lc / llc)
+            isfinite(v) ? v : 0.0
+        end
+    end)
 
     return flat
 end
@@ -135,5 +148,6 @@ function math_invariants_vocabulary()::Vector{String}
     push!(out, "cramer_gap_ratio")
     push!(out, "twin_vs_prime_sq")
     push!(out, "mean_divisor_excess")    # 2026-06-13 second-order (JVM mirror): → ≈ 2γ
+    push!(out, "wigert_bound")           # 2026-06-14 Wigert growth anchor (JVM mirror): exp(ln x/ln ln x)
     return out
 end
