@@ -82,6 +82,18 @@ public class ResearchCycleService {
         this.wellPosednessGate = gate;
     }
 
+    /**
+     * 2026-06-15 (review-2026-06-15a Rec 1) — when ON, a directive the well-posedness gate flags
+     * {@code representation_dependent} (the recurring base-10 happy-prime density topic — no
+     * representation-independent density) is PRUNED: skipped + logged as a boundary event, not
+     * caveated-and-published. A deliberate, flag-gated exception to caveat-first for that one
+     * non-research-grade class; OFF preserves caveat-first exactly. Other ill-posed classes still
+     * get the caveat.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.wellposedness-gate.prune-representation-dependent:false}")
+    private boolean prunePosednessRepresentationDependent;
+
     /** Age (ms) after which an in-flight draft is presumed hung and its slot reclaimed. */
     @org.springframework.beans.factory.annotation.Value("${app.research.stuckDraftTtlMs:600000}")
     private long stuckDraftTtlMs;
@@ -404,6 +416,9 @@ public class ResearchCycleService {
         if (directive != null) {
             author.getState().setPendingDirective(null);
             directive = applyWellPosednessCaveat(directive);   // brief Change 1 — annotate ill-posed topics
+            if (directive == null) {   // pruned (representation-dependent base-10 topic) — drop this cycle
+                return;                // directive already consumed; the author re-draws next tick
+            }
             runDynamicCycle(roomId, author, pool, directive, rng, gameTick, peerReviewEnabled, ctx);
             return;
         }
@@ -946,7 +961,10 @@ public class ResearchCycleService {
     /**
      * Brief Change 1 — run the well-posedness gate on a directive and, if it flags ill-posedness, prepend
      * the caveat to the hypothesis so the writer opens by stating it (caveat-first, never dropped — per
-     * inform-don't-suppress). Best-effort: returns the directive unchanged when the gate is absent,
+     * inform-don't-suppress). 2026-06-15: returns {@code null} to signal PRUNE when the verdict is
+     * {@code representation_dependent} AND {@code prunePosednessRepresentationDependent} is on (the
+     * base-10 density topic — the single flag-gated exception to caveat-first; other ill-posed classes
+     * still get the caveat). Best-effort: returns the directive unchanged when the gate is absent,
      * disabled, admits, or throws. The caveat rides {@code hypothesis} → {@code templateHypothesis} →
      * the writer seed.
      */
@@ -959,7 +977,20 @@ public class ResearchCycleService {
             String topic = "Quantity/predicate: " + d.predicate() + "; metric: " + d.metric()
                     + (d.hypothesis() != null && !d.hypothesis().isBlank()
                             ? "; stated hypothesis: " + d.hypothesis() : "");
-            String caveat = WellPosednessGate.caveatFor(gate.assess(topic));
+            WellPosednessGate.Verdict verdict = gate.assess(topic);
+            // review-2026-06-15a Rec 1 — PRUNE the recurring base-10 density topic (representation-
+            // dependent: no representation-independent density). Flag-gated exception to caveat-first;
+            // logged as a boundary event (inform-don't-suppress: recorded, not silently dropped).
+            if (prunePosednessRepresentationDependent
+                    && WellPosednessGate.isRepresentationDependent(verdict)) {
+                log.info("research: PRUNED representation-dependent topic (base-10 artifact, no "
+                                + "representation-independent density) — predicate='{}' metric='{}' ({})",
+                        d.predicate(), d.metric(),
+                        verdict.explanation() == null || verdict.explanation().isBlank()
+                                ? "representation_dependent" : verdict.explanation());
+                return null;   // signal: skip this cycle's topic
+            }
+            String caveat = WellPosednessGate.caveatFor(verdict);
             if (caveat.isBlank()) {
                 return d;
             }

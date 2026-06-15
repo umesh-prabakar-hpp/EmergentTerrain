@@ -3909,9 +3909,12 @@ public class ResearchNarrationService {
                     • Param-based (any topic): \
                     {"type":"param","param1":75,"param2":5.0,"description":"...","rationale":"..."}
                     • Number-theoretic (MATHEMATICS/INTERDISCIPLINARY): \
-                    {"type":"dynamic","predicate":"isPrime AND isHappy","range_start":200,"range_end":500,\
-                    "metric":"fraction_satisfying","hypothesis":"...","baseline":0.04,\
+                    {"type":"dynamic","predicate":"isAbundant","range_start":200,"range_end":500,\
+                    "metric":"fraction_satisfying","hypothesis":"...","baseline":0.25,\
                     "description":"...","rationale":"..."}
+                    Prefer predicates with a representation-INDEPENDENT density (isPrime, isAbundant, \
+                    isPerfect, collatzTerminates). isHappy is a base-10 artifact — its density has no \
+                    base-independent meaning, so do NOT propose isHappy density topics. \
                     Valid predicates: isPrime isHappy collatzTerminates isAbundant isPerfect (AND/OR)
                     Valid metrics: fraction_satisfying mean_of:collatzSteps max_of:collatzSteps mean_of:sigmaSum
                     param1 int 10–99, param2 decimal 1.0–9.0. range_end − range_start ≤ 500.

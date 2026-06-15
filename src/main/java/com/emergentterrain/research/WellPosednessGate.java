@@ -35,6 +35,20 @@ public class WellPosednessGate {
         public static final Verdict ADMIT = new Verdict(true, "none", "", "admit", "", "");
     }
 
+    /** Issue code for a quantity that depends on an arbitrary choice (number base, units). */
+    public static final String ISSUE_REPRESENTATION_DEPENDENT = "representation_dependent";
+
+    /**
+     * 2026-06-15 — true iff the verdict's issue is {@code representation_dependent} (the base-10
+     * happy-number / unit-dependent class). The caller may PRUNE such a topic (skip + log) rather than
+     * caveat it, under its own flag — a deliberate, flag-gated exception to caveat-first for the one
+     * class that is a non-research-grade artifact (a base-10 density has no representation-independent
+     * limit). Pure; null-safe.
+     */
+    public static boolean isRepresentationDependent(Verdict v) {
+        return v != null && ISSUE_REPRESENTATION_DEPENDENT.equals(v.issue());
+    }
+
     static final String GATE_PROMPT = """
             You are a well-posedness gate for an automated research pipeline. You will be given a candidate
             conjecture or measured quantity. Decide whether it is worth admitting as a research question.

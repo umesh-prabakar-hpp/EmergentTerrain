@@ -75,4 +75,19 @@ class WellPosednessGateTest {
                 "CI on an exhaustive census", "reject", "", ""));
         assertThat(c).isNotEmpty().contains("tooling_artifact").contains("WELL-POSEDNESS NOTE");
     }
+
+    // ── 2026-06-15 — representation-dependent prune predicate (base-10 density topic) ──
+
+    @Test
+    void isRepresentationDependentFlagsOnlyTheBase10Class() {
+        assertThat(WellPosednessGate.isRepresentationDependent(new Verdict(false,
+                "representation_dependent", "base-10 happy numbers", "admit_with_caveat", "c", ""))).isTrue();
+        // not the prune class
+        assertThat(WellPosednessGate.isRepresentationDependent(Verdict.ADMIT)).isFalse();
+        assertThat(WellPosednessGate.isRepresentationDependent(new Verdict(false,
+                "no_limiting_value", "", "reframe", "", ""))).isFalse();
+        assertThat(WellPosednessGate.isRepresentationDependent(new Verdict(false,
+                "tooling_artifact", "", "reject", "", ""))).isFalse();
+        assertThat(WellPosednessGate.isRepresentationDependent(null)).isFalse();
+    }
 }
