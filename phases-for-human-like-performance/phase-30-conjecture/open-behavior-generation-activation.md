@@ -119,8 +119,11 @@ until Stage 4:
   `lhs ~ rhs + z`, `fitTwoTerm` (tightestK1K2C) + `repo.save` a two-term conjecture (deduped by
   `lhs|rhs|z`); two-term rows EXEMPT from the one-rhs dimension/unit/FIM filters. Flag `twoTermEnabled`
   kept OFF (residual stays log-only) until Stage 4. Tests: TwoTermConjectureTest +2.
-- **Stage 4 (NEXT)** — topic→paper framing for a two-term hypothesis (renders `k1*rhs + k2*z + c`), then
-  flip `twoTermEnabled` ON. Acceptance: a two-term paper holds on held-out windows.
+- **Stage 4 (DONE, ET 2ea54f0; flag flipped ON)** — `ResearchCycleService.formatBoundBody` renders the
+  two-term hypothesis/title (`+k·rhs + +k2·rhs2 + +c`) + a note telling the professor to verify via
+  rhs2/k2; two-term bounds stay in-range (no frontier mapping). `twoTermEnabled` ON. **G2 is LIVE
+  end-to-end** (residual discovery → fit → persist → frame → verify). Acceptance (next run): a
+  residual-promoted two-term conjecture surfaces as a paper and holds on held-out windows.
 - **Filters (Stage 3 decision):** the one-rhs structural filters (dimension/unit/FIM) assume a single
   rhs — simplest safe v1 is to exempt two-term rows from them (they already passed the residual-null
   gate, which is stronger) and rely on counterexample `update()` + knob; tighten later.
