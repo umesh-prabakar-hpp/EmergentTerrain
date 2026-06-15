@@ -973,6 +973,17 @@ public class ResearchCycleService {
         if (gate == null || d == null) {
             return d;
         }
+        // review-2026-06-15f Rec 2 — DETERMINISTIC base-dependent-density prune. The LLM verdict varies
+        // run-to-run (the same isPrime∧isHappy density topic was caveated once and rejected once in the
+        // same run, leaking past the verdict-keyed prune), so this predicate-name check prunes it
+        // reliably and without an LLM call. Same flag as the verdict-based prune; OFF = no prune.
+        if (prunePosednessRepresentationDependent
+                && WellPosednessGate.isBaseDependentDensityTopic(d.predicate(), d.metric())) {
+            log.info("research: PRUNED base-dependent density topic (deterministic — base-10 artifact, "
+                    + "no representation-independent density) — predicate='{}' metric='{}'",
+                    d.predicate(), d.metric());
+            return null;   // skip this cycle; the author re-draws next tick
+        }
         try {
             String topic = "Quantity/predicate: " + d.predicate() + "; metric: " + d.metric()
                     + (d.hypothesis() != null && !d.hypothesis().isBlank()

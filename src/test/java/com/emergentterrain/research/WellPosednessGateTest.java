@@ -90,4 +90,21 @@ class WellPosednessGateTest {
                 "tooling_artifact", "", "reject", "", ""))).isFalse();
         assertThat(WellPosednessGate.isRepresentationDependent(null)).isFalse();
     }
+
+    @Test
+    void isBaseDependentDensityTopic_deterministicPrune() {
+        // base-10 predicate + density metric → pruned (regardless of any LLM verdict)
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic(
+                "isPrime AND isHappy", "fraction_satisfying")).isTrue();
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic(
+                "isHappy", "fraction satisfying predicate")).isTrue();
+        // base-dependent predicate but NOT a density use → preserved (e.g. mean Collatz depth)
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic(
+                "isPrime AND isHappy", "mean_of:collatzSteps")).isFalse();
+        // representation-independent density → not flagged here (well-posed)
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic(
+                "isAbundant", "fraction_satisfying")).isFalse();
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic(null, "fraction")).isFalse();
+        assertThat(WellPosednessGate.isBaseDependentDensityTopic("isHappy", null)).isFalse();
+    }
 }

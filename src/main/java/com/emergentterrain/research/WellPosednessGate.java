@@ -49,6 +49,34 @@ public class WellPosednessGate {
         return v != null && ISSUE_REPRESENTATION_DEPENDENT.equals(v.issue());
     }
 
+    /**
+     * Base-dependent predicates whose density has no representation-independent meaning. {@code isHappy}
+     * (sum-of-squared-decimal-digits iteration) is base-10; every other predicate in the math
+     * vocabulary (isPrime/isAbundant/isPerfect/collatzTerminates) is base-independent. Lowercased for
+     * substring matching against a composite predicate like {@code "isPrime AND isHappy"}.
+     */
+    public static final java.util.Set<String> BASE_DEPENDENT_PREDICATES = java.util.Set.of("ishappy");
+
+    /**
+     * 2026-06-15 (review-2026-06-15f Rec 2) — DETERMINISTIC base-dependent-density detector. The
+     * LLM well-posedness verdict is non-deterministic (the same isPrime∧isHappy density topic was
+     * caveated on one proposal and rejected on another in the same run, so the verdict-keyed prune
+     * leaked and the topic published). This deterministic predicate-name check does not depend on the
+     * LLM: true iff the predicate references a base-dependent predicate ({@link #BASE_DEPENDENT_PREDICATES})
+     * AND the metric is a density / fraction. A non-density use of a base-dependent predicate (e.g. mean
+     * Collatz depth of happy primes) is NOT flagged — only its representation-dependent DENSITY. Null-safe.
+     */
+    public static boolean isBaseDependentDensityTopic(String predicate, String metric) {
+        if (predicate == null || metric == null) {
+            return false;
+        }
+        String p = predicate.toLowerCase(java.util.Locale.ROOT);
+        boolean baseDependent = BASE_DEPENDENT_PREDICATES.stream().anyMatch(p::contains);
+        String m = metric.toLowerCase(java.util.Locale.ROOT);
+        boolean density = m.contains("fraction") || m.contains("density");
+        return baseDependent && density;
+    }
+
     static final String GATE_PROMPT = """
             You are a well-posedness gate for an automated research pipeline. You will be given a candidate
             conjecture or measured quantity. Decide whether it is worth admitting as a research question.
