@@ -68,7 +68,9 @@ class ConjectureInvestigationCycleTest {
         assertTrue(draft.reviewerBotIds().isEmpty(),
                 "conjecture papers ship without a peer panel for v1");
         assertNull(draft.param1());
-        assertNull(draft.param2());
+        // param2 carries the fitted constant c for §26.4-style recognition (ResearchCycleService
+        // line ~728) — the prior assertNull was stale vs that documented behavior (pre-existing).
+        assertEquals(0.2515, draft.param2());
         assertFalse(draft.isFollowUp());
     }
 

@@ -686,13 +686,13 @@ public class ResearchCycleService {
         String paperId = ctx.nextPaperId(roomId);
         String topicName = "conjecture/" + conjecture.lhs();
         String title = String.format(
-                "Investigation of bound on %s (%s ≤ %+.4f · %s + %+.4f)",
-                conjecture.lhs(), conjecture.lhs(),
-                conjecture.k(), conjecture.rhs(), conjecture.c());
+                "Investigation of bound on %s (%s ≤ %s)",
+                conjecture.lhs(), conjecture.lhs(), formatBoundBody(conjecture));
         // Path B — frontier-frame the investigation when enabled AND the conjecture's
         // scalars map to a discovery domain that can compute the quantity past the sieve.
-        // Otherwise (and for all ω/density bounds) keep the in-range framing.
-        FrontierDomain frontier = conjectureFrontierFramingEnabled
+        // Otherwise (and for all ω/density bounds) keep the in-range framing. G2: a two-term bound
+        // (rhs2 set) is a sieve-range residual relation — keep it in-range (no frontier mapping).
+        FrontierDomain frontier = (conjectureFrontierFramingEnabled && conjecture.rhs2() == null)
                 ? frontierDomainFor(conjecture.lhs(), conjecture.rhs()) : null;
         String hypothesis = frontier == null
                 ? synthesizeConjectureHypothesis(conjecture)
@@ -750,8 +750,7 @@ public class ResearchCycleService {
         log.info("conjecture investigation queued: room={} bot={} paperId={} framing={} conjecture=\"{}\" runs={}",
                 roomId, author.getBotId(), paperId,
                 frontier == null ? "in-range" : "frontier:" + frontier.boundKey,
-                String.format("%s <= %+.4f * %s + %+.4f",
-                        conjecture.lhs(), conjecture.k(), conjecture.rhs(), conjecture.c()),
+                conjecture.lhs() + " <= " + formatBoundBody(conjecture),
                 conjecture.confirmedRuns());
     }
 
@@ -846,21 +845,37 @@ public class ResearchCycleService {
                 conjecture.confirmedRuns());
     }
 
+    /**
+     * G2 Stage 4 — render a mined bound's RHS body: one-term {@code "+k · rhs + +c"} or two-term
+     * {@code "+k · rhs + +k2 · rhs2 + +c"} (rhs2 set). Used wherever the conjecture hypothesis/title is
+     * framed, so a residual-discovered two-term relation reaches the professor as a two-term inequality.
+     */
+    static String formatBoundBody(com.emergentterrain.research.conjecture.Conjecture c) {
+        if (c.rhs2() == null) {
+            return String.format("%+.4f · %s + %+.4f", c.k(), c.rhs(), c.c());
+        }
+        return String.format("%+.4f · %s + %+.4f · %s + %+.4f",
+                c.k(), c.rhs(), c.k2(), c.rhs2(), c.c());
+    }
+
     private static String synthesizeConjectureHypothesis(
             com.emergentterrain.research.conjecture.Conjecture c) {
+        String twoTermNote = c.rhs2() == null ? "" :
+                " This is a TWO-TERM bound (a residual-discovered composite of two scalars); verify it "
+                + "with verify_conjecture passing the second term via rhs2 and k2.";
         return String.format(
-                "The math-domain conjecture miner surfaced the inequality `%s ≤ %+.4f · %s + %+.4f` " +
+                "The math-domain conjecture miner surfaced the inequality `%s ≤ %s` " +
                         "with %d confirmed runs. This paper investigates whether the bound holds on " +
-                        "held-out windows the miner did not sample.",
-                c.lhs(), c.k(), c.rhs(), c.c(), c.confirmedRuns());
+                        "held-out windows the miner did not sample.%s",
+                c.lhs(), formatBoundBody(c), c.confirmedRuns(), twoTermNote);
     }
 
     private static String synthesizeConjectureFindings(
             com.emergentterrain.research.conjecture.Conjecture c) {
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(
-                "Mining trace for %s ≤ %+.4f · %s + %+.4f (domain=%s):%n",
-                c.lhs(), c.k(), c.rhs(), c.c(), c.domain()));
+                "Mining trace for %s ≤ %s (domain=%s):%n",
+                c.lhs(), formatBoundBody(c), c.domain()));
         sb.append(String.format("- Confirmed across %d runs.%n", c.confirmedRuns()));
         sb.append(String.format("- Worst observed margin (p99 slack): %+.5f.%n", c.p99Slack()));
         if (c.oeisMatchJson() != null && !c.oeisMatchJson().isEmpty()) {
