@@ -103,6 +103,24 @@ current ~0%); no settled-leading-order *flat* bound published as a "result".
 
 ## G2 — Two-term conjecture schema `lhs ≤ k₁·rhs + k₂·z + c`
 
+**Status: STAGE 1 SHIPPED 2026-06-15 (ET a94d8f8, dormant).** Staged rollout, all flag-OFF / dormant
+until Stage 4:
+- **Stage 1 (DONE)** — schema plumbing: `Inequality`/`Conjecture` + `rhs2`/`k2` (default null/0 =
+  one-term), `ConjectureMapper` both directions, `ConjectureEngine.tightestK1K2C` (2D grid fit; rhs2≡0
+  reproduces `tightestKC`), `update()` margin two-term-aware, `descriptorKey` includes rhs2. Dormant by
+  construction (nothing generates a two-term row yet → bit-identical to one-term). Tests:
+  TwoTermConjectureTest (6). **DDL (run manually; ddl-auto=update also adds these):**
+  `ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS rhs2 VARCHAR;`
+  `ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS k2 DOUBLE PRECISION NOT NULL DEFAULT 0;`
+- **Stage 2** — `ConjectureVerifier.verify` two-term overload + `verify_conjecture` optional rhs2/k2 args.
+- **Stage 3** — wire `ResidualStructureMiner` promotion: after a confirmed one-term bound, fit (k1,k2,c)
+  via tightestK1K2C on the discovered `z` and persist a two-term conjecture (flag `twoTermEnabled`).
+- **Stage 4** — serve two-term conjectures as topics; flip the flag ON. Acceptance: a two-term paper
+  holds on held-out windows.
+- **Filters (Stage 3 decision):** the one-rhs structural filters (dimension/unit/FIM) assume a single
+  rhs — simplest safe v1 is to exempt two-term rows from them (they already passed the residual-null
+  gate, which is stronger) and rely on counterexample `update()` + knob; tighten later.
+
 **Goal:** let the already-built residual miner's output become storable, verifiable conjectures.
 
 **Context:** `ResidualStructureMiner` (30.2, flag-ON but **log-only**) fits `lhs ≈ β·rhs + α`, takes
