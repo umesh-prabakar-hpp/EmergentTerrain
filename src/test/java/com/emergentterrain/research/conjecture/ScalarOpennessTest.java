@@ -58,4 +58,23 @@ class ScalarOpennessTest {
         assertThat(ScalarOpenness.isSettledLeadingOrder(null)).isFalse();
         assertThat(ScalarOpenness.isTrivialAffineOnSettled(null)).isFalse();
     }
+
+    // ── G4 selection prior ────────────────────────────────────────────────────
+
+    @Test
+    void selectionRankPromotesPriorityTargetsOverTheRest() {
+        // rank 0 = drawn first: the actively-progressing open / second-order / growth-capture targets.
+        for (String t : new String[]{"dirichlet_error", "max_prime_gap", "max_divisor_count",
+                "omega_Omega_gap", "omega_ek_ratio", "mean_divisor_excess", "cramer_gap_ratio",
+                "twin_vs_prime_sq", "twin_prime_density"}) {
+            assertThat(ScalarOpenness.selectionRank(t)).as(t).isZero();
+        }
+        // rank 1 = default: settled leading orders (flat bounds G1-pruned) and the over-measured
+        // Mertens envelope — deliberately NOT promoted.
+        assertThat(ScalarOpenness.selectionRank("mertens_delta")).isEqualTo(1);
+        assertThat(ScalarOpenness.selectionRank("mertens_per_sqrt_W")).isEqualTo(1);
+        assertThat(ScalarOpenness.selectionRank("mean_omega")).isEqualTo(1);
+        assertThat(ScalarOpenness.selectionRank("prime_density")).isEqualTo(1);
+        assertThat(ScalarOpenness.selectionRank(null)).isEqualTo(1);
+    }
 }

@@ -151,6 +151,15 @@ fallback) persists across passes and appears in a published conjecture; vocabula
 
 ## G4 — QD-archive + anomaly selection (keep novelty)
 
+**Status: PARTIAL — selection prior SHIPPED 2026-06-15 (flag-gated, ON in yaml).** After G1 cleaned the
+pool, the bottleneck moved to SELECTION: open/growing-LHS topics (max_prime_gap, dirichlet_error,
+omega_Omega_gap) surfaced only by luck (0 picks two runs, 3 the next). `ScalarOpenness.PRIORITY_TARGETS`
++ `selectionRank` (pure, tested) + a flag-gated prior in `ConjectureMinerService.nextN` (both tiers; the
+existing rotation/clade order is the within-bucket tiebreak) now promote the actively-progressing
+open/second-order/growth-capture targets to the front and down-weight the over-measured Mertens
+envelope. Flag `opennessSelectionEnabled`. REMAINING for full G4: wire `QualityDiversityArchive` into
+retention (novelty-cell binning) + promote `AnomalyMiner` (log-only) candidates to investigation topics.
+
 **Goal:** stop the corpus collapsing to one family; retain diverse open-behavior elites; treat
 regime-failures as findings.
 

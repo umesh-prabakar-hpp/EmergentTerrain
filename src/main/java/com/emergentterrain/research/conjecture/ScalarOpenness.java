@@ -44,12 +44,46 @@ public final class ScalarOpenness {
             "prime_density",         // → 0 (PNT)
             "happy_density");        // base-10 density (settled within a base)
 
+    /**
+     * Phase 30 G4 (open-behavior-generation-activation.md) — the actively-progressing open /
+     * second-order / growth-capture LHS that selection should PROMOTE to the front of the queue, so
+     * the now-clean pool is actually drawn from (the bottleneck after G1 cleaned generation was
+     * selection — growing-LHS topics surfaced only by luck). These are the targets with un-captured
+     * progress to make: the open Dirichlet exponent, the growth-anchor captures (Cramér / Wigert), and
+     * the second-order constants (2γ, 2C₂, the Erdős–Kac variance, the prime-power gap). NOT included:
+     * settled leading orders (their flat bounds are G1-pruned; their second-order residuals ARE here),
+     * and mertens_delta / mertens_per_sqrt_W — open but finitely-unresolvable AND already measured
+     * (the envelope is a persisted measured-invariant), so they fall to default priority — the
+     * deliberate down-weight of the over-selected Mertens envelope.
+     */
+    public static final Set<String> PRIORITY_TARGETS = Set.of(
+            "dirichlet_error",        // open: the Dirichlet divisor exponent (novelty flagship)
+            "max_prime_gap",          // growth-anchor capture (Cramér ln²x)
+            "max_divisor_count",      // growth-anchor capture (Wigert)
+            "omega_Omega_gap",        // second-order → Σ 1/(p(p-1)) ≈ 0.77316
+            "omega_ek_ratio",         // Erdős–Kac variance → 1
+            "mean_divisor_excess",    // second-order → 2γ
+            "cramer_gap_ratio",       // Cramér-normalized record gap (open)
+            "twin_vs_prime_sq",       // Hardy–Littlewood → 2C₂
+            "twin_prime_density");    // twin primes (Hardy–Littlewood)
+
     private ScalarOpenness() {
     }
 
     /** True iff the scalar has a textbook leading-order law / known limit (the settled class). */
     public static boolean isSettledLeadingOrder(String scalar) {
         return scalar != null && SETTLED_LEADING_ORDER.contains(scalar);
+    }
+
+    /**
+     * G4 selection rank for an LHS scalar — LOWER sorts FIRST. {@code 0} = a priority open/second-order
+     * /growth-capture target ({@link #PRIORITY_TARGETS}); {@code 1} = everything else (settled leading
+     * orders whose flat bounds are pruned, the over-measured Mertens envelope, neutral scalars). Used as
+     * the primary selection key (under a flag) so high-value targets are drawn before the rest, with the
+     * existing rotation / clade order as the within-bucket tiebreak. Null-safe.
+     */
+    public static int selectionRank(String lhs) {
+        return lhs != null && PRIORITY_TARGETS.contains(lhs) ? 0 : 1;
     }
 
     /**

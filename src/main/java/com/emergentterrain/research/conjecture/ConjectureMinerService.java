@@ -109,6 +109,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean incrementalReseedEnabled;
     private final boolean verifiedAnchorKnobExemptEnabled;
     private final boolean opennessPriorEnabled;
+    private final boolean opennessSelectionEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -306,6 +307,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.incrementalReseedEnabled = props.isIncrementalReseedEnabled();
         this.verifiedAnchorKnobExemptEnabled = props.isVerifiedAnchorKnobExemptEnabled();
         this.opennessPriorEnabled = props.isOpennessPriorEnabled();
+        this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -1113,6 +1115,15 @@ public class ConjectureMinerService implements ConjectureQueue {
                 ? Comparator.<Conjecture>comparingLong(ConjectureMinerService::investigatedAtOf)
                         .thenComparing(mostRecentlyRefuted)
                 : mostRecentlyRefuted;
+        // Phase 30 G4 (open-behavior-generation-activation.md) — openness selection prior. Promote the
+        // actively-progressing open / second-order / growth-capture LHS (ScalarOpenness.selectionRank=0)
+        // ahead of the rest, so the now-clean pool is actually drawn from (the post-G1 bottleneck was
+        // selection: growing-LHS topics surfaced only by luck). The existing rotation order is the
+        // within-bucket tiebreak, so high-value targets rotate among themselves. No-op when off.
+        if (opennessSelectionEnabled) {
+            tier1Order = Comparator.<Conjecture>comparingInt(c -> ScalarOpenness.selectionRank(c.lhs()))
+                    .thenComparing(tier1Order);
+        }
         all.stream()
                 .filter(c -> DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
                 .sorted(tier1Order)
@@ -1132,6 +1143,12 @@ public class ConjectureMinerService implements ConjectureQueue {
                     : live.stream().sorted(Comparator
                             .<Conjecture>comparingInt(c -> -c.confirmedRuns())
                             .thenComparingDouble(Conjecture::p99Slack));
+            // G4 openness prior — stable re-sort puts priority targets first while preserving the
+            // clade / confirmed-runs order within each rank bucket (Stream.sorted is stable). No-op off.
+            if (opennessSelectionEnabled) {
+                ordered = ordered.sorted(
+                        Comparator.comparingInt(c -> ScalarOpenness.selectionRank(c.lhs())));
+            }
             ordered.limit((long) n - out.size()).forEach(out::add);
         }
         return out;
