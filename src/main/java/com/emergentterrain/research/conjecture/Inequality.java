@@ -26,6 +26,11 @@ public class Inequality {
     final String rhs;
     double k;
     double c;
+    // Phase 30 G2 — optional SECOND affine term: lhs ≤ k*rhs + k2*rhs2 + c. rhs2==null (k2==0) is the
+    // backward-compat one-term bound — every legacy seed/fit/verify/filter behaves identically until a
+    // row actually sets rhs2. Package-private mutation like k/c (set inside the engine / mapper).
+    String rhs2;
+    double k2 = 0.0;
     int confirmedRuns = 0;
     final List<String> confirmedConfigs = new ArrayList<>();
     final List<Witness> refutedBy = new ArrayList<>();
@@ -71,6 +76,14 @@ public class Inequality {
     public String rhs() { return rhs; }
     public double k() { return k; }
     public double c() { return c; }
+    /** G2 — the optional second-term scalar name; null for a one-term bound. */
+    public String rhs2() { return rhs2; }
+    /** G2 — the optional second-term coefficient; 0 for a one-term bound. */
+    public double k2() { return k2; }
+    /** G2 — true iff this is a two-term bound (rhs2 set). */
+    public boolean isTwoTerm() { return rhs2 != null; }
+    /** G2 — set the optional second affine term (package-private mutation, like k/c). */
+    void setSecondTerm(String rhs2, double k2) { this.rhs2 = rhs2; this.k2 = k2; }
     public int confirmedRuns() { return confirmedRuns; }
     public List<String> confirmedConfigs() { return confirmedConfigs; }
     public List<Witness> refutedBy() { return refutedBy; }

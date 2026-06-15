@@ -40,6 +40,8 @@ public class ConjectureMapper {
     /** Build a fresh DB row from an in-memory inequality (first time we persist it). */
     public Conjecture toEntity(Inequality ineq, String domain) {
         Conjecture e = new Conjecture(domain, ineq.lhs, ineq.rhs, ineq.k, ineq.c);
+        e.setRhs2(ineq.rhs2);   // G2 — null for one-term (backward-compat)
+        e.setK2(ineq.k2);
         copyMutableFields(ineq, e);
         return e;
     }
@@ -48,6 +50,8 @@ public class ConjectureMapper {
     public void apply(Inequality ineq, Conjecture entity) {
         entity.setK(ineq.k);
         entity.setC(ineq.c);
+        entity.setRhs2(ineq.rhs2);   // G2
+        entity.setK2(ineq.k2);
         copyMutableFields(ineq, entity);
         entity.setUpdatedAt(Instant.now());
         if (entity.promotedAt() == null
@@ -60,6 +64,9 @@ public class ConjectureMapper {
     /** Reconstruct an in-memory inequality from a persisted row. */
     public Inequality toInequality(Conjecture entity) {
         Inequality ineq = new Inequality(entity.lhs(), entity.rhs(), entity.k(), entity.c());
+        if (entity.rhs2() != null) {   // G2 — reconstruct the second term (one-term rows: no-op)
+            ineq.setSecondTerm(entity.rhs2(), entity.k2());
+        }
         ineq.confirmedRuns = entity.confirmedRuns();
         ineq.p99Slack = entity.p99Slack();
         ineq.droppedByKnob = entity.droppedByKnob();

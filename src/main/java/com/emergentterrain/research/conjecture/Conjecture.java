@@ -54,6 +54,16 @@ public class Conjecture {
     @Column(nullable = false)
     private double c;
 
+    // Phase 30 G2 — optional second affine term: lhs ≤ k*rhs + k2*rhs2 + c. rhs2 NULL (k2 0.0) = the
+    // backward-compat one-term bound. DDL (run manually; ddl-auto=update also adds these):
+    //   ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS rhs2 VARCHAR;
+    //   ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS k2 DOUBLE PRECISION NOT NULL DEFAULT 0;
+    private String rhs2;
+
+    @Column(nullable = false)
+    @org.hibernate.annotations.ColumnDefault("0")
+    private double k2 = 0.0;
+
     @Column(nullable = false)
     private int confirmedRuns;
 
@@ -186,6 +196,8 @@ public class Conjecture {
     public String rhs()                    { return rhs; }
     public double k()                      { return k; }
     public double c()                      { return c; }
+    public String rhs2()                   { return rhs2; }   // G2: null = one-term
+    public double k2()                     { return k2; }
     public int confirmedRuns()             { return confirmedRuns; }
     public double p99Slack()               { return p99Slack; }
     public String droppedByKnob()          { return droppedByKnob; }
@@ -208,6 +220,8 @@ public class Conjecture {
     public void setKind(String kind)                      { this.kind = kind; }
     public void setK(double k)                            { this.k = k; }
     public void setC(double c)                            { this.c = c; }
+    public void setRhs2(String rhs2)                      { this.rhs2 = rhs2; }   // G2
+    public void setK2(double k2)                          { this.k2 = k2; }
     public void setConfirmedRuns(int n)                   { this.confirmedRuns = n; }
     public void setP99Slack(double s)                     { this.p99Slack = s; }
     public void setDroppedByKnob(String knob)             { this.droppedByKnob = knob; }

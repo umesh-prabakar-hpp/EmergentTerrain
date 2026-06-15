@@ -143,7 +143,13 @@ public final class ConjectureTrivialityFilter {
             return ineq.lhs() + " <= const";
         }
         String dir = ineq.k() >= 0 ? "+" : "-";
-        return ineq.lhs() + " <= " + dir + "k* " + ineq.rhs();
+        String key = ineq.lhs() + " <= " + dir + "k* " + ineq.rhs();
+        // G2 — a two-term bound is a distinct relation; include rhs2 so it doesn't dedup onto its
+        // one-term parent. One-term (rhs2==null) keys exactly as before (backward-compat).
+        if (ineq.rhs2() != null) {
+            key += (ineq.k2() >= 0 ? " +" : " -") + "k2* " + ineq.rhs2();
+        }
+        return key;
     }
 
     /** Survivors plus the entries removed, each with a reason code. */

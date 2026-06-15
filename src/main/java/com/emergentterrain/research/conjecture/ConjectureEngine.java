@@ -106,7 +106,9 @@ public final class ConjectureEngine {
                 Map<String, Double> s = samples.get(i);
                 double lhs = s.getOrDefault(ineq.lhs, 0.0);
                 double rhs = s.getOrDefault(ineq.rhs, 0.0);
-                double margin = lhs - (ineq.k * rhs + ineq.c);
+                // G2 — two-term-aware: + k2*rhs2 when set. One-term (rhs2==null, k2==0) is identical.
+                double rhs2 = ineq.rhs2 != null ? s.getOrDefault(ineq.rhs2, 0.0) : 0.0;
+                double margin = lhs - (ineq.k * rhs + ineq.k2 * rhs2 + ineq.c);
                 if (margin > worst) {
                     worst = margin;
                     worstIdx = i;
@@ -222,6 +224,36 @@ public final class ConjectureEngine {
             }
             if (best == null || c < best[1]) {
                 best = new double[]{k, c};
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Phase 30 G2 — tightest {@code (k1, k2, c)} over the {@code K_GRID×K_GRID} such that
+     * {@code lhs <= k1*rhs + k2*rhs2 + c} holds across every sample ({@code c} = max residual). The
+     * two-term generalisation of {@link #tightestKC}: with {@code rhs2≡0} it returns the same
+     * {@code (k, c)} (k2 then collapses to the smallest-|c| grid value, harmlessly). Used by the
+     * residual-structure promotion path (G2 Stage 3) to fit a discovered {@code lhs ~ rhs + z}
+     * relation. Returns {@code {k1, k2, c}} or null on a length mismatch. Pure.
+     */
+    static double[] tightestK1K2C(double[] lhs, double[] rhs, double[] rhs2) {
+        if (lhs.length == 0 || lhs.length != rhs.length || lhs.length != rhs2.length) {
+            return null;
+        }
+        double[] best = null;
+        for (double k1 : K_GRID) {
+            for (double k2 : K_GRID) {
+                double c = Double.NEGATIVE_INFINITY;
+                for (int i = 0; i < lhs.length; i++) {
+                    double v = lhs[i] - k1 * rhs[i] - k2 * rhs2[i];
+                    if (v > c) {
+                        c = v;
+                    }
+                }
+                if (best == null || c < best[2]) {
+                    best = new double[]{k1, k2, c};
+                }
             }
         }
         return best;
