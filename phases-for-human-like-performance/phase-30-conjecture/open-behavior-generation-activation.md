@@ -115,10 +115,12 @@ until Stage 4:
 - **Stage 2 (DONE, ET 40eab33; DDL run)** — `ConjectureVerifier.verify(lhs,rhs,k,rhs2,k2,c,…)` overload
   (Java-side per-window; sidecar batched path skipped — it doesn't know rhs2) + `verify_conjecture`
   optional rhs2/k2 args routing to it + tool schema. One-term path untouched. Tests: ConjectureVerifierTest +1.
-- **Stage 3** — wire `ResidualStructureMiner` promotion: after a confirmed one-term bound, fit (k1,k2,c)
-  via tightestK1K2C on the discovered `z` and persist a two-term conjecture (flag `twoTermEnabled`).
-- **Stage 4** — serve two-term conjectures as topics; flip the flag ON. Acceptance: a two-term paper
-  holds on held-out windows.
+- **Stage 3 (DONE, ET c3034f0; flag-OFF)** — `ResidualStructureMiner` promotion wired: on a discovered
+  `lhs ~ rhs + z`, `fitTwoTerm` (tightestK1K2C) + `repo.save` a two-term conjecture (deduped by
+  `lhs|rhs|z`); two-term rows EXEMPT from the one-rhs dimension/unit/FIM filters. Flag `twoTermEnabled`
+  kept OFF (residual stays log-only) until Stage 4. Tests: TwoTermConjectureTest +2.
+- **Stage 4 (NEXT)** — topic→paper framing for a two-term hypothesis (renders `k1*rhs + k2*z + c`), then
+  flip `twoTermEnabled` ON. Acceptance: a two-term paper holds on held-out windows.
 - **Filters (Stage 3 decision):** the one-rhs structural filters (dimension/unit/FIM) assume a single
   rhs — simplest safe v1 is to exempt two-term rows from them (they already passed the residual-null
   gate, which is stronger) and rely on counterexample `update()` + knob; tighten later.
