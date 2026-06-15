@@ -118,6 +118,18 @@ function math_invariants_extract(raw, window_start::Integer, window_size::Intege
             isfinite(v) ? v : 0.0
         end
     end)
+    # 2026-06-14 (room b72c4e10 §1 rec #1 redux) — ln ln x growth anchor for mean_omega/mean_Omega:
+    # ln(ln(center)), the Hardy–Ramanujan/Erdős–Kac normal-order scale of ω(n)/Ω(n). JVM
+    # MathInvariants mirror — IDENTICAL guards (center > 1, isfinite) so a miner-seeded (k,c) on
+    # log_log_window_start matches the verifier. Pure geometry (window center, natural log).
+    push!(flat, "log_log_window_start" => begin
+        if center <= 1.0
+            0.0
+        else
+            lc = log(center); llc = log(lc)
+            isfinite(llc) ? llc : 0.0
+        end
+    end)
 
     return flat
 end
@@ -149,5 +161,6 @@ function math_invariants_vocabulary()::Vector{String}
     push!(out, "twin_vs_prime_sq")
     push!(out, "mean_divisor_excess")    # 2026-06-13 second-order (JVM mirror): → ≈ 2γ
     push!(out, "wigert_bound")           # 2026-06-14 Wigert growth anchor (JVM mirror): exp(ln x/ln ln x)
+    push!(out, "log_log_window_start")   # 2026-06-14 ln ln x growth anchor (JVM mirror): mean_omega/mean_Omega
     return out
 end
