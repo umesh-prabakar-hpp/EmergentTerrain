@@ -77,6 +77,13 @@ the flagship demonstration once G2/G3 are live.
 
 ## G1 — Openness prior as data (start here)
 
+**Status: BUILT 2026-06-14 (flag-gated, ON in yaml; acceptance pending next refresh).** `ScalarOpenness`
+registry + a mine()-level drop of SLOPED affine bounds on settled-leading-order LHS with a flat-feature
+rhs (keeps growth-anchor + k≈0 constant bounds), flag `opennessPriorEnabled`. Mirrors the
+triviality/dimension filters; logs `N dropped (openness)` in the mine-pass summary. Tests:
+ScalarOpennessTest (4). The MVP is the demotion filter; the promotion-weighting half (actively
+prioritising open/second-order topics in selection) folds into G4.
+
 **Goal:** stop generating affine bounds on settled-leading-order objects; preferentially generate
 (i) residual/second-order targets and (ii) open objects.
 

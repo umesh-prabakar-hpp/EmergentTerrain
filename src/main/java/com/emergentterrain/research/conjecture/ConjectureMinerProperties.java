@@ -44,6 +44,12 @@ public class ConjectureMinerProperties {
     // held aside from the knob filter (still counterexample-checked) — like the composition exemption,
     // gated on investigation-verified so spurious unverified window-correlated seeds are still dropped.
     private boolean verifiedAnchorKnobExemptEnabled = false;
+    // 2026-06-14 — Phase 30 G1 (open-behavior-generation-activation.md). When ON, the miner drops
+    // SLOPED affine bounds on settled-leading-order objects (mean_omega/mean_Omega ~ ln ln x,
+    // mean_divisor_count ~ ln x, the densities) whose rhs is a flat feature — the trivial-refutation
+    // class that dominates the corpus — keeping growth-anchor and k≈0 constant bounds. Shifts the
+    // topic mix toward open-behavior / second-order targets. See ScalarOpenness.
+    private boolean opennessPriorEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -105,6 +111,9 @@ public class ConjectureMinerProperties {
 
     public boolean isVerifiedAnchorKnobExemptEnabled() { return verifiedAnchorKnobExemptEnabled; }
     public void setVerifiedAnchorKnobExemptEnabled(boolean v) { this.verifiedAnchorKnobExemptEnabled = v; }
+
+    public boolean isOpennessPriorEnabled() { return opennessPriorEnabled; }
+    public void setOpennessPriorEnabled(boolean v) { this.opennessPriorEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }

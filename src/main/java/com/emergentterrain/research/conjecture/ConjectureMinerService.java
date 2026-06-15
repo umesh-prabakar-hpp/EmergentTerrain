@@ -108,6 +108,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean trivialityFilterEnabled;
     private final boolean incrementalReseedEnabled;
     private final boolean verifiedAnchorKnobExemptEnabled;
+    private final boolean opennessPriorEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -304,6 +305,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.trivialityFilterEnabled = props.isTrivialityFilterEnabled();
         this.incrementalReseedEnabled = props.isIncrementalReseedEnabled();
         this.verifiedAnchorKnobExemptEnabled = props.isVerifiedAnchorKnobExemptEnabled();
+        this.opennessPriorEnabled = props.isOpennessPriorEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -512,6 +514,28 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             trivialOrRedundant = red.removed().size();
             store = red.kept();
+        }
+
+        // Phase 30 G1 (open-behavior-generation-activation.md) — openness prior. Drop SLOPED affine
+        // bounds on settled-leading-order objects (mean_omega/mean_Omega ~ ln ln x, mean_divisor_count
+        // ~ ln x, the densities) whose rhs is a flat feature — the trivial-refutation class that
+        // dominates the corpus. Keeps k≈0 constant bounds (the real density-limit claim) and
+        // growth-anchor bounds (rhs a window-geometry scalar), so settled LHS survive ONLY as
+        // growth-anchor / non-affine-frame topics. No-op when the flag is off. The professor can still
+        // run a flat verify_conjecture to establish the binding region — this only shapes which TOPICS
+        // are seeded, not what investigation can verify.
+        int opennessDropped = 0;
+        if (opennessPriorEnabled) {
+            List<Inequality> kept = new ArrayList<>(store.size());
+            for (Inequality ineq : store) {
+                if (ScalarOpenness.isTrivialAffineOnSettled(ineq)) {
+                    persistRetired(List.of(ineq), byKey, "openness:trivial_affine_on_settled");
+                    opennessDropped++;
+                } else {
+                    kept.add(ineq);
+                }
+            }
+            store = kept;
         }
 
         // Phase 30 Wave 1 — dimensional-mismatch drop (flag-gated OFF, independent
@@ -1022,9 +1046,9 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
 
-        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (dimension), {} dropped (unit), {} dropped (fim), {} dropped (stochastic null), {} dropped (private holdout), {} dropped (replication), {} composed (persisted), {} ms",
+        log.info("conjecture mine pass — {} survivors ({} OEIS-annotated), {} retired (counterexample), {} dropped (knob filter), {} dropped (triviality/dedup), {} dropped (openness), {} dropped (dimension), {} dropped (unit), {} dropped (fim), {} dropped (stochastic null), {} dropped (private holdout), {} dropped (replication), {} composed (persisted), {} ms",
                 store.size(), oeisAnnotated, totalRetiredByCounterexample, fr.dropped(), trivialOrRedundant,
-                dimensionDropped, unitDropped, fimDropped, nullDropped, gamedDropped, replicationDropped, compositionsPersisted, System.currentTimeMillis() - t0);
+                opennessDropped, dimensionDropped, unitDropped, fimDropped, nullDropped, gamedDropped, replicationDropped, compositionsPersisted, System.currentTimeMillis() - t0);
     }
 
     /** Live (not retired) conjectures for a domain — convenience accessor; raw list, no ordering. */
