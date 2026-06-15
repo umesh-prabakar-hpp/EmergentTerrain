@@ -145,6 +145,74 @@ public class ConjectureVerifier {
     }
 
     /**
+     * Phase 30 G2 Stage 2 — two-term verify: {@code lhs <= k*rhs + k2*rhs2 + c} on a held-out slice.
+     * Java-side per-window only (the sidecar's batched {@code /conjecture/verify} doesn't know rhs2), so
+     * no sidecar round-trip and no boundary probe. Validates all three scalars + the same WORK/RANGE
+     * caps as the one-term path. The {@link VerifyResult} carries the primary {@code (rhs, k)}; the
+     * {@code k2*rhs2} contribution is folded into each window's margin — the load-bearing verdict number.
+     */
+    public VerifyResult verify(
+            String lhs, String rhs, double k, String rhs2, double k2, double c,
+            long windowStart, int windowSize, int numWindows) {
+        Objects.requireNonNull(lhs, "lhs");
+        Objects.requireNonNull(rhs, "rhs");
+        Objects.requireNonNull(rhs2, "rhs2");
+        List<String> vocab = MathInvariants.vocabulary();
+        if (!vocab.contains(lhs)) {
+            throw new IllegalArgumentException("unknown lhs scalar: " + lhs + " (expected one of " + vocab + ")");
+        }
+        if (!vocab.contains(rhs)) {
+            throw new IllegalArgumentException("unknown rhs scalar: " + rhs + " (expected one of " + vocab + ")");
+        }
+        if (!vocab.contains(rhs2)) {
+            throw new IllegalArgumentException("unknown rhs2 scalar: " + rhs2 + " (expected one of " + vocab + ")");
+        }
+        if (windowStart < 0) {
+            throw new IllegalArgumentException("window_start must be >= 0; got " + windowStart);
+        }
+        if (windowSize <= 0) {
+            throw new IllegalArgumentException("window_size must be > 0; got " + windowSize);
+        }
+        if (numWindows <= 0) {
+            throw new IllegalArgumentException("num_windows must be > 0; got " + numWindows);
+        }
+        long totalWork = (long) numWindows * windowSize;
+        if (totalWork > maxWork()) {
+            throw new IllegalArgumentException(
+                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork());
+        }
+        if (windowStart + totalWork > maxN()) {
+            throw new IllegalArgumentException(
+                    "window extends to n=" + (windowStart + totalWork) + " which exceeds MAX_N=" + maxN());
+        }
+
+        MathConjectureSubstrateDelegate sub = substrate();
+        List<WindowReport> reports = new ArrayList<>(numWindows);
+        double worstMargin = Double.NEGATIVE_INFINITY;
+        long worstWindowStart = windowStart;
+        boolean held = true;
+        for (int i = 0; i < numWindows; i++) {
+            long start = windowStart + (long) i * windowSize;
+            Map<String, Double> flat = MathInvariants.extract(
+                    sub.evaluateWindow((int) start, windowSize), start, windowSize);
+            double lhsVal = flat.getOrDefault(lhs, 0.0);
+            double rhsVal = flat.getOrDefault(rhs, 0.0);
+            double rhs2Val = flat.getOrDefault(rhs2, 0.0);
+            double margin = lhsVal - (k * rhsVal + k2 * rhs2Val + c);
+            boolean windowHolds = margin <= 2 * ConjectureEngine.TOL;
+            reports.add(new WindowReport(start, lhsVal, rhsVal, margin, windowHolds));
+            if (margin > worstMargin) {
+                worstMargin = margin;
+                worstWindowStart = start;
+            }
+            if (!windowHolds) {
+                held = false;
+            }
+        }
+        return new VerifyResult(lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
+    }
+
+    /**
      * Core verify with an explicit boundary-probe switch so the probe itself
      * (which recurses for a single extra window) never re-triggers a probe.
      */

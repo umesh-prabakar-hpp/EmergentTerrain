@@ -868,6 +868,8 @@ public class MathToolSuite {
                     "rhs":{"type":"string","description":"Right-hand-side scalar name."},
                     "k":{"type":"number","description":"Multiplicative coefficient on rhs."},
                     "c":{"type":"number","description":"Additive constant."},
+                    "rhs2":{"type":"string","description":"OPTIONAL second right-hand-side scalar for a two-term bound lhs <= k*rhs + k2*rhs2 + c (e.g. a residual-discovered companion term). Omit for a one-term bound."},
+                    "k2":{"type":"number","description":"OPTIONAL coefficient on rhs2 (default 0; ignored unless rhs2 is set)."},
                     "window_start":{"type":"integer","description":"First integer in the first evaluated window. Pick a held-out offset. Must satisfy window_start + window_size × num_windows ≤ %d."},
                     "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
                     "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
@@ -2155,6 +2157,10 @@ public class MathToolSuite {
         if (Double.isNaN(k) || Double.isNaN(c)) {
             return "Missing 'k' or 'c' inequality coefficient.";
         }
+        // G2 Stage 2 — optional SECOND affine term: lhs <= k*rhs + k2*rhs2 + c. Omit rhs2 for a
+        // one-term bound (identical to before).
+        String rhs2 = args.path("rhs2").asText("");
+        double k2 = args.path("k2").asDouble(0.0);
         long windowStart = args.path("window_start").asLong(-1);
         int windowSize = args.path("window_size").asInt(-1);
         int numWindows = args.path("num_windows").asInt(
@@ -2165,15 +2171,20 @@ public class MathToolSuite {
 
         com.emergentterrain.research.conjecture.ConjectureVerifier.VerifyResult result;
         try {
-            result = conjectureVerifier.verify(lhs, rhs, k, c, windowStart, windowSize, numWindows);
+            result = rhs2.isBlank()
+                    ? conjectureVerifier.verify(lhs, rhs, k, c, windowStart, windowSize, numWindows)
+                    : conjectureVerifier.verify(lhs, rhs, k, rhs2, k2, c, windowStart, windowSize, numWindows);
         } catch (IllegalArgumentException e) {
             return "Invalid verify_conjecture call: " + e.getMessage();
         }
 
         StringBuilder sb = new StringBuilder();
+        String boundStr = rhs2.isBlank()
+                ? String.format("%+.4f * %s + %+.4f", k, rhs, c)
+                : String.format("%+.4f * %s + %+.4f * %s + %+.4f", k, rhs, k2, rhs2, c);
         sb.append(String.format(
-                "verify_conjecture: %s <= %+.4f * %s + %+.4f %s across %d window(s) of size %d starting at %d. ",
-                lhs, k, rhs, c,
+                "verify_conjecture: %s <= %s %s across %d window(s) of size %d starting at %d. ",
+                lhs, boundStr,
                 result.held() ? "HELD" : "REFUTED",
                 result.windowsEvaluated(), windowSize, windowStart));
         sb.append(String.format("worst margin: %+.5f at window starting %d.",

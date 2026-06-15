@@ -175,6 +175,25 @@ class ConjectureVerifierTest {
     }
 
     @Test
+    void twoTermVerifyRejectsBadInputs() {
+        // G2 Stage 2 — the two-term overload validates lhs/rhs/rhs2 + caps before any window compute
+        // (no sidecar needed). Mirrors rejectsBadInputs for the extra rhs2 term.
+        ConjectureVerifier verifier = new ConjectureVerifier();
+        // unknown rhs2 scalar
+        assertThrows(IllegalArgumentException.class, () -> verifier.verify(
+                "max_divisor_count", "mean_divisor_excess", 2.0, "made_up_scalar", 1.0, 5.0,
+                200_000, 500, 5));
+        // unknown lhs still caught
+        assertThrows(IllegalArgumentException.class, () -> verifier.verify(
+                "made_up_scalar", "mean_divisor_excess", 2.0, "dirichlet_error", 1.0, 5.0,
+                200_000, 500, 5));
+        // work cap still enforced on the two-term path
+        assertThrows(IllegalArgumentException.class, () -> verifier.verify(
+                "max_divisor_count", "mean_divisor_excess", 2.0, "dirichlet_error", 1.0, 5.0,
+                200_000, ConjectureVerifier.MAX_WORK + 1, 1));
+    }
+
+    @Test
     @Tag("integration")
     void defaultNumWindowsIsFive() {
         assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
