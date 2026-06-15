@@ -162,6 +162,13 @@ Claim generation, on a clean pool with honest evaluation.
 a residual form beating the linear null on held-out data; one composition paper whose hypothesis is
 absent from both parents.
 
+> **Activation (2026-06-14):** the Wave-5 components above are flag-ON but **log-only / admit ~0** —
+> their candidates never reach the topic queue, so the corpus is still affine bounds on settled objects
+> ([[project_phase23_8_calibration]]). [`open-behavior-generation-activation.md`](open-behavior-generation-activation.md)
+> sequences the five stages (G1–G5) that promote them to live open-behavior topics: openness prior,
+> two-term schema (promote 30.2), feed 30.5 real residual targets, wire QD/anomaly selection, and the
+> Dirichlet-exponent flagship. DESIGN DOC LANDED; not yet built.
+
 ---
 
 ## Wave 6 — Irreducibility & mechanism rigor (content gates)
