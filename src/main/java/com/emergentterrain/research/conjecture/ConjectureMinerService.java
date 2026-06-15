@@ -107,6 +107,7 @@ public class ConjectureMinerService implements ConjectureQueue {
      */
     private final boolean trivialityFilterEnabled;
     private final boolean incrementalReseedEnabled;
+    private final boolean verifiedAnchorKnobExemptEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -302,6 +303,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.substrate = substrate;
         this.trivialityFilterEnabled = props.isTrivialityFilterEnabled();
         this.incrementalReseedEnabled = props.isIncrementalReseedEnabled();
+        this.verifiedAnchorKnobExemptEnabled = props.isVerifiedAnchorKnobExemptEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -477,8 +479,21 @@ public class ConjectureMinerService implements ConjectureQueue {
         // Phase 30 step 2.5 — derived (composed) conjectures are exempt from the
         // window_size knob filter when the flag is on (no-op otherwise). See
         // knobFilterExempting.
+        // 2026-06-14 (review-c Rec 1) — also exempt investigation-verified GROWTH ANCHORS (a bound
+        // whose rhs is a window-geometry scalar): its slack is window-correlated by construction, so
+        // the restatement heuristic was retiring verified survivors (the 0.649 Cramér bound). Built
+        // from `existing` (verified status persists across the write-back re-tighten), gated by flag.
+        java.util.Set<String> verifiedAnchorKeys = new java.util.HashSet<>();
+        if (verifiedAnchorKnobExemptEnabled) {
+            for (Conjecture e : existing) {
+                if (e.investigationVerifiedAt() != null && e.isBound()
+                        && ConjectureTrivialityFilter.WINDOW_GEOMETRY_SCALARS.contains(e.rhs())) {
+                    verifiedAnchorKeys.add(keyOf(e.lhs(), e.rhs()));
+                }
+            }
+        }
         ConjectureEngine.FilterResult fr = knobFilterExempting(
-                store, derivedKeys, compositionKnobExemptEnabled,
+                store, derivedKeys, compositionKnobExemptEnabled, verifiedAnchorKeys,
                 List.of(new ConjectureEngine.KnobAxis("window_size", knobValues)),
                 KNOB_FILTER_THRESHOLD,
                 KNOB_FILTER_MIN_CONFIGS);
@@ -1359,21 +1374,53 @@ public class ConjectureMinerService implements ConjectureQueue {
             List<ConjectureEngine.KnobAxis> axes,
             double threshold,
             int minConfigs) {
-        if (!exempt || derivedKeys == null || derivedKeys.isEmpty()) {
+        return knobFilterExempting(store, derivedKeys, exempt, java.util.Set.of(),
+                axes, threshold, minConfigs);
+    }
+
+    /**
+     * 2026-06-14 — knob-filter exemption widened to VERIFIED GROWTH ANCHORS (room b72c4e10
+     * review-c, Rec 1). A growth-anchor bound (rhs ∈ {@link ConjectureTrivialityFilter#WINDOW_GEOMETRY_SCALARS},
+     * e.g. {@code max_prime_gap ≤ k·log_sq_window_start}) has slack that correlates with window_size
+     * BY CONSTRUCTION — the RHS is a window function — so the restatement heuristic flags it exactly
+     * as it would a knob restatement, and it was silently retiring investigation-verified survivors
+     * (the durable 0.649 Cramér bound was dropped this way after a legitimate re-tighten). This is the
+     * same window-correlated-slack situation that already exempts composed bounds; here the protection
+     * is gated on investigation-verified status (the professor confirmed it holds at the failure
+     * region), so spurious unverified window-correlated SEEDS are still filtered. {@code exemptAnchorKeys}
+     * is the verified-anchor key set (already flag-gated + filtered to geometry-RHS by the caller;
+     * empty = off). Both exempt sets are held aside, filtered out, then re-added.
+     */
+    static ConjectureEngine.FilterResult knobFilterExempting(
+            List<Inequality> store,
+            java.util.Set<String> derivedKeys,
+            boolean exempt,
+            java.util.Set<String> exemptAnchorKeys,
+            List<ConjectureEngine.KnobAxis> axes,
+            double threshold,
+            int minConfigs) {
+        java.util.Set<String> holdKeys = new java.util.HashSet<>();
+        if (exempt && derivedKeys != null) {
+            holdKeys.addAll(derivedKeys);
+        }
+        if (exemptAnchorKeys != null) {
+            holdKeys.addAll(exemptAnchorKeys);
+        }
+        if (holdKeys.isEmpty()) {
             return ConjectureEngine.filterKnobRestatements(store, axes, threshold, minConfigs);
         }
         List<Inequality> held = new ArrayList<>();
         java.util.Iterator<Inequality> it = store.iterator();
         while (it.hasNext()) {
             Inequality ineq = it.next();
-            if (derivedKeys.contains(keyOf(ineq.lhs, ineq.rhs))) {
+            if (holdKeys.contains(keyOf(ineq.lhs, ineq.rhs))) {
                 held.add(ineq);
                 it.remove();
             }
         }
         ConjectureEngine.FilterResult fr =
                 ConjectureEngine.filterKnobRestatements(store, axes, threshold, minConfigs);
-        store.addAll(held);   // derived survive the restatement heuristic (still counterexample-checked)
+        store.addAll(held);   // exempt items survive the restatement heuristic (still counterexample-checked)
         return fr;
     }
 }

@@ -81,6 +81,44 @@ class ConjectureKnobExemptionTest {
         assertThat(store).isEmpty();
     }
 
+    // ── 2026-06-14 — verified growth-anchor exemption (review-c Rec 1) ─────────
+
+    @Test
+    void verifiedGrowthAnchorIsExemptFromKnobFilter() {
+        // max_prime_gap ≤ k·log_sq_window_start: a growth anchor with window-monotonic slack — the
+        // restatement heuristic flags it, but as a verified anchor it must be held aside (the regression
+        // that retired the 0.649 Cramér survivor).
+        Inequality anchor = monotonicSlack("max_prime_gap", "log_sq_window_start");
+        Inequality minedFlat = monotonicSlack("a", "b");
+        List<Inequality> store = new ArrayList<>(List.of(anchor, minedFlat));
+
+        ConjectureEngine.FilterResult fr = ConjectureMinerService.knobFilterExempting(
+                store, Set.of(), /*compositionExempt*/ false,
+                Set.of("max_prime_gap|log_sq_window_start"),     // the verified-anchor key set
+                WINDOW_AXIS, 0.95, 3);
+
+        assertThat(fr.dropped()).isEqualTo(1);                    // only the non-anchor mined bound
+        assertThat(fr.droppedItems()).singleElement()
+                .extracting(Inequality::lhs).isEqualTo("a");
+        assertThat(store).containsExactly(anchor);                // the verified anchor survives
+        assertThat(anchor.droppedByKnob()).isNull();
+    }
+
+    @Test
+    void unverifiedAnchorIsStillFilteredWhenNotInExemptSet() {
+        // An anchor that is NOT in the verified-anchor key set (e.g. an unverified spurious seed) is
+        // still subject to the knob filter — the exemption is gated on verification, not on the RHS alone.
+        Inequality anchor = monotonicSlack("max_prime_gap", "log_sq_window_start");
+        List<Inequality> store = new ArrayList<>(List.of(anchor));
+
+        ConjectureEngine.FilterResult fr = ConjectureMinerService.knobFilterExempting(
+                store, Set.of(), false, Set.of() /*nothing verified*/, WINDOW_AXIS, 0.95, 3);
+
+        assertThat(fr.dropped()).isEqualTo(1);
+        assertThat(store).isEmpty();
+        assertThat(anchor.droppedByKnob()).isEqualTo("window_size");
+    }
+
     @Test
     void derivedWithFlatSlackSurvivesEitherWay() {
         // A derived relation whose slack does NOT trend with the knob isn't flagged

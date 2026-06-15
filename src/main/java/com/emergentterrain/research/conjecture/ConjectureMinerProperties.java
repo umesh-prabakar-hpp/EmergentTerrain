@@ -37,6 +37,13 @@ public class ConjectureMinerProperties {
     // or volume — it adds a handful of high-value candidates. Self-limiting: once the new pairs
     // persist, later passes find 0 new and no-op.
     private boolean incrementalReseedEnabled = false;
+    // 2026-06-14 — knob-filter exemption for investigation-verified growth anchors (room b72c4e10
+    // review-c Rec 1). A growth-anchor bound (rhs a window-geometry scalar) has window-correlated
+    // slack by construction, so the knob-restatement heuristic was retiring verified survivors (the
+    // durable 0.649 Cramér bound). When ON, a verified bound whose rhs ∈ WINDOW_GEOMETRY_SCALARS is
+    // held aside from the knob filter (still counterexample-checked) — like the composition exemption,
+    // gated on investigation-verified so spurious unverified window-correlated seeds are still dropped.
+    private boolean verifiedAnchorKnobExemptEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -95,6 +102,9 @@ public class ConjectureMinerProperties {
 
     public boolean isIncrementalReseedEnabled() { return incrementalReseedEnabled; }
     public void setIncrementalReseedEnabled(boolean v) { this.incrementalReseedEnabled = v; }
+
+    public boolean isVerifiedAnchorKnobExemptEnabled() { return verifiedAnchorKnobExemptEnabled; }
+    public void setVerifiedAnchorKnobExemptEnabled(boolean v) { this.verifiedAnchorKnobExemptEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }
