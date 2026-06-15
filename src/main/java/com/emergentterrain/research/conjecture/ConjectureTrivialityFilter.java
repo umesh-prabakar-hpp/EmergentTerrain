@@ -59,7 +59,10 @@ public final class ConjectureTrivialityFilter {
                     "sqrt_window_start", "log_sq_window_start",
                     // 2026-06-14 — the Wigert anchor exp(ln x/ln ln x) for max_divisor_count
                     // (room b72c4e10 §1 rec #1). Pure window geometry: RHS-valid, LHS-barred.
-                    "wigert_bound");
+                    "wigert_bound",
+                    // 2026-06-14 — the ln ln x anchor for mean_omega/mean_Omega (§1 rec #1 redux).
+                    // Same family as the two above: RHS-valid bounding term, LHS-barred geometry.
+                    "log_log_window_start");
 
     /** {@code |k|} at or below this counts as a degenerate constant bound (k=0). */
     public static final double K_EPSILON = 1e-9;

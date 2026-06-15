@@ -163,6 +163,29 @@ public final class MathInvariants {
                     double v = Math.exp(lc / llc);
                     return Double.isFinite(v) ? v : 0.0;
                 });
+        // 2026-06-14 (room b72c4e10 REVIEW_REPORT §1 rec #1 redux) — the ln ln x growth anchor for
+        // mean_omega / mean_Omega. By Hardy–Ramanujan/Erdős–Kac the average number of (distinct)
+        // prime factors over a window near x is ln ln x + B₁ (Mertens B₁ ≈ 0.2615 for ω; +B₂ for Ω),
+        // a SLOWLY GROWING quantity — so every flat-feature RHS (dirichlet_error, mean_divisor_excess
+        // →2γ, omega_ek_ratio→1.27, deficient_density≈0.75) makes k·rhs+c near-constant and is REFUTED
+        // by construction (P-b72c-77627595/-596/-598/-599, whose conclusions all name THIS anchor).
+        // The third member of the growth-anchor family — log_sq_window_start (ln²x, Cramér / max_prime_gap)
+        // and wigert_bound (exp(ln x/ln ln x), Wigert / max_divisor_count) being the others — so a bound
+        // mean_omega ≤ k·log_log_window_start + c can track the growth and hold, with B₁ recoverable as
+        // the intercept the way 2γ was. Natural log of the window CENTER (matching the family's
+        // convention, not the base-10 log_window_start). Pure window geometry → barred as an LHS in
+        // ConjectureTrivialityFilter.WINDOW_GEOMETRY_SCALARS, valid as RHS. Mirrored IDENTICALLY in the
+        // sidecar's math_invariants.jl (same guards) for offline-miner parity.
+        m.put("log_log_window_start",
+                r -> {
+                    double start = r.getOrDefault("_window_start", 0.0);
+                    double w = r.getOrDefault("_window_size", 0.0);
+                    double center = start + w / 2.0;
+                    if (center <= 1.0) return 0.0;      // need ln(center) > 0 for ln ln(center) to be real
+                    double lc = Math.log(center);
+                    double llc = Math.log(lc);
+                    return Double.isFinite(llc) ? llc : 0.0;
+                });
         return m;
     }
 

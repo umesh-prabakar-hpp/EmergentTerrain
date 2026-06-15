@@ -147,6 +147,46 @@ class MathInvariantsExtensionTest {
                 MathInvariants.extract(raw(), 1000, 500).get("wigert_bound")).isFinite();
     }
 
+    // ── 2026-06-14 — ln ln x growth anchor for mean_omega/mean_Omega (§1 rec #1 redux) ─
+
+    @Test
+    void logLogWindowStartIsLnLnCenterAndJoinsVocabulary() {
+        Map<String, Double> flat = MathInvariants.extract(raw(), 1000, 500);   // center = 1250
+        double expected = Math.log(Math.log(1250.0));
+        org.assertj.core.api.Assertions.assertThat(flat.get("log_log_window_start"))
+                .isCloseTo(expected, org.assertj.core.api.Assertions.within(1e-12));
+        org.assertj.core.api.Assertions.assertThat(MathInvariants.vocabulary())
+                .contains("log_log_window_start");
+    }
+
+    @Test
+    void logLogWindowStartTracksMeanOmegaGrowthSoAFlatFeatureCannotRefuteIt() {
+        // mean_omega ~ ln ln x + B₁ + 1/ln x, so the anchor and the LHS grow together — the property
+        // a flat feature lacks. The key invariant: mean_omega / anchor stays O(1) (≈constant) across
+        // x, so a k·anchor + c bound tracks and holds, where a flat-feature bound is refuted.
+        double atLow = MathInvariants.extract(raw(), 10_000, 1_000).get("log_log_window_start");
+        double atHigh = MathInvariants.extract(raw(), 320_000, 2_000).get("log_log_window_start");
+        org.assertj.core.api.Assertions.assertThat(atHigh).isGreaterThan(atLow);   // grows with x
+        // measured mean_omega (P-b72c-77627596/-598): ≈2.608 over [1e4,3e4); ≈2.84 @ 3.2e5.
+        double ratioLow = 2.608 / atLow;
+        double ratioHigh = 2.84 / atHigh;
+        org.assertj.core.api.Assertions.assertThat(ratioLow).isBetween(1.0, 1.4);
+        org.assertj.core.api.Assertions.assertThat(ratioHigh).isBetween(1.0, 1.4);
+        // the ratio is nearly flat across 1.5 orders of magnitude in x — the anchor tracks the growth.
+        org.assertj.core.api.Assertions.assertThat(Math.abs(ratioLow - ratioHigh)).isLessThan(0.15);
+    }
+
+    @Test
+    void logLogWindowStartDegradesToZeroNotNonFiniteOnDegenerateWindow() {
+        // center ≤ 1 ⇒ ln(center) ≤ 0 ⇒ ln ln undefined; must return 0.0, never NaN/-Infinity.
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 0, 0).get("log_log_window_start")).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(Map.of(), 1, 0).get("log_log_window_start")).isZero();
+        org.assertj.core.api.Assertions.assertThat(
+                MathInvariants.extract(raw(), 1000, 500).get("log_log_window_start")).isFinite();
+    }
+
     @Test
     void emptyAdmittedReproducesBaseVocabulary() {
         assertThat(MathInvariants.vocabulary(List.of())).isEqualTo(MathInvariants.vocabulary());

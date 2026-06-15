@@ -102,6 +102,18 @@ class ConjectureTrivialityFilterTest {
     }
 
     @Test
+    void logLogWindowStartIsAValidRhsAnchorButBarredAsLhs() {
+        // §1 rec #1 redux: mean_omega ≤ k·log_log_window_start + c (the ln ln x form) must NOT drop.
+        assertThat(ConjectureTrivialityFilter.isWindowGeometrySubject(
+                ineq("mean_omega", "log_log_window_start", 1.0, 0.0))).isFalse();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("mean_omega", "log_log_window_start", 1.0, 0.0))).isEmpty();
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                ineq("log_log_window_start", "mean_omega", 1.0, 0.0)))
+                .contains("window_geometry_lhs");
+    }
+
+    @Test
     void mertensBoundIsNotGeometryTautology() {
         // mertens_per_sqrt_W carries mertens_delta, so it is NOT geometry; the
         // flagship bound must stay out of this filter's scope.
