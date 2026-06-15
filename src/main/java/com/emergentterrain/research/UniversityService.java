@@ -382,6 +382,16 @@ public class UniversityService {
     private boolean bindingRegimeCoverageGateEnabled;
 
     /**
+     * review-2026-06-15e Rec 1 — when ON, exempt constant-convergence / oscillation papers (load-bearing
+     * frame is verify_constant / verify_oscillation) from {@code binding_regime_uncovered}. Those have
+     * no binding region by construction, so the gate was mis-firing on correct second-order recoveries
+     * (omega_Omega_gap → 0.77316, mean_divisor_excess → 2γ). OFF = prior behaviour.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.binding-regime-coverage-gate.constant-frame-exempt:false}")
+    private boolean bindingRegimeConstantFrameExemptEnabled;
+
+    /**
      * 2026-06-06 review rec #1 — hypothesis-LHS coverage gate. Sibling of the
      * binding-regime gate, covering the orthogonal hole: a conjecture paper
      * whose trace never invoked {@code verify_conjecture} with the hypothesis's
@@ -1184,9 +1194,16 @@ public class UniversityService {
         // binds; the SUPPORTED claim is unearned until it does. Deterministic
         // backstop to the panel-driven F7.3 gate, which can't see a probe that was
         // never run. Default flag-off; bit-identical to today when off.
+        // review-2026-06-15e Rec 1 — the gate assumes a BOUND; a constant-convergence / oscillation
+        // paper (verify_constant/verify_oscillation result, e.g. omega_Omega_gap → 0.77316,
+        // mean_divisor_excess → 2γ) legitimately has no binding region / no refutation, so the gate
+        // mis-fires and was downgrading correct second-order recoveries. Exempt that frame (flag-gated;
+        // OFF = prior behaviour).
         boolean bindingRegimeUncovered = bindingRegimeCoverageGateEnabled
                 && draft.resultClassification() == ResultClassification.SUPPORTED
-                && ScoreCalibration.isConfirmatoryOnlyConjecture(narration.toolCallTrace());
+                && ScoreCalibration.isConfirmatoryOnlyConjecture(narration.toolCallTrace())
+                && !(bindingRegimeConstantFrameExemptEnabled
+                        && ScoreCalibration.isConstantOrOscillationFramed(narration.toolCallTrace()));
         if (bindingRegimeUncovered) {
             log.warn("binding-regime-coverage check failed paperId={} "
                     + "(SUPPORTED conjecture with confirmatory-only verify_conjecture trace)",

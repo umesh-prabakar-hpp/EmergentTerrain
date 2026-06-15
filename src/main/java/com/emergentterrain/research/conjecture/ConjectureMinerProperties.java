@@ -65,6 +65,11 @@ public class ConjectureMinerProperties {
     // recency] — so distinct priority LHS rotate and live priority targets are reachable. See
     // ScalarOpenness + ConjectureMinerService.diversifiedNextN.
     private boolean opennessDiversityEnabled = false;
+    // 2026-06-15 — Rec 2: exempt oscillating open targets (dirichlet_error = Δ(x)/x^{1/4}) from the FIM
+    // slope_unpinned drop. Their affine slope is unpinned by nature (they swing ±), so FIM was retiring
+    // every seed, leaving the open Dirichlet target unreachable through the queue. ON keeps a seed live
+    // + servable; the professor pivots to verify_oscillation when it's served. See ScalarOpenness.
+    private boolean oscillatingTargetFimExemptEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -135,6 +140,9 @@ public class ConjectureMinerProperties {
 
     public boolean isOpennessDiversityEnabled() { return opennessDiversityEnabled; }
     public void setOpennessDiversityEnabled(boolean v) { this.opennessDiversityEnabled = v; }
+
+    public boolean isOscillatingTargetFimExemptEnabled() { return oscillatingTargetFimExemptEnabled; }
+    public void setOscillatingTargetFimExemptEnabled(boolean v) { this.oscillatingTargetFimExemptEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }

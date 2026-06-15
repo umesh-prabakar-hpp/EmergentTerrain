@@ -67,7 +67,23 @@ public final class ScalarOpenness {
             "twin_vs_prime_sq",       // Hardy–Littlewood → 2C₂
             "twin_prime_density");    // twin primes (Hardy–Littlewood)
 
+    /**
+     * Phase 30 (review-2026-06-15e Rec 2) — open targets that OSCILLATE around 0, so an affine bound on
+     * them has an unpinned slope BY NATURE (Δ(x)/x^{1/4} swings ±, no one-sided slope). The FIM
+     * identifiability filter ({@code slope_unpinned}) therefore retires ALL their affine seeds, leaving
+     * the LHS unreachable through the conjecture queue — so the open Dirichlet target never surfaces and
+     * the dirichlet_error scaling fix can't be tested. Exempting these from the FIM drop (the slope
+     * being unpinned is expected, not a flaw — same logic as growth anchors vs the knob filter) keeps a
+     * servable seed live; when served, the professor pivots to verify_oscillation (the right frame).
+     */
+    public static final Set<String> OSCILLATING_TARGETS = Set.of("dirichlet_error");
+
     private ScalarOpenness() {
+    }
+
+    /** True iff the scalar is an open oscillating target (FIM slope-unpinned is its nature). */
+    public static boolean isOscillatingTarget(String scalar) {
+        return scalar != null && OSCILLATING_TARGETS.contains(scalar);
     }
 
     /** True iff the scalar has a textbook leading-order law / known limit (the settled class). */

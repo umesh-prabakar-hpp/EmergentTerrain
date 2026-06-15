@@ -77,4 +77,12 @@ class ScalarOpennessTest {
         assertThat(ScalarOpenness.selectionRank("prime_density")).isEqualTo(1);
         assertThat(ScalarOpenness.selectionRank(null)).isEqualTo(1);
     }
+
+    @Test
+    void oscillatingTargetIsDirichletErrorOnly() {
+        assertThat(ScalarOpenness.isOscillatingTarget("dirichlet_error")).isTrue();
+        assertThat(ScalarOpenness.isOscillatingTarget("mertens_delta")).isFalse();   // open but not a priority/FIM-exempt target
+        assertThat(ScalarOpenness.isOscillatingTarget("max_prime_gap")).isFalse();
+        assertThat(ScalarOpenness.isOscillatingTarget(null)).isFalse();
+    }
 }

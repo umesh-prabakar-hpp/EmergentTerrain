@@ -111,6 +111,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean opennessPriorEnabled;
     private final boolean opennessSelectionEnabled;
     private final boolean opennessDiversityEnabled;
+    private final boolean oscillatingTargetFimExemptEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -310,6 +311,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.opennessPriorEnabled = props.isOpennessPriorEnabled();
         this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
         this.opennessDiversityEnabled = props.isOpennessDiversityEnabled();
+        this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -586,6 +588,15 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (identifiabilityEnabled) {
             List<Inequality> kept = new ArrayList<>(store.size());
             for (Inequality ineq : store) {
+                // review-2026-06-15e Rec 2 — an OSCILLATING open target (dirichlet_error = Δ(x)/x^{1/4})
+                // has an unpinned affine slope BY NATURE; FIM was retiring every one of its seeds,
+                // leaving the open Dirichlet target unreachable through the queue. Exempt it (flag-gated)
+                // so a seed stays live + servable; when served, the professor pivots to verify_oscillation
+                // (the right frame, with the c35f90e no-scale_rhs fix). OFF = prior behaviour.
+                if (oscillatingTargetFimExemptEnabled && ScalarOpenness.isOscillatingTarget(ineq.lhs)) {
+                    kept.add(ineq);
+                    continue;
+                }
                 ConjectureIdentifiabilityFilter.Result ir = ConjectureIdentifiabilityFilter.evaluate(
                         allSamples, ineq.lhs, ineq.rhs, ineq.k, identifiabilityMaxRelStdErr);
                 if (ir.flagged()) {

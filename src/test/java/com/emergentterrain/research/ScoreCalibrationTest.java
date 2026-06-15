@@ -295,4 +295,18 @@ class ScoreCalibrationTest {
         assertFalse(ScoreCalibration.secondOrderEngagementSkipped("conjecture/mean_omega", null));
         assertFalse(ScoreCalibration.secondOrderEngagementSkipped(null, List.of(other("x"))));
     }
+
+    // ---- isConstantOrOscillationFramed (review-2026-06-15e Rec 1) ----
+
+    @Test
+    void constantOrOscillationFramedDetectsTheMeasurementFrames() {
+        assertTrue(ScoreCalibration.isConstantOrOscillationFramed(List.of(other("verify_constant"))));
+        assertTrue(ScoreCalibration.isConstantOrOscillationFramed(List.of(other("verify_oscillation"))));
+        assertTrue(ScoreCalibration.isConstantOrOscillationFramed(
+                List.of(verify("{}", "REFUTED"), other("verify_constant"))));   // mixed → still framed
+        // a pure bound paper is NOT exempt
+        assertFalse(ScoreCalibration.isConstantOrOscillationFramed(List.of(verify("{}", "HELD"))));
+        assertFalse(ScoreCalibration.isConstantOrOscillationFramed(List.of(other("verify_growth"))));
+        assertFalse(ScoreCalibration.isConstantOrOscillationFramed(null));
+    }
 }

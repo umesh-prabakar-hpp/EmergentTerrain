@@ -93,6 +93,27 @@ public final class ScoreCalibration {
     }
 
     /**
+     * 2026-06-15 (review-2026-06-15e Rec 1) — a paper whose load-bearing frame is a MEASUREMENT
+     * (verify_constant / verify_oscillation), not a one-sided bound. Its result is a converged limit
+     * (e.g. omega_Omega_gap → 0.77316, mean_divisor_excess → 2γ) or a bounded envelope — which
+     * legitimately has NO binding region and NO refutation, so {@code binding_regime_uncovered} must
+     * not fire on it (that gate assumes a bound). True iff the trace contains any verify_constant or
+     * verify_oscillation call. Null-safe.
+     */
+    public static boolean isConstantOrOscillationFramed(List<ToolInvocation> trace) {
+        if (trace == null) {
+            return false;
+        }
+        for (ToolInvocation call : trace) {
+            if (call != null && ("verify_constant".equals(call.functionName())
+                    || "verify_oscillation".equals(call.functionName()))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * 2026-06-06 review rec #1 — hypothesis-LHS coverage. A conjecture paper
      * (topic {@code "conjecture/<lhs>"}) whose trace never invokes
      * {@code verify_conjecture} with that lhs never evaluated its own
