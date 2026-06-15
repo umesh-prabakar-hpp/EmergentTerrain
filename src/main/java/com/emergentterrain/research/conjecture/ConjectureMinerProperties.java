@@ -94,6 +94,11 @@ public class ConjectureMinerProperties {
     private double sublinearBudgetAlpha = 0.5;
     // Wave 5 — residual-structure discovery (30.2); reuses the W4 null params for its test.
     private boolean residualStructureEnabled = false;
+    // 2026-06-15 — Phase 30 G2 Stage 3. When ON (and residualStructure is on), a residual-discovered
+    // lhs ~ rhs + z relation is PROMOTED from a log line to a persisted two-term conjecture
+    // (lhs ≤ k1*rhs + k2*z + c, fit via tightestK1K2C) — generated second-order structure absent from
+    // either single-term parent. Requires the rhs2/k2 columns (G2 DDL). OFF = residual stays log-only.
+    private boolean twoTermEnabled = false;
     // Wave 5 — anomaly mining (30.1); reuses stochasticNullAlpha + multipleComparisonsMethod.
     private boolean anomalyMiningEnabled = false;
     private int anomalyMinConfirmed = 5;
@@ -188,6 +193,9 @@ public class ConjectureMinerProperties {
 
     public boolean isResidualStructureEnabled() { return residualStructureEnabled; }
     public void setResidualStructureEnabled(boolean v) { this.residualStructureEnabled = v; }
+
+    public boolean isTwoTermEnabled() { return twoTermEnabled; }
+    public void setTwoTermEnabled(boolean v) { this.twoTermEnabled = v; }
 
     public boolean isAnomalyMiningEnabled() { return anomalyMiningEnabled; }
     public void setAnomalyMiningEnabled(boolean v) { this.anomalyMiningEnabled = v; }

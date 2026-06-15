@@ -80,6 +80,35 @@ class TwoTermConjectureTest {
     }
 
     @Test
+    void fitTwoTerm_buildsAHoldingTwoTermBoundFromAResidualRelation() {
+        // samples where lhs = rhs + 2*z exactly → fitTwoTerm must return a two-term bound (rhs2=z) that
+        // holds every sample. This is the G2 Stage-3 promotion core.
+        List<Map<String, Double>> samples = new ArrayList<>();
+        double[][] rows = {{2, 1}, {3, 2}, {1, 1}, {4, 3}};   // {rhs, z}
+        for (double[] r : rows) {
+            Map<String, Double> s = new HashMap<>();
+            s.put("rhsA", r[0]);
+            s.put("zB", r[1]);
+            s.put("lhsX", r[0] + 2 * r[1]);   // lhs = rhs + 2*z
+            samples.add(s);
+        }
+        Inequality two = ConjectureMinerService.fitTwoTerm(samples, "lhsX", "rhsA", "zB");
+        assertThat(two).isNotNull();
+        assertThat(two.isTwoTerm()).isTrue();
+        assertThat(two.rhs2()).isEqualTo("zB");
+        for (Map<String, Double> s : samples) {
+            double bound = two.k() * s.get("rhsA") + two.k2() * s.get("zB") + two.c();
+            assertThat(s.get("lhsX")).isLessThanOrEqualTo(bound + 1e-9);
+        }
+    }
+
+    @Test
+    void fitTwoTerm_nullOnEmptySamples() {
+        assertThat(ConjectureMinerService.fitTwoTerm(List.of(), "a", "b", "z")).isNull();
+        assertThat(ConjectureMinerService.fitTwoTerm(null, "a", "b", "z")).isNull();
+    }
+
+    @Test
     void descriptorKeyDistinguishesTwoTermFromOneTerm() {
         Inequality one = new Inequality("max_divisor_count", "mean_divisor_excess", 2.0, 5.0);
         Inequality two = new Inequality("max_divisor_count", "mean_divisor_excess", 2.0, 5.0);

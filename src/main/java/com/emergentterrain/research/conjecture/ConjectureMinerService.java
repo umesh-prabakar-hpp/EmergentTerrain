@@ -207,6 +207,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final double sublinearBudgetAlpha;
     // Phase 30 Wave 5 — residual-structure discovery (30.2); observability hook, no persistence yet.
     private final boolean residualStructureEnabled;
+    private final boolean twoTermEnabled;
     /** Cap on how many live bounds residual-structure discovery probes per pass (cost bound). */
     private static final int RESIDUAL_PROBE_CAP = 25;
     // Phase 30 Wave 5 — anomaly mining (30.1); observability hook, no persistence yet.
@@ -337,6 +338,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.sublinearBudgetEnabled = props.isSublinearBudgetEnabled();
         this.sublinearBudgetAlpha = props.getSublinearBudgetAlpha();
         this.residualStructureEnabled = props.isResidualStructureEnabled();
+        this.twoTermEnabled = props.isTwoTermEnabled();
         this.anomalyMiningEnabled = props.isAnomalyMiningEnabled();
         this.anomalyMinConfirmed = props.getAnomalyMinConfirmed();
         this.anomalyPromotionEnabled = props.isAnomalyPromotionEnabled();
@@ -551,6 +553,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (dimensionFilterEnabled) {
             List<Inequality> kept = new ArrayList<>(store.size());
             for (Inequality ineq : store) {
+                if (ineq.isTwoTerm()) { kept.add(ineq); continue; }   // G2 — one-rhs filter doesn't apply
                 java.util.Optional<String> r = ConjectureDimensionFilter.dropReason(ineq);
                 if (r.isPresent()) {
                     persistRetired(List.of(ineq), byKey, "dimension:" + r.get());
@@ -569,6 +572,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (unitConsistencyEnabled) {
             List<Inequality> kept = new ArrayList<>(store.size());
             for (Inequality ineq : store) {
+                if (ineq.isTwoTerm()) { kept.add(ineq); continue; }   // G2 — one-rhs filter doesn't apply
                 java.util.Optional<String> r = ConjectureUnitConsistencyFilter.dropReason(ineq);
                 if (r.isPresent()) {
                     persistRetired(List.of(ineq), byKey, "unit:" + r.get());
@@ -588,6 +592,9 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (identifiabilityEnabled) {
             List<Inequality> kept = new ArrayList<>(store.size());
             for (Inequality ineq : store) {
+                // G2 — the FIM slope check is one-rhs; a two-term bound's slope is jointly determined,
+                // and it already passed the residual-null gate. Exempt it.
+                if (ineq.isTwoTerm()) { kept.add(ineq); continue; }
                 // review-2026-06-15e Rec 2 — an OSCILLATING open target (dirichlet_error = Δ(x)/x^{1/4})
                 // has an unpinned affine slope BY NATURE; FIM was retiring every one of its seeds,
                 // leaving the open Dirichlet target unreachable through the queue. Exempt it (flag-gated)
@@ -756,7 +763,17 @@ public class ConjectureMinerService implements ConjectureQueue {
             List<String> vocab = MathInvariants.vocabulary();
             int probed = 0;
             int discovered = 0;
+            int promoted = 0;
+            // G2 Stage 3 — existing two-term (lhs|rhs|rhs2) keys, so a re-discovered residual relation
+            // is not re-persisted every pass.
+            java.util.Set<String> existingTwoTermKeys = new java.util.HashSet<>();
+            for (Conjecture e : existing) {
+                if (e.rhs2() != null) {
+                    existingTwoTermKeys.add(e.lhs() + "|" + e.rhs() + "|" + e.rhs2());
+                }
+            }
             List<Inequality> ranked = store.stream()
+                    .filter(i -> !i.isTwoTerm())   // probe residuals of one-term bounds only
                     .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
                     .limit(RESIDUAL_PROBE_CAP)
                     .toList();
@@ -772,10 +789,23 @@ public class ConjectureMinerService implements ConjectureQueue {
                     log.info("residual-structure candidate — {} <= k*{} leaves residual explained by {} "
                             + "(|rho|={}, p={})", ineq.lhs, ineq.rhs, c.explainer(),
                             String.format("%.3f", c.residualAbsRho()), String.format("%.4f", c.pValue()));
+                    // G2 Stage 3 — PROMOTE: fit (k1,k2,c) and persist a two-term conjecture (flag-gated).
+                    // A relation absent from either single-term parent; the next pass loads + verifies it.
+                    if (twoTermEnabled) {
+                        String key3 = ineq.lhs + "|" + ineq.rhs + "|" + c.explainer();
+                        Inequality two = fitTwoTerm(allSamples, ineq.lhs, ineq.rhs, c.explainer());
+                        if (two != null && existingTwoTermKeys.add(key3)) {
+                            repo.save(mapper.toEntity(two, DOMAIN));
+                            promoted++;
+                            log.info("residual-structure PROMOTED two-term conjecture — {} <= {}*{} + "
+                                            + "{}*{} + {}", two.lhs(), trimD(two.k()), two.rhs(),
+                                    trimD(two.k2()), two.rhs2(), trimD(two.c()));
+                        }
+                    }
                 }
             }
-            log.info("residual-structure discovery — probed {} bound(s), {} with residual structure beating the null",
-                    probed, discovered);
+            log.info("residual-structure discovery — probed {} bound(s), {} with residual structure "
+                    + "beating the null, {} promoted (two-term)", probed, discovered, promoted);
         }
 
         // Phase 30 Wave 5 — anomaly mining (30.1, flag-gated OFF). Surface counterexample-refuted
@@ -1456,6 +1486,35 @@ public class ConjectureMinerService implements ConjectureQueue {
 
     private static String keyOf(String lhs, String rhs) {
         return lhs + "|" + rhs;
+    }
+
+    /** One named scalar's series across the samples (missing → 0.0). */
+    private static double[] column(List<Map<String, Double>> samples, String name) {
+        double[] a = new double[samples.size()];
+        for (int i = 0; i < samples.size(); i++) {
+            a[i] = samples.get(i).getOrDefault(name, 0.0);
+        }
+        return a;
+    }
+
+    /**
+     * Phase 30 G2 Stage 3 — fit a residual-discovered two-term relation {@code lhs ~ rhs + z} into a
+     * concrete bound {@code lhs ≤ k1*rhs + k2*z + c} via {@link ConjectureEngine#tightestK1K2C} over the
+     * samples. Returns the two-term {@link Inequality}, or null if the fit is unavailable (empty/ragged
+     * samples). Pure + package-private for unit testing.
+     */
+    static Inequality fitTwoTerm(List<Map<String, Double>> samples, String lhs, String rhs, String z) {
+        if (samples == null || samples.isEmpty()) {
+            return null;
+        }
+        double[] fit = ConjectureEngine.tightestK1K2C(
+                column(samples, lhs), column(samples, rhs), column(samples, z));
+        if (fit == null) {
+            return null;
+        }
+        Inequality two = new Inequality(lhs, rhs, fit[0], fit[2]);
+        two.setSecondTerm(z, fit[1]);
+        return two;
     }
 
     /**
