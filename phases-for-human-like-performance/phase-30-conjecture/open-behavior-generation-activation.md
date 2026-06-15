@@ -112,7 +112,9 @@ until Stage 4:
   TwoTermConjectureTest (6). **DDL (run manually; ddl-auto=update also adds these):**
   `ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS rhs2 VARCHAR;`
   `ALTER TABLE conjectures ADD COLUMN IF NOT EXISTS k2 DOUBLE PRECISION NOT NULL DEFAULT 0;`
-- **Stage 2** — `ConjectureVerifier.verify` two-term overload + `verify_conjecture` optional rhs2/k2 args.
+- **Stage 2 (DONE, ET 40eab33; DDL run)** — `ConjectureVerifier.verify(lhs,rhs,k,rhs2,k2,c,…)` overload
+  (Java-side per-window; sidecar batched path skipped — it doesn't know rhs2) + `verify_conjecture`
+  optional rhs2/k2 args routing to it + tool schema. One-term path untouched. Tests: ConjectureVerifierTest +1.
 - **Stage 3** — wire `ResidualStructureMiner` promotion: after a confirmed one-term bound, fit (k1,k2,c)
   via tightestK1K2C on the discovered `z` and persist a two-term conjecture (flag `twoTermEnabled`).
 - **Stage 4** — serve two-term conjectures as topics; flip the flag ON. Acceptance: a two-term paper
