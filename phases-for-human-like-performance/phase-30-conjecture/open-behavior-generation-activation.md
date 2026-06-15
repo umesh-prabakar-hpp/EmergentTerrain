@@ -151,14 +151,20 @@ fallback) persists across passes and appears in a published conjecture; vocabula
 
 ## G4 — QD-archive + anomaly selection (keep novelty)
 
-**Status: PARTIAL — selection prior SHIPPED 2026-06-15 (flag-gated, ON in yaml).** After G1 cleaned the
-pool, the bottleneck moved to SELECTION: open/growing-LHS topics (max_prime_gap, dirichlet_error,
-omega_Omega_gap) surfaced only by luck (0 picks two runs, 3 the next). `ScalarOpenness.PRIORITY_TARGETS`
-+ `selectionRank` (pure, tested) + a flag-gated prior in `ConjectureMinerService.nextN` (both tiers; the
-existing rotation/clade order is the within-bucket tiebreak) now promote the actively-progressing
-open/second-order/growth-capture targets to the front and down-weight the over-measured Mertens
-envelope. Flag `opennessSelectionEnabled`. REMAINING for full G4: wire `QualityDiversityArchive` into
-retention (novelty-cell binning) + promote `AnomalyMiner` (log-only) candidates to investigation topics.
+**Status: SELECTION PRIOR + DIVERSITY SHIPPED 2026-06-15 (flag-gated, ON in yaml).** After G1 cleaned
+the pool, the bottleneck moved to SELECTION. Two parts, both shipped:
+- **Bucket prior (`opennessSelectionEnabled`).** `ScalarOpenness.PRIORITY_TARGETS` + `selectionRank`
+  promote the actively-progressing open/second-order/growth-capture targets to the front of both tiers;
+  down-weights the over-measured Mertens envelope. *Live result (review-d): promoted the bucket but
+  over-concentrated on the most-seeded family (max_prime_gap monoculture) and still couldn't reach
+  dirichlet_error (a LIVE tier-2-only target, behind the always-first retired tier).*
+- **Within-bucket diversity (`opennessDiversityEnabled`, `diversifiedNextN`, tested).** Replaces the
+  tier-1-before-tier-2 order with a single merged-pool order: [openness rank, **least-recently-
+  investigated LHS family**, retired-first, recency]. Distinct priority LHS rotate across consecutive
+  papers (no single-family monoculture) and live priority targets (dirichlet_error) become reachable.
+
+REMAINING for full G4: wire `QualityDiversityArchive` into retention (novelty-cell binning) + promote
+`AnomalyMiner` (log-only) candidates to investigation topics.
 
 **Goal:** stop the corpus collapsing to one family; retain diverse open-behavior elites; treat
 regime-failures as findings.

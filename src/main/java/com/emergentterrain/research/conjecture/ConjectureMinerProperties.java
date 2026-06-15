@@ -57,6 +57,14 @@ public class ConjectureMinerProperties {
     // growing-LHS / open topics only by luck. Down-weights the over-measured Mertens envelope (not a
     // priority target). See ScalarOpenness.selectionRank.
     private boolean opennessSelectionEnabled = false;
+    // 2026-06-15 — Phase 30 G4 within-bucket diversity (open-behavior-generation-activation.md). The
+    // bucket-level prior (opennessSelectionEnabled) promoted priority targets but over-concentrated on
+    // the most-seeded family (max_prime_gap monoculture) and couldn't reach LIVE-only targets like
+    // dirichlet_error (tier-1 retired always served before tier-2 live). When ON, nextN orders the
+    // merged servable pool by [openness rank, least-recently-investigated LHS family, retired-first,
+    // recency] — so distinct priority LHS rotate and live priority targets are reachable. See
+    // ScalarOpenness + ConjectureMinerService.diversifiedNextN.
+    private boolean opennessDiversityEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -124,6 +132,9 @@ public class ConjectureMinerProperties {
 
     public boolean isOpennessSelectionEnabled() { return opennessSelectionEnabled; }
     public void setOpennessSelectionEnabled(boolean v) { this.opennessSelectionEnabled = v; }
+
+    public boolean isOpennessDiversityEnabled() { return opennessDiversityEnabled; }
+    public void setOpennessDiversityEnabled(boolean v) { this.opennessDiversityEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }

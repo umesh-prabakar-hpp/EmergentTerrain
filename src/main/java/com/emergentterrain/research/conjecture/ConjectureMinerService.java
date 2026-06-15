@@ -110,6 +110,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean verifiedAnchorKnobExemptEnabled;
     private final boolean opennessPriorEnabled;
     private final boolean opennessSelectionEnabled;
+    private final boolean opennessDiversityEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -308,6 +309,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.verifiedAnchorKnobExemptEnabled = props.isVerifiedAnchorKnobExemptEnabled();
         this.opennessPriorEnabled = props.isOpennessPriorEnabled();
         this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
+        this.opennessDiversityEnabled = props.isOpennessDiversityEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -1103,6 +1105,13 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (all.isEmpty()) {
             return List.of();
         }
+        // Phase 30 G4 within-bucket diversity — when on, replace the tier-1-before-tier-2 order with a
+        // family-rotating, openness-ranked order over the merged servable pool: distinct priority LHS
+        // rotate (no single-family monoculture) and LIVE priority targets with no retired seed (e.g.
+        // dirichlet_error) become reachable. No-op when off (legacy tier order below).
+        if (opennessDiversityEnabled) {
+            return diversifiedNextN(all, n);
+        }
         List<Conjecture> out = new ArrayList<>(Math.min(n, all.size()));
 
         // Tier 1: retired by counterexample. Legacy order = most-recently-refuted
@@ -1157,6 +1166,47 @@ public class ConjectureMinerService implements ConjectureQueue {
     private static long timestampOf(Conjecture c) {
         Instant t = c.updatedAt() != null ? c.updatedAt() : c.createdAt();
         return t == null ? 0 : t.toEpochMilli();
+    }
+
+    /**
+     * Phase 30 G4 within-bucket diversity (open-behavior-generation-activation.md). Orders the merged
+     * servable pool (retired-by-counterexample OR live; other drop-reasons excluded, same as the legacy
+     * tiers) by, in priority:
+     * <ol>
+     *   <li>{@link ScalarOpenness#selectionRank} — priority targets first;</li>
+     *   <li><b>least-recently-investigated LHS FAMILY</b> (the family's most-recent investigation time,
+     *       ascending) — so after a family is served it sinks and a DIFFERENT priority LHS surfaces on
+     *       the next call: family rotation, the fix for the single-family monoculture;</li>
+     *   <li>retired-by-counterexample before live (the flat seed establishes the binding region for the
+     *       capture loop; a live-only family like dirichlet_error is reachable here, unlike the legacy
+     *       tier-1-before-tier-2 order);</li>
+     *   <li>most-recently-refuted / updated, as a stable final tiebreak.</li>
+     * </ol>
+     * Package-private + static for unit testing. {@code all} is the triviality-filtered pool.
+     */
+    static List<Conjecture> diversifiedNextN(List<Conjecture> all, int n) {
+        if (n <= 0 || all == null || all.isEmpty()) {
+            return List.of();
+        }
+        List<Conjecture> servable = all.stream()
+                .filter(c -> c.droppedByKnob() == null
+                        || DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
+                .collect(java.util.stream.Collectors.toList());
+        if (servable.isEmpty()) {
+            return List.of();
+        }
+        // family (lhs) → most-recent investigation across the family; a just-served family sinks.
+        Map<String, Long> familyTouched = new HashMap<>();
+        for (Conjecture c : servable) {
+            familyTouched.merge(c.lhs(), investigatedAtOf(c), Math::max);
+        }
+        Comparator<Conjecture> order = Comparator
+                .<Conjecture>comparingInt(c -> ScalarOpenness.selectionRank(c.lhs()))
+                .thenComparingLong(c -> familyTouched.getOrDefault(c.lhs(), Long.MIN_VALUE))
+                .thenComparingInt(c -> c.droppedByKnob() == null ? 1 : 0)
+                .thenComparing((a, b) -> Long.compare(timestampOf(b), timestampOf(a)));
+        return servable.stream().sorted(order).limit(n)
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /** Epoch-ms of last investigation; {@link Long#MIN_VALUE} = never (sorts first under rotation). */
