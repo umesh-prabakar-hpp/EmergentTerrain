@@ -29,8 +29,10 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class ConjectureVerifier {
 
-    /** Maximum integer the sidecar's sieve covers (NT_MAX_N). Held-out windows further out are rejected. */
-    public static final int MAX_N = 2_000_000;
+    /** Maximum integer the sidecar's sieve covers (NT_MAX_N). Held-out windows further out are rejected.
+     *  2026-06-16 (object-substrate-expansion.md) — bumped 2e6 → 2e7 in LOCKSTEP with the sidecar's
+     *  NT_MAX_N (numbertheory.jl). Both must move together or windows in (2e6, 2e7] throw sidecar-side. */
+    public static final int MAX_N = 20_000_000;
     /** Default number of disjoint windows evaluated per call. */
     public static final int DEFAULT_NUM_WINDOWS = 5;
     /** Cap on total integers scanned per verify call (numWindows × windowSize). */
@@ -52,7 +54,7 @@ public class ConjectureVerifier {
      */
     @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxWork:100000}")
     private int maxWorkCfg = MAX_WORK;
-    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxN:2000000}")
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxN:20000000}")
     private int maxNCfg = MAX_N;
 
     /** Effective per-call work cap (numWindows × windowSize), config-driven. */

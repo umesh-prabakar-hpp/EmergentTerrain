@@ -48,7 +48,14 @@ public final class MathInvariants {
             // divisor error Δ(x)/x^{1/4} (oscillates, bounded iff the Dirichlet conjecture holds —
             // verify_oscillation). Both require a sidecar restart to register.
             "omega_ek_ratio",
-            "dirichlet_error"
+            "dirichlet_error",
+            // 2026-06-16 object-substrate-expansion.md Stage 1 — per-integer object densities computed in
+            // the sidecar sieve (numbertheory.jl nt_evaluate_window) and passed through here, so Java/Julia
+            // agree by construction. squarefree (Ω==ω → 6/π², validation); richly-divisible (d>ω²) and
+            // omega-excess (Ω−ω≥2) are uncharted natural densities. Require a sidecar restart to register.
+            "squarefree_density",
+            "richly_divisible_density",
+            "omega_excess_density"
     );
 
     public static final Map<String, Function<Map<String, Double>, Double>> DERIVED = derivedMap();
