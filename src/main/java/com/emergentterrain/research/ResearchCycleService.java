@@ -41,6 +41,17 @@ public class ResearchCycleService {
     private static final int TOURNAMENT_K        = 3;
 
     /**
+     * Phase 30 (measurement-frame-default.md, tag claim-type-shift) — when on, an object with a
+     * registered intrinsic asymptotic ({@link com.emergentterrain.research.conjecture.ScalarOpenness#MEASUREMENT_FRAMES})
+     * is framed as a MEASUREMENT (verify_constant/oscillation/growth — the claim that scored &gt;0.4 this
+     * session) rather than the default affine-bound proxy-wrapper (~0.22). OFF in code / ON in yaml; the
+     * affine-bound framing is bit-identical when off.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.measurement-frame-default.enabled:false}")
+    private boolean measurementFrameDefault;
+
+    /**
      * Surface UniversityService exposes to the cycle. Lets the cycle call back into
      * the orchestrator without taking it as a constructor dependency.
      */
@@ -695,7 +706,7 @@ public class ResearchCycleService {
         FrontierDomain frontier = (conjectureFrontierFramingEnabled && conjecture.rhs2() == null)
                 ? frontierDomainFor(conjecture.lhs(), conjecture.rhs()) : null;
         String hypothesis = frontier == null
-                ? synthesizeConjectureHypothesis(conjecture)
+                ? synthesizeConjectureHypothesis(conjecture, measurementFrameDefault)
                 : synthesizeFrontierHypothesis(conjecture, frontier);
         String findings = frontier == null
                 ? synthesizeConjectureFindings(conjecture)
@@ -859,7 +870,18 @@ public class ResearchCycleService {
     }
 
     static String synthesizeConjectureHypothesis(
-            com.emergentterrain.research.conjecture.Conjecture c) {
+            com.emergentterrain.research.conjecture.Conjecture c, boolean measurementFrameDefault) {
+        // measurement-frame-default.md Stage 1 — for an object with a registered intrinsic asymptotic,
+        // frame the investigation as the MEASUREMENT (the >0.4-novelty claim), not the default affine
+        // bound (a ~0.22 proxy-wrapper). Frame-only: the seeded bound is unchanged, but the professor is
+        // told the load-bearing claim is the limit/envelope/growth law, measured via the right tool.
+        if (measurementFrameDefault) {
+            com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec spec =
+                    com.emergentterrain.research.conjecture.ScalarOpenness.measurementFrame(c.lhs());
+            if (spec != null) {
+                return measurementHypothesis(c.lhs(), spec);
+            }
+        }
         String twoTermNote = c.rhs2() == null ? "" :
                 " This is a TWO-TERM bound (a residual-discovered composite of two scalars); verify it "
                 + "with verify_conjecture passing the second term via rhs2 and k2.";
@@ -877,6 +899,41 @@ public class ResearchCycleService {
                         "with %d confirmed runs. This paper investigates whether the bound holds on " +
                         "held-out windows the miner did not sample.%s%s",
                 c.lhs(), formatBoundBody(c), c.confirmedRuns(), twoTermNote, captureNote);
+    }
+
+    /**
+     * measurement-frame-default.md Stage 1 — the measurement hypothesis for a registry object. The
+     * load-bearing claim is the object's INTRINSIC asymptotic (a limit, an O(1) envelope, or a growth
+     * law), measured with the right tool — NOT an affine bound relating it to other scalars (which the
+     * panel rates as a representation-dependent proxy-wrapper). For an OPEN object that measurement is a
+     * genuine sieve-capped result against an open problem.
+     */
+    static String measurementHypothesis(
+            String lhs, com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec spec) {
+        String target = spec.target() == null ? "" : String.format(" (conjectured limit ≈ %s)", spec.target());
+        return switch (spec.frame()) {
+            case CONSTANT -> String.format(
+                    "This paper measures the intrinsic limit of `%s`: whether it CONVERGES to a constant%s "
+                    + "as x grows, using verify_constant on held-out windows. The convergence (its rate, "
+                    + "and whether it is settled at reachable x) is the load-bearing claim — NOT an affine "
+                    + "bound relating %s to other scalars, which is a representation-dependent proxy. Report "
+                    + "the measured limit and per-window spread honestly.",
+                    lhs, target, lhs);
+            case OSCILLATION -> String.format(
+                    "This paper measures whether `%s` OSCILLATES within a bounded O(1) envelope at reachable "
+                    + "x — it is already normalised, so use verify_oscillation with NO scale_rhs. The "
+                    + "envelope (amplitude, mean, sign-changes) is the load-bearing claim against the open "
+                    + "boundedness question — NOT an affine bound. Report whether it is centred near 0 or "
+                    + "biased one sign at the tested scale.",
+                    lhs);
+            case GROWTH -> String.format(
+                    "This paper measures the GROWTH LAW of `%s`: whether it tracks the %s scale (its natural "
+                    + "growth anchor), using verify_growth or an affine bound anchored on %s. The growth "
+                    + "constant/exponent is the load-bearing claim — a flat-feature bound is refuted by "
+                    + "construction. Report the measured growth constant and how close it is to its "
+                    + "asymptotic value at reachable x.",
+                    lhs, spec.growthScale(), spec.growthScale());
+        };
     }
 
     private static String synthesizeConjectureFindings(

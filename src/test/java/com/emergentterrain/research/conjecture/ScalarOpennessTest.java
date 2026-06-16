@@ -85,4 +85,22 @@ class ScalarOpennessTest {
         assertThat(ScalarOpenness.isOscillatingTarget("max_prime_gap")).isFalse();
         assertThat(ScalarOpenness.isOscillatingTarget(null)).isFalse();
     }
+
+    // measurement-frame-default.md Stage 1 — the measurement registry.
+
+    @Test
+    void measurementFrameRegistry() {
+        assertThat(ScalarOpenness.measurementFrame("dirichlet_error").frame())
+                .isEqualTo(ScalarOpenness.MeasurementFrame.OSCILLATION);
+        var omega = ScalarOpenness.measurementFrame("omega_Omega_gap");
+        assertThat(omega.frame()).isEqualTo(ScalarOpenness.MeasurementFrame.CONSTANT);
+        assertThat(omega.target()).isEqualTo(0.77316);
+        var maxdiv = ScalarOpenness.measurementFrame("max_divisor_count");
+        assertThat(maxdiv.frame()).isEqualTo(ScalarOpenness.MeasurementFrame.GROWTH);
+        assertThat(maxdiv.growthScale()).isEqualTo("wigert_bound");
+        // a settled density and a representation-dependent new density: no measurement frame.
+        assertThat(ScalarOpenness.measurementFrame("abundant_density")).isNull();
+        assertThat(ScalarOpenness.measurementFrame("richly_divisible_density")).isNull();
+        assertThat(ScalarOpenness.measurementFrame(null)).isNull();
+    }
 }

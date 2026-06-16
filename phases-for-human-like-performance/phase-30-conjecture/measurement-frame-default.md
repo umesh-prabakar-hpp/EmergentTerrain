@@ -38,7 +38,12 @@ interesting behaviour is a limit/envelope.
 
 ## The lever — measurement-frame as default
 
-### Stage 1 (minimal, testable) — a measurement registry + framing default
+### Stage 1 — SHIPPED 2026-06-16 — a measurement registry + framing default
+
+Built: `ScalarOpenness.MEASUREMENT_FRAMES` (the registry below) + `ResearchCycleService
+.synthesizeConjectureHypothesis` reframes a registry object as the measurement when
+`app.research.measurement-frame-default.enabled` (OFF code / ON yaml). Frame-only; seeding unchanged.
+Tests: ScalarOpennessTest +1, TwoTermFramingTest +4. Acceptance is the next run (below).
 
 1. **Registry** in `ScalarOpenness`: `MEASUREMENT_FRAME: Map<String, Frame>` where `Frame ∈
    {CONSTANT(target?), OSCILLATION, GROWTH(scale,target)}`. Seed it from what's already known:

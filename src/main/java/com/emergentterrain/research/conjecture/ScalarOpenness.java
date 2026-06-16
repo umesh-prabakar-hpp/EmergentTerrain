@@ -1,5 +1,6 @@
 package com.emergentterrain.research.conjecture;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -85,6 +86,41 @@ public final class ScalarOpenness {
      * servable seed live; when served, the professor pivots to verify_oscillation (the right frame).
      */
     public static final Set<String> OSCILLATING_TARGETS = Set.of("dirichlet_error");
+
+    /**
+     * Phase 30 (measurement-frame-default.md) — the CLAIM-TYPE lever (tag {@code claim-type-shift}).
+     * Objects with a genuine intrinsic asymptotic get a MEASUREMENT frame — the
+     * {@code verify_constant}/{@code verify_oscillation}/{@code verify_growth} claim that scored &gt;0.4
+     * this session (dirichlet_error O(1) envelope 0.41; omega_Omega_gap → Σ1/p(p−1) 0.53) — instead of
+     * the default affine bound {@code lhs ≤ k·rhs + c}, which is a proxy-wrapper that pins novelty at
+     * ~0.22 whatever the object. When the framing flag is on, {@code ResearchCycleService} frames a
+     * registry object's investigation as the measurement, not a bound.
+     */
+    public enum MeasurementFrame { CONSTANT, OSCILLATION, GROWTH }
+
+    /**
+     * A measurement frame for an object: the kind of claim, the rhs growth-anchor ({@code GROWTH} only,
+     * else null), and the established target limit/constant if known (else null → the professor measures
+     * it). Targets are only the ones the directive already states with confidence; growth constants are
+     * left null so the framing never asserts an unverified value.
+     */
+    public record MeasurementSpec(MeasurementFrame frame, String growthScale, Double target) {}
+
+    public static final Map<String, MeasurementSpec> MEASUREMENT_FRAMES = Map.ofEntries(
+            Map.entry("dirichlet_error",     new MeasurementSpec(MeasurementFrame.OSCILLATION, null, null)),
+            Map.entry("omega_Omega_gap",     new MeasurementSpec(MeasurementFrame.CONSTANT, null, 0.77316)),
+            Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443)), // 2γ
+            Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0)),
+            Map.entry("max_divisor_count",   new MeasurementSpec(MeasurementFrame.GROWTH, "wigert_bound", null)),
+            Map.entry("max_prime_gap",       new MeasurementSpec(MeasurementFrame.GROWTH, "log_sq_window_start", null)),
+            Map.entry("mean_omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null)),
+            Map.entry("mean_Omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null)),
+            Map.entry("mean_divisor_count",  new MeasurementSpec(MeasurementFrame.GROWTH, "log_window_start", null)));
+
+    /** The measurement frame for {@code lhs}, or null if it has no registered intrinsic asymptotic. */
+    public static MeasurementSpec measurementFrame(String lhs) {
+        return lhs == null ? null : MEASUREMENT_FRAMES.get(lhs);
+    }
 
     private ScalarOpenness() {
     }
