@@ -76,6 +76,20 @@ class DiversifiedSelectionTest {
     }
 
     @Test
+    void prefersTwoTermRowWithinAFamily_overRetiredOneTermSeeds() {
+        // review-g Rec 2: within the same (least-recently-investigated) family, a LIVE two-term row must
+        // be served BEFORE retired one-term seeds — otherwise the generated composite never surfaces.
+        Conjecture retiredOneTerm = retired("max_prime_gap", "prime_density", null);
+        Conjecture twoTerm = live("max_prime_gap", "log_sq_window_start");
+        twoTerm.setRhs2("cramer_gap_ratio");
+        twoTerm.setK2(2.0);
+        // pool order deliberately puts the retired seed first to prove it's the comparator, not input order
+        List<Conjecture> pool = new ArrayList<>(List.of(retiredOneTerm, twoTerm));
+        Conjecture first = ConjectureMinerService.diversifiedNextN(pool, 1).get(0);
+        assertThat(first.rhs2()).isEqualTo("cramer_gap_ratio");   // the two-term row won
+    }
+
+    @Test
     void excludesNonServableDropReasonsAndEmptyIsSafe() {
         Conjecture knobDropped = new Conjecture("math", "max_prime_gap", "rhs", 2.0, 0.0);
         knobDropped.setDroppedByKnob("window_size");   // not counterexample, not live → excluded

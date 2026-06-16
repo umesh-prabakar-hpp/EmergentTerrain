@@ -1244,6 +1244,11 @@ public class ConjectureMinerService implements ConjectureQueue {
         Comparator<Conjecture> order = Comparator
                 .<Conjecture>comparingInt(c -> ScalarOpenness.selectionRank(c.lhs()))
                 .thenComparingLong(c -> familyTouched.getOrDefault(c.lhs(), Long.MIN_VALUE))
+                // G2 Stage 4 (review-g Rec 2) — within a rotated family, PREFER a two-term row (rhs2 set):
+                // generated composite structure should be investigated before re-refuting flat one-term
+                // seeds. Without this the LIVE two-term rows sat behind big retired one-term piles
+                // (max_prime_gap 19 retired) and never surfaced. Dormant when no two-term rows exist.
+                .thenComparingInt(c -> c.rhs2() != null ? 0 : 1)
                 .thenComparingInt(c -> c.droppedByKnob() == null ? 1 : 0)
                 .thenComparing((a, b) -> Long.compare(timestampOf(b), timestampOf(a)));
         return servable.stream().sorted(order).limit(n)
