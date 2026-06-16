@@ -197,6 +197,24 @@ More accurate MDL, not an arbitrary threshold drop. Threaded `MdlGate.Params.typ
   scalar) → the honest conclusion is the corpus lacks novel structure, and the lever returns to
   open-object *generation* (G4), not the gate.
 
+### RESULT (run 4, with observability) — vocab-expansion is a principled dead-end; pivot to G4
+
+The decisive log line: `typeAwareCost=true; closest below-cost: 5.27 bits short (log(dirichlet_error));
+histogram {fails_null=32, explained_by_existing=20, below_description_cost=8}`. Stage C is bound and
+active, and the *best* candidate (the open object's log) misses admission by 5.27 bits even under the
+corrected cost — it compresses only ~1.4 bits beyond existing vocab (~80% short). Depth-2 costs more
+bits, so it won't cross a gap this large. **The MDL gate is now demonstrably correct and honestly
+returns 0: no depth-1 composition over the 25 scalars is worth a new vocabulary entry on this settled
+corpus.** Stages A→B→C have closed the vocab-expansion lever. Do not tune it further.
+
+**The novelty lever is upstream — G4 (open-object generation), per Part 1 Layer 2:**
+1. Wire `QualityDiversityArchive` into selection + retention (today referenced only by the triviality
+   filter) — make novelty/openness an explicit reward axis.
+2. Promote `AnomalyMiner` candidates to investigation topics — `anomalyPromotionEnabled` is ON but
+   starved (the post-W4 pool rarely reaccumulates the ≥5-confirmed-then-broke anomalies it needs).
+3. The substrate truth: you cannot manufacture novelty by recombining settled scalars. The corpus needs
+   genuinely novel *objects/anomalies*, not new derived scalars from settled ones.
+
 ### What success looks like (and what it does not)
 
 End state: vocab-expansion admits a small number of MDL-justified, hand-legible derived scalars on

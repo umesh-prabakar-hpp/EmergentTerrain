@@ -2210,6 +2210,18 @@ public class MathToolSuite {
                     .orElse(0.0);
             sb.append(String.format(
                     " relative slack: %.4f (|margin|/|bound|, smaller = tighter).", relSlack));
+            // 2026-06-16 (REVIEW_REPORT b72c4e10 rec #1 follow-on) — the legend's "a small positive
+            // margin still holds" prompted papers to (correctly) ask whether a tolerance-only hold is a
+            // strict inequality. Report the split directly so the narrator doesn't reverse-engineer it:
+            // strictly-held windows (margin <= 0) vs held-only-within-tolerance (0 < margin <= 2*TOL).
+            double tolThreshold = 2 * com.emergentterrain.research.conjecture.ConjectureEngine.TOL;
+            long strictHolds = result.windows().stream().filter(w -> w.margin() <= 0.0).count();
+            long toleranceHolds = result.windows().stream()
+                    .filter(w -> w.margin() > 0.0 && w.margin() <= tolThreshold).count();
+            sb.append(String.format(
+                    " %d/%d window(s) hold strictly (margin <= 0); %d hold only within tolerance "
+                            + "(0 < margin <= %.2f).",
+                    strictHolds, result.windows().size(), toleranceHolds, tolThreshold));
             if (relSlack > MAX_REL_SLACK_SUGGEST && !rhs2.isBlank()) {
                 // G2 two-term tighten pass — the lever is the intercept c (keep k1, k2 from the residual
                 // fit). Tightest c keeping every window holding = c + the binding (max) margin; re-verify
