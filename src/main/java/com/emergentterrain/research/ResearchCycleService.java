@@ -911,7 +911,16 @@ public class ResearchCycleService {
     static String measurementHypothesis(
             String lhs, com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec spec) {
         String target = spec.target() == null ? "" : String.format(" (conjectured limit ≈ %s)", spec.target());
-        return switch (spec.frame()) {
+        // Range pattern for measurements (measurement-frame-default.md, run-6 follow-on): a GEOMETRIC scale
+        // ladder, not a single failure-region window. The trajectory across orders of magnitude is the
+        // strong claim AND the thing that actually exercises the extended sieve reach (now ~2e9) — a
+        // bound-style "pick a held-out window" tops out near the failure region and leaves the reach unused.
+        String ladderNote = " RANGE — this is a MEASUREMENT, not a bound: sample a GEOMETRIC scale ladder of "
+                + "window_start across the trusted range (e.g. ~1e5, 1e6, 1e7, 1e8, up to near the ceiling, "
+                + "each ~10× the last) as SEPARATE calls, weighting the high end where the measurement is "
+                + "tightest, and report how the result moves across scales — the trajectory and its rate of "
+                + "approach. A single low-x window is weak evidence; the cross-scale convergence is the result.";
+        String base = switch (spec.frame()) {
             case CONSTANT -> String.format(
                     "This paper measures the intrinsic limit of `%s`: whether it CONVERGES to a constant%s "
                     + "as x grows, using verify_constant on held-out windows. The convergence (its rate, "
@@ -934,6 +943,7 @@ public class ResearchCycleService {
                     + "asymptotic value at reachable x.",
                     lhs, spec.growthScale(), spec.growthScale());
         };
+        return base + ladderNote;
     }
 
     private static String synthesizeConjectureFindings(

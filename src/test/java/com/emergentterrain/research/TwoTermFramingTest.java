@@ -51,7 +51,9 @@ class TwoTermFramingTest {
         Conjecture c = new Conjecture("math", "omega_Omega_gap", "log_window_start", 2.0, -5.70);
         String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
         assertThat(hyp).contains("CONVERGES to a constant").contains("verify_constant")
-                .contains("0.77316").doesNotContain("whether the bound holds");
+                .contains("0.77316").doesNotContain("whether the bound holds")
+                // run-6 follow-on — the geometric scale-ladder range pattern (exercises the 2e9 reach).
+                .contains("GEOMETRIC scale ladder").contains("SEPARATE calls");
     }
 
     @Test

@@ -62,6 +62,28 @@ Tests: ScalarOpennessTest +1, TwoTermFramingTest +4. Acceptance is the next run 
 This is the smallest change that tests the thesis: it doesn't touch the miner's seeding, just the *frame*
 the professor is handed for registry objects. Cheap, reversible.
 
+#### Stage 1b — the RANGE pattern: a geometric scale ladder (run-6 follow-on)
+
+Run 6 surfaced a gap: the measurement frame works, but the professors kept picking failure-region windows
+(~1–2M) and never exercised the extended sieve reach (now ~2e9), so the measurements weren't *strong*
+(omega_Omega_gap NULL'd because 0.77316 wasn't converged at 2e7). The default range guidance is
+bound-oriented (held-out offsets ≤ 1e6, anchored at the failure region) — correct for "does it hold,"
+wrong for "what's the limit."
+
+`measurementHypothesis` now appends a **range pattern** to every measurement frame:
+> sample a **GEOMETRIC scale ladder** of `window_start` across the trusted range (~1e5, 1e6, 1e7, 1e8, up
+> to near the ceiling, each ~10× the last) as **separate calls**, weighting the high end where the
+> measurement is tightest, and report how the result moves across scales — the trajectory and its rate.
+
+"Geometric" = constant *multiplicative* step (log-spaced), because the asymptotics move slowly in x
+(ln ln x, x^¹ᐟ⁴) so the interesting variation is across orders of magnitude; arithmetic spacing stays at one
+scale and wastes the reach. This does two things at once: (a) it forces the professor out to 1e8–1e9
+(uses the Stage-2 reach), and (b) the **cross-scale convergence trajectory** is a genuinely stronger claim
+than a single window — the thing that should lift the open-object novelty. Cheap (~80 ms per 5000-window at
+1e9, ~5 separate calls). Variety is deliberately left to the professor (decade vs frontier-weighted vs
+two-anchor) per how fast the object converges; the framing gives the default and the rationale, not rigid
+values.
+
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 
 Promote measurement to a real topic kind: the miner seeds a `MEASUREMENT` topic for registry objects
