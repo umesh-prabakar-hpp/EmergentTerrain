@@ -70,6 +70,12 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     java.util.Optional<Conjecture> findFirstByDomainAndLhsAndRhs(
             String domain, String lhs, String rhs);
 
+    /** 2026-06-15 (G2) — two-term variant: a captured {@code lhs <= k*rhs + k2*rhs2 + c} bound is a
+     *  distinct relation from any one-term bound over the same (lhs, rhs), so the write-back keys its
+     *  upsert on rhs2 as well. {@code rhs2} is non-null here (one-term uses the finder above). */
+    java.util.Optional<Conjecture> findFirstByDomainAndLhsAndRhsAndRhs2(
+            String domain, String lhs, String rhs, String rhs2);
+
     /**
      * 2026-06-09 — targeted stamp for a bound an investigation proved HELD at the
      * failure region. Same single-writer/JPQL pattern as the other stamps; the

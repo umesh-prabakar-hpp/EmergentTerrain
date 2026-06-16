@@ -109,13 +109,38 @@ public class ConjectureVerifier {
         this.boundaryProbeStart = start;
     }
 
-    /** One window's evaluation: the scalar values + the resulting margin. */
+    /**
+     * One window's evaluation: the scalar values, the COMPLETE evaluated bound, and the resulting margin.
+     *
+     * <p>{@code bound} carries the full right-hand side — {@code k*rhs + k2*rhs2 + c} for a two-term bound,
+     * {@code k*rhs + c} for one-term — so downstream serialization reads the ceiling instead of re-deriving
+     * it from the primary term alone and silently dropping {@code k2*rhs2} (the bug that made the per-window
+     * tuple fail the identity {@code margin == lhs − bound} for two-term bounds). {@code rhs2Value} is the
+     * second term's per-window scalar (0.0 for a one-term bound).
+     *
+     * <p>The compact constructor is the identity gate (G2 fix 4): every construction site must satisfy
+     * {@code margin == lhsValue − bound} to FP tolerance, so no future site can reintroduce a tuple whose
+     * printed bound and margin disagree.
+     */
     public record WindowReport(
             long windowStart,
             double lhsValue,
             double rhsValue,
+            double rhs2Value,
+            double bound,
             double margin,
-            boolean holds) {}
+            boolean holds) {
+        public WindowReport {
+            double drift = Math.abs(margin - (lhsValue - bound));
+            double scale = 1e-6 * (1.0 + Math.abs(lhsValue) + Math.abs(bound));
+            if (drift > scale) {
+                throw new IllegalArgumentException(String.format(
+                        "WindowReport identity violated at start=%d: margin=%+.6g but lhs−bound=%+.6g "
+                                + "(lhs=%+.6g bound=%+.6g) — a bound term was dropped",
+                        windowStart, margin, lhsValue - bound, lhsValue, bound));
+            }
+        }
+    }
 
     /** Outcome of a {@link #verify} call. */
     public record VerifyResult(
@@ -198,9 +223,10 @@ public class ConjectureVerifier {
             double lhsVal = flat.getOrDefault(lhs, 0.0);
             double rhsVal = flat.getOrDefault(rhs, 0.0);
             double rhs2Val = flat.getOrDefault(rhs2, 0.0);
-            double margin = lhsVal - (k * rhsVal + k2 * rhs2Val + c);
+            double bound = k * rhsVal + k2 * rhs2Val + c;
+            double margin = lhsVal - bound;
             boolean windowHolds = margin <= 2 * ConjectureEngine.TOL;
-            reports.add(new WindowReport(start, lhsVal, rhsVal, margin, windowHolds));
+            reports.add(new WindowReport(start, lhsVal, rhsVal, rhs2Val, bound, margin, windowHolds));
             if (margin > worstMargin) {
                 worstMargin = margin;
                 worstWindowStart = start;
@@ -348,9 +374,10 @@ public class ConjectureVerifier {
             Map<String, Double> flat = MathInvariants.extract(raw, start, windowSize);
             double lhsVal = flat.getOrDefault(lhs, 0.0);
             double rhsVal = flat.getOrDefault(rhs, 0.0);
-            double margin = lhsVal - (k * rhsVal + c);
+            double bound = k * rhsVal + c;
+            double margin = lhsVal - bound;
             boolean windowHolds = margin <= 2 * ConjectureEngine.TOL;
-            reports.add(new WindowReport(start, lhsVal, rhsVal, margin, windowHolds));
+            reports.add(new WindowReport(start, lhsVal, rhsVal, 0.0, bound, margin, windowHolds));
             if (margin > worstMargin) {
                 worstMargin = margin;
                 worstWindowStart = start;

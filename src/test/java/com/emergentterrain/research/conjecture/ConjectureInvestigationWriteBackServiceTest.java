@@ -60,6 +60,41 @@ class ConjectureInvestigationWriteBackServiceTest {
         assertThat(b.k()).isEqualTo(0.72);
     }
 
+    /** A two-term HELD line in the exact MathToolSuite summary form: lhs <= k*rhs + k2*rhs2 + c. */
+    private static final String HELD_TWO_TERM =
+            "verify_conjecture: max_prime_gap <= +0.7200 * log_sq_window_start "
+            + "+ +0.5000 * sqrt_window_start + +1.5000 "
+            + "HELD across 10 window(s) of size 500 starting at 1800000. "
+            + "worst margin: -12.30000 at window starting 1810000. relative slack: 0.0900 "
+            + "(|margin|/|bound|, smaller = tighter).";
+
+    @Test
+    void parsesATwoTermHeldBound() {
+        // G2 capture fix: before, the one-term regex could not match `+ k2 * rhs2` and silently dropped
+        // every tightened two-term bound. It must now parse both terms.
+        HeldBound b = ConjectureInvestigationWriteBackService.parseHeldBounds(
+                List.of(verify(HELD_TWO_TERM))).get(0);
+        assertThat(b.lhs()).isEqualTo("max_prime_gap");
+        assertThat(b.rhs()).isEqualTo("log_sq_window_start");
+        assertThat(b.k()).isEqualTo(0.72);
+        assertThat(b.rhs2()).isEqualTo("sqrt_window_start");
+        assertThat(b.k2()).isEqualTo(0.5);
+        assertThat(b.c()).isEqualTo(1.5);
+        assertThat(b.isTwoTerm()).isTrue();
+        assertThat(b.relSlack()).isEqualTo(0.09);
+        assertThat(ConjectureInvestigationWriteBackService.writable(b)).isTrue();
+    }
+
+    @Test
+    void oneTermLineStillParsesWithNullSecondTerm() {
+        // The optional two-term segment must not change one-term parsing: rhs2 stays null, k2 zero.
+        HeldBound b = ConjectureInvestigationWriteBackService.parseHeldBounds(
+                List.of(verify(HELD_TIGHT))).get(0);
+        assertThat(b.rhs2()).isNull();
+        assertThat(b.k2()).isEqualTo(0.0);
+        assertThat(b.isTwoTerm()).isFalse();
+    }
+
     @Test
     void notWritable_whenTooLoose() {
         // lever B: a HELD bound whose binding-window relative slack exceeds the ceiling is the

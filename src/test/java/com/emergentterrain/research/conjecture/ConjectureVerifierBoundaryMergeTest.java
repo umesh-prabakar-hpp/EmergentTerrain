@@ -19,13 +19,13 @@ class ConjectureVerifierBoundaryMergeTest {
     private static VerifyResult held(long start, double margin) {
         return new VerifyResult("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7621,
                 1, true, margin, start,
-                List.of(new WindowReport(start, 0.5, 5.3, margin, true)));
+                List.of(new WindowReport(start, 0.5, 5.3, 0.0, 0.5 - margin, margin, true)));
     }
 
     private static VerifyResult refuted(long start, double margin) {
         return new VerifyResult("mertens_per_sqrt_W", "log_window_start", 2.0, -7.7621,
                 1, false, margin, start,
-                List.of(new WindowReport(start, 1.2, 3.4, margin, false)));
+                List.of(new WindowReport(start, 1.2, 3.4, 0.0, 1.2 - margin, margin, false)));
     }
 
     @Test

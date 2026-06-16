@@ -919,11 +919,18 @@ public class JuliaMathClient {
         JsonNode windowsArr = resp.path("windows");
         if (windowsArr.isArray()) {
             for (JsonNode w : windowsArr) {
+                double lhsValue = w.path("lhsValue").asDouble();
+                double margin = w.path("margin").asDouble();
+                // The sidecar's /conjecture/verify is one-term only (it doesn't know rhs2); derive the
+                // full bound as the exact inverse of the margin it computed (bound = lhs − margin), so the
+                // WindowReport identity margin == lhs − bound holds and rhs2Value is 0.0.
                 reports.add(new com.emergentterrain.research.conjecture.ConjectureVerifier.WindowReport(
                         w.path("windowStart").asLong(),
-                        w.path("lhsValue").asDouble(),
+                        lhsValue,
                         w.path("rhsValue").asDouble(),
-                        w.path("margin").asDouble(),
+                        0.0,
+                        lhsValue - margin,
+                        margin,
                         w.path("holds").asBoolean(false)));
             }
         }

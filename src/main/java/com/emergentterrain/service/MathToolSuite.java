@@ -2203,10 +2203,10 @@ public class MathToolSuite {
         if (result.held()) {
             var binding = result.windows().stream()
                     .max(java.util.Comparator.comparingDouble(w -> w.margin()));
-            // bound value = lhs − margin (margin = lhs − bound), so this is correct for BOTH one-term
-            // and two-term (no need for the second term's per-window value, which the report omits).
+            // |margin| / |bound|. WindowReport now stores the full evaluated bound (all terms), so this is
+            // exact for BOTH one-term and two-term — no re-derivation from the primary term.
             double relSlack = binding
-                    .map(w -> Math.abs(w.margin()) / Math.max(Math.abs(w.lhsValue() - w.margin()), 1e-9))
+                    .map(w -> Math.abs(w.margin()) / Math.max(Math.abs(w.bound()), 1e-9))
                     .orElse(0.0);
             sb.append(String.format(
                     " relative slack: %.4f (|margin|/|bound|, smaller = tighter).", relSlack));
@@ -2304,14 +2304,20 @@ public class MathToolSuite {
         sb.append("\nPer-window:");
         for (var w : result.windows()) {
             // 2026-05-29 — label the rhs *scalar* explicitly and print the evaluated
-            // bound (k·rhs+c) alongside it. The bare "rhs=" column was the rhs scalar
+            // bound (the inequality ceiling) alongside it. The bare "rhs=" column was the rhs scalar
             // (e.g. log_window_start), NOT the inequality ceiling, which a narrator
             // (P-b72c-9) misread as a tool bug ("constant-bound test returned a
-            // non-constant rhs") and hedged its whole Findings on. margin is, and
-            // always was, lhs − (k·rhs + c); bound= now makes that ceiling explicit.
+            // non-constant rhs") and hedged its whole Findings on.
+            // 2026-06-15 (G2 fix) — print the bound the verifier STORED (w.bound(), the full k·rhs +
+            // k2·rhs2 + c), not a re-derived k·rhs+c that drops the second term. For a two-term bound also
+            // surface rhs2_scalar so a downstream model can recompute every term. Identity now holds for
+            // both: margin == lhs − bound.
+            String rhs2Col = (k2 != 0.0)
+                    ? String.format("  rhs2_scalar=%+.5f", w.rhs2Value())
+                    : "";
             sb.append(String.format(
-                    "\n  start=%d  lhs=%+.5f  rhs_scalar=%+.5f  bound=%+.5f  margin=%+.5f  %s",
-                    w.windowStart(), w.lhsValue(), w.rhsValue(), k * w.rhsValue() + c,
+                    "\n  start=%d  lhs=%+.5f  rhs_scalar=%+.5f%s  bound=%+.5f  margin=%+.5f  %s",
+                    w.windowStart(), w.lhsValue(), w.rhsValue(), rhs2Col, w.bound(),
                     w.margin(), w.holds() ? "holds" : "REFUTED"));
         }
         return sb.toString();

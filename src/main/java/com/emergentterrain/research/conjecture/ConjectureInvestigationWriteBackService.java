@@ -67,8 +67,14 @@ public class ConjectureInvestigationWriteBackService {
 
     /** Parses a verify_conjecture result line (MathToolSuite format). The trailing relative-slack
      *  figure is OPTIONAL (HELD lines emit it since 2026-06-10; refuted/older lines do not). */
+    // 2026-06-15 (G2 capture fix) — the optional `+ k2 * rhs2 ` segment (groups 4/5) lets this match the
+    // TWO-TERM summary form `lhs <= k*rhs + k2*rhs2 + c HELD` as well as the one-term form. Without it the
+    // tightened two-term bounds G2 was built to produce never parsed and were silently dropped from the
+    // pool. Groups: 1 lhs, 2 k, 3 rhs, 4 k2 (null if one-term), 5 rhs2 (null if one-term), 6 c,
+    // 7 numWindows, 8 windowStart, 9 worstMargin, 10 relSlack (optional).
     private static final Pattern HELD = Pattern.compile(
-            "verify_conjecture: ([a-zA-Z_]+) <= ([+-][0-9.]+) \\* ([a-zA-Z_]+) \\+ "
+            "verify_conjecture: ([a-zA-Z_]+) <= ([+-][0-9.]+) \\* ([a-zA-Z_]+) "
+                    + "(?:\\+ ([+-][0-9.]+) \\* ([a-zA-Z_]+) )?\\+ "
                     + "([+-][0-9.]+) HELD across ([0-9]+) window\\(s\\) of size [0-9]+ "
                     + "starting at ([0-9]+)\\. worst margin: ([+-][0-9.]+)"
                     + "(?: at window starting [0-9]+\\. relative slack: ([0-9.]+))?");
@@ -114,10 +120,21 @@ public class ConjectureInvestigationWriteBackService {
     public static final String KIND_CONSTANT = "CONSTANT";
     public static final String KIND_OSCILLATION = "OSCILLATION";
 
-    /** One HELD bound parsed from an investigation trace. {@code relSlack} is the binding-window
-     *  relative slack ({@code |margin|/|bound|}) if the line carried it, else {@code null}. */
-    public record HeldBound(String lhs, String rhs, double k, double c,
-                            int numWindows, long windowStart, double worstMargin, Double relSlack) {}
+    /** One HELD bound parsed from an investigation trace. {@code rhs2}/{@code k2} are the optional G2
+     *  second affine term ({@code rhs2==null}, {@code k2==0} for a one-term bound). {@code relSlack} is the
+     *  binding-window relative slack ({@code |margin|/|bound|}) if the line carried it, else {@code null}. */
+    public record HeldBound(String lhs, String rhs, String rhs2, double k, double k2, double c,
+                            int numWindows, long windowStart, double worstMargin, Double relSlack) {
+        /** One-term convenience constructor (rhs2=null, k2=0) — backward-compatible with the pre-G2
+         *  call sites and tests that predate two-term capture. */
+        public HeldBound(String lhs, String rhs, double k, double c,
+                         int numWindows, long windowStart, double worstMargin, Double relSlack) {
+            this(lhs, rhs, null, k, 0.0, c, numWindows, windowStart, worstMargin, relSlack);
+        }
+
+        /** G2 — true iff this carries a second affine term. */
+        public boolean isTwoTerm() { return rhs2 != null; }
+    }
 
     /** One measured-invariant survivor parsed from a frame-1/2/3 result line: a CONSTANT limit
      *  ({@code lhs → value}) or an OSCILLATION envelope ({@code max|lhs|/scale ≤ value}). */
@@ -182,13 +199,18 @@ public class ConjectureInvestigationWriteBackService {
                 try {
                     String lhs = m.group(1), rhs = m.group(3);
                     double k = Double.parseDouble(m.group(2));
-                    double c = Double.parseDouble(m.group(4));
-                    int nw = Integer.parseInt(m.group(5));
-                    long start = Long.parseLong(m.group(6));
-                    double margin = Double.parseDouble(m.group(7));
-                    Double relSlack = m.group(8) == null ? null : Double.valueOf(m.group(8));
-                    String key = lhs + "|" + rhs + "|" + k + "|" + c + "|" + start;
-                    if (seen.add(key)) out.add(new HeldBound(lhs, rhs, k, c, nw, start, margin, relSlack));
+                    String rhs2 = m.group(5);                                   // null for a one-term bound
+                    double k2 = m.group(4) == null ? 0.0 : Double.parseDouble(m.group(4));
+                    double c = Double.parseDouble(m.group(6));
+                    int nw = Integer.parseInt(m.group(7));
+                    long start = Long.parseLong(m.group(8));
+                    double margin = Double.parseDouble(m.group(9));
+                    Double relSlack = m.group(10) == null ? null : Double.valueOf(m.group(10));
+                    String key = lhs + "|" + rhs + "|" + (rhs2 == null ? "" : rhs2)
+                            + "|" + k + "|" + k2 + "|" + c + "|" + start;
+                    if (seen.add(key)) {
+                        out.add(new HeldBound(lhs, rhs, rhs2, k, k2, c, nw, start, margin, relSlack));
+                    }
                 } catch (NumberFormatException ignore) { /* skip malformed */ }
             }
         }
@@ -209,8 +231,9 @@ public class ConjectureInvestigationWriteBackService {
         if (b.windowStart() < FAILURE_REGION_MIN_X) return "sub-failure-region(x=" + b.windowStart() + ")";
         if (b.numWindows() < MIN_WINDOWS) return "too-few-windows(" + b.numWindows() + ")";
         if (b.relSlack() != null && b.relSlack() > MAX_REL_SLACK) return "too-loose(rel-slack=" + b.relSlack() + ")";
-        return ConjectureTrivialityFilter.dropReason(
-                new Inequality(b.lhs(), b.rhs(), b.k(), b.c()))
+        Inequality ineq = new Inequality(b.lhs(), b.rhs(), b.k(), b.c());
+        if (b.rhs2() != null) ineq.setSecondTerm(b.rhs2(), b.k2());   // G2 — judge the whole two-term bound
+        return ConjectureTrivialityFilter.dropReason(ineq)
                 .map(r -> "trivial(" + r + ")").orElse("");
     }
 
@@ -288,15 +311,17 @@ public class ConjectureInvestigationWriteBackService {
         // Per-bound diagnosis: log every parsed bound and the exact gate that bars it (or WRITE).
         for (HeldBound b : bounds) {
             String reason = rejectReason(b);
-            log.info("investigation-write-back: paperId={} bound {} <= {}*{} + {} @{} (windows={}, rel-slack={}) -> {}",
-                    paperId, b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), b.numWindows(),
+            log.info("investigation-write-back: paperId={} bound {} <= {} @{} (windows={}, rel-slack={}) -> {}",
+                    paperId, b.lhs(), boundStr(b), b.windowStart(), b.numWindows(),
                     b.relSlack(), reason.isEmpty() ? "WRITABLE" : "reject:" + reason);
         }
         // Lever A — collapse to the TIGHTEST writable bound per relation (not the first in trace).
         Map<String, HeldBound> tightestByRelation = new LinkedHashMap<>();
         for (HeldBound b : bounds) {
             if (!writable(b)) continue;
-            tightestByRelation.merge(b.lhs() + "|" + b.rhs(), b,
+            // Key on (lhs, rhs, rhs2) so a one-term and a two-term bound over the same primary pair stay
+            // distinct relations (different ceilings) rather than the tighter one shadowing the other.
+            tightestByRelation.merge(b.lhs() + "|" + b.rhs() + "|" + (b.rhs2() == null ? "" : b.rhs2()), b,
                     ConjectureInvestigationWriteBackService::tighter);
         }
         Instant now = Instant.now();
@@ -378,31 +403,45 @@ public class ConjectureInvestigationWriteBackService {
     }
 
     private boolean upsert(HeldBound b, Instant now) {
-        Optional<Conjecture> ex = repo.findFirstByDomainAndLhsAndRhs(DOMAIN, b.lhs(), b.rhs());
+        // G2 — a two-term bound is a distinct relation from any one-term bound over the same (lhs, rhs),
+        // so look it up by rhs2 too; the one-term path keeps the original (lhs, rhs) finder unchanged.
+        Optional<Conjecture> ex = (b.rhs2() == null)
+                ? repo.findFirstByDomainAndLhsAndRhs(DOMAIN, b.lhs(), b.rhs())
+                : repo.findFirstByDomainAndLhsAndRhsAndRhs2(DOMAIN, b.lhs(), b.rhs(), b.rhs2());
         Conjecture row;
         if (ex.isPresent()) {
             row = ex.get();
             String wasState = row.droppedByKnob() == null ? "live" : "retired:" + row.droppedByKnob();
             row.setK(b.k());
             row.setC(b.c());
+            if (b.rhs2() != null) { row.setRhs2(b.rhs2()); row.setK2(b.k2()); }   // G2 second term
             if (row.confirmedRuns() < 1) row.setConfirmedRuns(1);
             row.setDroppedByKnob(null);   // revive: the professor proved it holds
             row.setUpdatedAt(now);
             repo.save(row);
-            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{}{} — revived from {} "
+            log.info("investigation-write-back: {} <= {} HELD@{}{} — revived from {} "
                             + "with professor fit (was {})",
-                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), tightnessTag(b), wasState,
+                    b.lhs(), boundStr(b), b.windowStart(), tightnessTag(b), wasState,
                     String.format("k≈%.2f", row.k()));
         } else {
             row = new Conjecture(DOMAIN, b.lhs(), b.rhs(), b.k(), b.c());
+            if (b.rhs2() != null) { row.setRhs2(b.rhs2()); row.setK2(b.k2()); }   // G2 second term
             row.setConfirmedRuns(1);
             row.setUpdatedAt(now);
             row = repo.save(row);
-            log.info("investigation-write-back: {} <= {}*{} + {} HELD@{}{} — inserted new live relation",
-                    b.lhs(), b.k(), b.rhs(), b.c(), b.windowStart(), tightnessTag(b));
+            log.info("investigation-write-back: {} <= {} HELD@{}{} — inserted new live relation",
+                    b.lhs(), boundStr(b), b.windowStart(), tightnessTag(b));
         }
         repo.stampInvestigationVerified(row.id(), now);
         return true;
+    }
+
+    /** Human-readable RHS for logging: the full {@code k*rhs (+ k2*rhs2) + c} so a captured two-term
+     *  bound isn't logged as if it were one-term. */
+    private static String boundStr(HeldBound b) {
+        return b.rhs2() == null
+                ? String.format("%s*%s + %s", b.k(), b.rhs(), b.c())
+                : String.format("%s*%s + %s*%s + %s", b.k(), b.rhs(), b.k2(), b.rhs2(), b.c());
     }
 
     private static String tightnessTag(HeldBound b) {
