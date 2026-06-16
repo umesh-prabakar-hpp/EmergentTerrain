@@ -145,18 +145,32 @@ in the existing `vocabulary expansion — …` line. This single change tells us
 - **Acceptance:** one mine pass logs the histogram; we read off whether `best_existing_dominates` (Fork A)
   or `net_gain_le_0`/`beats_null_fail` with non-trivial compression (Fork B) is the dominant reason.
 
-### Stage B — bridge G2 residuals → G3 targets (do if Stage A shows Fork B, or to bias toward open objects)
+### Stage A result (2026-06-16 run 2) — read off the histogram
 
-Today vocab-expansion targets the top-3 confirmed bounds (`VOCAB_TARGET_CAP=3`) plus an anomaly-stratum
-fallback. But `ResidualStructureMiner` *already identified the 6 bounds with unexplained-beyond-null
-structure* — those are the residuals most likely to need a new scalar. Route them as the targets, and
-bias the set toward the openness-prior priority objects (`ScalarOpenness.PRIORITY_TARGETS`:
-`dirichlet_error`, `max_prime_gap`, `max_divisor_count`, …) where genuine uncaptured structure is most
-plausible.
+Stable across every mine pass: **`{fails_null=32, explained_by_existing=20, below_description_cost=8}`**
+(0 admitted, budget 8). Not purely Fork A: ~half the depth-1 candidates are noise (`fails_null`), a
+third are redundant with existing vocab (`explained_by_existing`), and **8/60 carry genuine incremental
+structure missing only the description-cost margin** (`below_description_cost` — the addressable Fork-B
+tail). So there IS a tail to pursue — Stage B/C are warranted.
 
-- **Flag:** new `app.research.conjecture-miner.vocabTargetsFromResidualMiner` (OFF code / ON yaml).
-- **Acceptance:** the vocab-expansion target set names ≥1 open-object residual flagged by G2; the
-  rejection histogram (Stage A) shifts.
+Important refinement this read forces: the `ResidualStructureMiner` bounds are exactly the
+`explained_by_existing` ones (the miner *finds* an existing scalar `z` that explains the residual), so
+routing them as vocab targets is counterproductive. The lever is **open-object** targeting, where
+uncaptured structure is plausible.
+
+### Stage B — bias targets toward open objects — SHIPPED 2026-06-16
+
+`ConjectureMinerService` vocab-expansion now orders the MDL target set by
+`ScalarOpenness.selectionRank` (open-priority lhs first) before `confirmedRuns`, so the openness-priority
+objects (`dirichlet_error`, `max_prime_gap`, `max_divisor_count`, …) lead instead of the most-confirmed
+SETTLED bounds (whose residuals are already-captured). Same order applied to the anomaly-stratum
+fallback. The vocab-expansion log now reports `{open}/{total} target(s) open-object`.
+
+- **Flag:** folded under the existing `app.research.conjecture-miner.opennessSelectionEnabled` (OFF code
+  / ON yaml) — semantically the same openness-biased selection; off = original confirmedRuns-desc order.
+- **Acceptance (next run):** the log shows ≥1 open-object target, and the rejection histogram shifts —
+  `explained_by_existing` should drop relative to run 2 if open-object residuals are less-explained by
+  existing vocab. If it does NOT shift, the limiter is the description-cost margin → Stage C.
 
 ### Stage C — grammar / MDL levers (do ONLY if Stage A+B prove coverage or calibration is the limiter)
 

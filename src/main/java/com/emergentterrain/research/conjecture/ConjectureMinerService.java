@@ -905,8 +905,19 @@ public class ConjectureMinerService implements ConjectureQueue {
             // held-out evidence to carry residual structure worth explaining; a
             // refuted BOUND still has a fittable lhs~rhs relation, which is all the
             // MDL residual test consumes. (2026-06-05, unblocking the 30.5 A/B.)
+            // Stage B (novelty-ceiling-and-vocab-activation.md) — bias targets toward OPEN objects.
+            // Stage A's histogram showed the limiter is explained_by_existing (an existing scalar already
+            // explains the residual): the most-confirmed SETTLED bounds make the worst vocab targets,
+            // because their residuals are noise or already-captured. The openness-priority objects
+            // (dirichlet_error, max_prime_gap, …) are where genuinely-uncaptured structure is plausible,
+            // so route them to the front of the MDL target list. Folds under the existing openness-
+            // selection prior (OFF code / ON yaml); off = the original confirmedRuns-desc order.
+            Comparator<Inequality> targetOrder = opennessSelectionEnabled
+                    ? Comparator.comparingInt((Inequality i) -> ScalarOpenness.selectionRank(i.lhs))
+                            .thenComparingInt(i -> -i.confirmedRuns())
+                    : Comparator.comparingInt((Inequality i) -> -i.confirmedRuns());
             List<VocabularyExpansion.Target> targets = new ArrayList<>(store.stream()
-                    .sorted(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns()))
+                    .sorted(targetOrder)
                     .limit(VOCAB_TARGET_CAP)
                     .map(i -> new VocabularyExpansion.Target(i.lhs, i.rhs))
                     .toList());
@@ -933,7 +944,7 @@ public class ConjectureMinerService implements ConjectureQueue {
                         anomalyStratum.add(mapper.toInequality(c));
                     }
                 }
-                anomalyStratum.sort(Comparator.comparingInt((Inequality i) -> -i.confirmedRuns));
+                anomalyStratum.sort(targetOrder);   // Stage B — same open-biased order as the live targets
                 for (Inequality ineq : anomalyStratum) {
                     if (targets.size() >= VOCAB_TARGET_CAP) break;
                     if (taken.add(ineq.lhs + "≤" + ineq.rhs)) {
@@ -1002,10 +1013,13 @@ public class ConjectureMinerService implements ConjectureQueue {
                     newConjectures++;
                 }
             }
+            long openTargets = targets.stream()
+                    .filter(t -> ScalarOpenness.selectionRank(t.lhs()) == 0)
+                    .count();
             log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new "
-                            + "conjectures seeded; rejection histogram {}",
+                            + "conjectures seeded; {}/{} target(s) open-object; rejection histogram {}",
                     candidates.size(), admitted.size(), budget, newConjectures,
-                    admissionReport.reasonCounts());
+                    openTargets, targets.size(), admissionReport.reasonCounts());
         }
 
         // Phase 30 Wave 6 — RAF-closure reporting (sim #1, flag-gated OFF). Over the live findings'
