@@ -794,12 +794,23 @@ public class ConjectureMinerService implements ConjectureQueue {
                     if (twoTermEnabled) {
                         String key3 = ineq.lhs + "|" + ineq.rhs + "|" + c.explainer();
                         Inequality two = fitTwoTerm(allSamples, ineq.lhs, ineq.rhs, c.explainer());
-                        if (two != null && existingTwoTermKeys.add(key3)) {
+                        // G2 well-posedness — run the promotion through the triviality filter (it
+                        // previously bypassed it via repo.save). Rejects a self-referential rhs2 (a
+                        // definition-component of the lhs/rhs, P-b72c-77627653's cramer_gap_ratio case)
+                        // and any other structural triviality before the bound enters the pool.
+                        java.util.Optional<String> drop = two == null
+                                ? java.util.Optional.of("fit_failed")
+                                : ConjectureTrivialityFilter.dropReason(two);
+                        if (two != null && drop.isEmpty() && existingTwoTermKeys.add(key3)) {
                             repo.save(mapper.toEntity(two, DOMAIN));
                             promoted++;
                             log.info("residual-structure PROMOTED two-term conjecture — {} <= {}*{} + "
                                             + "{}*{} + {}", two.lhs(), trimD(two.k()), two.rhs(),
                                     trimD(two.k2()), two.rhs2(), trimD(two.c()));
+                        } else if (two != null && drop.isPresent()) {
+                            log.info("residual-structure SKIPPED two-term (trivial: {}) — {} <= {}*{} + "
+                                            + "{}*{} + {}", drop.get(), two.lhs(), trimD(two.k()),
+                                    two.rhs(), trimD(two.k2()), two.rhs2(), trimD(two.c()));
                         }
                     }
                 }

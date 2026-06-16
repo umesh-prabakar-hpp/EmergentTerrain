@@ -122,6 +122,48 @@ class ConjectureTrivialityFilterTest {
         assertThat(ConjectureTrivialityFilter.dropReason(mertens)).isEmpty();
     }
 
+    // ---- G2: self-referential second term (drop) ----
+
+    private static Inequality twoTerm(String lhs, String rhs, double k,
+                                      String rhs2, double k2, double c) {
+        Inequality i = new Inequality(lhs, rhs, k, c);
+        i.setSecondTerm(rhs2, k2);
+        return i;
+    }
+
+    @Test
+    void selfReferentialSecondTermIsDropped() {
+        // P-b72c-77627653: max_prime_gap <= k*log_sq_window_start + 2*cramer_gap_ratio, but
+        // cramer_gap_ratio is DEFINED as max_prime_gap/log_sq (DERIVED_COMPONENTS) — the rhs2 contains
+        // the lhs, so the two-term bound is one-term-in-disguise.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                twoTerm("max_prime_gap", "log_sq_window_start", 0.649, "cramer_gap_ratio", 2.0, 0.0)))
+                .contains("derived_component_rhs2");
+        // rhs2 literally equal to lhs is the degenerate case of the same rule.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                twoTerm("max_prime_gap", "log_sq_window_start", 0.649, "max_prime_gap", 1.0, 0.0)))
+                .contains("derived_component_rhs2");
+    }
+
+    @Test
+    void secondTermCoupledToFirstRhsIsDropped() {
+        // rhs2 coupled to rhs1 is not two independent features either: mean_divisor_excess derives
+        // from mean_divisor_count, so a bound mixing both as the two RHS terms is degenerate.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                twoTerm("max_prime_gap", "mean_divisor_count", 1.0, "mean_divisor_excess", 2.0, 0.0)))
+                .contains("derived_component_rhs2");
+    }
+
+    @Test
+    void independentSecondTermIsNotDropped() {
+        // P-b72c-77627657's bound: mean_divisor_excess <= 2*twin_prime_density + 2*omega_ek_ratio + c.
+        // The two RHS terms are base scalars independent of the lhs and of each other — a legitimate
+        // (if low-novelty) two-term bound; must NOT drop.
+        assertThat(ConjectureTrivialityFilter.dropReason(
+                twoTerm("mean_divisor_excess", "twin_prime_density", 2.0, "omega_ek_ratio", 2.0, -1.382)))
+                .isEmpty();
+    }
+
     // ---- degenerate constant: deduped, NOT dropped ----
 
     @Test

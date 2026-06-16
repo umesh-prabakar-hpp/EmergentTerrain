@@ -118,17 +118,36 @@ public final class ConjectureTrivialityFilter {
         if (isComponentPairing(ineq)) {
             return Optional.of("derived_component");
         }
+        // G2 — the SECOND affine term must be a genuinely independent feature. A two-term bound whose
+        // rhs2 is the lhs, a definition-component of the lhs (or vice versa), or coupled to rhs1 is
+        // algebraically self-referential — a one-term bound in disguise. P-b72c-77627653 proposed
+        // max_prime_gap <= k*log_sq_window_start + 2*cramer_gap_ratio, but cramer_gap_ratio is DEFINED
+        // as max_prime_gap/log_sq_window_start (DERIVED_COMPONENTS), so the RHS contains the LHS and the
+        // residual miner "discovered" structure that is pure self-reference. The narrator caught it; the
+        // generator should not have proposed it.
+        if (ineq != null && ineq.rhs2() != null
+                && (isComponentPairing(ineq.lhs(), ineq.rhs2())
+                        || isComponentPairing(ineq.rhs(), ineq.rhs2()))) {
+            return Optional.of("derived_component_rhs2");
+        }
         return Optional.empty();
     }
 
-    /** True iff lhs==rhs, or either side's DERIVED definition references the other. */
+    /** True iff the primary {@code (lhs, rhs)} pair is definitionally coupled. */
     static boolean isComponentPairing(Inequality ineq) {
-        if (ineq == null || ineq.lhs() == null || ineq.rhs() == null) return false;
-        if (ineq.lhs().equals(ineq.rhs())) return true;
-        return MathInvariants.DERIVED_COMPONENTS
-                        .getOrDefault(ineq.lhs(), Set.of()).contains(ineq.rhs())
-                || MathInvariants.DERIVED_COMPONENTS
-                        .getOrDefault(ineq.rhs(), Set.of()).contains(ineq.lhs());
+        return ineq != null && isComponentPairing(ineq.lhs(), ineq.rhs());
+    }
+
+    /**
+     * True iff two scalars are definitionally coupled: identical, or one's DERIVED definition
+     * references the other (via {@link MathInvariants#DERIVED_COMPONENTS}). Order-independent;
+     * null-safe. Shared by the primary-pair and second-term (G2) triviality checks.
+     */
+    static boolean isComponentPairing(String a, String b) {
+        if (a == null || b == null) return false;
+        if (a.equals(b)) return true;
+        return MathInvariants.DERIVED_COMPONENTS.getOrDefault(a, Set.of()).contains(b)
+                || MathInvariants.DERIVED_COMPONENTS.getOrDefault(b, Set.of()).contains(a);
     }
 
     /**
