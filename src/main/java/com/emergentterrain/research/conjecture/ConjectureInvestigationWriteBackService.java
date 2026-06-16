@@ -433,6 +433,10 @@ public class ConjectureInvestigationWriteBackService {
                     b.lhs(), boundStr(b), b.windowStart(), tightnessTag(b));
         }
         repo.stampInvestigationVerified(row.id(), now);
+        // rec #2 — record the failure region this bound was verified at, so the next investigation that
+        // re-serves it tests there (not at a default low window where its asymptotic intercept fails).
+        // JPQL stamp (updatable=false column) so the miner's re-save loop can't clobber it.
+        repo.stampCaptureWindow(row.id(), b.windowStart());
         return true;
     }
 

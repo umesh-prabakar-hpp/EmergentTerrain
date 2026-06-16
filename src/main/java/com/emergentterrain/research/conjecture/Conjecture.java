@@ -64,6 +64,16 @@ public class Conjecture {
     @org.hibernate.annotations.ColumnDefault("0")
     private double k2 = 0.0;
 
+    // REVIEW_REPORT b72c4e10 run-3 rec #2 — the window_start a write-back-captured HELD bound was
+    // verified at (the failure region, typically >= 1M). NULL for non-captured (miner-seeded) rows.
+    // When set, the investigation framing steers the professor to test there, because an asymptotic
+    // intercept captured at high x is EXPECTED to fail at low x (P-b72c-77627660 wasted a run at 300K).
+    // Nullable → ddl-auto=update adds it automatically (additive). {@code updatable = false} +
+    // stamped ONLY via ConjectureRepository.stampCaptureWindow, mirroring investigationVerifiedAt, so the
+    // miner's pass-long re-save loop cannot clobber it (the same trap that flattened confirmedRuns).
+    @jakarta.persistence.Column(updatable = false)
+    private Long captureWindowStart;
+
     @Column(nullable = false)
     private int confirmedRuns;
 
@@ -198,6 +208,7 @@ public class Conjecture {
     public double c()                      { return c; }
     public String rhs2()                   { return rhs2; }   // G2: null = one-term
     public double k2()                     { return k2; }
+    public Long captureWindowStart()       { return captureWindowStart; }   // rec #2: null = not captured
     public int confirmedRuns()             { return confirmedRuns; }
     public double p99Slack()               { return p99Slack; }
     public String droppedByKnob()          { return droppedByKnob; }
@@ -222,6 +233,10 @@ public class Conjecture {
     public void setC(double c)                            { this.c = c; }
     public void setRhs2(String rhs2)                      { this.rhs2 = rhs2; }   // G2
     public void setK2(double k2)                          { this.k2 = k2; }
+    // rec #2 — in-memory/test use only; persistence of an existing row goes via
+    // ConjectureRepository.stampCaptureWindow (the column is updatable=false, so a setter+save is a
+    // no-op on UPDATE and cannot clobber a stamped value).
+    public void setCaptureWindowStart(Long w)             { this.captureWindowStart = w; }
     public void setConfirmedRuns(int n)                   { this.confirmedRuns = n; }
     public void setP99Slack(double s)                     { this.p99Slack = s; }
     public void setDroppedByKnob(String knob)             { this.droppedByKnob = knob; }

@@ -86,4 +86,16 @@ public interface ConjectureRepository extends JpaRepository<Conjecture, UUID> {
     @Transactional
     @Query("update Conjecture c set c.investigationVerifiedAt = :ts where c.id = :id")
     int stampInvestigationVerified(@Param("id") UUID id, @Param("ts") Instant ts);
+
+    /**
+     * 2026-06-16 (rec #2) — record the failure-region window_start a write-back-captured bound was
+     * verified at, so a later investigation that re-serves it tests there rather than at a default low
+     * window (its asymptotic intercept is expected to fail at low x). Same single-writer JPQL pattern as
+     * {@link #stampInvestigationVerified}; the column is {@code updatable=false} so the miner's re-save
+     * loop can't clobber it.
+     */
+    @Modifying
+    @Transactional
+    @Query("update Conjecture c set c.captureWindowStart = :windowStart where c.id = :id")
+    int stampCaptureWindow(@Param("id") UUID id, @Param("windowStart") Long windowStart);
 }

@@ -858,16 +858,25 @@ public class ResearchCycleService {
                 c.k(), c.rhs(), c.k2(), c.rhs2(), c.c());
     }
 
-    private static String synthesizeConjectureHypothesis(
+    static String synthesizeConjectureHypothesis(
             com.emergentterrain.research.conjecture.Conjecture c) {
         String twoTermNote = c.rhs2() == null ? "" :
                 " This is a TWO-TERM bound (a residual-discovered composite of two scalars); verify it "
                 + "with verify_conjecture passing the second term via rhs2 and k2.";
+        // rec #2 — a write-back-captured bound was verified at a specific failure region (high x). Its
+        // intercept is asymptotic and is EXPECTED to fail at low x, so steer the investigation to the
+        // capture region rather than the default low window (P-b72c-77627660 wasted a run testing at 300K
+        // a bound captured tight at 1.2M).
+        String captureNote = c.captureWindowStart() == null ? "" : String.format(
+                " NOTE: this bound was previously verified at the failure region x≈%d; test held-out "
+                + "windows AT OR ABOVE that region (its intercept is asymptotic and is expected to fail at "
+                + "much lower x — do not judge it on a low-x window alone).",
+                c.captureWindowStart());
         return String.format(
                 "The math-domain conjecture miner surfaced the inequality `%s ≤ %s` " +
                         "with %d confirmed runs. This paper investigates whether the bound holds on " +
-                        "held-out windows the miner did not sample.%s",
-                c.lhs(), formatBoundBody(c), c.confirmedRuns(), twoTermNote);
+                        "held-out windows the miner did not sample.%s%s",
+                c.lhs(), formatBoundBody(c), c.confirmedRuns(), twoTermNote, captureNote);
     }
 
     private static String synthesizeConjectureFindings(
