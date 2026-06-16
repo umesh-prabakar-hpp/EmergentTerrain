@@ -65,7 +65,15 @@ public final class ScalarOpenness {
             "mean_divisor_excess",    // second-order → 2γ
             "cramer_gap_ratio",       // Cramér-normalized record gap (open)
             "twin_vs_prime_sq",       // Hardy–Littlewood → 2C₂
-            "twin_prime_density");    // twin primes (Hardy–Littlewood)
+            "twin_prime_density",     // twin primes (Hardy–Littlewood)
+            // 2026-06-16 (object-substrate-expansion.md run-4 rec #1) — the new per-integer objects. Run 4
+            // proved they integrate (residual structure, promotions, a paper as predictor) but were never
+            // SELECTED as primary topics, so the payoff is untested. Prioritising them surfaces a
+            // squarefree_density investigation (→ 6/π² validation) and the first DIRECT novelty score on
+            // the two uncharted objects.
+            "squarefree_density",       // validation: Ω==ω → 6/π² (should rediscover the known constant)
+            "richly_divisible_density", // uncharted: d > ω²
+            "omega_excess_density");    // uncharted: Ω−ω ≥ 2
 
     /**
      * Phase 30 (review-2026-06-15e Rec 2) — open targets that OSCILLATE around 0, so an affine bound on
