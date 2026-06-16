@@ -80,6 +80,9 @@ class MathToolSuiteVerifyConjectureTest {
         assertThat(result).contains("HELD");
         assertThat(result).contains("worst margin");
         assertThat(result).contains("Per-window:");
+        // REVIEW_REPORT b72c4e10 batch 1 rec #1 — the margin/holds convention legend is stated inline.
+        assertThat(result).contains("verdict legend: margin = lhs - bound");
+        assertThat(result).contains("per-window holds/REFUTED label is authoritative");
     }
 
     @Test

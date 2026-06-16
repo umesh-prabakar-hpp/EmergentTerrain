@@ -65,6 +65,13 @@ public class UniversityService {
      * {@link #numericalConsistencyEnabled} is false.
      */
     private final String  numericalConsistencyMode;
+    /**
+     * REVIEW_REPORT b72c4e10 (batch 1, rec #1) — when on, verify_conjecture papers whose prose hedges
+     * or reverses the margin-sign convention (the convention the tool now states inline) are downgraded
+     * to NEEDS_REVISION. Structural backstop to the verify_conjecture verdict legend; OFF in code /
+     * ON in yaml per the flag-gated-dormant convention.
+     */
+    private final boolean verdictGroundingEnabled;
     private final boolean magnitudeRangeEnabled;
     private final boolean dedupEnabled;
     private final boolean crossDomainGateEnabled;
@@ -531,6 +538,7 @@ public class UniversityService {
             @Value("${app.research.harness-leak-filter.enabled:false}") boolean harnessLeakFilterEnabled,
             @Value("${app.research.numerical-consistency.enabled:false}") boolean numericalConsistencyEnabled,
             @Value("${app.research.numerical-consistency.mode:warn}") String numericalConsistencyMode,
+            @Value("${app.research.verdict-grounding.enabled:false}") boolean verdictGroundingEnabled,
             @Value("${app.research.magnitude-range.enabled:false}") boolean magnitudeRangeEnabled,
             @Value("${app.research.dedup.enabled:false}") boolean dedupEnabled,
             @Value("${app.research.cross-domain-gate.enabled:false}") boolean crossDomainGateEnabled,
@@ -594,6 +602,7 @@ public class UniversityService {
         this.harnessLeakFilterEnabled    = harnessLeakFilterEnabled;
         this.numericalConsistencyEnabled = numericalConsistencyEnabled;
         this.numericalConsistencyMode    = normalizeMode(numericalConsistencyMode);
+        this.verdictGroundingEnabled     = verdictGroundingEnabled;
         this.magnitudeRangeEnabled       = magnitudeRangeEnabled;
         this.dedupEnabled                = dedupEnabled;
         this.crossDomainGateEnabled      = crossDomainGateEnabled;
@@ -1445,6 +1454,19 @@ public class UniversityService {
                 ? NumericalConsistencyValidator.validate(hypothesis, findingsBlocks, conclusion,
                         narration.toolCallTrace())
                 : List.of();
+        // REVIEW_REPORT b72c4e10 (batch 1, rec #1) — verdict-grounding backstop: flag verify_conjecture
+        // papers whose prose hedges/reverses the margin-sign convention the tool now states inline. A
+        // structural reason (survives the manifest-enforce value-arm filter below), appended to the same
+        // downgrade flow. Independent flag so it can be shadowed without touching numerical-consistency.
+        if (verdictGroundingEnabled) {
+            List<String> verdictReasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                    findingsBlocks, conclusion, narration.toolCallTrace());
+            if (!verdictReasons.isEmpty()) {
+                List<String> merged = new java.util.ArrayList<>(consistencyFailures);
+                merged.addAll(verdictReasons);
+                consistencyFailures = merged;
+            }
+        }
         // Phase 32 Wave 1 ENFORCE (32.2, flipped 2026-06-06 after the 4-session
         // shadow A/B: value arms 3/3 FP, manifest 0 missed fabrications) — the
         // ladder's VALUE-TRACING reason classes consolidate onto manifest

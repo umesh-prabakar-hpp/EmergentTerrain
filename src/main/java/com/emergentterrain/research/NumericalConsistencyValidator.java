@@ -604,6 +604,77 @@ public final class NumericalConsistencyValidator {
                 || reason.startsWith("Findings cites confidence interval");
     }
 
+    /**
+     * REVIEW_REPORT b72c4e10 (batch 1, rec #1) — verdict-grounding for verify_conjecture papers.
+     *
+     * <p>The {@code verify_conjecture} output now states the margin/holds convention inline
+     * (the legend: {@code margin = lhs - bound; a window holds iff margin <= 2*TOL}). A narrator
+     * that nonetheless (a) reverses that convention under a counterfactual
+     * ("if margin = lhs - bound, then positive values would indicate violations"), or (b) presents
+     * two competing margin definitions as unresolved ("margin = RHS - LHS … or margin = LHS - bound"),
+     * is contradicting the tool's own documented verdict — a grounding failure the per-window
+     * holds/REFUTED label already settles. This is the structural backstop to the legend: it does not
+     * rely on the narrator reading the legend.
+     *
+     * <p>Both patterns are deliberately high-precision (a reversed/dual definition stated literally),
+     * so correct usage — stating {@code margin = lhs - bound} once and trusting the label — passes.
+     * The minus class accepts ASCII hyphen, Unicode minus (U+2212) and en-dash (U+2013).
+     */
+    private static final Pattern MARGIN_REVERSED_COUNTERFACTUAL = Pattern.compile(
+            "(?is)\\bif\\b[^.]{0,60}?\\bmargin\\b\\s*(?:=|is|were|was|denotes?|means?)?\\s*"
+                    + "(?:rhs\\s*[-−–]\\s*lhs|lhs\\s*[-−–]\\s*bound)"
+                    + "[^.]{0,120}?(?:violat(?:ion|ed|ions)|counterexamples?)");
+
+    private static final Pattern MARGIN_DUAL_CONVENTION = Pattern.compile(
+            "(?is)\\bmargin\\b\\s*=\\s*(?:rhs\\s*[-−–]\\s*lhs|lhs\\s*[-−–]\\s*bound)"
+                    + "[^.]{0,160}?(?:\\bor\\b|either|whether)[^.]{0,40}?"
+                    + "\\bmargin\\b\\s*=\\s*(?:rhs\\s*[-−–]\\s*lhs|lhs\\s*[-−–]\\s*bound)");
+
+    /**
+     * Flag prose (Findings + Conclusion) that hedges or reverses the {@code verify_conjecture}
+     * margin-sign convention. Fires only when the trace actually contains {@code verify_conjecture}
+     * output — so the convention applies and is documented — and only on the literal reversed/dual
+     * constructions above. Stateless; the caller (UniversityService, behind
+     * {@code app.research.verdict-grounding.enabled}) appends the reasons to the consistency failures.
+     */
+    public static List<String> validateVerdictGrounding(
+            String findings, String conclusion,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        List<String> reasons = new ArrayList<>();
+        if (!traceHasVerifyConjecture(trace)) return reasons;
+        String prose = (findings == null ? "" : findings) + "\n" + (conclusion == null ? "" : conclusion);
+        if (MARGIN_REVERSED_COUNTERFACTUAL.matcher(prose).find()
+                || MARGIN_DUAL_CONVENTION.matcher(prose).find()) {
+            reasons.add(
+                    "Prose hedges or reverses the verify_conjecture margin-sign convention (treats it as "
+                            + "ambiguous, or a HELD window as a possible violation). The tool states the "
+                            + "convention inline: margin = lhs - bound; a window holds iff margin <= 2*TOL "
+                            + "(a small positive margin still holds). Trust the per-window holds/REFUTED "
+                            + "label — do not re-derive or hedge the sign convention.");
+        }
+        return reasons;
+    }
+
+    /** Map/Conclusion overload mirroring the trace-aware {@link #validate} signature. */
+    public static List<String> validateVerdictGrounding(
+            java.util.Map<Integer, String> findingsMap, String conclusion,
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        return validateVerdictGrounding(MagnitudeRangeValidator.joinBlocks(findingsMap), conclusion, trace);
+    }
+
+    /** True when any tool result body is a {@code verify_conjecture} output. */
+    private static boolean traceHasVerifyConjecture(
+            java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null) return false;
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv != null && inv.resultJson() != null
+                    && inv.resultJson().contains("verify_conjecture:")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static void collectAllNumbers(String text, List<Double> sink) {
         if (text == null) return;
         // Use a broader regex than NUMERIC_TOKEN — also picks up scientific notation

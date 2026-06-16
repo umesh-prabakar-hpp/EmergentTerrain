@@ -140,6 +140,7 @@ class PublishPaperTest {
                 /* harnessLeakFilterEnabled =   */ harnessLeakFilterEnabled,
                 /* numericalConsistencyEnabled =*/ numericalConsistencyEnabled,
                 /* numericalConsistencyMode     */ numericalConsistencyMode,
+                /* verdictGroundingEnabled =    */ false,
                 /* magnitudeRangeEnabled =      */ magnitudeRangeEnabled,
                 /* dedupEnabled =               */ dedupEnabled,
                 /* crossDomainGateEnabled =     */ crossDomainGateEnabled,

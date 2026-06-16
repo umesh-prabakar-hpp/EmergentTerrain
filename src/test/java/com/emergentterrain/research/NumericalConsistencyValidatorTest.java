@@ -1160,4 +1160,75 @@ class NumericalConsistencyValidatorTest {
                 .isFalse();
         assertThat(NumericalConsistencyValidator.isValueTracingReason(null)).isFalse();
     }
+
+    // -------- Verdict-grounding (REVIEW_REPORT b72c4e10 batch 1, rec #1) --------
+
+    /** A minimal verify_conjecture trace entry — only its presence matters for the grounding check. */
+    private static List<com.emergentterrain.llm.ToolInvocation> verifyConjectureTrace() {
+        return List.of(new com.emergentterrain.llm.ToolInvocation(
+                "verify_conjecture", "{}",
+                "verify_conjecture: lhs <= +1.0000 * rhs + +0.0000 HELD across 10 window(s) "
+                        + "of size 5000 starting at 300000. worst margin: -0.01000.",
+                0, "call_1"));
+    }
+
+    @Test
+    void pB72c77627649_reversedMarginCounterfactualFlagged() {
+        // The P-b72c-77627649 "Sign Convention Clarification" hedge: entertains that under the reversed
+        // convention a HELD (positive-margin) window would be a violation.
+        String findings = "If margin = RHS - LHS, then positive margin means the bound holds with slack. "
+                + "However, if the tool defines margin = LHS - bound, then positive values would "
+                + "indicate violations. The trace does not resolve this ambiguity.";
+        List<String> reasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                findings, "", verifyConjectureTrace());
+        assertThat(reasons).hasSize(1);
+        assertThat(reasons.get(0)).contains("margin-sign convention");
+    }
+
+    @Test
+    void pB72c77627649_dualMarginDefinitionInConclusionFlagged() {
+        // The Conclusion's dual presentation of two competing margin definitions.
+        String conclusion = "Open: whether the sign convention for 'margin' is margin = RHS - LHS "
+                + "(slack) or margin = LHS - bound (violation), which must be resolved before the HELD "
+                + "verdict can be trusted.";
+        List<String> reasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                "", conclusion, verifyConjectureTrace());
+        assertThat(reasons).hasSize(1);
+    }
+
+    @Test
+    void unicodeMinusInDualDefinitionFlagged() {
+        // Real papers render the minus as U+2212; the pattern's char class must accept it.
+        String conclusion = "margin = RHS − LHS or margin = LHS − bound";
+        List<String> reasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                "", conclusion, verifyConjectureTrace());
+        assertThat(reasons).hasSize(1);
+    }
+
+    @Test
+    void correctSingleConventionUsagePasses() {
+        // Stating the convention once and trusting the label is correct grounding — must NOT flag.
+        String findings = "Each window reports margin = lhs - bound; the tool labels the window holds "
+                + "when margin <= 0.04, so all 20 windows held with positive slack.";
+        String conclusion = "The bound HELD across every tested window; the per-window holds label is "
+                + "the verdict.";
+        List<String> reasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                findings, conclusion, verifyConjectureTrace());
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void noVerifyConjectureTrace_doesNotFlagEvenWithHedge() {
+        // The check is scoped to verify_conjecture papers — no such trace, no fire.
+        String findings = "if margin = LHS - bound, then positive values would indicate violations";
+        List<String> reasons = NumericalConsistencyValidator.validateVerdictGrounding(
+                findings, "", List.of(new com.emergentterrain.llm.ToolInvocation(
+                        "scalar_window_stats", "{}", "scalar_window_stats: ...", 0, "call_1")));
+        assertThat(reasons).isEmpty();
+    }
+
+    @Test
+    void nullTrace_returnsEmpty() {
+        assertThat(NumericalConsistencyValidator.validateVerdictGrounding("x", "y", null)).isEmpty();
+    }
 }

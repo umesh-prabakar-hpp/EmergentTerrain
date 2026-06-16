@@ -2301,6 +2301,18 @@ public class MathToolSuite {
                         windowStart, userRefuted, userWindows.size(), userWorst));
             }
         }
+        // 2026-06-16 (REVIEW_REPORT b72c4e10 batch 1, rec #1) — state the margin/holds convention
+        // inline. Without it the narrator invents ambiguity about the sign of `margin` and hedges (or
+        // the panel escalates HELD windows to "counterexamples"), draining Honesty/Rigor. Domain-neutral
+        // legend; the per-window holds/REFUTED label is authoritative. Uses the live TOL so it never
+        // drifts from ConjectureEngine.
+        double holdThreshold = 2 * com.emergentterrain.research.conjecture.ConjectureEngine.TOL;
+        sb.append(String.format(
+                "%nverdict legend: margin = lhs - bound; a window HOLDS iff margin <= %.2f (2*TOL) — "
+                        + "a small positive margin still holds, only margin > %.2f is REFUTED. The "
+                        + "per-window holds/REFUTED label is authoritative; do not re-derive or hedge "
+                        + "the sign convention.",
+                holdThreshold, holdThreshold));
         sb.append("\nPer-window:");
         for (var w : result.windows()) {
             // 2026-05-29 — label the rhs *scalar* explicitly and print the evaluated
