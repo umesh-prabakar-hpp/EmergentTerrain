@@ -248,6 +248,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     // Phase 30 Wave 5 — vocabulary expansion (30.5 P3a admission); observability, no persistence yet.
     private final boolean vocabularyExpansionEnabled;
     private final int vocabularyExpansionDepth;
+    private final boolean vocabTypeAwareDescriptionCost;
     private static final int VOCAB_CANDIDATE_CAP = 60;   // grammar candidates probed per pass
     private static final int VOCAB_TARGET_CAP = 3;       // top confirmed bounds used as MDL targets
     private static final int VOCAB_ADMIT_CAP = 8;        // hard ceiling on admitted scalars per pass
@@ -345,6 +346,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.promotionRefutationAttempts = props.getPromotionRefutationAttempts();
         this.vocabularyExpansionEnabled = props.isVocabularyExpansionEnabled();
         this.vocabularyExpansionDepth = props.getVocabularyExpansionDepth();
+        this.vocabTypeAwareDescriptionCost = props.isVocabTypeAwareDescriptionCost();
         this.rafClosureEnabled = props.isRafClosureEnabled();
         log.info("conjecture miner ready — substrate via sidecar delegate ({} OEIS catalog entries), "
                 + "trivialityFilter={} dimensionFilter={} investigationRotation={} substrateMetrics={} "
@@ -955,7 +957,8 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             int budget = SublinearGenerationBudget.budget(nValidations, sublinearBudgetAlpha, VOCAB_ADMIT_CAP);
             MdlGate.Params params = new MdlGate.Params(
-                    vocab.size() + 6, stochasticNullPermutations, stochasticNullAlpha, 0xCAB5EEDL);
+                    vocab.size() + OperatorGrammar.operatorCount(), stochasticNullPermutations,
+                    stochasticNullAlpha, 0xCAB5EEDL, vocabTypeAwareDescriptionCost);
             // Stage A (novelty-ceiling-and-vocab-activation.md) — admitWithReport surfaces WHY each
             // candidate was rejected so a mine pass resolves the fork: explained_by_existing dominating
             // = existing vocab already covers the residuals (correctly inert, blocker is upstream);

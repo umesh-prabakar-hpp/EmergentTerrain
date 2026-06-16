@@ -172,22 +172,30 @@ fallback. The vocab-expansion log now reports `{open}/{total} target(s) open-obj
   `explained_by_existing` should drop relative to run 2 if open-object residuals are less-explained by
   existing vocab. If it does NOT shift, the limiter is the description-cost margin → Stage C.
 
-### Stage C — grammar / MDL levers (do ONLY if Stage A+B prove coverage or calibration is the limiter)
+### Stage C — type-aware MDL description cost — SHIPPED 2026-06-16
 
-Conditional on evidence, not speculative:
-- **Depth-2 for the highest-residual targets only** (cost-bounded by `SublinearGenerationBudget`): if
-  Stage A shows candidates beat the null but `net_gain_le_0`, the residual may need a 2-op composition
-  the depth-1 grammar can't render. Raise depth selectively, not globally.
-- **Re-examine `descriptionBits`**: if `net_gain_le_0` is driven by description cost on candidates that
-  otherwise compress well, recalibrate against the design-doc §8 noise battery so the noise-rejection
-  guarantee is preserved.
+Run 3 confirmed Stage B is inert (histogram target-invariant) ⇒ the limiter is candidate-side: the 8
+`below_description_cost` candidates beat the null AND beat existing vocab but miss the MDL cost margin.
+Root cause found in the cost code: `lExpr = nodeCount · log2(grammarSymbols≈31)` charges **operator**
+nodes the full scalar+operator alphabet (~5 bits) when an operator has only 2–4 choices (1–2 bits) — a
+~4-bit-per-op over-charge on exactly the compositions in the bucket.
 
-- **Flag:** reuse `vocabularyExpansionDepth` (already a property) for the depth lever, gated to
-  high-residual targets in code.
-- **Acceptance:** vocab-expansion admits ≥1 scalar that **passes the
-  [`vocabulary-expansion-mdl.md`](vocabulary-expansion-mdl.md) §8 hand-check** (no spurious inflation;
-  battery-of-noise still rejected), a conjecture seeded from it surfaces as a paper, and the admitted
-  scalar is legible (e.g. a ratio/log of two base scalars with a clear meaning).
+Fix (`OperatorGrammar.Expr.descriptionBits`): a **type-aware** code — a leaf identifies one of
+`leafAlphabet` scalars (`log2`), a unary/binary node identifies one of its own operator set
+(`log2(4)` / `log2(2)`) plus its children. For a binary `a/b` that's ~10.3 bits vs the uniform ~14.85.
+More accurate MDL, not an arbitrary threshold drop. Threaded `MdlGate.Params.typeAwareDescriptionCost`
+→ `VocabularyExpansion` → the miner.
+
+- **Why noise rejection is safe:** the cost is charged AFTER the permutation-null and held-out
+  compression checks, so `fails_null` / `no_compression` / `explained_by_existing` are unaffected — only
+  the `below_description_cost → admit` boundary moves. Unit test `typeAwareStillRejectsNoise` pins it.
+- **Flag:** `app.research.conjecture-miner.vocabTypeAwareDescriptionCost` (OFF code / ON yaml).
+- **Acceptance (next run):** the histogram's `below_description_cost` count drops (some cross to
+  `admit`); any admitted scalar must pass the [`vocabulary-expansion-mdl.md`](vocabulary-expansion-mdl.md)
+  §8 hand-check (legible ratio/log of base scalars, no spurious inflation). If `below_description_cost`
+  drops but `admit` stays 0, the remaining gap is genuine (those candidates truly aren't worth a new
+  scalar) → the honest conclusion is the corpus lacks novel structure, and the lever returns to
+  open-object *generation* (G4), not the gate.
 
 ### What success looks like (and what it does not)
 

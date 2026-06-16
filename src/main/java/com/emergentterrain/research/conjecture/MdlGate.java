@@ -40,8 +40,18 @@ public final class MdlGate {
     private MdlGate() {
     }
 
-    /** Tuning for the ledger. {@code grammarSymbols} = vocabulary size + operator count (for L). */
-    public record Params(int grammarSymbols, int permutations, double alpha, long seed) {
+    /**
+     * Tuning for the ledger. {@code grammarSymbols} = vocabulary size + operator count (for L).
+     * {@code typeAwareDescriptionCost} (Stage C) selects the per-node-type description code
+     * ({@link OperatorGrammar.Expr#descriptionBits}) over the uniform {@code nodeCount · log2(grammarSymbols)};
+     * the leaf alphabet is recovered as {@code grammarSymbols − OperatorGrammar.operatorCount()}.
+     */
+    public record Params(int grammarSymbols, int permutations, double alpha, long seed,
+                         boolean typeAwareDescriptionCost) {
+        /** Backward-compatible: uniform per-node description code (typeAware=false). */
+        public Params(int grammarSymbols, int permutations, double alpha, long seed) {
+            this(grammarSymbols, permutations, alpha, seed, false);
+        }
     }
 
     /**
@@ -58,7 +68,14 @@ public final class MdlGate {
 
     public static Verdict evaluate(OperatorGrammar.Expr z, List<Map<String, Double>> samples,
                                    String lhs, String rhs, Collection<String> existingScalars, Params p) {
-        double lExpr = z == null ? 0 : z.nodeCount() * (Math.log(Math.max(2, p.grammarSymbols())) / Math.log(2));
+        double lExpr;
+        if (z == null) {
+            lExpr = 0;
+        } else if (p.typeAwareDescriptionCost()) {
+            lExpr = z.descriptionBits(Math.max(2, p.grammarSymbols() - OperatorGrammar.operatorCount()));
+        } else {
+            lExpr = z.nodeCount() * (Math.log(Math.max(2, p.grammarSymbols())) / Math.log(2));
+        }
         if (z == null || samples == null || lhs == null || rhs == null) {
             return new Verdict(lExpr, 0, 0, -lExpr, false, false, "insufficient_samples");
         }

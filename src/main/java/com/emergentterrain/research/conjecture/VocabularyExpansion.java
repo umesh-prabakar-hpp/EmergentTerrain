@@ -71,7 +71,8 @@ public final class VocabularyExpansion {
         List<DerivedScalar> admitted = new ArrayList<>();
         for (OperatorGrammar.Expr cand : candidates) {
             MdlGate.Params p = new MdlGate.Params(baseParams.grammarSymbols(), baseParams.permutations(),
-                    baseParams.alpha(), baseParams.seed() ^ cand.render().hashCode());
+                    baseParams.alpha(), baseParams.seed() ^ cand.render().hashCode(),
+                    baseParams.typeAwareDescriptionCost());
             double bestGain = Double.NEGATIVE_INFINITY;
             boolean ok = false;
             String bestReason = null;

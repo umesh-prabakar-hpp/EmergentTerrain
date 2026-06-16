@@ -115,4 +115,19 @@ class OperatorGrammarTest {
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> OperatorGrammar.parse("bogus(x"));
     }
+
+    @Test
+    void typeAwareDescriptionBitsPricesNodesByTheirOwnAlphabet() {
+        double log2 = Math.log(2);
+        assertThat(OperatorGrammar.operatorCount()).isEqualTo(6);   // 4 unary + 2 binary
+        assertThat(OperatorGrammar.Expr.leaf("a").descriptionBits(15))
+                .isCloseTo(Math.log(15) / log2, within(1e-9));      // leaf: log2(leafAlphabet)
+        var bin = OperatorGrammar.Expr.binary(OperatorGrammar.Binary.DIV,
+                OperatorGrammar.Expr.leaf("a"), OperatorGrammar.Expr.leaf("b"));
+        assertThat(bin.descriptionBits(15))                        // log2(2 binary ops) + 2 leaves
+                .isCloseTo(1.0 + 2 * (Math.log(15) / log2), within(1e-9));
+        var un = OperatorGrammar.Expr.unary(OperatorGrammar.Unary.SQUARE, OperatorGrammar.Expr.leaf("a"));
+        assertThat(un.descriptionBits(15))                         // log2(4 unary ops) + 1 leaf
+                .isCloseTo(2.0 + (Math.log(15) / log2), within(1e-9));
+    }
 }

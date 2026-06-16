@@ -49,6 +49,12 @@ public final class OperatorGrammar {
     private OperatorGrammar() {
     }
 
+    /** Total operator symbols (unary + binary). The {@code +N} added to the leaf alphabet to form the
+     *  uniform grammar-symbol count, and the offset to recover the leaf alphabet from it. */
+    public static int operatorCount() {
+        return Unary.values().length + Binary.values().length;
+    }
+
     /** A grammar expression over base scalars. Immutable; equality by canonical {@link #render()}. */
     public static final class Expr {
         private enum Kind { LEAF, UNARY, BINARY }
@@ -122,6 +128,27 @@ public final class OperatorGrammar {
                 case LEAF -> 1;
                 case UNARY -> 1 + a.nodeCount();
                 case BINARY -> 1 + a.nodeCount() + b.nodeCount();
+            };
+        }
+
+        /**
+         * Type-aware MDL description length (bits), Stage C of
+         * {@code novelty-ceiling-and-vocab-activation.md}. A LEAF identifies one of
+         * {@code leafAlphabet} base scalars (log2 of that); a UNARY/BINARY node identifies one of its
+         * operator set ({@code log2(Unary/Binary.values().length)}) plus its children. More accurate than
+         * the uniform {@code nodeCount · log2(grammarSymbols)} code, which over-charges every operator
+         * node the full scalar+operator alphabet (~5 bits) when an operator has only 2–4 choices (1–2
+         * bits) — the ~4-bit-per-op over-charge is what kept genuinely-compressing depth-1 compositions in
+         * the {@code below_description_cost} bucket. Noise rejection is unaffected (it happens at the
+         * permutation-null stage, before this cost is charged).
+         */
+        public double descriptionBits(int leafAlphabet) {
+            double log2 = Math.log(2.0);
+            return switch (kind) {
+                case LEAF -> Math.log(Math.max(2, leafAlphabet)) / log2;
+                case UNARY -> Math.log(Unary.values().length) / log2 + a.descriptionBits(leafAlphabet);
+                case BINARY -> Math.log(Binary.values().length) / log2
+                        + a.descriptionBits(leafAlphabet) + b.descriptionBits(leafAlphabet);
             };
         }
 

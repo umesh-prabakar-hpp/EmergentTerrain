@@ -108,6 +108,11 @@ public class ConjectureMinerProperties {
     // Wave 5 — vocabulary expansion (30.5 P3a admission); reuses stochasticNull* + sublinearBudgetAlpha.
     private boolean vocabularyExpansionEnabled = false;
     private int vocabularyExpansionDepth = 1;
+    // Stage C (novelty-ceiling-and-vocab-activation.md) — type-aware MDL description code (operator
+    // nodes priced by their own small alphabet, not the full scalar+op alphabet). More accurate; lowers
+    // the description cost for compositions so the genuinely-compressing below_description_cost bucket
+    // can admit. Noise rejection (permutation null) is unaffected.
+    private boolean vocabTypeAwareDescriptionCost = false;
     // Wave 6 — RAF-closure reporting (sim #1): report iRAF publishable units + ungrounded findings.
     private boolean rafClosureEnabled = false;
     // Wave 4 — SHADOW mode: when a W4 retirement gate's own flag is OFF, run it anyway and LOG what it
@@ -214,6 +219,9 @@ public class ConjectureMinerProperties {
 
     public int getVocabularyExpansionDepth() { return vocabularyExpansionDepth; }
     public void setVocabularyExpansionDepth(int v) { this.vocabularyExpansionDepth = v; }
+
+    public boolean isVocabTypeAwareDescriptionCost() { return vocabTypeAwareDescriptionCost; }
+    public void setVocabTypeAwareDescriptionCost(boolean v) { this.vocabTypeAwareDescriptionCost = v; }
 
     public boolean isRafClosureEnabled() { return rafClosureEnabled; }
     public void setRafClosureEnabled(boolean v) { this.rafClosureEnabled = v; }

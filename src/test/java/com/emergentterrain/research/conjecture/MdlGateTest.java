@@ -70,6 +70,47 @@ class MdlGateTest {
         assertThat(sqV.descriptionBits()).isCloseTo(2 * bitsPerNode, within(1e-9));      // 2 nodes
     }
 
+    // ---- Stage C: type-aware description cost (novelty-ceiling-and-vocab-activation.md) ----
+
+    private static final MdlGate.Params P_TYPED = new MdlGate.Params(21, 999, 0.05, 42L, true);
+
+    @Test
+    void typeAwareDescriptionCostIsLowerForCompositions() {
+        // Uniform charges a binary node 3*log2(21)≈13.2 bits; type-aware charges the operator its own
+        // alphabet (log2(2)=1) + two leaves (log2(21-6=15) each) ≈ 8.8 — the ~4-bit/op correction.
+        var binary = OperatorGrammar.Expr.binary(
+                OperatorGrammar.Binary.DIV, leaf("z"), leaf("rhs"));
+        double uniform = MdlGate.evaluate(binary, planted(), "lhs", "rhs", List.of(), P).descriptionBits();
+        double typed = MdlGate.evaluate(binary, planted(), "lhs", "rhs", List.of(), P_TYPED).descriptionBits();
+        double log2 = Math.log(2);
+        assertThat(typed).isLessThan(uniform)
+                .isCloseTo(1.0 + 2 * (Math.log(15) / log2), within(1e-9));
+    }
+
+    @Test
+    void typeAwareRaisesNetGainForACompressingCandidate() {
+        // Same compression, lower description cost ⇒ strictly higher net gain — this is how a
+        // below_description_cost candidate crosses into admit.
+        var uniform = MdlGate.evaluate(leaf("z"), planted(), "lhs", "rhs", List.of("noise"), P);
+        var typed = MdlGate.evaluate(leaf("z"), planted(), "lhs", "rhs", List.of("noise"), P_TYPED);
+        assertThat(typed.descriptionBits()).isLessThan(uniform.descriptionBits());
+        assertThat(typed.netGainBits()).isGreaterThan(uniform.netGainBits());
+    }
+
+    @Test
+    void typeAwareStillRejectsNoise() {
+        // §8 guard: the lowered description cost must NOT admit noise — rejection happens at the
+        // permutation-null / no-compression stage, before the description cost is charged.
+        MdlGate.Verdict leafNoise = MdlGate.evaluate(
+                leaf("noise"), planted(), "lhs", "rhs", List.of("z"), P_TYPED);
+        assertThat(leafNoise.admit()).isFalse();
+        assertThat(leafNoise.reason()).isIn("fails_null", "no_compression");
+        MdlGate.Verdict compNoise = MdlGate.evaluate(
+                OperatorGrammar.Expr.unary(OperatorGrammar.Unary.SQUARE, leaf("noise")),
+                planted(), "lhs", "rhs", List.of("z"), P_TYPED);
+        assertThat(compNoise.admit()).isFalse();
+    }
+
     @Test
     void tooFewSamplesNotAdmitted() {
         List<Map<String, Double>> few = planted().subList(0, 5);
