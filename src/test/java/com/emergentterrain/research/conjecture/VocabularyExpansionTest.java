@@ -68,4 +68,38 @@ class VocabularyExpansionTest {
         assertThat(VocabularyExpansion.admit(
                 List.of(OperatorGrammar.Expr.leaf("z")), planted(), List.of(), List.of(), 8, P)).isEmpty();
     }
+
+    // ---- Stage A: admitWithReport rejection histogram (novelty-ceiling-and-vocab-activation.md) ----
+
+    @Test
+    void reportAdmittedMatchesAdmit() {
+        List<OperatorGrammar.Expr> cands = List.of(
+                OperatorGrammar.Expr.leaf("z"), OperatorGrammar.Expr.leaf("noise"));
+        VocabularyExpansion.AdmissionReport report = VocabularyExpansion.admitWithReport(
+                cands, planted(), TARGET, List.of("noise"), 8, P);
+        assertThat(report.admitted())
+                .isEqualTo(VocabularyExpansion.admit(cands, planted(), TARGET, List.of("noise"), 8, P));
+    }
+
+    @Test
+    void histogramCountsEveryCandidateAndFlagsAdmit() {
+        List<OperatorGrammar.Expr> cands = List.of(
+                OperatorGrammar.Expr.leaf("z"), OperatorGrammar.Expr.leaf("noise"));
+        VocabularyExpansion.AdmissionReport report = VocabularyExpansion.admitWithReport(
+                cands, planted(), TARGET, List.of("noise"), 8, P);
+        int total = report.reasonCounts().values().stream().mapToInt(Integer::intValue).sum();
+        assertThat(total).isEqualTo(2);                      // one outcome per probed candidate
+        assertThat(report.reasonCounts()).containsEntry("admit", 1);   // z explains the residual
+    }
+
+    @Test
+    void histogramFlagsExplainedByExisting() {
+        // The Fork-A signal: candidate z would compress the residual, but z is already in existing,
+        // so the gate correctly admits nothing and the reason is explained_by_existing.
+        List<OperatorGrammar.Expr> cands = List.of(OperatorGrammar.Expr.leaf("z"));
+        VocabularyExpansion.AdmissionReport report = VocabularyExpansion.admitWithReport(
+                cands, planted(), TARGET, List.of("z"), 8, P);
+        assertThat(report.admitted()).isEmpty();
+        assertThat(report.reasonCounts()).containsEntry("explained_by_existing", 1);
+    }
 }

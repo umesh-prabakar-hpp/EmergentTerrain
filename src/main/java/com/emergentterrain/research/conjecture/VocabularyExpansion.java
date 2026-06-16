@@ -18,9 +18,13 @@ import java.util.Map;
  * is derived from the candidate render so the verdict is deterministic and candidate-independent.
  *
  * <p>Pure, stateless, deterministic. The budget (typically {@link SublinearGenerationBudget}) bounds
- * how many scalars enter the vocabulary per pass. This returns the admitted set; persisting it and
- * wiring it into {@code materialize}/seeding so new conjectures are produced and re-evaluable across
- * passes is P3b (needs persistence).
+ * how many scalars enter the vocabulary per pass. Persistence (P3b) and the
+ * {@code materialize}/seeding wiring shipped 2026-06-05 — see {@code ConjectureMinerService} (the loop
+ * persists admitted scalars to {@code derived_scalars} and seeds conjectures that touch them). What
+ * remains open is *admission itself staying at ~0 in practice*; {@link #admitWithReport} surfaces the
+ * per-candidate MDL rejection reason so a mine pass can tell whether the residuals are already explained
+ * by existing vocabulary (correctly inert) or the grammar/calibration is the limiter — see
+ * {@code novelty-ceiling-and-vocab-activation.md} Stage A.
  */
 public final class VocabularyExpansion {
 
@@ -31,14 +35,38 @@ public final class VocabularyExpansion {
     public record Target(String lhs, String rhs) {
     }
 
+    /**
+     * The admitted scalars plus a histogram of the per-candidate MDL outcome — one entry per probed
+     * candidate, keyed by {@link MdlGate.Verdict#reason()} ({@code admit}, {@code explained_by_existing},
+     * {@code below_description_cost}, {@code fails_null}, {@code no_compression}). The "admit" count is
+     * the number that passed MDL and may exceed the budget-capped {@link #admitted()} size.
+     */
+    public record AdmissionReport(List<DerivedScalar> admitted, Map<String, Integer> reasonCounts) {
+    }
+
     public static List<DerivedScalar> admit(List<OperatorGrammar.Expr> candidates,
                                             List<Map<String, Double>> samples, List<Target> targets,
                                             Collection<String> existing, int budget,
                                             MdlGate.Params baseParams) {
+        return admitWithReport(candidates, samples, targets, existing, budget, baseParams).admitted();
+    }
+
+    /**
+     * Stage A diagnostic admission: identical admit decision as {@link #admit}, but also returns the
+     * per-candidate rejection-reason histogram. For each candidate the reported reason is its BEST shot
+     * across all targets (the verdict with the highest net gain) — so {@code explained_by_existing}
+     * dominating means existing vocabulary already covers the residuals (correctly inert), whereas
+     * {@code below_description_cost} with real compression points at a grammar-depth / calibration limit.
+     */
+    public static AdmissionReport admitWithReport(List<OperatorGrammar.Expr> candidates,
+                                                  List<Map<String, Double>> samples, List<Target> targets,
+                                                  Collection<String> existing, int budget,
+                                                  MdlGate.Params baseParams) {
         List<DerivedScalar> out = new ArrayList<>();
+        Map<String, Integer> reasons = new java.util.LinkedHashMap<>();
         if (budget <= 0 || candidates == null || candidates.isEmpty()
                 || samples == null || targets == null || targets.isEmpty()) {
-            return out;
+            return new AdmissionReport(out, reasons);
         }
         List<DerivedScalar> admitted = new ArrayList<>();
         for (OperatorGrammar.Expr cand : candidates) {
@@ -46,13 +74,20 @@ public final class VocabularyExpansion {
                     baseParams.alpha(), baseParams.seed() ^ cand.render().hashCode());
             double bestGain = Double.NEGATIVE_INFINITY;
             boolean ok = false;
+            String bestReason = null;
+            double bestReasonGain = Double.NEGATIVE_INFINITY;
             for (Target t : targets) {
                 MdlGate.Verdict v = MdlGate.evaluate(cand, samples, t.lhs(), t.rhs(), existing, p);
+                if (bestReason == null || v.netGainBits() > bestReasonGain) {
+                    bestReasonGain = v.netGainBits();
+                    bestReason = v.reason();
+                }
                 if (v.admit() && v.netGainBits() > bestGain) {
                     bestGain = v.netGainBits();
                     ok = true;
                 }
             }
+            reasons.merge(ok ? "admit" : bestReason, 1, Integer::sum);
             if (ok) {
                 admitted.add(new DerivedScalar(cand.render(), cand, bestGain));
             }
@@ -65,6 +100,6 @@ public final class VocabularyExpansion {
             }
             out.add(d);
         }
-        return out;
+        return new AdmissionReport(out, reasons);
     }
 }

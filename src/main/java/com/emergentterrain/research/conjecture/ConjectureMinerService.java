@@ -934,8 +934,13 @@ public class ConjectureMinerService implements ConjectureQueue {
             int budget = SublinearGenerationBudget.budget(nValidations, sublinearBudgetAlpha, VOCAB_ADMIT_CAP);
             MdlGate.Params params = new MdlGate.Params(
                     vocab.size() + 6, stochasticNullPermutations, stochasticNullAlpha, 0xCAB5EEDL);
-            List<DerivedScalar> admitted = VocabularyExpansion.admit(
+            // Stage A (novelty-ceiling-and-vocab-activation.md) — admitWithReport surfaces WHY each
+            // candidate was rejected so a mine pass resolves the fork: explained_by_existing dominating
+            // = existing vocab already covers the residuals (correctly inert, blocker is upstream);
+            // below_description_cost/fails_null with real compression = grammar-depth/calibration limit.
+            VocabularyExpansion.AdmissionReport admissionReport = VocabularyExpansion.admitWithReport(
                     candidates, allSamples, targets, vocab, budget, params);
+            List<DerivedScalar> admitted = admissionReport.admitted();
 
             int newConjectures = 0;
             if (!admitted.isEmpty()) {
@@ -986,8 +991,10 @@ public class ConjectureMinerService implements ConjectureQueue {
                     newConjectures++;
                 }
             }
-            log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new conjectures seeded",
-                    candidates.size(), admitted.size(), budget, newConjectures);
+            log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new "
+                            + "conjectures seeded; rejection histogram {}",
+                    candidates.size(), admitted.size(), budget, newConjectures,
+                    admissionReport.reasonCounts());
         }
 
         // Phase 30 Wave 6 — RAF-closure reporting (sim #1, flag-gated OFF). Over the live findings'
