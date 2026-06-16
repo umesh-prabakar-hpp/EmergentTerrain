@@ -41,7 +41,12 @@ using Base.Threads: ReentrantLock
 # sidecar is the SOLE number-theory-window compute path: the JVM's in-process
 # MathConjectureSubstrate (which previously covered the 1.05M–2M range via
 # fallback) was deleted, so the sidecar must serve the verifier's whole range.
-const NT_MAX_N = 2_000_000
+# 2026-06-16 (object-substrate-expansion.md) — lockstep dense-sieve reach bump 2e6 → 2e7. A 10x larger
+# Int32 SPF array (~80 MB, build <0.5s); same linear-sieve algorithm, no correctness change. MUST stay
+# in lockstep with ConjectureVerifier.MAX_N on the Java side. The cumulative dirichlet_error/mertens use
+# the O(√x) hyperbola method (not this array), so they extend with it. ≥1e9 needs the segmented window
+# sieve (Stage 2), not a bigger dense array.
+const NT_MAX_N = 20_000_000
 
 # Module-state holders. `Ref` so we can lazily set them under a lock
 # without making the sieve a `const` (which would force build-at-load).
@@ -269,6 +274,13 @@ function nt_evaluate_window(start::Integer, size::Integer)
     n_twin = 0               # n with n and n+2 both prime (n in window)
     max_prime_gap = 0        # largest gap between consecutive primes IN the window
     last_prime = 0           # 0 = no prime seen yet in this window
+    # 2026-06-16 (object-substrate-expansion.md Stage 1) — three per-integer object densities computed
+    # from the ω/Ω/d primitives already in this pass (no extra factorization). squarefree (Ω==ω) is a
+    # KNOWN-constant validation object (→ 6/π²); richly-divisible (d>ω²) and omega-excess (Ω−ω≥2) are
+    # genuinely uncharted natural densities — the first new conjecture targets beyond the original 25.
+    n_squarefree = 0
+    n_richly = 0
+    n_omega_excess = 0
 
     @inbounds for n in actual_start:(Int(end_) - 1)
         s = nt_sigma(n)
@@ -290,7 +302,8 @@ function nt_evaluate_window(start::Integer, size::Integer)
         end
         nt_is_happy(n) && (n_happy += 1)
 
-        sum_omega += nt_omega(n)
+        om = nt_omega(n)
+        sum_omega += om
         bo = nt_big_omega(n)
         sum_big_omega += bo
         sum_big_omega_sq += Int64(bo) * Int64(bo)
@@ -298,6 +311,10 @@ function nt_evaluate_window(start::Integer, size::Integer)
         sum_divisor_count += d
         d > max_divisor_count && (max_divisor_count = d)
         mertens_delta += nt_mobius(n)
+        # Stage 1 per-integer objects (ω/Ω/d already in hand)
+        bo == om && (n_squarefree += 1)            # squarefree: every prime exponent is 1
+        d > om * om && (n_richly += 1)             # richly divisible relative to its distinct-prime count
+        bo - om >= 2 && (n_omega_excess += 1)      # a cube, or ≥2 squared primes
     end
 
     inv = 1.0 / actual_size
@@ -328,6 +345,10 @@ function nt_evaluate_window(start::Integer, size::Integer)
         "twin_prime_density" => n_twin * inv,
         "omega_ek_ratio"     => ek,
         "dirichlet_error"    => derr,
+        # Stage 1 per-integer object densities (object-substrate-expansion.md)
+        "squarefree_density"       => n_squarefree * inv,
+        "richly_divisible_density" => n_richly * inv,
+        "omega_excess_density"     => n_omega_excess * inv,
     ]
 end
 

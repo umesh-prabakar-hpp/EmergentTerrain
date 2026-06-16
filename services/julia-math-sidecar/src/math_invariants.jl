@@ -27,6 +27,9 @@ const MATH_BASE_NAMES = String[
     "twin_prime_density",
     "omega_ek_ratio",       # 2026-06-13 Erdős–Kac: Var(Ω)/ln ln x → 1
     "dirichlet_error",      # 2026-06-13 Dirichlet divisor error Δ(x)/x^{1/4}
+    "squarefree_density",        # 2026-06-16 Stage 1: Ω==ω → 6/π² (validation object)
+    "richly_divisible_density",  # 2026-06-16 Stage 1: d > ω² (uncharted)
+    "omega_excess_density",      # 2026-06-16 Stage 1: Ω−ω ≥ 2 (uncharted)
 ]
 
 """
