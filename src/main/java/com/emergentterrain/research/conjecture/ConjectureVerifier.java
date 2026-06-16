@@ -29,10 +29,13 @@ import java.util.concurrent.atomic.AtomicReference;
 @Component
 public class ConjectureVerifier {
 
-    /** Maximum integer the sidecar's sieve covers (NT_MAX_N). Held-out windows further out are rejected.
-     *  2026-06-16 (object-substrate-expansion.md) — bumped 2e6 → 2e7 in LOCKSTEP with the sidecar's
-     *  NT_MAX_N (numbertheory.jl). Both must move together or windows in (2e6, 2e7] throw sidecar-side. */
-    public static final int MAX_N = 20_000_000;
+    /** Maximum integer the verify path reaches. The sidecar covers windows beyond its dense array
+     *  (NT_MAX_N=2e7) via a SEGMENTED trial-division path up to NT_SEGMENTED_MAX=1e12
+     *  (object-substrate-expansion.md Stage 2), so this ceiling is no longer the dense-array size — it is
+     *  bounded by Java {@code int} (~2.1e9). 2026-06-16: 2e7 → 2e9 (the verify path now reaches 2e9; the
+     *  sidecar can go to 1e12, headroom for a future long-typed verify path). Stronger measurements:
+     *  omega_Omega_gap → 0.77316, dirichlet O(1) envelope, twin → 2C₂ measured ~100× further out. */
+    public static final int MAX_N = 2_000_000_000;
     /** Default number of disjoint windows evaluated per call. */
     public static final int DEFAULT_NUM_WINDOWS = 5;
     /** Cap on total integers scanned per verify call (numWindows × windowSize). */
@@ -54,7 +57,7 @@ public class ConjectureVerifier {
      */
     @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxWork:100000}")
     private int maxWorkCfg = MAX_WORK;
-    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxN:20000000}")
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.maxN:2000000000}")
     private int maxNCfg = MAX_N;
 
     /** Effective per-call work cap (numWindows × windowSize), config-driven. */

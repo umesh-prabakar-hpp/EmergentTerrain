@@ -72,12 +72,16 @@ The cap is `ConjectureVerifier.MAX_N = NT_MAX_N = 2×10⁶` — the dense SPF ar
   `dirichlet_error`/`mertens` (computed via the O(√x) hyperbola method, not the dense array) — a 10× larger
   held-out range, so a held bound or an oscillation envelope is a *much* stronger empirical statement
   against an open problem.
-- **STAGE 2 (design) — segmented window sieve for ≥10⁹.** The dense array is unnecessary for a *window*:
-  factor `[L, L+W)` with primes up to √(L+W) via a segmented sieve (for L=10⁹, that's primes ≤ ~31623 — a
-  tiny fixed sieve). Decouples window evaluation from `NT_MAX_N` entirely → window-local scalars (densities,
-  means, divisor extremes) reach 10⁹⁺. The cumulative scalars (`mertens`) stay on the existing frontier
-  path. This is the real reach unlock; deferred because it's a careful segmented-sieve implementation +
-  verification, not a one-line bump.
+- **STAGE 2 — SHIPPED 2026-06-16 (segmented reach to 2e9 verify-path / 1e12 sidecar capability).**
+  `nt_factor` / `nt_is_prime` are now RANGE-AWARE: dense SPF for n ≤ NT_MAX_N (byte-identical), TRIAL
+  DIVISION (cached small primes up to √1e12=1e6) for NT_MAX_N < n ≤ NT_SEGMENTED_MAX=1e12. Every per-n
+  function routes through `nt_factor`, so all window-local scalars + the O(√x) cumulative dirichlet_error
+  reach high x with no dense-array growth. Window/verify caps (numbertheory.jl + handlers.jl ×2) raised to
+  NT_SEGMENTED_MAX; `ConjectureVerifier.MAX_N` + maxN config 2e7 → 2e9 (Java `int` ceiling — the sidecar
+  can go to 1e12, headroom for a future long-typed verify path). VERIFIED: squarefree_density → 6/π²,
+  prime_density → 1/ln x, mean_omega → ln ln x all match at x=1e8 AND 1e9 (trial path); ~80 ms per
+  5000-window at 1e9. So omega_Omega_gap → 0.77316 / twin → 2C₂ / dirichlet O(1) are now measurable ~100×
+  further out — directly strengthening the supply-limited frontier (run-6 verdict).
 
 ## Honest ceiling (unchanged)
 
