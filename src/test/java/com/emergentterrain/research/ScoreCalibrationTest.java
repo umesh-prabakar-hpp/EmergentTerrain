@@ -309,4 +309,73 @@ class ScoreCalibrationTest {
         assertFalse(ScoreCalibration.isConstantOrOscillationFramed(List.of(other("verify_growth"))));
         assertFalse(ScoreCalibration.isConstantOrOscillationFramed(null));
     }
+
+    // ── Phase 30 G2 — two-term intercept-tighten gate (looseTwoTermUntightened) ──
+
+    private static final String TWO_TERM_LOOSE_HELD =
+            "verify_conjecture: max_divisor_count <= +2.0000 * wigert_bound + +2.0000 * omega_Omega_gap + "
+            + "-32.4768 HELD across 15 window(s). worst margin: -24.50000. relative slack: 0.5000. "
+            + "LOOSE (two-term): holds with this much slack — the tightest intercept keeping k and k2 is "
+            + "c ≈ -56.9768. Re-verify at c=-56.9768 (keep k=+2.0000, rhs2=omega_Omega_gap, k2=+2.0000) "
+            + "AND confirm a slightly smaller c REFUTES, to demonstrate the binding regime.";
+    private static final String TWO_TERM_ARGS =
+            "{\"lhs\":\"max_divisor_count\",\"rhs\":\"wigert_bound\",\"k\":2,"
+            + "\"rhs2\":\"omega_Omega_gap\",\"k2\":2,\"c\":-32.4768}";
+    private static final String TWO_TERM_TIGHT_HELD =
+            "verify_conjecture: max_divisor_count <= +2.0000 * wigert_bound + +2.0000 * omega_Omega_gap + "
+            + "-56.9768 HELD across 15 window(s). worst margin: -0.40000. relative slack: 0.0080.";
+
+    @Test
+    void looseTwoTerm_firesWhenHeldLooseAndNotTightened() {
+        var s = ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count",
+                List.of(verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD)));
+        assertNotNull(s);
+        assertEquals("-56.9768", s.suggestedC());
+        assertEquals("wigert_bound", s.rhs());
+        assertEquals("omega_Omega_gap", s.rhs2());
+        assertEquals("2", s.k());
+        assertEquals("2", s.k2());
+    }
+
+    @Test
+    void looseTwoTerm_nullWhenSubsequentTightTwoTermHold() {
+        // The professor DID re-verify at the tight c (a two-term HELD with no LOOSE suggestion).
+        assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", List.of(
+                verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD),
+                verify(TWO_TERM_ARGS, TWO_TERM_TIGHT_HELD))));
+    }
+
+    @Test
+    void looseTwoTerm_capturesFailureRegionFromRefutedCall() {
+        var s = ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", List.of(
+                verify("{\"lhs\":\"max_divisor_count\",\"rhs\":\"wigert_bound\",\"k\":2,"
+                        + "\"rhs2\":\"omega_Omega_gap\",\"k2\":2,\"c\":-60,"
+                        + "\"window_start\":300000,\"window_size\":1000,\"num_windows\":15}",
+                        "verify_conjecture: ... REFUTED across 15 window(s) starting at 300000"),
+                verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD)));
+        assertNotNull(s);
+        assertEquals("-56.9768", s.suggestedC());
+        assertEquals("300000", s.failStart());
+        assertEquals("1000", s.failSize());
+        assertEquals("15", s.failNum());
+    }
+
+    @Test
+    void looseTwoTerm_ignoresOneTermLooseHeld_noCrossTrigger() {
+        // A one-term loose hold (SUGGEST_K, no rhs2) must NOT trip the two-term gate…
+        assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_prime_gap",
+                List.of(verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":1,\"c\":0}",
+                        LOOSE_HELD))));
+        // …and the two-term loose hold (SUGGEST_C) must NOT trip the one-term gate.
+        assertNull(ScoreCalibration.looseGrowthAnchorUntightened("conjecture/max_divisor_count",
+                List.of(verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD))));
+    }
+
+    @Test
+    void looseTwoTerm_nullOnNonConjectureOrEmpty() {
+        assertNull(ScoreCalibration.looseTwoTermUntightened("physics/foo",
+                List.of(verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD))));
+        assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", List.of()));
+        assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", null));
+    }
 }

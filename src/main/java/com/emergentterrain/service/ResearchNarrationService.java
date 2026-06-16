@@ -178,6 +178,19 @@ public class ResearchNarrationService {
     private boolean tightenGateEnabled;
 
     /**
+     * Phase 30 G2 (2026-06-15) — the two-term twin of {@link #tightenGateEnabled}. A generated two-term
+     * composite (lhs ≤ k·rhs + k2·rhs2 + c) that HELD only loosely — verify_conjecture emitted its
+     * "LOOSE (two-term): re-verify at c=…" intercept suggestion — and was never re-verified at that tight
+     * c gets a corrective re-run that drives it to the binding region (clears binding_regime_uncovered for
+     * a held composite, and rescues a refuted-by-a-hair fit). The lever is the intercept c (k/k2 are the
+     * residual structure, kept). Lowest priority of the four re-run triggers. false = today's behavior,
+     * bit-identical (and only reachable when two-term rows exist, i.e. twoTermEnabled is on).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.two-term-tighten-gate.enabled:false}")
+    private boolean twoTermTightenGateEnabled;
+
+    /**
      * Phase 32 (paper-pipeline-quality-brief Change 4) — when on, the result-classification line shown to
      * the SCORING REVIEWER is corrected to reflect the paper's actual finding. Conjecture drafts are
      * seeded SUPPORTED (ResearchCycleService); the professor often refutes the bound, and the divergence
@@ -425,6 +438,46 @@ public class ResearchNarrationService {
         b.append("Start at k≈").append(s.suggestedK()).append(" and INCREASE k until it HOLDS with a small ")
                 .append("margin THERE — the tightest k that holds the FAILURE region is the real capturable ")
                 .append("bound (the loose benign-region value is not). That tight k is the result.");
+        return b.toString();
+    }
+
+    /**
+     * The two-term intercept-tighten re-run note (Phase 30 G2, 2026-06-15): the professor held a generated
+     * two-term composite loosely and the verify tool already named the tight intercept c — this enforces
+     * the follow-up. The lever is c (k/k2 are the residual structure, KEPT); the tool's suggested c is
+     * deterministic, so this names it explicitly (enforcing the tool's determination, not hand-authoring).
+     * The re-run must ALSO show a slightly-tighter c REFUTES, so a confirmatory-only hold gains the binding
+     * region the binding-regime gate requires.
+     */
+    static String buildTwoTermTightenNote(String lhs,
+            com.emergentterrain.research.ScoreCalibration.TwoTermTightenSuggestion s) {
+        String rhs = s.rhs();
+        String rhs2 = s.rhs2();
+        String k = s.k();
+        String k2 = s.k2();
+        StringBuilder b = new StringBuilder();
+        b.append("\n\nTWO-TERM TIGHTEN NOTE — your two-term composite on '").append(lhs).append("' HELD, ")
+                .append("but only LOOSELY, and you never showed where it BINDS (no REFUTED call) — so it is ")
+                .append("DOWNGRADED (binding-regime-uncovered) however strong the residual evidence. KEEP the ")
+                .append("structure k and k2 (they are the relation); tighten the INTERCEPT c. The verify tool ")
+                .append("named the tightest intercept that still holds your windows as c≈").append(s.suggestedC())
+                .append(". Re-verify the composite at THAT c — verify_conjecture lhs=\"").append(lhs).append("\"")
+                .append(rhs != null ? ", rhs=\"" + rhs + "\"" : "")
+                .append(k != null ? ", k=" + k : "")
+                .append(rhs2 != null ? ", rhs2=\"" + rhs2 + "\"" : "")
+                .append(k2 != null ? ", k2=" + k2 : "")
+                .append(", c=").append(s.suggestedC());
+        if (s.failStart() != null) {
+            b.append(", window_start=").append(s.failStart())
+                    .append(s.failSize() != null ? ", window_size=" + s.failSize() : "")
+                    .append(s.failNum() != null ? ", num_windows=" + s.failNum() : "");
+        }
+        b.append(" — confirm it still HOLDS with a SMALL margin. THEN re-verify once more at a slightly ")
+                .append("SMALLER c and confirm it REFUTES: that REFUTED call is the binding region, and the ")
+                .append("tight-c HOLD plus the over-tight REFUTE in the SAME trace is what makes the composite ")
+                .append("an EMPIRICAL_RESULT instead of a loose, never-binding hold. Report the tight c and the ")
+                .append("worst-margin at the binding region — a composite left at the loose auto-fit c is not ")
+                .append("retained.");
         return b.toString();
     }
 
@@ -2378,7 +2431,14 @@ public class ResearchNarrationService {
                         ? com.emergentterrain.research.ScoreCalibration
                                 .looseGrowthAnchorUntightened(topic, profTrace)
                         : null;
-                if (!offTarget && !secondOrderSkipped && tighten == null) {
+                // Lowest-priority trigger (Phase 30 G2): a two-term composite held only loosely — tighten
+                // the intercept c toward the binding region. Only when no one-term trigger fired.
+                com.emergentterrain.research.ScoreCalibration.TwoTermTightenSuggestion twoTermTighten =
+                        (!offTarget && !secondOrderSkipped && tighten == null && twoTermTightenGateEnabled)
+                        ? com.emergentterrain.research.ScoreCalibration
+                                .looseTwoTermUntightened(topic, profTrace)
+                        : null;
+                if (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
                 pivotReruns++;
@@ -2402,13 +2462,20 @@ public class ResearchNarrationService {
                                     + "second-order frame engaged) — second-order re-run {}/{} paperId={}",
                             preregLhs, pivotReruns, pivotMaxRefinements, draft.paperId());
                     pivotPrompt = userPrompt + buildSecondOrderNote(preregLhs);
-                } else {
+                } else if (tighten != null) {
                     callPath.add("prereg:pivot:tighten_rerun:n=" + pivotReruns);
                     log.info("LLM professor tools: loose growth anchor (lhs '{}' held but untightened; "
                                     + "tool suggested k~{}) — tighten re-run {}/{} paperId={}",
                             preregLhs, tighten.suggestedK(), pivotReruns, pivotMaxRefinements,
                             draft.paperId());
                     pivotPrompt = userPrompt + buildTightenNote(preregLhs, tighten);
+                } else {
+                    callPath.add("prereg:pivot:twoterm_tighten_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: loose two-term composite (lhs '{}' held but untightened; "
+                                    + "tool suggested c~{}) — two-term tighten re-run {}/{} paperId={}",
+                            preregLhs, twoTermTighten.suggestedC(), pivotReruns, pivotMaxRefinements,
+                            draft.paperId());
+                    pivotPrompt = userPrompt + buildTwoTermTightenNote(preregLhs, twoTermTighten);
                 }
                 MathToolSuite.ToolMetrics pivotMetrics = new MathToolSuite.ToolMetrics();
                 final String pivotPromptFinal = pivotPrompt;
@@ -2432,13 +2499,18 @@ public class ResearchNarrationService {
                     boolean stillLoose = tightenGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .looseGrowthAnchorUntightened(topic, profTrace) != null;
+                    boolean stillTwoTermLoose = twoTermTightenGateEnabled
+                            && com.emergentterrain.research.ScoreCalibration
+                                    .looseTwoTermUntightened(topic, profTrace) != null;
                     callPath.add(stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped
                                     ? "prereg:pivot:still_leadingorder"
                                     : stillLoose
                                             ? "prereg:pivot:still_loose"
-                                            : "prereg:pivot:on_target");
+                                            : stillTwoTermLoose
+                                                    ? "prereg:pivot:still_twoterm_loose"
+                                                    : "prereg:pivot:on_target");
                 } else {
                     // Keep the original synthesis/trace; the gate decides.
                     callPath.add("prereg:pivot:rerun_unusable");
@@ -4088,7 +4160,19 @@ public class ResearchNarrationService {
             + "(happy-prime density)*ln x tends to the happy density iff happiness and primality are "
             + "independent, which IS a result. The principle: when a quantity's leading order is known "
             + "textbook, the paper's contribution is the measured second-order constant / error / "
-            + "fluctuation, via the matching frame — never the leading order itself.";
+            + "fluctuation, via the matching frame — never the leading order itself.\n"
+            + "10. TWO-TERM TIGHTEN STEP (2026-06-15): if the bound under investigation is a TWO-TERM "
+            + "composite (lhs <= k*rhs + k2*rhs2 + c — i.e. you call verify_conjecture WITH rhs2 and k2; "
+            + "these are the generated residual-promotion bounds), the SAME tightness discipline as step 5 "
+            + "applies, but the lever is the INTERCEPT c — keep k and k2 from the residual fit, they are the "
+            + "structure of the relation. After confirming the composite HOLDS, verify_conjecture reports "
+            + "'LOOSE (two-term): re-verify at c=X' (X = the smallest intercept that keeps every window "
+            + "holding) — you MUST re-verify at that c AND THEN confirm a slightly SMALLER c REFUTES, so the "
+            + "ONE trace shows BOTH a tight hold and the binding region. A two-term composite that only ever "
+            + "HOLDS — no REFUTED call showing where it binds — is DOWNGRADED (binding-regime-uncovered) "
+            + "exactly like a one-term bound, no matter how strong the residual evidence: a held bound that "
+            + "never binds is loose. Report the tight c and the worst-margin at the binding region — a "
+            + "composite that binds tightly is THE result; one left at the loose auto-fit c is not retained.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────

@@ -2203,17 +2203,32 @@ public class MathToolSuite {
         if (result.held()) {
             var binding = result.windows().stream()
                     .max(java.util.Comparator.comparingDouble(w -> w.margin()));
+            // bound value = lhs − margin (margin = lhs − bound), so this is correct for BOTH one-term
+            // and two-term (no need for the second term's per-window value, which the report omits).
             double relSlack = binding
-                    .map(w -> Math.abs(w.margin()) / Math.max(Math.abs(k * w.rhsValue() + c), 1e-9))
+                    .map(w -> Math.abs(w.margin()) / Math.max(Math.abs(w.lhsValue() - w.margin()), 1e-9))
                     .orElse(0.0);
             sb.append(String.format(
                     " relative slack: %.4f (|margin|/|bound|, smaller = tighter).", relSlack));
-            // 2026-06-11 (rec 2) — a bound that HELDs but is LOOSE is being left at a textbook asymptotic
-            // constant (e.g. Cramér's k=1 for max_prime_gap, ~2x loose at reachable x). Compute the
-            // TIGHTEST k that still holds these windows — max over windows of (lhs − c)/rhs, the k at which
-            // the worst window is exactly tight — and hand it to the professor, so it tightens to the
-            // EMPIRICAL fit (which the pool retains) instead of stopping at the loose theoretical value.
-            if (relSlack > MAX_REL_SLACK_SUGGEST) {
+            if (relSlack > MAX_REL_SLACK_SUGGEST && !rhs2.isBlank()) {
+                // G2 two-term tighten pass — the lever is the intercept c (keep k1, k2 from the residual
+                // fit). Tightest c keeping every window holding = c + the binding (max) margin; re-verify
+                // there AND confirm a slightly smaller c REFUTES, which demonstrates the binding regime
+                // (clears binding_regime_uncovered + earns EMPIRICAL_RESULT for a held composite). Phrased
+                // with "re-verify at c=" so it does NOT match the one-term SUGGEST_K gate (no mis-fire).
+                double cTight = c + binding.map(w -> w.margin()).orElse(0.0);
+                sb.append(String.format(
+                        " LOOSE (two-term): holds with this much slack — the tightest intercept keeping "
+                                + "k and k2 is c ≈ %+.4f. Re-verify at c=%+.4f (keep k=%+.4f, rhs2=%s, "
+                                + "k2=%+.4f) AND confirm a slightly smaller c REFUTES, to demonstrate the "
+                                + "binding regime; a held composite that never binds stays loose and is not "
+                                + "retained as an EMPIRICAL_RESULT.",
+                        cTight, cTight, k, rhs2, k2));
+            } else if (relSlack > MAX_REL_SLACK_SUGGEST) {
+                // 2026-06-11 (rec 2) — one-term: a HELD bound left at a loose textbook constant (e.g.
+                // Cramér's k=1, ~2x loose at reachable x). Suggest the TIGHTEST k that still holds (max
+                // over windows of (lhs − c)/rhs) so it tightens to the empirical fit. One-term only — for
+                // two-term this k (rhs-only) is wrong, hence the rhs2 guard above.
                 double[] lhsVals = result.windows().stream().mapToDouble(w -> w.lhsValue()).toArray();
                 double[] rhsVals = result.windows().stream().mapToDouble(w -> w.rhsValue()).toArray();
                 double kTight = tightestHoldingK(lhsVals, rhsVals, c);

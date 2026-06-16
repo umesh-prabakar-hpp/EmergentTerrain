@@ -229,6 +229,13 @@ public final class ScoreCalibration {
     private static final java.util.regex.Pattern SUGGEST_K =
             java.util.regex.Pattern.compile("re-verify at k=([0-9.]+)");
 
+    // Phase 30 G2 — the two-term intercept-tighten suggestion the verify tool emits for a loosely-HELD
+    // composite ("LOOSE (two-term): … re-verify at c=X …"). Signed because c can be negative; the lever
+    // is the intercept (k/k2 are kept). Distinct from SUGGEST_K so the two paths never cross-trigger.
+    private static final java.util.regex.Pattern SUGGEST_C =
+            java.util.regex.Pattern.compile("re-verify at c=([+-]?[0-9.]+)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
     private static String strArg(String argsJson, String key) {
         if (argsJson == null) {
             return null;
@@ -307,6 +314,72 @@ public final class ScoreCalibration {
         }
         return (looseK != null && !tightHeldExists)
                 ? new TightenSuggestion(looseRhs, looseC, looseK, failStart, failSize, failNum)
+                : null;
+    }
+
+    /**
+     * Phase 30 G2 — the two-term twin of {@link TightenSuggestion}. {@code rhs}/{@code rhs2}/{@code k}/
+     * {@code k2} are the composite's structure (kept); {@code suggestedC} is the tightest intercept the
+     * verify tool named (the smallest c that still holds every window). {@code fail*} are the first
+     * REFUTED call's window params when the trace has one (else null — for a confirmatory-only hold there
+     * is none, and the re-run note tightens c on the tested windows instead).
+     */
+    public record TwoTermTightenSuggestion(String rhs, String rhs2, String k, String k2,
+            String suggestedC, String failStart, String failSize, String failNum) {}
+
+    /**
+     * Non-null when a conjecture trace HELD a TWO-TERM composite (verify_conjecture called WITH rhs2)
+     * only LOOSELY — the verify tool emitted its "LOOSE (two-term): … re-verify at c=…" intercept
+     * suggestion — AND the professor never followed up with a tight two-term hold (a two-term HELD result
+     * carrying NO such suggestion). Mirrors {@link #looseGrowthAnchorUntightened} but the lever is the
+     * intercept c (k/k2 are the residual structure). The trigger for the two-term tighten corrective
+     * re-run: drive a held-loosely composite to its binding region (clears binding_regime_uncovered) or
+     * tighten a refuted-by-a-hair fit. Considers ONLY two-term calls, so a one-term trace never trips it
+     * (and vice versa — SUGGEST_C ≠ SUGGEST_K). Non-conjecture / empty traces → null.
+     */
+    public static TwoTermTightenSuggestion looseTwoTermUntightened(String topic, List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
+            return null;
+        }
+        String looseRhs = null, looseRhs2 = null, looseK = null, looseK2 = null, suggestedC = null;
+        String failStart = null, failSize = null, failNum = null;
+        boolean tightHeldExists = false;
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())) {
+                continue;
+            }
+            String result = call.resultJson();
+            if (result == null) {
+                continue;
+            }
+            String args = call.argsJson();
+            boolean isTwoTerm = args != null && args.contains("\"rhs2\"");
+            if (result.contains("REFUTED") && failStart == null) {
+                // A REFUTED call's window params — the region a tightened composite must still hold.
+                failStart = numArg(args, "window_start");
+                failSize = numArg(args, "window_size");
+                failNum = numArg(args, "num_windows");
+                continue;   // REFUTED summary carries no "HELD"
+            }
+            if (!isTwoTerm || !result.contains("HELD")) {
+                continue;   // only a two-term HELD call can carry the two-term intercept suggestion
+            }
+            java.util.regex.Matcher cm = SUGGEST_C.matcher(result);
+            if (cm.find()) {
+                if (suggestedC == null) {
+                    looseRhs = strArg(args, "rhs");
+                    looseRhs2 = strArg(args, "rhs2");
+                    looseK = numArg(args, "k");
+                    looseK2 = numArg(args, "k2");
+                    suggestedC = cm.group(1);
+                }
+            } else {
+                tightHeldExists = true;   // a two-term HELD with no LOOSE suggestion is already tight
+            }
+        }
+        return (suggestedC != null && !tightHeldExists)
+                ? new TwoTermTightenSuggestion(looseRhs, looseRhs2, looseK, looseK2,
+                        suggestedC, failStart, failSize, failNum)
                 : null;
     }
 

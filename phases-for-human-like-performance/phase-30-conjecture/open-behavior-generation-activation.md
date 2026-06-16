@@ -129,6 +129,32 @@ until Stage 4:
   → none served. Added a two-term-preference key (after family-rotation, before retired-first) so a
   rotated family serves its two-term row first. G2 loop now closed: generate → persist → select → frame
   → verify.
+- **Stage 5 — two-term tighten pass (DONE 2026-06-15; flag-gated `two-term-tighten-gate.enabled`, ON
+  in yaml).** review-2026-06-15h validated G2 (P-77627643 `max_divisor_count ≤ 2·wigert_bound +
+  2·omega_Omega_gap − 32.48` HELD @300k AND @1.4M, EMPIRICAL_RESULT) — but the held composite was
+  NEEDS_REVISION via `binding_regime_uncovered`: it only ever HELD (confirmatory verifies), never showed
+  where it binds, and there was no two-term tighten loop to drive it there (a refuted-by-a-hair fit,
+  P-641 +0.07, had the same loose-auto-fit problem). Built the two-term twin of the one-term tighten
+  gate, lever = the **intercept c** (k/k2 are the residual structure, kept):
+  - **Latent bug fixed first.** The verify-output relative-slack denominator (`k·rhs + c`) and the
+    `LOOSE: re-verify at k=…` hint (`tightestHoldingK` on lhs/rhs only) both **ignored `k2·rhs2`**, so
+    the one-term tighten gate was **mis-firing on two-term** (re-running at a bogus rhs-only k that drops
+    the second term — the run's `tighten: 2 / still_loose: 2`). Slack is now margin-derived
+    (`|margin|/|lhs−margin|`, exact for both); the k-hint is guarded to one-term (`rhs2` blank).
+    (`MathToolSuite.verifyConjecture`.)
+  - **Tool hint.** A held-loose two-term verify now emits `LOOSE (two-term): … re-verify at c=X` where
+    X = `c + binding-window margin` (the tightest intercept keeping every window holding) — phrased with
+    `c=` so it never trips the one-term `SUGGEST_K` gate.
+  - **Structural enforcement.** `ScoreCalibration.looseTwoTermUntightened` (+ `TwoTermTightenSuggestion`,
+    `SUGGEST_C`) mirrors `looseGrowthAnchorUntightened` on two-term HELD calls; wired as the lowest-
+    priority (4th) corrective-re-run trigger in `ResearchNarrationService` (off-target > second-order >
+    one-term tighten > two-term tighten), with `buildTwoTermTightenNote` instructing: re-verify at the
+    tight c (keep k/k2/rhs2) AND show a slightly-smaller c REFUTES — the REFUTE is the binding region the
+    gate requires. Stamps `prereg:pivot:twoterm_tighten_rerun:*` / `still_twoterm_loose`. Directive
+    step 10 reinforces the same. Tests: ScoreCalibrationTest +5 (fires / tight-hold-nulls / failure-
+    region capture / no cross-trigger with the one-term gate / non-conjecture-null). Acceptance (next
+    run): a held two-term composite shows a REFUTED binding region + tight c and PUBLISHES (clears
+    binding_regime_uncovered); a refuted-by-a-hair two-term fit is rescued to a tight hold.
 - **Filters (Stage 3 decision):** the one-rhs structural filters (dimension/unit/FIM) assume a single
   rhs — simplest safe v1 is to exempt two-term rows from them (they already passed the residual-null
   gate, which is stronger) and rely on counterexample `update()` + knob; tighten later.
