@@ -1019,10 +1019,21 @@ public class ConjectureMinerService implements ConjectureQueue {
             long openTargets = targets.stream()
                     .filter(t -> ScalarOpenness.selectionRank(t.lhs()) == 0)
                     .count();
+            // Stage C observability — the typeAware flag state (so the histogram can't be misread as
+            // flag-off) + the closest below_description_cost candidate ("X bits short"): a small shortfall
+            // means a calibration tweak could cross it; a large one means the candidates genuinely aren't
+            // worth a new scalar (→ the lever is open-object generation, not the gate).
+            String belowCostDetail = admissionReport.closestBelowCostCandidate() == null
+                    ? "n/a"
+                    : String.format("%.2f bits short (%s)",
+                            -admissionReport.closestBelowCostNetGain(),
+                            admissionReport.closestBelowCostCandidate());
             log.info("vocabulary expansion — {} candidate(s) probed, {} admitted (budget {}), {} new "
-                            + "conjectures seeded; {}/{} target(s) open-object; rejection histogram {}",
+                            + "conjectures seeded; {}/{} target(s) open-object; typeAwareCost={}; "
+                            + "closest below-cost: {}; rejection histogram {}",
                     candidates.size(), admitted.size(), budget, newConjectures,
-                    openTargets, targets.size(), admissionReport.reasonCounts());
+                    openTargets, targets.size(), vocabTypeAwareDescriptionCost, belowCostDetail,
+                    admissionReport.reasonCounts());
         }
 
         // Phase 30 Wave 6 — RAF-closure reporting (sim #1, flag-gated OFF). Over the live findings'

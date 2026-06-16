@@ -41,7 +41,12 @@ public final class VocabularyExpansion {
      * {@code below_description_cost}, {@code fails_null}, {@code no_compression}). The "admit" count is
      * the number that passed MDL and may exceed the budget-capped {@link #admitted()} size.
      */
-    public record AdmissionReport(List<DerivedScalar> admitted, Map<String, Integer> reasonCounts) {
+    public record AdmissionReport(List<DerivedScalar> admitted, Map<String, Integer> reasonCounts,
+                                  double closestBelowCostNetGain, String closestBelowCostCandidate) {
+        /** Histogram-only convenience (no below-cost detail). */
+        public AdmissionReport(List<DerivedScalar> admitted, Map<String, Integer> reasonCounts) {
+            this(admitted, reasonCounts, Double.NEGATIVE_INFINITY, null);
+        }
     }
 
     public static List<DerivedScalar> admit(List<OperatorGrammar.Expr> candidates,
@@ -69,6 +74,11 @@ public final class VocabularyExpansion {
             return new AdmissionReport(out, reasons);
         }
         List<DerivedScalar> admitted = new ArrayList<>();
+        // Stage C observability — the below_description_cost candidate CLOSEST to admission (its netGain
+        // is the largest, i.e. least negative). "X bits short" tells whether the gate is nearly crossing
+        // (a calibration tweak could help) or far off (the candidates genuinely aren't worth a scalar).
+        double closestBelowCostGain = Double.NEGATIVE_INFINITY;
+        String closestBelowCostCand = null;
         for (OperatorGrammar.Expr cand : candidates) {
             MdlGate.Params p = new MdlGate.Params(baseParams.grammarSymbols(), baseParams.permutations(),
                     baseParams.alpha(), baseParams.seed() ^ cand.render().hashCode(),
@@ -91,6 +101,9 @@ public final class VocabularyExpansion {
             reasons.merge(ok ? "admit" : bestReason, 1, Integer::sum);
             if (ok) {
                 admitted.add(new DerivedScalar(cand.render(), cand, bestGain));
+            } else if ("below_description_cost".equals(bestReason) && bestReasonGain > closestBelowCostGain) {
+                closestBelowCostGain = bestReasonGain;
+                closestBelowCostCand = cand.render();
             }
         }
         admitted.sort(Comparator.<DerivedScalar>comparingDouble(d -> -d.gainBits())
@@ -101,6 +114,6 @@ public final class VocabularyExpansion {
             }
             out.add(d);
         }
-        return new AdmissionReport(out, reasons);
+        return new AdmissionReport(out, reasons, closestBelowCostGain, closestBelowCostCand);
     }
 }
