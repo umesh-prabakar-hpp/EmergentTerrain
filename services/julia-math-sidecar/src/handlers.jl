@@ -1663,11 +1663,11 @@ function handle_numbertheory_window(req::HTTP.Request)
     # Fail-fast on out-of-range windows. The Julia-side check in
     # nt_evaluate_window would also raise, but we'd rather return a
     # clean 400 than a 500 wrapped around an ArgumentError.
-    if Int(start_v) + Int(size_v) > NT_MAX_N + 1
+    if Int(start_v) + Int(size_v) > NT_SEGMENTED_MAX + 1
         elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
         record_call!("numbertheory_window", elapsed_ms, :error)
         return error_response("bad_request",
-            "Window [$(start_v), $(start_v + size_v)) exceeds NT_MAX_N=$(NT_MAX_N). " *
+            "Window [$(start_v), $(start_v + size_v)) exceeds NT_SEGMENTED_MAX=$(NT_SEGMENTED_MAX). " *
             "Reduce 'start + size' or raise NT_MAX_N (see phase-28).", elapsed_ms)
     end
 
@@ -2202,12 +2202,12 @@ function handle_conjecture_verify(req::HTTP.Request)
             return error_response("bad_request",
                 "windows[$(i-1)] requires start>=0 and size>0", elapsed_ms)
         end
-        if s + sz > NT_MAX_N + 1
+        if s + sz > NT_SEGMENTED_MAX + 1
             elapsed_ms = round(Int, (time_ns() - t0) / 1_000_000)
             record_call!("conjecture_verify", elapsed_ms, :error)
             return error_response("bad_request",
                 "windows[$(i-1)] extends to $(s + sz) which exceeds " *
-                "NT_MAX_N=$(NT_MAX_N) + 1", elapsed_ms)
+                "NT_SEGMENTED_MAX=$(NT_SEGMENTED_MAX) + 1", elapsed_ms)
         end
         push!(parsed_windows, (s, sz))
     end

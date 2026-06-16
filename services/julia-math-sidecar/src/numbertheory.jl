@@ -54,6 +54,64 @@ const NT_SPF      = Ref{Vector{Int32}}()
 const NT_BUILT    = Ref{Bool}(false)
 const NT_BUILD_LOCK = ReentrantLock()
 
+# 2026-06-16 (object-substrate-expansion.md Stage 2) — SEGMENTED reach beyond the dense SPF array.
+# For n in (NT_MAX_N, NT_SEGMENTED_MAX], nt_factor / nt_is_prime fall back to TRIAL DIVISION by a cached
+# list of small primes up to √NT_SEGMENTED_MAX (built once). Every per-n function routes through
+# nt_factor, so window-local scalars (densities, means, divisor extremes) and the O(√x) cumulative
+# dirichlet_error all reach high x — with the dense path (n ≤ NT_MAX_N) BYTE-IDENTICAL (only the
+# n>NT_MAX_N branch is new). The 1e12 cap keeps the small-prime sieve at √1e12 = 1e6 primes and trial
+# division ~sub-second per window; the Java verify path (int MAX_N) caps lower, this is headroom.
+const NT_SEGMENTED_MAX = 1_000_000_000_000
+const NT_SMALL_PRIMES  = Ref{Vector{Int}}()
+const NT_SMALL_BUILT   = Ref{Bool}(false)
+const NT_SMALL_LOCK    = ReentrantLock()
+
+# Primes up to isqrt(NT_SEGMENTED_MAX) = 1e6 — enough to fully factor any n ≤ NT_SEGMENTED_MAX by trial
+# division (the unfactored remainder is then a single prime > 1e6). Built lazily on first high-x call.
+function nt_ensure_small_primes!()
+    NT_SMALL_BUILT[] && return nothing
+    lock(NT_SMALL_LOCK) do
+        NT_SMALL_BUILT[] && return nothing
+        lim = isqrt(NT_SEGMENTED_MAX)
+        sieve = trues(lim)
+        @inbounds for i in 2:isqrt(lim)
+            if sieve[i]
+                for j in i*i:i:lim
+                    sieve[j] = false
+                end
+            end
+        end
+        primes = Int[]
+        @inbounds for i in 2:lim
+            sieve[i] && push!(primes, i)
+        end
+        NT_SMALL_PRIMES[] = primes
+        NT_SMALL_BUILT[] = true
+    end
+    return nothing
+end
+
+# Trial-division factorization for NT_MAX_N < n ≤ NT_SEGMENTED_MAX. Returns the same (prime, exponent)
+# shape as the dense path, so every downstream arithmetic function (ω, Ω, σ, d, μ) is identical.
+function nt_factor_trial(n::Integer)
+    nt_ensure_small_primes!()
+    out = Tuple{Int,Int}[]
+    m = Int(n)
+    @inbounds for p in NT_SMALL_PRIMES[]
+        Int64(p) * p > m && break
+        if m % p == 0
+            e = 0
+            while m % p == 0
+                m ÷= p
+                e += 1
+            end
+            push!(out, (p, e))
+        end
+    end
+    m > 1 && push!(out, (m, 1))   # the single remaining prime factor > √n
+    return out
+end
+
 """
     nt_ensure_sieve!()
 
@@ -97,7 +155,10 @@ using the cached SPF sieve. Returns an empty vector for `n < 2`.
 """
 function nt_factor(n::Integer)
     n < 2 && return Tuple{Int,Int}[]
-    n > NT_MAX_N && throw(ArgumentError("n=$n exceeds NT_MAX_N=$NT_MAX_N"))
+    if n > NT_MAX_N
+        n > NT_SEGMENTED_MAX && throw(ArgumentError("n=$n exceeds NT_SEGMENTED_MAX=$NT_SEGMENTED_MAX"))
+        return nt_factor_trial(n)   # segmented (trial-division) path beyond the dense array
+    end
     nt_ensure_sieve!()
     spf = NT_SPF[]
     out = Tuple{Int,Int}[]
@@ -114,8 +175,20 @@ function nt_factor(n::Integer)
     return out
 end
 
-nt_is_prime(n::Integer) = n >= 2 && n <= NT_MAX_N &&
-                          (nt_ensure_sieve!(); NT_SPF[][n + 1] == n)
+function nt_is_prime(n::Integer)
+    n < 2 && return false
+    if n <= NT_MAX_N
+        nt_ensure_sieve!()
+        return NT_SPF[][n + 1] == n
+    end
+    n > NT_SEGMENTED_MAX && return false
+    nt_ensure_small_primes!()   # segmented path: prime iff no small prime ≤ √n divides it
+    @inbounds for p in NT_SMALL_PRIMES[]
+        Int64(p) * p > n && return true
+        n % p == 0 && return false
+    end
+    return true
+end
 
 """
     nt_prime_indicator(n) -> Int
@@ -242,9 +315,9 @@ Throws `ArgumentError` if `start + size > NT_MAX_N + 1`.
 """
 function nt_evaluate_window(start::Integer, size::Integer)
     end_ = start + size
-    if end_ > NT_MAX_N + 1
+    if end_ > NT_SEGMENTED_MAX + 1
         throw(ArgumentError(
-            "window [$start, $end_) exceeds NT_MAX_N=$NT_MAX_N"))
+            "window [$start, $end_) exceeds NT_SEGMENTED_MAX=$NT_SEGMENTED_MAX"))
     end
     nt_ensure_sieve!()
 
