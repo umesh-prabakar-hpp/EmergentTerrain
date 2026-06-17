@@ -941,11 +941,15 @@ public class ResearchCycleService {
                     + "to the limit at each scale, and whether it is shrinking — not a single-window verdict.",
                     lhs, target, lhs);
             case OSCILLATION -> String.format(
-                    "This paper measures whether `%s` OSCILLATES within a bounded O(1) envelope at reachable "
-                    + "x — it is already normalised, so use verify_oscillation with NO scale_rhs. The "
-                    + "envelope (amplitude, mean, sign-changes) is the load-bearing claim against the open "
-                    + "boundedness question — NOT an affine bound. Report whether it is centred near 0 or "
-                    + "biased one sign at the tested scale.",
+                    "This paper measures whether `%s` oscillates within a BOUNDED O(1) envelope as x grows, "
+                    + "or whether its amplitude GROWS slowly (e.g. log log x) — the open boundedness question. "
+                    + "It is already normalised, so call verify_oscillation with scale_ladder:true and NO "
+                    + "scale_rhs — the tool sweeps a GEOMETRIC ladder of scales out to the trusted ceiling FOR "
+                    + "you (do NOT hand-pick window_start) and reports the amplitude/envelope at each scale and "
+                    + "whether it is FLAT (bounded) or rising. The cross-scale envelope TREND is the "
+                    + "load-bearing claim — NOT an affine bound, and NOT a single low-x window (which cannot "
+                    + "distinguish a bounded amplitude from a slowly growing one). Report the amplitude at each "
+                    + "scale and the trend across decades.",
                     lhs);
             case GROWTH -> String.format(
                     "This paper measures the GROWTH LAW of `%s`: whether it tracks the %s scale (its natural "
@@ -955,12 +959,14 @@ public class ResearchCycleService {
                     + "asymptotic value at reachable x.",
                     lhs, spec.growthScale(), spec.growthScale());
         };
-        // CONSTANT has the auto scale-ladder built into verify_constant (scale_ladder:true), so it does
-        // not need the manual-ladder instruction; OSCILLATION/GROWTH have no auto-ladder yet, so they keep
-        // the manual geometric-ladder guidance.
-        return spec.frame() == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT
-                ? base
-                : base + ladderNote;
+        // CONSTANT and OSCILLATION have the auto scale-ladder built into their verify_* tool
+        // (scale_ladder:true), so they don't need the manual-ladder instruction; only GROWTH has no
+        // auto-ladder yet, so it keeps the manual geometric-ladder guidance.
+        var frame = spec.frame();
+        boolean autoLaddered =
+                frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT
+                || frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.OSCILLATION;
+        return autoLaddered ? base : base + ladderNote;
     }
 
     private static String synthesizeConjectureFindings(

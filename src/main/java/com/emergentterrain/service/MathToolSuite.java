@@ -905,7 +905,7 @@ public class MathToolSuite {
                   "required":["lhs"]
                 }
               }
-            }""").formatted(maxWork, maxN, maxN, maxWork);
+            }""").formatted(maxWork, maxN, maxWork);
     }
 
     /** 2026-06-10 (lever D, frame 2) — oscillation/sign-change measurement tool. */
@@ -923,14 +923,15 @@ public class MathToolSuite {
                   "properties":{
                     "lhs":{"type":"string","description":"The oscillating scalar (e.g. mertens_delta)."},
                     "scale_rhs":{"type":"string","description":"Optional scale scalar for the envelope max|lhs|/scale (e.g. sqrt_window_start for a RAW lhs like mertens_delta → |M|/√x). OMIT for an already-normalised lhs such as dirichlet_error (= Δ(x)/x^{1/4}) — passing one double-normalises and hides the result. Omit to skip the envelope."},
-                    "window_start":{"type":"integer","description":"First integer in the first window (held-out, high-x). window_start + window_size × num_windows ≤ %d."},
-                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
-                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                    "window_start":{"type":"integer","description":"First integer in the first window (single-slice mode). Ignored when scale_ladder is true."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap). Default 5000 in scale_ladder mode."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."},
+                    "scale_ladder":{"type":"boolean","description":"SET TRUE to MEASURE THE ENVELOPE ACROSS SCALES — the tool AUTO-EVALUATES the lhs at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports whether the oscillation amplitude/envelope is FLAT across decades (a BOUNDED O(1) envelope — the load-bearing signal) or GROWS with x (not bounded at reachable x, e.g. ~log log x). This is the load-bearing measurement (window_start is ignored, the tool picks the scales). REQUIRED to settle boundedness: a single low-x window CANNOT distinguish a bounded amplitude from a slowly growing one. Use this rather than hand-picking high window_start values. scale_rhs still applies (tracks max|lhs|/scale per rung for a RAW lhs like mertens_delta; OMIT it for an already-normalised lhs such as dirichlet_error and the raw amplitude is tracked)."}
                   },
-                  "required":["lhs","window_start","window_size"]
+                  "required":["lhs"]
                 }
               }
-            }""").formatted(maxWork, maxN, maxN, maxWork);
+            }""").formatted(maxWork, maxN, maxWork);
     }
 
     /** 2026-06-10 (lever D, frame 3) — super-log growth-scale measurement tool. */
@@ -2512,6 +2513,18 @@ public class MathToolSuite {
             return "Missing 'lhs' scalar name.";
         }
         String scaleRhs = args.path("scale_rhs").asText("");
+        // measurement-frame-default.md Stage 1e — auto scale-ladder for verify_oscillation. Run-10 showed
+        // the dirichlet_error professor (flagship open object, score 0.677) clustered every window at
+        // x∈[1.2M,1.8M] even with the ceiling raised and frontier data in context, and named the narrow
+        // range as its #1 limitation ("cannot distinguish O(1) from log log x"). The manual ladder is not
+        // followed for range (the same failure the CONSTANT auto-ladder fixed), so the TOOL picks the
+        // scales here too. window_start/scale_rhs are honoured below; in ladder mode window_start is ignored.
+        if (args.path("scale_ladder").asBoolean(false)) {
+            int ladderSize = args.path("window_size").asInt(5000);
+            int ladderNum = args.path("num_windows").asInt(5);
+            if (ladderSize <= 0 || ladderNum <= 0) { ladderSize = 5000; ladderNum = 5; }
+            return verifyOscillationLadder(lhs, scaleRhs, ladderSize, ladderNum);
+        }
         Object[] sampled = sampleScalarWindows(args);
         if (sampled[0] instanceof String err) {
             return err;
@@ -2558,6 +2571,91 @@ public class MathToolSuite {
                 a.ampWindowStart(), a.mean(), a.meanAbs(), oscLabel));
         if (scale != null && !Double.isNaN(a.envelope())) {
             sb.append(String.format(" envelope max|%s|/%s = %.5f.", lhs, scaleRhs, a.envelope()));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * measurement-frame-default.md Stage 1e — auto scale-ladder for verify_oscillation. Mirrors
+     * {@link #verifyConstantLadder}: evaluates {@code lhs} at a GEOMETRIC ladder of window_starts
+     * (1e5, 1e6, … up to the largest decade that fits the trusted range) and reports whether the
+     * oscillation's envelope is BOUNDED (flat across decades → an O(1) envelope, the load-bearing signal
+     * for a normalised quantity like dirichlet_error) or GROWING with x (rising amplitude → not bounded at
+     * reachable x, consistent with a slow growth such as log log x). The tracked metric is the bounded
+     * envelope {@code max|lhs|/scale} when {@code scaleRhs} is given (e.g. |M|/√x for raw mertens_delta),
+     * else the raw amplitude {@code max|lhs|} (the right object for an already-normalised lhs). The
+     * cross-scale trend IS the measurement — it directly answers "is the amplitude bounded?", which a
+     * single low-x window cannot. The tool — not the LLM — picks the scales, so the reach is exercised.
+     */
+    private String verifyOscillationLadder(String lhs, String scaleRhs, int windowSize, int numWindows) {
+        long maxN = conjectureVerifier.maxN();
+        long work = (long) windowSize * numWindows;
+        boolean useEnvelope = scaleRhs != null && !scaleRhs.isBlank();
+        java.util.List<Long> starts = new java.util.ArrayList<>();
+        for (long s = 100_000L; s + work <= maxN; s *= 10) {
+            starts.add(s);
+        }
+        if (starts.isEmpty()) {
+            return "verify_oscillation scale-ladder: no rung fits (window_size × num_windows too large for the range).";
+        }
+        double[] metric = new double[starts.size()];   // envelope (with scale) or raw amplitude per rung
+        int totalSignChanges = 0;
+        StringBuilder traj = new StringBuilder();
+        for (int i = 0; i < starts.size(); i++) {
+            long s = starts.get(i);
+            java.util.List<java.util.Map<String, Double>> ws;
+            try {
+                ws = conjectureVerifier.sampleWindows(s, windowSize, numWindows);
+            } catch (RuntimeException e) {
+                return "verify_oscillation scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
+            }
+            if (ws.isEmpty()) {
+                metric[i] = Double.NaN;
+                traj.append(String.format("%s%d→NaN", i == 0 ? "" : ", ", s));
+                continue;
+            }
+            double[] values = new double[ws.size()];
+            long[] wStarts = new long[ws.size()];
+            double[] scale = useEnvelope ? new double[ws.size()] : null;
+            for (int j = 0; j < ws.size(); j++) {
+                java.util.Map<String, Double> w = ws.get(j);
+                values[j] = w.getOrDefault(lhs, 0.0);
+                wStarts[j] = w.getOrDefault("_window_start",
+                        (double) (s + (long) j * windowSize)).longValue();
+                if (scale != null) scale[j] = w.getOrDefault(scaleRhs, 0.0);
+            }
+            com.emergentterrain.research.conjecture.OscillationAssessment.Assessment a =
+                    com.emergentterrain.research.conjecture.OscillationAssessment.assess(values, wStarts, scale);
+            totalSignChanges += a.signChanges();
+            metric[i] = useEnvelope ? a.envelope() : a.amplitude();
+            traj.append(String.format("%s%d→%.5f", i == 0 ? "" : ", ", s, metric[i]));
+        }
+        String metricName = useEnvelope ? ("envelope max|" + lhs + "|/" + scaleRhs)
+                                        : ("amplitude max|" + lhs + "|");
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "verify_oscillation scale-ladder: %s measured across %d scales [%s]; %d total sign change(s). ",
+                metricName, starts.size(), traj, totalSignChanges));
+        double m0 = metric[0];
+        double mN = metric[metric.length - 1];
+        if (!Double.isNaN(m0) && !Double.isNaN(mN) && Math.abs(m0) > 1e-12) {
+            double rel = (mN - m0) / Math.abs(m0);
+            boolean bounded = Math.abs(rel) <= 0.15;   // flat within 15% across the decades → O(1) envelope
+            sb.append(String.format(
+                    "%s %.5f at %d → %.5f at %d (%+.1f%% across the ladder) — %s",
+                    useEnvelope ? "Envelope" : "Amplitude", m0, starts.get(0), mN,
+                    starts.get(starts.size() - 1), rel * 100.0,
+                    bounded
+                        ? "FLAT across scales: consistent with a BOUNDED O(1) envelope — the load-bearing "
+                          + "measurement (amplitude does not grow with x out to the ceiling)."
+                        : (rel > 0
+                            ? "GROWING with x: the envelope is NOT bounded at reachable x — consistent with a "
+                              + "slow growth (e.g. log log x). Report the growth across scales, not a bounded "
+                              + "verdict."
+                            : "SHRINKING with x: amplitude decays across scales (likely over-normalised — the "
+                              + "lhs may already be divided by too large a scale).")));
+        } else {
+            sb.append("Envelope trend unavailable (degenerate metric at an endpoint).");
         }
         return sb.toString();
     }

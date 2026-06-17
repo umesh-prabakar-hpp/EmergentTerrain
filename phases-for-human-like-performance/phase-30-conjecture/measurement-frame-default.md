@@ -127,6 +127,40 @@ not gate, so raising it is safe. **Fix: `maxN: 2000000 → 2000000000`** (YAML-o
 *next* run after restart, where the ladders should reach 1e9 and the slow convergers show the cross-scale
 tightening trend.
 
+**Stage 1e — AUTO scale-ladder for OSCILLATION (run-10 follow-on; SHIPPED 2026-06-17).** Run-10 validated
+the maxN fix (a GROWTH paper, `max_divisor_count`, reached window_start 5e7 and 5e8 via `verify_growth`,
+zero sidecar errors, with a clean cross-scale tightening rel-dev 0.478→0.387→0.363 toward the wigert
+limit). But it also showed the OSCILLATION flagship is still stuck: the `dirichlet_error` paper (score
+**0.677**, the best open object) clustered **every** window at x∈[1.2M,1.8M] even with the ceiling raised
+and frontier M(x) data to 4.1e12 sitting in its context (which it explicitly declined to use), and named
+the narrow range as its **#1 limitation** — *"too narrow to distinguish a truly bounded amplitude from one
+growing slowly (e.g. log log x)."* That is exactly the prompt-can't-move-the-range failure the CONSTANT
+auto-ladder fixed, so the auto-ladder is extended to OSCILLATION:
+- `verify_oscillation` gains `scale_ladder:true` (`MathToolSuite.verifyOscillationLadder`): the TOOL sweeps
+  the geometric window_start ladder (1e5…1e9) and reports, across scales, whether the oscillation's
+  amplitude/envelope is **FLAT** (a bounded O(1) envelope — the load-bearing signal) or **GROWS** with x
+  (not bounded at reachable x, consistent with ~log log x). Tracks `max|lhs|/scale` when `scale_rhs` is
+  given (raw mertens_delta → |M|/√x), else the raw amplitude `max|lhs|` (the right object for an
+  already-normalised lhs like dirichlet_error). The FLAT-vs-GROWING trend directly answers the dirichlet
+  paper's open question that a single low-x window cannot.
+- The OSCILLATION framing in `measurementHypothesis` now instructs `verify_oscillation` with
+  `scale_ladder:true` + NO scale_rhs (and only GROWTH keeps the manual geometric-ladder note — GROWTH
+  already followed the manual ladder to 5e8 fine, so it isn't auto-laddered yet).
+- Bonus: fixed a latent `String.formatted` arg-misalignment in the `verify_constant` AND `verify_oscillation`
+  schemas (introduced when scale_ladder removed each tool's `window_start` `%d`): the window_size work-cap
+  was rendering `maxN` (2e9) instead of `maxWork` (1e5). Runtime enforcement was always correct; only the
+  advertised schema number was wrong.
+- **Write-back parity:** scale-ladder results are NOT captured by the measured-invariant write-back (its
+  regexes match only the single-slice `verify_constant:`/`verify_oscillation:` lines, not the
+  `… scale-ladder:` trajectory form) — identical to the already-shipped CONSTANT ladder. A cross-scale
+  trajectory isn't a single (k,c) pool survivor; re-seed churn is intentional ([no re-seed skip]).
+
+Acceptance (next run with a `dirichlet_error`/OSCILLATION topic): the professor sets
+`verify_oscillation scale_ladder:true`, the ladder reaches 1e8/1e9, and the paper reports a bounded-vs-growing
+envelope trend across decades instead of an x≈1.8M single-range caveat — removing the 0.677 paper's stated
+#1 limitation. The CONSTANT auto-ladder is still pending its own first exercise (no CONSTANT object was
+selected in the small run-10).
+
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 
 Promote measurement to a real topic kind: the miner seeds a `MEASUREMENT` topic for registry objects

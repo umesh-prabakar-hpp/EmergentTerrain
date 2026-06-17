@@ -58,12 +58,14 @@ class TwoTermFramingTest {
     }
 
     @Test
-    void measurementFrame_oscillationForDirichlet_usesManualLadderWithSlowGuidance() {
-        // OSCILLATION has no auto-ladder yet → keeps the manual geometric-ladder note; dirichlet is SLOW.
+    void measurementFrame_oscillationForDirichlet_usesAutoScaleLadder() {
+        // Stage 1e — OSCILLATION now uses the AUTO scale-ladder (verify_oscillation scale_ladder:true),
+        // like CONSTANT: the tool picks the scales. dirichlet_error is already normalised → NO scale_rhs.
+        // The manual-ladder note ("SLOW converger") is gone — the tool owns the range now.
         Conjecture c = new Conjecture("math", "dirichlet_error", "mertens_per_sqrt_W", 1.5, 1.7832);
         assertThat(ResearchCycleService.synthesizeConjectureHypothesis(c, true))
-                .contains("OSCILLATES").contains("verify_oscillation").contains("NO scale_rhs")
-                .contains("GEOMETRIC scale ladder").contains("SLOW converger");
+                .contains("verify_oscillation").contains("scale_ladder:true").contains("NO scale_rhs")
+                .contains("BOUNDED").doesNotContain("SLOW converger").doesNotContain("whether the bound holds");
     }
 
     @Test
