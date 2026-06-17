@@ -95,6 +95,10 @@ class ScalarOpennessTest {
         var omega = ScalarOpenness.measurementFrame("omega_Omega_gap");
         assertThat(omega.frame()).isEqualTo(ScalarOpenness.MeasurementFrame.CONSTANT);
         assertThat(omega.target()).isEqualTo(0.77316);
+        assertThat(omega.convergence()).isEqualTo(ScalarOpenness.Convergence.SLOW);
+        // mean_divisor_excess → 2γ converges fast (Dirichlet ~x^{-1/2}).
+        assertThat(ScalarOpenness.measurementFrame("mean_divisor_excess").convergence())
+                .isEqualTo(ScalarOpenness.Convergence.FAST);
         var maxdiv = ScalarOpenness.measurementFrame("max_divisor_count");
         assertThat(maxdiv.frame()).isEqualTo(ScalarOpenness.MeasurementFrame.GROWTH);
         assertThat(maxdiv.growthScale()).isEqualTo("wigert_bound");

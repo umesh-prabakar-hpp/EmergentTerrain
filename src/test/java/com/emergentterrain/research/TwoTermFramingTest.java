@@ -53,7 +53,17 @@ class TwoTermFramingTest {
         assertThat(hyp).contains("CONVERGES to a constant").contains("verify_constant")
                 .contains("0.77316").doesNotContain("whether the bound holds")
                 // run-6 follow-on — the geometric scale-ladder range pattern (exercises the 2e9 reach).
-                .contains("GEOMETRIC scale ladder").contains("SEPARATE calls");
+                .contains("GEOMETRIC scale ladder").contains("SEPARATE calls")
+                // run-7 follow-on — omega_Omega_gap is a SLOW converger → widest-span / trend guidance.
+                .contains("SLOW converger");
+    }
+
+    @Test
+    void measurementFrame_fastConverger_getsDecadeLadderGuidance() {
+        // mean_divisor_excess → 2γ converges fast → "CLEAR convergence" decade-ladder guidance, not SLOW.
+        Conjecture c = new Conjecture("math", "mean_divisor_excess", "twin_prime_density", 2.0, -1.382);
+        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        assertThat(hyp).contains("CLEAR convergence").doesNotContain("SLOW converger");
     }
 
     @Test

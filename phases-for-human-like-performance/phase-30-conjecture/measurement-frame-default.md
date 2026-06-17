@@ -80,9 +80,21 @@ wrong for "what's the limit."
 scale and wastes the reach. This does two things at once: (a) it forces the professor out to 1e8–1e9
 (uses the Stage-2 reach), and (b) the **cross-scale convergence trajectory** is a genuinely stronger claim
 than a single window — the thing that should lift the open-object novelty. Cheap (~80 ms per 5000-window at
-1e9, ~5 separate calls). Variety is deliberately left to the professor (decade vs frontier-weighted vs
-two-anchor) per how fast the object converges; the framing gives the default and the rationale, not rigid
-values.
+1e9, ~5 separate calls).
+
+**Stage 1c — convergence-aware ladder (run-7 follow-on).** Run 7 confirmed the gap is real (max
+window_start used was 1.7M — the reach went unexercised) AND that the right ladder DEPENDS on the object:
+a `verify_constant` framing that expects a "converged" value is wrong for the glacial number-theoretic
+convergers. `MeasurementSpec` now carries a `Convergence {FAST, SLOW}` class, and the framing TELLS the
+professor the type so IT sizes the ladder smartly (the LLM decides, it isn't hard-coded):
+- **SLOW** (omega_ek_ratio, mean_omega/Omega, omega_Omega_gap, dirichlet envelope, the extremal stats):
+  "glacial ~1/ln x or 1/ln ln x — span the WIDEST ladder, weight the top, and report the TREND and rate of
+  approach, NOT a clean converged verdict; recover the additive constant for a normal-order quantity."
+- **FAST** (mean_divisor_excess → 2γ, ~x^{-1/2}): "a decade ladder should show CLEAR convergence — report
+  the limit + rate."
+
+Number-theoretic limits are dominantly SLOW, so most registry objects are SLOW; the framing stops the
+professor from declaring a slow converger NULL just because it isn't settled at one window.
 
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 

@@ -99,23 +99,40 @@ public final class ScalarOpenness {
     public enum MeasurementFrame { CONSTANT, OSCILLATION, GROWTH }
 
     /**
-     * A measurement frame for an object: the kind of claim, the rhs growth-anchor ({@code GROWTH} only,
-     * else null), and the established target limit/constant if known (else null → the professor measures
-     * it). Targets are only the ones the directive already states with confidence; growth constants are
-     * left null so the framing never asserts an unverified value.
+     * How fast the object approaches its limit, so the framing can tell the professor whether to expect a
+     * clean converged value at reachable x (FAST) or only a slow trend (SLOW) — and size the scale ladder
+     * accordingly. Number-theoretic limits are dominantly SLOW (~1/ln x or 1/ln ln x): a single window
+     * looks "unconverged" and the result is the trend/rate, not a settled value. Only the few with a
+     * fast (e.g. power-law) average convergence are FAST.
      */
-    public record MeasurementSpec(MeasurementFrame frame, String growthScale, Double target) {}
+    public enum Convergence { FAST, SLOW }
+
+    /**
+     * A measurement frame for an object: the kind of claim, the rhs growth-anchor ({@code GROWTH} only,
+     * else null), the established target limit/constant if known (else null → the professor measures it),
+     * and the {@link Convergence} class that tells the professor how to size the scale ladder. Targets are
+     * only the ones the directive already states with confidence; growth constants are left null so the
+     * framing never asserts an unverified value.
+     */
+    public record MeasurementSpec(MeasurementFrame frame, String growthScale, Double target,
+                                  Convergence convergence) {}
 
     public static final Map<String, MeasurementSpec> MEASUREMENT_FRAMES = Map.ofEntries(
-            Map.entry("dirichlet_error",     new MeasurementSpec(MeasurementFrame.OSCILLATION, null, null)),
-            Map.entry("omega_Omega_gap",     new MeasurementSpec(MeasurementFrame.CONSTANT, null, 0.77316)),
-            Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443)), // 2γ
-            Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0)),
-            Map.entry("max_divisor_count",   new MeasurementSpec(MeasurementFrame.GROWTH, "wigert_bound", null)),
-            Map.entry("max_prime_gap",       new MeasurementSpec(MeasurementFrame.GROWTH, "log_sq_window_start", null)),
-            Map.entry("mean_omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null)),
-            Map.entry("mean_Omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null)),
-            Map.entry("mean_divisor_count",  new MeasurementSpec(MeasurementFrame.GROWTH, "log_window_start", null)));
+            // dirichlet O(1) envelope — needs the widest span to test boundedness at higher x → SLOW.
+            Map.entry("dirichlet_error",     new MeasurementSpec(MeasurementFrame.OSCILLATION, null, null, Convergence.SLOW)),
+            // omega_Omega_gap → Σ1/p(p−1): prime-sum tail, NULL'd unconverged at 2e7 → SLOW.
+            Map.entry("omega_Omega_gap",     new MeasurementSpec(MeasurementFrame.CONSTANT, null, 0.77316, Convergence.SLOW)),
+            // mean_divisor_excess → 2γ: divisor average converges ~x^{-1/2} (Dirichlet) → FAST.
+            Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443, Convergence.FAST)),
+            // omega_ek_ratio → 1: Erdős–Kac variance, glacial (~1/√ln ln x) → SLOW.
+            Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0, Convergence.SLOW)),
+            // extremal (max) statistics — noisy and slow → SLOW.
+            Map.entry("max_divisor_count",   new MeasurementSpec(MeasurementFrame.GROWTH, "wigert_bound", null, Convergence.SLOW)),
+            Map.entry("max_prime_gap",       new MeasurementSpec(MeasurementFrame.GROWTH, "log_sq_window_start", null, Convergence.SLOW)),
+            // ln ln x normal order — the additive constant approaches ~1/ln x → SLOW.
+            Map.entry("mean_omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null, Convergence.SLOW)),
+            Map.entry("mean_Omega",          new MeasurementSpec(MeasurementFrame.GROWTH, "log_log_window_start", null, Convergence.SLOW)),
+            Map.entry("mean_divisor_count",  new MeasurementSpec(MeasurementFrame.GROWTH, "log_window_start", null, Convergence.SLOW)));
 
     /** The measurement frame for {@code lhs}, or null if it has no registered intrinsic asymptotic. */
     public static MeasurementSpec measurementFrame(String lhs) {

@@ -911,15 +911,25 @@ public class ResearchCycleService {
     static String measurementHypothesis(
             String lhs, com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec spec) {
         String target = spec.target() == null ? "" : String.format(" (conjectured limit ≈ %s)", spec.target());
-        // Range pattern for measurements (measurement-frame-default.md, run-6 follow-on): a GEOMETRIC scale
-        // ladder, not a single failure-region window. The trajectory across orders of magnitude is the
-        // strong claim AND the thing that actually exercises the extended sieve reach (now ~2e9) — a
-        // bound-style "pick a held-out window" tops out near the failure region and leaves the reach unused.
+        // Range pattern for measurements (measurement-frame-default.md). A GEOMETRIC scale ladder, not a
+        // single failure-region window — the trajectory across orders of magnitude is the strong claim AND
+        // what exercises the extended reach (~2e9; run 7 confirmed the professors otherwise top out ~1.7M).
+        // run-7 follow-on: CONVERGENCE-AWARE — tell the professor whether the object is a slow vs fast
+        // converger so IT sizes the ladder smartly (slow → widest span + trend; fast → decade ladder + limit).
+        boolean slow = spec.convergence() == com.emergentterrain.research.conjecture.ScalarOpenness.Convergence.SLOW;
         String ladderNote = " RANGE — this is a MEASUREMENT, not a bound: sample a GEOMETRIC scale ladder of "
-                + "window_start across the trusted range (e.g. ~1e5, 1e6, 1e7, 1e8, up to near the ceiling, "
-                + "each ~10× the last) as SEPARATE calls, weighting the high end where the measurement is "
-                + "tightest, and report how the result moves across scales — the trajectory and its rate of "
-                + "approach. A single low-x window is weak evidence; the cross-scale convergence is the result.";
+                + "window_start (each ~10× the last) as SEPARATE calls and report how the result moves across "
+                + "scales — the trajectory and its rate of approach, not a single window. "
+                + (slow
+                    ? String.format("`%s` is a SLOW converger — its approach to the limit is glacial "
+                        + "(number-theoretic, ~1/ln x or 1/ln ln x), so it WILL look unconverged at any single "
+                        + "window. Span the WIDEST ladder (≈1e5 up to near the ceiling ~1e9) and weight heavily "
+                        + "toward the top where it is tightest; the load-bearing result is the TREND and whether "
+                        + "the gap to the limit is shrinking (and how fast) — do NOT expect a clean 'converged' "
+                        + "verdict, and for a normal-order quantity recover and report the additive constant.", lhs)
+                    : String.format("`%s` converges at a moderate (≈power-law) rate, so a geometric decade "
+                        + "ladder (≈1e5…1e9) should show CLEAR convergence — report the limit, the per-scale "
+                        + "values, and confirm the rate.", lhs));
         String base = switch (spec.frame()) {
             case CONSTANT -> String.format(
                     "This paper measures the intrinsic limit of `%s`: whether it CONVERGES to a constant%s "
