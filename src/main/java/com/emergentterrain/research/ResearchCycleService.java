@@ -933,10 +933,12 @@ public class ResearchCycleService {
         String base = switch (spec.frame()) {
             case CONSTANT -> String.format(
                     "This paper measures the intrinsic limit of `%s`: whether it CONVERGES to a constant%s "
-                    + "as x grows, using verify_constant on held-out windows. The convergence (its rate, "
-                    + "and whether it is settled at reachable x) is the load-bearing claim — NOT an affine "
-                    + "bound relating %s to other scalars, which is a representation-dependent proxy. Report "
-                    + "the measured limit and per-window spread honestly.",
+                    + "as x grows. Call verify_constant with scale_ladder:true — the tool sweeps a GEOMETRIC "
+                    + "ladder of scales out to the trusted ceiling FOR you (do NOT hand-pick window_start; "
+                    + "the cross-scale trajectory and its rate of approach are the load-bearing claim, and a "
+                    + "slow converger only reveals its limit at high x). This is NOT an affine bound relating "
+                    + "%s to other scalars (a representation-dependent proxy). Report the trajectory, the gap "
+                    + "to the limit at each scale, and whether it is shrinking — not a single-window verdict.",
                     lhs, target, lhs);
             case OSCILLATION -> String.format(
                     "This paper measures whether `%s` OSCILLATES within a bounded O(1) envelope at reachable "
@@ -953,7 +955,12 @@ public class ResearchCycleService {
                     + "asymptotic value at reachable x.",
                     lhs, spec.growthScale(), spec.growthScale());
         };
-        return base + ladderNote;
+        // CONSTANT has the auto scale-ladder built into verify_constant (scale_ladder:true), so it does
+        // not need the manual-ladder instruction; OSCILLATION/GROWTH have no auto-ladder yet, so they keep
+        // the manual geometric-ladder guidance.
+        return spec.frame() == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT
+                ? base
+                : base + ladderNote;
     }
 
     private static String synthesizeConjectureFindings(

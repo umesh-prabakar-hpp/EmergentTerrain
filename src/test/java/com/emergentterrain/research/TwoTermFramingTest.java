@@ -50,27 +50,20 @@ class TwoTermFramingTest {
         // measurement (verify_constant), NOT the default "investigates whether the bound holds".
         Conjecture c = new Conjecture("math", "omega_Omega_gap", "log_window_start", 2.0, -5.70);
         String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        // CONSTANT objects now use the AUTO scale-ladder (verify_constant scale_ladder:true) — the tool
+        // picks the scales, so the framing tells the LLM to set the flag, not hand-pick windows.
         assertThat(hyp).contains("CONVERGES to a constant").contains("verify_constant")
-                .contains("0.77316").doesNotContain("whether the bound holds")
-                // run-6 follow-on — the geometric scale-ladder range pattern (exercises the 2e9 reach).
-                .contains("GEOMETRIC scale ladder").contains("SEPARATE calls")
-                // run-7 follow-on — omega_Omega_gap is a SLOW converger → widest-span / trend guidance.
-                .contains("SLOW converger");
+                .contains("scale_ladder:true").contains("sweeps a GEOMETRIC ladder")
+                .contains("0.77316").doesNotContain("whether the bound holds");
     }
 
     @Test
-    void measurementFrame_fastConverger_getsDecadeLadderGuidance() {
-        // mean_divisor_excess → 2γ converges fast → "CLEAR convergence" decade-ladder guidance, not SLOW.
-        Conjecture c = new Conjecture("math", "mean_divisor_excess", "twin_prime_density", 2.0, -1.382);
-        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
-        assertThat(hyp).contains("CLEAR convergence").doesNotContain("SLOW converger");
-    }
-
-    @Test
-    void measurementFrame_oscillationForDirichlet_whenOn() {
+    void measurementFrame_oscillationForDirichlet_usesManualLadderWithSlowGuidance() {
+        // OSCILLATION has no auto-ladder yet → keeps the manual geometric-ladder note; dirichlet is SLOW.
         Conjecture c = new Conjecture("math", "dirichlet_error", "mertens_per_sqrt_W", 1.5, 1.7832);
         assertThat(ResearchCycleService.synthesizeConjectureHypothesis(c, true))
-                .contains("OSCILLATES").contains("verify_oscillation").contains("NO scale_rhs");
+                .contains("OSCILLATES").contains("verify_oscillation").contains("NO scale_rhs")
+                .contains("GEOMETRIC scale ladder").contains("SLOW converger");
     }
 
     @Test

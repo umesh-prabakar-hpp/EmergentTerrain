@@ -96,6 +96,20 @@ professor the type so IT sizes the ladder smartly (the LLM decides, it isn't har
 Number-theoretic limits are dominantly SLOW, so most registry objects are SLOW; the framing stops the
 professor from declaring a slow converger NULL just because it isn't settled at one window.
 
+**Stage 1d — AUTO scale-ladder (run-8 follow-on; the structural fix).** Run 8 proved the ladder PROMPT is
+not followed for range: the professor took "sample multiple windows" but clustered them at ~300k–1.1M and
+ignored "out to 1e9" even with concrete example values (max window_start used: 1.1M, the THIRD idle run).
+Like the growth-anchor work, a prompt can't change WHERE the LLM looks — so the range leaves the LLM's
+hands. `verify_constant` gains a `scale_ladder:true` mode (`MathToolSuite.verifyConstantLadder`): the TOOL
+generates a geometric ladder of window_starts (1e5, 1e6, … up to the largest decade that fits the 2e9
+ceiling), evaluates the lhs at each, and reports the per-scale trajectory + whether the gap to the limit is
+SHRINKING across scales — math-scoped, NOT generic (it's tied to the integer-window substrate; a domain
+tool, not pipeline code). The CONSTANT framing now instructs "call verify_constant with scale_ladder:true"
+— a single flag, a far smaller ask than picking high-x windows, and the scales are deterministic code. This
+is the definitive test of the reach: if auto-laddered measurements score better / the slow convergers show
+a tightening trend → the reach matters; if not → accept the supply ceiling. (OSCILLATION/GROWTH keep the
+manual ladder for now; extend the auto-ladder to them if CONSTANT lands.)
+
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 
 Promote measurement to a real topic kind: the miner seeds a `MEASUREMENT` topic for registry objects

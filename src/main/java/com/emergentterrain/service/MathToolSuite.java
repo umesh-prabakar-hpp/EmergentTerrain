@@ -897,11 +897,12 @@ public class MathToolSuite {
                     "lhs":{"type":"string","description":"Scalar whose convergence to a constant is tested."},
                     "target":{"type":"number","description":"The conjectured limit (e.g. 1.32032 for twin_vs_prime_sq → 2C₂). Omit to estimate it empirically from the windows."},
                     "tol":{"type":"number","description":"Relative tolerance for CONVERGED (worst |dev| / |target| ≤ tol). Default 0.05."},
-                    "window_start":{"type":"integer","description":"First integer in the first window. Pick a held-out, high-x offset. window_start + window_size × num_windows ≤ %d."},
-                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
-                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                    "window_start":{"type":"integer","description":"First integer in the first window (single-slice mode). Ignored when scale_ladder is true."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap). Default 5000 in scale_ladder mode."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."},
+                    "scale_ladder":{"type":"boolean","description":"SET TRUE for a MEASUREMENT across scales — the tool AUTO-EVALUATES the lhs at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports the per-scale trajectory + whether the gap to the limit is SHRINKING across scales. This is the load-bearing measurement (window_start is ignored, the tool picks the scales). REQUIRED for a slow converger: a single low-x window understates convergence and a clean limit only emerges at high x. Use this rather than guessing high window_start values yourself."}
                   },
-                  "required":["lhs","window_start","window_size"]
+                  "required":["lhs"]
                 }
               }
             }""").formatted(maxWork, maxN, maxN, maxWork);
@@ -2366,6 +2367,15 @@ public class MathToolSuite {
         Double target = args.has("target") && !args.path("target").isNull()
                 ? args.path("target").asDouble() : null;
         double tol = args.path("tol").asDouble(0.05);
+        // measurement-frame-default.md — scale-ladder mode: the TOOL picks a geometric ladder of starts
+        // (the range leaves the LLM's hands, which three runs showed it won't push high on its own), so a
+        // slow converger is measured across scales out to the ceiling. window_start is ignored here.
+        if (args.path("scale_ladder").asBoolean(false)) {
+            int ladderSize = args.path("window_size").asInt(5000);
+            int ladderNum = args.path("num_windows").asInt(5);
+            if (ladderSize <= 0 || ladderNum <= 0) { ladderSize = 5000; ladderNum = 5; }
+            return verifyConstantLadder(lhs, ladderSize, ladderNum, target, tol);
+        }
         long windowStart = args.path("window_start").asLong(-1);
         int windowSize = args.path("window_size").asInt(-1);
         int numWindows = args.path("num_windows").asInt(
@@ -2420,6 +2430,69 @@ public class MathToolSuite {
                     "no target — estimated limit %.5f (range [%.5f, %.5f]), per-window spread %.4f %s.",
                     a.estimate(), a.min(), a.max(), a.relativeSpread(),
                     a.converged() ? "(settled within tol)" : "(not yet settled)"));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * measurement-frame-default.md — auto scale-ladder for verify_constant. Evaluates {@code lhs} at a
+     * GEOMETRIC ladder of window_starts (1e5, 1e6, … up to the largest decade that fits the trusted
+     * range) and reports the per-scale mean trajectory + whether the gap to {@code target} is SHRINKING
+     * across scales. The tool — not the LLM — picks the scales, so the reach is actually exercised; the
+     * cross-scale trajectory is the strong measurement, and a slow converger shows a tightening trend
+     * even when no single window is "converged".
+     */
+    private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol) {
+        long maxN = conjectureVerifier.maxN();
+        long work = (long) windowSize * numWindows;
+        java.util.List<Long> starts = new java.util.ArrayList<>();
+        for (long s = 100_000L; s + work <= maxN; s *= 10) {
+            starts.add(s);
+        }
+        if (starts.isEmpty()) {
+            return "verify_constant scale-ladder: no rung fits (window_size × num_windows too large for the range).";
+        }
+        double[] means = new double[starts.size()];
+        StringBuilder traj = new StringBuilder();
+        for (int i = 0; i < starts.size(); i++) {
+            long s = starts.get(i);
+            java.util.List<java.util.Map<String, Double>> ws;
+            try {
+                ws = conjectureVerifier.sampleWindows(s, windowSize, numWindows);
+            } catch (RuntimeException e) {
+                return "verify_constant scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
+            }
+            double sum = 0.0;
+            int n = 0;
+            for (java.util.Map<String, Double> w : ws) {
+                sum += w.getOrDefault(lhs, 0.0);
+                n++;
+            }
+            means[i] = n > 0 ? sum / n : Double.NaN;
+            traj.append(String.format("%s%d→%.5f", i == 0 ? "" : ", ", s, means[i]));
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("verify_constant scale-ladder: %s measured across %d scales [%s]. ",
+                lhs, starts.size(), traj));
+        if (target != null) {
+            double g0 = Math.abs(means[0] - target);
+            double gN = Math.abs(means[means.length - 1] - target);
+            boolean shrinking = gN < g0;
+            sb.append(String.format(
+                    "Target %.5f: |gap| %.5f at %d → %.5f at %d — %s. %s",
+                    target, g0, starts.get(0), gN, starts.get(starts.size() - 1),
+                    shrinking ? "SHRINKING toward the limit across scales" : "NOT shrinking",
+                    gN <= Math.abs(target) * tol
+                            ? "CONVERGED at the high end (within tol)."
+                            : "The tightening TREND across scales is the result — a slow converger need "
+                              + "not fully settle even at the ceiling; report the trajectory and rate, not a NULL."));
+        } else {
+            double hi = means[means.length - 1];
+            double prev = means.length > 1 ? means[means.length - 2] : hi;
+            sb.append(String.format(
+                    "No target — highest-scale estimate %.5f (vs %.5f one decade lower; %s). Report the "
+                            + "cross-scale trajectory as the measurement.",
+                    hi, prev, Math.abs(hi - prev) <= Math.abs(hi) * tol ? "settling" : "still moving"));
         }
         return sb.toString();
     }
