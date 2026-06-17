@@ -110,6 +110,23 @@ is the definitive test of the reach: if auto-laddered measurements score better 
 a tightening trend → the reach matters; if not → accept the supply ceiling. (OSCILLATION/GROWTH keep the
 manual ladder for now; extend the auto-ladder to them if CONSTANT lands.)
 
+**Stage 1d RESULT (run-9, 2026-06-16) — the auto-ladder ENGAGES but a config line capped the reach.**
+The behavioural fix worked perfectly: the professor set `scale_ladder:true` on **50/50** CONSTANT ladders
+(the structural ask — flip a flag — is followed where "pick a high-x window" never was). BUT every ladder
+reported exactly **2 rungs `[1e5, 1e6]`** and stopped — the segmented reach (1e8/1e9) still went unused.
+Root cause was NOT the LLM and NOT the sidecar: `application.yml`'s `app.julia.conjecture.maxN` was pinned
+to **2,000,000**, and both the rung loop (`s + work ≤ maxN()`) and `sampleWindows` clamp to it, so `s=1e7`
+failed the guard. The 2e9 code default (`@Value(...:2000000000)` + `MAX_N`) was a no-op against the explicit
+YAML value — the same `[@Value vs YAML]` trap as before. Live sidecar probes confirmed the reach is
+otherwise fully working: `/numbertheory/window` returns **correct** stats at **1e9 in 74ms** via the
+segmented path (`mean_omega=3.320` vs `ln ln(1e9)+B₁=3.293`; `omega_Omega_gap=mean_Omega−mean_omega=0.7742`,
+*closer* to the 0.77316 limit than the 0.7730 the 1e6 cap yields). The global Mertens M(x) oracle stays
+dense-capped at NT_MAX_N=2e7 on a **separate** checkpoint-judge path (handlers.jl ~2538) that this knob does
+not gate, so raising it is safe. **Fix: `maxN: 2000000 → 2000000000`** (YAML-only; needs a rebuild+restart —
+`@Value` is read at startup). The decisive reach test is therefore still pending: it runs for real on the
+*next* run after restart, where the ladders should reach 1e9 and the slow convergers show the cross-scale
+tightening trend.
+
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 
 Promote measurement to a real topic kind: the miner seeds a `MEASUREMENT` topic for registry objects
