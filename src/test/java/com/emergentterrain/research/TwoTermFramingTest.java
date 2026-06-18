@@ -82,4 +82,25 @@ class TwoTermFramingTest {
         assertThat(ResearchCycleService.synthesizeConjectureHypothesis(c, true))
                 .contains("whether the bound holds");
     }
+
+    @Test
+    void measurementFrame_growthKeepsBoundTightening_noIgnoreSeedNote() {
+        // Stage 1f — GROWTH objects (max_prime_gap → k·log_sq) MUST keep testing/tightening the bound via
+        // verify_conjecture (the growth-anchor pass). They get the measurement framing + the manual ladder
+        // note, but NOT the "ignore the seed bound" instruction that CONSTANT/OSCILLATION get.
+        Conjecture c = new Conjecture("math", "max_prime_gap", "log_sq_window_start", 0.681, 0.0);
+        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        assertThat(hyp).contains("GROWTH LAW").contains("verify_growth")
+                .doesNotContain("IGNORE it").doesNotContain("do NOT spend calls on verify_conjecture");
+    }
+
+    @Test
+    void measurementFrame_twinVsPrimeSq_nowConstantMeasurement() {
+        // Stage 1f — twin_vs_prime_sq registered as CONSTANT (2C₂≈1.32032): framed as a measurement
+        // (fixes its title-drift manifest_miss) with the auto scale-ladder + ignore-seed note.
+        Conjecture c = new Conjecture("math", "twin_vs_prime_sq", "prime_density", 1.0, 0.0);
+        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        assertThat(hyp).contains("CONVERGES to a constant").contains("scale_ladder:true")
+                .contains("1.32032").contains("IGNORE it").doesNotContain("whether the bound holds");
+    }
 }

@@ -126,6 +126,10 @@ public final class ScalarOpenness {
             Map.entry("mean_divisor_excess", new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.15443, Convergence.FAST)),
             // omega_ek_ratio → 1: Erdős–Kac variance, glacial (~1/√ln ln x) → SLOW.
             Map.entry("omega_ek_ratio",      new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.0, Convergence.SLOW)),
+            // twin_vs_prime_sq → 2C₂ (Hardy–Littlewood twin constant): a clean window-independent limit,
+            // glacial (~1/ln x) → SLOW. Registered 2026-06-17 (Stage 1f) — was demoted by title-drift
+            // manifest_miss (run-13 P-710, 0.697) as an UNregistered bound; now framed as a measurement.
+            Map.entry("twin_vs_prime_sq",    new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.32032, Convergence.SLOW)),
             // extremal (max) statistics — noisy and slow → SLOW.
             Map.entry("max_divisor_count",   new MeasurementSpec(MeasurementFrame.GROWTH, "wigert_bound", null, Convergence.SLOW)),
             Map.entry("max_prime_gap",       new MeasurementSpec(MeasurementFrame.GROWTH, "log_sq_window_start", null, Convergence.SLOW)),

@@ -992,14 +992,20 @@ public class ResearchCycleService {
         boolean autoLaddered =
                 frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT
                 || frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.OSCILLATION;
-        // Stage 1f — the conjecture queue seeds a placeholder affine bound to REACH this measurement
-        // topic; it is a discarded scaffold, not the claim. run-13 P-713 got the OSCILLATION framing yet
-        // still spent its calls on verify_conjecture testing the seed bound and never set scale_ladder:true.
+        // Stage 1f — for an AUTO-LADDERED frame (CONSTANT/OSCILLATION) the seeded affine bound is a
+        // discarded proxy scaffold: tell the professor to ignore it and run the scale-ladder measurement
+        // (run-13 P-713 got the OSCILLATION framing yet tested the seed bound, scale_ladder 0×). GROWTH is
+        // EXCLUDED — its bound (e.g. max_prime_gap ≤ k·log_sq) IS the measurement; the growth-anchor tighten
+        // pass legitimately tests/tightens it via verify_conjecture, so it keeps the manual-ladder note and
+        // NO ignore-seed instruction (which would break that working pass).
+        if (!autoLaddered) {
+            return base + ladderNote;
+        }
         String ignoreSeedNote = String.format(
-                " The miner seeded a placeholder bound `%s ≤ …` only to reach this topic — IGNORE it: do "
+                " The miner seeded a placeholder bound `%s ≤ …` only to REACH this topic — IGNORE it: do "
                 + "NOT spend calls on verify_conjecture testing that inequality. The cross-scale measurement "
                 + "above (the auto scale-ladder) is the ONLY load-bearing claim of this paper.", lhs);
-        return (autoLaddered ? base : base + ladderNote) + ignoreSeedNote;
+        return base + ignoreSeedNote;
     }
 
     private static String synthesizeConjectureFindings(
