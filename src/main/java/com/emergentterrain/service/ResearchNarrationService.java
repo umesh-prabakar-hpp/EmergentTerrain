@@ -191,6 +191,23 @@ public class ResearchNarrationService {
     private boolean twoTermTightenGateEnabled;
 
     /**
+     * Phase 30 G2 follow-on (2026-06-18, REVIEW_REPORT b72c4e10) — the TIGHT-HOLD twin of
+     * {@link #twoTermTightenGateEnabled}. The two-term tighten gate only fires on a LOOSE hold (the tool
+     * emits "re-verify at c=…"); a composite that holds TIGHTLY emits no such suggestion, so a paper can
+     * still publish with the binding region never shown (P-b72c-77627715: 60/60 windows held, slack
+     * 0.018–0.042, no refute — binding-regime-uncovered in prose only, never enforced). When on, a
+     * two-term composite that HELD with NO refuting call anywhere
+     * ({@code ScoreCalibration.heldTwoTermNoBindingRegion}) gets one corrective re-run that steps the
+     * intercept c down to where it binds, so the trace shows BOTH the tight hold and the refute.
+     * Determination is the tool's per-window data (c + worst margin); the app enforces the skipped probe.
+     * Lowest priority of the five re-run triggers. false = today's behavior, bit-identical (and only
+     * reachable when two-term rows exist, i.e. twoTermEnabled is on).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.sharpness-probe-gate.enabled:false}")
+    private boolean sharpnessProbeGateEnabled;
+
+    /**
      * Phase 32 (paper-pipeline-quality-brief Change 4) — when on, the result-classification line shown to
      * the SCORING REVIEWER is corrected to reflect the paper's actual finding. Conjecture drafts are
      * seeded SUPPORTED (ResearchCycleService); the professor often refutes the bound, and the divergence
@@ -478,6 +495,47 @@ public class ResearchNarrationService {
                 .append("an EMPIRICAL_RESULT instead of a loose, never-binding hold. Report the tight c and the ")
                 .append("worst-margin at the binding region — a composite left at the loose auto-fit c is not ")
                 .append("retained.");
+        return b.toString();
+    }
+
+    /**
+     * The sharpness-probe re-run note (Phase 30 G2 follow-on, 2026-06-18): the professor held a generated
+     * two-term composite TIGHTLY but never showed where it BINDS — no REFUTED call anywhere in the trace —
+     * so it is DOWNGRADED (binding-regime-uncovered) however small the slack. Unlike the loose-tighten
+     * note, the bound is already tight, so this does not chase a looser auto-fit; it enforces the ONE
+     * missing probe: re-verify at the tightest holding c, then step c down until it REFUTES. The tightest
+     * c is the tool's deterministic c + worst-margin (named here, not hand-authored). KEEP k and k2.
+     */
+    static String buildSharpnessProbeNote(String lhs,
+            com.emergentterrain.research.ScoreCalibration.SharpnessProbeSuggestion s) {
+        String rhs = s.rhs();
+        String rhs2 = s.rhs2();
+        String k = s.k();
+        String k2 = s.k2();
+        StringBuilder b = new StringBuilder();
+        b.append("\n\nSHARPNESS-PROBE NOTE — your two-term composite on '").append(lhs).append("' HELD ")
+                .append("TIGHTLY, but every window only HOLDS — you never showed where it BINDS (no REFUTED ")
+                .append("call), so it is DOWNGRADED (binding-regime-uncovered) however small the slack: a ")
+                .append("comfortable hold across many windows is not evidence the bound binds, it may be slack ")
+                .append("you never tested. KEEP the structure k and k2 (they are the relation); the lever is ")
+                .append("the INTERCEPT c. The tightest intercept that still holds your tested windows is ")
+                .append("c≈").append(s.suggestedC()).append(". Re-verify the composite at THAT c — ")
+                .append("verify_conjecture lhs=\"").append(lhs).append("\"")
+                .append(rhs != null ? ", rhs=\"" + rhs + "\"" : "")
+                .append(k != null ? ", k=" + k : "")
+                .append(rhs2 != null ? ", rhs2=\"" + rhs2 + "\"" : "")
+                .append(k2 != null ? ", k2=" + k2 : "")
+                .append(", c=").append(s.suggestedC());
+        if (s.heldStart() != null) {
+            b.append(", window_start=").append(s.heldStart())
+                    .append(s.heldSize() != null ? ", window_size=" + s.heldSize() : "")
+                    .append(s.heldNum() != null ? ", num_windows=" + s.heldNum() : "");
+        }
+        b.append(" — confirm it still HOLDS with a SMALL margin. THEN re-verify once more at a slightly ")
+                .append("SMALLER c (step it down on the SAME windows) and confirm it REFUTES: that REFUTED ")
+                .append("call is the binding region, and the tight-c HOLD plus the over-tight REFUTE in the ")
+                .append("SAME trace is what clears binding-regime-uncovered and makes the composite an ")
+                .append("EMPIRICAL_RESULT. Report the tight c and the worst-margin at the binding region.");
         return b.toString();
     }
 
@@ -2438,7 +2496,17 @@ public class ResearchNarrationService {
                         ? com.emergentterrain.research.ScoreCalibration
                                 .looseTwoTermUntightened(topic, profTrace)
                         : null;
-                if (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null) {
+                // Lowest-priority trigger (Phase 30 G2 follow-on): a two-term composite that held TIGHTLY
+                // but never bound (no REFUTED call) — step c down to the binding region. Only when no loose
+                // trigger fired (a loose hold is the two-term-tighten gate's job, and it subsumes the probe).
+                com.emergentterrain.research.ScoreCalibration.SharpnessProbeSuggestion sharpnessProbe =
+                        (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
+                                && sharpnessProbeGateEnabled)
+                        ? com.emergentterrain.research.ScoreCalibration
+                                .heldTwoTermNoBindingRegion(topic, profTrace)
+                        : null;
+                if (!offTarget && !secondOrderSkipped && tighten == null && twoTermTighten == null
+                        && sharpnessProbe == null) {
                     break;   // nothing to correct (the flag-OFF path breaks here, bit-identical)
                 }
                 pivotReruns++;
@@ -2469,13 +2537,20 @@ public class ResearchNarrationService {
                             preregLhs, tighten.suggestedK(), pivotReruns, pivotMaxRefinements,
                             draft.paperId());
                     pivotPrompt = userPrompt + buildTightenNote(preregLhs, tighten);
-                } else {
+                } else if (twoTermTighten != null) {
                     callPath.add("prereg:pivot:twoterm_tighten_rerun:n=" + pivotReruns);
                     log.info("LLM professor tools: loose two-term composite (lhs '{}' held but untightened; "
                                     + "tool suggested c~{}) — two-term tighten re-run {}/{} paperId={}",
                             preregLhs, twoTermTighten.suggestedC(), pivotReruns, pivotMaxRefinements,
                             draft.paperId());
                     pivotPrompt = userPrompt + buildTwoTermTightenNote(preregLhs, twoTermTighten);
+                } else {
+                    callPath.add("prereg:pivot:sharpness_probe_rerun:n=" + pivotReruns);
+                    log.info("LLM professor tools: tight two-term composite (lhs '{}' held but never bound; "
+                                    + "tightest c~{}) — sharpness-probe re-run {}/{} paperId={}",
+                            preregLhs, sharpnessProbe.suggestedC(), pivotReruns, pivotMaxRefinements,
+                            draft.paperId());
+                    pivotPrompt = userPrompt + buildSharpnessProbeNote(preregLhs, sharpnessProbe);
                 }
                 MathToolSuite.ToolMetrics pivotMetrics = new MathToolSuite.ToolMetrics();
                 final String pivotPromptFinal = pivotPrompt;
@@ -4172,7 +4247,16 @@ public class ResearchNarrationService {
             + "HOLDS — no REFUTED call showing where it binds — is DOWNGRADED (binding-regime-uncovered) "
             + "exactly like a one-term bound, no matter how strong the residual evidence: a held bound that "
             + "never binds is loose. Report the tight c and the worst-margin at the binding region — a "
-            + "composite that binds tightly is THE result; one left at the loose auto-fit c is not retained.";
+            + "composite that binds tightly is THE result; one left at the loose auto-fit c is not retained. "
+            + "TIGHT-HOLD BINDING PROBE (2026-06-18): the binding-region probe above is REQUIRED EVEN WHEN "
+            + "the composite already HOLDS TIGHTLY (small relative slack) and verify_conjecture emits NO "
+            + "'LOOSE (two-term)' suggestion. A comfortable hold across many windows is NOT evidence the "
+            + "bound binds — it may be slack you never tested. In that case do NOT stop at the auto-fit: take "
+            + "the holding intercept c and re-verify at a slightly SMALLER c (step it down at the SAME tested "
+            + "windows until the worst window crosses) to produce the REFUTED binding call yourself. The ONE "
+            + "trace must show BOTH the tight HOLD and that over-tight REFUTE; a two-term composite that "
+            + "holds at every c you tried and never exhibits a refuting c is DOWNGRADED "
+            + "(binding-regime-uncovered) no matter how many windows held or how small the slack.";
     }
 
     // ── Tool-calling professor prompts ────────────────────────────────────────

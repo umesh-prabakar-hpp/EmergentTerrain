@@ -383,6 +383,95 @@ public final class ScoreCalibration {
                 : null;
     }
 
+    // Phase 30 G2 follow-on (2026-06-18, REVIEW_REPORT b72c4e10 §1: P-b72c-77627715 held a two-term
+    // composite across 60 windows with NO refuting call and published with the binding region never
+    // shown). The headline discriminators are " HELD across" / " REFUTED across": the per-call result
+    // also carries a verdict LEGEND that contains the word "REFUTED" on EVERY call (held or not), so a
+    // bare contains("REFUTED") matches the legend, not the verdict — this detector keys on the headline.
+    private static final java.util.regex.Pattern WORST_MARGIN =
+            java.util.regex.Pattern.compile("worst margin:\\s*([+-]?[0-9.]+)",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Phase 30 G2 follow-on — the TIGHT-HOLD twin of {@link TwoTermTightenSuggestion}. {@code rhs}/
+     * {@code rhs2}/{@code k}/{@code k2} are the composite's structure (kept); {@code suggestedC} is the
+     * tightest intercept that still holds every tested window (the held call's c plus its worst/binding
+     * margin — the same {@code c + binding-margin} the verify tool's two-term LOOSE branch computes).
+     * {@code held*} are the held call's own window params — the region the probe steps c down on, since a
+     * confirmatory-only trace has no REFUTED region to point at.
+     */
+    public record SharpnessProbeSuggestion(String rhs, String rhs2, String k, String k2,
+            String suggestedC, String heldStart, String heldSize, String heldNum) {}
+
+    /**
+     * Non-null when a conjecture trace HELD a TWO-TERM composite (verify_conjecture called WITH rhs2) but
+     * NEVER produced a REFUTED call anywhere — so the binding region was never shown and the composite is
+     * {@code binding-regime-uncovered} (Step 10 of the conjecture directive), no matter how tight the hold
+     * or how many windows held. This is the case the loose-tighten gate ({@link #looseTwoTermUntightened})
+     * does NOT catch: a TIGHT hold emits no "re-verify at c=…" suggestion, so the loose gate stays silent
+     * and the professor stops at a comfortable hold (P-b72c-77627715: slack 0.018–0.042, 60/60 held, no
+     * refute). The deterministic trigger for the sharpness-probe corrective re-run: drive the professor to
+     * step the intercept down to where it binds. Determination is a deterministic computation over the
+     * tool's own per-window data ({@code c + worst-margin}); the app enforces the skipped follow-up. Fires
+     * ONLY when no REFUTED call exists (a trace that already shows a binding region needs no probe).
+     * Non-conjecture / empty traces → null.
+     */
+    public static SharpnessProbeSuggestion heldTwoTermNoBindingRegion(String topic, List<ToolInvocation> trace) {
+        if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
+            return null;
+        }
+        String rhs = null, rhs2 = null, k = null, k2 = null, heldStart = null, heldSize = null, heldNum = null;
+        Double worstMargin = null, heldC = null;
+        boolean anyRefuted = false;
+        for (ToolInvocation call : trace) {
+            if (call == null || !"verify_conjecture".equals(call.functionName())) {
+                continue;
+            }
+            String result = call.resultJson();
+            if (result == null) {
+                continue;
+            }
+            if (result.contains("REFUTED across")) {
+                anyRefuted = true;   // the binding region IS shown (incl. an auto-probe refute) — no probe needed
+                continue;
+            }
+            String args = call.argsJson();
+            boolean isTwoTerm = args != null && args.contains("\"rhs2\"");
+            if (!isTwoTerm || !result.contains("HELD across")) {
+                continue;   // only an overall-HELD two-term call carries a binding region to probe
+            }
+            if (worstMargin == null) {   // first held two-term call defines the structure + tight c
+                java.util.regex.Matcher wm = WORST_MARGIN.matcher(result);
+                String cArg = numArg(args, "c");
+                if (wm.find() && cArg != null) {
+                    try {
+                        worstMargin = Double.parseDouble(wm.group(1));
+                        heldC = Double.parseDouble(cArg);
+                    } catch (NumberFormatException e) {
+                        worstMargin = null;
+                        heldC = null;
+                        continue;
+                    }
+                    rhs = strArg(args, "rhs");
+                    rhs2 = strArg(args, "rhs2");
+                    k = numArg(args, "k");
+                    k2 = numArg(args, "k2");
+                    heldStart = numArg(args, "window_start");
+                    heldSize = numArg(args, "window_size");
+                    heldNum = numArg(args, "num_windows");
+                }
+            }
+        }
+        if (worstMargin == null || heldC == null || anyRefuted) {
+            return null;
+        }
+        // Tightest intercept that still holds every tested window = c + worst (max) margin; a slightly
+        // smaller c then REFUTES, which is the binding region the gate requires. Same formula the tool's
+        // own two-term LOOSE branch uses (c + binding margin), here over the held call's per-window data.
+        String suggestedC = String.format(java.util.Locale.ROOT, "%+.4f", heldC + worstMargin);
+        return new SharpnessProbeSuggestion(rhs, rhs2, k, k2, suggestedC, heldStart, heldSize, heldNum);
+    }
+
     public static java.util.List<String> secondOrderScalarsEngaged(List<ToolInvocation> trace) {
         if (trace == null || trace.isEmpty()) {
             return java.util.List.of();
