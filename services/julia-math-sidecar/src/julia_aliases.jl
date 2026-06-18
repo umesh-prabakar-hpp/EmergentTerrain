@@ -34,6 +34,18 @@
 # expression, so a model emitting `Pkg.add(...)` is still rejected.
 # =====================================================================
 
+# ── Bridge into Main (LOAD-BEARING — do not drop) ────────────────────
+#
+# `/eval` runs `Main.eval(...)`, and scripts/start.sh boots the sidecar
+# with `using JuliaMathSidecar` — so ONLY exported names land in the
+# eval namespace. An alias defined below but absent from this export is
+# silently unreachable from /eval (the original `isprime not defined in
+# Main` failure: the alias existed in-module since 2026-05-22 but was
+# never exported, so the safety net never deployed). Every new alias
+# MUST be added here too.
+export PI, PLANCK_H, SIGMA_SB, σ_F, BOLTZMANN_K, ELEMENTARY_CHARGE,
+    SPEED_OF_LIGHT, GRAVITATIONAL_CONSTANT, Solve, isprime
+
 # ── Numeric constants (LLM uses Mathematica-style ALL_CAPS names) ────
 #
 # Provide both the upper-case alias and a short hint comment so future
