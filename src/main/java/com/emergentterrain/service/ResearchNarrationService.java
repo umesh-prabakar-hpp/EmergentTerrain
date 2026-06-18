@@ -208,6 +208,24 @@ public class ResearchNarrationService {
     private boolean sharpnessProbeGateEnabled;
 
     /**
+     * 2026-06-18 (REVIEW_REPORT b72c4e10 §1, scope-recover gate) — domain-neutral corrective re-run
+     * for scope overreach: a paper that narrates results over an integer range NO tool call scanned
+     * is nulled by the publish gate ({@link com.emergentterrain.research.NumericalConsistencyValidator}
+     * scope overreach: P-b72c-77627718 narrated [0,400), P-b72c-77627719 narrated [750,1200), both
+     * never scanned → NULL_RESULT). When on, such a draft gets one re-run that tells the professor to
+     * either SCAN the missing range (the re-run runs with tools) or DELETE the out-of-scope claim,
+     * before that null. Runs in a PARALLEL loop after the conjecture pivot loop (the concern is
+     * domain-neutral — predicate/sandbox topics, not just conjecture — so it does not belong inside
+     * the conjecture-gated loop), reusing its budget/drain/rerun-allowed plumbing. Detector and gate
+     * share one rule ({@code NumericalConsistencyValidator.uncoveredProseRanges}) so they can't
+     * disagree. false = today's behavior, bit-identical (the gate still nulls, just without a recovery
+     * attempt first).
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.scope-recover-gate.enabled:false}")
+    private boolean scopeRecoverGateEnabled;
+
+    /**
      * Phase 32 (paper-pipeline-quality-brief Change 4) — when on, the result-classification line shown to
      * the SCORING REVIEWER is corrected to reflect the paper's actual finding. Conjecture drafts are
      * seeded SUPPORTED (ResearchCycleService); the professor often refutes the bound, and the divergence
@@ -536,6 +554,44 @@ public class ResearchNarrationService {
                 .append("call is the binding region, and the tight-c HOLD plus the over-tight REFUTE in the ")
                 .append("SAME trace is what clears binding-regime-uncovered and makes the composite an ")
                 .append("EMPIRICAL_RESULT. Report the tight c and the worst-margin at the binding region.");
+        return b.toString();
+    }
+
+    /**
+     * The scope-recover re-run note (2026-06-18): the draft describes results over integer range(s)
+     * NO tool call scanned, which the publish gate nulls (scope overreach). Names the offending
+     * range(s) and the ranges actually scanned (both from
+     * {@link com.emergentterrain.research.NumericalConsistencyValidator}, the same compute the gate
+     * uses), then gives the two recovery paths: scan the missing range (the re-run runs with tools)
+     * or delete the out-of-scope claim. Domain-neutral — no conjecture assumptions.
+     */
+    static String buildScopeRecoverNote(java.util.List<double[]> uncovered,
+            java.util.List<double[]> executedUnion) {
+        StringBuilder b = new StringBuilder();
+        b.append("\n\nSCOPE-RECOVER NOTE — your draft describes results over integer range(s) that NO ")
+                .append("tool call scanned: ").append(formatRanges(uncovered)).append(". The range(s) you ")
+                .append("ACTUALLY scanned are: ")
+                .append(executedUnion == null || executedUnion.isEmpty()
+                        ? "(none)" : formatRanges(executedUnion))
+                .append(". The publish gate NULLS any paper that reports a result, statistic, or trend ")
+                .append("over an interval outside the scanned union, so this draft will be discarded as ")
+                .append("written. Fix it in ONE of two ways: (a) SCAN the missing range(s) NOW — issue ")
+                .append("run_predicate_scan (or the relevant tool) over ADJACENT sub-ranges each spanning ")
+                .append("<= 500 (e.g. [a, a+500) then [a+500, a+1000)) until each claimed range is covered, ")
+                .append("and report each sub-range's result; OR (b) DELETE every sentence that describes a ")
+                .append("range outside what you scanned. Do NOT restate a range you did not scan. Re-run ")
+                .append("the investigation accordingly.");
+        return b.toString();
+    }
+
+    /** Render integer intervals as "[a, b), [c, d)" for the scope-recover note (drops the .0). */
+    private static String formatRanges(java.util.List<double[]> ranges) {
+        StringBuilder b = new StringBuilder();
+        for (int i = 0; i < ranges.size(); i++) {
+            if (i > 0) b.append(", ");
+            double[] r = ranges.get(i);
+            b.append("[").append((long) r[0]).append(", ").append((long) r[1]).append(")");
+        }
         return b.toString();
     }
 
@@ -2589,6 +2645,58 @@ public class ResearchNarrationService {
                 } else {
                     // Keep the original synthesis/trace; the gate decides.
                     callPath.add("prereg:pivot:rerun_unusable");
+                    break;
+                }
+            }
+            // Scope-recover corrective re-run (2026-06-18) — PARALLEL to the conjecture loop above,
+            // not folded into it: scope overreach is domain-neutral (predicate/sandbox topics, not
+            // just conjecture), so it runs on ANY topic AFTER the conjecture loop has done its
+            // substrate fixes. Reuses the same budget/drain/rerun-allowed plumbing. The detector is
+            // the SAME compute the publish gate nulls on (NumericalConsistencyValidator), so the
+            // re-run fires iff the gate would otherwise null; if the re-run still overreaches, the
+            // gate nulls exactly as today (backstop, not first line). flag-OFF → loop never enters.
+            int scopeReruns = 0;
+            while (scopeRecoverGateEnabled
+                    && scopeReruns < pivotMaxRefinements
+                    && pivotRerunAllowed()) {
+                java.util.List<double[]> uncovered = com.emergentterrain.research
+                        .NumericalConsistencyValidator.uncoveredProseRanges(professorSynthesis, profTrace);
+                if (uncovered.isEmpty()) {
+                    break;   // in scope (or nothing to check) — flag-OFF path also breaks here
+                }
+                scopeReruns++;
+                com.emergentterrain.llm.RunBudgetTracker scopeBudget = runBudgetTracker;
+                if (pivotCompleteInFlight && scopeBudget != null && scopeBudget.isDraining()) {
+                    pivotDrainRerunsThisRun.incrementAndGet();
+                }
+                java.util.List<double[]> executedUnion = com.emergentterrain.research
+                        .NumericalConsistencyValidator.executedRangeUnion(profTrace);
+                callPath.add("prereg:pivot:scope_recover_rerun:n=" + scopeReruns);
+                log.info("LLM professor tools: scope overreach ({} uncovered range(s)) — scope-recover "
+                                + "re-run {}/{} paperId={}",
+                        uncovered.size(), scopeReruns, pivotMaxRefinements, draft.paperId());
+                String scopePrompt = userPrompt + buildScopeRecoverNote(uncovered, executedUnion);
+                MathToolSuite.ToolMetrics scopeMetrics = new MathToolSuite.ToolMetrics();
+                final String scopePromptFinal = scopePrompt;
+                com.emergentterrain.llm.ToolCallResponse scopeResponse =
+                        com.emergentterrain.llm.LlmCallContext.withRole("professor-tools", () ->
+                                router.callPrimaryWithTools(
+                                        systemPrompt, scopePromptFinal, toolsJson,
+                                        toolSuite.buildExecutor(draft, scopeMetrics),
+                                        scopeMetrics::reset));
+                if (scopeResponse.synthesis() != null && !scopeResponse.synthesis().isBlank()
+                        && scopeResponse.trace() != null && !scopeResponse.trace().isEmpty()
+                        && scopeMetrics.totalSuccesses() > 0) {
+                    professorSynthesis = scopeResponse.synthesis();
+                    profTrace = scopeResponse.trace();
+                    boolean stillOverreach = !com.emergentterrain.research
+                            .NumericalConsistencyValidator
+                            .uncoveredProseRanges(professorSynthesis, profTrace).isEmpty();
+                    callPath.add(stillOverreach
+                            ? "prereg:pivot:still_scope_overreach"
+                            : "prereg:pivot:scope_recovered");
+                } else {
+                    callPath.add("prereg:pivot:scope_rerun_unusable");
                     break;
                 }
             }

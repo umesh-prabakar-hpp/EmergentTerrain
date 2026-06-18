@@ -1162,16 +1162,32 @@ public final class NumericalConsistencyValidator {
         return merged;
     }
 
-    /** The coverage test against a precomputed union (split from findScopeOverreach). */
-    private static void findScopeOverreachAgainst(
-            String hypothesis, String findings,
-            List<double[]> executed, List<String> reasons) {
-        // Parse "[a, b)" or "[a, b]" from hypothesis + findings.
+    /**
+     * 2026-06-18 (scope-recover gate) — the uncovered prose ranges as a reusable primitive: the
+     * integer-bound / unit-interval / ±1%-slack coverage rule that the publish gate nulls on,
+     * returning the offending {@code [a,b)} intervals instead of formatted reason strings. Public so
+     * the corrective re-run (ResearchNarrationService scope-recover loop) can NAME the offending
+     * ranges and decide whether to re-run — the SAME compute the gate tests against, so the trigger
+     * and the gate can never disagree about what overreached. Null/empty prose or no executed
+     * coverage → empty list.
+     */
+    public static List<double[]> uncoveredProseRanges(
+            String prose, java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        return uncoveredProseRangesAgainst(prose, executedRangeUnion(trace));
+    }
+
+    /**
+     * The offending-range computation against a precomputed union — the single source of the
+     * scope-overreach coverage rule, shared by the publish gate ({@link #findScopeOverreachAgainst})
+     * and the scope-recover trigger ({@link #uncoveredProseRanges}).
+     */
+    static List<double[]> uncoveredProseRangesAgainst(String prose, List<double[]> executed) {
+        List<double[]> out = new ArrayList<>();
+        if (prose == null || executed == null || executed.isEmpty()) return out;
+        // Parse "[a, b)" or "[a, b]" from the prose.
         Pattern bracketRange = Pattern.compile(
                 "\\[\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*,\\s*(-?[0-9]+(?:\\.[0-9]+)?)\\s*[\\)\\]]");
-        String combined = (hypothesis != null ? hypothesis : "") + "\n"
-                + (findings != null ? findings : "");
-        Matcher pm = bracketRange.matcher(combined);
+        Matcher pm = bracketRange.matcher(prose);
         java.util.Set<String> alreadyFlagged = new java.util.HashSet<>();
         while (pm.find()) {
             double a;
@@ -1181,23 +1197,16 @@ public final class NumericalConsistencyValidator {
                 b = Double.parseDouble(pm.group(2));
             } catch (NumberFormatException ex) { continue; }
             if (b <= a) continue;
-            // 2026-06-04 rec #2 — only integer-like bounds are scan-range claims.
-            // Every executed range here is an integer window over ℕ (range_start/
-            // range_end, window_start + size·n). A fractional-bound interval in
-            // prose is a VALUE band — a CI ("[0.006, 0.04)", P-b72c-118) or an
-            // observed-scalar spread ("[0.7513, 0.7536)", P-b72c-120) — and
-            // treating it as an unexecuted scan range false-NULLs the paper.
+            // 2026-06-04 rec #2 — only integer-like bounds are scan-range claims. Executed ranges are
+            // integer windows over ℕ; a fractional-bound interval is a VALUE band (a CI like
+            // "[0.006, 0.04)" P-b72c-118, or a scalar spread "[0.7513, 0.7536)" P-b72c-120), not an
+            // unexecuted scan range — treating it as one false-NULLs the paper.
             if (a != Math.floor(a) || b != Math.floor(b)) continue;
-            // 2026-06-05 rec #2 — "[0, 1)" is the canonical VALUE DOMAIN of a density /
-            // fraction, not a scan-range claim (P-b72c-141 false-NULL: prose stating the
-            // joint density lives in [0, 1) was read as an unexecuted range; integer
-            // bounds, so the fractional-bound guard above passes it, and span 1 means no
-            // executed range could ever cover it). Skip exactly the unit interval.
+            // 2026-06-05 rec #2 — "[0, 1)" is the canonical VALUE DOMAIN of a density / fraction
+            // (P-b72c-141 false-NULL), not a scan-range claim. Skip exactly the unit interval.
             if (a == 0.0 && b == 1.0) continue;
-
-            // Pass when SOME executed range covers [a, b] within ±1% on each
-            // edge. Slack matches F5_5_RELATIVE_TOLERANCE so a prose
-            // "[326, 466)" is allowed to ride a trace "[325, 467)" etc.
+            // Covered when SOME executed range brackets [a, b] within ±1% on each edge
+            // (F5_5_RELATIVE_TOLERANCE), so a prose "[326, 466)" may ride a trace "[325, 467)".
             boolean covered = false;
             for (double[] ex : executed) {
                 double slackA = Math.max(Math.abs(ex[0]), 1.0) * F5_5_RELATIVE_TOLERANCE;
@@ -1208,13 +1217,25 @@ public final class NumericalConsistencyValidator {
                 }
             }
             if (covered) continue;
-
             String key = a + "_" + b;
             if (!alreadyFlagged.add(key)) continue;
+            out.add(new double[]{a, b});
+        }
+        return out;
+    }
+
+    /** The coverage test against a precomputed union (split from findScopeOverreach). Delegates to
+     *  {@link #uncoveredProseRangesAgainst} so the gate and the scope-recover trigger share one rule. */
+    private static void findScopeOverreachAgainst(
+            String hypothesis, String findings,
+            List<double[]> executed, List<String> reasons) {
+        String combined = (hypothesis != null ? hypothesis : "") + "\n"
+                + (findings != null ? findings : "");
+        for (double[] r : uncoveredProseRangesAgainst(combined, executed)) {
             reasons.add(String.format(
                     "Prose claims results over range [%s, %s) but no tool call executed against this "
                             + "interval — the executed-range union does not cover it (scope overreach).",
-                    formatTrim(a), formatTrim(b)));
+                    formatTrim(r[0]), formatTrim(r[1])));
         }
     }
 

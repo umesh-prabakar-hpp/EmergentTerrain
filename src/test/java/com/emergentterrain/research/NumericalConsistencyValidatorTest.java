@@ -1231,4 +1231,74 @@ class NumericalConsistencyValidatorTest {
     void nullTrace_returnsEmpty() {
         assertThat(NumericalConsistencyValidator.validateVerdictGrounding("x", "y", null)).isEmpty();
     }
+
+    // ── 2026-06-18 — uncoveredProseRanges (scope-recover gate detector) ──────────
+
+    private static com.emergentterrain.llm.ToolInvocation scan(int start, int end) {
+        return new com.emergentterrain.llm.ToolInvocation(
+                "run_predicate_scan",
+                "{\"predicate\":\"isPrime OR isAbundant\",\"range_start\":" + start
+                        + ",\"range_end\":" + end + ",\"metric\":\"fraction_satisfying\"}",
+                "Predicate scan: fraction satisfying predicate = 0.40000 (exact count).", 0, "call");
+    }
+
+    @Test
+    void scopeRecover_flagsProseRangeNoCallScanned() {
+        // P-b72c-77627719 signature: scanned [300,750), prose narrates [750,1200).
+        var trace = List.of(scan(300, 750));
+        var uncovered = NumericalConsistencyValidator.uncoveredProseRanges(
+                "The density over [750, 1200) continues the downward trend.", trace);
+        assertThat(uncovered).hasSize(1);
+        assertThat(uncovered.get(0)).containsExactly(750.0, 1200.0);
+    }
+
+    @Test
+    void scopeRecover_emptyWhenProseRangeIsScanned() {
+        // P-b72c-77627718's actual scanned window [400,800) is in scope → no overreach.
+        var trace = List.of(scan(400, 800));
+        assertThat(NumericalConsistencyValidator.uncoveredProseRanges(
+                "Over [400, 800) the union fraction is 0.40.", trace)).isEmpty();
+    }
+
+    @Test
+    void scopeRecover_coalescesAdjacentScansBeforeCoverageTest() {
+        // Adjacent ladder [400,800)+[800,1200)+[1200,1600) coalesces; a summary "[400,1600)" is covered,
+        // but a claim over [0,400) (P-b72c-77627718) is not.
+        var trace = List.of(scan(400, 800), scan(800, 1200), scan(1200, 1600));
+        assertThat(NumericalConsistencyValidator.uncoveredProseRanges(
+                "Across [400, 1600) the fraction is stable.", trace)).isEmpty();
+        var uncovered = NumericalConsistencyValidator.uncoveredProseRanges(
+                "A baseline over [0, 400) provides comparison.", trace);
+        assertThat(uncovered).hasSize(1);
+        assertThat(uncovered.get(0)).containsExactly(0.0, 400.0);
+    }
+
+    @Test
+    void scopeRecover_ignoresValueBandsAndUnitInterval() {
+        var trace = List.of(scan(300, 750));
+        // Fractional CI / scalar spread and the [0,1) density domain are VALUE bands, not scan ranges.
+        assertThat(NumericalConsistencyValidator.uncoveredProseRanges(
+                "The CI was [0.006, 0.04) and the density lies in [0, 1).", trace)).isEmpty();
+    }
+
+    @Test
+    void scopeRecover_emptyWhenNoExecutedCoverageOrNullProse() {
+        assertThat(NumericalConsistencyValidator.uncoveredProseRanges("Over [0, 400).", List.of()))
+                .isEmpty();
+        assertThat(NumericalConsistencyValidator.uncoveredProseRanges(null, List.of(scan(300, 750))))
+                .isEmpty();
+    }
+
+    @Test
+    void scopeRecover_gateStillFlagsAfterRefactor_parity() {
+        // The publish gate delegates to the same primitive — it must still emit the scope-overreach
+        // reason (refactor is behavior-preserving).
+        var trace = List.of(scan(300, 750));
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                "Hypothesis over [300,750).",
+                java.util.Map.of(1, "Results over [750, 1200) extend the trend [call_1]."),
+                "Consistent.", trace);
+        assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
+                && r.contains("[750") && r.contains("1200"));
+    }
 }
