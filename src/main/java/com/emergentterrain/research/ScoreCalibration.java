@@ -291,14 +291,14 @@ public final class ScoreCalibration {
             if (result == null) {
                 continue;
             }
-            if (result.contains("REFUTED") && failStart == null) {
+            if (result.contains("REFUTED across") && failStart == null) {  // headline verdict; bare "REFUTED" matches the always-present legend
                 // The flat bound's failure region — the windows where a real bound must hold.
                 failStart = numArg(call.argsJson(), "window_start");
                 failSize = numArg(call.argsJson(), "window_size");
                 failNum = numArg(call.argsJson(), "num_windows");
                 continue;   // REFUTED summary carries no "HELD"
             }
-            if (!result.contains("HELD")) {
+            if (!result.contains("HELD across")) {   // headline verdict ("HELD" alone could match an auto-probe body)
                 continue;
             }
             java.util.regex.Matcher km = SUGGEST_K.matcher(result);
@@ -354,15 +354,15 @@ public final class ScoreCalibration {
             }
             String args = call.argsJson();
             boolean isTwoTerm = args != null && args.contains("\"rhs2\"");
-            if (result.contains("REFUTED") && failStart == null) {
+            if (result.contains("REFUTED across") && failStart == null) {  // headline verdict; bare "REFUTED" matches the always-present legend
                 // A REFUTED call's window params — the region a tightened composite must still hold.
                 failStart = numArg(args, "window_start");
                 failSize = numArg(args, "window_size");
                 failNum = numArg(args, "num_windows");
                 continue;   // REFUTED summary carries no "HELD"
             }
-            if (!isTwoTerm || !result.contains("HELD")) {
-                continue;   // only a two-term HELD call can carry the two-term intercept suggestion
+            if (!isTwoTerm || !result.contains("HELD across")) {
+                continue;   // only an overall-HELD two-term call can carry the two-term intercept suggestion
             }
             java.util.regex.Matcher cm = SUGGEST_C.matcher(result);
             if (cm.find()) {
@@ -498,8 +498,12 @@ public final class ScoreCalibration {
                 continue;
             }
             String result = call.resultJson();
-            // (a) An actual refutation is the strongest adversarial signal.
-            if (result != null && result.contains("REFUTED")) {
+            // (a) An actual refutation is the strongest adversarial signal. Key on the " REFUTED across"
+            // headline, NOT bare "REFUTED": every result carries a verdict legend ("…only margin > X is
+            // REFUTED…"), so contains("REFUTED") matched on EVERY held call and silently defeated this
+            // gate (confirmatory-only papers always read as adversarial → isConfirmatoryOnlyConjecture
+            // never fired). P-b72c-77627715 is the signature this restores.
+            if (result != null && result.contains("REFUTED across")) {
                 return true;
             }
             // (b) A HELD result still counts if it reached the binding regime.

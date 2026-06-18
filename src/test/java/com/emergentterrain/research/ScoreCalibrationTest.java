@@ -24,6 +24,17 @@ class ScoreCalibrationTest {
         return new ToolInvocation(name, "{}", "ok", 0, "call_1");
     }
 
+    /**
+     * The verdict legend appended to EVERY verify_conjecture result (held or refuted). It contains the
+     * word "REFUTED" ("…only margin > 0.04 is REFUTED…"), so a detector keying on bare contains("REFUTED")
+     * matches it on every call. Fixtures include it so the tests are realistic — the bug that shipped was
+     * invisible precisely because the old fixtures omitted it.
+     */
+    private static final String LEGEND =
+            " verdict legend: margin = lhs - bound; a window HOLDS iff margin <= 0.04 (2*TOL) — a small "
+            + "positive margin still holds, only margin > 0.04 is REFUTED. The per-window holds/REFUTED "
+            + "label is authoritative; do not re-derive or hedge the sign convention.";
+
     // ---- cascadeQuality ----
 
     @Test
@@ -64,23 +75,30 @@ class ScoreCalibrationTest {
     @Test
     void refutationCountsAsAdversarial() {
         assertTrue(ScoreCalibration.hasAdversarialCoverage(
-                List.of(verify("{\"window_start\":2003}", "verify_conjecture: ... REFUTED ..."))));
+                List.of(verify("{\"window_start\":2003}",
+                        "verify_conjecture: x <= ... REFUTED across 20 window(s)." + LEGEND))));
     }
 
     @Test
     void bindingRegimeProbeCountsAsAdversarialEvenWhenHeld() {
-        // A small-start window that HELD still demonstrates the author looked.
+        // A small-start window that HELD still demonstrates the author looked. The held result carries the
+        // legend (with its "is REFUTED") — coverage here must come from the binding-regime probe, not the
+        // legend masquerading as a refutation.
         assertTrue(ScoreCalibration.hasAdversarialCoverage(
                 List.of(verify("{\"lhs\":\"x\",\"window_start\":2003,\"window_size\":500}",
-                        "verify_conjecture: ... HELD ..."))));
+                        "verify_conjecture: x <= ... HELD across 20 window(s)." + LEGEND))));
     }
 
     @Test
     void confirmatoryOnlyLargeStartIsNotAdversarial() {
-        // The P-b72c-15 signature: every verify_conjecture HELD at a large start.
+        // The P-b72c-15 / P-b72c-77627715 signature: every verify_conjecture HELD at a large start. The
+        // results carry the legend; with the old bare contains("REFUTED") this trace read as adversarial
+        // (legend match) and the gate never fired — this is the regression the headline-keyed fix restores.
         List<ToolInvocation> trace = List.of(
-                verify("{\"window_start\":200003,\"window_size\":500}", "verify_conjecture: ... HELD ..."),
-                verify("{\"window_start\":750000,\"window_size\":2000}", "verify_conjecture: ... HELD ..."));
+                verify("{\"window_start\":200003,\"window_size\":500}",
+                        "verify_conjecture: x <= ... HELD across 20 window(s)." + LEGEND),
+                verify("{\"window_start\":750000,\"window_size\":2000}",
+                        "verify_conjecture: x <= ... HELD across 20 window(s)." + LEGEND));
         assertFalse(ScoreCalibration.hasAdversarialCoverage(trace));
         assertTrue(ScoreCalibration.isConfirmatoryOnlyConjecture(trace),
                 "all-HELD large-start conjecture trace is confirmatory-only");
@@ -377,5 +395,65 @@ class ScoreCalibrationTest {
                 List.of(verify(TWO_TERM_ARGS, TWO_TERM_LOOSE_HELD))));
         assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", List.of()));
         assertNull(ScoreCalibration.looseTwoTermUntightened("conjecture/max_divisor_count", null));
+    }
+
+    // ── 2026-06-18 — sharpness-probe gate (heldTwoTermNoBindingRegion) ──────────
+
+    // P-b72c-77627715 shape: a two-term composite that holds TIGHTLY (small slack, no LOOSE suggestion)
+    // but never refutes anywhere — the binding region is never shown.
+    private static final String RDD_ARGS =
+            "{\"lhs\":\"richly_divisible_density\",\"rhs\":\"mean_divisor_excess\",\"k\":2,"
+            + "\"rhs2\":\"omega_Omega_gap\",\"k2\":2,\"c\":-3.3452,"
+            + "\"window_start\":150000,\"window_size\":5000,\"num_windows\":20}";
+    private static final String RDD_TIGHT_HELD =
+            "verify_conjecture: richly_divisible_density <= +2.0000 * mean_divisor_excess + +2.0000 * "
+            + "omega_Omega_gap + -3.3452 HELD across 20 window(s) of size 5000 starting at 150000. "
+            + "worst margin: -0.00893 at window starting 185000. relative slack: 0.0178." + LEGEND;
+
+    @Test
+    void sharpnessProbe_firesOnTightTwoTermHoldWithNoRefute() {
+        var s = ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/richly_divisible_density",
+                List.of(verify(RDD_ARGS, RDD_TIGHT_HELD)));
+        assertNotNull(s);
+        // tightest c = held c (-3.3452) + worst margin (-0.00893) = -3.35413 → -3.3541
+        assertEquals("-3.3541", s.suggestedC());
+        assertEquals("mean_divisor_excess", s.rhs());
+        assertEquals("omega_Omega_gap", s.rhs2());
+        assertEquals("2", s.k());
+        assertEquals("2", s.k2());
+        assertEquals("150000", s.heldStart());
+    }
+
+    @Test
+    void sharpnessProbe_nullWhenARefuteAlreadyShowsTheBindingRegion() {
+        // A real refutation (headline "REFUTED across") means the binding region IS shown → no probe.
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/richly_divisible_density",
+                List.of(verify(RDD_ARGS, "verify_conjecture: richly_divisible_density <= ... REFUTED across "
+                                + "20 window(s) of size 5000 starting at 150000. worst margin: +0.05." + LEGEND),
+                        verify(RDD_ARGS, RDD_TIGHT_HELD))));
+    }
+
+    @Test
+    void sharpnessProbe_legendAloneIsNotARefute() {
+        // Regression twin: the held result's legend contains "is REFUTED" but NOT "REFUTED across", so the
+        // probe must still fire (the legend must not be read as a binding region).
+        assertNotNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/richly_divisible_density",
+                List.of(verify(RDD_ARGS, RDD_TIGHT_HELD))));
+    }
+
+    @Test
+    void sharpnessProbe_nullForOneTermHold() {
+        // A one-term hold (no rhs2) never trips the two-term sharpness probe.
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/max_prime_gap",
+                List.of(verify("{\"lhs\":\"max_prime_gap\",\"rhs\":\"log_sq_window_start\",\"k\":1,\"c\":0}",
+                        TIGHT_HELD))));
+    }
+
+    @Test
+    void sharpnessProbe_nullOnNonConjectureOrEmpty() {
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("physics/foo",
+                List.of(verify(RDD_ARGS, RDD_TIGHT_HELD))));
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/richly_divisible_density", List.of()));
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/richly_divisible_density", null));
     }
 }
