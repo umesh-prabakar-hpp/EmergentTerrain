@@ -420,6 +420,14 @@ public final class ScoreCalibration {
         if (topic == null || !topic.startsWith("conjecture/") || trace == null || trace.isEmpty()) {
             return null;
         }
+        // 2026-06-18 fix — a constant-convergence / oscillation paper (verify_constant /
+        // verify_oscillation, e.g. omega_Omega_gap → 0.77316, mean_divisor_excess → 2γ)
+        // legitimately has NO binding region; demanding a refuting c is unsatisfiable and churns the
+        // re-run to its cap (P-b72c-77627725 burned both sharpness re-runs on omega_Omega_gap). Exempt
+        // that frame, mirroring the binding-regime gate's constant-frame exemption (UniversityService).
+        if (isConstantOrOscillationFramed(trace)) {
+            return null;
+        }
         String rhs = null, rhs2 = null, k = null, k2 = null, heldStart = null, heldSize = null, heldNum = null;
         Double worstMargin = null, heldC = null;
         boolean anyRefuted = false;

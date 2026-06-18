@@ -2633,6 +2633,12 @@ public class ResearchNarrationService {
                     boolean stillTwoTermLoose = twoTermTightenGateEnabled
                             && com.emergentterrain.research.ScoreCalibration
                                     .looseTwoTermUntightened(topic, profTrace) != null;
+                    // 2026-06-18 — without this, a sharpness re-run that did NOT add the binding region
+                    // fell through to "on_target" (falsely "resolved") while the while-loop re-fired to
+                    // the cap — masking churn. Stamp it so a still-uncovered probe is visible.
+                    boolean stillSharpness = sharpnessProbeGateEnabled
+                            && com.emergentterrain.research.ScoreCalibration
+                                    .heldTwoTermNoBindingRegion(topic, profTrace) != null;
                     callPath.add(stillOff
                             ? "prereg:pivot:still_offtarget"
                             : stillSkipped
@@ -2641,7 +2647,9 @@ public class ResearchNarrationService {
                                             ? "prereg:pivot:still_loose"
                                             : stillTwoTermLoose
                                                     ? "prereg:pivot:still_twoterm_loose"
-                                                    : "prereg:pivot:on_target");
+                                                    : stillSharpness
+                                                            ? "prereg:pivot:still_sharpness_uncovered"
+                                                            : "prereg:pivot:on_target");
                 } else {
                     // Keep the original synthesis/trace; the gate decides.
                     callPath.add("prereg:pivot:rerun_unusable");

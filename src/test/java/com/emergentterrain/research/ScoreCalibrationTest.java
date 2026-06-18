@@ -442,6 +442,19 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void sharpnessProbe_nullWhenConstantOrOscillationFramed() {
+        // 2026-06-18 churn fix: a converged-constant paper (verify_constant present, e.g.
+        // omega_Omega_gap → 0.77316) has no binding region — the probe must NOT fire, else the
+        // re-run churns to its cap (P-b72c-77627725). Tight two-term hold + no refute, but
+        // constant-framed → null.
+        assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/omega_Omega_gap",
+                List.of(verify(RDD_ARGS, RDD_TIGHT_HELD),
+                        new ToolInvocation("verify_constant",
+                                "{\"lhs\":\"omega_Omega_gap\",\"target\":0.77316}",
+                                "verify_constant: omega_Omega_gap ~ 0.77316 CONVERGED", 0, "c2"))));
+    }
+
+    @Test
     void sharpnessProbe_nullForOneTermHold() {
         // A one-term hold (no rhs2) never trips the two-term sharpness probe.
         assertNull(ScoreCalibration.heldTwoTermNoBindingRegion("conjecture/max_prime_gap",
