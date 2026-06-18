@@ -426,6 +426,15 @@ public class MathToolSuite {
         this.scalarStatsToolEnabled = enabled;
     }
 
+    /** 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 2/3) — inform-don't-suppress caveats on the
+     *  verify_conjecture result: a constant-framed LHS (use verify_constant) and a tolerance-dominated
+     *  small-LHS HOLD. Pure additions to the result text; OFF = bit-identical. Set by ResearchNarrationService. */
+    private volatile boolean verifyInformCaveatsEnabled = false;
+
+    public void setVerifyInformCaveatsEnabled(boolean enabled) {
+        this.verifyInformCaveatsEnabled = enabled;
+    }
+
     /** scalar_window_stats needs the verifier (its sampleWindows substrate) AND its gate. */
     private boolean scalarStatsAvailable() {
         return conjectureVerifier != null && scalarStatsToolEnabled;
@@ -2256,6 +2265,35 @@ public class MathToolSuite {
                             kTight, kSuggest, c));
                 }
             }
+            // 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 3) — tolerance-dominated HOLD: when the lhs
+            // magnitude is at or below the HOLD slack (2*TOL=0.04), "holds" is dominated by the tolerance,
+            // not by the bound being tight (twin_prime_density ~0.002–0.016 < 0.04). Inform so a vacuous
+            // small-magnitude HOLD is not narrated as meaningful evidence. Inform-don't-suppress; OFF→silent.
+            if (verifyInformCaveatsEnabled) {
+                double meanAbsLhs = result.windows().stream()
+                        .mapToDouble(w -> Math.abs(w.lhsValue())).average().orElse(0.0);
+                if (meanAbsLhs > 0 && meanAbsLhs <= tolThreshold) {
+                    sb.append(String.format(
+                            " NOTE (tolerance-dominated): the lhs magnitude (~%.4f) is at or below the HOLD "
+                                    + "tolerance (%.2f = 2*TOL), so HOLD here is dominated by the tolerance and "
+                                    + "is WEAK evidence — rely on a refutation at larger x or a relative-margin "
+                                    + "view, not this HOLD.",
+                            meanAbsLhs, tolThreshold));
+                }
+            }
+        }
+        // 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 2) — constant-framed LHS: a one-sided bound on a
+        // quantity whose real content is a converged constant is typically non-informative (it bounds a
+        // settling quantity by a possibly-growing RHS; P-b72c-77627725 bounded omega_Omega_gap → 0.77316
+        // by a log-growing RHS). Steer to verify_constant. Verdict-independent; inform-don't-suppress (the
+        // miner's seed + the call are intentional breadth — this attaches a hint, it does not suppress).
+        if (verifyInformCaveatsEnabled
+                && com.emergentterrain.research.ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey(lhs)) {
+            sb.append(String.format(
+                    " NOTE (constant-framed): %s is a known constant-convergence quantity (→ %s); a one-sided "
+                            + "bound on it is typically non-informative. Measure it with verify_constant — that "
+                            + "converged value is the result, not this bound.",
+                    lhs, com.emergentterrain.research.ScoreCalibration.CONSTANT_FRAMED_LHS.get(lhs)));
         }
         // Log-base label (room b72c4e10, REVIEW_REPORT §1 rec #2): the
         // log_window_* scalars are base-10 (MathInvariants uses Math.log10), but

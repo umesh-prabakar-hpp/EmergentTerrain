@@ -442,6 +442,18 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void constantFramedLhs_setContractForVerifyInformCaveat() {
+        // rec 2: the constant-convergence quantities that earn the "use verify_constant" caveat.
+        assertTrue(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("omega_Omega_gap"));
+        assertTrue(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("twin_vs_prime_sq"));
+        assertTrue(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("mean_divisor_excess"));
+        // Oscillation-framed (verify_oscillation, not verify_constant) and ordinary growth bounds are NOT here.
+        assertFalse(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("mertens_delta"));
+        assertFalse(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("dirichlet_error"));
+        assertFalse(ScoreCalibration.CONSTANT_FRAMED_LHS.containsKey("max_prime_gap"));
+    }
+
+    @Test
     void sharpnessProbe_nullWhenConstantOrOscillationFramed() {
         // 2026-06-18 churn fix: a converged-constant paper (verify_constant present, e.g.
         // omega_Omega_gap → 0.77316) has no binding region — the probe must NOT fire, else the

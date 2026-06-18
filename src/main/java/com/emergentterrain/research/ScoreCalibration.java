@@ -165,6 +165,25 @@ public final class ScoreCalibration {
             "abundant_density", "deficient_density", "happy_density", "prime_density");
 
     /**
+     * 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 2) — LHS quantities whose real content is a CONVERGED
+     * CONSTANT, mapped to that constant. A one-sided {@code lhs <= k*rhs + c} bound on one of these is
+     * typically non-informative (it bounds a settling quantity by a possibly-growing RHS; P-b72c-77627725
+     * bounded omega_Omega_gap → 0.77316 by a log-growing RHS), and the right frame is verify_constant.
+     * Used ONLY to ATTACH an informational caveat to a verify_conjecture result — it does NOT suppress the
+     * call or the seed (the miner's breadth is intentional). Keep in sync with the directive's
+     * CONSTANT-CONVERGENCE / SECOND-ORDER steps; oscillation-framed quantities (mertens_delta,
+     * dirichlet_error) are deliberately NOT here — they belong to verify_oscillation, not verify_constant.
+     */
+    public static final java.util.Map<String, String> CONSTANT_FRAMED_LHS = java.util.Map.of(
+            "omega_Omega_gap", "Σ_p 1/(p(p−1)) ≈ 0.77316",
+            "mean_divisor_excess", "2γ ≈ 1.1544",
+            "omega_ek_ratio", "1 (Erdős–Kac)",
+            "squarefree_density", "6/π² ≈ 0.60793",
+            "abundant_density", "≈ 0.2476",
+            "twin_vs_prime_sq", "2C₂ ≈ 1.32032",
+            "cramer_gap_ratio", "a Cramér-type constant");
+
+    /**
      * The result-frame tools that engage second-order structure (a converged
      * constant, an oscillation envelope, a growth law) — as opposed to
      * {@code verify_conjecture}, which only tests a bound on the raw quantity.

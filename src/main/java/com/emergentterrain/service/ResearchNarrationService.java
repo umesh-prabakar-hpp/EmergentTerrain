@@ -1349,6 +1349,12 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.scalarStatsToolEnabled:false}")
     private boolean scalarStatsToolFlag;
 
+    /** 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 2/3) — inform-don't-suppress caveats on the
+     *  verify_conjecture result (constant-framed LHS → use verify_constant; tolerance-dominated small-LHS
+     *  HOLD is weak evidence). Pure result-text additions; OFF = bit-identical. */
+    @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.verifyInformCaveatsEnabled:false}")
+    private boolean verifyInformCaveatsFlag;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
@@ -1356,6 +1362,7 @@ public class ResearchNarrationService {
             toolSuite.setFrontierKnowledge(frontierKnowledge);
             toolSuite.setMechanismProposalEnabled(mechanismProposalFlag);
             toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
+            toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the
         // static revision-prompt builders can read it). Domain-neutral; OFF by default.
