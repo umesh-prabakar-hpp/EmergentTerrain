@@ -161,6 +161,29 @@ envelope trend across decades instead of an x≈1.8M single-range caveat — rem
 #1 limitation. The CONSTANT auto-ladder is still pending its own first exercise (no CONSTANT object was
 selected in the small run-10).
 
+**Stage 1f — unblock the OSCILLATION ladder: measurement frame wins + bound seed suppressed (run-13
+follow-on; SHIPPED 2026-06-17).** Run-13 finally selected `dirichlet_error` ×2 but the OSCILLATION
+auto-ladder fired **0×**, blocked by two upstream gates (neither the ladder code):
+- **(a) Frontier-framing precedence** — `ResearchCycleService` ~L706 routed dirichlet_error (a
+  frontier-mappable object) to `synthesizeFrontierHypothesis`, which never runs the measurement reframe
+  (that lives only in `synthesizeConjectureHypothesis`). P-709 was framed "investigate the bound at the
+  frontier," no oscillation framing. **Fix:** compute `measurementSpec = measurementFrame(lhs)` (when the
+  flag is on) and add `&& measurementSpec == null` to the frontier guard — a registered measurement object
+  takes the measurement reframe (its cross-scale ladder to MAX_N *is* the frontier investigation).
+- **(b) Professor non-compliance** — P-713 (two-term → frontier bypassed) *did* get the Stage 1e framing
+  but spent its calls testing the seed bound `dirichlet_error ≤ 0·mertens_delta + 0.0016` and set
+  scale_ladder:true 0×. **Fix:** (i) for a measurement object the paper TITLE is now "Measurement of <lhs>
+  (<limit/envelope/growth law> across scales)" instead of "Investigation of bound on <lhs> (<lhs> ≤ …)" —
+  removing the bound anchor (and, as a bonus, the title-drift manifest_miss exposure for these objects);
+  (ii) `measurementHypothesis` appends an explicit "the miner seeded a placeholder bound only to reach
+  this topic — IGNORE it; do NOT test it with verify_conjecture; the scale-ladder measurement is the ONLY
+  load-bearing claim."
+
+Both are flag-gated by the existing `measurementFrameDefault` (ON in yaml). Compile clean; TwoTermFramingTest
++ ScalarOpennessTest 15/15 green. ACCEPTANCE (next run with a dirichlet_error topic): the OSCILLATION
+auto-ladder fires (`verify_oscillation scale_ladder:true`) and reaches 1e8/1e9 with a bounded-vs-growing
+envelope trend — the reach test that's been blocked three runs. Needs an app rebuild+restart.
+
 ### Stage 2 (if Stage 1 lands) — seed measurement topics first-class
 
 Promote measurement to a real topic kind: the miner seeds a `MEASUREMENT` topic for registry objects

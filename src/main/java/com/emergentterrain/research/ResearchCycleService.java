@@ -696,14 +696,30 @@ public class ResearchCycleService {
             Context ctx) {
         String paperId = ctx.nextPaperId(roomId);
         String topicName = "conjecture/" + conjecture.lhs();
-        String title = String.format(
-                "Investigation of bound on %s (%s ≤ %s)",
-                conjecture.lhs(), conjecture.lhs(), formatBoundBody(conjecture));
+        // measurement-frame-default.md Stage 1f — a registered measurement object (CONSTANT/OSCILLATION/
+        // GROWTH) is framed as a MEASUREMENT, not a bound. run-13: dirichlet_error was titled "bound on
+        // ..." and frontier-framed, so the professor tested the seed bound instead of laddering the
+        // envelope and the OSCILLATION auto-ladder never fired. (a) Drop the affine bound from the title
+        // so the professor isn't anchored on bound-testing; (b) let the measurement reframe win over the
+        // frontier frame below (the cross-scale ladder to MAX_N IS the frontier investigation).
+        com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec measurementSpec =
+                measurementFrameDefault
+                        ? com.emergentterrain.research.conjecture.ScalarOpenness.measurementFrame(conjecture.lhs())
+                        : null;
+        String title = measurementSpec != null
+                ? String.format("Measurement of %s (%s across scales)",
+                        conjecture.lhs(), measurementFrameWord(measurementSpec.frame()))
+                : String.format(
+                        "Investigation of bound on %s (%s ≤ %s)",
+                        conjecture.lhs(), conjecture.lhs(), formatBoundBody(conjecture));
         // Path B — frontier-frame the investigation when enabled AND the conjecture's
         // scalars map to a discovery domain that can compute the quantity past the sieve.
         // Otherwise (and for all ω/density bounds) keep the in-range framing. G2: a two-term bound
         // (rhs2 set) is a sieve-range residual relation — keep it in-range (no frontier mapping).
-        FrontierDomain frontier = (conjectureFrontierFramingEnabled && conjecture.rhs2() == null)
+        // Stage 1f: a registered measurement object (measurementSpec != null) takes the measurement
+        // reframe, NOT the frontier bound frame, so synthesizeConjectureHypothesis applies the auto-ladder.
+        FrontierDomain frontier = (conjectureFrontierFramingEnabled && conjecture.rhs2() == null
+                        && measurementSpec == null)
                 ? frontierDomainFor(conjecture.lhs(), conjecture.rhs()) : null;
         String hypothesis = frontier == null
                 ? synthesizeConjectureHypothesis(conjecture, measurementFrameDefault)
@@ -869,6 +885,16 @@ public class ResearchCycleService {
                 c.k(), c.rhs(), c.k2(), c.rhs2(), c.c());
     }
 
+    /** measurement-frame-default.md Stage 1f — the noun for a measurement-object title by frame. */
+    private static String measurementFrameWord(
+            com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame frame) {
+        return switch (frame) {
+            case CONSTANT -> "limit";
+            case OSCILLATION -> "envelope";
+            case GROWTH -> "growth law";
+        };
+    }
+
     static String synthesizeConjectureHypothesis(
             com.emergentterrain.research.conjecture.Conjecture c, boolean measurementFrameDefault) {
         // measurement-frame-default.md Stage 1 — for an object with a registered intrinsic asymptotic,
@@ -966,7 +992,14 @@ public class ResearchCycleService {
         boolean autoLaddered =
                 frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT
                 || frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.OSCILLATION;
-        return autoLaddered ? base : base + ladderNote;
+        // Stage 1f — the conjecture queue seeds a placeholder affine bound to REACH this measurement
+        // topic; it is a discarded scaffold, not the claim. run-13 P-713 got the OSCILLATION framing yet
+        // still spent its calls on verify_conjecture testing the seed bound and never set scale_ladder:true.
+        String ignoreSeedNote = String.format(
+                " The miner seeded a placeholder bound `%s ≤ …` only to reach this topic — IGNORE it: do "
+                + "NOT spend calls on verify_conjecture testing that inequality. The cross-scale measurement "
+                + "above (the auto scale-ladder) is the ONLY load-bearing claim of this paper.", lhs);
+        return (autoLaddered ? base : base + ladderNote) + ignoreSeedNote;
     }
 
     private static String synthesizeConjectureFindings(
