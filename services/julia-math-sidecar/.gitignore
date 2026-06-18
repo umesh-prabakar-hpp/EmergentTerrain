@@ -32,3 +32,9 @@ coverage/
 # Sidecar log file (default location from scripts/start.sh)
 logs/
 sidecar.log
+
+# nohup output from backgrounded start.sh runs
+nohup.out
+
+# Per-run discovery/eval output dirs (timestamped, regenerated each run)
+outputs/
