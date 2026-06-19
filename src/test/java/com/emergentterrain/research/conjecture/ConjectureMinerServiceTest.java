@@ -308,4 +308,54 @@ class ConjectureMinerServiceTest {
                         .stream().noneMatch(i -> (i.lhs() + "|" + i.rhs()).equals("wigert_bound|mean_divisor_excess")),
                 "a pair already in the live store must not be re-seeded");
     }
+
+    @Test
+    @Tag("integration")
+    void measurementTargetSeed_injectsServableDirichletRowWhenAbsent() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        // 2026-06-19 — the OSCILLATING open flagship dirichlet_error has no valid one-sided bound, so
+        // seed() never makes a row for it. With the injector ON, mine() must create a SERVABLE
+        // (counterexample-class) measurement-seed row so selection can finally surface it.
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
+        when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMinerProperties props = new ConjectureMinerProperties();
+        props.setMeasurementTargetSeedEnabled(true);
+        ConjectureMinerService svc = new ConjectureMinerService(
+                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate(), props);
+
+        svc.mine();
+
+        ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
+        verify(repo, atLeast(1)).save(saved.capture());
+        // The injected seed is uniquely identifiable by its sentinel rhs + counterexample class.
+        boolean injected = saved.getAllValues().stream().anyMatch(c ->
+                "dirichlet_error".equals(c.lhs())
+                        && "_measurement_target_".equals(c.rhs())
+                        && ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()));
+        assertTrue(injected, "expected a servable dirichlet_error measurement-seed row to be injected");
+    }
+
+    @Test
+    @Tag("integration")
+    void measurementTargetSeed_offByDefault_noInjection() {
+        assumeTrue(sidecarUp, "sidecar not reachable at " + SIDECAR_URL);
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        when(repo.findByDomain("math")).thenReturn(Collections.emptyList());
+        when(repo.save(any(Conjecture.class))).thenAnswer(inv -> inv.getArgument(0));
+
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMinerService svc = new ConjectureMinerService(   // default props → flag OFF
+                repo, new ConjectureMapper(om), new OeisAnnotator(om), sidecarDelegate(), new ConjectureMinerProperties());
+
+        svc.mine();
+
+        ArgumentCaptor<Conjecture> saved = ArgumentCaptor.forClass(Conjecture.class);
+        verify(repo, atLeast(1)).save(saved.capture());
+        boolean injected = saved.getAllValues().stream().anyMatch(c ->
+                "dirichlet_error".equals(c.lhs()) && "_measurement_target_".equals(c.rhs()));
+        assertTrue(!injected, "flag OFF must not inject the measurement-seed (bit-identical)");
+    }
 }

@@ -47,6 +47,13 @@ public class ConjectureMinerService implements ConjectureQueue {
     /** Sentinel droppedByKnob value for counterexample-refuted conjectures (vs. real knob name for filter drops). */
     public static final String DROPPED_BY_COUNTEREXAMPLE = "_counterexample_";
 
+    /** 2026-06-19 — rhs sentinel for an injected measurement-seed row. Deliberately NOT a real vocabulary
+     *  scalar, so the seed's (lhs,rhs) key can never collide with a seed()/FIM/vocab-expansion bound row in
+     *  any store state (a colliding key would freshen+mutate the injected row, losing its servable
+     *  counterexample class). The measurement reframe (ResearchCycleService Stage 1f,
+     *  measurement-frame-default ON) drops the bound entirely, so the rhs is never evaluated or shown. */
+    private static final String MEASUREMENT_SEED_RHS = "_measurement_target_";
+
     private static final String DOMAIN = "math";
 
     /**
@@ -112,6 +119,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean opennessSelectionEnabled;
     private final boolean opennessDiversityEnabled;
     private final boolean oscillatingTargetFimExemptEnabled;
+    private final boolean measurementTargetSeedEnabled;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -314,6 +322,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
         this.opennessDiversityEnabled = props.isOpennessDiversityEnabled();
         this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
+        this.measurementTargetSeedEnabled = props.isMeasurementTargetSeedEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -393,6 +402,12 @@ public class ConjectureMinerService implements ConjectureQueue {
         for (Conjecture e : existing) {
             byKey.put(keyOf(e.lhs(), e.rhs()), e);
         }
+
+        // 2026-06-19 (novelty-funnel diagnosis) — ensure the OSCILLATING open targets (dirichlet_error)
+        // have a servable row. They have no valid one-sided bound, so seed() never makes one and they
+        // stay unreachable despite being selection-rank 0. Injects a servable measurement-seed when
+        // absent; existing rows (incl. the ones created last pass) make it idempotent. Flag-OFF → no-op.
+        existing = ensureMeasurementSeeds(existing, byKey);
 
         // Phase 30 Wave 5 (30.5 P3b) — the previously-admitted derived scalars, reconstructed from
         // the derived_scalars table. Empty unless vocabulary expansion is on (so materialize/seed are
@@ -1448,6 +1463,51 @@ public class ConjectureMinerService implements ConjectureQueue {
     public void setResearchMemory(
             com.emergentterrain.research.memory.ResearchMemoryService researchMemory) {
         this.researchMemory = researchMemory;
+    }
+
+    /**
+     * 2026-06-19 (novelty-funnel diagnosis) — inject a servable measurement-seed row for each OSCILLATING
+     * open target ({@link ScalarOpenness#OSCILLATING_TARGETS}, e.g. dirichlet_error = Δ(x)/x^{1/4}) that
+     * has no servable row. Such a target has no valid one-sided bound (it swings ±0), so
+     * {@link ConjectureEngine} never seeds a row for it — and {@code seed()} runs only on an empty store —
+     * leaving the novelty flagship unreachable through selection even though it is selection-rank 0
+     * everywhere. The seed is marked counterexample-class (honest: a one-sided bound on an
+     * oscillating-around-0 quantity is refuted by construction) so {@link #diversifiedNextN} serves it and
+     * it skips the live-bound gauntlet; once selected, {@code publishConjectureInvestigation}'s Stage-1f
+     * reframes it to a verify_oscillation envelope investigation. Idempotent (only when no live |
+     * counterexample row exists for the lhs) — creates the row once; the existing rotation owns it after.
+     * ADDS an opportunity — no seed filtering (clean vs the no-reseed-skip discipline). Returns
+     * {@code existing} with any new rows appended; also updates {@code byKey}.
+     */
+    private List<Conjecture> ensureMeasurementSeeds(List<Conjecture> existing, Map<String, Conjecture> byKey) {
+        if (!measurementTargetSeedEnabled) {
+            return existing;
+        }
+        java.util.Set<String> servableLhs = new java.util.HashSet<>();
+        for (Conjecture c : existing) {
+            if (c.droppedByKnob() == null || DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob())) {
+                servableLhs.add(c.lhs());
+            }
+        }
+        List<Conjecture> augmented = null;
+        for (String lhs : ScalarOpenness.OSCILLATING_TARGETS) {
+            if (servableLhs.contains(lhs) || ScalarOpenness.measurementFrame(lhs) == null) {
+                continue;
+            }
+            Conjecture seed = new Conjecture(DOMAIN, lhs, MEASUREMENT_SEED_RHS, 0.0, 0.0);
+            seed.setDroppedByKnob(DROPPED_BY_COUNTEREXAMPLE);
+            seed.setUpdatedAt(Instant.now());
+            repo.save(seed);
+            if (augmented == null) {
+                augmented = new ArrayList<>(existing);
+            }
+            augmented.add(seed);
+            byKey.put(keyOf(seed.lhs(), seed.rhs()), seed);
+            log.info("measurement-target seed — created servable row for OSCILLATING open target '{}' "
+                    + "(no servable row existed); diversifiedNextN will surface it (rank 0), Stage-1f "
+                    + "reframes it to a verify_oscillation envelope investigation", lhs);
+        }
+        return augmented == null ? existing : augmented;
     }
 
     private void persistRetired(

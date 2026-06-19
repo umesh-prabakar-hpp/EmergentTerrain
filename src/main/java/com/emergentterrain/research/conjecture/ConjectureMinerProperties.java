@@ -70,6 +70,13 @@ public class ConjectureMinerProperties {
     // every seed, leaving the open Dirichlet target unreachable through the queue. ON keeps a seed live
     // + servable; the professor pivots to verify_oscillation when it's served. See ScalarOpenness.
     private boolean oscillatingTargetFimExemptEnabled = false;
+    // 2026-06-19 (novelty-funnel diagnosis) — measurement-target seed injector. An OSCILLATING open
+    // target (dirichlet_error = Δ(x)/x^{1/4}) has no valid one-sided bound, so ConjectureEngine.seed never
+    // produces a row for it (and seed runs only on an empty store), leaving the novelty flagship
+    // unreachable despite being selection-rank 0 everywhere. ON injects a servable measurement-seed row
+    // (idempotent: only when no servable row exists) so the existing rotation surfaces it and Stage-1f
+    // reframes it to a verify_oscillation envelope investigation. ADDS an opportunity (no seed filtering).
+    private boolean measurementTargetSeedEnabled = false;
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -153,6 +160,9 @@ public class ConjectureMinerProperties {
 
     public boolean isOscillatingTargetFimExemptEnabled() { return oscillatingTargetFimExemptEnabled; }
     public void setOscillatingTargetFimExemptEnabled(boolean v) { this.oscillatingTargetFimExemptEnabled = v; }
+
+    public boolean isMeasurementTargetSeedEnabled() { return measurementTargetSeedEnabled; }
+    public void setMeasurementTargetSeedEnabled(boolean v) { this.measurementTargetSeedEnabled = v; }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }
