@@ -118,6 +118,7 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean opennessPriorEnabled;
     private final boolean opennessSelectionEnabled;
     private final boolean opennessDiversityEnabled;
+    private final boolean qdSelectionEnabled;
     private final boolean oscillatingTargetFimExemptEnabled;
     private final boolean measurementTargetSeedEnabled;
 
@@ -321,6 +322,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.opennessPriorEnabled = props.isOpennessPriorEnabled();
         this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
         this.opennessDiversityEnabled = props.isOpennessDiversityEnabled();
+        this.qdSelectionEnabled = props.isQdSelectionEnabled();
         this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
         this.measurementTargetSeedEnabled = props.isMeasurementTargetSeedEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
@@ -1206,6 +1208,30 @@ public class ConjectureMinerService implements ConjectureQueue {
                 .collect(java.util.stream.Collectors.toList());
         if (all.isEmpty()) {
             return List.of();
+        }
+        // Phase 30 G4 (open-behavior-generation-activation.md) — quality-diversity RETENTION into
+        // selection (30.3). Collapse the servable pool to ONE elite per behavioural cell so a flood of
+        // near-identical bounds can't each consume a paper slot, while open probes keep their own cell.
+        // Cell key = openness rank (so an open / second-order target is NEVER binned against a settled
+        // bound) + relation descriptor (distinct relations stay distinct; only behaviourally equivalent
+        // rows — e.g. degenerate "lhs <= const" restatements that descriptorKey collapses across rhs —
+        // merge), elite = most-confirmed representative. Cross-call family rotation (diversifiedNextN /
+        // the tiers below) is preserved: cells remain distinct rows, only same-cell duplicates collapse.
+        // Complements the per-pass reduce() dedup, which doesn't span the accumulated repo pool. No-op
+        // when off; the collapse ratio is the G4 acceptance signal (distinct behavioural cells served).
+        if (qdSelectionEnabled) {
+            QualityDiversityArchive<Conjecture> qd = new QualityDiversityArchive<>(
+                    c -> ScalarOpenness.selectionRank(c.lhs()) + ":"
+                            + ConjectureTrivialityFilter.descriptorKey(mapper.toInequality(c)),
+                    Comparator.comparingInt(Conjecture::confirmedRuns));
+            qd.offerAll(all);
+            int before = all.size();
+            all = new ArrayList<>(qd.elites());
+            if (all.size() < before) {
+                log.info("qd selection — {} servable row(s) → {} behavioural cell(s) (collapsed {} "
+                                + "near-identical to their most-confirmed elite; open probes keep own cell)",
+                        before, all.size(), before - all.size());
+            }
         }
         // Phase 30 G4 within-bucket diversity — when on, replace the tier-1-before-tier-2 order with a
         // family-rotating, openness-ranked order over the merged servable pool: distinct priority LHS

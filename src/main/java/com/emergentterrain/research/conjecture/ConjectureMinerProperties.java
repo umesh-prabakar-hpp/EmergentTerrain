@@ -65,6 +65,15 @@ public class ConjectureMinerProperties {
     // recency] — so distinct priority LHS rotate and live priority targets are reachable. See
     // ScalarOpenness + ConjectureMinerService.diversifiedNextN.
     private boolean opennessDiversityEnabled = false;
+    // 2026-06-30 — Phase 30 G4 (open-behavior-generation-activation.md) quality-diversity retention into
+    // selection (30.3). When ON, nextN collapses the servable pool to one elite (most-confirmed) per
+    // behavioural cell = [openness rank : relation descriptorKey], so a flood of near-identical bounds
+    // can't each consume a paper slot while open / second-order probes keep their own cell. Complements
+    // the per-pass reduce() dedup (which doesn't span the accumulated repo pool) and preserves the
+    // cross-call family rotation. Code default OFF; flipped ON in yaml 2026-06-30 (operator-directed) —
+    // watch the "qd selection — N rows → M cells" served-topic-diversity log. Rollback: false.
+    // See QualityDiversityArchive + ConjectureMinerService.nextN.
+    private boolean qdSelectionEnabled = false;
     // 2026-06-15 — Rec 2: exempt oscillating open targets (dirichlet_error = Δ(x)/x^{1/4}) from the FIM
     // slope_unpinned drop. Their affine slope is unpinned by nature (they swing ±), so FIM was retiring
     // every seed, leaving the open Dirichlet target unreachable through the queue. ON keeps a seed live
@@ -157,6 +166,9 @@ public class ConjectureMinerProperties {
 
     public boolean isOpennessDiversityEnabled() { return opennessDiversityEnabled; }
     public void setOpennessDiversityEnabled(boolean v) { this.opennessDiversityEnabled = v; }
+
+    public boolean isQdSelectionEnabled() { return qdSelectionEnabled; }
+    public void setQdSelectionEnabled(boolean v) { this.qdSelectionEnabled = v; }
 
     public boolean isOscillatingTargetFimExemptEnabled() { return oscillatingTargetFimExemptEnabled; }
     public void setOscillatingTargetFimExemptEnabled(boolean v) { this.oscillatingTargetFimExemptEnabled = v; }

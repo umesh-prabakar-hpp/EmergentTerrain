@@ -291,7 +291,7 @@ public class SynthesisPaperService {
                     .filter(p -> p != null && p.kind() != PaperKind.SYNTHESIS)
                     .filter(p -> "PUBLISHED".equalsIgnoreCase(p.status()))
                     .filter(p -> family.equalsIgnoreCase(p.topic()))
-                    .filter(p -> p.publishedAt() != null && p.publishedAt().isAfter(since))
+                    .filter(p -> p.publishedAt() != null && (since == null || p.publishedAt().isAfter(since)))
                     .count();
         }
         return shouldSkipFamily(/*everSynthesized*/ true, newSources, reSynthesisMinNewSources);

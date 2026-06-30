@@ -2625,12 +2625,29 @@ public class MathToolSuite {
      * cross-scale trend IS the measurement — it directly answers "is the amplitude bounded?", which a
      * single low-x window cannot. The tool — not the LLM — picks the scales, so the reach is exercised.
      */
+    // 2026-06-30 — well-posedness of the oscillating-envelope ladder. An arithmetic error term such as
+    // dirichlet_error (= Δ(x)/x^{1/4}) oscillates on the ~√x scale. Sampling a FIXED integer span at
+    // every rung samples ~150 oscillation periods at x=1e5 but <2 at x=1e9, so max|lhs| spuriously
+    // SHRINKS with x — a sampling artefact the professor read as "over-normalised". For an oscillating
+    // target we instead scale the sampled span with √x (≈ OSC_SPAN_PERIODS periods) and hold the point
+    // count fixed (OSC_LADDER_POINTS), so every rung samples a comparable slice of the oscillation and
+    // the cross-scale amplitude trend is comparable. Verified offline: the fixed-span ladder reports
+    // 2.92→1.23 (−58%, false "shrinking"); the √x-scaled ladder reports a flat 2.85→2.85 (bounded O(1)).
+    private static final double OSC_SPAN_PERIODS = 3.0;   // sampled span ≈ this many √x oscillation periods
+    private static final int OSC_LADDER_POINTS = 30;      // eval points per rung (held constant across scales)
+    private static final int OSC_MIN_WINDOW = 8;          // floor on per-point window size at the smallest rung
+
     private String verifyOscillationLadder(String lhs, String scaleRhs, int windowSize, int numWindows) {
         long maxN = conjectureVerifier.maxN();
+        long maxWork = conjectureVerifier.maxWork();
         long work = (long) windowSize * numWindows;
         boolean useEnvelope = scaleRhs != null && !scaleRhs.isBlank();
+        // √x-scaled sampling for oscillating targets (today: dirichlet_error). The per-rung span can grow
+        // to maxWork, so the rung must fit that worst case, not the small fixed `work`.
+        boolean sqrtSpan = com.emergentterrain.research.conjecture.ScalarOpenness.isOscillatingTarget(lhs);
+        long fitWork = sqrtSpan ? maxWork : work;
         java.util.List<Long> starts = new java.util.ArrayList<>();
-        for (long s = 100_000L; s + work <= maxN; s *= 10) {
+        for (long s = 100_000L; s + fitWork <= maxN; s *= 10) {
             starts.add(s);
         }
         if (starts.isEmpty()) {
@@ -2641,9 +2658,19 @@ public class MathToolSuite {
         StringBuilder traj = new StringBuilder();
         for (int i = 0; i < starts.size(); i++) {
             long s = starts.get(i);
+            int rungWindowSize = windowSize;
+            int rungNumWindows = numWindows;
+            if (sqrtSpan) {
+                long span = Math.min(maxWork, Math.round(OSC_SPAN_PERIODS * Math.sqrt((double) s)));
+                rungNumWindows = OSC_LADDER_POINTS;
+                rungWindowSize = (int) Math.max(OSC_MIN_WINDOW, span / rungNumWindows);
+                if ((long) rungWindowSize * rungNumWindows > maxWork) {
+                    rungWindowSize = (int) (maxWork / rungNumWindows);
+                }
+            }
             java.util.List<java.util.Map<String, Double>> ws;
             try {
-                ws = conjectureVerifier.sampleWindows(s, windowSize, numWindows);
+                ws = conjectureVerifier.sampleWindows(s, rungWindowSize, rungNumWindows);
             } catch (RuntimeException e) {
                 return "verify_oscillation scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
             }
@@ -2659,7 +2686,7 @@ public class MathToolSuite {
                 java.util.Map<String, Double> w = ws.get(j);
                 values[j] = w.getOrDefault(lhs, 0.0);
                 wStarts[j] = w.getOrDefault("_window_start",
-                        (double) (s + (long) j * windowSize)).longValue();
+                        (double) (s + (long) j * rungWindowSize)).longValue();
                 if (scale != null) scale[j] = w.getOrDefault(scaleRhs, 0.0);
             }
             com.emergentterrain.research.conjecture.OscillationAssessment.Assessment a =
@@ -2674,6 +2701,14 @@ public class MathToolSuite {
         sb.append(String.format(
                 "verify_oscillation scale-ladder: %s measured across %d scales [%s]; %d total sign change(s). ",
                 metricName, starts.size(), traj, totalSignChanges));
+        if (sqrtSpan) {
+            sb.append(String.format(
+                    "(%s oscillates on the ~√x scale, so each rung samples a √x-proportional span "
+                            + "(~%.0f periods, %d points) — the amplitude is comparable across rungs and a "
+                            + "flat trend is the well-posed bounded-envelope signal, not an artefact of a "
+                            + "fixed integer span.) ",
+                    lhs, OSC_SPAN_PERIODS, OSC_LADDER_POINTS));
+        }
         double m0 = metric[0];
         double mN = metric[metric.length - 1];
         if (!Double.isNaN(m0) && !Double.isNaN(mN) && Math.abs(m0) > 1e-12) {

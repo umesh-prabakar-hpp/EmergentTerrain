@@ -1,9 +1,15 @@
 # Phase 30 — open-behavior generation: activating the dormant Stage-1 layer
 
-**Status: DESIGN DOC LANDED (2026-06-14).** Proposal, not yet built. Sequences five stages (G1–G5)
-that turn the conjecture generator from an *affine-bound factory over a fixed vocabulary* into an
-*open-behavior probe generator*. The novelty blocker named by [[project_phase23_8_calibration]]
+**Status: G1–G5 BUILT (updated 2026-06-30); G5 well-posedness prerequisite landed.** Sequences five
+stages (G1–G5) that turn the conjecture generator from an *affine-bound factory over a fixed vocabulary*
+into an *open-behavior probe generator*. The novelty blocker named by [[project_phase23_8_calibration]]
 ("corpus is 100% known-result verification; generation is the real blocker") is what this targets.
+
+**Shipped status (2026-06-30):** G1 openness prior (ON), G2 two-term schema Stages 1–5 (ON, residual →
+two-term promotion LIVE — *not* log-only, doc below was stale), G3 vocab-expansion admission (shipped),
+G4 anomaly-promotion (ALREADY ON) + QualityDiversityArchive retention (shipped + ON, `qdSelectionEnabled`),
+G5 dirichlet `verify_oscillation` well-posedness fix (landed; see G5). Remaining to *close* the program:
+burn-in the flag-OFF pieces and land one G5 paper clearing panel-novelty ≥ 0.7.
 
 ## The finding that reframes the work
 
@@ -219,8 +225,24 @@ the pool, the bottleneck moved to SELECTION. Two parts, both shipped:
   investigated LHS family**, retired-first, recency]. Distinct priority LHS rotate across consecutive
   papers (no single-family monoculture) and live priority targets (dirichlet_error) become reachable.
 
-REMAINING for full G4: wire `QualityDiversityArchive` into retention (novelty-cell binning) + promote
-`AnomalyMiner` (log-only) candidates to investigation topics.
+**G4 NOW COMPLETE (2026-06-30) — both REMAINING pieces resolved, doc above was stale:**
+- **`AnomalyMiner` → investigation topics: ALREADY SHIPPED + ON** (not log-only). The "log-only" label
+  was stale: `anomalyMiningEnabled` AND `anomalyPromotionEnabled` are both `true`, and
+  `ConjectureMinerService` (the Wave-7 30.6 block) runs the full path — mine → `AnomalyPromotionGate`
+  adversarial replicate → `repo.stampPromotedAnomaly` → `ConjectureTopicProvider.selectPromotedAnomaly`
+  → `ResearchCycleService.publishAnomalyPromotion` (topic `anomaly/<lhs>`, `PaperKind.ANOMALY_PROMOTION`).
+  No code change needed; only this doc was behind.
+- **`QualityDiversityArchive` → retention/selection: SHIPPED + ON 2026-06-30 (flag `qdSelectionEnabled`,
+  code default OFF / yaml ON).** Wired into `ConjectureMinerService.nextN`: collapses the servable pool to one elite
+  (most-confirmed) per behavioural cell `[openness rank : relation descriptorKey]` — open / second-order
+  probes keep their own cells (the openness axis), so a flood of near-identical bounds can't each take a
+  paper slot. Complements the per-pass `reduce()` dedup (which doesn't span the accumulated repo pool)
+  and preserves cross-call family rotation (only same-cell duplicates collapse). The
+  `qd selection — N rows → M cells` collapse-ratio log is the served-topic-diversity acceptance signal;
+  burn that in before flipping ON. (Design note: `reduce()` + `diversifiedNextN` already cover per-pass
+  dedup + rotation, so QD's net-new contribution is the openness-aware *cross-pass* collapse over the
+  accumulated pool — a destructive pool-prune was deliberately NOT added, as it would either no-op on
+  unique descriptors or break within-family rotation.)
 
 **Goal:** stop the corpus collapsing to one family; retain diverse open-behavior elites; treat
 regime-failures as findings.
@@ -246,6 +268,18 @@ summatory error). Fit the empirical exponent θ̂ of |Δ(x)| over the reachable 
 the open bound (θ conjectured ¼, proven ≈ 0.314 / Huxley 131/416). Uses the `verify_oscillation` /
 growth-exponent frame the directive already points at as "GENUINELY NOVEL … against an unsolved problem".
 
+**Well-posedness fix landed 2026-06-30 (prerequisite for the G5 measurement).** The
+`verify_oscillation` scale-ladder was reading a spurious −58% amplitude decline for `dirichlet_error`
+(2.92 at 1e5 → 1.23 at 1e9), which the room-b72c4e10 professor (P-b72c-77627740) honestly read as
+"likely over-normalised." Root cause was NOT over-normalisation but a **sampling artefact**: Δ(x)
+oscillates on the ~√x scale, yet the ladder sampled a *fixed* integer span at every rung (≈150
+oscillation periods at 1e5 but <2 at 1e9). Fixed in `MathToolSuite.verifyOscillationLadder`: for an
+oscillating target (`ScalarOpenness.isOscillatingTarget`) the per-rung span now scales with √x
+(`OSC_SPAN_PERIODS=3`, `OSC_LADDER_POINTS=30`), so every rung samples a comparable slice. Verified
+offline: the fixed-span ladder's 2.92→1.23 becomes a flat 2.85→2.85 (bounded O(1) — the true
+Dirichlet-conjecture signal). No scalar-definition / Julia change, no sidecar restart (the agent's
+"window-centre→end" guess was the wrong layer). This unblocks an honest θ̂ measurement: the amplitude
+envelope can now be read as bounded-vs-growing without the artefactual decay.
 **Honest framing (mandatory in the paper):** finite-range computational evidence, sieve-capped at
 2×10⁶, **not** a resolution — but a novel measured object, not a textbook re-derivation.
 **Flag:** none beyond G1/G2 being live.
