@@ -1,6 +1,6 @@
 # Wave 5 — 30.5 vocabulary expansion via a closed operator grammar, MDL-gated
 
-**Status (2026-06-03): SHIPPED (flag-gated OFF) — P1+P2+P3a+P3b complete; awaiting the A/B before flip.** This is the last
+**Status (2026-06-03 shipped; flipped ON 2026-06-05): SHIPPED + flag ON — P1+P2+P3a+P3b complete; `vocabularyExpansionEnabled: true` for the live A/B (targets fall back to the anomaly stratum).** This is the last
 open Wave-5 item and the one the proposal flags **"beyond human-level," highest-risk/highest-reward**.
 Unlike every W0–W5 slice shipped so far — which *filter* or *score* over a fixed scalar set — 30.5
 *expands the substrate vocabulary itself*: it invents new scalars. That makes it the first Phase-30

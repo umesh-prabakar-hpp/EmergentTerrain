@@ -1,6 +1,6 @@
 # Wave 6 — 30.7 mechanism-as-runnable-model + closure check + conservation gates
 
-**Status (2026-06-03): SHIPPED (flag-gated OFF) — D1–D4 settled; P1 (model) + P2 (gates) + P3 (`propose_mechanism` tool) complete. Follow-on: persist accepted mechanisms onto papers (P3b).** The roadmap's **"largest build."**
+**Status (2026-06-03 shipped; flipped ON 2026-06-05): SHIPPED + flag ON — D1–D4 settled; P1 (model) + P2 (gates) + P3 (`propose_mechanism` tool) complete; `mechanismProposalEnabled: true`. Follow-on STILL OPEN: persist accepted mechanisms onto papers (P3b).** The roadmap's **"largest build."**
 30.7 turns a mechanism from prose into a *runnable model*: a declared mechanism must parse, lower to a
 `predict()` callable, **regenerate its claim out-of-sample**, structurally **close**, and respect
 **conservation/unit invariants** — or it is rejected. Sources: sim #3 (executable model), #4 (closure),
