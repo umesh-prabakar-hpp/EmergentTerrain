@@ -1321,6 +1321,32 @@ class NumericalConsistencyValidatorTest {
     }
 
     @Test
+    void p767_valueAnchorVsCoordinate_noBandMismatch() {
+        // P-b72c-77627767 (peer 0.775, novelty 0.77) was false-NULLed: hypothesis "converges to
+        // a constant near 0.49" (a VALUE) vs conclusion "at 200003" (a window COORDINATE) —
+        // different kinds. Sub-100 value anchors must not enter the coordinate band check.
+        var trace = List.of(scan(200003, 205003));
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                "richly_divisible_density converges to a constant near 0.49 as evidenced by "
+                        + "verify_constant.",
+                java.util.Map.of(1, "The density stabilises across windows [call_1]."),
+                "The measured mean at 200003 is 0.48955, settled within tolerance.", trace);
+        assertThat(reasons).noneMatch(r -> r.contains("falls outside the Hypothesis"));
+    }
+
+    @Test
+    void coordinateAnchorVsDriftedCoordinate_stillCaught() {
+        // The documented offender class (P-a328-50/61): hypothesis "near 380", conclusion
+        // "starting 710" — both POSITION-scale, 87% off, must still fire.
+        var trace = List.of(scan(300, 800));
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                "The transition occurs near 380 in this range.",
+                java.util.Map.of(1, "Scanned the region [call_1]."),
+                "The deviation emerges starting 710 and grows.", trace);
+        assertThat(reasons).anyMatch(r -> r.contains("falls outside the Hypothesis"));
+    }
+
+    @Test
     void claimedRangeWithoutHypotheticalMarker_stillScopeOverreach() {
         // Control: the SAME range asserted as a result stays a true positive — the
         // exemption demands a strong negation/future-work marker, not just "e.g.".

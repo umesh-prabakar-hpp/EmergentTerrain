@@ -70,6 +70,21 @@ public final class CitationCorpusValidator {
      */
     public static List<String> validate(String paperProse,
                                          Collection<LiteratureReference> corpus) {
+        return validate(paperProse, corpus, null);
+    }
+
+    /**
+     * 2026-07-04 (P-b72c-77627765) — trace-aware overload. With §32.5 grounding live, the
+     * harness ITSELF hands the narrator author-year references (the grounded search_literature
+     * result carries "Jean–Marie De Koninck (1974) Sums of Quotients…"); citing them is exactly
+     * the instructed behavior, but this validator only knew the curated
+     * {@code literature-corpus.yml} and flagged "Koninck (1974)" as corpus-absent (warn-mode).
+     * A cite whose name+year appear in any tool-call result is tool-provided, not fabricated —
+     * exempt. {@code toolResultsText} is the concatenated result texts (null = old behavior).
+     */
+    public static List<String> validate(String paperProse,
+                                         Collection<LiteratureReference> corpus,
+                                         String toolResultsText) {
         if (paperProse == null || paperProse.isBlank()
                 || corpus == null || corpus.isEmpty()) {
             return List.of();
@@ -88,9 +103,17 @@ public final class CitationCorpusValidator {
             if (!seen.add(key)) continue;
             if (KNOWN_TEXTBOOK_TOKENS.contains(name)) continue;
             if (matchesCorpus(name, year, corpus)) continue;
+            if (matchesText(name, year, toolResultsText)) continue;
             failures.add(name + " (" + year + ")");
         }
         return failures;
+    }
+
+    /** True when the cite's first name token AND year both appear in the tool-results text. */
+    private static boolean matchesText(String name, String year, String text) {
+        if (text == null || text.isBlank()) return false;
+        String firstToken = name.split("[-\\s&]")[0];
+        return text.contains(year) && text.contains(firstToken);
     }
 
     private static boolean matchesCorpus(String name, String year,

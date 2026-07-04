@@ -1358,12 +1358,17 @@ public class UniversityService {
         // The corpus is sourced from LiteratureSearchService (already
         // wired via setter injection at line 258). Skip the check entirely
         // when the service hasn't published a non-empty corpus yet.
+        // 2026-07-04 — trace-aware: with §32.5 grounding live, author-year cites the harness
+        // itself provided (grounded search_literature results) are tool-provided, not
+        // fabricated; the validator exempts any cite whose name+year appear in a tool result
+        // (P-b72c-77627765 was warn-flagged for citing the grounding-supplied De Koninck 1974).
         List<String> citationCorpusFailures = (citationCorpusEnabled
                 && literatureSearch != null && literatureSearch.size() > 0)
                 ? CitationCorpusValidator.validate(
                         joinPaperProse(findingsBlocks,
                                 narration.discussion(), narration.relatedWork()),
-                        literatureSearch.allReferences())
+                        literatureSearch.allReferences(),
+                        joinToolResults(narration.toolCallTrace()))
                 : List.of();
         boolean citationCorpusFlagged = !citationCorpusFailures.isEmpty();
         boolean citationCorpusRoutes  = citationCorpusFlagged
@@ -3660,6 +3665,20 @@ public class UniversityService {
         }
         if (discussion != null && !discussion.isBlank()) sb.append(discussion).append('\n');
         if (relatedWork != null && !relatedWork.isBlank()) sb.append(relatedWork);
+        return sb.toString();
+    }
+
+    /**
+     * 2026-07-04 — concatenated tool-call result texts, the citation-corpus validator's
+     * tool-provided-reference exemption source (a cite whose name+year the harness itself
+     * returned — e.g. a grounded search_literature reference — is not a fabrication).
+     */
+    static String joinToolResults(java.util.List<com.emergentterrain.llm.ToolInvocation> trace) {
+        if (trace == null || trace.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (com.emergentterrain.llm.ToolInvocation inv : trace) {
+            if (inv != null && inv.resultJson() != null) sb.append(inv.resultJson()).append('\n');
+        }
         return sb.toString();
     }
 

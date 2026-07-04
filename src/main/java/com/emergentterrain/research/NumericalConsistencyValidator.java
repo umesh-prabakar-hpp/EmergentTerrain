@@ -460,6 +460,14 @@ public final class NumericalConsistencyValidator {
         List<Double> hypAnchors = new ArrayList<>();
         Matcher hyp = HYPOTHESIS_NEAR.matcher(hypothesis);
         while (hyp.find()) hypAnchors.add(Double.parseDouble(hyp.group(1)));
+        // 2026-07-04 (P-b72c-77627767, peer 0.775 / novelty 0.77, false-NULLed) — compare like with
+        // like. CONCLUSION_COORD only captures POSITION-scale numbers (its own regex demands ≥3
+        // digits), but HYPOTHESIS_NEAR also captures VALUE anchors ("converges to a constant near
+        // 0.49"), and a window coordinate (200003) can never legitimately sit within ±50% of a
+        // sub-100 value anchor — different kinds, not a drifted parameter. Keep only
+        // coordinate-scale anchors (≥100, the coord regex's own floor); the documented offenders
+        // ("near 380" vs "starting 710") remain caught.
+        hypAnchors.removeIf(a -> a < 100.0);
         if (hypAnchors.isEmpty()) return;
 
         Matcher con = CONCLUSION_COORD.matcher(conclusion);

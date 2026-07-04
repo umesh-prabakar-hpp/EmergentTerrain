@@ -117,4 +117,25 @@ class CitationCorpusValidatorTest {
                 "Following Hardy-Littlewood 1923 the bound holds.", CORPUS))
                 .isEmpty();
     }
+
+    @Test
+    void toolProvidedCitation_isExempt_p765() {
+        // P-b72c-77627765's live warn: the grounded search_literature result itself supplied
+        // "Jean–Marie De Koninck (1974) Sums of Quotients…" and the narrator cited it as
+        // instructed — a cite whose name+year appear in a tool result is tool-provided.
+        String toolResults = "search_literature (grounded, corpus of 99344 works): EVIDENCE — "
+                + "- [W4230159862] Jean–Marie De Koninck (1974) Sums of Quotients of Additive "
+                + "Functions. Proceedings of the American Mathematical Society.";
+        assertThat(CitationCorpusValidator.validate(
+                "Prior work including De Koninck (1974) establishes the convergence.",
+                CORPUS, toolResults)).isEmpty();
+        // Without the trace, the same cite still flags (the old behavior is preserved) …
+        assertThat(CitationCorpusValidator.validate(
+                "Prior work including De Koninck (1974) establishes the convergence.",
+                CORPUS)).containsExactly("Koninck (1974)");
+        // … and a cite the tools never returned still flags even with a trace present.
+        assertThat(CitationCorpusValidator.validate(
+                "As shown by Fabricated (1999), the result follows.",
+                CORPUS, toolResults)).containsExactly("Fabricated (1999)");
+    }
 }
