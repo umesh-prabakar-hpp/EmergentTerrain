@@ -79,4 +79,46 @@ class LiteratureGroundingCallerTest {
                 .contains("[W1199646596]").contains("Meurman")
                 .doesNotContain("REDISCOVERY");
     }
+
+    // ── §32.5b step 5 — the panel novelty-grounding block ─────────────────────
+
+    @Test
+    void panelBlock_silent_isPositiveNoveltyEvidence_notACannotAssessFloor() {
+        var result = new GroundingClient.GroundingResult("SILENT", 0.28, 105855, List.of(
+                new GroundingClient.Evidence("W1199646596",
+                        "The mean square of the error term", 1996, "Acta Arithmetica",
+                        "Tom Meurman", "", 29.4, "…")));
+        String block = ReviewPanelService.renderPanelGroundingBlock(result);
+        assertThat(block).contains("CORPUS GROUNDING").contains("NOVELTY grade")
+                .contains("SILENT").contains("POSITIVE evidence of novelty")
+                .contains("Do NOT floor").contains("context only")
+                .contains("[W1199646596]").doesNotContain("REDISCOVERY");
+    }
+
+    @Test
+    void panelBlock_evidence_capsNoveltyAsRediscovery() {
+        var result = new GroundingClient.GroundingResult("EVIDENCE", 0.44, 105855, List.of(
+                new GroundingClient.Evidence("W2007557094",
+                        "Analytic properties of Dirichlet series", 2010,
+                        "Pacific Journal of Mathematics", "Furuya, Tanigawa", "", 31.9, "…")));
+        String block = ReviewPanelService.renderPanelGroundingBlock(result);
+        assertThat(block).contains("EVIDENCE").contains("REDISCOVERY")
+                .contains("cap the").contains("[W2007557094]");
+    }
+
+    @Test
+    void coreClaim_concatenatesTitleHypothesisAndConclusionOpening_clipped() {
+        // The conclusion carries the SURVIVING claim after a pivot, so it must contribute;
+        // the whole query stays bounded for stable retrieval.
+        var narration = new com.emergentterrain.research.NarrationResult(
+                "hypothesis text about an error term envelope",
+                "findings",
+                "The empirical record shows a bounded envelope across scales. " + "x".repeat(600),
+                null, "model", 0.5, List.of());
+        String claim = ReviewPanelService.coreClaim(
+                draft("conjecture/dirichlet_error", PaperKind.CONJECTURE_INVESTIGATION), narration);
+        assertThat(claim).startsWith("Title").contains("error term envelope")
+                .contains("bounded envelope across scales");
+        assertThat(claim.length()).isLessThanOrEqualTo(600);
+    }
 }

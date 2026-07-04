@@ -212,6 +212,23 @@ public class ReviewPanelService {
      */
     private final ExecutorService panelExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
+    /**
+     * Phase 32 §32.5b (step 5, the 2026-07-04 reframe) — panel novelty grounding. Optional,
+     * field-injected like the discovery services: the bean exists only when
+     * {@code app.research.literature.grounding.enabled=true}, and this stage additionally
+     * requires its OWN flag below, so the professor-side grounding (step 4) can burn in first.
+     * When active for a qualifying paper ({@code MathToolSuite.groundingApplies} — the same
+     * caller policy), the reviewer prompt gains a deterministic corpus verdict for the paper's
+     * core claim, inverting the novelty failure mode: a corpus-backed SILENT is POSITIVE
+     * novelty evidence ("a real corpus was searched and lacks this claim"), not a
+     * cannot-assess floor; an EVIDENCE match caps novelty as a rediscovery.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.GroundingClient groundingClient;
+
+    @Value("${app.research.literature.panel-novelty-grounding.enabled:false}")
+    private boolean panelNoveltyGroundingEnabled;
+
     public ReviewPanelService(
             PrimaryModelRegistry primaryRegistry,
             PromptTemplateRegistry promptRegistry,
@@ -581,7 +598,83 @@ public class ReviewPanelService {
         params.put("findings",      safe(narration.findings()));
         params.put("conclusion",    safe(narration.conclusion()));
         params.put("toolCallTrace", traceJson);
-        return promptRegistry.render(PromptTemplateIds.NARRATION_PANEL_REVIEW_ID, params);
+        String prompt = promptRegistry.render(PromptTemplateIds.NARRATION_PANEL_REVIEW_ID, params);
+        return prompt + panelGroundingAddendum(draft, narration);
+    }
+
+    /**
+     * §32.5b — the corpus-grounding block appended to the reviewer prompt (post-template, the
+     * established append pattern). Empty string when the flag is off, no client is wired, the
+     * paper doesn't qualify, or the sidecar call fails — the panel prompt is then byte-identical.
+     * Wording is domain-neutral (pipeline-wide code; see the common-code rule).
+     */
+    private String panelGroundingAddendum(PaperDraft draft, NarrationResult narration) {
+        if (!panelNoveltyGroundingEnabled || groundingClient == null
+                || !MathToolSuite.groundingApplies(draft)) {
+            return "";
+        }
+        String claim = coreClaim(draft, narration);
+        if (claim.isBlank()) {
+            return "";
+        }
+        var grounding = groundingClient.ground(claim, 3);
+        if (grounding == null) {
+            return "";
+        }
+        log.info("panel-novelty-grounding: topic={} verdict={} confidence={}",
+                draft != null ? draft.topicName() : "?",
+                grounding.verdict(), grounding.confidence());
+        return renderPanelGroundingBlock(grounding);
+    }
+
+    /** The paper's core claim for grounding: title + hypothesis + the conclusion's opening
+     *  (where the surviving claim lives after a pivot), clipped to a stable query size. */
+    static String coreClaim(PaperDraft draft, NarrationResult narration) {
+        StringBuilder sb = new StringBuilder();
+        if (draft != null && draft.title() != null) sb.append(draft.title());
+        if (narration != null && narration.hypothesis() != null) {
+            sb.append(' ').append(narration.hypothesis());
+        }
+        if (narration != null && narration.conclusion() != null) {
+            String conclusion = narration.conclusion();
+            sb.append(' ').append(conclusion, 0, Math.min(300, conclusion.length()));
+        }
+        String claim = sb.toString().strip();
+        return claim.length() > 600 ? claim.substring(0, 600) : claim;
+    }
+
+    /** Pure rendering of the grounding verdict for the reviewer prompt (package-private for tests). */
+    static String renderPanelGroundingBlock(
+            com.emergentterrain.research.literature.GroundingClient.GroundingResult grounding) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format(
+                "%n%nCORPUS GROUNDING (deterministic retrieval over a local curated literature "
+                + "corpus of %d works; input to the NOVELTY grade):%n", grounding.corpusDocs()));
+        if (grounding.isEvidence()) {
+            sb.append(String.format(
+                    "verdict=EVIDENCE (retrieval confidence %.2f) — prior work matching this "
+                    + "paper's core claim EXISTS in the corpus. Unless the paper demonstrably "
+                    + "EXTENDS the matched work, treat the result as a REDISCOVERY and cap the "
+                    + "novelty grade accordingly. Matches:%n", grounding.confidence()));
+        } else {
+            sb.append(String.format(
+                    "verdict=SILENT (retrieval confidence %.2f) — NO reference in the corpus "
+                    + "states this paper's core claim. Read this as POSITIVE evidence of novelty: "
+                    + "a real corpus WAS searched and does not contain the claim. Do NOT floor "
+                    + "the novelty grade for \"lack of literature comparison\" — grade novelty on "
+                    + "the claim's content, with this corpus absence as supporting evidence. "
+                    + "Nearest related work (context only, does not state the claim):%n",
+                    grounding.confidence()));
+        }
+        for (var e : grounding.evidence()) {
+            sb.append("- [").append(e.key()).append("] ");
+            if (!e.authors().isBlank()) sb.append(e.authors()).append(' ');
+            if (e.year() > 0) sb.append('(').append(e.year()).append(") ");
+            sb.append(e.title());
+            if (!e.venue().isBlank()) sb.append(". ").append(e.venue());
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
     }
 
     private static String safe(String s) { return s == null ? "" : s; }
