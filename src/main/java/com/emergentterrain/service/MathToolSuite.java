@@ -393,6 +393,22 @@ public class MathToolSuite {
     }
 
     /**
+     * Phase 32 §32.5 step 4 — optional offline grounding client (py-sidecar BM25 over the local
+     * corpus). Set post-construction like {@link #literatureSearch}; null = grounding dormant
+     * (the bean only exists when {@code app.research.literature.grounding.enabled=true}) and
+     * search_literature keeps the curated-corpus path byte-identically. When present, it applies
+     * only to the papers in {@link #groundingApplies} (promotion-track + measurement-frame /
+     * priority-target conjecture papers — the §32.5 2026-07-04 widened caller policy), keeping
+     * per-paper cost flat for the ordinary corpus.
+     */
+    private volatile com.emergentterrain.research.literature.GroundingClient groundingClient;
+
+    public void setLiteratureGrounding(
+            com.emergentterrain.research.literature.GroundingClient groundingClient) {
+        this.groundingClient = groundingClient;
+    }
+
+    /**
      * Phase 30 fork 2b Phase 4 — optional runtime-discovery service. Set by
      * {@link ResearchNarrationService} after Spring autowires it. The
      * {@code discover_mertens_value} tool is advertised + executable only when
@@ -793,11 +809,12 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"search_literature",
-                "description":"Look up curated, citable prior work for this paper's domain/topic. Call this to GROUND any reference to prior work: cite ONLY the exact citation strings this tool returns, and never invent author-year references. Returns each reference's citation, closed-form law, valid region, and magnitude estimate. An empty result means no curated prior work exists for this topic — in that case make no author-year citations.",
+                "description":"Look up citable prior work for this paper's domain/topic. Call this to GROUND any reference to prior work: cite ONLY the exact citation strings/keys this tool returns, and never invent author-year references. An empty/SILENT result means no prior work states the claim — in that case make no author-year citations (a SILENT over a large corpus is itself reportable as a novelty signal). When a corpus-grounded lookup is available, pass the SPECIFIC claim being grounded via 'claim' for the sharpest match.",
                 "parameters":{
                   "type":"object",
                   "properties":{
-                    "topic":{"type":"string","description":"Optional topic override; defaults to the paper's own topic. Use the paper's topic unless you have a specific reason to look up an adjacent one."}
+                    "topic":{"type":"string","description":"Optional topic override; defaults to the paper's own topic. Use the paper's topic unless you have a specific reason to look up an adjacent one."},
+                    "claim":{"type":"string","description":"Optional: the specific claim sentence to ground (e.g. 'the error term in the Dirichlet divisor problem has a bounded O(1) envelope at the x^(1/4) normalisation'). Sharper than a bare topic; preferred when checking whether a RESULT is already known."}
                   },
                   "required":[]
                 }
@@ -1261,6 +1278,21 @@ public class MathToolSuite {
      * zero-successes→suppressed gate.
      */
     private String searchLiterature(PaperDraft draft, JsonNode args) {
+        // Phase 32 §32.5 step 4 — grounding mode. For qualifying papers (see groundingApplies),
+        // route the lookup to the offline BM25 corpus on the py-sidecar. Any failure (sidecar
+        // down/cold/corpus-less) returns null from the client and falls through to the curated
+        // path — grounding never blocks a paper.
+        if (groundingClient != null && groundingApplies(draft)) {
+            String claim = args.path("claim").asText("");
+            if (claim.isBlank()) claim = args.path("topic").asText("");
+            if (claim.isBlank() && draft != null) claim = draft.topicName();
+            if (!claim.isBlank()) {
+                var grounding = groundingClient.ground(claim, 5);
+                if (grounding != null) {
+                    return formatGrounding(grounding, claim);
+                }
+            }
+        }
         if (literatureSearch == null) {
             return "search_literature not configured: no literature corpus wired.";
         }
@@ -1291,6 +1323,83 @@ public class MathToolSuite {
             sb.append('\n');
         }
         return sb.toString().stripTrailing();
+    }
+
+    /**
+     * Phase 32 §32.5 step 4 — the widened caller policy (2026-07-04 reframe): grounding applies
+     * to promotion-track papers (the original design) PLUS measurement-frame / priority-target
+     * conjecture papers and anomaly-investigation topics — the classes that actually hit the
+     * panel-novelty ceiling. Everything else keeps the flat-cost curated path.
+     */
+    static boolean groundingApplies(PaperDraft draft) {
+        if (draft == null) {
+            return false;
+        }
+        if (draft.kind() == com.emergentterrain.research.PaperKind.ANOMALY_PROMOTION) {
+            return true;
+        }
+        String topic = draft.topicName();
+        if (topic == null) {
+            return false;
+        }
+        if (topic.startsWith("anomaly/")) {
+            return true;
+        }
+        if (topic.startsWith("conjecture/")) {
+            String lhs = topic.substring("conjecture/".length());
+            return com.emergentterrain.research.conjecture.ScalarOpenness.selectionRank(lhs) == 0
+                    || com.emergentterrain.research.conjecture.ScalarOpenness
+                            .measurementFrame(lhs) != null;
+        }
+        return false;
+    }
+
+    /**
+     * Render a grounding result for the tool-result channel. EVIDENCE = matching prior work
+     * (cite ONLY the provided keys; assess support-vs-contradiction per snippet — the contracrow
+     * step runs here in the professor's context, where the reasoning happens). SILENT = no
+     * reference in the corpus states the claim (a positive novelty signal over a real corpus,
+     * NOT a can't-assess) with near-miss references citable as context only.
+     */
+    static String formatGrounding(
+            com.emergentterrain.research.literature.GroundingClient.GroundingResult grounding,
+            String claim) {
+        StringBuilder sb = new StringBuilder("search_literature (grounded, corpus of ")
+                .append(grounding.corpusDocs()).append(" works): ");
+        if (grounding.isEvidence()) {
+            sb.append(String.format(
+                    "EVIDENCE — prior work matches this claim (retrieval confidence %.2f). "
+                    + "Cite ONLY the keys below, as [key]. For EACH snippet, assess whether it "
+                    + "SUPPORTS or CONTRADICTS the specific claim \"%s\" — a contradiction with "
+                    + "prior work must be reported, not smoothed over; a match means the claim "
+                    + "is a REDISCOVERY and must be framed as one, with the citation.%n",
+                    grounding.confidence(), clipClaim(claim)));
+        } else {
+            sb.append(String.format(
+                    "SILENT — NO reference in the corpus states this claim (retrieval "
+                    + "confidence %.2f below threshold). Over a corpus of this size that is a "
+                    + "genuine-novelty signal: say explicitly that a corpus search found no "
+                    + "prior statement of the claim. The references below are NEAR MISSES — "
+                    + "related work citable as CONTEXT (as [key]), never as support for the "
+                    + "claim itself. Do not invent author-year citations beyond these keys.%n",
+                    grounding.confidence()));
+        }
+        for (var e : grounding.evidence()) {
+            sb.append("- [").append(e.key()).append("] ");
+            if (!e.authors().isBlank()) sb.append(e.authors()).append(" ");
+            if (e.year() > 0) sb.append('(').append(e.year()).append(") ");
+            sb.append(e.title());
+            if (!e.venue().isBlank()) sb.append(". ").append(e.venue());
+            if (!e.doi().isBlank()) sb.append(". ").append(e.doi());
+            if (!e.snippet().isBlank()) sb.append("\n    \"").append(e.snippet()).append('"');
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    private static String clipClaim(String claim) {
+        if (claim == null) return "";
+        return claim.length() > 200 ? claim.substring(0, 200) + "…" : claim;
     }
 
     private String runParamSweep(PaperDraft draft, JsonNode args) {

@@ -1277,6 +1277,9 @@ public class ResearchNarrationService {
         // setter; MathToolSuite isn't a Spring bean). literatureSearch may be null;
         // the search_literature tool is then omitted regardless of the flag.
         this.toolSuite.setLiteratureSearch(literatureSearch);
+        // Phase 32 §32.5 step 4 — the grounding client arrives by optional setter injection
+        // (wireLiteratureGrounding below); the bean exists only when
+        // app.research.literature.grounding.enabled=true, so dormant = byte-identical.
         // discoveryService is field-injected (after construction); wired in wireDiscoveryTool().
         this.selfCheckTools            = new RevisionSelfCheckTools(objectMapper);
         this.objectMapper              = objectMapper;
@@ -1355,6 +1358,15 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.verifyInformCaveatsEnabled:false}")
     private boolean verifyInformCaveatsFlag;
 
+    /**
+     * Phase 32 §32.5 step 4 — optional offline grounding client, field-injected like
+     * {@link #discoveryService}. The bean exists only when
+     * {@code app.research.literature.grounding.enabled=true} (LiteratureGroundingConfig);
+     * null = search_literature keeps the curated-corpus path byte-identically.
+     */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.GroundingClient groundingClient;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
@@ -1363,6 +1375,11 @@ public class ResearchNarrationService {
             toolSuite.setMechanismProposalEnabled(mechanismProposalFlag);
             toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
             toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
+            toolSuite.setLiteratureGrounding(groundingClient);
+            if (groundingClient != null) {
+                log.info("search_literature grounding mode ON (py-sidecar corpus; "
+                        + "promotion-track + measurement-frame/priority-target papers)");
+            }
         }
         // §review Rec 2/3 — flag-gated prose-integrity addendum (static mirror so the
         // static revision-prompt builders can read it). Domain-neutral; OFF by default.
