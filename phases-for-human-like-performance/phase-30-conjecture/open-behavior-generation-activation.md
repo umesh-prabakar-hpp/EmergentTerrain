@@ -239,7 +239,8 @@ the pool, the bottleneck moved to SELECTION. Two parts, both shipped:
   paper slot. Complements the per-pass `reduce()` dedup (which doesn't span the accumulated repo pool)
   and preserves cross-call family rotation (only same-cell duplicates collapse). The
   `qd selection — N rows → M cells` collapse-ratio log is the served-topic-diversity acceptance signal;
-  burn that in before flipping ON. (Design note: `reduce()` + `diversifiedNextN` already cover per-pass
+  the flag is already ON in yaml — burn-in = watching that signal across refreshes (first positive:
+  2026-06-30, 595→539 cells). (Design note: `reduce()` + `diversifiedNextN` already cover per-pass
   dedup + rotation, so QD's net-new contribution is the openness-aware *cross-pass* collapse over the
   accumulated pool — a destructive pool-prune was deliberately NOT added, as it would either no-op on
   unique descriptors or break within-family rotation.)

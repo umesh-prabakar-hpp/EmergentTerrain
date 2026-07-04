@@ -167,7 +167,8 @@ absent from both parents.
 > ([[project_phase23_8_calibration]]). [`open-behavior-generation-activation.md`](open-behavior-generation-activation.md)
 > sequences the five stages (G1–G5) that promote them to live open-behavior topics: openness prior,
 > two-term schema (promote 30.2), feed 30.5 real residual targets, wire QD/anomaly selection, and the
-> Dirichlet-exponent flagship. DESIGN DOC LANDED; not yet built.
+> Dirichlet-exponent flagship. **G1–G5 BUILT + flag-ON as of 2026-06-30** (see that doc's per-stage
+> status); remaining to close = burn-in + one G5 paper clearing panel-novelty ≥ 0.7.
 
 ---
 

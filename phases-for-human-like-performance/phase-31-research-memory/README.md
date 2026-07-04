@@ -1,6 +1,10 @@
 # Phase 31 — Cross-Run Research Memory & Composition (patterns from the memory/deep-research repo review)
 
-**Status: proposal (2026-06-04) — nothing built.** Fourth external-pattern review, after the
+**Status: CORE LOOP SHIPPED + ON (updated 2026-07-04; originally proposal 2026-06-04).** 31.1 capture
+(shipped 2026-06-06) + 31.2 consolidation + 31.3 recall (both flipped ON 2026-06-08) — the
+capture→consolidate→recall assembler is closed and live; 31.7 synthesis papers live with evidence-based
+re-synthesis (`d2e4983`). Still open: `memory_audit` log; 31.4–31.6 / 31.8–31.10 unaudited (see
+`PENDING.md` §3). Fourth external-pattern review, after the
 self-improving-frameworks addendum
 ([`../phase-30-conjecture/phase-30-external-patterns.md`](../phase-30-conjecture/phase-30-external-patterns.md)),
 the simulation-frameworks addendum
