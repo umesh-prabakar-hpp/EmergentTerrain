@@ -157,10 +157,60 @@ flips only on the standing trigger — the first promotion paper (or first recog
 survives the plausibility guard). The 23.8 lesson ("generation is the blocker") is respected:
 nothing here spends until generation produces a claim worth grounding.
 
-**Acceptance bar.** Engine: on a 20-claim hand-labeled probe set (10 known results, 5
-contradictions of known results, 5 genuinely open), verdict accuracy ≥80% with zero
-fabricated-citation incidents. Pipeline: first promotion-track paper carries a grounding verdict
-with at least one resolvable citation key, or an honest SILENT.
+**⚠ 2026-07-04 REFRAME — the deferral rationale is overturned; 32.5 is now the binding novelty
+lever (run-16 evidence).** The G5 flagship measurement landed end-to-end (P-b72c-77627758:
+dirichlet_error flat O(1) envelope across 1e5→1e9 via the √x-span ladder, plus a genuinely new
+positive-bias observation) with openness, claim frame, reach, and honesty ALL delivered — and
+scored panel novelty **0.26** vs the ≥0.7 bar. The panel's stated reason: *"the literature search
+returned no references, so novelty claims are weak."* Every paper in every recent batch logs
+`search_literature: no references found` (the corpus-less stub) — so the panel cannot credit
+novelty without prior-work contrast and the narrator cannot situate against
+Hardy–Littlewood/van der Corput/Huxley. Generation is no longer the blocker; grounding is.
+Two deliberate deviations from the design above follow:
+
+1. **Caller policy widened**: promotion-track **plus measurement-frame / priority-target
+   conjecture papers** (the flagship class, ~3–4 papers/run — still bounded; ordinary-corpus
+   per-paper cost stays flat at zero). Promotion-track-only would leave the papers that actually
+   hit the novelty ceiling ungrounded.
+2. **Flip-trigger recommendation**: replace "first promotion paper" with "**the 20-claim probe set
+   passes**" (operator decision — everything still ships flag-OFF, so the flip stays a one-line
+   YAML edit either way).
+
+**32.5b — panel novelty grounding (NEW sub-item; the actual ceiling mechanism).** Give the panel's
+novelty assessment the same `/ground/claim` verdict for the paper's core claim, separate flag
+(`app.research.literature.panel-novelty-grounding.enabled`), domain-neutral prompt wording. This
+inverts the failure mode: today "no references found" reads as *cannot-assess → low novelty*; with
+a real curated corpus, **SILENT becomes positive evidence of novelty** ("no match in a curated NT
+corpus"), SUPPORTED becomes an honest rediscovery cap with a citation, CONTRADICTED a flag. Without
+32.5b, grounding only helps the narrator cite; it does not move the score the G5 bar is measured on.
+
+**Build sequence (agreed 2026-07-04; ~2–3 focused days + trickle corpus + two 10-min operator
+actions):**
+0. *Operator*: free OpenAlex API key → `~/.emergentterrain/secrets.enc`; pick daily credit ceiling
+   (default 0.50, half the free tier).
+1. OpenAlex JVM client + credit ledger + JSONL cache (addendum A; dormant substrate).
+2. Offline corpus build (addendum B) — **seeded from the `ScalarOpenness`/`MEASUREMENT_FRAMES`
+   object list** (Dirichlet divisor, Cramér, 2C₂, Erdős–Kac, Mertens, 2γ, Wigert, Deléglise
+   abundant density, 6/π² squarefree…), not just the generic NT-subfield pull; ~1e5 abstracts
+   (≈$0.10) + 300–500 OA full-texts (TEI), free-tier trickle or ~$5 one-shot.
+3. py-sidecar `POST /ground/claim` — **v1 BM25-only** (the box has ~7.6 GB with app+sidecars up and
+   the py-sidecar is single-threaded; local embeddings become v2 only if BM25 recall fails the
+   probe set). Index loads at sidecar startup (stop-before-recompile rules apply).
+4. Java caller: `search_literature` grounding mode behind `literature.grounding.enabled`, widened
+   caller policy per deviation 1; the 32.6 cite-only-provided-keys rule rides along.
+5. 32.5b panel novelty grounding (own flag).
+6. Probe set → flip decision (deviation 2).
+7. Live acceptance (below).
+Addendum items C (citation resolver) and D (semantic probe) stay deferred — they are
+anti-fabrication/measurement tooling, not the novelty unlock.
+
+**Acceptance bar.** Engine: on a 20-claim hand-labeled probe set (10 known results — 2γ, 0.77316,
+6/π², 0.2476, 2C₂, Cramér, Wigert, EK…; 5 contradictions of known results; 5 genuinely open,
+including P-758's flat-envelope and positive-bias claims), verdict accuracy ≥80% with zero
+fabricated-citation incidents. Pipeline (first run after the flip): a measurement-frame paper
+carries a grounding verdict with at least one resolvable citation key or an honest corpus-backed
+SILENT; the narrator cites classical results from provided keys only; panel novelty on a
+genuinely-new measurement clears ~0.5; zero network on the request path.
 
 ## 32.6 — Writeup-stage small guards  *(cheap, mostly prompt-side)*
 

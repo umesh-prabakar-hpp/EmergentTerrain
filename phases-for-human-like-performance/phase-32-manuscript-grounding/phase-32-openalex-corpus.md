@@ -82,7 +82,11 @@ offline (Tantivy + local embeddings), so an overnight room never touches the net
 
 - **Selection:** `filter=primary_topic.subfield:…` for number theory + a hand-curated seed list
   (known-laws registry citations, OEIS cross-refs, textbook bibliographies). `group_by` sizes strata
-  before pulling.
+  before pulling. **2026-07-04 refinement (run-16 reframe, see §32.5):** seed the targeted searches
+  from the actual `ScalarOpenness`/`MEASUREMENT_FRAMES` object list — Dirichlet divisor problem,
+  Cramér gaps, Hardy–Littlewood 2C₂, Erdős–Kac, Mertens, 2γ divisor mean, Wigert maximal order,
+  Deléglise abundant density, 6/π² squarefree — those ~15 objects are what every measurement paper
+  must situate against; a targeted corpus beats a broad subfield pull at this scale.
 - **Abstracts at scale:** list calls with `select=…,abstract_inverted_index`, cursor-paginated at
   100/page → ~10⁵ abstracts ≈ 1,000 filter calls ≈ **$0.10**. Reconstruct from the inverted index.
 - **Full text for the core:** the content endpoint ($0.01) for ~300–500 OA works, TEI XML preferred

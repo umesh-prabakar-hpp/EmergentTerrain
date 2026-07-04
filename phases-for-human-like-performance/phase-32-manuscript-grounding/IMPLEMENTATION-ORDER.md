@@ -56,13 +56,23 @@ Two independent tracks: the **manifest track** (32.1→32.2) and the **evaluatio
 | Advisory review head, stamps `anchor:<verdict>:<p>`, no routing | `app.research.review-anchor.enabled` | ≥75% agreement with the next live `/paper-review` session |
 | (later) anchor as 29.2.1 did-it-help judge / publish-gate input | separate flip, second calibration pass | — |
 
-## Wave 4 — Literature-grounding sidecar (32.5) — *build dormant anytime; flip on the 30.6 trigger*
+## Wave 4 — Literature-grounding sidecar (32.5) — *NOW THE BINDING NOVELTY LEVER (2026-07-04)*
+
+> **Reframed 2026-07-04 (run-16):** the G5 flagship measurement (P-b72c-77627758) delivered
+> openness + frame + 1e5→1e9 reach + honesty and scored panel novelty **0.26** — the panel's stated
+> reason is the corpus-less `search_literature`. The "flip on the 30.6 trigger" deferral rationale
+> (23.8: "generation is the blocker") is overturned; recommended flip trigger is now **probe-set
+> pass** (operator decision). Full step plan + deviations in
+> [`phase-32-manuscript-grounding.md`](phase-32-manuscript-grounding.md) §32.5.
 
 | Piece | Flag | Acceptance |
 |---|---|---|
-| py-sidecar `POST /ground/claim` (PaperQA2 lib, deterministic agent, Tantivy + local embeddings, contracrow trichotomy) | env-gated like `ET_DISCOVER_EXEC` | 20-claim probe set: verdict accuracy ≥80%, zero fabricated citations |
-| Curated offline NT corpus (papers / OEIS dumps / textbook excerpts) + build-time metadata enrichment | n/a (asset) | probe set passes against it |
-| Java `search_literature` grounding mode, promotion-track-only caller policy | `app.research.literature.grounding.enabled` | first promotion paper carries a verdict or honest SILENT |
+| Step 0 (operator): OpenAlex API key → secrets.enc; daily credit ceiling (default 0.50) | n/a | key resolves via `${...}`, never committed |
+| Step 1: OpenAlex JVM client + credit ledger + JSONL cache (addendum A) | `app.research.literature.openalex.enabled` | ledger matches spend headers; ceiling trips below free tier; repeat = cache hit |
+| Step 2: offline NT corpus (addendum B), seeded from ScalarOpenness/MEASUREMENT_FRAMES objects | n/a (asset) | ≥1e5 abstracts + ≥300 full-texts, spend ≤$10, probe set passes against it |
+| Step 3: py-sidecar `POST /ground/claim` — v1 BM25-only (embeddings = v2 if probe recall fails), contracrow trichotomy | env-gated like `ET_DISCOVER_EXEC` | 20-claim probe set: verdict accuracy ≥80%, zero fabricated citations |
+| Step 4: Java `search_literature` grounding mode; caller = promotion-track **+ measurement-frame/priority-target** papers | `app.research.literature.grounding.enabled` | grounded paper carries a verdict with resolvable keys or honest corpus-backed SILENT |
+| Step 5: **32.5b panel novelty grounding** — corpus-backed SILENT = positive novelty evidence; SUPPORTED = rediscovery cap + citation | `app.research.literature.panel-novelty-grounding.enabled` | panel novelty on a genuinely-new measurement clears ~0.5 |
 
 ## Ops track (schedulable anytime, no dependencies)
 
@@ -80,6 +90,9 @@ app.research.pivot.enabled                   # 32.3
 app.research.pivot.max-refinements           # 32.3 (config, default 1)
 app.research.review-anchor.enabled           # 32.4 (advisory)
 app.research.literature.grounding.enabled    # 32.5 (Java caller)
+app.research.literature.openalex.enabled              # 32.5 step 1 (addendum A client)
+app.research.literature.openalex.daily-credit-ceiling # 32.5 step 1 (config, default 0.50)
+app.research.literature.panel-novelty-grounding.enabled # 32.5b (panel novelty; the ceiling mechanism)
 # 32.5 sidecar arming is env-side (start-script), per the ET_DISCOVER_EXEC convention
 # 32.4 benchmark + calibration harness are operational tooling — no runtime flag (B7 convention)
 ```

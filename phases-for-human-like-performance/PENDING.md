@@ -26,7 +26,7 @@ App has been down since 2026-06-30 21:15 — all of these need a live run (see `
 | Item | Blocker | Next action |
 |---|---|---|
 | **Wave 3 calibration run** | label set STILL has zero Reject rows (none through the 06-29/06-30 batches — itself a quality signal; latest batches bottom out at Major revision) | revisit the deploy bar or wait; then one dedicated start with `ET_REVIEW_CALIBRATION=1` (~25 calls) |
-| Wave 4 — 32.5 literature-grounding sidecar (PaperQA2) | none for the BUILD (dormant anytime); FLIP gated on first promotion paper | build py-sidecar `/ground/claim` + curated NT corpus per `phase-32-manuscript-grounding.md` §32.5; 32.6's citation-API-only guard rides with it |
+| **Wave 4 — 32.5 literature grounding: NOW THE BINDING NOVELTY LEVER** (run-16: G5 flagship scored 0.26 purely for lack of prior-work contrast) | none for the BUILD; flip-trigger recommendation changed to probe-set-pass (operator decision); operator prereq: OpenAlex API key → secrets.enc | 7-step plan in `phase-32-manuscript-grounding.md` §32.5 (2026-07-04 reframe): A client+ledger → ScalarOpenness-seeded corpus → BM25 `/ground/claim` → widened caller policy → **32.5b panel novelty grounding** → probe → flip |
 | 32.6 small guards (second-pass refinement, reference-position check) | none | ride along with any narration PR |
 | Figure agent (ARC §B1) | parked until papers have figures | re-survey AI-Scientist-v2 VLM machinery when scheduled |
 
