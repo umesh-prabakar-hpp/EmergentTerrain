@@ -1,0 +1,25 @@
+{
+  "_comment": "Phase 32 §32.5 step 6 — 20-claim hand-labeled probe set for the /ground/claim retrieval layer. expected ∈ {EVIDENCE, SILENT}: v1 grounds at the RETRIEVAL level, so a contradiction-of-a-known-result expects EVIDENCE (the contradicted literature must surface for the professor/panel contracrow step to catch it); genuinely-open claims expect SILENT (corpus absence = the novelty signal). Bar: ≥80% verdict accuracy, zero fabricated citation keys (every returned key must exist in the corpus).",
+  "probes": [
+    { "id": 1,  "class": "known",         "expected": "EVIDENCE", "claim": "the average order of the divisor function d(n) is log n plus 2 gamma minus 1, the Euler-Mascheroni constant" },
+    { "id": 2,  "class": "known",         "expected": "EVIDENCE", "claim": "the average of big Omega(n) minus omega(n) converges to the sum over primes of 1/(p(p-1)), approximately 0.7731" },
+    { "id": 3,  "class": "known",         "expected": "EVIDENCE", "claim": "the natural density of squarefree integers equals 6 over pi squared" },
+    { "id": 4,  "class": "known",         "expected": "EVIDENCE", "claim": "the natural density of abundant numbers is approximately 0.2476" },
+    { "id": 5,  "class": "known",         "expected": "EVIDENCE", "claim": "the Hardy-Littlewood conjecture gives the twin prime counting function with the twin prime constant 2 C2 approximately 1.32" },
+    { "id": 6,  "class": "known",         "expected": "EVIDENCE", "claim": "the error term in the Dirichlet divisor problem has exponent between 1/4 and 131/416" },
+    { "id": 7,  "class": "known",         "expected": "EVIDENCE", "claim": "Cramer's conjecture states that maximal gaps between consecutive primes are of order log squared p" },
+    { "id": 8,  "class": "known",         "expected": "EVIDENCE", "claim": "the Erdos-Kac theorem says omega(n) is asymptotically normally distributed with mean and variance log log n" },
+    { "id": 9,  "class": "known",         "expected": "EVIDENCE", "claim": "under the Riemann Hypothesis the Mertens function M(x) is bounded by x to the power 1/2 plus epsilon" },
+    { "id": 10, "class": "known",         "expected": "EVIDENCE", "claim": "the normal order of the number of distinct prime factors omega(n) is log log n by Hardy and Ramanujan" },
+    { "id": 11, "class": "contradiction", "expected": "EVIDENCE", "claim": "the natural density of abundant numbers is approximately 0.45" },
+    { "id": 12, "class": "contradiction", "expected": "EVIDENCE", "claim": "the average order of the divisor function d(n) grows linearly in n" },
+    { "id": 13, "class": "contradiction", "expected": "EVIDENCE", "claim": "maximal gaps between consecutive primes grow exponentially in log p" },
+    { "id": 14, "class": "contradiction", "expected": "EVIDENCE", "claim": "the natural density of squarefree integers equals one half" },
+    { "id": 15, "class": "contradiction", "expected": "EVIDENCE", "claim": "the Mertens function M(x) exceeds x to the power 0.9 infinitely often" },
+    { "id": 16, "class": "open",          "expected": "SILENT",   "claim": "the amplitude envelope of the normalized divisor error Delta(x)/x^(1/4) stays flat near 2.85 across window scales from 100000 to 1000000000" },
+    { "id": 17, "class": "open",          "expected": "SILENT",   "claim": "the normalized divisor error term shows a persistent positive bias with window means near 0.9 at reachable ranges" },
+    { "id": 18, "class": "open",          "expected": "SILENT",   "claim": "the density of integers whose divisor count exceeds the square of their distinct prime factor count converges near 0.489" },
+    { "id": 19, "class": "open",          "expected": "SILENT",   "claim": "the maximal prime gap below x is bounded by 0.506 times log squared x with relative slack 0.002 near x = 200000" },
+    { "id": 20, "class": "open",          "expected": "SILENT",   "claim": "the windowed ratio of twin prime density to inverse log squared has non-monotone relative deviation between 300000 and 700000" }
+  ]
+}
