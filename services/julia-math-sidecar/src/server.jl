@@ -174,11 +174,14 @@ function start_server!(; host::AbstractString="127.0.0.1", port::Integer=8088)
     # `wait(server)` so the script blocks until the server exits.
     server = HTTP.serve!(router, host, port)
     # Listener is accepting now; pre-pay the first-call costs precompile
-    # can't cover (PyCall imports + outbound-HTTP). Best-effort and
-    # synchronous on this task — with ≥2 threads the server keeps serving
-    # /healthz on other threads while this runs, and delaying `wait` has no
-    # effect since the listener task is already independent. See `warmup!`.
-    warmup!(; host=host, port=port)
+    # can't cover (outbound-HTTP + the PySR JIT). On a WORKER thread, never
+    # synchronously: the 2026-07-04 boot wedge showed a synchronous warmup can
+    # monopolise the event-loop thread (PySR JIT under concurrent-boot memory
+    # pressure → accepts queued, /healthz starved 11+ min, the app marked the
+    # sidecar unavailable). Backgrounded, the server answers /healthz from the
+    # first second and a real /pysr arriving mid-warmup simply serialises
+    # behind PYSR_LOCK as before. Best-effort either way. See `warmup!`.
+    errormonitor(Threads.@spawn warmup!(; host=host, port=port))
     try
         # Block until the listener task exits (SIGINT or explicit close).
         wait(server)
