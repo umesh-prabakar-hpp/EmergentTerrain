@@ -1203,9 +1203,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         // served from tier 1 (DROPPED_BY_COUNTEREXAMPLE) without ever passing triviality. Filtering
         // here is the decisive gate for "becomes a paper" — it covers both tiers. (Room b72c4e10
         // P-b72c-86/87: log_window_start bounds reached publication via exactly this bypass.)
-        List<Conjecture> all = repo.findByDomain(domain).stream()
+        List<Conjecture> all = servableOnly(repo.findByDomain(domain).stream()
                 .filter(c -> ConjectureTrivialityFilter.dropReason(mapper.toInequality(c)).isEmpty())
-                .collect(java.util.stream.Collectors.toList());
+                .collect(java.util.stream.Collectors.toList()));
+        // 2026-07-04 — SERVABLE rows only (live or retired-by-counterexample), the same predicate the
+        // tiers and diversifiedNextN apply downstream, so restricting here is behaviour-preserving for
+        // them. It is LOAD-BEARING for the G4 QD collapse below: run on the wider pool, a knob-dropped
+        // row could win a behavioural cell as its "most-confirmed elite" and EVICT a family's only
+        // servable row — dirichlet_error's live `_oscillation_` row (cr=1) lost its degenerate
+        // "<= const" cell to the stochastic_null-dropped k=0 mertens_delta row (cr=2), making the G5
+        // flagship unreachable every run since qdSelection went ON (found 2026-07-04, run 750–755).
         if (all.isEmpty()) {
             return List.of();
         }
@@ -1316,10 +1323,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (n <= 0 || all == null || all.isEmpty()) {
             return List.of();
         }
-        List<Conjecture> servable = all.stream()
-                .filter(c -> c.droppedByKnob() == null
-                        || DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
-                .collect(java.util.stream.Collectors.toList());
+        List<Conjecture> servable = servableOnly(all);
         if (servable.isEmpty()) {
             return List.of();
         }
@@ -1345,6 +1349,19 @@ public class ConjectureMinerService implements ConjectureQueue {
     /** Epoch-ms of last investigation; {@link Long#MIN_VALUE} = never (sorts first under rotation). */
     private static long investigatedAtOf(Conjecture c) {
         return c.lastInvestigatedAt() == null ? Long.MIN_VALUE : c.lastInvestigatedAt().toEpochMilli();
+    }
+
+    /**
+     * The SERVABLE subset: live rows plus retired-by-counterexample seeds — the only rows selection
+     * may serve. All other drop reasons (fim, stochastic_null, knob, triviality:*) are out. Single
+     * predicate shared by {@code nextN} (where it must run BEFORE the QD collapse — see the comment
+     * there) and {@link #diversifiedNextN}, so the two can never drift.
+     */
+    static List<Conjecture> servableOnly(List<Conjecture> all) {
+        return all.stream()
+                .filter(c -> c.droppedByKnob() == null
+                        || DROPPED_BY_COUNTEREXAMPLE.equals(c.droppedByKnob()))
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /**

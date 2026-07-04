@@ -96,4 +96,54 @@ class DiversifiedSelectionTest {
         assertThat(ConjectureMinerService.diversifiedNextN(List.of(knobDropped), 1)).isEmpty();
         assertThat(ConjectureMinerService.diversifiedNextN(List.of(), 1)).isEmpty();
     }
+
+    @Test
+    void servableOnly_keepsLiveAndCounterexample_dropsOtherKnobs() {
+        Conjecture liveRow = live("dirichlet_error", "_oscillation_");
+        Conjecture cex = retired("max_prime_gap", "prime_density", null);
+        Conjecture nullDropped = new Conjecture("math", "dirichlet_error", "mertens_delta", 0.0, 2.34);
+        nullDropped.setDroppedByKnob("stochastic_null:mcc_benjamini_hochberg");
+        Conjecture fimDropped = new Conjecture("math", "dirichlet_error", "prime_density", 2.0, 2.16);
+        fimDropped.setDroppedByKnob("fim:slope_unpinned");
+        assertThat(ConjectureMinerService.servableOnly(
+                List.of(liveRow, cex, nullDropped, fimDropped)))
+                .containsExactly(liveRow, cex);
+    }
+
+    @Test
+    void qdCollapseOverServablePool_cannotEvictAFamilysOnlyLiveRow() {
+        // The 2026-07-04 G5-flagship blocker, replicated with nextN's exact QD cell key + elite
+        // comparator: dirichlet_error's only servable row (k=0 live `_oscillation_`, cr=1) keys as the
+        // degenerate cell "dirichlet_error <= const" — the SAME cell as the k=0 stochastic_null-dropped
+        // mertens_delta row (cr=2). Offered the RAW pool, the non-servable row wins the cell and the
+        // live row is evicted (the bug); offered the SERVABLE pool (the fix in nextN), the live row is
+        // the cell's only occupant and survives.
+        com.emergentterrain.research.conjecture.ConjectureMapper mapper =
+                new ConjectureMapper(new com.fasterxml.jackson.databind.ObjectMapper());
+        Conjecture liveOsc = new Conjecture("math", "dirichlet_error", "_oscillation_", 0.0, 0.00157);
+        liveOsc.setConfirmedRuns(1);
+        Conjecture nullDropped = new Conjecture("math", "dirichlet_error", "mertens_delta", 0.0, 2.34);
+        nullDropped.setDroppedByKnob("stochastic_null:mcc_benjamini_hochberg");
+        nullDropped.setConfirmedRuns(2);
+
+        java.util.function.Function<Conjecture, String> cellKey =
+                c -> ScalarOpenness.selectionRank(c.lhs()) + ":"
+                        + ConjectureTrivialityFilter.descriptorKey(mapper.toInequality(c));
+        // Same degenerate cell — the collision that made the eviction possible.
+        assertThat(cellKey.apply(liveOsc)).isEqualTo(cellKey.apply(nullDropped));
+
+        // Raw pool: the higher-cr non-servable row wins the cell (documents the former bug's mechanism).
+        QualityDiversityArchive<Conjecture> raw = new QualityDiversityArchive<>(
+                cellKey, java.util.Comparator.comparingInt(Conjecture::confirmedRuns));
+        raw.offerAll(List.of(liveOsc, nullDropped));
+        assertThat(raw.elites()).containsExactly(nullDropped);
+
+        // Servable pool (the fix): the live row survives and the family stays reachable.
+        QualityDiversityArchive<Conjecture> fixed = new QualityDiversityArchive<>(
+                cellKey, java.util.Comparator.comparingInt(Conjecture::confirmedRuns));
+        fixed.offerAll(ConjectureMinerService.servableOnly(List.of(liveOsc, nullDropped)));
+        assertThat(fixed.elites()).containsExactly(liveOsc);
+        assertThat(ConjectureMinerService.diversifiedNextN(new ArrayList<>(fixed.elites()), 1))
+                .singleElement().extracting(Conjecture::lhs).isEqualTo("dirichlet_error");
+    }
 }
