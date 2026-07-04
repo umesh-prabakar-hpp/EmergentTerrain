@@ -103,4 +103,17 @@ class TwoTermFramingTest {
         assertThat(hyp).contains("CONVERGES to a constant").contains("scale_ladder:true")
                 .contains("1.32032").contains("IGNORE it").doesNotContain("whether the bound holds");
     }
+
+    @Test
+    void measurementFrame_growthDirectsConstantMeasurementToAutoLadder() {
+        // 2026-07-04 — GROWTH now has its own auto scale-ladder (verify_growth scale_ladder:true;
+        // P-b72c-77627746's manual 1e6 windows died on the WORK cap). The framing names it for the
+        // growth-CONSTANT measurement while the bound work stays on verify_conjecture at hand-picked
+        // windows (the tighten pass).
+        Conjecture c = new Conjecture("math", "max_divisor_count", "wigert_bound", 1.0, 0.0);
+        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        assertThat(hyp).contains("GROWTH LAW").contains("verify_growth")
+                .contains("scale_ladder:true").contains("never hits the WORK cap")
+                .contains("verify_conjecture");
+    }
 }

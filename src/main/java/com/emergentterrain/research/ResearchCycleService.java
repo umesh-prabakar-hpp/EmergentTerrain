@@ -981,13 +981,18 @@ public class ResearchCycleService {
                     "This paper measures the GROWTH LAW of `%s`: whether it tracks the %s scale (its natural "
                     + "growth anchor), using verify_growth or an affine bound anchored on %s. The growth "
                     + "constant/exponent is the load-bearing claim — a flat-feature bound is refuted by "
-                    + "construction. Report the measured growth constant and how close it is to its "
-                    + "asymptotic value at reachable x.",
+                    + "construction. For the growth-CONSTANT measurement call verify_growth with "
+                    + "scale_ladder:true — the tool sweeps a GEOMETRIC ladder of scales out to the trusted "
+                    + "ceiling FOR you and never hits the WORK cap (manual high-x windows do). Testing and "
+                    + "tightening the anchored bound itself stays on verify_conjecture at the windows you "
+                    + "choose. Report the measured growth constant, its cross-scale trajectory, and how close "
+                    + "it is to its asymptotic value at reachable x.",
                     lhs, spec.growthScale(), spec.growthScale());
         };
-        // CONSTANT and OSCILLATION have the auto scale-ladder built into their verify_* tool
-        // (scale_ladder:true), so they don't need the manual-ladder instruction; only GROWTH has no
-        // auto-ladder yet, so it keeps the manual geometric-ladder guidance.
+        // All three frames now have the auto scale-ladder built into their verify_* tool
+        // (scale_ladder:true). GROWTH still keeps the manual-ladder note below: its ladderNote wording
+        // doubles as the SLOW-converger trend-interpretation guidance, and its BOUND work (tighten pass)
+        // legitimately hand-picks failure-region windows via verify_conjecture.
         var frame = spec.frame();
         boolean autoLaddered =
                 frame == com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementFrame.CONSTANT

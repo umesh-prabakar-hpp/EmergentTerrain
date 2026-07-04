@@ -960,9 +960,10 @@ public class MathToolSuite {
                     "scale":{"type":"string","description":"Growth coordinate: 'wigert' (log(lhs)·lnln x/ln x, default) or 'loglog' (lhs·lnln x/ln x)."},
                     "target":{"type":"number","description":"The conjectured growth constant. Defaults to ln2≈0.69315 for 'wigert'. Omit (with non-wigert scale) to estimate empirically."},
                     "tol":{"type":"number","description":"Relative tolerance for CONVERGED. Default 0.10 (the Wigert limit is approached slowly)."},
-                    "window_start":{"type":"integer","description":"First integer in the first window (held-out, high-x). window_start + window_size × num_windows ≤ %d."},
-                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap)."},
-                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."}
+                    "window_start":{"type":"integer","description":"First integer in the first window (held-out, high-x; single-slice mode). Ignored when scale_ladder is true. window_start + window_size × num_windows ≤ %d."},
+                    "window_size":{"type":"integer","description":"Integers per window. window_size × num_windows ≤ %d (work cap). Default 5000 in scale_ladder mode."},
+                    "num_windows":{"type":"integer","description":"How many disjoint windows to evaluate (default 5)."},
+                    "scale_ladder":{"type":"boolean","description":"SET TRUE to MEASURE THE GROWTH LAW ACROSS SCALES — the tool AUTO-EVALUATES the growth coordinate at a GEOMETRIC ladder of window_starts (1e5, 1e6, 1e7, 1e8, up to near the trusted ceiling) and reports the per-scale trajectory + whether the gap to the growth constant is SHRINKING. This is the load-bearing measurement (window_start is ignored, the tool picks the scales) and it NEVER hits the WORK cap — use this instead of manual high-x windows, which exceed the cap. REQUIRED for a growth claim: the coordinate approaches its constant only logarithmically, so a single low-x slice cannot support (or refute) 'slow convergence'."}
                   },
                   "required":["lhs","window_start","window_size"]
                 }
@@ -2753,6 +2754,18 @@ public class MathToolSuite {
                 : ("wigert".equals(scale)
                         ? com.emergentterrain.research.conjecture.GrowthScale.WIGERT_LIMIT : null);
         double tol = args.path("tol").asDouble(0.10);
+        // 2026-07-04 — auto scale-ladder for verify_growth, the GROWTH twin of the verify_constant /
+        // verify_oscillation ladders. P-b72c-77627746 asked for the Wigert coordinate at 1e6 via manual
+        // windows (window_size=50000 × 5) and died on the WORK cap, so "glacially slow convergence"
+        // rested on x ∈ [1e5, 2e5) alone — while the same run's CONSTANT ladder cruised to 1e9. The
+        // tool — not the LLM — picks the rungs, each rung a small fixed slice, so reach never depends
+        // on manual window arithmetic under the cap.
+        if (args.path("scale_ladder").asBoolean(false)) {
+            int ladderSize = args.path("window_size").asInt(5000);
+            int ladderNum = args.path("num_windows").asInt(5);
+            if (ladderSize <= 0 || ladderNum <= 0) { ladderSize = 5000; ladderNum = 5; }
+            return verifyGrowthLadder(lhs, scale, ladderSize, ladderNum, target, tol);
+        }
         Object[] sampled = sampleScalarWindows(args);
         if (sampled[0] instanceof String err) {
             return err;
@@ -2792,6 +2805,80 @@ public class MathToolSuite {
         } else {
             sb.append(String.format("estimated growth constant %.5f (range [%.5f, %.5f]), per-window spread %.4f.",
                     a.estimate(), a.min(), a.max(), a.relativeSpread()));
+        }
+        return sb.toString();
+    }
+
+    /**
+     * 2026-07-04 — auto scale-ladder for verify_growth. Evaluates the {@code scale} growth coordinate
+     * of {@code lhs} at a GEOMETRIC ladder of window_starts (1e5, 1e6, … up to the largest decade that
+     * fits the trusted range) and reports the per-scale coordinate trajectory + whether the gap to the
+     * growth constant is SHRINKING across scales. The growth coordinate approaches its limit only
+     * logarithmically (the Wigert coordinate sits ~1.03 vs ln 2 ≈ 0.693 at reachable x), so the
+     * cross-scale TREND is the measurement — a rung need not be "converged" for the ladder to be the
+     * load-bearing result.
+     */
+    private String verifyGrowthLadder(String lhs, String scale, int windowSize, int numWindows,
+                                      Double target, double tol) {
+        long maxN = conjectureVerifier.maxN();
+        long work = (long) windowSize * numWindows;
+        java.util.List<Long> ladder = new java.util.ArrayList<>();
+        for (long s = 100_000L; s + work <= maxN; s *= 10) {
+            ladder.add(s);
+        }
+        if (ladder.isEmpty()) {
+            return "verify_growth scale-ladder: no rung fits (window_size × num_windows too large for the range).";
+        }
+        double[] means = new double[ladder.size()];
+        StringBuilder traj = new StringBuilder();
+        for (int i = 0; i < ladder.size(); i++) {
+            long s = ladder.get(i);
+            java.util.List<java.util.Map<String, Double>> ws;
+            try {
+                ws = conjectureVerifier.sampleWindows(s, windowSize, numWindows);
+            } catch (RuntimeException e) {
+                return "verify_growth scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
+            }
+            double sum = 0.0;
+            int n = 0;
+            try {
+                for (int j = 0; j < ws.size(); j++) {
+                    java.util.Map<String, Double> w = ws.get(j);
+                    long start = w.getOrDefault("_window_start",
+                            (double) (s + (long) j * windowSize)).longValue();
+                    sum += com.emergentterrain.research.conjecture.GrowthScale.transform(
+                            scale, w.getOrDefault(lhs, 0.0), start);
+                    n++;
+                }
+            } catch (IllegalArgumentException e) {
+                return "verify_growth scale-ladder: " + e.getMessage();
+            }
+            means[i] = n > 0 ? sum / n : Double.NaN;
+            traj.append(String.format("%s%d→%.5f", i == 0 ? "" : ", ", s, means[i]));
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(String.format("verify_growth scale-ladder: %s in %s coords measured across %d scales [%s]. ",
+                lhs, scale, ladder.size(), traj));
+        if (target != null) {
+            double g0 = Math.abs(means[0] - target);
+            double gN = Math.abs(means[means.length - 1] - target);
+            boolean shrinking = gN < g0;
+            sb.append(String.format(
+                    "Growth constant %.5f: |gap| %.5f at %d → %.5f at %d — %s. %s",
+                    target, g0, ladder.get(0), gN, ladder.get(ladder.size() - 1),
+                    shrinking ? "SHRINKING toward the constant across scales" : "NOT shrinking",
+                    gN <= Math.abs(target) * tol
+                            ? "CONVERGED at the high end (within tol)."
+                            : "The tightening TREND across scales is the result — the growth coordinate "
+                              + "approaches its constant only logarithmically, so it need not settle even "
+                              + "at the ceiling; report the trajectory and rate, not a NULL."));
+        } else {
+            double hi = means[means.length - 1];
+            double prev = means.length > 1 ? means[means.length - 2] : hi;
+            sb.append(String.format(
+                    "No target — highest-scale coordinate %.5f (vs %.5f one decade lower; %s). Report the "
+                            + "cross-scale trajectory as the measurement.",
+                    hi, prev, Math.abs(hi - prev) <= Math.abs(hi) * tol ? "settling" : "still moving"));
         }
         return sb.toString();
     }
