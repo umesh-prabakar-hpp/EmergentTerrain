@@ -162,6 +162,13 @@ public final class ManifestTraceabilityValidator {
                     boundExempt++;
                     continue;
                 }
+                // Comparison-factor suffix ("2.9×") — see FACTOR_SUFFIX. Counted with the
+                // bound exemptions: both are operator-adjacent structural exemptions.
+                String suffix = text.substring(m.end(), Math.min(text.length(), m.end() + 2));
+                if (FACTOR_SUFFIX.matcher(suffix).find()) {
+                    boundExempt++;
+                    continue;
+                }
 
                 if (resolves(manifest, value, percent)) {
                     resolved++;
@@ -205,8 +212,22 @@ public final class ManifestTraceabilityValidator {
         return out;
     }
 
-    /** Arithmetic-chain marker near the token: =, ≈, −, ×, ·, / between numbers. */
-    private static final Pattern ARITHMETIC_CHAIN = Pattern.compile("[=≈]");
+    /**
+     * Arithmetic-chain marker in the sentence. 2026-07-04 (P-b72c-77627758's '1235', run-14): '/'
+     * added — a shown division like "a factor of approximately 1235 (ratio 1.97730/0.0016)" is
+     * derivation-shown exactly like an '=' chain; the ≥2-resolvable-operands requirement below
+     * still guards laundering (a bare fabricated ratio with unresolvable operands stays a miss).
+     */
+    private static final Pattern ARITHMETIC_CHAIN = Pattern.compile("[=≈/]");
+
+    /**
+     * 2026-07-04 (P-b72c-77627760's '3.75×' and '2.9×') — a numeral immediately followed by the
+     * multiplication sign is a COMPARISON FACTOR ("grows 2.9× over a scale factor of ~3.75×"),
+     * i.e. a ratio of two already-traced values, not an independent measured claim — the suffix
+     * analog of the {@code <}/{@code ≤} bound-prefix exemption. Structural and narrow: only the
+     * true '×' character counts (never the letter x), so ordinary values are unaffected.
+     */
+    private static final Pattern FACTOR_SUFFIX = Pattern.compile("^\\s?×");
 
     /**
      * Shown-work exemption (P-b72c-238): the unresolved value sits in a

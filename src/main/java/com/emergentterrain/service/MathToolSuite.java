@@ -678,7 +678,7 @@ public class MathToolSuite {
                     "parameters":{
                       "type":"object",
                       "properties":{
-                        "predicate":{"type":"string","description":"Property filter: tokens from isPrime isHappy collatzTerminates isAbundant isPerfect joined with AND or OR"},
+                        "predicate":{"type":"string","description":"Property filter: tokens from isPrime isHappy collatzTerminates isAbundant isPerfect joined with AND or OR; any token may be prefixed with NOT (e.g. 'isPrime AND NOT isAbundant') — use NOT to DECOMPOSE a union into its exclusive components (A-only, B-only) and test interaction against inclusion-exclusion"},
                         "range_start":{"type":"integer","description":"Range start (≥1)"},
                         "range_end":{"type":"integer","description":"Range end (range_end − range_start ≤ 500)"},
                         "metric":{"type":"string","description":"EXACTLY one of these four tokens, copied verbatim with no extra words: fraction_satisfying | mean_of:collatzSteps | max_of:collatzSteps | mean_of:sigmaSum. For ANY density / proportion / 'fraction of integers that are …' question, use fraction_satisfying. Only collatzSteps and sigmaSum statistics exist — there is NO divisor-count and NO omega (distinct-prime-factor) metric, so do not request those."},
@@ -1468,8 +1468,14 @@ public class MathToolSuite {
                     + ")) and report each separately; do NOT describe results over a range you did not scan.";
         }
         for (String token : predicate.replace(" AND ", "|").replace(" OR ", "|").split("\\|")) {
-            if (!VALID_PREDICATES.contains(token.trim()))
-                return "Invalid predicate token: '" + token.trim() + "'. Use: " + VALID_PREDICATES;
+            // 2026-07-04 (P-b72c-77627762) — a leading NOT negates a single predicate
+            // (evaluated in DynamicComputeEngine.parseSinglePredicate), enabling
+            // union decompositions like "isPrime AND NOT isAbundant".
+            String bare = token.trim();
+            if (bare.startsWith("NOT ")) bare = bare.substring(4).trim();
+            if (!VALID_PREDICATES.contains(bare))
+                return "Invalid predicate token: '" + token.trim() + "'. Use: " + VALID_PREDICATES
+                        + " — each may be prefixed with NOT (e.g. \"isPrime AND NOT isAbundant\").";
         }
         if (!VALID_METRICS.contains(metric))
             return "Invalid metric '" + rawMetric + "'. Use: " + VALID_METRICS;

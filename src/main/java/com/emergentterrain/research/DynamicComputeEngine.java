@@ -140,6 +140,15 @@ public class DynamicComputeEngine {
     }
 
     private static IntPredicate parseSinglePredicate(String name) {
+        // 2026-07-04 (P-b72c-77627762) — NOT support. The professor tried
+        // "isPrime AND NOT isAbundant" to decompose a union density into its
+        // components and the grammar rejected it, leaving the interaction
+        // hypothesis structurally untestable. A leading NOT negates the single
+        // predicate and composes with AND/OR exactly as before.
+        if (name.startsWith("NOT ")) {
+            IntPredicate inner = parseSinglePredicate(name.substring(4).trim());
+            return inner == null ? null : inner.negate();
+        }
         return switch (name) {
             case "isPrime"           -> MathPhysicsEngine::isPrime;
             case "isHappy"           -> MathPhysicsEngine::isHappy;

@@ -248,4 +248,41 @@ class ManifestTraceabilityValidatorTest {
         assertThat(s.resolved()).isEqualTo(1);
         assertThat(s.hypotheticalExempt()).isZero();
     }
+
+    @Test
+    void p758_shownDivision_resolvesViaChainMarkerSlash() {
+        // Run-14's live FP, verbatim shape: the panel demanded the precise ratio; the reviser
+        // showed the work as "(ratio 1.97730/0.0016)". '/' now counts as a chain marker, and both
+        // operands resolve, so the derived '1235' is derivation-shown, not a miss.
+        ValueManifest m = manifest("c = 0.0016", "worst margin: +1.97730 at window 310000");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "The bound is exceeded by a factor of approximately 1235 (ratio 1.97730/0.0016).",
+                "");
+        assertThat(s.misses()).isEmpty();
+    }
+
+    @Test
+    void p760_factorSuffix_isComparisonNotClaim() {
+        // Run-17's live FP: "grows 2.9× over a scale factor of ~3.75×" — numerals suffixed with
+        // the multiplication sign are comparison factors (ratios of already-traced values), the
+        // suffix analog of the bound-prefix exemption.
+        ValueManifest m = manifest(null, "margins +0.08793 and +0.25328");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "The margin grows 2.9× over a scale factor of ~3.75× between the runs.", "");
+        assertThat(s.misses()).isEmpty();
+        // '2.9' (one decimal) is not salient to begin with; '3.75' is, and is factor-exempted —
+        // matching the live run, where '3.75' was the sole miss.
+        assertThat(s.boundExempt()).isEqualTo(1);
+    }
+
+    @Test
+    void bareFabricatedRatio_withoutShownWorkOrSuffix_stillMisses() {
+        // The fabrication catch keeps its teeth: the same '1235' asserted bare (no shown
+        // division, no × suffix) stays a miss.
+        ValueManifest m = manifest("c = 0.0016", "worst margin: +1.97730 at window 310000");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "The bound is exceeded by a factor of approximately 1235 at the first window.", "");
+        assertThat(s.misses()).extracting(ManifestTraceabilityValidator.Miss::token)
+                .containsExactly("1235");
+    }
 }
