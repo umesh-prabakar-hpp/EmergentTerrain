@@ -42,6 +42,10 @@ using JuliaMathSidecar: safe_parse_body, ok_response, error_response,
                         handle_healthz, handle_metrics,
                         install_timestamped_logger!
 
+# Phase 32 §32.5 step 3 — offline BM25 literature grounding (/ground/claim).
+# Runtime-included like this file itself: PyCall-free, no package precompile.
+include(joinpath(@__DIR__, "literature_grounding.jl"))
+
 # ─── moved from handlers.jl: /prove_identity (phase-25 §25.1) ───────────
 # ---------------------------------------------------------------------
 # /prove_identity — SymPy WZ / Gosper machinery via PyCall (phase-25 §25.1)
@@ -900,6 +904,8 @@ function build_py_router()
     HTTP.register!(router, "POST", "/prove_identity",     handle_prove_identity)
     HTTP.register!(router, "POST", "/recognise/constant", handle_recognise_constant)
     HTTP.register!(router, "POST", "/recognise/minpoly",  handle_recognise_minpoly)
+    # Phase 32 §32.5 step 3 — offline retrieval over the local NT corpus.
+    HTTP.register!(router, "POST", "/ground/claim",       handle_ground_claim)
     return router
 end
 
@@ -932,6 +938,9 @@ function start_py_server!(; host::AbstractString="127.0.0.1", port::Integer=8089
     catch e
         @warn "py-sidecar: PyCall warmup skipped" error=sprint(showerror, e)
     end
+    # Phase 32 §32.5 step 3 — build the grounding index BEFORE serving so the
+    # single-threaded server never starves /healthz on a first-request build.
+    lg_init_from_env!()
     server = HTTP.serve!(router, host, port)
     try
         wait(server)
