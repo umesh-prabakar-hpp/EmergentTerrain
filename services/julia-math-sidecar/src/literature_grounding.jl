@@ -202,9 +202,12 @@ end
 
 # ─── HTTP handler ────────────────────────────────────────────────────
 
-# SILENT below this normalized-score threshold (env-tunable; calibrated on the
-# live corpus 2026-07-04: on-corpus claims score ~0.5+, off-domain ~0.2-).
-lg_silent_threshold() = parse(Float64, get(ENV, "ET_GROUND_SILENT_THRESHOLD", "0.32"))
+# SILENT below this normalized-score threshold (env-tunable). Calibrated on the
+# 20-claim §32.5 probe set 2026-07-04: known/contradiction claims score ≥0.283,
+# genuinely-open claims ≤0.250 — the 20/20 plateau is 0.25–0.29, default = its
+# center. The margin is thin (~0.03) and claim-wording-sensitive; re-run
+# EmergentTerrain/scripts/run-ground-probes.py after any corpus rebuild.
+lg_silent_threshold() = parse(Float64, get(ENV, "ET_GROUND_SILENT_THRESHOLD", "0.27"))
 
 function handle_ground_claim(req::HTTP.Request)
     t0 = time_ns()
