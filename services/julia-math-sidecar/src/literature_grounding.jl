@@ -39,6 +39,17 @@ struct LgDoc
     abstract_::String
 end
 
+# 2026-07-04 curation (run-17 rec 1): the breadth pull ingested preprint-server noise —
+# uncited Zenodo uploads ("Complete Proof Framework for the Goldbach Conjecture",
+# "23-Channel Theorem") surfaced as near-miss references next to Annals/Acta works.
+# v1 rule, applied at INDEX time (reversible, no corpus rebuild): drop works that are
+# BOTH on a repository DOI (zenodo) AND uncited. Set ET_GROUND_CURATE=0 to disable.
+# Re-run EmergentTerrain/scripts/run-ground-probes.py after changing this rule.
+function lg_curated_out(doi::AbstractString, cited_by::Int)
+    get(ENV, "ET_GROUND_CURATE", "1") == "1" || return false
+    return cited_by == 0 && occursin("10.5281/zenodo", doi)
+end
+
 struct LgIndex
     docs::Vector{LgDoc}
     postings::Dict{String,Vector{Tuple{Int32,Int16}}}   # term -> [(doc, tf)]
@@ -100,14 +111,16 @@ function lg_init!(corpus_path::AbstractString)
             isempty(key) && continue
             title = String(get(row, :title, ""))
             abstract_ = String(get(row, :abstract, ""))
+            doi_ = String(get(row, :doi, ""))
+            cited_by = Int(get(row, :cited_by_count, 0))
+            lg_curated_out(doi_, cited_by) && continue
             authors = try
                 join(String.(get(row, :authors, String[])), ", ")
             catch
                 ""
             end
             doc = LgDoc(key, title, Int(get(row, :year, 0)),
-                        String(get(row, :venue, "")), authors,
-                        String(get(row, :doi, "")), abstract_)
+                        String(get(row, :venue, "")), authors, doi_, abstract_)
             push!(docs, doc)
             docid = Int32(length(docs))
             counts = Dict{String,Int}()
@@ -202,12 +215,13 @@ end
 
 # ─── HTTP handler ────────────────────────────────────────────────────
 
-# SILENT below this normalized-score threshold (env-tunable). Calibrated on the
-# 20-claim §32.5 probe set 2026-07-04: known/contradiction claims score ≥0.283,
-# genuinely-open claims ≤0.250 — the 20/20 plateau is 0.25–0.29, default = its
-# center. The margin is thin (~0.03) and claim-wording-sensitive; re-run
-# EmergentTerrain/scripts/run-ground-probes.py after any corpus rebuild.
-lg_silent_threshold() = parse(Float64, get(ENV, "ET_GROUND_SILENT_THRESHOLD", "0.27"))
+# SILENT below this normalized-score threshold (env-tunable). Re-calibrated on the
+# CURATED index 2026-07-04 (zenodo-uncited works dropped): the 20/20 plateau
+# narrowed to 0.25–0.26 (known claims ≥0.262, open claims <0.25) — default = its
+# top. The margin is now razor-thin (~0.01) and claim-wording-sensitive; ALWAYS
+# re-run EmergentTerrain/scripts/run-ground-probes.py after any corpus rebuild
+# or curation-rule change, and adjust this default to the plateau it reports.
+lg_silent_threshold() = parse(Float64, get(ENV, "ET_GROUND_SILENT_THRESHOLD", "0.26"))
 
 function handle_ground_claim(req::HTTP.Request)
     t0 = time_ns()
