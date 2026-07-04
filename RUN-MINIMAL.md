@@ -30,3 +30,9 @@ tail -F \
 ```
 
 Stop each: `./scripts/stop.sh` in its dir. App: http://localhost:8081.
+
+Note (2026-07-04): the py-sidecar (2b) also builds the literature-grounding BM25
+index at startup when `~/.emergentterrain/corpus-nt/abstracts.jsonl` exists —
+adds ~20–60 s before `Listening on: 127.0.0.1:8089`; wait for it before starting
+the app if you want grounding active from the first paper. No corpus = clean
+fallback, nothing breaks.
