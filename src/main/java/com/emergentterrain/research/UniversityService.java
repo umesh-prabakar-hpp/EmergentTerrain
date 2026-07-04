@@ -1509,10 +1509,11 @@ public class UniversityService {
                 manifestMissRoutes = manifestShadowFlagged
                         && "enforce".equals(manifestValidatorMode);
                 log.info("manifest-{}: paperId={} salient={} resolved={} allowlisted={} "
-                                + "boundExempt={} misses={} ladderStrikes={}",
+                                + "boundExempt={} hypExempt={} misses={} ladderStrikes={}",
                         manifestValidatorMode,
                         draft.paperId(), shadowStats.salient(), shadowStats.resolved(),
                         shadowStats.allowlisted(), shadowStats.boundExempt(),
+                        shadowStats.hypotheticalExempt(),
                         shadowStats.misses().size(),
                         consistencyFailures.size() + unsourcedClaimFailures.size());
                 if (manifestShadowFlagged) {

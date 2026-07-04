@@ -1301,4 +1301,37 @@ class NumericalConsistencyValidatorTest {
         assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
                 && r.contains("[750") && r.contains("1200"));
     }
+
+    @Test
+    void p746_hypotheticalRangeInFutureWorkSentence_notScopeOverreach() {
+        // P-b72c-77627746's live FP, verbatim shape: the panel asked the reviser to
+        // discuss an independent range; the honest "cannot be confirmed … natural
+        // next step" answer was nulled as scope overreach. A range inside an
+        // explicitly not-executed sentence is not a results claim.
+        var trace = List.of(scan(100000, 200000));
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                "Growth law of the maximum divisor count.",
+                java.util.Map.of(1,
+                        "Whether k=1.30 holds on an independent range (e.g., x ∈ "
+                                + "[200000, 300000)) cannot be confirmed from the present trace "
+                                + "due to the work-cap constraint encountered in call_4; testing "
+                                + "on such a range is a natural next step."),
+                "No claim beyond the tested interval.", trace);
+        assertThat(reasons).noneMatch(r -> r.contains("scope overreach"));
+    }
+
+    @Test
+    void claimedRangeWithoutHypotheticalMarker_stillScopeOverreach() {
+        // Control: the SAME range asserted as a result stays a true positive — the
+        // exemption demands a strong negation/future-work marker, not just "e.g.".
+        var trace = List.of(scan(100000, 200000));
+        List<String> reasons = NumericalConsistencyValidator.validate(
+                "Growth law of the maximum divisor count.",
+                java.util.Map.of(1,
+                        "The bound k=1.30 also holds on the range (e.g., x ∈ "
+                                + "[200000, 300000)) with comparable margins."),
+                "Holds across both ranges.", trace);
+        assertThat(reasons).anyMatch(r -> r.contains("scope overreach")
+                && r.contains("[200000") && r.contains("300000"));
+    }
 }

@@ -211,4 +211,41 @@ class ManifestTraceabilityValidatorTest {
         assertThat(reasons.get(0))
                 .startsWith("manifest_miss — salient value '77.77' (block 1)");
     }
+
+    @Test
+    void p748_hypotheticalExampleValues_exempt() {
+        // P-b72c-77627748's live FP, verbatim: the batch's best paper (0.742) was
+        // demoted for '1,000' — a window size the sentence explicitly says was NOT
+        // run. The "vs. 10,000" abbreviation must not truncate the sentence before
+        // the "was performed" marker.
+        ValueManifest m = manifest(null, "mean 0.77301 over 20 windows");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "No sensitivity analysis varying window size (e.g., 1,000 vs. 10,000) "
+                        + "was performed in the recorded computations.", "");
+        assertThat(s.misses()).isEmpty();
+        assertThat(s.hypotheticalExempt()).isEqualTo(2);
+    }
+
+    @Test
+    void hypotheticalExemptRequiresStrongMarker_exampleAloneStillMisses() {
+        // An example marker alone must NOT exempt — a fabricated value asserted as
+        // a result stays caught even when wrapped in "e.g.".
+        ValueManifest m = manifest(null, "mean 0.77301 over 20 windows");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "The measured density was high (e.g., 1,000 events per window).", "");
+        assertThat(s.misses()).extracting(ManifestTraceabilityValidator.Miss::token)
+                .containsExactly("1,000");
+        assertThat(s.hypotheticalExempt()).isZero();
+    }
+
+    @Test
+    void hypotheticalExemptOnlyRescuesWouldBeMisses() {
+        // A value that RESOLVES against the manifest counts as resolved even inside
+        // a hypothetical sentence — the exemption sits in the else branch only.
+        ValueManifest m = manifest(null, "worst margin +120.97163");
+        ManifestTraceabilityValidator.Stats s = run(m,
+                "A margin of +120.97163 was not tested at larger scales.", "");
+        assertThat(s.resolved()).isEqualTo(1);
+        assertThat(s.hypotheticalExempt()).isZero();
+    }
 }

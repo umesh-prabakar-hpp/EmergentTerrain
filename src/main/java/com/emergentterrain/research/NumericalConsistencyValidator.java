@@ -1205,6 +1205,13 @@ public final class NumericalConsistencyValidator {
             // 2026-06-05 rec #2 — "[0, 1)" is the canonical VALUE DOMAIN of a density / fraction
             // (P-b72c-141 false-NULL), not a scan-range claim. Skip exactly the unit interval.
             if (a == 0.0 && b == 1.0) continue;
+            // 2026-07-04 (P-b72c-77627746) — a range named inside an explicitly hypothetical /
+            // not-executed sentence is not a results claim. The panel asked the reviser to discuss
+            // "whether k would hold on an independent range (e.g., 200000-300000)"; the honest
+            // "cannot be confirmed from the present trace … a natural next step" answer was then
+            // nulled as scope overreach. Strong negation/future-work markers only — an example
+            // marker alone never exempts (see HypotheticalContext).
+            if (HypotheticalContext.isHypothetical(prose, pm.start(), pm.end())) continue;
             // Covered when SOME executed range brackets [a, b] within ±1% on each edge
             // (F5_5_RELATIVE_TOLERANCE), so a prose "[326, 466)" may ride a trace "[325, 467)".
             boolean covered = false;

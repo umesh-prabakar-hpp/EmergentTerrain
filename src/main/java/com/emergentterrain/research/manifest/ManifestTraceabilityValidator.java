@@ -106,7 +106,7 @@ public final class ManifestTraceabilityValidator {
 
     /** Shadow-diff counters for the per-paper log line. */
     public record Stats(int salient, int resolved, int allowlisted,
-                        int boundExempt, List<Miss> misses) {}
+                        int boundExempt, int hypotheticalExempt, List<Miss> misses) {}
 
     /**
      * Resolve every salient number in Findings/Conclusion against the
@@ -116,7 +116,7 @@ public final class ManifestTraceabilityValidator {
                                  Map<Integer, String> findingsBlocks,
                                  String conclusion) {
         List<Miss> misses = new ArrayList<>();
-        int salient = 0, resolved = 0, allowlisted = 0, boundExempt = 0;
+        int salient = 0, resolved = 0, allowlisted = 0, boundExempt = 0, hypotheticalExempt = 0;
 
         List<String> blocks = new ArrayList<>();
         if (findingsBlocks != null) {
@@ -174,12 +174,23 @@ public final class ManifestTraceabilityValidator {
                     // the exemption demands BOTH an arithmetic chain in-sentence
                     // AND ≥2 resolvable operands.
                     resolved++;
+                } else if (com.emergentterrain.research.HypotheticalContext
+                        .isHypothetical(text, m.start(), m.end())) {
+                    // 2026-07-04 (P-b72c-77627748) — a value inside an explicitly
+                    // hypothetical / not-executed sentence is not a claim: "No
+                    // sensitivity analysis varying window size (e.g., 1,000 vs.
+                    // 10,000) was performed" was the sole miss that demoted the
+                    // batch's best paper. Only rescues would-be misses, and only
+                    // on a strong negation/future-work marker — an example marker
+                    // alone never exempts (see HypotheticalContext).
+                    hypotheticalExempt++;
                 } else {
                     misses.add(new Miss(token + (percent ? " %" : ""), b + 1));
                 }
             }
         }
-        return new Stats(salient, resolved, allowlisted, boundExempt, List.copyOf(misses));
+        return new Stats(salient, resolved, allowlisted, boundExempt, hypotheticalExempt,
+                List.copyOf(misses));
     }
 
     /** Reasons in the ladder's format, for the additive call-path stamp + WARN line. */
