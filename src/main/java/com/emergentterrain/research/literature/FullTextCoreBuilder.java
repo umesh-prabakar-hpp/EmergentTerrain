@@ -97,7 +97,11 @@ public final class FullTextCoreBuilder {
                 params.put("select", SELECT_FIELDS);
                 params.put("per-page", "25");
                 params.put("cursor", cursor);
-                params.put("filter", "open_access.is_oa:true");
+                // 2026-07-05 build-1 lesson: without the NT topic filter, relevance-ranked search
+                // let off-topic OA works (a 1973 ecology classic!) claim core slots. Same topic
+                // scope as the abstract corpus' breadth pull.
+                params.put("filter", "open_access.is_oa:true,primary_topic.id:"
+                        + NtCorpusBuilder.NT_TOPIC_ID);
                 JsonNode response = client.searchWorks(query, params);
                 for (JsonNode work : response.path("results")) {
                     if (have.size() >= targetCores) {
