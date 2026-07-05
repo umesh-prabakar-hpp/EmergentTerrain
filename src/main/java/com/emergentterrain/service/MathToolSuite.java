@@ -2405,11 +2405,16 @@ public class MathToolSuite {
                 double kTight = tightestHoldingK(lhsVals, rhsVals, c);
                 if (Double.isFinite(kTight) && kTight > 0 && kTight < k) {
                     double kSuggest = Math.ceil(kTight * 1000.0) / 1000.0;   // a hair above, so it still holds
+                    // 2026-07-05 (P-b72c-77627783) — parity with the two-term hint: without the
+                    // explicit refute clause the professor stopped at tight holds (rel-slack
+                    // 0.0003!) and still drew binding_regime_uncovered. Name the full protocol.
                     sb.append(String.format(
                             " LOOSE: the tightest k that holds these windows is ~%.4f (your largest "
                                     + "(lhs−c)/rhs ratio) — re-verify at k=%.4f (keep c=%+.4f) for a TIGHT bound "
-                                    + "the pool will retain; do NOT stop at a textbook asymptotic constant that "
-                                    + "leaves this much slack.",
+                                    + "the pool will retain, AND confirm a slightly smaller k REFUTES, to "
+                                    + "demonstrate the binding regime; do NOT stop at a textbook asymptotic "
+                                    + "constant that leaves this much slack, and do NOT stop at the tight hold "
+                                    + "without its refute.",
                             kTight, kSuggest, c));
                 }
             }

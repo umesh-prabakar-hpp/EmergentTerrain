@@ -138,7 +138,13 @@ public final class ScoreCalibration {
         }
         String needle = "\"lhs\":\"" + lhs + "\"";
         for (ToolInvocation call : trace) {
-            if (call == null || !"verify_conjecture".equals(call.functionName())) {
+            // 2026-07-05 (P-b72c-77627782) — a MEASUREMENT-framed paper's hypothesis IS "the LHS
+            // converges / oscillates within an envelope / follows a growth law", and the
+            // measurement seed explicitly steers the professor AWAY from verify_conjecture; the
+            // matching verify_* call with the same LHS exercises that hypothesis. Requiring
+            // verify_conjecture specifically punished the instructed behavior (the paper used
+            // verify_oscillation on dirichlet_error exactly as told, and was demoted here).
+            if (call == null || !VERIFY_TOOLS.contains(call.functionName())) {
                 continue;
             }
             String args = call.argsJson();
@@ -148,6 +154,10 @@ public final class ScoreCalibration {
         }
         return true;   // conjecture topic, non-empty trace, LHS never tested
     }
+
+    /** The verification tools whose {@code lhs} argument exercises a conjecture-topic hypothesis. */
+    private static final java.util.Set<String> VERIFY_TOOLS = java.util.Set.of(
+            "verify_conjecture", "verify_constant", "verify_oscillation", "verify_growth");
 
     /**
      * The LHS quantities whose <i>leading order</i> is a textbook closed-form law

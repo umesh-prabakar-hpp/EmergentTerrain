@@ -1229,7 +1229,7 @@ public class UniversityService {
                         draft.topicName(), narration.toolCallTrace());
         if (hypothesisLhsUncovered) {
             log.warn("hypothesis-lhs-coverage check failed paperId={} "
-                    + "(conjecture topic '{}' has no verify_conjecture call with its LHS)",
+                    + "(conjecture topic '{}' has no verify_* call with its LHS)",
                     draft.paperId(), draft.topicName());
         }
         // Paper-review 2026-05-22 fix 4 — hypothesis-range-coverage check.

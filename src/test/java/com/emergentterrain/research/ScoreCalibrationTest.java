@@ -139,6 +139,26 @@ class ScoreCalibrationTest {
     }
 
     @Test
+    void p782_measurementToolWithLhs_countsAsCoverage() {
+        // 2026-07-05 (P-b72c-77627782): a measurement-framed dirichlet_error paper used
+        // verify_oscillation with the topic LHS — exactly what the measurement seed instructs —
+        // and the gate demoted it for lacking a verify_conjecture call. Any verify_* tool whose
+        // lhs matches the topic exercises the hypothesis.
+        List<ToolInvocation> trace = List.of(
+                new ToolInvocation("verify_oscillation",
+                        "{\"lhs\":\"dirichlet_error\",\"window_start\":300000,\"window_size\":5000}",
+                        "OSCILLATES", 0, "call_1"));
+        assertFalse(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/dirichlet_error", trace));
+        // A verify_* call on a DIFFERENT lhs still doesn't cover (the P-210 class is unchanged).
+        List<ToolInvocation> offTarget = List.of(
+                new ToolInvocation("verify_oscillation",
+                        "{\"lhs\":\"mertens_delta\",\"window_start\":300000}", "ok", 0, "call_1"));
+        assertTrue(ScoreCalibration.hypothesisLhsUncovered(
+                "conjecture/dirichlet_error", offTarget));
+    }
+
+    @Test
     void p215_pairNeverInvoked_uncovered() {
         // P-b72c-215: topic conjecture/cramer_gap_ratio; only off-target verify
         // calls and a scalar_window_stats call — the preregistered LHS never ran.
