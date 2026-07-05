@@ -226,6 +226,56 @@ class ConjectureQueueTest {
         return e;
     }
 
+    // ── 2026-07-04 (run-19) — served-descriptor recency gate ─────────────────
+
+    @Test
+    void servedDescriptor_isNotReservedWithinTheRecencyWindow() {
+        // P-768/772: the same cramer bound became two papers in one run. After consumption
+        // (markInvestigated), the SAME descriptor must not be served again within the window;
+        // the pool's other relation is served instead.
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture boundA = build("cramer_gap_ratio", "deficient_density", 2.0, -1.4763, 5, 0.01,
+                ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE);
+        Conjecture boundB = build("cramer_gap_ratio", "omega_Omega_gap", 2.0, -0.9, 3, 0.01,
+                ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE);
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(boundA, boundB));
+
+        ConjectureMinerProperties p = minerProps(true);
+        p.setServedDescriptorRecencyEnabled(true);
+        p.setServedDescriptorRecencyHours(24);
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMinerService svc = new ConjectureMinerService(repo, new ConjectureMapper(om),
+                new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null), p);
+
+        Conjecture first = svc.next("math").orElseThrow();
+        svc.markInvestigated(first);
+        Conjecture second = svc.next("math").orElseThrow();
+        assertTrue(!first.rhs().equals(second.rhs()),
+                "the just-consumed descriptor must not be re-served within the recency window");
+    }
+
+    @Test
+    void servedDescriptorRecency_neverStarvesATinyPool() {
+        // Never-starve guard: when the filter would empty the pool (every servable descriptor was
+        // recently consumed), selection falls back to the unfiltered pool rather than serving nothing.
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture only = build("cramer_gap_ratio", "deficient_density", 2.0, -1.4763, 5, 0.01,
+                ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE);
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(only));
+
+        ConjectureMinerProperties p = minerProps(true);
+        p.setServedDescriptorRecencyEnabled(true);
+        ObjectMapper om = new ObjectMapper();
+        ConjectureMinerService svc = new ConjectureMinerService(repo, new ConjectureMapper(om),
+                new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null), p);
+
+        svc.markInvestigated(svc.next("math").orElseThrow());
+        assertTrue(svc.next("math").isPresent(),
+                "a pool whose only descriptor was just served must still serve it (never starve)");
+    }
+
     private static Conjecture retired(String lhs, String rhs, String reason, String updatedIso) {
         Conjecture e = build(lhs, rhs, 0.0, 0.5, 5, 0.001, reason);
         e.setUpdatedAt(Instant.parse(updatedIso));

@@ -119,6 +119,11 @@ public class ConjectureMinerService implements ConjectureQueue {
     private final boolean opennessSelectionEnabled;
     private final boolean opennessDiversityEnabled;
     private final boolean qdSelectionEnabled;
+    private final boolean servedDescriptorRecencyEnabled;
+    private final int servedDescriptorRecencyHours;
+    /** Served-descriptor recency ledger: descriptorKey → consumption epoch-ms (markInvestigated). */
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> servedDescriptorAtMs =
+            new java.util.concurrent.ConcurrentHashMap<>();
     private final boolean oscillatingTargetFimExemptEnabled;
     private final boolean measurementTargetSeedEnabled;
 
@@ -323,6 +328,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.opennessSelectionEnabled = props.isOpennessSelectionEnabled();
         this.opennessDiversityEnabled = props.isOpennessDiversityEnabled();
         this.qdSelectionEnabled = props.isQdSelectionEnabled();
+        this.servedDescriptorRecencyEnabled = props.isServedDescriptorRecencyEnabled();
+        this.servedDescriptorRecencyHours = props.getServedDescriptorRecencyHours();
         this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
         this.measurementTargetSeedEnabled = props.isMeasurementTargetSeedEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
@@ -1216,6 +1223,34 @@ public class ConjectureMinerService implements ConjectureQueue {
         if (all.isEmpty()) {
             return List.of();
         }
+        // 2026-07-04 (run-19 root cause) — family recency MUST be computed over the FULL servable
+        // pool, BEFORE the QD collapse below. The elite of a cell is its most-confirmed row, which
+        // is not necessarily the row markInvestigated stamped — when the stamped row is collapsed
+        // away, a family served minutes earlier looks never-investigated and rotation re-serves it
+        // (P-768/772: the same cramer bound twice in one run; mean_divisor_excess picked over
+        // families 9 hours staler). Snapshot the recency map here and pass it through.
+        Map<String, Long> familyTouched = familyRecency(all);
+        // Served-descriptor recency gate (flag) — a bound whose descriptorKey was CONSUMED within
+        // the window cannot become a second paper while its first is fresh; the family remains
+        // reachable through its other relations. Never-starve: skip the filter if it empties the
+        // pool (tiny pools must still serve).
+        if (servedDescriptorRecencyEnabled && !servedDescriptorAtMs.isEmpty()) {
+            long cutoff = System.currentTimeMillis()
+                    - servedDescriptorRecencyHours * 3_600_000L;
+            List<Conjecture> filtered = all.stream()
+                    .filter(c -> {
+                        Long served = servedDescriptorAtMs.get(
+                                ConjectureTrivialityFilter.descriptorKey(mapper.toInequality(c)));
+                        return served == null || served < cutoff;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+            if (!filtered.isEmpty() && filtered.size() < all.size()) {
+                log.info("served-descriptor recency — {} row(s) suppressed "
+                                + "(descriptor served within {}h)",
+                        all.size() - filtered.size(), servedDescriptorRecencyHours);
+                all = filtered;
+            }
+        }
         // Phase 30 G4 (open-behavior-generation-activation.md) — quality-diversity RETENTION into
         // selection (30.3). Collapse the servable pool to ONE elite per behavioural cell so a flood of
         // near-identical bounds can't each consume a paper slot, while open probes keep their own cell.
@@ -1245,7 +1280,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         // rotate (no single-family monoculture) and LIVE priority targets with no retired seed (e.g.
         // dirichlet_error) become reachable. No-op when off (legacy tier order below).
         if (opennessDiversityEnabled) {
-            return diversifiedNextN(all, n);
+            return diversifiedNextN(all, n, familyTouched);
         }
         List<Conjecture> out = new ArrayList<>(Math.min(n, all.size()));
 
@@ -1320,17 +1355,19 @@ public class ConjectureMinerService implements ConjectureQueue {
      * Package-private + static for unit testing. {@code all} is the triviality-filtered pool.
      */
     static List<Conjecture> diversifiedNextN(List<Conjecture> all, int n) {
+        // Legacy/test entry: recency computed over the given pool. Production (nextN) passes the
+        // map computed over the FULL pre-QD servable pool — see the 2026-07-04 run-19 root cause.
+        return diversifiedNextN(all, n, all == null ? Map.of() : familyRecency(servableOnly(all)));
+    }
+
+    static List<Conjecture> diversifiedNextN(List<Conjecture> all, int n,
+                                             Map<String, Long> familyTouched) {
         if (n <= 0 || all == null || all.isEmpty()) {
             return List.of();
         }
         List<Conjecture> servable = servableOnly(all);
         if (servable.isEmpty()) {
             return List.of();
-        }
-        // family (lhs) → most-recent investigation across the family; a just-served family sinks.
-        Map<String, Long> familyTouched = new HashMap<>();
-        for (Conjecture c : servable) {
-            familyTouched.merge(c.lhs(), investigatedAtOf(c), Math::max);
         }
         Comparator<Conjecture> order = Comparator
                 .<Conjecture>comparingInt(c -> ScalarOpenness.selectionRank(c.lhs()))
@@ -1349,6 +1386,16 @@ public class ConjectureMinerService implements ConjectureQueue {
     /** Epoch-ms of last investigation; {@link Long#MIN_VALUE} = never (sorts first under rotation). */
     private static long investigatedAtOf(Conjecture c) {
         return c.lastInvestigatedAt() == null ? Long.MIN_VALUE : c.lastInvestigatedAt().toEpochMilli();
+    }
+
+    /** family (lhs) → most-recent investigation across the given rows; a just-served family sinks.
+     *  Compute over the FULL servable pool, never a collapsed subset (the run-19 lesson). */
+    static Map<String, Long> familyRecency(List<Conjecture> rows) {
+        Map<String, Long> touched = new HashMap<>();
+        for (Conjecture c : rows) {
+            touched.merge(c.lhs(), investigatedAtOf(c), Math::max);
+        }
+        return touched;
     }
 
     /**
@@ -1396,6 +1443,16 @@ public class ConjectureMinerService implements ConjectureQueue {
         }
         Instant now = Instant.now();
         conjecture.setLastInvestigatedAt(now);   // keep the caller's in-memory view consistent
+        // 2026-07-04 — served-descriptor recency ledger (see nextN's gate): record consumption at
+        // the descriptor level, which survives re-seed churn and QD collapse (row-level stamps
+        // don't — the run-19 lesson).
+        try {
+            servedDescriptorAtMs.put(
+                    ConjectureTrivialityFilter.descriptorKey(mapper.toInequality(conjecture)),
+                    now.toEpochMilli());
+        } catch (RuntimeException ignored) {
+            // Ledger is best-effort; never block consumption on it.
+        }
         // Targeted column UPDATE instead of a whole-entity save — a save() here both
         // loses to and competes with the miner's pass-long stale-snapshot saves
         // (see ConjectureRepository.stampInvestigated). Fall back to save() for a

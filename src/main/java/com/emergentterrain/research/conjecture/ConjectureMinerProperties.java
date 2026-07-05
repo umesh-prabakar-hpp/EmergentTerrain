@@ -74,6 +74,15 @@ public class ConjectureMinerProperties {
     // watch the "qd selection — N rows → M cells" served-topic-diversity log. Rollback: false.
     // See QualityDiversityArchive + ConjectureMinerService.nextN.
     private boolean qdSelectionEnabled = false;
+    // 2026-07-04 (run-19: P-768/772 = the same cramer bound served twice in ONE run, both credited
+    // ≥0.7 novelty; P-770 = P-760's exact bound re-served 3h later) — served-descriptor recency
+    // gate. A descriptorKey consumed (markInvestigated) within the last servedDescriptorRecencyHours
+    // is skipped by nextN, so the SAME BOUND cannot become a second paper while its first is fresh —
+    // family rotation still revisits the FAMILY with a different relation. In-memory map (rooms
+    // reset per app session anyway); a never-starve guard falls back to the unfiltered pool if the
+    // filter would empty it. Code default OFF; flip in yaml. Rollback: false.
+    private boolean servedDescriptorRecencyEnabled = false;
+    private int servedDescriptorRecencyHours = 24;
     // 2026-06-15 — Rec 2: exempt oscillating open targets (dirichlet_error = Δ(x)/x^{1/4}) from the FIM
     // slope_unpinned drop. Their affine slope is unpinned by nature (they swing ±), so FIM was retiring
     // every seed, leaving the open Dirichlet target unreachable through the queue. ON keeps a seed live
@@ -169,6 +178,11 @@ public class ConjectureMinerProperties {
 
     public boolean isQdSelectionEnabled() { return qdSelectionEnabled; }
     public void setQdSelectionEnabled(boolean v) { this.qdSelectionEnabled = v; }
+
+    public boolean isServedDescriptorRecencyEnabled() { return servedDescriptorRecencyEnabled; }
+    public void setServedDescriptorRecencyEnabled(boolean v) { this.servedDescriptorRecencyEnabled = v; }
+    public int getServedDescriptorRecencyHours() { return servedDescriptorRecencyHours; }
+    public void setServedDescriptorRecencyHours(int v) { this.servedDescriptorRecencyHours = v; }
 
     public boolean isOscillatingTargetFimExemptEnabled() { return oscillatingTargetFimExemptEnabled; }
     public void setOscillatingTargetFimExemptEnabled(boolean v) { this.oscillatingTargetFimExemptEnabled = v; }

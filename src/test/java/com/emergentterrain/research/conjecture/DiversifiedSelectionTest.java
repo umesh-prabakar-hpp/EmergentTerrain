@@ -111,6 +111,36 @@ class DiversifiedSelectionTest {
     }
 
     @Test
+    void familyRecencyFromFullPool_survivesQdCollapseOfTheMarkedRow() {
+        // Run-19 root cause (P-768/772: the same cramer bound served twice in one run): the QD
+        // elite of a cell is its most-confirmed row — NOT necessarily the row markInvestigated
+        // stamped. When recency is computed over the collapsed elites, a just-served family looks
+        // never-investigated and rotation re-serves it. The fix passes familyRecency(fullPool)
+        // into diversifiedNextN.
+        Conjecture markedLowCr = retired("cramer_gap_ratio", "deficient_density",
+                java.time.Instant.ofEpochMilli(5_000_000));   // the served+marked row
+        Conjecture eliteHighCr = retired("cramer_gap_ratio", "deficient_density", null);
+        eliteHighCr.setConfirmedRuns(50);                      // same cell, higher cr → the elite
+        Conjecture staleOther = retired("max_prime_gap", "prime_density",
+                java.time.Instant.ofEpochMilli(1_000));        // much staler family
+
+        // The collapsed pool (what QD hands over): the marked cramer row is GONE.
+        List<Conjecture> collapsed = new ArrayList<>(List.of(eliteHighCr, staleOther));
+
+        // OLD behavior (recency from the collapsed pool): cramer looks never-investigated → wins.
+        Conjecture oldPick = ConjectureMinerService.diversifiedNextN(collapsed, 1).get(0);
+        assertThat(oldPick.lhs()).isEqualTo("cramer_gap_ratio");
+
+        // FIXED behavior: recency computed over the FULL pool (marked row included) → cramer
+        // sinks, the staler family is served.
+        var fullRecency = ConjectureMinerService.familyRecency(
+                List.of(markedLowCr, eliteHighCr, staleOther));
+        Conjecture fixedPick =
+                ConjectureMinerService.diversifiedNextN(collapsed, 1, fullRecency).get(0);
+        assertThat(fixedPick.lhs()).isEqualTo("max_prime_gap");
+    }
+
+    @Test
     void qdCollapseOverServablePool_cannotEvictAFamilysOnlyLiveRow() {
         // The 2026-07-04 G5-flagship blocker, replicated with nextN's exact QD cell key + elite
         // comparator: dirichlet_error's only servable row (k=0 live `_oscillation_`, cr=1) keys as the
