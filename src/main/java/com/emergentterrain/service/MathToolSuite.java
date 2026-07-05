@@ -1977,6 +1977,20 @@ public class MathToolSuite {
      * {@link com.emergentterrain.research.conjecture.MathInvariants#definitionOf}; appended after
      * the verdict block so no downstream text-parser fragment changes.
      */
+    /**
+     * 2026-07-05 (run-24 rec 2, P-b72c-77627788) — prescriptive cap-fix hint. The professor made
+     * the identical WORK-cap mistake in two consecutive rounds (10000 × 20 = 200k > 100k, twice)
+     * because the old message diagnosed the overflow without naming the fix; professors act on
+     * COPYABLE numbers (the LOOSE hint only worked once it said "re-verify at k=0.4280"). Those
+     * two lost rounds were exactly the missing binding-refute call.
+     */
+    static String capFixHint(int windowSize, long maxWork) {
+        long maxWindows = windowSize > 0 ? maxWork / windowSize : 0;
+        return maxWindows >= 1
+                ? String.format("FIX: keep window_size=%d and use num_windows ≤ %d.", windowSize, maxWindows)
+                : String.format("FIX: window_size alone exceeds the cap — use window_size ≤ %d.", maxWork);
+    }
+
     static String appendScalarDefinitions(String result, JsonNode args) {
         if (result == null || args == null) {
             return result;
@@ -2621,12 +2635,15 @@ public class MathToolSuite {
         }
         long work = (long) windowSize * numWindows;
         if (work > conjectureVerifier.maxWork()) {
-            return String.format("WORK cap exceeded: window_size × num_windows = %d > %d.",
-                    work, conjectureVerifier.maxWork());
+            return String.format("WORK cap exceeded: window_size × num_windows = %d > %d. %s",
+                    work, conjectureVerifier.maxWork(),
+                    capFixHint(windowSize, conjectureVerifier.maxWork()));
         }
         if (windowStart + work > conjectureVerifier.maxN()) {
-            return String.format("RANGE cap exceeded: window_start + window_size × num_windows = %d > %d (oracle range).",
-                    windowStart + work, conjectureVerifier.maxN());
+            return String.format("RANGE cap exceeded: window_start + window_size × num_windows = %d > %d "
+                            + "(oracle range). FIX: keep this window shape and use window_start ≤ %d.",
+                    windowStart + work, conjectureVerifier.maxN(),
+                    Math.max(0, conjectureVerifier.maxN() - work));
         }
         java.util.List<java.util.Map<String, Double>> windows;
         try {
@@ -3092,8 +3109,9 @@ public class MathToolSuite {
         }
         long work = (long) windowSize * numWindows;
         if (work > conjectureVerifier.maxWork()) {
-            return new Object[]{String.format("WORK cap exceeded: window_size × num_windows = %d > %d.",
-                    work, conjectureVerifier.maxWork())};
+            return new Object[]{String.format("WORK cap exceeded: window_size × num_windows = %d > %d. %s",
+                    work, conjectureVerifier.maxWork(),
+                    capFixHint(windowSize, conjectureVerifier.maxWork()))};
         }
         if (windowStart + work > conjectureVerifier.maxN()) {
             return new Object[]{String.format(

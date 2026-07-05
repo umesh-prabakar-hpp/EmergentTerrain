@@ -322,6 +322,17 @@ class MathToolSuiteVerifyConjectureTest {
                 MathToolSuite.appendScalarDefinitions("r", om.readTree("{}"))).isEqualTo("r");
     }
 
+    @org.junit.jupiter.api.Test
+    void capFixHint_namesTheCopyableFix_p788() {
+        // 2026-07-05 (run-24 rec 2): the P-788 shape — window_size 10000 against the 100k cap —
+        // must yield the literal corrected parameter, not just the diagnosis.
+        org.assertj.core.api.Assertions.assertThat(MathToolSuite.capFixHint(10000, 100_000))
+                .isEqualTo("FIX: keep window_size=10000 and use num_windows ≤ 10.");
+        // window_size alone over the cap → the fix is the window size itself.
+        org.assertj.core.api.Assertions.assertThat(MathToolSuite.capFixHint(200_000, 100_000))
+                .contains("window_size ≤ 100000");
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

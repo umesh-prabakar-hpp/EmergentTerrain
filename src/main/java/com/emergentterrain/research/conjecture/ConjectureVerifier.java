@@ -279,11 +279,15 @@ public class ConjectureVerifier {
         long totalWork = (long) numWindows * windowSize;
         if (totalWork > maxWork()) {
             throw new IllegalArgumentException(
-                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork());
+                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork()
+                            + ". FIX: keep window_size=" + windowSize + " and use num_windows <= "
+                            + Math.max(1, maxWork() / Math.max(1, windowSize)) + ".");
         }
         if (windowStart + totalWork > maxN()) {
             throw new IllegalArgumentException(
-                    "window extends to n=" + (windowStart + totalWork) + " which exceeds MAX_N=" + maxN());
+                    "window extends to n=" + (windowStart + totalWork) + " which exceeds MAX_N=" + maxN()
+                            + ". FIX: keep this window shape and use window_start <= "
+                            + Math.max(0, maxN() - totalWork) + ".");
         }
 
         MathConjectureSubstrateDelegate sub = substrate();
@@ -348,7 +352,9 @@ public class ConjectureVerifier {
         long totalWork = (long) numWindows * windowSize;
         if (totalWork > maxWork()) {
             throw new IllegalArgumentException(
-                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork());
+                    "num_windows × window_size = " + totalWork + " exceeds cap of " + maxWork()
+                            + ". FIX: keep window_size=" + windowSize + " and use num_windows <= "
+                            + Math.max(1, maxWork() / Math.max(1, windowSize)) + ".");
         }
         long maxEvaluated = windowStart + totalWork;
         if (maxEvaluated > maxN()) {
