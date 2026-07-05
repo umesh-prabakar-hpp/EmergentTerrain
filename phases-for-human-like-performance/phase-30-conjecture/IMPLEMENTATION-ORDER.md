@@ -164,7 +164,7 @@ absent from both parents.
 
 > **Activation (2026-06-14):** the Wave-5 components above are flag-ON but **log-only / admit ~0** —
 > their candidates never reach the topic queue, so the corpus is still affine bounds on settled objects
-> ([[project_phase23_8_calibration]]). [`open-behavior-generation-activation.md`](open-behavior-generation-activation.md)
+> ([[project_phase23_8_calibration]]). [`open-behavior-generation-activation.md`](../archive/open-behavior-generation-activation.md)
 > sequences the five stages (G1–G5) that promote them to live open-behavior topics: openness prior,
 > two-term schema (promote 30.2), feed 30.5 real residual targets, wire QD/anomaly selection, and the
 > Dirichlet-exponent flagship. **G1–G5 BUILT + flag-ON as of 2026-06-30** (see that doc's per-stage

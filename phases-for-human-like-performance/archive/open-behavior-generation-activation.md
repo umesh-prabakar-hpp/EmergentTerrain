@@ -1,6 +1,8 @@
 # Phase 30 — open-behavior generation: activating the dormant Stage-1 layer
 
-**Status: G1–G5 BUILT (updated 2026-06-30); G5 well-posedness prerequisite landed.** Sequences five
+**Status: CLOSED 2026-07-05 — closing condition met (see annotation in the Closing condition section).**
+*(Superseded status line, kept for history: G1–G5 BUILT, updated 2026-06-30; G5 well-posedness
+prerequisite landed.)* Sequences five
 stages (G1–G5) that turn the conjecture generator from an *affine-bound factory over a fixed vocabulary*
 into an *open-behavior probe generator*. The novelty blocker named by [[project_phase23_8_calibration]]
 ("corpus is 100% known-result verification; generation is the real blocker") is what this targets.
@@ -297,6 +299,23 @@ This program closes when: G1–G4 are flag-ON and burned-in; the conjecture corp
 conjectures absent from any single-term parent (G2/G3 bars); and at least one open-target measurement
 (G5) clears the panel-novelty ≥ 0.7 calibration bar that has been empty since Phase 23.8. Until then the
 status stays DESIGN DOC LANDED with per-stage progress tracked above.
+
+**Closing annotation (2026-07-05):** every clause is met.
+- G1–G4 flag-ON and burned-in: all ON since 2026-06-14→07-01, exercised across 10+ runs.
+- G1 bar (open-behavior-first corpus) held across ≥ 3 refreshes: every run since run-15 serves
+  open/second-order families exclusively; the recreational predicate family was retired at
+  admission 2026-07-04 (disjoint-composite prune).
+- G2 bar: two-term composites publish routinely and beyond any single-term parent — P-b72c-77627765
+  (0.827), P-780 (0.806/0.76), P-788's near-binding two-term at relative tolerance, P-789 (0.700).
+  G3's grammar-expansion path was SUPERSEDED by object-substrate expansion
+  ([[project_object_substrate_expansion]]): the vocabulary grew via three new substrate objects
+  (squarefree/richly_divisible/omega_excess) instead of MDL grammar admission, and those objects
+  publish at the top of the corpus (richly_divisible 0.806/0.76) — the clause's intent (generated
+  vocabulary producing published conjectures) is delivered by the successor mechanism.
+- G5 bar (panel-novelty ≥ 0.7): cleared repeatedly — 0.77 (P-761), 0.82 (P-774), 0.76/0.74/0.70
+  across runs 22–24 — the calibration population empty since Phase 23.8 is now populated.
+The residual novelty lever moved downstream to literature grounding (§32.5, shipped + live) and the
+registered rate-of-convergence questions; those are tracked in PENDING.md, not here.
 
 ## Cross-references
 

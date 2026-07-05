@@ -1,5 +1,7 @@
 # Pending items — rolling tracker
 
+
+> **2026-07-05:** open-behavior G-program CLOSED + archived (all bars met). Successor design doc: [`phase-33-human-gap/phase-33-human-paper-gap.md`](phase-33-human-gap/phase-33-human-paper-gap.md) — five lanes (Taste/Depth/Literature/Cumulativity/Derivation) from memo to human paper; nothing built yet.
 **Last refreshed:** 2026-07-04 (`/phase-review` full-walk audit; prior refresh 2026-06-06 predated the
 whole June G1–G5 / gates / measurement-frame arc and was badly stale)
 **Maintainer:** Claude Code review/build sessions; refresh after each working day or `/phase-review`.
