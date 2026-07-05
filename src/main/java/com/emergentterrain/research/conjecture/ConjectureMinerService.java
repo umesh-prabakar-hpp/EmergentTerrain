@@ -124,6 +124,68 @@ public class ConjectureMinerService implements ConjectureQueue {
     /** Served-descriptor recency ledger: descriptorKey → consumption epoch-ms (markInvestigated). */
     private final java.util.concurrent.ConcurrentHashMap<String, Long> servedDescriptorAtMs =
             new java.util.concurrent.ConcurrentHashMap<>();
+    private final String servedDescriptorRecencyStatePath;
+
+    /**
+     * 2026-07-05 (P-b72c-77627779 = P-b72c-77627766's descriptor re-served 14h later) — the
+     * ledger must survive the restart-per-run cadence or the 24h window is effectively per-run.
+     * Plain-text state file, one entry per line: {@code epochMs<TAB>descriptorKey}. Entries older
+     * than the recency window are dropped at load; the file is rewritten on every consumption
+     * (a handful of entries — trivial). All IO is best-effort: a missing/corrupt file or a write
+     * failure degrades to the in-memory behavior, never blocks selection.
+     */
+    private void loadServedDescriptors() {
+        if (!servedDescriptorRecencyEnabled || servedDescriptorRecencyStatePath == null
+                || servedDescriptorRecencyStatePath.isBlank()) {
+            return;
+        }
+        java.nio.file.Path p = java.nio.file.Path.of(servedDescriptorRecencyStatePath);
+        if (!java.nio.file.Files.isRegularFile(p)) {
+            return;
+        }
+        long cutoff = System.currentTimeMillis() - servedDescriptorRecencyHours * 3_600_000L;
+        try {
+            for (String line : java.nio.file.Files.readAllLines(p)) {
+                int tab = line.indexOf('\t');
+                if (tab <= 0) continue;
+                try {
+                    long at = Long.parseLong(line.substring(0, tab));
+                    if (at >= cutoff) {
+                        servedDescriptorAtMs.put(line.substring(tab + 1), at);
+                    }
+                } catch (NumberFormatException ignored) {
+                    // skip corrupt line
+                }
+            }
+            if (!servedDescriptorAtMs.isEmpty()) {
+                log.info("served-descriptor recency — restored {} in-window entr(y/ies) from {}",
+                        servedDescriptorAtMs.size(), servedDescriptorRecencyStatePath);
+            }
+        } catch (java.io.IOException e) {
+            log.warn("served-descriptor recency — could not read state file {}: {}",
+                    servedDescriptorRecencyStatePath, e.getMessage());
+        }
+    }
+
+    private void persistServedDescriptors() {
+        if (servedDescriptorRecencyStatePath == null || servedDescriptorRecencyStatePath.isBlank()) {
+            return;
+        }
+        try {
+            java.nio.file.Path p = java.nio.file.Path.of(servedDescriptorRecencyStatePath);
+            if (p.getParent() != null) {
+                java.nio.file.Files.createDirectories(p.getParent());
+            }
+            StringBuilder sb = new StringBuilder();
+            for (var e : servedDescriptorAtMs.entrySet()) {
+                sb.append(e.getValue()).append('\t').append(e.getKey()).append('\n');
+            }
+            java.nio.file.Files.writeString(p, sb.toString());
+        } catch (java.io.IOException e) {
+            log.warn("served-descriptor recency — could not write state file {}: {}",
+                    servedDescriptorRecencyStatePath, e.getMessage());
+        }
+    }
     private final boolean oscillatingTargetFimExemptEnabled;
     private final boolean measurementTargetSeedEnabled;
 
@@ -330,6 +392,8 @@ public class ConjectureMinerService implements ConjectureQueue {
         this.qdSelectionEnabled = props.isQdSelectionEnabled();
         this.servedDescriptorRecencyEnabled = props.isServedDescriptorRecencyEnabled();
         this.servedDescriptorRecencyHours = props.getServedDescriptorRecencyHours();
+        this.servedDescriptorRecencyStatePath = props.getServedDescriptorRecencyStatePath();
+        loadServedDescriptors();
         this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
         this.measurementTargetSeedEnabled = props.isMeasurementTargetSeedEnabled();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
@@ -1450,6 +1514,7 @@ public class ConjectureMinerService implements ConjectureQueue {
             servedDescriptorAtMs.put(
                     ConjectureTrivialityFilter.descriptorKey(mapper.toInequality(conjecture)),
                     now.toEpochMilli());
+            persistServedDescriptors();
         } catch (RuntimeException ignored) {
             // Ledger is best-effort; never block consumption on it.
         }

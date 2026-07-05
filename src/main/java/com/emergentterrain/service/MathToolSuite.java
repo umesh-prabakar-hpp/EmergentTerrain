@@ -1547,9 +1547,10 @@ public class MathToolSuite {
                 // 100 samples is plenty — matches SandboxEngine grain.
                 int samples = Math.min(100_000, Math.max(100, rangeSize));
                 long t = System.currentTimeMillis();
+                final String expr = expression;
                 com.emergentterrain.llm.JuliaMathClient.SweepResult sr =
-                        juliaMathClient.sweep(expression, "n",
-                                rangeStart, rangeEnd - 1, samples);
+                        withColdStartRetry(() -> juliaMathClient.sweep(expr, "n",
+                                rangeStart, rangeEnd - 1, samples));
                 log.info("MathToolSuite: evaluate_symbolic (julia) expr=\"{}\" range=[{},{}) samples={} ms={}",
                         expression, rangeStart, rangeEnd, samples,
                         System.currentTimeMillis() - t);
@@ -1733,7 +1734,8 @@ public class MathToolSuite {
         // (config opt-in + /healthz responded at startup), try the
         // sidecar first. On any failure (transport, parse, eval),
         // log at INFO and fall through to the existing Symja path so
-        // a sidecar outage never blocks a paper.
+        // a sidecar outage never blocks a paper. Transport failures get
+        // one delayed retry first — see withColdStartRetry.
         //
         // The expression is passed through as-is. Until the LLM prompt
         // is re-trained to emit Julia syntax (Phase 22.4), most
@@ -1744,8 +1746,9 @@ public class MathToolSuite {
         if (juliaMathClient != null && juliaMathClient.isAvailable()) {
             try {
                 long t = System.currentTimeMillis();
+                final String expr = expression;
                 com.emergentterrain.llm.JuliaMathClient.EvalResult er =
-                        juliaMathClient.eval(expression);
+                        withColdStartRetry(() -> juliaMathClient.eval(expr));
                 log.info("MathToolSuite: run_symbolic (julia) expr=\"{}\" ms={} type={}",
                         expression, System.currentTimeMillis() - t, er.type());
                 // Phase 21 §21.3 follow-on — Julia-path echo detection. Same
@@ -1966,6 +1969,35 @@ public class MathToolSuite {
      * routed the expression to a function that has no return value (e.g.,
      * an assignment or a side-effect-only call), not a real evaluation.
      */
+    /**
+     * 2026-07-05 (P-b72c-77627777) — cold-start transport retry. The run started 3 minutes after
+     * the sidecar; the first eval hit the client timeout while the sidecar was still JIT-warming,
+     * fell back to Symja (which cannot parse Julia syntax), and every professor attempt failed →
+     * the draft was suppressed with 0 successes. Same-window rollup: 1 transport_fail vs 1055 ok —
+     * the sidecar recovered seconds later. One delayed retry on a TRANSPORT-coded failure bridges
+     * the window; every other error code (parse, eval, safety) falls through unchanged.
+     */
+    static final long COLD_START_RETRY_MS = 10_000;
+
+    private <T> T withColdStartRetry(java.util.function.Supplier<T> call) {
+        try {
+            return call.get();
+        } catch (com.emergentterrain.llm.JuliaMathException first) {
+            if (!"transport".equals(first.errorCode())) {
+                throw first;
+            }
+            log.info("MathToolSuite: julia transport failure — retrying once in {}ms "
+                    + "(cold-start JIT window): {}", COLD_START_RETRY_MS, first.getMessage());
+            try {
+                Thread.sleep(COLD_START_RETRY_MS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw first;
+            }
+            return call.get();   // a second transport failure propagates to the normal fallback
+        }
+    }
+
     static boolean isJuliaEcho(String input,
                                 com.emergentterrain.llm.JuliaMathClient.EvalResult er) {
         if (input == null || er == null || er.result() == null) return false;

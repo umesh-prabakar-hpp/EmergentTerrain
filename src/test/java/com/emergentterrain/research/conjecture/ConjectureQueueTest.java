@@ -276,6 +276,42 @@ class ConjectureQueueTest {
                 "a pool whose only descriptor was just served must still serve it (never starve)");
     }
 
+    @Test
+    void servedDescriptorLedger_survivesRestart_viaStateFile() throws Exception {
+        // 2026-07-05 (P-b72c-77627779 = P-b72c-77627766's descriptor re-served 14h later): the
+        // in-memory ledger dies with the JVM under the restart-per-run cadence. With a state
+        // path, a NEW service instance (= a restart) must restore the ledger and keep the
+        // just-consumed descriptor suppressed.
+        java.nio.file.Path state = java.nio.file.Files.createTempDirectory("etledger")
+                .resolve("served-descriptors.tsv");
+        ConjectureRepository repo = mock(ConjectureRepository.class);
+        Conjecture boundA = build("twin_prime_density", "richly_divisible_density", 2.0, -3.4766,
+                5, 0.01, ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE);
+        Conjecture boundB = build("twin_prime_density", "omega_Omega_gap", 2.0, -0.9,
+                3, 0.01, ConjectureMinerService.DROPPED_BY_COUNTEREXAMPLE);
+        when(repo.findByDomain(eq("math"))).thenReturn(List.of(boundA, boundB));
+
+        ConjectureMinerProperties p = minerProps(true);
+        p.setServedDescriptorRecencyEnabled(true);
+        p.setServedDescriptorRecencyStatePath(state.toString());
+        ObjectMapper om = new ObjectMapper();
+
+        ConjectureMinerService first = new ConjectureMinerService(repo, new ConjectureMapper(om),
+                new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null), p);
+        Conjecture served = first.next("math").orElseThrow();
+        first.markInvestigated(served);
+        assertTrue(java.nio.file.Files.isRegularFile(state), "ledger file written on consumption");
+
+        // "Restart": a fresh instance over the same state file.
+        ConjectureMinerService second = new ConjectureMinerService(repo, new ConjectureMapper(om),
+                new OeisAnnotator(om),
+                new MathConjectureSubstrateDelegate((com.emergentterrain.llm.JuliaMathClient) null), p);
+        Conjecture afterRestart = second.next("math").orElseThrow();
+        assertTrue(!served.rhs().equals(afterRestart.rhs()),
+                "the pre-restart consumption must still suppress the descriptor after restart");
+    }
+
     private static Conjecture retired(String lhs, String rhs, String reason, String updatedIso) {
         Conjecture e = build(lhs, rhs, 0.0, 0.5, 5, 0.001, reason);
         e.setUpdatedAt(Instant.parse(updatedIso));

@@ -83,6 +83,11 @@ public class ConjectureMinerProperties {
     // filter would empty it. Code default OFF; flip in yaml. Rollback: false.
     private boolean servedDescriptorRecencyEnabled = false;
     private int servedDescriptorRecencyHours = 24;
+    // 2026-07-05 (P-b72c-77627779 = P-b72c-77627766's descriptor re-served 14h later) — the
+    // ledger was in-memory only, and the restart-per-run cadence wiped it, making the 24h window
+    // effectively per-run. Non-blank path = load at construction (entries older than the window
+    // are dropped) and rewrite on every markInvestigated. Blank = in-memory only (old behavior).
+    private String servedDescriptorRecencyStatePath = "";
     // 2026-06-15 — Rec 2: exempt oscillating open targets (dirichlet_error = Δ(x)/x^{1/4}) from the FIM
     // slope_unpinned drop. Their affine slope is unpinned by nature (they swing ±), so FIM was retiring
     // every seed, leaving the open Dirichlet target unreachable through the queue. ON keeps a seed live
@@ -183,6 +188,8 @@ public class ConjectureMinerProperties {
     public void setServedDescriptorRecencyEnabled(boolean v) { this.servedDescriptorRecencyEnabled = v; }
     public int getServedDescriptorRecencyHours() { return servedDescriptorRecencyHours; }
     public void setServedDescriptorRecencyHours(int v) { this.servedDescriptorRecencyHours = v; }
+    public String getServedDescriptorRecencyStatePath() { return servedDescriptorRecencyStatePath; }
+    public void setServedDescriptorRecencyStatePath(String v) { this.servedDescriptorRecencyStatePath = v; }
 
     public boolean isOscillatingTargetFimExemptEnabled() { return oscillatingTargetFimExemptEnabled; }
     public void setOscillatingTargetFimExemptEnabled(boolean v) { this.oscillatingTargetFimExemptEnabled = v; }
