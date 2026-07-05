@@ -123,6 +123,14 @@
       <artifactId>matheclipse-core</artifactId>
       <version>${symja.version}</version>
     </dependency>
+    <!-- Phase 33 lane L (L1, 2026-07-05) — PDF text extraction for the full-text literature
+         cores (FullTextCoreBuilder). Used only by the offline builder + the (future) L2
+         read_reference path; nothing on the hot research-cycle path touches it. -->
+    <dependency>
+      <groupId>org.apache.pdfbox</groupId>
+      <artifactId>pdfbox</artifactId>
+      <version>3.0.5</version>
+    </dependency>
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-starter-test</artifactId>
