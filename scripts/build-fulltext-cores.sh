@@ -13,9 +13,13 @@
 # the PDFs come from publishers/arXiv (no credits, polite pacing).
 #
 # Usage:
-#   ./scripts/build-fulltext-cores.sh                  # default: 350 cores
+#   ./scripts/build-fulltext-cores.sh                  # default: 1600 cores
 #   DRY_RUN=true ./scripts/build-fulltext-cores.sh     # print the plan
-#   TARGET_CORES=500 PAGES_PER_QUERY=3 ./scripts/build-fulltext-cores.sh
+#   TARGET_CORES=350 PAGES_PER_QUERY=4 ./scripts/build-fulltext-cores.sh
+#
+# NOTE: the 1600-core default sweeps ~16 queries x 15 pages (~$0.24 of SEARCH
+# credits) — beyond the ~$0.10/day keyless tier; export OPENALEX_API_KEY
+# (free key = $1/day) for a full one-shot build.
 #
 # Env knobs: OPENALEX_API_KEY OPENALEX_MAILTO CORPUS_DIR TARGET_CORES
 #            PAGES_PER_QUERY CREDIT_CEILING DRY_RUN

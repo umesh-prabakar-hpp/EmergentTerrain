@@ -52,8 +52,8 @@ public final class FullTextCoreBuilder {
     public static void main(String[] args) throws Exception {
         String corpusDir = env("CORPUS_DIR",
                 System.getProperty("user.home") + "/.emergentterrain/corpus-nt");
-        int targetCores = Integer.parseInt(env("TARGET_CORES", "350"));
-        int pagesPerQuery = Integer.parseInt(env("PAGES_PER_QUERY", "2"));
+        int targetCores = Integer.parseInt(env("TARGET_CORES", "1600"));
+        int pagesPerQuery = Integer.parseInt(env("PAGES_PER_QUERY", "15"));
         double ceiling = Double.parseDouble(env("CREDIT_CEILING", "0.50"));
         boolean dryRun = Boolean.parseBoolean(env("DRY_RUN", "false"));
 
