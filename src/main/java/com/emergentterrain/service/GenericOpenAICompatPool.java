@@ -153,6 +153,9 @@ public class GenericOpenAICompatPool implements LlmPool {
     /** Phase 20.2 — tag-level history compaction. Null-safe. */
     @Autowired(required = false)
     private ConversationCompactor conversationCompactor;
+    /** Phase 33 D1 — adaptive round extension on a near-binding trace. Null-safe (off ⇒ flat cap). */
+    @Autowired(required = false)
+    private BindingExtensionPolicy bindingExtensionPolicy;
 
     public GenericOpenAICompatPool(ProviderConfig cfg,
                                     ObjectMapper mapper,
@@ -848,7 +851,12 @@ public class GenericOpenAICompatPool implements LlmPool {
             messages.addObject().put("role", "user").put("content", userPrompt);
             JsonNode tools = mapper.readTree(toolsJson);
 
-            for (int round = 0; round <= MAX_TOOL_ROUNDS; round++) {
+            // Phase 33 D1 — the round cap is mutable: a trace ending in an INCOMPLETE
+            // high-value verification state (near-binding hold without its refute) earns one
+            // bounded extension. Flat MAX_TOOL_ROUNDS behavior when the policy bean is absent.
+            int maxRounds = MAX_TOOL_ROUNDS;
+            boolean bindingExtended = false;
+            for (int round = 0; round <= maxRounds; round++) {
                 // rec #2 (2026-05-28) — abort the multi-round loop the moment the
                 // worker thread is interrupted (narration-timeout cancel(true)).
                 // Without this the loop would start another full round (another
@@ -858,7 +866,22 @@ public class GenericOpenAICompatPool implements LlmPool {
                     throw new RuntimeException(cfg.providerKey()
                             + " tool loop interrupted before round " + round);
                 }
-                boolean lastRound = round == MAX_TOOL_ROUNDS;
+                boolean lastRound = round == maxRounds;
+                if (lastRound && !bindingExtended && bindingExtensionPolicy != null
+                        && bindingExtensionPolicy.needsBindingCompletion(trace)) {
+                    // Phase 33 D1 (P-b72c-77627788: near-binding hold at +0.00002 with no budget
+                    // for the refute call) — grant the extension ONCE, and tell the model why so
+                    // the extra rounds are spent completing the pair, not exploring.
+                    bindingExtended = true;
+                    maxRounds += bindingExtensionPolicy.extraRounds();
+                    lastRound = false;
+                    messages.addObject().put("role", "user")
+                            .put("content", bindingExtensionPolicy.extensionHint());
+                    log.info("GenericOpenAICompatPool({}) tools: binding extension granted "
+                                    + "(+{} rounds) at round {} traceSize={}",
+                            cfg.providerKey(), bindingExtensionPolicy.extraRounds(), round,
+                            trace.size());
+                }
                 boolean sendTools = toolSchemaCachePolicy == null
                         ? !lastRound
                         : toolSchemaCachePolicy.shouldSendTools(round, lastRound);

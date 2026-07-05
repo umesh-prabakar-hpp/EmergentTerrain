@@ -251,6 +251,10 @@ public class UniversityService {
      */
     private final boolean citationCorpusEnabled;
     private final String  citationCorpusMode;
+
+    /** Phase 33 T1 — open-question harvester; bean exists only when question-harvest.enabled. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.question.OpenQuestionHarvestService questionHarvest;
     /**
      * 2026-05-21 review §1 rec #6 — flags published prose that mentions a
      * registered topic name OTHER than the paper's declared topic.
@@ -2231,6 +2235,13 @@ public class UniversityService {
                 String.format("%.3f", adjustedScore), String.format("%.2f", narration.confidenceScore()),
                 draft.resultClassification(), paperStatus,
                 persistedCallPath != null ? persistedCallPath : "none");
+        // Phase 33 lane T (T1, 2026-07-05) — harvest the paper's self-stated open questions into
+        // the room-independent ledger. Skipped for REJECTED papers (their questions inherit the
+        // structural defect). Failure-soft inside the service; bean absent when the flag is off.
+        if (questionHarvest != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
+            questionHarvest.harvest(draft.paperId(), draft.topicName(),
+                    narration.findings(), narration.conclusion());
+        }
         // rec #9 gate-attribution — one parseable line naming the gate(s) behind a
         // non-clean terminal status, so a refresh can quantify which of the
         // overlapping demotion gates was load-bearing per paper.
