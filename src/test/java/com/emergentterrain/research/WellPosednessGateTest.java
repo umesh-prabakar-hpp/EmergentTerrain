@@ -107,4 +107,31 @@ class WellPosednessGateTest {
         assertThat(WellPosednessGate.isBaseDependentDensityTopic(null, "fraction")).isFalse();
         assertThat(WellPosednessGate.isBaseDependentDensityTopic("isHappy", null)).isFalse();
     }
+
+    @org.junit.jupiter.api.Test
+    void disjointCompositeDensityTopics_arePruned_componentsAreNot() {
+        // 2026-07-04 run-19 rec 2 — the recreational predicate family (15 papers / 11 batches):
+        // AND over a provably-disjoint pair = vacuously-empty density (σ(p)=p+1<2p);
+        // OR over the same pair = exact component sum (zero overlap, no interaction).
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isPrime AND isAbundant", "fraction satisfying predicate")).isTrue();
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isAbundant OR isPrime", "fraction satisfying predicate")).isTrue();
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isPrime AND isPerfect", "union density")).isTrue();
+        // Component predicates alone stay measurable (Deléglise density, prime density…).
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isAbundant", "fraction satisfying predicate")).isFalse();
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isPrime", "density")).isFalse();
+        // Non-disjoint composites stay (isHappy interactions are a different gate's business).
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isPrime AND isHappy", "fraction satisfying predicate")).isFalse();
+        // Non-density metrics stay even over disjoint pairs.
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(
+                "isPrime AND isAbundant", "mean_of:collatzSteps")).isFalse();
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic(null, "density")).isFalse();
+        assertThat(WellPosednessGate.isDisjointCompositeDensityTopic("isPrime AND isAbundant", null))
+                .isFalse();
+    }
 }

@@ -1142,6 +1142,18 @@ public class ResearchCycleService {
                     d.predicate(), d.metric());
             return null;   // skip this cycle; the author re-draws next tick
         }
+        // 2026-07-04 (run-19 rec 2) — DETERMINISTIC disjoint-composite-density prune: an AND density
+        // over a provably-disjoint pair is vacuously 0 (a theorem the papers keep re-proving) and an
+        // OR density is the exact component sum (zero overlap, no interaction to test). 15 papers
+        // across 11 batches, novelty 0.07–0.21 every time. Same flag as the density prunes above.
+        if (prunePosednessRepresentationDependent
+                && WellPosednessGate.isDisjointCompositeDensityTopic(d.predicate(), d.metric())) {
+            log.info("research: PRUNED disjoint-composite density topic (deterministic — conjunction "
+                            + "is vacuously empty / disjunction is the exact component sum) — "
+                            + "predicate='{}' metric='{}'",
+                    d.predicate(), d.metric());
+            return null;   // skip this cycle; the author re-draws next tick
+        }
         try {
             String topic = "Quantity/predicate: " + d.predicate() + "; metric: " + d.metric()
                     + (d.hypothesis() != null && !d.hypothesis().isBlank()

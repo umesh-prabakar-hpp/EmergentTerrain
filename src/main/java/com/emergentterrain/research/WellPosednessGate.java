@@ -77,6 +77,46 @@ public class WellPosednessGate {
         return baseDependent && density;
     }
 
+    /**
+     * Provably-disjoint predicate pairs (σ(p) = p+1 &lt; 2p bars every prime from abundance and
+     * perfection). Over such a pair, a conjunction density is vacuously 0 — a theorem, not a
+     * measurement — and a disjunction density is EXACTLY the sum of the component densities, so
+     * neither composite carries content beyond its parts. Lowercased tokens.
+     */
+    public static final java.util.Set<java.util.Set<String>> DISJOINT_PREDICATE_PAIRS =
+            java.util.Set.of(
+                    java.util.Set.of("isprime", "isabundant"),
+                    java.util.Set.of("isprime", "isperfect"));
+
+    /**
+     * 2026-07-04 (run-19 rec 2; the family's 15th paper across 11 batches) — DETERMINISTIC
+     * disjoint-composite-density detector: true iff the metric is a density/fraction AND the
+     * predicate is an AND/OR composite over a provably-disjoint pair
+     * ({@link #DISJOINT_PREDICATE_PAIRS}). The AND density is a definitional impossibility
+     * (papers keep re-proving σ(p) &lt; 2p from scratch); the OR density is inclusion–exclusion
+     * with zero overlap — a census of two independently-understood sets. Component predicates
+     * used ALONE (or with a non-density metric) are untouched. Null-safe.
+     */
+    public static boolean isDisjointCompositeDensityTopic(String predicate, String metric) {
+        if (predicate == null || metric == null) {
+            return false;
+        }
+        String p = predicate.toLowerCase(java.util.Locale.ROOT);
+        if (!p.contains(" and ") && !p.contains(" or ")) {
+            return false;
+        }
+        String m = metric.toLowerCase(java.util.Locale.ROOT);
+        if (!m.contains("fraction") && !m.contains("density")) {
+            return false;
+        }
+        for (java.util.Set<String> pair : DISJOINT_PREDICATE_PAIRS) {
+            if (pair.stream().allMatch(p::contains)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static final String GATE_PROMPT = """
             You are a well-posedness gate for an automated research pipeline. You will be given a candidate
             conjecture or measured quantity. Decide whether it is worth admitting as a research question.
