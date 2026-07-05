@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: DESIGN DOC (2026-07-05). Nothing below is built.** Successor program to the closed
+**Status: DESIGN DOC (2026-07-05); T1 + D1 SHIPPED same day (flag-ON, live-run acceptance pending).** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -60,7 +60,7 @@ be needed to". Harvest them at publish time — a `PaperOpenQuestion` entity per
 `(paperId, lhs-family, question text, kind: RATE|BINDING|SENSITIVITY|SCOPE, params)` — extracted
 by a cheap LLM pass over the Conclusion/Adversarial sections (fast-audit pool, same pattern as
 `runQualityAudit`). Persist outside the room (survives resets, like the conjecture pool).
-*Flag:* `app.research.question-harvest.enabled`. *Acceptance:* after one session the ledger
+*Flag:* `app.research.question-harvest.enabled`. **SHIPPED 2026-07-05 (OpenQuestionHarvestService + paper_open_questions ledger; ON).** *Acceptance:* after one session the ledger
 contains ≥1 harvested question per substantive paper, with the k(x)-drift class correctly typed
 RATE. *Effort:* S.
 
@@ -100,7 +100,7 @@ a HELD bound with rel-slack < 0.01 lacking its REFUTED pair, or a REFUTED lackin
 (the two halves of the binding protocol) — grant +2 rounds, once, with the extension reason
 injected ("you are 1–2 calls from a demonstrated binding regime; complete the pair"). Detection
 is string-free: inspect the `VerifyResult`s already accumulated in the professor loop.
-*Flag:* `professor.extra-rounds-on-binding.enabled`, cap `+2`, once per paper.
+*Flag:* `professor.extra-rounds-on-binding.enabled`, cap `+2`, once per paper. **SHIPPED 2026-07-05 (BindingExtensionPolicy + mutable round cap in GenericOpenAICompatPool; ON).**
 *Acceptance:* a paper that would have ended near-binding completes the pair in the same run
 (P-788's exact shape); median rounds/paper rises by <1 (the extension is rare, not a budget
 creep). *Effort:* S.
