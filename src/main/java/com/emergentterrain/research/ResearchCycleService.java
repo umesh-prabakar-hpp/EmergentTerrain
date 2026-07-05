@@ -1012,14 +1012,19 @@ public class ResearchCycleService {
         // EXCLUDED — its bound (e.g. max_prime_gap ≤ k·log_sq) IS the measurement; the growth-anchor tighten
         // pass legitimately tests/tightens it via verify_conjecture, so it keeps the manual-ladder note and
         // NO ignore-seed instruction (which would break that working pass).
+        // 2026-07-05 (run-23 rec 2) — a registered second-order directive supersedes the default
+        // "measure the limit" claim: the constant is already verified, so the deficit/rate question
+        // is the load-bearing one. Appended LAST so it wins recency over the generic framing.
+        String secondOrderNote = spec.secondOrder() == null || spec.secondOrder().isBlank()
+                ? "" : " " + spec.secondOrder();
         if (!autoLaddered) {
-            return base + ladderNote;
+            return base + ladderNote + secondOrderNote;
         }
         String ignoreSeedNote = String.format(
                 " The miner seeded a placeholder bound `%s ≤ …` only to REACH this topic — IGNORE it: do "
                 + "NOT spend calls on verify_conjecture testing that inequality. The cross-scale measurement "
                 + "above (the auto scale-ladder) is the ONLY load-bearing claim of this paper.", lhs);
-        return base + ignoreSeedNote;
+        return base + ignoreSeedNote + secondOrderNote;
     }
 
     private static String synthesizeConjectureFindings(

@@ -118,6 +118,26 @@ class TwoTermFramingTest {
     }
 
     @Test
+    void secondOrderDirective_supersedesConstantRemeasurement_twinVs() {
+        // 2026-07-05 (run-23 rec 2): the 2C₂ constant is verified; the registered second-order
+        // directive must steer the hypothesis to the deficit-rate question — and must appear
+        // AFTER the generic framing so it wins recency.
+        Conjecture c = new Conjecture("math", "twin_vs_prime_sq", "abundant_minus_deficient",
+                -2.0, 0.3462);
+        String hyp = ResearchCycleService.synthesizeConjectureHypothesis(c, true);
+        assertThat(hyp)
+                .contains("SECOND-ORDER TARGET")
+                .contains("deficit")
+                .contains("c/ln(x)");
+        assertThat(hyp.indexOf("SECOND-ORDER TARGET"))
+                .isGreaterThan(hyp.indexOf("verify_constant"));
+        // Objects without a registered directive are unchanged.
+        Conjecture plain = new Conjecture("math", "omega_Omega_gap", "log_window_start", 2.0, -5.7);
+        assertThat(ResearchCycleService.synthesizeConjectureHypothesis(plain, true))
+                .doesNotContain("SECOND-ORDER TARGET");
+    }
+
+    @Test
     void measurementSeeds_carryNoAffineBound_p773() {
         // 2026-07-05 (P-b72c-77627773): the bound-flavoured findings/conclusion seeds leaked the
         // row's placeholder intercept ("dirichlet_error ≤ 0.0016", ~1000× off the quantity's

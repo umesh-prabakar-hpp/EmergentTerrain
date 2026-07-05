@@ -60,6 +60,54 @@ public final class MathInvariants {
 
     public static final Map<String, Function<Map<String, Double>, Double>> DERIVED = derivedMap();
 
+    /**
+     * 2026-07-05 (run-23 rec 1, P-b72c-77627786) — exact instrument definitions, exposed in-band.
+     * P-786 hypothesized the excess baseline subtracts ln(window_start) rather than
+     * ln(window_center) — a falsifiable INSTRUMENT claim the paper could not settle because no
+     * tool states the formulas. This registry is documentation only (the computations above and
+     * their Julia mirrors are the source of truth); MathToolSuite appends the matching entry to
+     * verify_* outputs so instrument hypotheses resolve inside the trace, not in post-hoc review.
+     * Wording pins exactly the ambiguities such hypotheses hinge on: log BASE, center-vs-start
+     * baselines, and per-window vs cumulative scope.
+     */
+    private static final Map<String, String> DEFINITIONS = Map.ofEntries(
+            // window scalars (computed over the integers n in [window_start, window_start+window_size))
+            Map.entry("prime_density", "fraction of n in the window that are prime"),
+            Map.entry("twin_prime_density", "fraction of n in the window with n and n+2 both prime"),
+            Map.entry("abundant_density", "fraction of n in the window with sigma(n) > 2n"),
+            Map.entry("deficient_density", "fraction of n in the window with sigma(n) < 2n"),
+            Map.entry("happy_density", "fraction of n in the window that are base-10 happy numbers"),
+            Map.entry("squarefree_density", "fraction of n in the window with Omega(n) = omega(n), i.e. squarefree (limit 6/pi^2 ~ 0.60793)"),
+            Map.entry("richly_divisible_density", "fraction of n in the window with d(n) > omega(n)^2"),
+            Map.entry("omega_excess_density", "fraction of n in the window with Omega(n) - omega(n) >= 2"),
+            Map.entry("mean_omega", "mean over the window of omega(n), the number of DISTINCT prime factors"),
+            Map.entry("mean_Omega", "mean over the window of Omega(n), prime factors WITH multiplicity"),
+            Map.entry("mean_divisor_count", "mean over the window of d(n), the number of divisors"),
+            Map.entry("max_divisor_count", "maximum of d(n) over the window"),
+            Map.entry("max_prime_gap", "largest gap between consecutive primes inside the window"),
+            Map.entry("mertens_delta", "M(window_end) - M(window_start): the window's Mobius sum"),
+            Map.entry("omega_ek_ratio", "Erdos-Kac normalized variance Var(Omega)/ln ln(center) over the window (limit 1)"),
+            Map.entry("dirichlet_error", "Dirichlet divisor error Delta(x)/x^(1/4) at window points — Delta(x) = D(x) - x ln x - (2*gamma - 1)x, already x^(1/4)-normalised"),
+            // derived scalars (exact formulas of the entries above; see derivedMap())
+            Map.entry("abundant_minus_deficient", "abundant_density - deficient_density"),
+            Map.entry("omega_Omega_gap", "mean_Omega - mean_omega (limit sum over primes of 1/(p(p-1)) ~ 0.77316)"),
+            Map.entry("mertens_per_sqrt_W", "mertens_delta / sqrt(window_size)"),
+            Map.entry("cramer_gap_ratio", "max_prime_gap / ln^2(window_center) — NATURAL log of the window CENTER (start + size/2)"),
+            Map.entry("twin_vs_prime_sq", "twin_prime_density / prime_density^2 (Hardy-Littlewood limit 2*C2 ~ 1.32032)"),
+            Map.entry("mean_divisor_excess", "mean_divisor_count - ln(window_center) — NATURAL log of the window CENTER (start + size/2), NOT window_start"),
+            Map.entry("log_window_size", "log10(window_size) — BASE-10"),
+            Map.entry("sqrt_window_size", "sqrt(window_size)"),
+            Map.entry("log_window_start", "log10(window_start) — BASE-10 (divide k by ln(10) for the natural-log slope)"),
+            Map.entry("sqrt_window_start", "sqrt(window_start)"),
+            Map.entry("log_sq_window_start", "ln^2(window_center) — NATURAL log of the window CENTER (the Cramer scale)"),
+            Map.entry("wigert_bound", "exp(ln(center)/ln ln(center)) at the window center (unit-coefficient Wigert scale)"),
+            Map.entry("log_log_window_start", "ln ln(window_center) — NATURAL logs of the window CENTER (the Hardy-Ramanujan scale)"));
+
+    /** The exact instrument definition for a scalar, or null when unregistered. */
+    public static String definitionOf(String name) {
+        return name == null ? null : DEFINITIONS.get(name);
+    }
+
     private static Map<String, Function<Map<String, Double>, Double>> derivedMap() {
         Map<String, Function<Map<String, Double>, Double>> m = new LinkedHashMap<>();
         m.put("abundant_minus_deficient",

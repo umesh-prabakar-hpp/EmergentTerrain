@@ -300,6 +300,28 @@ class MathToolSuiteVerifyConjectureTest {
         return verifier;
     }
 
+    @org.junit.jupiter.api.Test
+    void scalarDefinitions_appendedForKnownNames_p786() throws Exception {
+        // 2026-07-05 (run-23 rec 1, P-b72c-77627786): the exact instrument formula rides along in
+        // the tool result so instrument hypotheses (e.g. "the excess baseline uses window_start")
+        // resolve inside the trace. Center-vs-start is the pinned ambiguity.
+        ObjectMapper om = new ObjectMapper();
+        JsonNode args = om.readTree(
+                "{\"lhs\":\"mean_divisor_excess\",\"rhs\":\"twin_vs_prime_sq\"}");
+        String out = MathToolSuite.appendScalarDefinitions("verify_constant: …", args);
+        org.assertj.core.api.Assertions.assertThat(out)
+                .contains("definitions (exact instrument formulas):")
+                .contains("mean_divisor_excess = mean_divisor_count - ln(window_center)")
+                .contains("NOT window_start")
+                .contains("twin_vs_prime_sq = twin_prime_density / prime_density^2");
+        // Unknown names / absent slots: result unchanged.
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.appendScalarDefinitions("r", om.readTree("{\"lhs\":\"nope\"}")))
+                .isEqualTo("r");
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.appendScalarDefinitions("r", om.readTree("{}"))).isEqualTo("r");
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

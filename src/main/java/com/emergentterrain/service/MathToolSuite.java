@@ -1176,10 +1176,10 @@ public class MathToolSuite {
                     case "run_sandboxed_code" -> runSandboxedCode(draft, args);
                     case "run_symbolic"       -> runSymbolic(args);
                     case "run_gpu_eval"       -> runGpuEval(args);
-                    case "verify_conjecture"  -> verifyConjecture(args);
-                    case "verify_constant"    -> verifyConstant(args);
-                    case "verify_oscillation" -> verifyOscillation(args);
-                    case "verify_growth"      -> verifyGrowth(args);
+                    case "verify_conjecture"  -> appendScalarDefinitions(verifyConjecture(args), args);
+                    case "verify_constant"    -> appendScalarDefinitions(verifyConstant(args), args);
+                    case "verify_oscillation" -> appendScalarDefinitions(verifyOscillation(args), args);
+                    case "verify_growth"      -> appendScalarDefinitions(verifyGrowth(args), args);
                     case "discover_mertens_value" -> discoverMertensValue(args);
                     case "discover_divisor_value" -> discoverDivisorValue(args);
                     case "discover_prime_value" -> discoverPrimeValue(args);
@@ -1969,6 +1969,33 @@ public class MathToolSuite {
      * routed the expression to a function that has no return value (e.g.,
      * an assignment or a side-effect-only call), not a real evaluation.
      */
+    /**
+     * 2026-07-05 (run-23 rec 1, P-b72c-77627786) — append the exact instrument definition of every
+     * scalar named in a verify_* call to its result, so instrument hypotheses (P-786 conjectured
+     * the excess baseline uses ln(window_start); it uses ln(center)) resolve inside the trace
+     * instead of in post-hoc review. Documentation-only text from
+     * {@link com.emergentterrain.research.conjecture.MathInvariants#definitionOf}; appended after
+     * the verdict block so no downstream text-parser fragment changes.
+     */
+    static String appendScalarDefinitions(String result, JsonNode args) {
+        if (result == null || args == null) {
+            return result;
+        }
+        StringBuilder defs = new StringBuilder();
+        for (String slot : new String[]{"lhs", "rhs", "rhs2"}) {
+            String name = args.path(slot).asText("");
+            if (name.isBlank()) {
+                continue;
+            }
+            String def = com.emergentterrain.research.conjecture.MathInvariants.definitionOf(name);
+            if (def != null && !defs.toString().contains(name + " = ")) {
+                defs.append(defs.isEmpty() ? "" : "; ").append(name).append(" = ").append(def);
+            }
+        }
+        return defs.isEmpty() ? result
+                : result + "\ndefinitions (exact instrument formulas): " + defs;
+    }
+
     /**
      * 2026-07-05 (P-b72c-77627777) — cold-start transport retry. The run started 3 minutes after
      * the sidecar; the first eval hit the client timeout while the sidecar was still JIT-warming,

@@ -115,7 +115,14 @@ public final class ScalarOpenness {
      * framing never asserts an unverified value.
      */
     public record MeasurementSpec(MeasurementFrame frame, String growthScale, Double target,
-                                  Convergence convergence) {}
+                                  Convergence convergence, String secondOrder) {
+
+        /** Compat constructor — no second-order directive (the common case). */
+        public MeasurementSpec(MeasurementFrame frame, String growthScale, Double target,
+                               Convergence convergence) {
+            this(frame, growthScale, target, convergence, null);
+        }
+    }
 
     public static final Map<String, MeasurementSpec> MEASUREMENT_FRAMES = Map.ofEntries(
             // dirichlet O(1) envelope — needs the widest span to test boundedness at higher x → SLOW.
@@ -129,7 +136,17 @@ public final class ScalarOpenness {
             // twin_vs_prime_sq → 2C₂ (Hardy–Littlewood twin constant): a clean window-independent limit,
             // glacial (~1/ln x) → SLOW. Registered 2026-06-17 (Stage 1f) — was demoted by title-drift
             // manifest_miss (run-13 P-710, 0.697) as an UNregistered bound; now framed as a measurement.
-            Map.entry("twin_vs_prime_sq",    new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.32032, Convergence.SLOW)),
+            // 2026-07-05 (run-23 rec 2) — SECOND-ORDER re-target: the constant itself is verified
+            // (P-b72c-77627776 rel-dev 0.018; P-785 repeated it at novelty 0.44 — the family's 4th
+            // re-measurement). The open question is the CONVERGENCE RATE, so the directive now
+            // steers to the deficit trajectory instead of a fifth constant re-measurement.
+            Map.entry("twin_vs_prime_sq",    new MeasurementSpec(MeasurementFrame.CONSTANT, null, 1.32032, Convergence.SLOW,
+                    "SECOND-ORDER TARGET — the limit 2*C2 ≈ 1.32032 is already VERIFIED in this room "
+                    + "(rel-dev 0.018); re-measuring it is a repeat, not a result. The open question is "
+                    + "the RATE: measure the deficit (1.32032 − twin_vs_prime_sq) at each ladder scale "
+                    + "and report how it shrinks — does deficit(x) ≈ c/ln(x) (the Hardy–Littlewood "
+                    + "secondary-term prediction), and what is the fitted c? The deficit trajectory and "
+                    + "its fitted rate are the load-bearing claim; the constant itself is background.")),
             // extremal (max) statistics — noisy and slow → SLOW.
             Map.entry("max_divisor_count",   new MeasurementSpec(MeasurementFrame.GROWTH, "wigert_bound", null, Convergence.SLOW)),
             Map.entry("max_prime_gap",       new MeasurementSpec(MeasurementFrame.GROWTH, "log_sq_window_start", null, Convergence.SLOW)),
