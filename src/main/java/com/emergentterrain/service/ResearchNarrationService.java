@@ -958,6 +958,16 @@ public class ResearchNarrationService {
     private boolean revisionTraceGroundingEnabled;
 
     /**
+     * 2026-07-05 — refuted-prereg pivot framing (see {@link #PIVOT_FRAMING_RULE}). Appended to
+     * every revision prompt so a paper whose prereg was refuted but whose trace established a
+     * positive alternative leads with the finding instead of stamping null-result
+     * (P-b72c-77627774: both-records paper demoted solely for that framing). Default off.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.pivot-framing.enabled:false}")
+    private boolean pivotFramingEnabled;
+
+    /**
      * rec #4 follow-up (2026-05-29) — first-pass metric-fabrication guard. The
      * second hallucination class (distinct from the phantom-{@code [call_N]}
      * citations the trace-grounding fix targets): the first-pass narrator runs
@@ -2816,11 +2826,13 @@ public class ResearchNarrationService {
                     appendDefinitionGrounding(
                             appendExecutedUnion(
                                     appendExecutedScopeGrounding(
-                                            appendNoveltyPreservation(
-                                                    buildRevisionPromptFromSynthesis(
-                                                            promptRegistry, draft, firstPass, professorSynthesis,
-                                                            literatureContext),
-                                                    revisionNoveltyPreservationEnabled),
+                                            appendPivotFraming(
+                                                    appendNoveltyPreservation(
+                                                            buildRevisionPromptFromSynthesis(
+                                                                    promptRegistry, draft, firstPass, professorSynthesis,
+                                                                    literatureContext),
+                                                            revisionNoveltyPreservationEnabled),
+                                                    pivotFramingEnabled),
                                             executedScopeGroundingEnabled),
                                     executedScopeGroundingEnabled, profTrace),
                             definitionGroundingEnabled),
@@ -3985,9 +3997,11 @@ public class ResearchNarrationService {
             StringBuilder revised = new StringBuilder();
             final String profExp = professorExperiment;
             withNarrationSchema(() -> router.streamPrimary(
-                    appendNoveltyPreservation(
-                            buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
-                            revisionNoveltyPreservationEnabled),
+                    appendPivotFraming(
+                            appendNoveltyPreservation(
+                                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                                    revisionNoveltyPreservationEnabled),
+                            pivotFramingEnabled),
                     revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -4062,9 +4076,11 @@ public class ResearchNarrationService {
             StringBuilder revised = new StringBuilder();
             final String profExp = professorExperiment;
             withNarrationSchema(() -> router.streamFast(
-                    appendNoveltyPreservation(
-                            buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
-                            revisionNoveltyPreservationEnabled),
+                    appendPivotFraming(
+                            appendNoveltyPreservation(
+                                    buildRevisionPrompt(promptRegistry, draft, firstPass, critique.weaknesses(), profExp),
+                                    revisionNoveltyPreservationEnabled),
+                            pivotFramingEnabled),
                     revised::append));
             NarrationResult revParsed = parseNarrationResult(revised.toString());
             if (revParsed.hypothesis() != null && revParsed.findings() != null && revParsed.conclusion() != null) {
@@ -4880,6 +4896,29 @@ public class ResearchNarrationService {
      */
     static String appendNoveltyPreservation(String prompt, boolean enabled) {
         return enabled ? prompt + NOVELTY_PRESERVATION_RULE : prompt;
+    }
+
+    /**
+     * 2026-07-05 (P-b72c-77627774, peer 0.833 / novelty 0.82, demoted direction_inversion) — the
+     * reviser believes "preregistered claim refuted → null result" is the honest framing even when
+     * the trace established a positive alternative (there, an essentially-binding growth bound).
+     * Detection already exists twice (the self-check tool AND the publish gate); this rule fixes
+     * the FRAMING so the detectors stop firing on record-grade content.
+     */
+    static final String PIVOT_FRAMING_RULE = """
+
+
+            DIRECTION OF FINDING — PIVOT RULE: if the PREREGISTERED claim was refuted but the \
+            trace ESTABLISHED a positive alternative (a bound that held, a constant that was \
+            measured, a relation that was verified), the paper is a PIVOT with a positive \
+            finding — NOT a null result. Lead the Conclusion with the established finding and \
+            report the refutation as the motivation for the pivot. Stamp a null/negative \
+            conclusion ONLY when the trace establishes no positive relation at all; framing a \
+            positive trace as null is a direction-of-finding contradiction and demotes the paper.""";
+
+    /** Append {@link #PIVOT_FRAMING_RULE} iff enabled; mirrors {@link #appendNoveltyPreservation}. */
+    static String appendPivotFraming(String prompt, boolean enabled) {
+        return enabled ? prompt + PIVOT_FRAMING_RULE : prompt;
     }
 
     /**

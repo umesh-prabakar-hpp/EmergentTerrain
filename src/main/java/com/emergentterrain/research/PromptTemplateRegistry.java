@@ -946,6 +946,12 @@ public class PromptTemplateRegistry {
                   1. List specific textual weaknesses (overclaiming, missing error bounds,
                      inconsistency with pre-registration, unsupported leaps). Omit if none.
                   2. Summarise what your experiments revealed and how they bear on the claims.
+                  3. BINDING REGIME: if a one-sided bound you tested HOLDS, do not stop there —
+                     a held bound is only a loose envelope until you locate where it BINDS.
+                     Spend one further call tightening the constant (use the tool's own
+                     "tightest" suggestion when it gives one) until a slightly tighter version
+                     is REFUTED, then report the pair — tightest hold + first refute — as the
+                     demonstrated binding regime. A bound never shown to bind is not a result.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
@@ -1003,6 +1009,12 @@ public class PromptTemplateRegistry {
                   2. Summarise what your experiments revealed and how they bear on the claims.
                   3. If prior literature was supplied above, note whether the paper's claims align
                      with or extend the cited closed-forms — flag any contradiction.
+                  4. BINDING REGIME: if a one-sided bound you tested HOLDS, do not stop there —
+                     a held bound is only a loose envelope until you locate where it BINDS.
+                     Spend one further call tightening the constant (use the tool's own
+                     "tightest" suggestion when it gives one) until a slightly tighter version
+                     is REFUTED, then report the pair — tightest hold + first refute — as the
+                     demonstrated binding regime. A bound never shown to bind is not a result.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.

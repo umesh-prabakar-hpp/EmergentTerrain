@@ -116,4 +116,27 @@ class TwoTermFramingTest {
                 .contains("scale_ladder:true").contains("never hits the WORK cap")
                 .contains("verify_conjecture");
     }
+
+    @Test
+    void measurementSeeds_carryNoAffineBound_p773() {
+        // 2026-07-05 (P-b72c-77627773): the bound-flavoured findings/conclusion seeds leaked the
+        // row's placeholder intercept ("dirichlet_error ≤ 0.0016", ~1000× off the quantity's
+        // scale) into the prereg and the professor spent a call trivially "refuting" it. Under a
+        // measurement frame the seeds must carry NO bound and must not prompt verify_conjecture.
+        Conjecture c = new Conjecture("math", "dirichlet_error", "_oscillation_", 0.0, 0.00157);
+        var spec = com.emergentterrain.research.conjecture.ScalarOpenness
+                .measurementFrame("dirichlet_error");
+        assertThat(spec).isNotNull();
+
+        String findings = ResearchCycleService.synthesizeMeasurementFindings(c, spec);
+        assertThat(findings)
+                .contains("dirichlet_error").contains("placeholder")
+                .doesNotContain("0.0016").doesNotContain("≤")
+                .doesNotContain("verify_conjecture");
+
+        String conclusion = ResearchCycleService.synthesizeMeasurementConclusion(c);
+        assertThat(conclusion)
+                .contains("No affine bound claim is preregistered")
+                .doesNotContain("0.0016").doesNotContain("verify_conjecture");
+    }
 }

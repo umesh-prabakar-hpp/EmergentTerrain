@@ -724,11 +724,20 @@ public class ResearchCycleService {
         String hypothesis = frontier == null
                 ? synthesizeConjectureHypothesis(conjecture, measurementFrameDefault)
                 : synthesizeFrontierHypothesis(conjecture, frontier);
+        // 2026-07-05 (P-b72c-77627773) — under the measurement frame, the findings/conclusion
+        // seeds must not carry the row's affine bound either: the seeded "dirichlet_error ≤
+        // 0.0016" leaked through the FINDINGS seed and the professor spent a call "refuting" an
+        // intercept that was a row artifact ~1000× off the quantity's actual scale, then the
+        // trivial refutation polluted the paper's framing. Measurement seeds get measurement text.
         String findings = frontier == null
-                ? synthesizeConjectureFindings(conjecture)
+                ? (measurementSpec != null
+                        ? synthesizeMeasurementFindings(conjecture, measurementSpec)
+                        : synthesizeConjectureFindings(conjecture))
                 : synthesizeFrontierFindings(conjecture, frontier);
         String conclusion = frontier == null
-                ? synthesizeConjectureConclusion(conjecture)
+                ? (measurementSpec != null
+                        ? synthesizeMeasurementConclusion(conjecture)
+                        : synthesizeConjectureConclusion(conjecture))
                 : synthesizeFrontierConclusion(conjecture, frontier);
 
         // Map p99Slack into a peer-equivalent score: tighter (more
@@ -1035,6 +1044,36 @@ public class ResearchCycleService {
                         "across %d runs). Held-out verification via verify_conjecture is recommended " +
                         "before promoting this from CONJECTURE to EMPIRICAL_RESULT.",
                 c.p99Slack(), c.confirmedRuns());
+    }
+
+    /**
+     * 2026-07-05 (P-b72c-77627773) — measurement-frame findings seed. The bound-flavoured seed
+     * ("Mining trace for lhs ≤ …; verify_conjecture may be invoked…") anchored the professor to
+     * bound-testing a placeholder row whose intercept is a store artifact, not a calibrated
+     * claim. Under the measurement frame the seed names the object and the measuring tool only —
+     * no affine bound, no verify_conjecture prompt.
+     */
+    static String synthesizeMeasurementFindings(
+            com.emergentterrain.research.conjecture.Conjecture c,
+            com.emergentterrain.research.conjecture.ScalarOpenness.MeasurementSpec spec) {
+        return String.format(
+                "Measurement seed for %s (registered %s object). Any affine bound stored on the "
+                        + "miner's row for this object is a placeholder artifact of the store, NOT a "
+                        + "calibrated preregistered claim — its intercept is not scale-informed, so do "
+                        + "not spend tool calls refuting or tightening it. The load-bearing "
+                        + "investigation is the measurement itself, via the matching verify tool "
+                        + "across a geometric scale ladder.",
+                c.lhs(), spec.frame());
+    }
+
+    /** 2026-07-05 — measurement-frame conclusion seed (see synthesizeMeasurementFindings). */
+    static String synthesizeMeasurementConclusion(
+            com.emergentterrain.research.conjecture.Conjecture c) {
+        return String.format(
+                "No affine bound claim is preregistered for %s. The cross-scale measurement "
+                        + "trajectory (and, where registered, the distance to the conjectured target) "
+                        + "is the result.",
+                c.lhs());
     }
 
     // ---- Path B: frontier-framed conjecture investigation ----

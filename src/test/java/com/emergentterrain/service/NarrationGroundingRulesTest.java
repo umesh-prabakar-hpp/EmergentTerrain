@@ -104,4 +104,15 @@ class NarrationGroundingRulesTest {
                         "ok", 0, "c1"))))
                 .doesNotContain("\":");
     }
+
+    @Test
+    void pivotFramingRule_appendedIffEnabled() {
+        // 2026-07-05 (P-b72c-77627774) — refuted prereg + established positive alternative must
+        // be framed as a pivot with a positive finding, not stamped null-result.
+        assertThat(ResearchNarrationService.appendPivotFraming(BASE, true))
+                .startsWith(BASE)
+                .contains("PIVOT RULE")
+                .contains("NOT a null result");
+        assertThat(ResearchNarrationService.appendPivotFraming(BASE, false)).isEqualTo(BASE);
+    }
 }
