@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: DESIGN DOC (2026-07-05); T1 + D1 SHIPPED same day (flag-ON, live-run acceptance pending).** Successor program to the closed
+**Status: DESIGN DOC (2026-07-05); T1 + D1 + T2 + C1 SHIPPED same day (flag-ON, live-run acceptance pending). L1 blocked on a dependency decision (PDF/text extraction — no PDFBox/Tika on the classpath).** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -72,7 +72,7 @@ unanswered ledger question for the least-recently-served family, rendered as a d
 `MeasurementSpec.secondOrder` is today (that mechanism is the hand-built prototype of this lane).
 Rank v1 = recency + family staleness; no ML. Mark answered when a later paper's trace covers the
 question's params (same coverage predicate family as `ScoreCalibration.hypothesisLhsUncovered`).
-*Flag:* `question-serve.enabled` + `paperShare`-style probability. *Acceptance:* one run serves a
+*Flag:* `question-serve.enabled`. **SHIPPED 2026-07-05 as ride-along v1** (served family's newest unanswered question appended to the hypothesis, served-once marking; explicit selection source deferred until ride-along proves too slow). *Acceptance:* one run serves a
 question harvested from a prior run's paper — unprompted by the operator — and the resulting
 paper answers or narrows it. *Effort:* M. *Depends:* T1.
 
@@ -171,8 +171,7 @@ A room-independent store of VERIFIED numerical facts with provenance:
 publish for results that survived the gates (binding pairs, converged constants, ladder
 trajectories). This is the memory the k(x) fit needs: three tight-k values at three scales,
 queryable. Renders into professor context via the existing memory-recall channel
-(phase-31 core loop, SHIPPED+ON — this is its structured sibling). *Flag:*
-`research.results-ledger.enabled`. *Acceptance:* after one session the ledger holds every
+(phase-31 core loop, SHIPPED+ON — this is its structured sibling). *Flag:* `research.results-ledger.enabled`. **SHIPPED 2026-07-05** (deterministic trace extraction at publish: LADDER/CONSTANT/TIGHT_BOUND; served family's 6 newest rendered as DATA on the hypothesis). *Acceptance:* after one session the ledger holds every
 published binding pair and ladder trajectory; a professor recall for a family returns them.
 *Effort:* M.
 
