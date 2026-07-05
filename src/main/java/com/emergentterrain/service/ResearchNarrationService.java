@@ -4914,7 +4914,14 @@ public class ResearchNarrationService {
             finding — NOT a null result. Lead the Conclusion with the established finding and \
             report the refutation as the motivation for the pivot. Stamp a null/negative \
             conclusion ONLY when the trace establishes no positive relation at all; framing a \
-            positive trace as null is a direction-of-finding contradiction and demotes the paper.""";
+            positive trace as null is a direction-of-finding contradiction and demotes the paper. \
+            INCONCLUSIVE MEASUREMENT: when the trace MEASURED a quantity but did not settle it \
+            (large per-window spread, a target neither confirmed nor excluded), the measurement \
+            itself IS the finding — lead the Conclusion with the value, its spread, and exactly \
+            what remains undecided ("measured 0.38 with spread 0.49; the conjectured 0.36 is \
+            neither confirmed nor excluded at this scale"). Do NOT stamp that as a null result: \
+            a null conclusion is reserved for traces that establish nothing, and an unsettled \
+            measurement with concrete numbers establishes the numbers.""";
 
     /** Append {@link #PIVOT_FRAMING_RULE} iff enabled; mirrors {@link #appendNoveltyPreservation}. */
     static String appendPivotFraming(String prompt, boolean enabled) {
