@@ -2373,13 +2373,13 @@ public class MathToolSuite {
             // margin still holds" prompted papers to (correctly) ask whether a tolerance-only hold is a
             // strict inequality. Report the split directly so the narrator doesn't reverse-engineer it:
             // strictly-held windows (margin <= 0) vs held-only-within-tolerance (0 < margin <= 2*TOL).
-            double tolThreshold = 2 * com.emergentterrain.research.conjecture.ConjectureEngine.TOL;
+            double tolThreshold = result.holdThreshold();
             long strictHolds = result.windows().stream().filter(w -> w.margin() <= 0.0).count();
             long toleranceHolds = result.windows().stream()
                     .filter(w -> w.margin() > 0.0 && w.margin() <= tolThreshold).count();
             sb.append(String.format(
                     " %d/%d window(s) hold strictly (margin <= 0); %d hold only within tolerance "
-                            + "(0 < margin <= %.2f).",
+                            + "(0 < margin <= %.5f).",
                     strictHolds, result.windows().size(), toleranceHolds, tolThreshold));
             if (relSlack > MAX_REL_SLACK_SUGGEST && !rhs2.isBlank()) {
                 // G2 two-term tighten pass — the lever is the intercept c (keep k1, k2 from the residual
@@ -2417,7 +2417,7 @@ public class MathToolSuite {
             // magnitude is at or below the HOLD slack (2*TOL=0.04), "holds" is dominated by the tolerance,
             // not by the bound being tight (twin_prime_density ~0.002–0.016 < 0.04). Inform so a vacuous
             // small-magnitude HOLD is not narrated as meaningful evidence. Inform-don't-suppress; OFF→silent.
-            if (verifyInformCaveatsEnabled) {
+            if (verifyInformCaveatsEnabled && !result.relativeVerdict()) {
                 double meanAbsLhs = result.windows().stream()
                         .mapToDouble(w -> Math.abs(w.lhsValue())).average().orElse(0.0);
                 if (meanAbsLhs > 0 && meanAbsLhs <= tolThreshold) {
@@ -2429,6 +2429,21 @@ public class MathToolSuite {
                             meanAbsLhs, tolThreshold));
                 }
             }
+        }
+        // 2026-07-05 (run-21 Rec 1, option b) — relative-tolerance verdict tag. In the
+        // tolerance-dominated regime the absolute 0.04 floor made every verdict vacuous (no
+        // reachable REFUTED); the verifier re-scored holds against a scale-aware threshold, so a
+        // HOLD is meaningful again and a REFUTED is reachable — say so, on BOTH verdicts, and
+        // supersede the old weak-evidence note above.
+        if (result.relativeVerdict()) {
+            sb.append(String.format(
+                    " RELATIVE-TOLERANCE VERDICT: the lhs magnitude is below the absolute HOLD "
+                            + "tolerance (0.04), where the absolute verdict is vacuous, so this "
+                            + "verdict used a scale-aware hold threshold of %.5f "
+                            + "(max(4%% of mean |lhs|, 1/window_size)). A HOLD here is meaningful "
+                            + "and a REFUTED is reachable — tighten the intercept until one "
+                            + "appears to demonstrate the binding regime.",
+                    result.holdThreshold()));
         }
         // 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 2) — constant-framed LHS: a one-sided bound on a
         // quantity whose real content is a converged constant is typically non-informative (it bounds a
@@ -2506,13 +2521,15 @@ public class MathToolSuite {
         // the panel escalates HELD windows to "counterexamples"), draining Honesty/Rigor. Domain-neutral
         // legend; the per-window holds/REFUTED label is authoritative. Uses the live TOL so it never
         // drifts from ConjectureEngine.
-        double holdThreshold = 2 * com.emergentterrain.research.conjecture.ConjectureEngine.TOL;
+        double holdThreshold = result.holdThreshold();
         sb.append(String.format(
-                "%nverdict legend: margin = lhs - bound; a window HOLDS iff margin <= %.2f (2*TOL) — "
-                        + "a small positive margin still holds, only margin > %.2f is REFUTED. The "
+                "%nverdict legend: margin = lhs - bound; a window HOLDS iff margin <= %.5f (%s) — "
+                        + "a small positive margin still holds, only margin > %.5f is REFUTED. The "
                         + "per-window holds/REFUTED label is authoritative; do not re-derive or hedge "
                         + "the sign convention.",
-                holdThreshold, holdThreshold));
+                holdThreshold,
+                result.relativeVerdict() ? "relative-tolerance verdict" : "2*TOL",
+                holdThreshold));
         sb.append("\nPer-window:");
         for (var w : result.windows()) {
             // 2026-05-29 — label the rhs *scalar* explicitly and print the evaluated

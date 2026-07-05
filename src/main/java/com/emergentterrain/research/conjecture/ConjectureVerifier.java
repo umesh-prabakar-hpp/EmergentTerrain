@@ -115,6 +115,61 @@ public class ConjectureVerifier {
     }
 
     /**
+     * 2026-07-05 (run-21 Rec 1, operator decision (b)) — relative-tolerance VERDICT mode for
+     * tolerance-dominated regimes. When the lhs magnitude sits at or below the absolute HOLD
+     * slack (2*TOL = 0.04; twin_prime_density ~0.0065 is 6× below it), the absolute verdict is
+     * VACUOUS: every nearby intercept "holds", a formal REFUTED is unreachable, and the
+     * binding-regime demonstration the publish gate demands is structurally impossible (P-766,
+     * P-779 — the professor bracketed intercepts correctly and still could not terminate).
+     * In that regime — and ONLY that regime — the per-window hold threshold rescales to the
+     * quantity: {@code max((2*TOL)·mean|lhs|, 1/windowSize)} (the same 4% proportion the O(1)
+     * quantities get, floored at the substrate's density granularity so single-count noise can't
+     * flap a verdict). Outside the regime verdicts are bit-identical to before, so cross-run
+     * parity is preserved exactly where the old verdict meant something. Applied as a POST-PASS
+     * over the margins (which are data, not verdict), so it covers the sidecar-batched path with
+     * no Julia mirror change. Flag-gated OFF; the field default keeps non-Spring instances dormant.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.julia.conjecture.relative-tolerance-verdict-enabled:false}")
+    private boolean relativeToleranceVerdictEnabled;
+
+    /** Test seam: enable/disable the relative-tolerance verdict mode without Spring. */
+    public void setRelativeToleranceVerdictEnabled(boolean enabled) {
+        this.relativeToleranceVerdictEnabled = enabled;
+    }
+
+    /**
+     * The relative-verdict post-pass (see {@link #relativeToleranceVerdictEnabled}). Pure: margins
+     * and worst-window identification are untouched (they are measurements); only the hold
+     * threshold — and therefore the per-window {@code holds} flags and the overall verdict — is
+     * recomputed. Returns the input unchanged when the result is not tolerance-dominated.
+     */
+    static VerifyResult applyRelativeToleranceVerdict(VerifyResult r, int windowSize) {
+        if (r == null || r.windows() == null || r.windows().isEmpty()) {
+            return r;
+        }
+        double tolAbs = 2 * ConjectureEngine.TOL;
+        double meanAbsLhs = r.windows().stream()
+                .mapToDouble(w -> Math.abs(w.lhsValue())).average().orElse(0.0);
+        if (meanAbsLhs <= 0 || meanAbsLhs > tolAbs) {
+            return r;   // O(1)-scale quantity — the absolute verdict is meaningful; keep parity
+        }
+        double threshold = Math.max(tolAbs * meanAbsLhs, windowSize > 0 ? 1.0 / windowSize : 0.0);
+        List<WindowReport> rescored = new ArrayList<>(r.windows().size());
+        boolean held = true;
+        for (WindowReport w : r.windows()) {
+            boolean holds = w.margin() <= threshold;
+            if (!holds) {
+                held = false;
+            }
+            rescored.add(new WindowReport(w.windowStart(), w.lhsValue(), w.rhsValue(),
+                    w.rhs2Value(), w.bound(), w.margin(), holds));
+        }
+        return new VerifyResult(r.lhs(), r.rhs(), r.k(), r.c(), r.windowsEvaluated(),
+                held, r.worstMargin(), r.worstWindowStart(), rescored, threshold);
+    }
+
+    /**
      * One window's evaluation: the scalar values, the COMPLETE evaluated bound, and the resulting margin.
      *
      * <p>{@code bound} carries the full right-hand side — {@code k*rhs + k2*rhs2 + c} for a two-term bound,
@@ -157,7 +212,22 @@ public class ConjectureVerifier {
             boolean held,
             double worstMargin,
             long worstWindowStart,
-            List<WindowReport> windows) {}
+            List<WindowReport> windows,
+            double holdThreshold) {
+
+        /** Compat constructor — absolute-tolerance verdict (the pre-relative-mode default). */
+        public VerifyResult(String lhs, String rhs, double k, double c, int windowsEvaluated,
+                            boolean held, double worstMargin, long worstWindowStart,
+                            List<WindowReport> windows) {
+            this(lhs, rhs, k, c, windowsEvaluated, held, worstMargin, worstWindowStart, windows,
+                    2 * ConjectureEngine.TOL);
+        }
+
+        /** True when the verdict used a relative (scale-aware) hold threshold, not the 2*TOL floor. */
+        public boolean relativeVerdict() {
+            return holdThreshold < 2 * ConjectureEngine.TOL;
+        }
+    }
 
     public VerifyResult verify(
             String lhs, String rhs,
@@ -240,7 +310,10 @@ public class ConjectureVerifier {
                 held = false;
             }
         }
-        return new VerifyResult(lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
+        VerifyResult out = new VerifyResult(
+                lhs, rhs, k, c, numWindows, held, worstMargin, worstWindowStart, reports);
+        return relativeToleranceVerdictEnabled
+                ? applyRelativeToleranceVerdict(out, windowSize) : out;
     }
 
     /**
@@ -339,7 +412,11 @@ public class ConjectureVerifier {
             }
         }
 
-        return requested;
+        // Relative-verdict post-pass LAST, over the (possibly probe-merged) window set, so the
+        // sidecar-batched path — whose holds were computed Julia-side with the absolute
+        // tolerance — is re-scored too (margins are data; the verdict is derived here).
+        return relativeToleranceVerdictEnabled
+                ? applyRelativeToleranceVerdict(requested, windowSize) : requested;
     }
 
     /**
