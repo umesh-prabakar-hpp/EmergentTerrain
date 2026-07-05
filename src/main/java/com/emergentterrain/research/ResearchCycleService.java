@@ -52,6 +52,25 @@ public class ResearchCycleService {
     private boolean measurementFrameDefault;
 
     /**
+     * Phase 33 lane T2 (2026-07-05) — serve the ledger's open questions back onto their family's
+     * topics. v1 is RIDE-ALONG: when rotation serves family X, X's top unanswered self-harvested
+     * question is appended to the hypothesis as the preferred load-bearing claim, and marked
+     * answered-by the serving paper (served-once semantics; a coverage-checked "actually
+     * answered" refinement is T2b). An explicit question-driven selection source stays deferred
+     * until ride-along proves too slow. Repos are always-present beans; the flags gate behavior.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.question-serve.enabled:false}")
+    private boolean questionServeEnabled;
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.results-ledger.enabled:false}")
+    private boolean resultsLedgerServeEnabled;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.PaperOpenQuestionRepository openQuestionRepo;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.VerifiedResultRepository verifiedResultRepo;
+
+    /**
      * Surface UniversityService exposes to the cycle. Lets the cycle call back into
      * the orchestrator without taking it as a constructor dependency.
      */
@@ -724,6 +743,10 @@ public class ResearchCycleService {
         String hypothesis = frontier == null
                 ? synthesizeConjectureHypothesis(conjecture, measurementFrameDefault)
                 : synthesizeFrontierHypothesis(conjecture, frontier);
+        // Phase 33 lanes T2 + C1 (2026-07-05) — cross-run context rides on the served topic:
+        // the family's most recent VERIFIED results (data for cross-scale/rate claims) and its
+        // top unanswered self-harvested open question (the preferred load-bearing claim).
+        hypothesis = appendCrossRunContext(hypothesis, conjecture.lhs(), paperId);
         // 2026-07-05 (P-b72c-77627773) — under the measurement frame, the findings/conclusion
         // seeds must not carry the row's affine bound either: the seeded "dirichlet_error ≤
         // 0.0016" leaked through the FINDINGS seed and the professor spent a call "refuting" an
@@ -902,6 +925,67 @@ public class ResearchCycleService {
             case OSCILLATION -> "envelope";
             case GROWTH -> "growth law";
         };
+    }
+
+    /**
+     * Phase 33 lanes T2 + C1 (2026-07-05) — query both cross-run ledgers for the served family
+     * and append what they hold; mark a served question answered-by this paper (served-once,
+     * see the field javadoc). Failure-soft: any repo error returns the hypothesis unchanged.
+     */
+    private String appendCrossRunContext(String hypothesis, String family, String paperId) {
+        try {
+            java.util.List<com.emergentterrain.research.question.VerifiedResult> results =
+                    (resultsLedgerServeEnabled && verifiedResultRepo != null)
+                            ? verifiedResultRepo.findTop6ByFamilyOrderByCreatedAtDesc(family)
+                            : java.util.List.of();
+            com.emergentterrain.research.question.PaperOpenQuestion question = null;
+            if (questionServeEnabled && openQuestionRepo != null) {
+                var open = openQuestionRepo.findByFamilyAndAnsweredAtIsNull(family);
+                question = open.stream()
+                        .max(java.util.Comparator.comparing(
+                                com.emergentterrain.research.question.PaperOpenQuestion::createdAt))
+                        .orElse(null);
+            }
+            String rendered = renderCrossRunBlocks(hypothesis, results, question);
+            if (question != null && !rendered.equals(hypothesis)) {
+                question.markAnswered(paperId, java.time.Instant.now());
+                openQuestionRepo.save(question);
+                log.info("question-serve: family={} question from {} served to {} (kind={})",
+                        family, question.paperId(), paperId, question.kind());
+            }
+            return rendered;
+        } catch (RuntimeException e) {
+            log.warn("cross-run context append failed family={} (topic unaffected): {}",
+                    family, e.getMessage());
+            return hypothesis;
+        }
+    }
+
+    /** Pure formatting for {@link #appendCrossRunContext}; static for tests. */
+    static String renderCrossRunBlocks(
+            String hypothesis,
+            java.util.List<com.emergentterrain.research.question.VerifiedResult> results,
+            com.emergentterrain.research.question.PaperOpenQuestion question) {
+        StringBuilder sb = new StringBuilder(hypothesis == null ? "" : hypothesis);
+        if (results != null && !results.isEmpty()) {
+            sb.append("\n\nPRIOR VERIFIED RESULTS for this family (cross-run ledger, newest "
+                    + "first). Treat these as DATA: cross-scale trends across them — how a tight "
+                    + "constant or a measured value moves with window_start — are legitimate "
+                    + "load-bearing claims for THIS paper, and fitting that trend is often the "
+                    + "strongest available result.");
+            for (var r : results) {
+                sb.append("\n- [").append(r.paperId()).append(", ").append(r.kind()).append("] ")
+                        .append(r.statement());
+            }
+        }
+        if (question != null) {
+            sb.append("\n\nOPEN QUESTION FROM PRIOR WORK (").append(question.kind())
+                    .append(", posed by ").append(question.paperId()).append("): \"")
+                    .append(question.question())
+                    .append("\" — if consistent with the frame above, ANSWERING or NARROWING this "
+                            + "is the preferred load-bearing claim of this paper.");
+        }
+        return sb.toString();
     }
 
     static String synthesizeConjectureHypothesis(

@@ -255,6 +255,10 @@ public class UniversityService {
     /** Phase 33 T1 — open-question harvester; bean exists only when question-harvest.enabled. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.question.OpenQuestionHarvestService questionHarvest;
+
+    /** Phase 33 C1 — verified-results ledger; bean exists only when results-ledger.enabled. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.question.VerifiedResultLedgerService resultsLedger;
     /**
      * 2026-05-21 review §1 rec #6 — flags published prose that mentions a
      * registered topic name OTHER than the paper's declared topic.
@@ -2241,6 +2245,12 @@ public class UniversityService {
         if (questionHarvest != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
             questionHarvest.harvest(draft.paperId(), draft.topicName(),
                     narration.findings(), narration.conclusion());
+        }
+        // Phase 33 lane C (C1, 2026-07-05) — record gate-surviving numerical results (ladders,
+        // converged constants, tight bounds) to the cross-run ledger. Deterministic trace
+        // extraction, failure-soft, REJECTED skipped.
+        if (resultsLedger != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
+            resultsLedger.record(draft.paperId(), draft.topicName(), narration.toolCallTrace());
         }
         // rec #9 gate-attribution — one parseable line naming the gate(s) behind a
         // non-clean terminal status, so a refresh can quantify which of the
