@@ -171,6 +171,22 @@ public class SynthesisPaperService {
         List<SourcePaper> citeable = citeableCorpus();
         List<SynthesisWarrant.Warrant> warrants =
                 SynthesisWarrant.warranted(citeable, minSources);
+        // C2 warrant hint (2026-07-06) — the fit-ready family goes first. max_prime_gap lost
+        // two consecutive warrant races (to max_divisor and cramer) on raw source count while
+        // holding five ledgered binding pairs; source count measures prose volume, but the
+        // synthesis the mandate exists for needs QUANTITATIVE inventory. Stable re-sort by
+        // ledger row count (ties keep the source-count order), only when C2 is on.
+        if (ledgerSynthesisEnabled && verifiedResultRepo != null) {
+            warrants = reorderByLedger(warrants, family -> {
+                try {
+                    return verifiedResultRepo.findTop20ByFamilyOrderByCreatedAtDesc(
+                            com.emergentterrain.research.question.OpenQuestionHarvestService
+                                    .familyOf(family)).size();
+                } catch (RuntimeException e) {
+                    return 0;
+                }
+            });
+        }
         for (SynthesisWarrant.Warrant w : warrants) {
             if (alreadySynthesized(w.family())) continue;
             String lesson = lessonFor(w.family());
@@ -193,6 +209,16 @@ public class SynthesisPaperService {
             return Optional.of(r);
         }
         return Optional.empty();
+    }
+
+    /** C2 warrant hint — stable descending re-sort by ledger inventory. Static for tests. */
+    static List<SynthesisWarrant.Warrant> reorderByLedger(
+            List<SynthesisWarrant.Warrant> warrants,
+            java.util.function.ToIntFunction<String> ledgerRows) {
+        List<SynthesisWarrant.Warrant> sorted = new ArrayList<>(warrants);
+        sorted.sort(java.util.Comparator.comparingInt(
+                (SynthesisWarrant.Warrant w) -> ledgerRows.applyAsInt(w.family())).reversed());
+        return sorted;
     }
 
     /** C2 — the family's ledger block for the composer prompts; "" when flag/repo absent. */

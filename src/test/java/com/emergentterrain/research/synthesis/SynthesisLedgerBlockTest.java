@@ -63,4 +63,27 @@ class SynthesisLedgerBlockTest {
         org.assertj.core.api.Assertions.assertThat(titles.get(0))
                 .isEqualTo("The Wigert anchor: quantitative fit across scales");
     }
+
+    @org.junit.jupiter.api.Test
+    void warrantHint_fitReadyFamilyGoesFirst_stableOnTies() {
+        // max_prime_gap lost two warrant races on raw source count while holding five
+        // ledgered binding pairs — ledger inventory now outranks prose volume.
+        var a = new SynthesisWarrant.Warrant("conjecture/max_divisor_count",
+                java.util.List.of(SOURCES.get(0), SOURCES.get(0), SOURCES.get(0)));
+        var b = new SynthesisWarrant.Warrant("conjecture/max_prime_gap",
+                java.util.List.of(SOURCES.get(0), SOURCES.get(0)));
+        var c = new SynthesisWarrant.Warrant("conjecture/cramer_gap_ratio",
+                java.util.List.of(SOURCES.get(0), SOURCES.get(0)));
+        java.util.Map<String, Integer> rows = java.util.Map.of(
+                "conjecture/max_divisor_count", 2,
+                "conjecture/max_prime_gap", 6,
+                "conjecture/cramer_gap_ratio", 2);
+        var sorted = SynthesisPaperService.reorderByLedger(
+                java.util.List.of(a, b, c), f -> rows.getOrDefault(f, 0));
+        org.assertj.core.api.Assertions.assertThat(sorted.get(0).family())
+                .isEqualTo("conjecture/max_prime_gap");
+        // tie between a and c keeps the incoming (source-count) order: a before c
+        org.assertj.core.api.Assertions.assertThat(sorted.get(1).family())
+                .isEqualTo("conjecture/max_divisor_count");
+    }
 }

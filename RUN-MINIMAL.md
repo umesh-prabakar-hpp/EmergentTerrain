@@ -44,3 +44,9 @@ index at startup when `~/.emergentterrain/corpus-nt/abstracts.jsonl` exists —
 adds ~20–60 s before `Listening on: 127.0.0.1:8089`; wait for it before starting
 the app if you want grounding active from the first paper. No corpus = clean
 fallback, nothing breaks.
+
+```bash
+# optional, post-run, app must be stopped
+OPENALEX_MAILTO=umesh.prabakar@gmail.com ./scripts/backfill-evidence-cores.sh
+```
+
