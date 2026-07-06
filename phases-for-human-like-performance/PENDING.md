@@ -106,5 +106,13 @@ invalid tools JSON; wired-parse guard added; 13 questions SQL-repaired); directi
 limitation vocabulary (P-802; regex narrowed to claim-subject negations); manifest year-FP
 ('1849'/'1906'; context-gated exemption — narrator-arithmetic half kept caught, now closed by R2).
 
-**Next:** run (the C2 synthesis trigger is the k-law shot); L3 after L2's first adoption;
-gated items per phase-33 doc.
+**Run-31 (809–811, 09:15): FIRST 100% ACCEPTANCE BATCH — zero gate/manifest events (the
+narrator-arithmetic class went silent on R2's first exposure, via the omit path); binding pair
+#5 (k=0.3250 @ 4.9e8); two-phase answering verified exact (serve 7 / confirm 3; P-812's dead
+reservation = the sweep's first live test next run); first derive_value call (render watch:
+result_len=14, not in published Methods). NEW FINDING: search_literature call rate decayed to
+0/3 (1/3 in runs 29–30) — L2's real blocker; candidate one-line fix = a GROUND THE CLAIM
+checklist item, which also unblocks the 32.5 novelty lever.**
+
+**Next:** run (the C2 synthesis trigger is the k-law shot — ~4/5 sources); decide the
+search_literature checklist item; L3 after L2's first adoption; gated items per phase-33 doc.
