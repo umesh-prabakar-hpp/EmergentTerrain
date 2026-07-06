@@ -1002,6 +1002,12 @@ public class PromptTemplateRegistry {
                      not a direct tool output — a difference, a ratio, a per-decade rate, an
                      average — must be computed with derive_value in your trace. A hand-computed
                      rate in prose is gated at publish; one derive_value call prevents it.
+                  6. GROUND THE CLAIM: if a search_literature tool is available, call it ONCE
+                     with your main measured claim before writing your synthesis (pass the
+                     claim, not just the topic). EVIDENCE means prior work exists — read it
+                     (rule 4) and position your result; SILENT over a large corpus is itself a
+                     reportable novelty signal. Skipping the search leaves the paper unable to
+                     say either.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
@@ -1074,6 +1080,12 @@ public class PromptTemplateRegistry {
                      not a direct tool output — a difference, a ratio, a per-decade rate, an
                      average — must be computed with derive_value in your trace. A hand-computed
                      rate in prose is gated at publish; one derive_value call prevents it.
+                  7. GROUND THE CLAIM: if a search_literature tool is available, call it ONCE
+                     with your main measured claim before writing your synthesis (pass the
+                     claim, not just the topic). EVIDENCE means prior work exists — read it
+                     (rule 5) and position your result; SILENT over a large corpus is itself a
+                     reportable novelty signal. Skipping the search leaves the paper unable to
+                     say either.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
