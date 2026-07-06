@@ -134,4 +134,27 @@ class WellPosednessGateTest {
         assertThat(WellPosednessGate.isDisjointCompositeDensityTopic("isPrime AND isAbundant", null))
                 .isFalse();
     }
+
+    @org.junit.jupiter.api.Test
+    void knownDensityOf_singlePredicateDensityTopicsOnly_run35() {
+        // Run-35 rec 1: P-825/P-826 re-measured abundant density ~0.2476 (REJECTED + NULL).
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf("isAbundant", "fraction_satisfying"))
+                .isPresent().get().asString().contains("0.24762");
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf("isSquarefree", "window density"))
+                .isPresent().get().asString().contains("6/pi^2");
+        // Non-density metrics pass through untouched.
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf("isAbundant", "mean_gap")).isEmpty();
+        // Composite predicates pass through — non-disjoint composites may be open measurements.
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf("isAbundant \u2227 isSquarefree",
+                        "fraction_satisfying")).isEmpty();
+        // Unknown predicates (e.g. isHappy — density NOT proven) pass through.
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf("isHappy", "fraction_satisfying")).isEmpty();
+        org.assertj.core.api.Assertions.assertThat(
+                WellPosednessGate.knownDensityOf(null, null)).isEmpty();
+    }
 }

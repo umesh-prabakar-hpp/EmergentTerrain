@@ -124,6 +124,11 @@ public class ResearchCycleService {
             "${app.research.wellposedness-gate.prune-representation-dependent:false}")
     private boolean prunePosednessRepresentationDependent;
 
+    /** Run-35 rec 1 — redirect known-constant density topics to second-order framing. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.wellposedness-gate.known-density-redirect:false}")
+    private boolean knownDensityRedirectEnabled;
+
     /** Age (ms) after which an in-flight draft is presumed hung and its slot reclaimed. */
     @org.springframework.beans.factory.annotation.Value("${app.research.stuckDraftTtlMs:600000}")
     private long stuckDraftTtlMs;
@@ -1309,6 +1314,31 @@ public class ResearchCycleService {
                             + "predicate='{}' metric='{}'",
                     d.predicate(), d.metric());
             return null;   // skip this cycle; the author re-draws next tick
+        }
+        // Run-35 rec 1 (user-approved) — known-constant density topics get REDIRECTED to
+        // second-order framing instead of pruned: the topic survives, but the paper's target
+        // becomes the approach RATE to the known constant (the constant itself is a rediscovery;
+        // P-825/P-826). Deterministic, no LLM call; the LLM verdict below is skipped because the
+        // redirect directive already carries the sharper framing.
+        if (knownDensityRedirectEnabled) {
+            java.util.Optional<String> known =
+                    WellPosednessGate.knownDensityOf(d.predicate(), d.metric());
+            if (known.isPresent()) {
+                log.info("research: known-density topic REDIRECTED to second-order — "
+                        + "predicate='{}' known='{}'", d.predicate(), known.get());
+                String directive = "KNOWN-CONSTANT NOTICE: the leading-order density of "
+                        + d.predicate() + " is a KNOWN constant (" + known.get() + ") — "
+                        + "re-measuring it is a rediscovery and scores near-zero novelty. This "
+                        + "paper MUST target second-order behavior instead: subtract the known "
+                        + "constant as the baseline and measure the DEVIATION — its sign, its "
+                        + "size, and the rate at which it shrinks (or fails to) across a scale "
+                        + "ladder. The deviation trajectory is the finding; the constant is not.";
+                String redirected = directive
+                        + (d.hypothesis() != null && !d.hypothesis().isBlank()
+                                ? "\n\n" + d.hypothesis() : "");
+                return new DynamicProblem(d.id(), d.description(), d.rangeStart(), d.rangeEnd(),
+                        d.predicate(), d.metric(), d.baseline(), redirected);
+            }
         }
         try {
             String topic = "Quantity/predicate: " + d.predicate() + "; metric: " + d.metric()

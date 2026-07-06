@@ -66,6 +66,44 @@ public class WellPosednessGate {
      * AND the metric is a density / fraction. A non-density use of a base-dependent predicate (e.g. mean
      * Collatz depth of happy primes) is NOT flagged — only its representation-dependent DENSITY. Null-safe.
      */
+    /**
+     * Run-35 rec 1 (user-approved 2026-07-06) — single-predicate density topics whose asymptotic
+     * density is a KNOWN constant. Re-measuring one is a rediscovery by construction (P-825
+     * REJECTED + P-826 NULL, novelty 0.13/0.20, re-measuring abundant ≈0.2476; run-15 lost 3/6
+     * slots the same way). The redirect keeps the topic but retargets it at SECOND-ORDER
+     * behavior (approach rate to the constant) — inform-don't-suppress, and the same move that
+     * broke the novelty ceiling for mean_divisor_excess/omega_Omega_gap.
+     * Values are what the substrate can verify; wording rides into the seed directive.
+     */
+    static final java.util.Map<String, String> KNOWN_DENSITIES = java.util.Map.of(
+            "isAbundant", "~0.247620 (Kobayashi's bounds)",
+            "isDeficient", "~0.752380 (complement of abundant + perfect)",
+            "isPerfect", "0 (density zero)",
+            "isSquarefree", "6/pi^2 ~ 0.607927",
+            "isPrime", "0 asymptotically (PNT; local density 1/ln x)",
+            "isTwinPrime", "0 asymptotically",
+            "isSquare", "0 (density zero)");
+
+    /**
+     * The known density for a SINGLE-predicate fraction/density topic, empty otherwise.
+     * Composite predicates pass through — a non-disjoint composite's density may still be a
+     * legitimate open measurement.
+     */
+    public static java.util.Optional<String> knownDensityOf(String predicate, String metric) {
+        if (predicate == null || metric == null) {
+            return java.util.Optional.empty();
+        }
+        String m = metric.toLowerCase(java.util.Locale.ROOT);
+        if (!m.contains("fraction") && !m.contains("density")) {
+            return java.util.Optional.empty();
+        }
+        String pTrim = predicate.strip();
+        if (pTrim.matches(".*(\u2227|\u2228|&&|\|\||\bAND\b|\bOR\b|\band\b|\bor\b).*")) {
+            return java.util.Optional.empty();
+        }
+        return java.util.Optional.ofNullable(KNOWN_DENSITIES.get(pTrim));
+    }
+
     public static boolean isBaseDependentDensityTopic(String predicate, String metric) {
         if (predicate == null || metric == null) {
             return false;
