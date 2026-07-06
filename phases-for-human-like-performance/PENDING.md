@@ -132,7 +132,13 @@ verification in a 5-round budget. C2's no-fit branch behaved correctly on cramer
 ledger → refutation review, 5 sections — title-dedupe verified live). max_prime_gap synthesis
 still queued behind the warrant race (watch: family hint if starved again).
 
-**Next:** build **EVIDENCE-driven core backfill** (small: post-run job fetching ar5iv cores for
-the [W…] keys search_literature actually returned — converts the 2% hit rate to near-certainty
-for recurring matches; the LAST tooling gap on the L-lane). Then run — max_prime_gap fit
-synthesis watch; D3 goes live when the fit lands.
+**EVIDENCE-driven core backfill + fit-ready warrant hint SHIPPED 2026-07-06 pm.**
+`EvidenceCoreBackfill` (scripts/backfill-evidence-cores.sh, post-run only, refuses under a live
+app): scans papers+llm-traces for returned [W…] keys → ar5iv cores for exactly those, ledger-
+metered, source=evidence-backfill; first pass launched same session. Warrant hint: with C2 on,
+synthesis warrants stable-re-sort by ledger row count — the fit-ready family (max_prime_gap,
+5 pairs) now wins the race it lost twice on prose volume. RUN docs carry the optional step.
+
+**Next:** run — max_prime_gap fit synthesis should now fire FIRST; acceptance = the fit section
+with ledger constants + a read_reference HIT on a recurring EVIDENCE match (backfilled core).
+D3 goes live when the fit lands.
