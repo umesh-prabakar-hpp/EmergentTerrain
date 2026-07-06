@@ -120,3 +120,10 @@ guard).
 > prompt if 2–3 more EVIDENCE papers skip); R1 zero fires (check raw audit traces for the
 > dimension being considered at all).
 
+> **C2 + read-before-you-cite SHIPPED 2026-07-06.** C2: family ledger (top-20 verified results)
+> rides both synthesis prompts as authoritative-over-prose; ≥3 comparable results ⇒ a mandatory
+> quantitative-fit section (the k(scale, window) vehicle); synthesis output harvested for
+> questions. L2 nudge promoted to professor checklist item ("a citation you never read is a
+> name, not an engagement"). Acceptance: next max_prime_gap synthesis contains the fit with
+> ledger-cited constants; next EVIDENCE paper makes a read_reference call.
+

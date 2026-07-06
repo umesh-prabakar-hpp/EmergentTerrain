@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: T1/T2/C1/D1 VALIDATED LIVE (runs 25–27 — the loop closed in run-27); L1+L1b executed (1,244 PDF + 654 HTML cores); L2 + R1 SHIPPED 2026-07-06 (flag-ON, acceptance pending). Remaining: L3, D2, C2 (trigger MET for max_prime_gap), R2/R3, T2b/T3/D3 (trigger-gated).** Successor program to the closed
+**Status: T1/T2/C1/D1 VALIDATED LIVE (runs 25–27 — the loop closed in run-27); L1+L1b executed (1,244 PDF + 654 HTML cores); L2 + R1 SHIPPED 2026-07-06 (flag-ON, acceptance pending). C2 SHIPPED 2026-07-06 (ledger block + mandatory fit section + synthesis question-harvest). Remaining: L3, D2 (behavior already emerging via T2 ride-along), R2/R3, T2b/T3/D3 (trigger-gated).** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -201,7 +201,7 @@ queryable. Renders into professor context via the existing memory-recall channel
 published binding pair and ladder trajectory; a professor recall for a family returns them.
 *Effort:* M.
 
-### C2 — Program synthesis papers
+### C2 — Program synthesis papers  *(SHIPPED 2026-07-06)*
 
 Upgrade family synthesis from "≥5 new sources → refresh" to a PROGRAM review: when a family's
 ledger holds ≥3 rate-class data points (e.g. k(x) at three scales), synthesize the cross-paper
