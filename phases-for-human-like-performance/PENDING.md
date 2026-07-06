@@ -114,4 +114,17 @@ result_len=14, not in published Methods). NEW FINDING: search_literature call ra
 0/3 (1/3 in runs 29–30) — L2's real blocker; candidate one-line fix = a GROUND THE CLAIM
 checklist item, which also unblocks the 32.5 novelty lever.**
 
-**Next:** run (the C2 synthesis trigger is the k-law shot — ~4/5 sources); GROUND THE CLAIM checklist item SHIPPED same day (item 6/7); L3 after L2's first adoption; gated items per phase-33 doc.
+**Run-32 (813–815 + SYN, 13:31): SECOND consecutive 100% batch, zero gates — and every phase-33
+acceptance case fired in one run.** C2 synthesis delivered (max_divisor: "quantitative fit of
+max_divisor_count ≤ wigert_bound + c across scales", intercept calibration 44→62, open question
+harvested ×3 — the program loop closed end-to-end; title case-dup bug fixed same session).
+GROUND THE CLAIM landed first-exposure (3/3 lit calls, was 0/3) and P-815 made the FIRST
+read_reference call (matched work outside the OA subset — graceful degrade; adoption proven).
+Fresh families rotated in at record novelty (richly_divisible 0.84, cramer 0.82); **P-814 is the
+best combined paper ever (0.820 peer / 0.84 novelty)**. Two-phase fully proven (sweep recovered
+P-812's question). NEW DATA: k=0.3250 refuted at 6.5e8 between two scales where bounds held —
+non-monotonicity or placement variance, the k(x,w) fit's first real test.
+
+**Next:** run — the max_prime_gap fit synthesis (~5/5 sources) is the arc's target paper.
+Optional: ar5iv-first core pass to raise EVIDENCE→read hit rate. Then D3 (full-paper contract)
+becomes live if the fit lands.
