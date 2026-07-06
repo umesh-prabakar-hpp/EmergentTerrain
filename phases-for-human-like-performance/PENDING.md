@@ -76,3 +76,15 @@ App has been down since 2026-06-30 21:15 — all of these need a live run (see `
 especially the G5 dirichlet measurement, the G1 ≥60% bar, and scope-recover's first budgeted fire —
 then §4's two generation-side paper-review recs (scalar-definition grounding + disjoint-predicate
 guard).
+
+> **Run-27 (799–802, 2026-07-06): THE LOOP CLOSED.** question-serve 4/4 (every paper answered a
+> PRIOR run's question); C1 serve evidenced (P-799 opened from the ledger's k=0.650/0.648 and
+> superseded them); TIGHT HOLD named-intercept consumed first-exposure → **binding pair #3**
+> (k=0.4140, rel-slack 0.0007 + refuted variant); compound discovery: the tight max_prime_gap
+> constant is **window-size-dependent** (0.414@5k vs 0.650@10k, same region) — P-799 (0.777/0.76,
+> PUBLISHED) is the first paper built entirely from self-served question+data. Direction-gate FP
+> found+fixed same session (CONCLUSION_NULL matched limitation vocabulary in a positive
+> conclusion → narrowed to claim-subject negations, P-802 fixture pinned). NEXT: the
+> k(scale, window_size) two-variable synthesis fit (all data ledgered); small-value manifest
+> matcher root-cause (5 papers — the only recurring demotion source left).
+
