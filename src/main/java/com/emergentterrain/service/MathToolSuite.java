@@ -869,7 +869,7 @@ public class MathToolSuite {
               "type":"function",
               "function":{
                 "name":"read_reference",
-                "description":"READ the full text of a work search_literature matched (open-access subset). Use when search_literature returned EVIDENCE and you need the prior result's actual content — its theorem statement, constant, or range of validity — to position your result against it (\"consistent with but weaker than\", \"extends the range of\", \"contradicts\"). Pass the [W...] key EXACTLY as printed and a focused query (the claim or quantity you are checking). Returns the top matching passages. ONE work per paper (hard cap 2 calls); if the source is a PDF extraction the output says so — then PARAPHRASE prior formulas and cite the key, never quote them verbatim.",
+                "description":"READ the full text of a work search_literature matched (open-access subset). Use when search_literature returned EVIDENCE and you need the prior result's actual content — its theorem statement, constant, or range of validity — to position your result against it (consistent-with-but-weaker-than / extends-the-range-of / contradicts). Pass the [W...] key EXACTLY as printed and a focused query (the claim or quantity you are checking). Returns the top matching passages. ONE work per paper (hard cap 2 calls); if the source is a PDF extraction the output says so — then PARAPHRASE prior formulas and cite the key, never quote them verbatim.",
                 "parameters":{
                   "type":"object",
                   "properties":{

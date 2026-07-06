@@ -372,6 +372,25 @@ class MathToolSuiteVerifyConjectureTest {
                 .contains("Do NOT re-verify more holds");
     }
 
+    @org.junit.jupiter.api.Test
+    void toolsJsonParses_withReferenceReaderWired() throws Exception {
+        // 2026-07-06 REGRESSION GUARD: the read_reference schema shipped with text-block \"
+        // escapes that collapse to RAW quotes -> invalid tools JSON -> EVERY professor path
+        // errored and the run published zero papers. Any conditionally-advertised tool must be
+        // covered by a wired-parse test like this one.
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, new ConjectureVerifier());
+        java.nio.file.Path corpus = java.nio.file.Files.createTempDirectory("cores");
+        java.nio.file.Files.createDirectories(corpus.resolve("cores"));
+        suite.setReferenceReader(
+                new com.emergentterrain.research.literature.ReferenceCoreReader(corpus.toString()));
+        String json = suite.toolsJson(true);
+        org.assertj.core.api.Assertions.assertThat(json).contains("read_reference");
+        JsonNode root = mapper.readTree(json);   // throws on the regression
+        org.assertj.core.api.Assertions.assertThat(root.isArray()).isTrue();
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(
