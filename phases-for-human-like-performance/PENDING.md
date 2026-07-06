@@ -139,6 +139,15 @@ metered, source=evidence-backfill; first pass launched same session. Warrant hin
 synthesis warrants stable-re-sort by ledger row count — the fit-ready family (max_prime_gap,
 5 pairs) now wins the race it lost twice on prose volume. RUN docs carry the optional step.
 
-**Next:** run — max_prime_gap fit synthesis should now fire FIRST; acceptance = the fit section
-with ledger constants + a read_reference HIT on a recurring EVIDENCE match (backfilled core).
-D3 goes live when the fit lands.
+**Run-34 (820/822/824 + SYN-twin_vs, 17:20): FOURTH consecutive 100% batch, record mean 0.761 —
+and the C2 machinery produced its first FULL fit synthesis**: "Quantitative fit from the
+cross-run ledger: scale-ladder convergence toward 2C₂ ≈ 1.32032, residual sizes, and
+finite-window variability" + a conflict-reconciliation section (ledger-wins rule in action) +
+self-posed next question (fluctuation rate/structure). All three C2 shapes now demonstrated
+(fit / refutation-review / fit-with-conflict). Warrant hint worked as designed — max_prime_gap
+just isn't RE-warranted yet (4/5 new sources since its run-29 SYN; one more paper trips it,
+hint guarantees the slot). Backfilled cores untested (zero EVIDENCE matches — carries). Two dead
+drafts (821/823) → sweep next run.
+
+**Next:** run — max_prime_gap serve + re-synthesis (the k(x,w) fit over 5 pairs) is the shot;
+read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
