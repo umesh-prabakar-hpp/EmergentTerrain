@@ -168,3 +168,13 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > exact-literal exemption + cite-by-paperId render instruction). Sweep recovered 821/823 ✓.
 > max_prime_gap unserved 3 runs (rotation debt building; re-synthesis still 1 paper away).
 
+> **Known-density second-order redirect SHIPPED 2026-07-06 night (run-35 rec 1, user-approved;
+> flag `known-density-redirect` ON).** Single-predicate density topics with a KNOWN constant
+> (abundant/deficient/perfect/squarefree/prime/twin/square) get a KNOWN-CONSTANT NOTICE
+> directive — measure the DEVIATION trajectory from the constant, not the constant. Composites
+> and unproven densities (isHappy) pass through. Deterministic, skips the LLM verdict.
+> (One broken commit pushed mid-build — escape chars; repaired in the next commit; lesson
+> re-learned: gate commits on compile exit code, not on eyeballing grep output.)
+> Acceptance: next isAbundant-class admission logs `REDIRECTED to second-order` and the paper
+> measures the deviation rate.
+
