@@ -408,6 +408,14 @@ public class MathToolSuite {
         this.groundingClient = groundingClient;
     }
 
+    /** Phase 33 L2 — full-text core reader for read_reference. Null-safe (off ⇒ not advertised). */
+    private volatile com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
+
+    public void setReferenceReader(
+            com.emergentterrain.research.literature.ReferenceCoreReader reader) {
+        this.referenceReader = reader;
+    }
+
     /**
      * Phase 30 fork 2b Phase 4 — optional runtime-discovery service. Set by
      * {@link ResearchNarrationService} after Spring autowires it. The
@@ -806,8 +814,10 @@ public class MathToolSuite {
                         ? SYMBOLIC_REGRESS_TOOL_JSON : "",
                 (sympyIdentityClient != null && sympyIdentityClient.isAvailable())
                         ? PROVE_IDENTITY_TOOL_JSON : "",
-                (includeLiterature && literatureSearch != null)
-                        ? SEARCH_LITERATURE_TOOL_JSON : "",
+                ((includeLiterature && literatureSearch != null)
+                        ? SEARCH_LITERATURE_TOOL_JSON : "")
+                        + ((referenceReader != null && referenceReader.available())
+                                ? READ_REFERENCE_TOOL_JSON : ""),
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
                 divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
@@ -844,6 +854,29 @@ public class MathToolSuite {
                     "claim":{"type":"string","description":"Optional: the specific claim sentence to ground (e.g. 'the error term in the Dirichlet divisor problem has a bounded O(1) envelope at the x^(1/4) normalisation'). Sharper than a bare topic; preferred when checking whether a RESULT is already known."}
                   },
                   "required":[]
+                }
+              }
+            }""";
+
+    /**
+     * Phase 33 L2 (2026-07-06) — full-text reading of a grounded reference. Advertised only when
+     * the {@link com.emergentterrain.research.literature.ReferenceCoreReader} is wired AND a core
+     * tier exists on disk. The description carries the caller policy (EVIDENCE-gated, one work
+     * per paper) and the executor enforces a hard cap of 2 calls per paper.
+     */
+    private static final String READ_REFERENCE_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"read_reference",
+                "description":"READ the full text of a work search_literature matched (open-access subset). Use when search_literature returned EVIDENCE and you need the prior result's actual content — its theorem statement, constant, or range of validity — to position your result against it (\"consistent with but weaker than\", \"extends the range of\", \"contradicts\"). Pass the [W...] key EXACTLY as printed and a focused query (the claim or quantity you are checking). Returns the top matching passages. ONE work per paper (hard cap 2 calls); if the source is a PDF extraction the output says so — then PARAPHRASE prior formulas and cite the key, never quote them verbatim.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "key":{"type":"string","description":"The work key from search_literature, e.g. W4230159862."},
+                    "query":{"type":"string","description":"What to look for in the text — the specific claim, constant, or exponent you are checking."}
+                  },
+                  "required":["key","query"]
                 }
               }
             }""";
@@ -1189,6 +1222,9 @@ public class MathToolSuite {
      * service reads it after the professor stage completes.
      */
     public Function<String, String> buildExecutor(PaperDraft draft, ToolMetrics metrics) {
+        // Phase 33 L2 — per-paper read_reference budget (contract: one work per paper; hard cap 2
+        // so a follow-up query on the same work stays possible without opening a token sink).
+        final int[] readReferenceCalls = {0};
         return toolCallJson -> {
             try {
                 JsonNode call = mapper.readTree(toolCallJson);
@@ -1216,6 +1252,7 @@ public class MathToolSuite {
                     case "symbolic_regress"   -> symbolicRegress(args);
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
+                    case "read_reference"     -> readReference(args, readReferenceCalls);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -1316,7 +1353,18 @@ public class MathToolSuite {
             if (!claim.isBlank()) {
                 var grounding = groundingClient.ground(claim, 5);
                 if (grounding != null) {
-                    return formatGrounding(grounding, claim);
+                    String grounded = formatGrounding(grounding, claim);
+                    // Phase 33 L2 — when the reader is wired, an EVIDENCE match is readable in
+                    // full: nudge exactly one read_reference call (per-paper cap enforced in the
+                    // executor).
+                    if (referenceReader != null && referenceReader.available()
+                            && grounded.contains("EVIDENCE")) {
+                        grounded += " NOTE: you may READ a matched work's full text — call "
+                                + "read_reference with its [W…] key and a focused query (ONE work "
+                                + "per paper; engage the prior result's actual content, then "
+                                + "position your result against it).";
+                    }
+                    return grounded;
                 }
             }
         }
@@ -2016,6 +2064,18 @@ public class MathToolSuite {
         return maxWindows >= 1
                 ? String.format("FIX: keep window_size=%d and use num_windows ≤ %d.", windowSize, maxWindows)
                 : String.format("FIX: window_size alone exceeds the cap — use window_size ≤ %d.", maxWork);
+    }
+
+    /** Phase 33 L2 — read_reference dispatch: cap, then delegate to the reader. */
+    private String readReference(JsonNode args, int[] calls) {
+        if (referenceReader == null) {
+            return "read_reference not configured.";
+        }
+        if (++calls[0] > 2) {
+            return "read_reference budget exhausted for this paper (2 calls) — work from the "
+                    + "passages you already retrieved.";
+        }
+        return referenceReader.read(args.path("key").asText(""), args.path("query").asText(""));
     }
 
     static String appendScalarDefinitions(String result, JsonNode args) {

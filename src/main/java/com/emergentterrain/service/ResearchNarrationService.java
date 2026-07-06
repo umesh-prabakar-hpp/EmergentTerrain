@@ -1374,6 +1374,10 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.ladder-rung-budget:0}")
     private long ladderRungBudgetFlag;
 
+    /** Phase 33 L2 — full-text core reader; bean exists only when read-reference.enabled. */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
+
     /**
      * Phase 32 §32.5 step 4 — optional offline grounding client, field-injected like
      * {@link #discoveryService}. The bean exists only when
@@ -1393,6 +1397,11 @@ public class ResearchNarrationService {
             toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
             toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
             toolSuite.setLiteratureGrounding(groundingClient);
+            toolSuite.setReferenceReader(referenceReader);
+            if (referenceReader != null && referenceReader.available()) {
+                log.info("read_reference mode ON (full-text cores on disk; EVIDENCE-gated, "
+                        + "2 calls/paper cap)");
+            }
             if (groundingClient != null) {
                 log.info("search_literature grounding mode ON (py-sidecar corpus; "
                         + "promotion-track + measurement-frame/priority-target papers)");

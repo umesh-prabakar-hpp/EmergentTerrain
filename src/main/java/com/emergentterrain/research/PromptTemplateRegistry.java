@@ -754,6 +754,47 @@ public class PromptTemplateRegistry {
                 {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
                 """));
 
+        // Phase 33 lane R (R1, 2026-07-06) — v3 adds `underived_mechanism`: quantitative
+        // asymptotic/scaling claims must be call-attributed or explicitly labeled heuristic.
+        // The audit's gap list feeds the professor's tool loop ("address them with your tools"),
+        // so a flagged underived form invites the derivation call — warn-first by construction
+        // (the G8 publish reject keys on physical_mechanism only). Last-registered wins.
+        register(new PromptTemplate(
+                PromptTemplateIds.NARRATION_AUDIT_ID,
+                "v3-with-underived-mechanism",
+                """
+                Assess this computational research paper for quality gaps.
+                Only flag material issues. Return an empty "gaps" array if the paper is fundamentally sound.
+
+                Domain: {{ domain }} | Topic: {{ topicName }} | Classification: {{ classification }}
+                Hypothesis: {{ hypothesis }}
+                Findings: {{ findings }}
+                Conclusion: {{ conclusion }}
+
+                Check only these dimensions (skip if not problematic):
+                - physical_mechanism: cross-domain mapping is purely definitional with no causal justification
+                - degenerate_result: reported best result is a trivial edge case (e.g. zero/null/empty)
+                - boundary_answer: reported best parameter value sits exactly at a boundary of the swept
+                  range (e.g. volume fraction Vf=1.00 on a Vf∈[0,1] sweep, angle θ=90° on a [0°,90°]
+                  survey, or any "best at the edge" answer that indicates the true optimum is outside
+                  the searched region rather than inside it). Flag as moderate if the boundary value
+                  is the answer but the conclusion does not acknowledge the range-saturation; flag as
+                  critical if the conclusion treats the boundary value as an interior optimum.
+                - duplicate_computation: two or more computations tested identical parameter values
+                - uncertainty: quantitative claims lack uncertainty language or error bounds
+                - underived_mechanism: the text asserts a QUANTITATIVE asymptotic, scaling law, or
+                  derived rate (e.g. "scales as the square of the log", "decays like c over log x",
+                  "approximately 0.025 per decade") that carries NO [call_N] attribution for that
+                  specific form AND no explicit label such as "heuristic", "not derived", or
+                  "post-hoc". Moderate when the claim is peripheral; critical when the conclusion
+                  leans on the underived form as established. An honestly-labeled heuristic is NOT
+                  a gap.
+                - overclaiming: conclusion asserts more than the data demonstrates
+
+                Reply with ONLY valid JSON:
+                {"gaps":[{"dimension":"...","severity":"critical|moderate","description":"one sentence"}]}
+                """));
+
         // Phase 10 — v3 extends physical_mechanism with anchored examples of
         // known-bad cross-domain mappings. The May 2026 corpus had two papers
         // (P-a328-345 "Collatz depth → RLC inductance" and P-a328-352
