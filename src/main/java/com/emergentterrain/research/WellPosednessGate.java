@@ -98,7 +98,8 @@ public class WellPosednessGate {
             return java.util.Optional.empty();
         }
         String pTrim = predicate.strip();
-        if (pTrim.matches(".*(\u2227|\u2228|&&|\|\||\bAND\b|\bOR\b|\band\b|\bor\b).*")) {
+        if (pTrim.matches("(?s).*(\u2227|\u2228|&&|\\|\\||\\bAND\\b|\\bOR\\b"
+                + "|\\band\\b|\\bor\\b).*")) {
             return java.util.Optional.empty();
         }
         return java.util.Optional.ofNullable(KNOWN_DENSITIES.get(pTrim));
