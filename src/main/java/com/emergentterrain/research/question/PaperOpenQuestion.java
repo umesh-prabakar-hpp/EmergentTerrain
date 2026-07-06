@@ -77,4 +77,25 @@ public class PaperOpenQuestion {
         this.answeredByPaperId = byPaperId;
         this.answeredAt = at;
     }
+
+    /**
+     * 2026-07-06 (run-28 + P-b72c-77627809) — two-phase answering. Marking answered at SERVE
+     * burned questions whenever the draft never published (schema failure, budget stop); both
+     * incidents needed SQL repair. Now: {@code reserve} at serve (answeredByPaperId set,
+     * answeredAt null — not re-servable), {@code confirmAnswered} at publish (answeredAt set),
+     * and a boot/run-start sweep clears stale reservations back to servable.
+     */
+    public void reserve(String byPaperId) {
+        this.answeredByPaperId = byPaperId;
+        this.answeredAt = null;
+    }
+
+    public void confirmAnswered(Instant at) {
+        this.answeredAt = at;
+    }
+
+    public void clearReservation() {
+        this.answeredByPaperId = null;
+        this.answeredAt = null;
+    }
 }

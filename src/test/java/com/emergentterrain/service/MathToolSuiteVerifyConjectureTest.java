@@ -391,6 +391,30 @@ class MathToolSuiteVerifyConjectureTest {
         org.assertj.core.api.Assertions.assertThat(root.isArray()).isTrue();
     }
 
+    @org.junit.jupiter.api.Test
+    void deriveValue_advertisedAlways_andComputesWithProvenanceNote() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite((LlmRouter) null, mapper);
+        String json = suite.toolsJson(true);
+        org.assertj.core.api.Assertions.assertThat(json).contains("derive_value");
+        org.assertj.core.api.Assertions.assertThat(mapper.readTree(json).isArray()).isTrue();
+
+        var executor = suite.buildExecutor(stubDraft());
+        String result = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "derive_value",
+                "arguments", Map.of(
+                        "expression", "(0.33674 - 0.23575) / 4",
+                        "label", "mean per-decade Wigert-gap decrement"))));
+        org.assertj.core.api.Assertions.assertThat(result)
+                .startsWith("derive_value:")
+                .contains("0.02524")
+                .contains("mean per-decade Wigert-gap decrement")
+                .contains("carries provenance");
+        String bad = executor.apply(mapper.writeValueAsString(Map.of(
+                "name", "derive_value", "arguments", Map.of("expression", "k * 2"))));
+        org.assertj.core.api.Assertions.assertThat(bad).contains("could not parse");
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

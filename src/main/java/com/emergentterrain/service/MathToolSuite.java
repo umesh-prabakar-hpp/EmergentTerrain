@@ -823,7 +823,8 @@ public class MathToolSuite {
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
                 recallAvailable() ? RECALL_FRONTIER_TOOL_JSON : "",
                 (mechanismProposalAvailable() ? PROPOSE_MECHANISM_TOOL_JSON : "")
-                        + (scalarStatsAvailable() ? SCALAR_WINDOW_STATS_TOOL_JSON : ""));
+                        + (scalarStatsAvailable() ? SCALAR_WINDOW_STATS_TOOL_JSON : "")
+                        + DERIVE_VALUE_TOOL_JSON);
     }
 
     /**
@@ -1253,6 +1254,7 @@ public class MathToolSuite {
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
                     case "read_reference"     -> readReference(args, readReferenceCalls);
+                    case "derive_value"       -> deriveValue(args);
                     default -> "Unknown tool: " + name;
                 };
                 // Phase 10 — count both rejections AND successes so the
@@ -2064,6 +2066,171 @@ public class MathToolSuite {
         return maxWindows >= 1
                 ? String.format("FIX: keep window_size=%d and use num_windows ≤ %d.", windowSize, maxWindows)
                 : String.format("FIX: window_size alone exceeds the cap — use window_size ≤ %d.", maxWork);
+    }
+
+    /**
+     * Phase 33 lane R (R2, 2026-07-06) — derive_value: deterministic in-process arithmetic so
+     * DERIVED quantities (differences, ratios, per-decade rates) carry tool provenance. Two 0.8+
+     * papers (P-b72c-77627792 '0.025/decade', P-b72c-77627807 '0.0005') died at the manifest
+     * gate on narrator-computed rates; the audit dimension (R1) informs, this tool closes.
+     * Always advertised — pure Java, no sidecar, no flags.
+     */
+    private static final String DERIVE_VALUE_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"derive_value",
+                "description":"Compute a DERIVED quantity (difference, ratio, per-decade rate, average) from numbers already in your trace, so the value carries tool provenance. Any number your synthesis will state that is NOT a direct tool output must come from this call — a hand-computed rate in prose is gated at publish. Pure arithmetic: + - * / ^ parentheses and ln() log10() sqrt() exp() abs(). Example expression: (1.02989 - 0.92890) / 4",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "expression":{"type":"string","description":"The arithmetic expression, using literal numbers from your trace."},
+                    "label":{"type":"string","description":"Optional: what this quantity IS (e.g. mean per-decade decrement of k), echoed in the result."}
+                  },
+                  "required":["expression"]
+                }
+              }
+            }""";
+
+    private String deriveValue(JsonNode args) {
+        String expr = args.path("expression").asText("");
+        String label = args.path("label").asText("");
+        try {
+            double v = evalArithmetic(expr);
+            if (!Double.isFinite(v)) {
+                return "derive_value: " + expr + " is not finite (division by zero or domain "
+                        + "error) — check the inputs.";
+            }
+            return "derive_value: " + expr + " = " + String.format("%.10g", v)
+                    + (label.isBlank() ? "" : " (" + label + ")")
+                    + ". This value carries provenance — cite it as this call's [call_N].";
+        } catch (IllegalArgumentException e) {
+            return "derive_value: could not parse '" + expr + "': " + e.getMessage()
+                    + ". Allowed: numbers, + - * / ^, parentheses, ln() log10() sqrt() exp() abs().";
+        }
+    }
+
+    /**
+     * R2 — tiny recursive-descent evaluator: numbers (incl. scientific notation), + - * / ^
+     * (right-assoc), unary minus, parentheses, ln/log10/sqrt/exp/abs. Deliberately NOT a general
+     * expression language — no variables, no comma calls — so it cannot become a sandbox risk.
+     * Static + pure for tests.
+     */
+    static double evalArithmetic(String expr) {
+        return new ArithParser(expr == null ? "" : expr).parse();
+    }
+
+    private static final class ArithParser {
+        private final String s;
+        private int i;
+
+        ArithParser(String s) { this.s = s; }
+
+        double parse() {
+            double v = sum();
+            skipWs();
+            if (i < s.length()) {
+                throw new IllegalArgumentException("unexpected '" + s.charAt(i) + "' at " + i);
+            }
+            return v;
+        }
+
+        private double sum() {
+            double v = term();
+            while (true) {
+                skipWs();
+                if (eat('+')) { v += term(); }
+                else if (eat('-')) { v -= term(); }
+                else { return v; }
+            }
+        }
+
+        private double term() {
+            double v = power();
+            while (true) {
+                skipWs();
+                if (eat('*')) { v *= power(); }
+                else if (eat('/')) { v /= power(); }
+                else { return v; }
+            }
+        }
+
+        private double power() {
+            double base = unary();
+            skipWs();
+            if (eat('^')) {
+                return Math.pow(base, power());   // right-associative
+            }
+            return base;
+        }
+
+        private double unary() {
+            skipWs();
+            if (eat('-')) { return -unary(); }
+            if (eat('+')) { return unary(); }
+            return atom();
+        }
+
+        private double atom() {
+            skipWs();
+            if (eat('(')) {
+                double v = sum();
+                expect(')');
+                return v;
+            }
+            if (i < s.length() && Character.isLetter(s.charAt(i))) {
+                int start = i;
+                while (i < s.length() && Character.isLetter(s.charAt(i))
+                        || (i < s.length() && Character.isDigit(s.charAt(i)))) { i++; }
+                String fn = s.substring(start, i).toLowerCase(java.util.Locale.ROOT);
+                expect('(');
+                double a = sum();
+                expect(')');
+                return switch (fn) {
+                    case "ln" -> Math.log(a);
+                    case "log10" -> Math.log10(a);
+                    case "sqrt" -> Math.sqrt(a);
+                    case "exp" -> Math.exp(a);
+                    case "abs" -> Math.abs(a);
+                    default -> throw new IllegalArgumentException("unknown function '" + fn + "'");
+                };
+            }
+            int start = i;
+            while (i < s.length() && (Character.isDigit(s.charAt(i)) || s.charAt(i) == '.')) { i++; }
+            if (i < s.length() && (s.charAt(i) == 'e' || s.charAt(i) == 'E')) {
+                int save = i;
+                i++;
+                if (i < s.length() && (s.charAt(i) == '+' || s.charAt(i) == '-')) { i++; }
+                if (i < s.length() && Character.isDigit(s.charAt(i))) {
+                    while (i < s.length() && Character.isDigit(s.charAt(i))) { i++; }
+                } else {
+                    i = save;   // 'e' wasn't an exponent
+                }
+            }
+            if (start == i) {
+                throw new IllegalArgumentException(i >= s.length()
+                        ? "unexpected end of expression" : "unexpected '" + s.charAt(i) + "' at " + i);
+            }
+            try {
+                return Double.parseDouble(s.substring(start, i));
+            } catch (NumberFormatException e) {
+                throw new IllegalArgumentException("bad number '" + s.substring(start, i) + "'");
+            }
+        }
+
+        private boolean eat(char c) {
+            skipWs();
+            if (i < s.length() && s.charAt(i) == c) { i++; return true; }
+            return false;
+        }
+
+        private void expect(char c) {
+            if (!eat(c)) { throw new IllegalArgumentException("expected '" + c + "' at " + i); }
+        }
+
+        private void skipWs() {
+            while (i < s.length() && Character.isWhitespace(s.charAt(i))) { i++; }
+        }
     }
 
     /** Phase 33 L2 — read_reference dispatch: cap, then delegate to the reader. */

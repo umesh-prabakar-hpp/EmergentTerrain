@@ -4941,7 +4941,12 @@ public class ResearchNarrationService {
             what remains undecided ("measured 0.38 with spread 0.49; the conjectured 0.36 is \
             neither confirmed nor excluded at this scale"). Do NOT stamp that as a null result: \
             a null conclusion is reserved for traces that establish nothing, and an unsettled \
-            measurement with concrete numbers establishes the numbers.""";
+            measurement with concrete numbers establishes the numbers. \
+            TRACE NUMBERS ONLY: report ONLY numbers that appear in a tool result — never \
+            compute a new derived number (a difference, ratio, or per-decade rate) in prose. \
+            If a derived quantity you want to state is not in the trace, OMIT it (the professor \
+            should have computed it with derive_value); a prose-computed number has no \
+            provenance and is gated at publish.""";
 
     /** Append {@link #PIVOT_FRAMING_RULE} iff enabled; mirrors {@link #appendNoveltyPreservation}. */
     static String appendPivotFraming(String prompt, boolean enabled) {

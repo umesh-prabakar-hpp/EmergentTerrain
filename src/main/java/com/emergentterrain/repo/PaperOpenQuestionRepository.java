@@ -11,6 +11,15 @@ public interface PaperOpenQuestionRepository extends JpaRepository<PaperOpenQues
 
     List<PaperOpenQuestion> findByFamilyAndAnsweredAtIsNull(String family);
 
+    /** Two-phase answering (2026-07-06): servable = never reserved. */
+    List<PaperOpenQuestion> findByFamilyAndAnsweredByPaperIdIsNull(String family);
+
+    /** Publish-side confirmation lookup. */
+    List<PaperOpenQuestion> findByAnsweredByPaperIdAndAnsweredAtIsNull(String paperId);
+
+    /** Run-start sweep: reservations never confirmed (draft died) → back to servable. */
+    List<PaperOpenQuestion> findByAnsweredByPaperIdIsNotNullAndAnsweredAtIsNull();
+
     List<PaperOpenQuestion> findByAnsweredAtIsNull();
 
     long countByPaperId(String paperId);

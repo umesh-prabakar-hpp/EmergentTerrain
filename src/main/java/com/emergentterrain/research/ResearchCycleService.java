@@ -932,6 +932,29 @@ public class ResearchCycleService {
      * and append what they hold; mark a served question answered-by this paper (served-once,
      * see the field javadoc). Failure-soft: any repo error returns the hypothesis unchanged.
      */
+    private final java.util.concurrent.atomic.AtomicBoolean reservationSweepDone =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    /** Run-start sweep: reservations whose draft never persisted return to servable. */
+    private void sweepStaleReservations() {
+        if (!reservationSweepDone.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            var stale = openQuestionRepo.findByAnsweredByPaperIdIsNotNullAndAnsweredAtIsNull();
+            for (var q : stale) {
+                log.info("question-serve: sweeping stale reservation (question from {} reserved "
+                        + "by dead draft {}) — servable again", q.paperId(), q.answeredByPaperId());
+                q.clearReservation();
+            }
+            if (!stale.isEmpty()) {
+                openQuestionRepo.saveAll(stale);
+            }
+        } catch (RuntimeException e) {
+            log.warn("stale-reservation sweep failed (serving continues): {}", e.getMessage());
+        }
+    }
+
     private String appendCrossRunContext(String hypothesis, String family, String paperId) {
         try {
             java.util.List<com.emergentterrain.research.question.VerifiedResult> results =
@@ -940,7 +963,11 @@ public class ResearchCycleService {
                             : java.util.List.of();
             com.emergentterrain.research.question.PaperOpenQuestion question = null;
             if (questionServeEnabled && openQuestionRepo != null) {
-                var open = openQuestionRepo.findByFamilyAndAnsweredAtIsNull(family);
+                sweepStaleReservations();
+                // Two-phase answering (2026-07-06): servable = never reserved. A reservation
+                // becomes answered only when the paper actually persists (publish-side confirm);
+                // stale reservations from dead drafts are swept back at run start.
+                var open = openQuestionRepo.findByFamilyAndAnsweredByPaperIdIsNull(family);
                 question = open.stream()
                         .max(java.util.Comparator.comparing(
                                 com.emergentterrain.research.question.PaperOpenQuestion::createdAt))
@@ -948,7 +975,7 @@ public class ResearchCycleService {
             }
             String rendered = renderCrossRunBlocks(hypothesis, results, question);
             if (question != null && !rendered.equals(hypothesis)) {
-                question.markAnswered(paperId, java.time.Instant.now());
+                question.reserve(paperId);
                 openQuestionRepo.save(question);
                 log.info("question-serve: family={} question from {} served to {} (kind={})",
                         family, question.paperId(), paperId, question.kind());

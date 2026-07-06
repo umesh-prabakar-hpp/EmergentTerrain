@@ -252,6 +252,10 @@ public class UniversityService {
     private final boolean citationCorpusEnabled;
     private final String  citationCorpusMode;
 
+    /** Two-phase answering — confirm reservations at publish; optional (absent in tests). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.PaperOpenQuestionRepository openQuestionRepo;
+
     /** Phase 33 T1 — open-question harvester; bean exists only when question-harvest.enabled. */
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.question.OpenQuestionHarvestService questionHarvest;
@@ -2245,6 +2249,26 @@ public class UniversityService {
         if (questionHarvest != null && !"REJECTED".equals(String.valueOf(paperStatus))) {
             questionHarvest.harvest(draft.paperId(), draft.topicName(),
                     narration.findings(), narration.conclusion());
+        }
+        // Two-phase answering (2026-07-06) — the paper persisted, so confirm any question
+        // reserved for it at serve time (run-28 + P-809: serve-time marking burned questions
+        // on dead drafts twice; dead drafts now sweep back to servable instead).
+        if (openQuestionRepo != null) {
+            try {
+                var reserved = openQuestionRepo
+                        .findByAnsweredByPaperIdAndAnsweredAtIsNull(draft.paperId());
+                for (var q : reserved) {
+                    q.confirmAnswered(java.time.Instant.now());
+                }
+                if (!reserved.isEmpty()) {
+                    openQuestionRepo.saveAll(reserved);
+                    log.info("question-serve: confirmed {} reservation(s) for {}",
+                            reserved.size(), draft.paperId());
+                }
+            } catch (RuntimeException e) {
+                log.warn("question confirm failed paperId={} (publication unaffected): {}",
+                        draft.paperId(), e.getMessage());
+            }
         }
         // Phase 33 lane C (C1, 2026-07-05) — record gate-surviving numerical results (ladders,
         // converged constants, tight bounds) to the cross-run ledger. Deterministic trace

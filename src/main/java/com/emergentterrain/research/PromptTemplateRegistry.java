@@ -998,6 +998,10 @@ public class PromptTemplateRegistry {
                      (its [W...] key + a focused query) and position your result against its
                      ACTUAL content — consistent-with-but-weaker-than, extends-the-range-of, or
                      contradicts. A citation you never read is a name, not an engagement.
+                  5. DERIVED NUMBERS NEED PROVENANCE: any number the paper will state that is
+                     not a direct tool output — a difference, a ratio, a per-decade rate, an
+                     average — must be computed with derive_value in your trace. A hand-computed
+                     rate in prose is gated at publish; one derive_value call prevents it.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
@@ -1066,6 +1070,10 @@ public class PromptTemplateRegistry {
                      (its [W...] key + a focused query) and position your result against its
                      ACTUAL content — consistent-with-but-weaker-than, extends-the-range-of, or
                      contradicts. A citation you never read is a name, not an engagement.
+                  6. DERIVED NUMBERS NEED PROVENANCE: any number the paper will state that is
+                     not a direct tool output — a difference, a ratio, a per-decade rate, an
+                     average — must be computed with derive_value in your trace. A hand-computed
+                     rate in prose is gated at publish; one derive_value call prevents it.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
