@@ -76,6 +76,22 @@ public class SynthesisPaperService {
      * review refreshes when the corpus has genuinely grown, without re-reviewing unchanged families.
      */
     private final int reSynthesisMinNewSources;
+
+    /**
+     * Phase 33 lane C (C2, 2026-07-06) — ledger-driven synthesis. The run-29 synthesis cited a
+     * stale k because it reads paper prose; with the flag on, the family's verified-results
+     * ledger rides both composer prompts (authoritative numbers + a mandatory quantitative-fit
+     * section when ≥3 comparable results exist), and the published synthesis is harvested for
+     * open questions like any paper — closing the papers→results→fit→questions loop.
+     * Repos/harvester are optional so the service stays constructible in tests.
+     */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.results-ledger.synthesis-enabled:false}")
+    private boolean ledgerSynthesisEnabled;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.repo.VerifiedResultRepository verifiedResultRepo;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.question.OpenQuestionHarvestService questionHarvest;
     private final Path researchOutputDir;
 
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
@@ -164,6 +180,13 @@ public class SynthesisPaperService {
                 continue;   // try the next warranted family
             }
             persist(r, w);
+            // C2 — the synthesis's own open questions enter the T1 ledger like any paper's.
+            if (ledgerSynthesisEnabled && questionHarvest != null) {
+                questionHarvest.harvest(
+                        "SYN-" + com.emergentterrain.research.question.OpenQuestionHarvestService
+                                .familyOf(w.family()),
+                        w.family(), r.bodyMarkdown(), "");
+            }
             log.info("synthesis PUBLISHED family={} sections={} cited={} label={} violations={}",
                     r.family(), r.bodyMarkdown().split("\n## ").length - 1,
                     r.citedIds().size(), r.label(), r.uncitedViolations().size());
@@ -172,12 +195,30 @@ public class SynthesisPaperService {
         return Optional.empty();
     }
 
+    /** C2 — the family's ledger block for the composer prompts; "" when flag/repo absent. */
+    private String ledgerBlockFor(String family) {
+        if (!ledgerSynthesisEnabled || verifiedResultRepo == null) {
+            return "";
+        }
+        try {
+            return SynthesisComposer.renderLedgerBlock(
+                    verifiedResultRepo.findTop20ByFamilyOrderByCreatedAtDesc(
+                            com.emergentterrain.research.question.OpenQuestionHarvestService
+                                    .familyOf(family)));
+        } catch (RuntimeException e) {
+            log.warn("synthesis ledger block failed family={} (prose-only synthesis): {}",
+                    family, e.getMessage());
+            return "";
+        }
+    }
+
     // ── compose (router-free testable) ────────────────────────────────────────
 
     public SynthesisResult compose(String domain, SynthesisWarrant.Warrant w, String lesson) {
         List<SourcePaper> sources = w.sources();
+        String ledgerBlock = ledgerBlockFor(w.family());
         String outline = synthesizer.apply(SynthesisComposer.buildOutlinePrompt(
-                domain, w.family(), lesson, sources, minSections, maxSections));
+                domain, w.family(), lesson, sources, minSections, maxSections, ledgerBlock));
         if (SynthesisComposer.isNullSynthesis(outline)) {
             return new SynthesisResult(w.family(), null, null, null, List.of(), List.of(),
                     true, outline.strip());
@@ -203,7 +244,7 @@ public class SynthesisPaperService {
             String title = rawTitle != null && rawTitle.matches(".*[A-Za-z].*")
                     ? rawTitle : "Section " + sectionNo;
             String section = synthesizer.apply(SynthesisComposer.buildSectionPrompt(
-                    title, w.family(), digest.toString(), sources));
+                    title, w.family(), digest.toString(), sources, ledgerBlock));
             if (section == null || section.isBlank()) continue;
             // Defensive (synthesis #1, P-b72c max_divisor): a section that
             // leaks the model's planning instead of prose is dropped, never

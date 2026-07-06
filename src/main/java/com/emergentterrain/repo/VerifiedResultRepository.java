@@ -10,4 +10,7 @@ import java.util.UUID;
 public interface VerifiedResultRepository extends JpaRepository<VerifiedResult, UUID> {
 
     List<VerifiedResult> findTop6ByFamilyOrderByCreatedAtDesc(String family);
+
+    /** C2 — the synthesis fit wants the family's full recent inventory. */
+    List<VerifiedResult> findTop20ByFamilyOrderByCreatedAtDesc(String family);
 }

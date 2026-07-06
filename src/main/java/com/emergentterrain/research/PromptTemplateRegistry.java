@@ -993,6 +993,11 @@ public class PromptTemplateRegistry {
                      "tightest" suggestion when it gives one) until a slightly tighter version
                      is REFUTED, then report the pair — tightest hold + first refute — as the
                      demonstrated binding regime. A bound never shown to bind is not a result.
+                  4. READ BEFORE YOU CITE: if search_literature returned EVIDENCE and a
+                     read_reference tool is available, spend one call reading the matched work
+                     (its [W...] key + a focused query) and position your result against its
+                     ACTUAL content — consistent-with-but-weaker-than, extends-the-range-of, or
+                     contradicts. A citation you never read is a name, not an engagement.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.
@@ -1056,6 +1061,11 @@ public class PromptTemplateRegistry {
                      "tightest" suggestion when it gives one) until a slightly tighter version
                      is REFUTED, then report the pair — tightest hold + first refute — as the
                      demonstrated binding regime. A bound never shown to bind is not a result.
+                  5. READ BEFORE YOU CITE: if search_literature returned EVIDENCE and a
+                     read_reference tool is available, spend one call reading the matched work
+                     (its [W...] key + a focused query) and position your result against its
+                     ACTUAL content — consistent-with-but-weaker-than, extends-the-range-of, or
+                     contradicts. A citation you never read is a name, not an engagement.
                 Be direct and specific. If the paper is fundamentally sound, say so briefly.
                 If run_sandboxed_code is REJECTED, revise the code to address the rejection reason
                 and submit again — you have additional tool rounds available.

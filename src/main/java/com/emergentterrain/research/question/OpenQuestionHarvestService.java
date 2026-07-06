@@ -79,7 +79,7 @@ public class OpenQuestionHarvestService {
     }
 
     /** The topic family: the conjecture lhs for conjecture topics, else the topic name itself. */
-    static String familyOf(String topicName) {
+    public static String familyOf(String topicName) {
         if (topicName == null || topicName.isBlank()) {
             return "unknown";
         }
