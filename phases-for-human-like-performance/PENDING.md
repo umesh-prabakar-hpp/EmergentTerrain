@@ -114,5 +114,4 @@ result_len=14, not in published Methods). NEW FINDING: search_literature call ra
 0/3 (1/3 in runs 29–30) — L2's real blocker; candidate one-line fix = a GROUND THE CLAIM
 checklist item, which also unblocks the 32.5 novelty lever.**
 
-**Next:** run (the C2 synthesis trigger is the k-law shot — ~4/5 sources); decide the
-search_literature checklist item; L3 after L2's first adoption; gated items per phase-33 doc.
+**Next:** run (the C2 synthesis trigger is the k-law shot — ~4/5 sources); GROUND THE CLAIM checklist item SHIPPED same day (item 6/7); L3 after L2's first adoption; gated items per phase-33 doc.
