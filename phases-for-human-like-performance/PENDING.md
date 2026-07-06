@@ -157,3 +157,14 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > backfill: +14 cores (778 total in cores-html); the 226 not-arxiv skips are the permanent
 > no-free-fulltext set (lookups cached, zero spend on re-runs).
 
+> **Run-35 (825/826/828/829, 18:39): streak broken — diagnostically.** Both failures came from
+> the PREDICATE-DENSITY topic generator (`isAbundant` census ×2 → first REJECTED in 12 batches +
+> a NULL, novelty 0.13/0.20 known-constant rediscovery) — the standing "recreational
+> predicate-density" item now has two demonstrated costs (run-15 3/6, run-35 2/4 slots);
+> **promoted: known-density filter at admission (consult MathInvariants' density table; known ⇒
+> down-weight or require second-order framing) — awaiting design nod.** Conjecture-loop papers
+> stayed clean (0.760 published; P-829 0.79-novelty ledger-trend paper demoted ONLY by manifest
+> FP class #4 — served cross-run ledger values, FIXED same session: servedContext overload,
+> exact-literal exemption + cite-by-paperId render instruction). Sweep recovered 821/823 ✓.
+> max_prime_gap unserved 3 runs (rotation debt building; re-synthesis still 1 paper away).
+
