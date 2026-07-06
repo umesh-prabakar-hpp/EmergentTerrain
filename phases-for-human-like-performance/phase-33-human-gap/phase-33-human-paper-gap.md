@@ -154,8 +154,11 @@ Added on evidence (side-by-side test, math/0310381): PDF extraction flattens
 the author's ORIGINAL LaTeX in every `<math alttext>`. `ArxivHtmlCoreBuilder`
 (`scripts/build-html-cores.sh`) fetches the ar5iv rendering for every arXiv-hosted work in the
 PDF manifest and replaces each formula with `$<original LaTeX>$` (NUL-sentinel-protected before
-tag-stripping — the extraction-order invariant, pinned in tests). **Result: 520/531 arXiv works
-(11 ar5iv misses), median 63k chars, 47/50 sampled cores carry verbatim `\frac{...}` LaTeX.**
+tag-stripping — the extraction-order invariant, pinned in tests). **Result: 654 HTML cores = 53% of the corpus** — 520/531 works with an arXiv best-OA location
+(11 ar5iv misses) **plus 134 more via the L1b-2 locations sweep** (operator-directed: singleton
+/works lookups scanning ALL locations found arXiv preprint twins behind publisher-hosted best-OA;
+576 works are genuinely not on arXiv, 14 sweep misses). Median 63k chars; 47/50 sampled cores
+carry verbatim `\frac{...}` LaTeX.
 L2 MUST prefer `cores-html/<id>.txt` over `cores/<id>.txt` per work; PDF cores remain the
 fallback for the ~58% of works not on arXiv, with the paraphrase-don't-quote caveat in the tool
 text (exact symbol-level quotes from PDF cores are unreliable).
