@@ -160,4 +160,32 @@ class DirectionOfFindingValidatorTest {
                 /* traceSize */ 0);
         assertThat(reasons).isEmpty();
     }
+
+    @org.junit.jupiter.api.Test
+    void limitationVocabulary_isNotANullStamp_p802() {
+        // 2026-07-06 (P-b72c-77627802): "an intermediate scale ... remains untested" is honest
+        // scope disclosure in a POSITIVE conclusion (and the exact phrasing the phase-33 question
+        // harvester rewards) — it must not read as a null verdict.
+        String conclusion = "The scale-ladder sweep numerically confirms convergence to 2*gamma. "
+                + "An intermediate scale (e.g., 10^7.5) remains untested; window-size sensitivity "
+                + "was not verified across alternative sizes.";
+        java.util.List<String> reasons = com.emergentterrain.research.DirectionOfFindingValidator
+                .validate("mean_divisor_excess converges to 2*gamma",
+                        java.util.Map.of(1, "[call_2] reported 1.15439 at 10^7."),
+                        conclusion, 3);
+        org.assertj.core.api.Assertions.assertThat(reasons)
+                .noneMatch(r -> r.contains("stamps null-result"));
+        // Real verdict stamps still fire: explicit phrase AND claim-subject negation.
+        for (String nullStamp : new String[]{
+                "The result is recorded as a null result.",
+                "The pre-registered prediction was not verified.",
+                "The hypothesis was not supported by the data.",
+                "The conjecture remains untested."}) {
+            org.assertj.core.api.Assertions.assertThat(
+                    com.emergentterrain.research.DirectionOfFindingValidator.validate(
+                            "h", java.util.Map.of(1, "[call_2] reported 1.154."), nullStamp, 3))
+                    .as(nullStamp)
+                    .anyMatch(r -> r.contains("stamps null-result"));
+        }
+    }
 }

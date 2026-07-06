@@ -100,12 +100,20 @@ public final class DirectionOfFindingValidator {
      * P-a328-883 carried this against a Findings section that cited
      * bestAngle=27.0° from call_2 — a concrete positive verification.
      */
+    // 2026-07-06 (P-b72c-77627802) — narrowed: the old alternation treated LIMITATION vocabulary
+    // ("an intermediate scale … remains untested") as a null VERDICT and demoted a paper whose
+    // conclusion was a positive confirmation. Doubly wrong because the question harvester (phase-33
+    // T1) actively rewards "remains untested" phrasing in limitations. A null stamp must either be
+    // the explicit phrase or a negation whose SUBJECT is the paper's claim
+    // (hypothesis/prediction/claim/conjecture) — bare "remains untested"/"not verified" about a
+    // scale, window, or parameter is honest scope disclosure, not a verdict.
     private static final Pattern CONCLUSION_NULL = Pattern.compile(
             "(?i)\\b(?:null\\s+result|"
-                    + "remains?\\s+(?:untested|unverified)|"
-                    + "(?:not|never)\\s+verified|"
                     + "no\\s+(?:direct\\s+)?computational\\s+evidence|"
                     + "pre[-\\u2010\\u2011]registered\\s+prediction\\s+(?:was\\s+)?not\\s+verified|"
+                    + "(?:hypothesis|prediction|claim|conjecture)\\s+(?:was|were|is|are)?\\s*"
+                    + "(?:not|never)\\s+(?:verified|supported|confirmed)|"
+                    + "(?:hypothesis|prediction|claim|conjecture)\\s+remains?\\s+(?:untested|unverified)|"
                     + "recorded\\s+as\\s+(?:a\\s+)?null\\s+result)\\b");
 
     /**
