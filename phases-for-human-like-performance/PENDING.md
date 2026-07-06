@@ -125,6 +125,14 @@ best combined paper ever (0.820 peer / 0.84 novelty)**. Two-phase fully proven (
 P-812's question). NEW DATA: k=0.3250 refuted at 6.5e8 between two scales where bounds held —
 non-monotonicity or placement variance, the k(x,w) fit's first real test.
 
-**Next:** run — the max_prime_gap fit synthesis (~5/5 sources) is the arc's target paper.
-Optional: ar5iv-first core pass to raise EVIDENCE→read hit rate. Then D3 (full-paper contract)
-becomes live if the fit lands.
+**Run-33 (816–819 + SYN-cramer, 15:30): THIRD consecutive 100%/zero-gate batch — steady state.**
+derive_value ADOPTED (×2 renders; R2 acceptance closed). Lit 4/4 second run; EVIDENCE ×2 but reads
+skipped — ROOT ECONOMICS: only ~2% of the corpus has cores, so read attempts rationally lose to
+verification in a 5-round budget. C2's no-fit branch behaved correctly on cramer (refutation-heavy
+ledger → refutation review, 5 sections — title-dedupe verified live). max_prime_gap synthesis
+still queued behind the warrant race (watch: family hint if starved again).
+
+**Next:** build **EVIDENCE-driven core backfill** (small: post-run job fetching ar5iv cores for
+the [W…] keys search_literature actually returned — converts the 2% hit rate to near-certainty
+for recurring matches; the LAST tooling gap on the L-lane). Then run — max_prime_gap fit
+synthesis watch; D3 goes live when the fit lands.
