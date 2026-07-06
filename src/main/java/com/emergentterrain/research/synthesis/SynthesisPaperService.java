@@ -390,7 +390,18 @@ public class SynthesisPaperService {
         List<String> titles = new ArrayList<>();
         if (outline == null) return titles;
         Matcher m = TITLE_JSON.matcher(outline);
-        while (m.find()) titles.add(m.group(1).strip());
+        // 2026-07-06 (SYN-max_divisor_count-59962f10) — the outline model emitted every title
+        // twice in case variants ("The Wigert anchor: …" / "The Wigert Anchor: …"), and each
+        // rendered as its own section: a 5-section synthesis published with 10. Dedupe on the
+        // case-folded, punctuation-collapsed form; first occurrence wins.
+        java.util.Set<String> seen = new java.util.HashSet<>();
+        while (m.find()) {
+            String t = m.group(1).strip();
+            String key = t.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", " ").strip();
+            if (seen.add(key)) {
+                titles.add(t);
+            }
+        }
         return titles;
     }
 

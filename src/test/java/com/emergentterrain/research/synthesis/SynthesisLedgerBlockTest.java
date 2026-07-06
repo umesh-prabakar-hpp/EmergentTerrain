@@ -50,4 +50,17 @@ class SynthesisLedgerBlockTest {
         assertThat(SynthesisComposer.renderLedgerBlock(null)).isEmpty();
         assertThat(SynthesisComposer.renderLedgerBlock(List.of())).isEmpty();
     }
+
+    @org.junit.jupiter.api.Test
+    void parseTitles_dedupesCaseVariants_syn59962f10() {
+        // The outline emitted every title twice in case variants -> 10-section synthesis.
+        String outline = """
+                ["The Wigert anchor: quantitative fit across scales",
+                 "The Wigert Anchor: Quantitative Fit Across Scales",
+                 "What the corpus leaves open"]""";
+        java.util.List<String> titles = SynthesisPaperService.parseTitles(outline);
+        org.assertj.core.api.Assertions.assertThat(titles).hasSize(2);
+        org.assertj.core.api.Assertions.assertThat(titles.get(0))
+                .isEqualTo("The Wigert anchor: quantitative fit across scales");
+    }
 }
