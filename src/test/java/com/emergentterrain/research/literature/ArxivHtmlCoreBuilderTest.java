@@ -45,6 +45,22 @@ class ArxivHtmlCoreBuilderTest {
     }
 
     @Test
+    void arxivIdFromLocations_scansAllLocations() throws Exception {
+        var om = new com.fasterxml.jackson.databind.ObjectMapper();
+        // best OA is publisher-hosted; the arXiv preprint hides in locations[2]'s landing page.
+        var work = om.readTree("""
+                {"locations":[
+                  {"pdf_url":"https://www.cambridge.org/core/x.pdf","landing_page_url":"https://doi.org/10.1/x"},
+                  {"pdf_url":null,"landing_page_url":"https://link.springer.com/article/y"},
+                  {"pdf_url":null,"landing_page_url":"https://arxiv.org/abs/math/0310381v2"}]}""");
+        org.assertj.core.api.Assertions.assertThat(
+                ArxivHtmlCoreBuilder.arxivIdFromLocations(work)).isEqualTo("math/0310381");
+        var none = om.readTree("{\"locations\":[{\"pdf_url\":\"https://msp.org/a.pdf\"}]}");
+        org.assertj.core.api.Assertions.assertThat(
+                ArxivHtmlCoreBuilder.arxivIdFromLocations(none)).isNull();
+    }
+
+    @Test
     void arxivIdPattern_handlesOldAndNewStyles() {
         java.util.regex.Matcher m;
         m = ArxivHtmlCoreBuilder.ARXIV_ID.matcher("https://arxiv.org/pdf/math/0310381");
