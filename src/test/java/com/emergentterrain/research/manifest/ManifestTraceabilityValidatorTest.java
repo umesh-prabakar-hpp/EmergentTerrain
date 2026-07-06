@@ -285,4 +285,34 @@ class ManifestTraceabilityValidatorTest {
         assertThat(s.misses()).extracting(ManifestTraceabilityValidator.Miss::token)
                 .containsExactly("1235");
     }
+
+    @org.junit.jupiter.api.Test
+    void historicalYears_areExempt_positionalIntegersAreNot_p802() {
+        // 2026-07-06 (P-b72c-77627802): citation years in grounded prose are not measurements.
+        String[] yearish = {
+                "a computational verification of the classical Dirichlet divisor theorem (1849), not",
+                "it reproduces a known 1849 result numerically",
+                "this is a numerical verification of an 1849 classical theorem",
+                "Landau refined this in 1906."};
+        for (String t : yearish) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(18|19|20)\\d{2}").matcher(t);
+            org.assertj.core.api.Assertions.assertThat(m.find()).isTrue();
+            org.assertj.core.api.Assertions.assertThat(
+                    ManifestTraceabilityValidator.isHistoricalYearContext(
+                            m.group(), Double.parseDouble(m.group()), t, m.start(), m.end()))
+                    .as(t).isTrue();
+        }
+        // Positional/count integers in the year range still require provenance.
+        String[] positional = {
+                "windows starting at 1906 were evaluated",
+                "a sweep over 2000 windows"};
+        for (String t : positional) {
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("(18|19|20)\\d{2}").matcher(t);
+            org.assertj.core.api.Assertions.assertThat(m.find()).isTrue();
+            org.assertj.core.api.Assertions.assertThat(
+                    ManifestTraceabilityValidator.isHistoricalYearContext(
+                            m.group(), Double.parseDouble(m.group()), t, m.start(), m.end()))
+                    .as(t).isFalse();
+        }
+    }
 }

@@ -155,6 +155,16 @@ public final class ManifestTraceabilityValidator {
                     allowlisted++;
                     continue;
                 }
+                // 2026-07-06 (P-b72c-77627802: '1849' ×2, '1906') — historical-year exemption.
+                // Grounded papers legitimately write "the classical Dirichlet divisor theorem
+                // (1849)" / "a known 1849 result"; a citation year is not a measurement and has
+                // no manifest entry by construction. Context-gated (paren, year-ish preposition,
+                // or a scholarship noun after) so positional integers ("at 1906", "1906 windows")
+                // still require provenance. Counted as allowlisted.
+                if (isHistoricalYearContext(token, value, text, m.start(), m.end())) {
+                    allowlisted++;
+                    continue;
+                }
                 // 8-char lookback (commit-review fix: 3 chars missed "p <   x"
                 // with 3+ spaces); BOUND_PREFIX anchors the operator at the end.
                 String prefix = text.substring(Math.max(0, m.start() - 8), m.start());
@@ -312,6 +322,24 @@ public final class ManifestTraceabilityValidator {
         if (dot < 0 || s.contains("E") || s.contains("e")) return -1;
         int d = s.length() - dot - 1;
         return (d == 1 && s.endsWith("0")) ? -1 : d;   // "5.0" carries no precision claim
+    }
+
+    /** Year-context test for the historical-year exemption (see the call site). */
+    static boolean isHistoricalYearContext(String token, double value, String text,
+                                            int start, int end) {
+        if (!token.matches("(18|19|20)\\d{2}") || value != Math.floor(value)
+                || value < 1800 || value > 2099) {
+            return false;
+        }
+        String before = text.substring(Math.max(0, start - 12), start);
+        String after = text.substring(end, Math.min(text.length(), end + 24));
+        boolean paren = before.endsWith("(") && after.startsWith(")");
+        boolean yearPreposition = before.matches(
+                "(?is).*\\b(in|an|a|the|known|circa|since|from)\\s+$");
+        boolean scholarshipNoun = after.matches(
+                "(?is)\\s*(result|theorem|classical|paper|work|conjecture|proof|era|law)\\b.*");
+        boolean punctuationAfter = after.matches("(?is)\\s*[,.;)].*");
+        return paren || (yearPreposition && (scholarshipNoun || punctuationAfter));
     }
 
     private static boolean isAllowlisted(double value) {
