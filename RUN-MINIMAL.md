@@ -4,6 +4,11 @@
 # 0. fresh checkout only (exec bits aren't git-tracked)
 chmod +x scripts/*.sh scripts/*.py
 
+# 0b. one-time corpus assets (idempotent; APP MUST BE DOWN — scripts compile)
+OPENALEX_MAILTO=you@example.com ./scripts/build-nt-corpus.sh && python3 scripts/run-ground-probes.py
+OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-cores.sh
+OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-html-cores.sh
+
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
 
