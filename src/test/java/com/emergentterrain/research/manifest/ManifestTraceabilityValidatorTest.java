@@ -315,4 +315,29 @@ class ManifestTraceabilityValidatorTest {
                     .as(t).isFalse();
         }
     }
+
+    @org.junit.jupiter.api.Test
+    void servedLedgerValues_areProvenanced_p829() {
+        // 2026-07-06 (P-b72c-77627829, 0.79 novelty demoted): the C1 block quotes prior papers'
+        // verified numbers into the draft; restating them is citing prior work, not fabricating.
+        String served = "PRIOR VERIFIED RESULTS for this family (cross-run ledger, newest first)."
+                + "\n- [P-b72c-77627824, LADDER] wigert values 0.91360 and 0.93614 at 1e9";
+        org.assertj.core.api.Assertions.assertThat(
+                ManifestTraceabilityValidator.servedBlocksOf(
+                        "Some hypothesis text.\n\n" + served))
+                .startsWith("PRIOR VERIFIED RESULTS");
+        org.assertj.core.api.Assertions.assertThat(
+                ManifestTraceabilityValidator.servedBlocksOf("no blocks here")).isEmpty();
+
+        var manifest = com.emergentterrain.research.manifest.ValueManifest.capture("h", java.util.List.of());
+        var withContext = ManifestTraceabilityValidator.validate(manifest,
+                java.util.Map.of(1, "Prior runs report values from 0.91360 to 0.93614 at 1e9."),
+                "", served);
+        org.assertj.core.api.Assertions.assertThat(withContext.misses()).isEmpty();
+
+        var withoutContext = ManifestTraceabilityValidator.validate(manifest,
+                java.util.Map.of(1, "Prior runs report values from 0.91360 to 0.93614 at 1e9."),
+                "");
+        org.assertj.core.api.Assertions.assertThat(withoutContext.misses()).isNotEmpty();
+    }
 }

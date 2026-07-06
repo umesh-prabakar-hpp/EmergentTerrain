@@ -1521,7 +1521,10 @@ public class UniversityService {
                 com.emergentterrain.research.manifest.ManifestTraceabilityValidator.Stats
                         shadowStats = com.emergentterrain.research.manifest
                                 .ManifestTraceabilityValidator.validate(
-                                        shadowManifest, findingsBlocks, conclusion);
+                                        shadowManifest, findingsBlocks, conclusion,
+                                        com.emergentterrain.research.manifest
+                                                .ManifestTraceabilityValidator
+                                                .servedBlocksOf(hypothesis));
                 manifestShadowFlagged = !shadowStats.misses().isEmpty();
                 manifestMissRoutes = manifestShadowFlagged
                         && "enforce".equals(manifestValidatorMode);

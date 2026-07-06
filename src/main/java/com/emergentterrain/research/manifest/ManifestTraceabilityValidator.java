@@ -112,9 +112,46 @@ public final class ManifestTraceabilityValidator {
      * Resolve every salient number in Findings/Conclusion against the
      * manifest. Null-tolerant on all text inputs.
      */
+    /**
+     * 2026-07-06 (P-b72c-77627829) — served-context overload. The C1 cross-run block quotes
+     * PRIOR papers' verified results into the draft; the narrator legitimately restates those
+     * numbers ("ledger wigert values ranged 0.91360 to 0.93614") but they cannot be in THIS
+     * paper's manifest by construction — a 0.79-novelty paper was demoted for citing prior work
+     * correctly. Values literally present in the served blocks count as provenanced (they are
+     * tool verdicts, from prior runs). Exact-literal match only, so a narrator cannot launder a
+     * new number through the exemption.
+     */
+    public static Stats validate(ValueManifest manifest, java.util.Map<Integer, String> findingsBlocks,
+                                 String conclusion, String servedContext) {
+        java.util.Set<String> servedTokens = new java.util.HashSet<>();
+        if (servedContext != null && !servedContext.isBlank()) {
+            Matcher m = NUMBER_TOKEN.matcher(servedContext);
+            while (m.find()) {
+                servedTokens.add(m.group(1));
+            }
+        }
+        return validate(manifest, findingsBlocks, conclusion, servedTokens);
+    }
+
+    /** Extract the served cross-run blocks from a draft hypothesis ("" when absent). */
+    public static String servedBlocksOf(String hypothesis) {
+        if (hypothesis == null) {
+            return "";
+        }
+        int a = hypothesis.indexOf("PRIOR VERIFIED RESULTS");
+        int b = hypothesis.indexOf("OPEN QUESTION FROM PRIOR WORK");
+        int start = a < 0 ? b : (b < 0 ? a : Math.min(a, b));
+        return start < 0 ? "" : hypothesis.substring(start);
+    }
+
     public static Stats validate(ValueManifest manifest,
                                  Map<Integer, String> findingsBlocks,
                                  String conclusion) {
+        return validate(manifest, findingsBlocks, conclusion, java.util.Set.<String>of());
+    }
+
+    private static Stats validate(ValueManifest manifest, java.util.Map<Integer, String> findingsBlocks,
+                                  String conclusion, java.util.Set<String> servedTokens) {
         List<Miss> misses = new ArrayList<>();
         int salient = 0, resolved = 0, allowlisted = 0, boundExempt = 0, hypotheticalExempt = 0;
 
@@ -162,6 +199,11 @@ public final class ManifestTraceabilityValidator {
                 // or a scholarship noun after) so positional integers ("at 1906", "1906 windows")
                 // still require provenance. Counted as allowlisted.
                 if (isHistoricalYearContext(token, value, text, m.start(), m.end())) {
+                    allowlisted++;
+                    continue;
+                }
+                // Served cross-run context (see the servedContext overload's javadoc).
+                if (servedTokens.contains(token)) {
                     allowlisted++;
                     continue;
                 }

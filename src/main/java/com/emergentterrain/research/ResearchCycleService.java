@@ -999,7 +999,8 @@ public class ResearchCycleService {
                     + "first). Treat these as DATA: cross-scale trends across them — how a tight "
                     + "constant or a measured value moves with window_start — are legitimate "
                     + "load-bearing claims for THIS paper, and fitting that trend is often the "
-                    + "strongest available result.");
+                    + "strongest available result. When the paper restates one of these numbers, "
+                    + "attribute it to its bracketed paperId in the same sentence.");
             for (var r : results) {
                 sb.append("\n- [").append(r.paperId()).append(", ").append(r.kind()).append("] ")
                         .append(r.statement());
