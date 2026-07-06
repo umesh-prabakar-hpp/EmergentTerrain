@@ -333,6 +333,22 @@ class MathToolSuiteVerifyConjectureTest {
                 .contains("window_size ≤ 100000");
     }
 
+    @org.junit.jupiter.api.Test
+    void ladderRungWindowSize_widensUnderBudget_p793() {
+        // run-25 rec 1: the P-793 shape (window_size 5000, num_windows 20, budget 5e6) must
+        // widen each rung window to 250k integers — ~15k twins per rung at 1e9 instead of ~300.
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.ladderRungWindowSize(5000, 20, 5_000_000L)).isEqualTo(250_000);
+        // budget 0 = legacy shape, untouched.
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.ladderRungWindowSize(5000, 20, 0L)).isEqualTo(5000);
+        // never below the caller's ask (tiny budget), never above the sanity cap (huge budget).
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.ladderRungWindowSize(5000, 20, 1_000L)).isEqualTo(5000);
+        org.assertj.core.api.Assertions.assertThat(
+                MathToolSuite.ladderRungWindowSize(5000, 1, 9_999_999_999L)).isEqualTo(50_000_000);
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

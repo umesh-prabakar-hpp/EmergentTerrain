@@ -451,6 +451,33 @@ public class MathToolSuite {
         this.verifyInformCaveatsEnabled = enabled;
     }
 
+    /**
+     * 2026-07-05 (run-25 rec 1, P-b72c-77627793) — per-rung sample budget for the CONSTANT
+     * scale-ladder. Second-order deficit signals are count-noise-limited: a rung sampling 100k
+     * integers at x=10⁹ holds ~300 twin pairs (~6% noise) against a c/ln x deficit signal of the
+     * same order, so the registered twin_vs deficit question produced sign-flipping fits. With a
+     * budget B, each rung WIDENS its windows to ~B/num_windows integers (statistically identical
+     * for CONSTANT-frame means — they average over the window — and 20 large sidecar calls beat
+     * 1,000 small ones); B=5e6 → ~0.8% twin-noise at 10⁹. Deliberately NOT applied to the
+     * oscillation/growth ladders: their per-window statistics (amplitude, window max) are
+     * window-size-DEPENDENT, so widening would silently change the measured quantity.
+     * 0 = legacy shape (caller's window_size). Set by ResearchNarrationService.
+     */
+    private volatile long ladderRungBudget = 0;
+
+    public void setLadderRungBudget(long budget) {
+        this.ladderRungBudget = budget;
+    }
+
+    /** Widened per-rung window size under the ladder budget; never below the caller's ask. */
+    static int ladderRungWindowSize(int windowSize, int numWindows, long budget) {
+        if (budget <= 0) {
+            return windowSize;
+        }
+        long perWindow = budget / Math.max(1, numWindows);
+        return (int) Math.min(Math.max(windowSize, perWindow), 50_000_000L);
+    }
+
     /** scalar_window_stats needs the verifier (its sampleWindows substrate) AND its gate. */
     private boolean scalarStatsAvailable() {
         return conjectureVerifier != null && scalarStatsToolEnabled;
@@ -2697,7 +2724,11 @@ public class MathToolSuite {
      */
     private String verifyConstantLadder(String lhs, int windowSize, int numWindows, Double target, double tol) {
         long maxN = conjectureVerifier.maxN();
-        long work = (long) windowSize * numWindows;
+        // run-25 rec 1 — ladder rungs use their own sample budget (see ladderRungBudget): the
+        // interactive WORK cap is a per-call guard, not a substrate limit, and second-order
+        // deficit signals are unmeasurable at 100k integers/rung.
+        int rungWindowSize = ladderRungWindowSize(windowSize, numWindows, ladderRungBudget);
+        long work = (long) rungWindowSize * numWindows;
         java.util.List<Long> starts = new java.util.ArrayList<>();
         for (long s = 100_000L; s + work <= maxN; s *= 10) {
             starts.add(s);
@@ -2711,7 +2742,7 @@ public class MathToolSuite {
             long s = starts.get(i);
             java.util.List<java.util.Map<String, Double>> ws;
             try {
-                ws = conjectureVerifier.sampleWindows(s, windowSize, numWindows);
+                ws = conjectureVerifier.sampleWindows(s, rungWindowSize, numWindows);
             } catch (RuntimeException e) {
                 return "verify_constant scale-ladder eval failed at window_start=" + s + ": " + e.getMessage();
             }
@@ -2746,6 +2777,20 @@ public class MathToolSuite {
                     "No target — highest-scale estimate %.5f (vs %.5f one decade lower; %s). Report the "
                             + "cross-scale trajectory as the measurement.",
                     hi, prev, Math.abs(hi - prev) <= Math.abs(hi) * tol ? "settling" : "still moving"));
+        }
+        // run-25 rec 1 — the per-rung sample size is load-bearing context for any second-order
+        // claim: count noise scales ~1/sqrt(count) for sparse quantities, so a paper must be able
+        // to compare its signal against the sample its rungs actually had.
+        if (rungWindowSize != windowSize) {
+            sb.append(String.format(
+                    " rung sample: %d window(s) × %,d = %,d integers per rung (widened from "
+                            + "window_size=%,d by the ladder rung budget — count noise ~1/sqrt(count) "
+                            + "for sparse quantities).",
+                    numWindows, rungWindowSize, (long) numWindows * rungWindowSize, windowSize));
+        } else {
+            sb.append(String.format(
+                    " rung sample: %d window(s) × %,d = %,d integers per rung.",
+                    numWindows, rungWindowSize, (long) numWindows * rungWindowSize));
         }
         return sb.toString();
     }

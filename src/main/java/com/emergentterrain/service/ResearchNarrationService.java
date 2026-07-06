@@ -1368,6 +1368,12 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Value("${app.research.conjectureInvestigation.verifyInformCaveatsEnabled:false}")
     private boolean verifyInformCaveatsFlag;
 
+    /** 2026-07-05 (run-25 rec 1) — per-rung sample budget for the CONSTANT scale-ladder; the
+     *  second-order deficit questions are count-noise-limited at the legacy 100k/rung shape
+     *  (P-b72c-77627793's sign-flipping c-fits). 0 = legacy. See MathToolSuite.ladderRungBudget. */
+    @org.springframework.beans.factory.annotation.Value("${app.julia.conjecture.ladder-rung-budget:0}")
+    private long ladderRungBudgetFlag;
+
     /**
      * Phase 32 §32.5 step 4 — optional offline grounding client, field-injected like
      * {@link #discoveryService}. The bean exists only when
@@ -1385,6 +1391,7 @@ public class ResearchNarrationService {
             toolSuite.setMechanismProposalEnabled(mechanismProposalFlag);
             toolSuite.setScalarStatsToolEnabled(scalarStatsToolFlag);
             toolSuite.setVerifyInformCaveatsEnabled(verifyInformCaveatsFlag);
+            toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
             toolSuite.setLiteratureGrounding(groundingClient);
             if (groundingClient != null) {
                 log.info("search_literature grounding mode ON (py-sidecar corpus; "
