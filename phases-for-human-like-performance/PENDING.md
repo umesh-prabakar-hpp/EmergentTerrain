@@ -127,3 +127,12 @@ guard).
 > name, not an engagement"). Acceptance: next max_prime_gap synthesis contains the fit with
 > ledger-cited constants; next EVIDENCE paper makes a read_reference call.
 
+> **Run-30 (806–808, 2026-07-06 06:20): novelty 0.84 RECORD (P-808, Wigert gap to 1e9) + the
+> k(x) trajectory paper at peer 0.817 (2nd-highest ever) gated on ONE narrator-arithmetic value
+> ('0.0005') — R2 `derive_check` promoted to top build priority (two 0.8+ papers now dead on
+> this class).** Serve 4/4 third run straight (chained into P-809, cut by budget stop —
+> question un-burned via SQL, same repair class as run-28; consider a code fix: mark answered
+> only at publish). L2 untested (zero EVIDENCE hits). R1 watch method corrected: audit calls
+> don't land in llm-traces — watch audit:4b gap lists instead. Synthesis trigger at 3/5 sources
+> — NEXT RUN fires the C2 k(scale,window) fit.
+
