@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: DESIGN DOC (2026-07-05); T1 + D1 + T2 + C1 SHIPPED same day (flag-ON, live-run acceptance pending). L1 blocked on a dependency decision (PDF/text extraction — no PDFBox/Tika on the classpath).** Successor program to the closed
+**Status: DESIGN DOC (2026-07-05); T1 + D1 + T2 + C1 SHIPPED same day (flag-ON, live-run acceptance pending); L1 + L1b BUILT AND EXECUTED same day (corpus asset on disk — see L1). Next build: L2.** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -129,13 +129,36 @@ paper has ever engaged the CONTENT of a prior work (its theorem statement, its c
 range of validity). The §32.5 corpus is abstracts-only by design (the full-text core was spec'd
 as addendum item B2 and deferred).
 
-### L1 — Full-text cores for the top-cited neighborhood
+### L1 — Full-text cores for the top-cited neighborhood  *(DONE 2026-07-05)*
 
-Execute the deferred B2 slice: 300–500 OA full texts (TEI/plain) for the works nearest the live
-families (divisor problem, prime gaps, Erdős–Kac, twin constants), fetched once via the existing
-`OpenAlexClient` + ledger (≤$5 one-shot, cached like the abstract corpus). Store beside
-`corpus-nt/` with a manifest. *Acceptance:* corpus manifest lists ≥300 full texts; zero recurring
-spend. *Effort:* S–M (mostly the fetch/format plumbing).
+Execute the deferred B2 slice: OA full texts for the works nearest the live families, fetched
+once via the existing `OpenAlexClient` + ledger. *Acceptance:* corpus manifest lists ≥300 full
+texts; zero recurring spend — **MET: 1,244 topic-filtered PDF cores** (`cores/`, PDFBox
+extraction, $0.155 total search spend, operator-raised target 1600; the OA+NT candidate pool ran
+dry at 1,244 after 971 fetch/extract failures). Build lessons, each pinned in code/tests:
+(1) the seed-query search MUST carry the NT topic filter (build-1 let a 1973 ecology classic in);
+(2) never pipe a background build through `tail` (it masked a mid-sweep crash AND faked exit 0);
+(3) per-query failure tolerance + finally-manifest-write; (4) `core.fileMode=false` means script
+exec bits need a post-merge chmod (noted atop both RUN docs).
+
+**Garble audit (all 1,244 extracts):** 80.6% of files carry ≥1 lost-glyph marker but only 0.25%
+of characters corpus-wide; 27 files (2.2%) are catastrophic (>1% garbage chars — Type3/bitmap
+scans; 26 not arXiv-hosted, unrescuable) — **open follow-up: cull those 26 from the manifest**;
+~6.6% of chars (upper bound) are flattened display-math fragments + arXiv watermark furniture.
+Net: ~93% clean prose; the math-structure loss is what L1b exists to fix.
+
+### L1b — ar5iv HTML cores for the arXiv subset  *(DONE 2026-07-05)*
+
+Added on evidence (side-by-side test, math/0310381): PDF extraction flattens
+`J_{-k}(T)=Σ 1/|ζ'(ρ)|^{2k}` into structureless lines, while ar5iv's LaTeXML rendering carries
+the author's ORIGINAL LaTeX in every `<math alttext>`. `ArxivHtmlCoreBuilder`
+(`scripts/build-html-cores.sh`) fetches the ar5iv rendering for every arXiv-hosted work in the
+PDF manifest and replaces each formula with `$<original LaTeX>$` (NUL-sentinel-protected before
+tag-stripping — the extraction-order invariant, pinned in tests). **Result: 520/531 arXiv works
+(11 ar5iv misses), median 63k chars, 47/50 sampled cores carry verbatim `\frac{...}` LaTeX.**
+L2 MUST prefer `cores-html/<id>.txt` over `cores/<id>.txt` per work; PDF cores remain the
+fallback for the ~58% of works not on arXiv, with the paraphrase-don't-quote caveat in the tool
+text (exact symbol-level quotes from PDF cores are unreliable).
 
 ### L2 — `read_reference` professor tool
 
