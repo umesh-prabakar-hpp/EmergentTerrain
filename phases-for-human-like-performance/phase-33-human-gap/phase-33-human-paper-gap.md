@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: T1/T2/C1/D1 VALIDATED LIVE (runs 25–27 — the loop closed in run-27); L1+L1b executed (1,244 PDF + 654 HTML cores); L2 + R1 SHIPPED 2026-07-06 (flag-ON, acceptance pending). C2 SHIPPED 2026-07-06 (ledger block + mandatory fit section + synthesis question-harvest). Remaining: L3, D2 (behavior already emerging via T2 ride-along), R2/R3, T2b/T3/D3 (trigger-gated).** Successor program to the closed
+**Status (2026-07-06, post run-30): ALL UNBLOCKED BUILDS SHIPPED. Validated live: T1+T2 (serve 4/4 across runs 27/29/30; the loop closed run-27 and chained same-run in 29/30), C1 (evidenced serve — P-799 opened from ledger constants), D1 (extension + named-intercept consumption → binding pairs #3/#4). Executed: L1+L1b (1,244 PDF + 654 HTML cores). Shipped flag-ON, acceptance pending: L2 read_reference + checklist (no EVIDENCE trigger yet), R1 audit v3 (no fires yet), C2 ledger synthesis (refresh trigger at 3/5 sources), R2 derive_value + two-phase question answering (2026-07-06). Not built: L3 (waits on L2 adoption), D2 (superseded by observation — chaining emerged via T2 alone), T2b/T3/D3/R3 (triggers unmet).** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -76,6 +76,12 @@ question's params (same coverage predicate family as `ScoreCalibration.hypothesi
 question harvested from a prior run's paper — unprompted by the operator — and the resulting
 paper answers or narrows it. *Effort:* M. *Depends:* T1.
 
+**Addendum (2026-07-06, two-phase answering):** serve-time `markAnswered` burned questions
+whenever the draft never persisted (run-28 schema failure ×13, P-809 budget stop ×1 — both
+SQL-repaired). Now: serve RESERVES (`answeredByPaperId` set, `answeredAt` null), publish CONFIRMS
+(`UniversityService`, same site as the T1 harvest), and a run-start sweep returns dead-draft
+reservations to servable.
+
 ### T3 — Interestingness prior *(v2, deferred until T2 has data)*
 
 Rank questions by expected surprise: prefer questions where the miner's fitted model and the
@@ -105,7 +111,7 @@ is string-free: inspect the `VerifyResult`s already accumulated in the professor
 (P-788's exact shape); median rounds/paper rises by <1 (the extension is rare, not a budget
 creep). *Effort:* S.
 
-### D2 — Follow-up chaining inside a run
+### D2 — Follow-up chaining inside a run  *(SUPERSEDED BY OBSERVATION 2026-07-06 — do not build unless chaining flakes)*
 
 A published paper whose harvested question (T1) targets its OWN family may trigger one chained
 follow-up investigation in the same run (bounded: ≤1 chain per run), reusing the gate-retry queue
@@ -113,6 +119,12 @@ mechanics. This converts "the next paper is one rotation away" (days) into "the 
 this run" for the highest-value threads. *Flag:* `question-chain.enabled`. *Acceptance:* a
 chained pair publishes where paper 2's hypothesis is paper 1's open question; combined novelty of
 the pair exceeds either alone. *Effort:* M. *Depends:* T1; T2 recommended first.
+
+**Superseded (runs 29–30):** the designed behavior emerged from T2 ride-along alone — rotation
+returned the family and served the newest unanswered question, which was the same run's paper's
+(P-803→P-805 in 17 minutes; P-807→P-809 next run). The acceptance case (chained pair, paper 2's
+hypothesis = paper 1's question) was met without the build. Revisit only if organic chaining
+proves unreliable for high-value threads.
 
 ### D3 — Full-paper section contract for promotion-track papers *(deferred)*
 
@@ -230,7 +242,7 @@ contract, audit-4b dimension `underived_mechanism`, warn-first). Builds directly
 `mechanism-runnable-model` (shipped 2026-06-03). *Acceptance:* zero papers assert a quantitative
 mechanism without either the call or the label; no acceptance-rate drop. *Effort:* S.
 
-### R2 — Truncation-check tool (`derive_check`)
+### R2 — Truncation-check tool (`derive_check`)  *(SHIPPED 2026-07-06 as `derive_value` — evidence-scoped)*
 
 A deterministic tool: given a claimed identity/asymptotic over the vocabulary (e.g.
 `mean_divisor_excess → 2γ` via `Σ_{n≤x} d(n) = x ln x + (2γ−1)x + O(√x)`), evaluate BOTH sides
@@ -240,6 +252,15 @@ REFUTE a wrong derivation and quantify agreement, which is what the panel needs 
 above ~0.6. *Flag:* tool-advertise flag like verify_*. *Acceptance:* a paper's mechanism section
 carries a derive_check trajectory; panel Rigor on such papers exceeds the family baseline.
 *Effort:* M.
+
+**As shipped (2026-07-06):** the observed failure class was simpler and more urgent than the
+designed tool — narrator-computed derived RATES (P-792 '0.025/decade', P-807 '0.0005') killing
+0.8+ papers at the manifest gate, not wrong asymptotic forms. Shipped `derive_value`: an
+always-advertised, pure-Java, no-variables arithmetic evaluator whose result carries [call_N]
+provenance, plus professor checklist item 5/6 (DERIVED NUMBERS NEED PROVENANCE) and a rev-side
+TRACE NUMBERS ONLY clause. The original truncation trajectory check (evaluate both sides of a
+claimed asymptotic) remains unbuilt — fold into R3's trigger review; zero observed failures
+motivate it today.
 
 ### R3 — Identity-prover integration *(the bet; do not start before R1+R2 are live)*
 
@@ -268,6 +289,26 @@ of at least one prior work (L), builds quantitatively on results from ≥2 earli
 carries a machine-checked derivation step or an honest checked-heuristic label for every
 quantitative mechanism claim (R) — i.e., one paper produced the way a human produces one. Interim
 per-lane bars are stated inline above; per-stage progress tracked here.
+
+**Per-lane progress toward the closing paper (2026-07-06, post run-30):**
+
+| Lane | Requirement in the closing paper            | State                                        |
+|------|---------------------------------------------|----------------------------------------------|
+| T    | Answers a system-harvested, served question | ✅ demonstrated (P-799, P-803, P-805, 806–808)|
+| D    | Completes within-run to a demonstrated result| ✅ demonstrated (binding pairs #3/#4 via hint)|
+| C    | Builds quantitatively on ≥2 earlier runs    | ✅ demonstrated (P-799/P-803 opened from ledger)|
+| L    | Engages the content of ≥1 prior work        | ⏳ tooling live; first read_reference call pending|
+| R    | Machine-checked derivation / honest label   | ⏳ derive_value live; first provenanced rate pending|
+
+The likeliest closing paper: the max_prime_gap C2 synthesis (fit mandate over 4 ledgered binding
+pairs) or the run that follows it — T/C/D are routine there, and one read_reference call plus
+derive_value-computed decrements complete L and R.
+
+**Validation log (runs 25–30, compact):** 25–26 write-side 8/8 + D1 first fire; 27 loop CLOSED
+(serve 4/4, binding pair #3, k window-size discovery, 0.777/0.76); 28 FAILED (L2 schema bug —
+fixed + wired-parse guard; 13 questions SQL-repaired); 29 same-run chaining + binding pair #4 +
+k-decreasing-in-x + 42-paper prose synthesis (C2's motivating gap); 30 novelty 0.84 record
+(P-808) + k(x) ladder paper 0.817 killed by narrator arithmetic (R2's motivating evidence).
 
 ## Cross-references
 

@@ -2,8 +2,8 @@
 
 
 > **2026-07-05:** open-behavior G-program CLOSED + archived (all bars met). Successor design doc: [`phase-33-human-gap/phase-33-human-paper-gap.md`](phase-33-human-gap/phase-33-human-paper-gap.md) — five lanes (Taste/Depth/Literature/Cumulativity/Derivation) from memo to human paper. **T1 (question harvester) + D1 (adaptive rounds) + T2 (question ride-along serving) + C1 (verified-results ledger, write+serve) ALL SHIPPED + ON 2026-07-05.** The k(x) rate-fit is now mechanically set up: the next max_prime_gap serve carries the RATE question and cross-run tight-k data in one directive. L1+L1b EXECUTED 2026-07-05 eve: 1,244 topic-filtered PDF cores ($0.155) + 654 ar5iv HTML cores = 53% of corpus (520 direct + 134 via the full-locations sweep; original-LaTeX math, 47/50 spot-verified \\frac fidelity). Garble audit: 0.25% hard-lost chars, 27 catastrophic files (**cull the 26 non-arXiv ones — open follow-up**), ~6.6% flattened-math/furniture upper bound. L2 read_reference is the next build: prefer cores-html/, chunked ≤2k tokens, Java-side within-doc retrieval, EVIDENCE-gated, one call/paper. **Run-25 (791–794) WRITE-SIDE ACCEPTANCE PASSED 8/8**: question-harvest ×4 (10 questions, RATE typed), results-ledger ×4 (8 results incl. max_prime_gap k-data), D1 not-needed (P-791 completed the 2nd demonstrated binding regime IN-budget: (0.648, 0.650] at 1.5M, cross-run-consistent with 0.649), sandbox prescriptive reject → next-attempt recovery. Serve-side (T2 + C1 render) fires next run with real inventory — the k(x) fit is armed. NEW WALL (run-25 rec 1): scale-ladder rungs (5k integers) are ~800× too small for second-order deficit signals (15 twins/rung at 1e9 vs 0.2% signal) — **RUNG BUDGET SHIPPED same night** (`app.julia.conjecture.ladder-rung-budget: 5000000`, CONSTANT ladder only — oscillation/growth ladders excluded, size-dependent stats; rung sample reported in-band). twin_vs deficit UNBLOCKED. **Run-26 (795–798): RUNG BUDGET VALIDATED live** ('20 × 250,000 = 5,000,000 integers per rung' in P-795/798 ladders, no runtime stall); **D1 FIRED ×2** (mechanism ✓; completion missed — professor re-holds instead of refuting; FIXED same night: new TIGHT-HOLD branch names the literal refuting intercept — the real gap was tight holds got NO hint at all, LOOSE branches fire only above 0.25 slack; two-term LOOSE + D1 extension hint also point at the exact c); **panel-revision framing gap CONFIRMED + FIXED same night** (buildPanelRevisionPrompt had NO framing rules; appendPivotFraming now wraps it); small-value manifest class now ×3 papers → root-cause due; T2/C1 serve deferred AGAIN by zero family overlap (8 families now stocked — next run overdetermined). Mean peer 0.742 (2nd-highest); P-797 new richly bound 0.822/0.76 gated on single-point-sweep. Watch: P-792 small-value manifest-miss class (×2).
-**Last refreshed:** 2026-07-04 (`/phase-review` full-walk audit; prior refresh 2026-06-06 predated the
-whole June G1–G5 / gates / measurement-frame arc and was badly stale)
+**Last refreshed:** 2026-07-06 (documentation pass after runs 25–30 + the phase-33 build sprint;
+prior full-walk audit 2026-07-04)
 **Maintainer:** Claude Code review/build sessions; refresh after each working day or `/phase-review`.
 **Convention:** items leave this list by shipping (link the commit) or by being explicitly
 parked into a phase doc. This file is in the always-live set (never archived).
@@ -12,16 +12,17 @@ parked into a phase doc. This file is in the always-live set (never archived).
 
 ## 1. Awaiting next-run verification (deployed, unverified)
 
-App has been down since 2026-06-30 21:15 — all of these need a live run (see `RUN-MINIMAL.md`).
+Runs 25–30 (2026-07-04→06) exercised the pipeline heavily but review attention was on phase-33;
+items marked "not re-checked" below still need a deliberate look at a future review.
 
 | Item | Deployed in | What to watch |
 |---|---|---|
-| **G5 dirichlet θ̂ measurement** (√x-span `verify_oscillation` ladder fix) | 2026-06-30 (`4bb9970` cluster) | a dirichlet_error *oscillation/measurement* paper reporting a bounded O(1) envelope (flat ~2.85 across rungs, not the artefactual 2.92→1.23 decline); program closing bar = panel-novelty ≥ 0.7 |
-| G1 openness bar | ON since 2026-06-14 | ≥ 60% of conjecture topics open-behavior / second-order, held across ≥ 3 refreshes |
-| G3 vocab-expansion admission | shipped per open-behavior doc (status 2026-06-30) | first grammar-admitted scalar against a *real residual* target reaching a published conjecture (log has been `60 probed, 0 admitted` every pass) |
-| G4 QD-archive retention burn-in | `4bb9970`, `qdSelectionEnabled` ON | `qd selection — N rows → M cells` collapse ratio (first positive signal 2026-06-30: 595→539) + no single-LHS monoculture across refreshes |
-| scope-recover-gate first budgeted fire | ON since 2026-06-18 | `prereg:pivot:scope_recover_rerun` → `scope_recovered`; the 2026-06-22 detection was budget-starved (published NULL 1.5s later) |
-| measurement-target seed served | `b129b39`, flag ON | the injected `dirichlet_error` `_measurement_target_` row actually selected for a paper (not surfaced 06-22) |
+| ~~G5 dirichlet θ̂ measurement~~ **LANDED 2026-07-04** (P-758: flat O(1) envelope 1e5→1e9 + positive-bias discovery) | `4bb9970` cluster | a dirichlet_error *oscillation/measurement* paper reporting a bounded O(1) envelope (flat ~2.85 across rungs, not the artefactual 2.92→1.23 decline); program closing bar = panel-novelty ≥ 0.7 |
+| G1 openness bar | ON since 2026-06-14 | ≥ 60% of conjecture topics open-behavior / second-order, held across ≥ 3 refreshes | *(not re-checked runs 25–30)*
+| G3 vocab-expansion admission | shipped per open-behavior doc (status 2026-06-30) | first grammar-admitted scalar against a *real residual* target reaching a published conjecture (log has been `60 probed, 0 admitted` every pass) | *(not re-checked runs 25–30)*
+| G4 QD-archive retention burn-in | `4bb9970`, `qdSelectionEnabled` ON | `qd selection — N rows → M cells` collapse ratio (first positive signal 2026-06-30: 595→539) + no single-LHS monoculture across refreshes | *(not re-checked runs 25–30)*
+| scope-recover-gate first budgeted fire | ON since 2026-06-18 | `prereg:pivot:scope_recover_rerun` → `scope_recovered`; the 2026-06-22 detection was budget-starved (published NULL 1.5s later) | *(not re-checked runs 25–30)*
+| ~~measurement-target seed served~~ **DONE 2026-07-04** (served post `c596497` servability fix) | `b129b39` | the injected `dirichlet_error` `_measurement_target_` row actually selected for a paper (not surfaced 06-22) |
 
 ## 2. Phase-32 — to closure
 
@@ -72,74 +73,38 @@ App has been down since 2026-06-30 21:15 — all of these need a live run (see `
 
 ---
 
-**Recommended next stint:** a live run (app + sidecar per `RUN-MINIMAL.md`) to exercise §1 —
-especially the G5 dirichlet measurement, the G1 ≥60% bar, and scope-recover's first budgeted fire —
-then §4's two generation-side paper-review recs (scalar-definition grounding + disjoint-predicate
-guard).
+**Recommended next stint:** run (app + sidecar per `RUN-MINIMAL.md`) — the §6 acceptance table is
+the watch list, and the C2 max_prime_gap synthesis (k-law fit) is the headline shot. Then a
+deliberate §1 re-check (G1 bar, G4 collapse ratios, scope-recover) which the phase-33 sprint
+skipped.
 
-> **Run-27 (799–802, 2026-07-06): THE LOOP CLOSED.** question-serve 4/4 (every paper answered a
-> PRIOR run's question); C1 serve evidenced (P-799 opened from the ledger's k=0.650/0.648 and
-> superseded them); TIGHT HOLD named-intercept consumed first-exposure → **binding pair #3**
-> (k=0.4140, rel-slack 0.0007 + refuted variant); compound discovery: the tight max_prime_gap
-> constant is **window-size-dependent** (0.414@5k vs 0.650@10k, same region) — P-799 (0.777/0.76,
-> PUBLISHED) is the first paper built entirely from self-served question+data. Direction-gate FP
-> found+fixed same session (CONCLUSION_NULL matched limitation vocabulary in a positive
-> conclusion → narrowed to claim-subject negations, P-802 fixture pinned). NEXT: the
-> k(scale, window_size) two-variable synthesis fit (all data ledgered); small-value manifest
-> matcher root-cause (5 papers — the only recurring demotion source left).
+## 6. Phase-33 execution log (runs 25–30 + build sprint, consolidated 2026-07-06)
 
-> **2026-07-06 root-cause pass (small-value manifest class):** split in two. FP half FIXED —
-> historical citation years ('1849', '1906' in grounded prose) now context-exempt
-> (`isHistoricalYearContext`: paren / year-preposition + scholarship-noun; positional integers
-> still flagged). Genuine half documented — P-792's '0.025' is narrator arithmetic ("decline of
-> ~0.025 per decade", a two-step derivation absent from the manifest): the gate is RIGHT to catch
-> it and the cure is phase-33 R1/R2 (derive rates via a call), not matcher loosening.
+Full per-run detail: room REVIEW_REPORTs (archived per run) + `phase-33-human-gap/…md` (statuses,
+per-lane validation, closing-condition table — refreshed 2026-07-06). Compact state:
 
-> **L2 + R1 SHIPPED 2026-07-06** (`read-reference.enabled` ON; audit v3 `underived_mechanism`).
-> L2: read_reference serves the cores (HTML tier preferred/quotable, PDF tier
-> paraphrase-caveated), EVIDENCE-nudged, 2 calls/paper cap, ~2k-token chunks Java-side.
-> R1: quantitative asymptotics need [call_N] attribution or an explicit heuristic label —
-> warn-first, feeds the professor's tool loop; also the source-side fix for narrator arithmetic
-> ('0.025 per decade' class). Acceptance next runs: a paper positions its result against a cited
-> work's ACTUAL content; an audit-flagged underived form draws a derivation call (or the label).
+**Validated live:** T1 harvest; T2 serve (4/4 in runs 27/29/30; same-run chaining emerged —
+D2 superseded by observation); C1 ledger (P-799/P-803 opened from ledger constants and superseded
+them); D1 extension (named-intercept consumed → binding pairs #3 and #4).
 
-> **Run-28 (2026-07-06 04:19): FAILED — zero papers. My L2 schema bug**: text-block `\"` escapes
-> collapsed to raw quotes → invalid tools JSON → every professor path errored (62 ERRORs); 13
-> ledger questions burned by served-once marking on unpublished drafts (SQL-repaired, 26
-> unanswered restored). Fixed same session + a wired-parse regression guard (any
-> conditionally-advertised tool now needs one). L2/R1 acceptance carries to the next run.
+**Science landed:** binding pairs #3 (k=0.4140@5k/1.5e6) + #4 (k∈(0.30748,0.30800]@8.5e8);
+k-DECREASING-in-x at fixed window established (the earlier drift-to-1.0 read was a window-size
+artifact); novelty records 0.76→0.77→0.84 (P-808 Wigert-gap→1e9); peer 0.817 (P-807 k(x) ladder);
+42-paper prose synthesis (exposed C2's gap: cited stale k while the ledger held the pairs).
 
-> **Run-29 (803–805 + SYN, 2026-07-06 05:06): schema fix verified live (0 ERRORs).** Same-run
-> question CHAINING emerged (P-803's fresh question → P-805, 17 min later) — D2's behavior
-> without D2. **Binding pair #4** (P-803: k ∈ (0.30748, 0.30800] at 8.5×10⁸) — and
-> k-DECREASING-in-x established at fixed window (0.650@1.5e6 → 0.308@8.5e8), overturning the
-> earlier drift-to-1.0 reading (window-size artifact — the served sensitivity thread did its
-> job). 42-paper max_prime_gap SYNTHESIS published (prose-sourced, stale k → C2's gap named).
-> Novelty 0.77/0.72/0.68 — all above the old bar. **NEXT: the k(scale, window) fit** — 4 pinned
-> corners ledgered; one-line directive or C2. Watches: L2 nudged-not-called (promote to system
-> prompt if 2–3 more EVIDENCE papers skip); R1 zero fires (check raw audit traces for the
-> dimension being considered at all).
+**Shipped flag-ON, acceptance pending (watch next runs):**
+| Item | Watch |
+|---|---|
+| L2 `read_reference` + checklist | first call on an EVIDENCE match; paper positions vs actual content |
+| R1 audit v3 `underived_mechanism` | first entry in an `audit:4b` gap list (llm-traces do NOT carry audit calls) |
+| C2 ledger synthesis | max_prime_gap refresh (3/5 sources) → the k(scale, window) FIT with ledger constants |
+| R2 `derive_value` + prompts | a derive_value call where a rate is stated; zero arithmetic-class manifest misses |
+| Two-phase answering | sweep logs cleanly; no burned questions on dead drafts (P-809/run-28 class ends) |
 
-> **C2 + read-before-you-cite SHIPPED 2026-07-06.** C2: family ledger (top-20 verified results)
-> rides both synthesis prompts as authoritative-over-prose; ≥3 comparable results ⇒ a mandatory
-> quantitative-fit section (the k(scale, window) vehicle); synthesis output harvested for
-> questions. L2 nudge promoted to professor checklist item ("a citation you never read is a
-> name, not an engagement"). Acceptance: next max_prime_gap synthesis contains the fit with
-> ledger-cited constants; next EVIDENCE paper makes a read_reference call.
+**Incidents (all fixed same-session):** run-28 total failure (L2 schema quotes in a text block →
+invalid tools JSON; wired-parse guard added; 13 questions SQL-repaired); direction-gate FP on
+limitation vocabulary (P-802; regex narrowed to claim-subject negations); manifest year-FP
+('1849'/'1906'; context-gated exemption — narrator-arithmetic half kept caught, now closed by R2).
 
-> **Run-30 (806–808, 2026-07-06 06:20): novelty 0.84 RECORD (P-808, Wigert gap to 1e9) + the
-> k(x) trajectory paper at peer 0.817 (2nd-highest ever) gated on ONE narrator-arithmetic value
-> ('0.0005') — R2 `derive_check` promoted to top build priority (two 0.8+ papers now dead on
-> this class).** Serve 4/4 third run straight (chained into P-809, cut by budget stop —
-> question un-burned via SQL, same repair class as run-28; consider a code fix: mark answered
-> only at publish). L2 untested (zero EVIDENCE hits). R1 watch method corrected: audit calls
-> don't land in llm-traces — watch audit:4b gap lists instead. Synthesis trigger at 3/5 sources
-> — NEXT RUN fires the C2 k(scale,window) fit.
-
-> **R2 + two-phase answering SHIPPED 2026-07-06.** `derive_value` (always advertised, pure-Java
-> arithmetic, no variables) + checklist item 5/6 + rev-side TRACE NUMBERS ONLY clause — closes
-> the narrator-arithmetic class that killed P-792/P-807 at both ends. Questions now
-> reserve-at-serve / confirm-at-publish / sweep-at-run-start — the P-809/run-28 burn class ends.
-> Acceptance next run: a derive_value call appears in a trace where a rate is stated; zero
-> manifest misses of the arithmetic class; stale-reservation sweep logs cleanly.
-
+**Next:** run (the C2 synthesis trigger is the k-law shot); L3 after L2's first adoption;
+gated items per phase-33 doc.
