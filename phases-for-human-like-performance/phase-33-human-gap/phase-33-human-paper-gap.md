@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status: DESIGN DOC (2026-07-05); T1 + D1 + T2 + C1 SHIPPED same day (flag-ON, live-run acceptance pending); L1 + L1b BUILT AND EXECUTED same day (corpus asset on disk — see L1). Next build: L2.** Successor program to the closed
+**Status: T1/T2/C1/D1 VALIDATED LIVE (runs 25–27 — the loop closed in run-27); L1+L1b executed (1,244 PDF + 654 HTML cores); L2 + R1 SHIPPED 2026-07-06 (flag-ON, acceptance pending). Remaining: L3, D2, C2 (trigger MET for max_prime_gap), R2/R3, T2b/T3/D3 (trigger-gated).** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -163,7 +163,7 @@ L2 MUST prefer `cores-html/<id>.txt` over `cores/<id>.txt` per work; PDF cores r
 fallback for the ~58% of works not on arXiv, with the paraphrase-don't-quote caveat in the tool
 text (exact symbol-level quotes from PDF cores are unreliable).
 
-### L2 — `read_reference` professor tool
+### L2 — `read_reference` professor tool  *(SHIPPED 2026-07-06)*
 
 When grounding returns EVIDENCE (or the professor cites a key), a new tool lets it pull the
 work's abstract + (when L1 has it) sectioned full text, chunked to a token budget. This is the
@@ -221,7 +221,7 @@ derivation from fluent prose — including the panel.
 
 Staged so each step is useful standalone:
 
-### R1 — Derivation obligations on mechanism claims
+### R1 — Derivation obligations on mechanism claims  *(SHIPPED 2026-07-06 — audit v3 `underived_mechanism`)*
 
 A mechanism section that asserts a quantitative asymptotic ("scales as ln²x", "tends to 2γ")
 must carry either (a) a `run_symbolic` call deriving the claimed form on a truncation, or (b) an

@@ -95,3 +95,11 @@ guard).
 > ~0.025 per decade", a two-step derivation absent from the manifest): the gate is RIGHT to catch
 > it and the cure is phase-33 R1/R2 (derive rates via a call), not matcher loosening.
 
+> **L2 + R1 SHIPPED 2026-07-06** (`read-reference.enabled` ON; audit v3 `underived_mechanism`).
+> L2: read_reference serves the cores (HTML tier preferred/quotable, PDF tier
+> paraphrase-caveated), EVIDENCE-nudged, 2 calls/paper cap, ~2k-token chunks Java-side.
+> R1: quantitative asymptotics need [call_N] attribution or an explicit heuristic label —
+> warn-first, feeds the professor's tool loop; also the source-side fix for narrator arithmetic
+> ('0.025 per decade' class). Acceptance next runs: a paper positions its result against a cited
+> work's ACTUAL content; an audit-flagged underived form draws a derivation call (or the label).
+
