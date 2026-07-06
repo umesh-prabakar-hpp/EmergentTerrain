@@ -103,3 +103,9 @@ guard).
 > ('0.025 per decade' class). Acceptance next runs: a paper positions its result against a cited
 > work's ACTUAL content; an audit-flagged underived form draws a derivation call (or the label).
 
+> **Run-28 (2026-07-06 04:19): FAILED — zero papers. My L2 schema bug**: text-block `\"` escapes
+> collapsed to raw quotes → invalid tools JSON → every professor path errored (62 ERRORs); 13
+> ledger questions burned by served-once marking on unpublished drafts (SQL-repaired, 26
+> unanswered restored). Fixed same session + a wired-parse regression guard (any
+> conditionally-advertised tool now needs one). L2/R1 acceptance carries to the next run.
+
