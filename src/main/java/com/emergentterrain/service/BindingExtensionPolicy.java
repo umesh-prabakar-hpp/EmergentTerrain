@@ -66,11 +66,14 @@ public class BindingExtensionPolicy {
 
     /** The hint injected as a user message when the extension is granted. */
     public String extensionHint() {
+        // run-26 rec 2 — P-796 spent its extension RE-holding; point at the tool's LITERAL
+        // refuting intercept ("TIGHT HOLD — … re-verify with c=…") instead of a vague "tighter".
         return "EXTENSION GRANTED (" + extraRounds() + " extra tool round(s)): your trace contains "
                 + "a tightly-held bound (relative slack < " + NEAR_BINDING_REL_SLACK + ") without "
-                + "its refuting counterpart — you are 1-2 calls from a DEMONSTRATED binding regime. "
-                + "Spend the extension completing the pair: re-verify the tight constant if needed, "
-                + "AND confirm a slightly tighter one REFUTES. Then write your synthesis.";
+                + "its refuting counterpart — you are ONE call from a DEMONSTRATED binding regime. "
+                + "Your tight-hold tool result names the exact refuting intercept (\"TIGHT HOLD — "
+                + "… re-verify with c=…\"): make THAT call verbatim. Do NOT verify more holds. "
+                + "Then write your synthesis reporting the hold+refute pair.";
     }
 
     /** Parse "relative slack: X" from a verification result; true iff present and X < threshold. */

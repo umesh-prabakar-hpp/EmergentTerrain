@@ -3618,7 +3618,11 @@ public class ResearchNarrationService {
             // tagged trace when the flag is on (profTrace is authoritative here).
             String traceBlock = revisionTraceGroundingEnabled
                     ? renderCitableTraceBlock(profTrace) : "";
-            String prompt = buildPanelRevisionPrompt(narration, outcome, traceBlock);
+            // 2026-07-05 (run-26 rec 1, P-b72c-77627790 + P-798) — the panel revision rewrites
+            // the Conclusion WITHOUT the framing rules, so inconclusive measurements were
+            // re-stamped null here and drew direction_inversion at publish. Same rule, same flag.
+            String prompt = appendPivotFraming(
+                    buildPanelRevisionPrompt(narration, outcome, traceBlock), pivotFramingEnabled);
             StringBuilder buf = new StringBuilder();
             // Phase 17 (analyses §2.4) — temperature 0.0 for the panel
             // revision: the constraints (no new numerics, fix citations,

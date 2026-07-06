@@ -349,6 +349,29 @@ class MathToolSuiteVerifyConjectureTest {
                 MathToolSuite.ladderRungWindowSize(5000, 1, 9_999_999_999L)).isEqualTo(50_000_000);
     }
 
+    @org.junit.jupiter.api.Test
+    void tightHold_namesTheLiteralRefutingIntercept_p796() throws Exception {
+        // run-26 rec 2: a TIGHT hold previously got NO hint (LOOSE branches fire on large slack
+        // only) — P-796 reached rel-slack 0.0026 and spent its extension re-holding. The tool
+        // must now name the exact refuting intercept and forbid further holds.
+        ObjectMapper mapper = new ObjectMapper();
+        MathToolSuite suite = new MathToolSuite(
+                (LlmRouter) null, mapper, null, null, verifierWithSubstrate());
+        var executor = suite.buildExecutor(stubDraft());
+        // c barely above the abundant density (~0.247) → tight hold, small relative slack.
+        String call = mapper.writeValueAsString(Map.of(
+                "name", "verify_conjecture",
+                "arguments", Map.of(
+                        "lhs", "abundant_density", "rhs", "prime_density",
+                        "k", 0.0, "c", 0.2523,
+                        "window_start", 200_000, "window_size", 500, "num_windows", 3)));
+        String result = executor.apply(call);
+        assertThat(result).contains("HELD")
+                .contains("TIGHT HOLD — one call from the demonstrated binding pair")
+                .contains("re-verify with c=")
+                .contains("Do NOT re-verify more holds");
+    }
+
     /** Same shape as the other MathToolSuite tests' stubDraft. */
     private static PaperDraft stubDraft() {
         return new PaperDraft(

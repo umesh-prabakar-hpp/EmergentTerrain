@@ -2456,13 +2456,16 @@ public class MathToolSuite {
                 // (clears binding_regime_uncovered + earns EMPIRICAL_RESULT for a held composite). Phrased
                 // with "re-verify at c=" so it does NOT match the one-term SUGGEST_K gate (no mis-fire).
                 double cTight = c + binding.map(w -> w.margin()).orElse(0.0);
+                // run-26 rec 2 — name the LITERAL refuting intercept (copyable numbers rule):
+                // lowering c by 2× the hold threshold pushes the binding window's margin past it.
+                double cRefute = cTight - 2 * result.holdThreshold();
                 sb.append(String.format(
                         " LOOSE (two-term): holds with this much slack — the tightest intercept keeping "
                                 + "k and k2 is c ≈ %+.4f. Re-verify at c=%+.4f (keep k=%+.4f, rhs2=%s, "
-                                + "k2=%+.4f) AND confirm a slightly smaller c REFUTES, to demonstrate the "
-                                + "binding regime; a held composite that never binds stays loose and is not "
-                                + "retained as an EMPIRICAL_RESULT.",
-                        cTight, cTight, k, rhs2, k2));
+                                + "k2=%+.4f) AND confirm c=%+.5f REFUTES (2× the hold threshold lower), to "
+                                + "demonstrate the binding regime; a held composite that never binds stays "
+                                + "loose and is not retained as an EMPIRICAL_RESULT.",
+                        cTight, cTight, k, rhs2, k2, cRefute));
             } else if (relSlack > MAX_REL_SLACK_SUGGEST) {
                 // 2026-06-11 (rec 2) — one-term: a HELD bound left at a loose textbook constant (e.g.
                 // Cramér's k=1, ~2x loose at reachable x). Suggest the TIGHTEST k that still holds (max
@@ -2485,6 +2488,22 @@ public class MathToolSuite {
                                     + "without its refute.",
                             kTight, kSuggest, c));
                 }
+            } else {
+                // 2026-07-05 (run-26 rec 2, P-b72c-77627796) — the TIGHT-hold case had NO hint at
+                // all: the LOOSE branches fire only on large slack, so a professor who reached
+                // rel-slack 0.0026 got silence and spent its (D1-extended!) rounds RE-holding —
+                // 6 HELD, 0 REFUTED, binding_regime demotion anyway. Name the literal refuting
+                // intercept: lowering c by 2× the hold threshold pushes the binding window's
+                // margin (≥ −threshold at a tight hold) past the threshold — a guaranteed REFUTED
+                // there, which completes the demonstrated binding pair.
+                double cRefute = c + binding.map(w -> w.margin()).orElse(0.0)
+                        - 2 * result.holdThreshold();
+                sb.append(String.format(
+                        " TIGHT HOLD — one call from the demonstrated binding pair: re-verify with "
+                                + "c=%+.5f (same k%s; that is the binding margin minus 2× the hold "
+                                + "threshold %.5f) — it should REFUTE, and hold+refute together are the "
+                                + "demonstration. Do NOT re-verify more holds.",
+                        cRefute, rhs2.isBlank() ? "" : "/k2", result.holdThreshold()));
             }
             // 2026-06-18 (REVIEW_REPORT b72c4e10 §1 rec 3) — tolerance-dominated HOLD: when the lhs
             // magnitude is at or below the HOLD slack (2*TOL=0.04), "holds" is dominated by the tolerance,
