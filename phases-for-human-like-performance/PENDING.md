@@ -151,3 +151,9 @@ drafts (821/823) → sweep next run.
 
 **Next:** run — max_prime_gap serve + re-synthesis (the k(x,w) fit over 5 pairs) is the shot;
 read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
+
+> **2026-07-06 evening:** core backfill folded into the `/paper-review` skill (step 9 — runs
+> automatically after each report, app-down guarded, counts reported in the summary). Run-34
+> backfill: +14 cores (778 total in cores-html); the 226 not-arxiv skips are the permanent
+> no-free-fulltext set (lookups cached, zero spend on re-runs).
+
