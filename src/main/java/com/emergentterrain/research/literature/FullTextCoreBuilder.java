@@ -89,6 +89,7 @@ public final class FullTextCoreBuilder {
 
         int fetched = 0;
         int failed = 0;
+        try {
         outer:
         for (String query : NtCorpusBuilder.SEED_QUERIES) {
             String cursor = "*";
@@ -102,7 +103,17 @@ public final class FullTextCoreBuilder {
                 // scope as the abstract corpus' breadth pull.
                 params.put("filter", "open_access.is_oa:true,primary_topic.id:"
                         + NtCorpusBuilder.NT_TOPIC_ID);
-                JsonNode response = client.searchWorks(query, params);
+                // Build-2 lesson: a single un-caught search failure killed the sweep 6 queries in
+                // (and the piped `tail` masked the exception). One page failing moves to the next
+                // query; the manifest finally-write below keeps progress metadata current.
+                JsonNode response;
+                try {
+                    response = client.searchWorks(query, params);
+                } catch (RuntimeException e) {
+                    System.out.printf("  query '%s' page %d search failed (%s) — next query%n",
+                            query, page, e.getMessage());
+                    break;
+                }
                 for (JsonNode work : response.path("results")) {
                     if (have.size() >= targetCores) {
                         break outer;
@@ -142,8 +153,11 @@ public final class FullTextCoreBuilder {
             System.out.printf("  query '%s' done — cores=%d failed=%d%n", query, have.size(), failed);
         }
 
-        manifest.put("builtAt", java.time.Instant.now().toString());
-        manifest.put("totalCores", have.size());
+        } finally {
+            manifest.put("builtAt", java.time.Instant.now().toString());
+            manifest.put("totalCores", have.size());
+            Files.writeString(manifestFile, manifest.toPrettyString());
+        }
         manifest.put("failedFetches", failed);
         Files.writeString(manifestFile, manifest.toPrettyString());
         System.out.printf("fulltext-cores done — cores=%d failed=%d spentToday=$%.4f manifest=%s%n",
