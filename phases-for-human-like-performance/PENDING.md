@@ -136,3 +136,10 @@ guard).
 > don't land in llm-traces — watch audit:4b gap lists instead. Synthesis trigger at 3/5 sources
 > — NEXT RUN fires the C2 k(scale,window) fit.
 
+> **R2 + two-phase answering SHIPPED 2026-07-06.** `derive_value` (always advertised, pure-Java
+> arithmetic, no variables) + checklist item 5/6 + rev-side TRACE NUMBERS ONLY clause — closes
+> the narrator-arithmetic class that killed P-792/P-807 at both ends. Questions now
+> reserve-at-serve / confirm-at-publish / sweep-at-run-start — the P-809/run-28 burn class ends.
+> Acceptance next run: a derive_value call appears in a trace where a rate is stated; zero
+> manifest misses of the arithmetic class; stale-reservation sweep logs cleanly.
+
