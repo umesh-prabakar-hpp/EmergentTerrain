@@ -1,9 +1,9 @@
 # Run — minimal (commands only)
 
-> Script exec bits are NOT git-tracked (`core.fileMode=false`). On `Permission denied` (126):
-> `chmod +x scripts/*.sh scripts/*.py` — or use `bash scripts/<name>.sh`.
-
 ```bash
+# 0. fresh checkout only (exec bits aren't git-tracked)
+chmod +x scripts/*.sh scripts/*.py
+
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
 
