@@ -109,3 +109,14 @@ guard).
 > unanswered restored). Fixed same session + a wired-parse regression guard (any
 > conditionally-advertised tool now needs one). L2/R1 acceptance carries to the next run.
 
+> **Run-29 (803–805 + SYN, 2026-07-06 05:06): schema fix verified live (0 ERRORs).** Same-run
+> question CHAINING emerged (P-803's fresh question → P-805, 17 min later) — D2's behavior
+> without D2. **Binding pair #4** (P-803: k ∈ (0.30748, 0.30800] at 8.5×10⁸) — and
+> k-DECREASING-in-x established at fixed window (0.650@1.5e6 → 0.308@8.5e8), overturning the
+> earlier drift-to-1.0 reading (window-size artifact — the served sensitivity thread did its
+> job). 42-paper max_prime_gap SYNTHESIS published (prose-sourced, stale k → C2's gap named).
+> Novelty 0.77/0.72/0.68 — all above the old bar. **NEXT: the k(scale, window) fit** — 4 pinned
+> corners ledgered; one-line directive or C2. Watches: L2 nudged-not-called (promote to system
+> prompt if 2–3 more EVIDENCE papers skip); R1 zero fires (check raw audit traces for the
+> dimension being considered at all).
+
