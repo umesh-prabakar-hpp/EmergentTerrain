@@ -88,3 +88,10 @@ guard).
 > k(scale, window_size) two-variable synthesis fit (all data ledgered); small-value manifest
 > matcher root-cause (5 papers — the only recurring demotion source left).
 
+> **2026-07-06 root-cause pass (small-value manifest class):** split in two. FP half FIXED —
+> historical citation years ('1849', '1906' in grounded prose) now context-exempt
+> (`isHistoricalYearContext`: paren / year-preposition + scholarship-noun; positional integers
+> still flagged). Genuine half documented — P-792's '0.025' is narrator arithmetic ("decline of
+> ~0.025 per decade", a two-step derivation absent from the manifest): the gate is RIGHT to catch
+> it and the cure is phase-33 R1/R2 (derive rates via a call), not matcher loosening.
+
