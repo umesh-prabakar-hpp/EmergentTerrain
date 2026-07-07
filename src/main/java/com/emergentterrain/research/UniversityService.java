@@ -2810,13 +2810,33 @@ public class UniversityService {
 
     // ---- Helpers ----
 
+    /**
+     * 2026-07-07 (P-b72c-77627854) — persist-at-shutdown guard. The budget stop's context
+     * teardown raced an in-flight persist (BeanCreationNotAllowedException during singleton
+     * destruction): the paper file existed but the DB row, ledger entries, harvest, and serve
+     * confirmation were lost with a scary ERROR stacktrace. The flag turns that into a calm,
+     * understood skip — the file/cache path still runs, and the question reservation self-heals
+     * via the run-start sweep.
+     */
+    private volatile boolean shuttingDown = false;
+
+    @jakarta.annotation.PreDestroy
+    void markShutdown() {
+        this.shuttingDown = true;
+    }
+
     private void addPaper(UUID roomId, ResearchPaper paper) {
         // DB is source of truth. Persist first, then mirror to in-memory cache and disk.
-        try {
-            papersRepository.save(paper);
-        } catch (Exception e) {
-            log.error("university failed to persist paper paperId={}: {}", paper.paperId(), e.getMessage(), e);
-            // Continue — cache+disk fallback keeps the simulation running even if DB is unavailable.
+        if (shuttingDown) {
+            log.warn("shutdown in progress — DB persist skipped for {} (paper file on disk; "
+                    + "downstream ledger/harvest deferred; reservation self-heals)", paper.paperId());
+        } else {
+            try {
+                papersRepository.save(paper);
+            } catch (Exception e) {
+                log.error("university failed to persist paper paperId={}: {}", paper.paperId(), e.getMessage(), e);
+                // Continue — cache+disk fallback keeps the simulation running even if DB is unavailable.
+            }
         }
         List<ResearchPaper> bucket = roomPapers(roomId);
         synchronized (bucket) {

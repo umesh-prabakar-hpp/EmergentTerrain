@@ -101,4 +101,42 @@ class SynthesisLedgerBlockTest {
         org.assertj.core.api.Assertions.assertThat(
                 SynthesisPaperService.stripEchoedHeading("plain prose", "t")).isEqualTo("plain prose");
     }
+
+    @org.junit.jupiter.api.Test
+    void fullPaperComposer_promptsAndAssembly_d3() {
+        String intro = FullPaperComposer.buildIntroRelatedWorkPrompt(
+                "conjecture/max_prime_gap",
+                "the Wigert coordinate descends monotonically toward ln 2",
+                "verdict: SILENT\n  [W123] Some adjacent work (2014): snippet",
+                "read_reference W123 [source: PDF extraction ...] passage text");
+        org.assertj.core.api.Assertions.assertThat(intro)
+                .contains("Introduction and Related Work")
+                .contains("position the claim against")
+                .contains("no prior statement of the claim")
+                .contains("[W123]");
+
+        String abs = FullPaperComposer.buildAbstractPrompt("Title", "body with 0.00095");
+        org.assertj.core.api.Assertions.assertThat(abs)
+                .contains("ABSTRACT").contains("every number must");
+
+        String md = FullPaperComposer.assemble("The ln 2 law", "An abstract.",
+                "Intro prose.", "\n## Fit\n\nprose", java.util.List.of("P-1", "P-2"),
+                "conjecture/max_prime_gap");
+        org.assertj.core.api.Assertions.assertThat(md)
+                .startsWith("# The ln 2 law")
+                .contains("## Abstract").contains("## Introduction and Related Work")
+                .contains("## Results: the program").contains("## Provenance")
+                .contains("2 internal sources")
+                .contains("binding pairs carry both the");
+    }
+
+    @org.junit.jupiter.api.Test
+    void headlineOf_prefersFitLikeSectionTitle() {
+        var r = new SynthesisPaperService.SynthesisResult("f", "T",
+                "## Failures of linear bounds\n\nprose\n\n"
+                        + "## Quantitative Fit of the Constant: Ledger Evidence\n\nprose",
+                com.emergentterrain.research.EvidenceLabel.CONJECTURE, java.util.List.of(), java.util.List.of(), false, null);
+        org.assertj.core.api.Assertions.assertThat(SynthesisPaperService.headlineOf(r))
+                .isEqualTo("Quantitative Fit of the Constant: Ledger Evidence");
+    }
 }

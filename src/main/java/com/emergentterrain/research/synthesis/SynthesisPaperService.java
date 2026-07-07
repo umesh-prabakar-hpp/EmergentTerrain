@@ -92,6 +92,15 @@ public class SynthesisPaperService {
     private com.emergentterrain.repo.VerifiedResultRepository verifiedResultRepo;
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.question.OpenQuestionHarvestService questionHarvest;
+
+    /** Phase 33 D3 (2026-07-07) — full-paper promotion pass over a published synthesis. */
+    @org.springframework.beans.factory.annotation.Value(
+            "${app.research.synthesis.full-paper.enabled:false}")
+    private boolean fullPaperEnabled;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.GroundingClient groundingClient;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.ReferenceCoreReader referenceReader;
     private final Path researchOutputDir;
 
     private volatile com.emergentterrain.llm.RunBudgetTracker runBudgetTracker;
@@ -203,6 +212,7 @@ public class SynthesisPaperService {
                                 .familyOf(w.family()),
                         w.family(), r.bodyMarkdown(), "");
             }
+            composeFullPaper(r, w);
             log.info("synthesis PUBLISHED family={} sections={} cited={} label={} violations={}",
                     r.family(), r.bodyMarkdown().split("\n## ").length - 1,
                     r.citedIds().size(), r.label(), r.uncitedViolations().size());
@@ -240,6 +250,89 @@ public class SynthesisPaperService {
         sorted.sort(java.util.Comparator.comparingInt(
                 (SynthesisWarrant.Warrant w) -> ledgerRows.applyAsInt(w.family())).reversed());
         return sorted;
+    }
+
+    /**
+     * Phase 33 D3 — promote a published synthesis to a full paper: grounded intro/related-work
+     * (search + up to 2 full-text reads at compose time — the L-capability the synthesis
+     * pipeline lacked), abstract, the synthesis body as the results program, provenance.
+     * Failure-soft: any error logs and skips; the synthesis itself is already published.
+     */
+    void composeFullPaper(SynthesisResult r, SynthesisWarrant.Warrant w) {
+        if (!fullPaperEnabled || r == null || r.isNull()) {
+            return;
+        }
+        try {
+            String headline = FullPaperComposer.class != null ? headlineOf(r) : null;
+            String groundingBlock = "";
+            StringBuilder reads = new StringBuilder();
+            if (groundingClient != null) {
+                var grounding = groundingClient.ground(headline, 5);
+                groundingBlock = FullPaperComposer.renderGroundingBlock(grounding);
+                if (referenceReader != null && referenceReader.available()
+                        && grounding != null && grounding.evidence() != null) {
+                    int readsDone = 0;
+                    for (var e : grounding.evidence()) {
+                        if (readsDone >= 2) {
+                            break;
+                        }
+                        if (referenceReader.hasCore(e.key())) {
+                            String passage = referenceReader.read(e.key(), headline);
+                            if (passage != null) {
+                                reads.append(passage, 0, Math.min(passage.length(),
+                                        FullPaperComposer.MAX_READ_PASSAGE_CHARS)).append("\n---\n");
+                                readsDone++;
+                            }
+                        }
+                    }
+                }
+            }
+            String intro = synthesizer.apply(FullPaperComposer.buildIntroRelatedWorkPrompt(
+                    w.family(), headline, groundingBlock, reads.toString()));
+            String abstractText = synthesizer.apply(FullPaperComposer.buildAbstractPrompt(
+                    r.title(), r.bodyMarkdown()));
+            if (intro == null || intro.isBlank() || abstractText == null
+                    || abstractText.isBlank()
+                    || SynthesisComposer.looksLikeLeakedReasoning(intro)) {
+                log.warn("full-paper: intro/abstract compose unusable family={} — skipped",
+                        w.family());
+                return;
+            }
+            String md = FullPaperComposer.assemble(r.title(), abstractText, intro,
+                    r.bodyMarkdown(), r.citedIds(), w.family());
+            java.util.UUID roomId = anyRoomId();
+            Path dir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
+            Files.createDirectories(dir);
+            String fileId = "PAPER-" + w.family().replaceAll("[^A-Za-z0-9]+", "_")
+                    + "-" + Integer.toHexString(md.hashCode());
+            Files.writeString(dir.resolve(fileId + ".fullpaper.md"), md);
+            log.info("full-paper composed — family={} file={} reads={} grounding={}",
+                    w.family(), fileId, reads.length() > 0 ? "yes" : "no",
+                    groundingBlock.isBlank() ? "none" : "yes");
+        } catch (Exception e) {
+            log.warn("full-paper compose failed family={} (synthesis unaffected): {}",
+                    w.family(), e.getMessage());
+        }
+    }
+
+    /** The program's headline claim: the fit-like section title, else the first section title. */
+    static String headlineOf(SynthesisResult r) {
+        String body = r.bodyMarkdown() == null ? "" : r.bodyMarkdown();
+        String firstTitle = null;
+        for (String line : body.split("\n")) {
+            if (line.startsWith("## ")) {
+                String t = line.substring(3).strip();
+                if (firstTitle == null) {
+                    firstTitle = t;
+                }
+                String lower = t.toLowerCase(java.util.Locale.ROOT);
+                if (lower.contains("fit") || lower.contains("convergence")
+                        || lower.contains("quantitative")) {
+                    return t;
+                }
+            }
+        }
+        return firstTitle != null ? firstTitle : r.title();
     }
 
     /** C2 — the family's ledger block for the composer prompts; "" when flag/repo absent. */
