@@ -59,6 +59,15 @@ public class ReferenceCoreReader {
         this.corpusDir = Path.of(corpusDir);
     }
 
+    /** True when a full-text core exists for this specific work (either tier). */
+    public boolean hasCore(String id) {
+        if (id == null || !id.matches("[A-Za-z0-9]+")) {
+            return false;
+        }
+        return Files.isRegularFile(corpusDir.resolve("cores-html").resolve(id + ".txt"))
+                || Files.isRegularFile(corpusDir.resolve("cores").resolve(id + ".txt"));
+    }
+
     /** True when at least one core tier exists on disk (gates tool advertising). */
     public boolean available() {
         return Files.isDirectory(corpusDir.resolve("cores-html"))

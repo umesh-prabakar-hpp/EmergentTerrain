@@ -1361,10 +1361,31 @@ public class MathToolSuite {
                     // executor).
                     if (referenceReader != null && referenceReader.available()
                             && grounded.contains("EVIDENCE")) {
-                        grounded += " NOTE: you may READ a matched work's full text — call "
-                                + "read_reference with its [W…] key and a focused query (ONE work "
-                                + "per paper; engage the prior result's actual content, then "
-                                + "position your result against it).";
+                        // Run-38 (P-b72c-77627844) — the generic "you may read" nudge was skipped
+                        // on four straight EVIDENCE matches even when the cores WERE on disk.
+                        // Name the keys whose full text is guaranteed to return: a concrete
+                        // zero-miss offer, not a suggestion.
+                        java.util.List<String> onDisk = new java.util.ArrayList<>();
+                        java.util.regex.Matcher km =
+                                java.util.regex.Pattern.compile("\\bW\\d{7,}\\b").matcher(grounded);
+                        while (km.find() && onDisk.size() < 3) {
+                            String key = km.group();
+                            if (!onDisk.contains(key) && referenceReader.hasCore(key)) {
+                                onDisk.add(key);
+                            }
+                        }
+                        if (!onDisk.isEmpty()) {
+                            grounded += " FULL TEXT ON DISK for " + String.join(", ", onDisk)
+                                    + " — a read_reference call on one of these RETURNS the actual "
+                                    + "passages (guaranteed, no miss). Read it before citing it "
+                                    + "(checklist rule): position your result against the work's "
+                                    + "actual content.";
+                        } else {
+                            grounded += " NOTE: you may READ a matched work's full text — call "
+                                    + "read_reference with its [W…] key and a focused query (ONE "
+                                    + "work per paper; some works have no stored core — the tool "
+                                    + "says so and you fall back to the snippet).";
+                        }
                     }
                     return grounded;
                 }

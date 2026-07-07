@@ -68,4 +68,13 @@ class ReferenceCoreReaderTest {
         assertThat(ReferenceCoreReader.chunk(huge)).allMatch(
                 c -> c.length() <= ReferenceCoreReader.MAX_CHUNK_CHARS);
     }
+
+    @org.junit.jupiter.api.Test
+    void hasCore_perKeyLookup_run38() throws Exception {
+        ReferenceCoreReader r = readerWith("cores-html", "W2950091262", "some long enough core text here for the test");
+        org.assertj.core.api.Assertions.assertThat(r.hasCore("W2950091262")).isTrue();
+        org.assertj.core.api.Assertions.assertThat(r.hasCore("W999")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(r.hasCore("../etc/passwd")).isFalse();
+        org.assertj.core.api.Assertions.assertThat(r.hasCore(null)).isFalse();
+    }
 }
