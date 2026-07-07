@@ -214,3 +214,11 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 **Next:** run — 5th max_prime_gap source → the k(x,w) fit synthesis; then D3
 (synthesis-targeted per the 07-07 design discussion).
 
+> **Run-38 (842–845, 03:24): NEW ALL-TIME RECORD — P-844 richly_divisible 0.870/0.83 (structural
+> dual-sweep refutation, EVIDENCE-grounded) in a 4/4 batch, record mean 0.768.** Tool-bridge
+> class did not recur; sweep recovered run-37's reservations. L2's LAST blocker root-caused +
+> fixed same session: P-844's matched works HAD cores on disk and the read was still skipped
+> (4th straight) — the nudge now checks hasCore per key and names guaranteed hits ("FULL TEXT
+> ON DISK for W… — RETURNS the actual passages"). max_prime_gap re-synthesis holds at 4/5.
+> Next-run shots: 5th source → k(x,w) fit; first read-hit paper.
+
