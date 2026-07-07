@@ -139,4 +139,16 @@ class SynthesisLedgerBlockTest {
         org.assertj.core.api.Assertions.assertThat(SynthesisPaperService.headlineOf(r))
                 .isEqualTo("Quantitative Fit of the Constant: Ledger Evidence");
     }
+
+    @org.junit.jupiter.api.Test
+    void stripBoldEcho_render1Polish() {
+        org.assertj.core.api.Assertions.assertThat(
+                SynthesisPaperService.stripBoldEcho(
+                        "**Introduction and Related Work**\n\nThe twin prime conjecture...",
+                        "Introduction and Related Work"))
+                .startsWith("The twin prime conjecture");
+        org.assertj.core.api.Assertions.assertThat(
+                SynthesisPaperService.stripBoldEcho("No echo here.", "Introduction and Related Work"))
+                .isEqualTo("No echo here.");
+    }
 }

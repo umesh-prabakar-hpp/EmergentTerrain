@@ -298,7 +298,14 @@ public class SynthesisPaperService {
                         w.family());
                 return;
             }
-            String md = FullPaperComposer.assemble(r.title(), abstractText, intro,
+            // Render-1 polish (PAPER-5e2a9b12): a paper title, not the synthesis's
+            // "Synthesis: <family> across N papers"; and the intro model bold-echoes its
+            // heading — strip it like the section-heading echo.
+            String paperTitle = headline + " — the "
+                    + com.emergentterrain.research.question.OpenQuestionHarvestService
+                            .familyOf(w.family()) + " program";
+            intro = stripBoldEcho(intro, "Introduction and Related Work");
+            String md = FullPaperComposer.assemble(paperTitle, abstractText, intro,
                     r.bodyMarkdown(), r.citedIds(), w.family());
             java.util.UUID roomId = anyRoomId();
             Path dir = researchOutputDir.resolve(roomId.toString().substring(0, 8));
@@ -313,6 +320,16 @@ public class SynthesisPaperService {
             log.warn("full-paper compose failed family={} (synthesis unaffected): {}",
                     w.family(), e.getMessage());
         }
+    }
+
+    /** Render-1 polish — strip a leading "**Heading**" bold echo from a composed section. */
+    static String stripBoldEcho(String section, String heading) {
+        if (section == null) {
+            return null;
+        }
+        String t = section.strip();
+        String bold = "**" + heading + "**";
+        return t.startsWith(bold) ? t.substring(bold.length()).stripLeading() : section;
     }
 
     /** The program's headline claim: the fit-like section title, else the first section title. */
