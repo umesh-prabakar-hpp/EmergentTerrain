@@ -211,6 +211,27 @@ public class SynthesisPaperService {
         return Optional.empty();
     }
 
+    /**
+     * 2026-07-07 (SYN-30ace9e8) — the section model echoes its own heading as the first line
+     * ("## title\n\n## title\nprose"), and the composer prepends the heading again: every
+     * section published with a doubled heading. Strip a leading heading line that matches the
+     * title (case-insensitive, punctuation-collapsed). Static for tests.
+     */
+    static String stripEchoedHeading(String section, String title) {
+        if (section == null || title == null) {
+            return section;
+        }
+        String t = section.stripLeading();
+        if (!t.startsWith("#")) {
+            return section;
+        }
+        int nl = t.indexOf('\n');
+        String firstLine = (nl < 0 ? t : t.substring(0, nl)).replaceFirst("^#+\\s*", "");
+        String norm = firstLine.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", " ").strip();
+        String normTitle = title.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9]+", " ").strip();
+        return norm.equals(normTitle) ? (nl < 0 ? "" : t.substring(nl + 1).stripLeading()) : section;
+    }
+
     /** C2 warrant hint — stable descending re-sort by ledger inventory. Static for tests. */
     static List<SynthesisWarrant.Warrant> reorderByLedger(
             List<SynthesisWarrant.Warrant> warrants,
@@ -276,6 +297,7 @@ public class SynthesisPaperService {
             // leaks the model's planning instead of prose is dropped, never
             // published. The OUTPUT FORMAT rule in the prompt is the primary
             // guard; this is the backstop.
+            section = stripEchoedHeading(section, title);
             if (SynthesisComposer.looksLikeLeakedReasoning(section)) {
                 leaked++;
                 log.warn("synthesis: section '{}' leaked reasoning — dropped (family {})",

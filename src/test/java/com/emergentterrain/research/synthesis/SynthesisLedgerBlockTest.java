@@ -86,4 +86,19 @@ class SynthesisLedgerBlockTest {
         org.assertj.core.api.Assertions.assertThat(sorted.get(1).family())
                 .isEqualTo("conjecture/max_divisor_count");
     }
+
+    @org.junit.jupiter.api.Test
+    void stripEchoedHeading_syn30ace9e8() {
+        String cleaned = SynthesisPaperService.stripEchoedHeading(
+                "## The Wigert anchor: empirical discovery\n\nAcross more than thirty conjectures...",
+                "The Wigert anchor: empirical discovery");
+        org.assertj.core.api.Assertions.assertThat(cleaned)
+                .startsWith("Across more than thirty");
+        // A section legitimately starting with a DIFFERENT sub-heading is untouched.
+        String other = SynthesisPaperService.stripEchoedHeading(
+                "## A sub-point\nprose", "The Wigert anchor");
+        org.assertj.core.api.Assertions.assertThat(other).startsWith("## A sub-point");
+        org.assertj.core.api.Assertions.assertThat(
+                SynthesisPaperService.stripEchoedHeading("plain prose", "t")).isEqualTo("plain prose");
+    }
 }
