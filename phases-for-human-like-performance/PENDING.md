@@ -191,3 +191,11 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > the binding constraint has moved upstream AGAIN — pool composition, not instrument or loop
 > (Phase 23.8's conclusion at a higher level).
 
+> **Family-revival seeds SHIPPED 2026-07-06 night (run-36 rec 1, user-approved).**
+> `conjectureMiner.revivalFamilies: [max_prime_gap, twin_vs_prime_sq]` — measurement-frame seed
+> injected IFF the family has zero servable rows (generalizes the dirichlet_error injector;
+> extinction backstop, never competes with organic rows; rotation owns it after). Acceptance
+> next run: `REVIVAL family 'max_prime_gap'` in the log → the seed serves with the 5-pair
+> ledger block → paper #5 → re-synthesis trigger → the k(x,w) fit (warrant hint guarantees the
+> slot). Also carrying: redirect completed-paper acceptance; read-hit watch.
+
