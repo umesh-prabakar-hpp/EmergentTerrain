@@ -231,3 +231,13 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > adds compose-time search+read (D3 re-scoped as the closing route, builds after the fit).
 > Full section in phase-33 doc.
 
+> **Run-39 (847/849 + SYN, 08:52): PHASE-33 CLOSING CONDITION MET.** P-849 (twin_vs, 0.743 /
+> **0.85 novelty record**, PUBLISHED) = all five lanes in one paper — including the first
+> read_reference FULL-TEXT HITS (2-for-2, first run after the SILENT+on-disk offer): read the
+> Hardy–Littlewood conjecture-D paper, positioned the shrinking residual envelope as
+> "consistent in order of magnitude with O(1/ln x) decay from the H–L secondary term", signed
+> residuals (+,+,−,+,−) — its own family's fluctuation question answered. P-847 = max_prime_gap
+> 5th source → **fit-synthesis trigger MET, uncontested next run** (max_divisor's counter
+> reset by its own re-SYN — which posed a NEW conjecture: Wigert coordinate → ln 2; heading-echo
+> bug fixed same session). Close-out: run (fit) → build D3 on it → archive phase 33.
+
