@@ -178,3 +178,16 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > Acceptance: next isAbundant-class admission logs `REDIRECTED to second-order` and the paper
 > measures the deviation rate.
 
+> **Run-36 (830–832, 20:24): ALL-TIME PEER RECORD PUBLISHED — P-831 max_divisor 0.848/0.82
+> (dual-scale refutation + growth-anchor hold). AND the max_prime_gap mystery root-caused:
+> the family is EXTINCT in the miner pool** (0 rows of 106; max_divisor 1, twin_vs 0 — vs
+> happy 14 / omega_Omega 14 / mertens 13 / abundant 12). Counterexample-retirement killed the
+> frontier families; the substrate's 7 survivors don't re-propose them; recent serves track the
+> pool mix exactly. **The k(x,w) fit synthesis is blocked on family revival — promoted rec:
+> measurement-target seeds for max_prime_gap/twin_vs via the EXISTING injector (the
+> dirichlet_error mechanism).** Redirect fired (isAbundant admission) but its paper didn't
+> complete — acceptance carries. P-830's direction fire = TRUE positive (conclusion admits the
+> pre-registered conditional was never computed). Backfill: +1 core (782). Top-level finding:
+> the binding constraint has moved upstream AGAIN — pool composition, not instrument or loop
+> (Phase 23.8's conclusion at a higher level).
+
