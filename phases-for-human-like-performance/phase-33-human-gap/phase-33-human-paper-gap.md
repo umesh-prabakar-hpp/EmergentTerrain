@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status (2026-07-07, post run-39): CLOSING CONDITION MET — P-b72c-77627849 (twin_vs_prime_sq, 0.743 peer / 0.85 novelty RECORD, PUBLISHED) carries all five lanes in one artifact: T (served P-841's sensitivity question), D (ladder + sandboxed c/ln x rate fit in-run), C (cross-run ladder/2C₂ program), L (read_reference full-text HIT on the Hardy–Littlewood conjecture-D paper + positioning), R (call-provenanced fit). The unlock was the 07-07 diagnosis fix (read offer on SILENT near-misses + core-on-disk naming) — first exposure, 2-for-2. Close-out remaining: the k(x,w) fit synthesis (trigger MET 5/5, uncontested next run) and D3 (full-paper pass over it); then archive.** Successor program to the closed
+**Status (2026-07-07, post run-39): CLOSING CONDITION MET — P-b72c-77627849 (twin_vs_prime_sq, 0.743 peer / 0.85 novelty RECORD, PUBLISHED) carries all five lanes in one artifact: T (served P-841's sensitivity question), D (ladder + sandboxed c/ln x rate fit in-run), C (cross-run ladder/2C₂ program), L (read_reference full-text HIT on the Hardy–Littlewood conjecture-D paper + positioning), R (call-provenanced fit). The unlock was the 07-07 diagnosis fix (read offer on SILENT near-misses + core-on-disk naming) — first exposure, 2-for-2. The k(x,w) fit synthesis LANDED run-40 (Wigert→ln 2 resolution). D3 SHIPPED 2026-07-07 (full-paper promotion, flag ON) + persist-at-shutdown guard. Close-out remaining: one run to see the first .fullpaper.md render; then archive.** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -126,7 +126,7 @@ returned the family and served the newest unanswered question, which was the sam
 hypothesis = paper 1's question) was met without the build. Revisit only if organic chaining
 proves unreliable for high-value threads.
 
-### D3 — Full-paper section contract for promotion-track papers *(deferred)*
+### D3 — Full-paper section contract for promotion-track papers  *(SHIPPED 2026-07-07 — synthesis-first re-scope)*
 
 Multi-section development (motivation → prior work → method → results → limitations → outlook)
 only for papers that clear a peer threshold on the memo form — depth is expensive; spend it on

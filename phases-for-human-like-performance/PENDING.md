@@ -252,3 +252,10 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > honest NULL. P-850: redirect served but execution fumble (unverified sandbox fn) — acceptance
 > carries. **CLOSE-OUT: build D3 (subject in hand) + persist guard → archive phase 33.**
 
+> **D3 + persist guard SHIPPED 2026-07-07 (close-out builds).** D3: every published synthesis
+> now gets a full-paper promotion — grounded intro/related-work (search + ≤2 full-text reads at
+> compose time; SILENT-novelty honest), abstract, results program, provenance —
+> `PAPER-<family>-<hash>.fullpaper.md`. Persist guard: @PreDestroy flag turns the P-854
+> budget-stop race into a calm skip. Skill updated: backfill always backgrounded.
+> **Phase-33 close-out: one run to see the first .fullpaper.md; then archive.**
+
