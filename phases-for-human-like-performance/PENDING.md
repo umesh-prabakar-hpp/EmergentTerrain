@@ -205,8 +205,10 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > conjectures-math.json is a partial EXPORT, not the pool — the DB held live rows all along;
 > "extinction" was wrong; the drought ended by ordinary rotation; the revival seed correctly
 > stayed dormant (armed backstop — verified safe). Lesson: pool claims need a DB query (the
-> log-mtime lesson's sibling). Infra-rough run: 6 dead drafts on OpenRouter callStream failures
-> + 1 narration timeout — watch, no code change. max_prime_gap re-synthesis at 4/5 sources.
+> log-mtime lesson's sibling). Infra-rough run CORRECTED on follow-up: the "OpenRouter
+> failures" were shutdown budget-stop noise (one worker, 02:42:13); real killers =
+> legacy-ai 500 "Tool bridge error: turn timeout" ×2 on the PROFESSOR stage
+> (prof:error→fp) + narration timeouts ×2 — watch subscription tool-bridge latency. max_prime_gap re-synthesis at 4/5 sources.
 > Backfill: +8 cores (790).
 
 **Next:** run — 5th max_prime_gap source → the k(x,w) fit synthesis; then D3
