@@ -100,6 +100,15 @@ public class ConjectureMinerProperties {
     // (idempotent: only when no servable row exists) so the existing rotation surfaces it and Stage-1f
     // reframes it to a verify_oscillation envelope investigation. ADDS an opportunity (no seed filtering).
     private boolean measurementTargetSeedEnabled = false;
+    /**
+     * Run-36 rec 1 (user-approved 2026-07-06) — family-revival seeds. Families listed here get a
+     * measurement-frame seed row injected whenever they have ZERO servable rows (extinction
+     * backstop only — never competes with organic candidates). Motivation: max_prime_gap (five
+     * ledgered binding pairs, the k(x,w) fit program) went extinct in the pool via
+     * counterexample-retirement and the substrate stopped re-proposing it; the pool re-served
+     * first-order leftovers for four runs while the room's richest thread starved.
+     */
+    private java.util.List<String> revivalFamilies = java.util.List.of();
     // Wave 0 — investigation rotation.
     private boolean investigationRotationEnabled = false;
     // 2026-06-10 — decision A (discovery→pool write-back, step 2). When ON, a row stamped
@@ -196,6 +205,10 @@ public class ConjectureMinerProperties {
 
     public boolean isMeasurementTargetSeedEnabled() { return measurementTargetSeedEnabled; }
     public void setMeasurementTargetSeedEnabled(boolean v) { this.measurementTargetSeedEnabled = v; }
+    public java.util.List<String> getRevivalFamilies() { return revivalFamilies; }
+    public void setRevivalFamilies(java.util.List<String> v) {
+        this.revivalFamilies = v == null ? java.util.List.of() : v;
+    }
 
     public boolean isDimensionFilterEnabled() { return dimensionFilterEnabled; }
     public void setDimensionFilterEnabled(boolean v) { this.dimensionFilterEnabled = v; }

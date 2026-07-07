@@ -188,6 +188,8 @@ public class ConjectureMinerService implements ConjectureQueue {
     }
     private final boolean oscillatingTargetFimExemptEnabled;
     private final boolean measurementTargetSeedEnabled;
+    /** Run-36 rec 1 — extinction-backstop revival families (see ConjectureMinerProperties). */
+    private final java.util.List<String> revivalFamilies;
 
     /**
      * Phase 30 Wave 1 — when ON, dimensional-mismatch seeds are dropped each
@@ -396,6 +398,7 @@ public class ConjectureMinerService implements ConjectureQueue {
         loadServedDescriptors();
         this.oscillatingTargetFimExemptEnabled = props.isOscillatingTargetFimExemptEnabled();
         this.measurementTargetSeedEnabled = props.isMeasurementTargetSeedEnabled();
+        this.revivalFamilies = props.getRevivalFamilies();
         this.dimensionFilterEnabled = props.isDimensionFilterEnabled();
         this.investigationRotationEnabled = props.isInvestigationRotationEnabled();
         this.respectInvestigationVerified = props.isRespectInvestigationVerified();
@@ -1644,6 +1647,20 @@ public class ConjectureMinerService implements ConjectureQueue {
      * ADDS an opportunity — no seed filtering (clean vs the no-reseed-skip discipline). Returns
      * {@code existing} with any new rows appended; also updates {@code byKey}.
      */
+    /** Run-36 rec 1 — the lhs set needing a seed row: oscillating + revival, minus servable
+     * and frameless. Static + pure for tests. */
+    static java.util.List<String> seedTargets(java.util.List<String> revivalFamilies,
+                                              java.util.Set<String> servableLhs) {
+        java.util.LinkedHashSet<String> targets =
+                new java.util.LinkedHashSet<>(ScalarOpenness.OSCILLATING_TARGETS);
+        if (revivalFamilies != null) {
+            targets.addAll(revivalFamilies);
+        }
+        targets.removeIf(lhs -> servableLhs.contains(lhs)
+                || ScalarOpenness.measurementFrame(lhs) == null);
+        return new ArrayList<>(targets);
+    }
+
     private List<Conjecture> ensureMeasurementSeeds(List<Conjecture> existing, Map<String, Conjecture> byKey) {
         if (!measurementTargetSeedEnabled) {
             return existing;
@@ -1655,10 +1672,12 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
         }
         List<Conjecture> augmented = null;
-        for (String lhs : ScalarOpenness.OSCILLATING_TARGETS) {
-            if (servableLhs.contains(lhs) || ScalarOpenness.measurementFrame(lhs) == null) {
-                continue;
-            }
+        // Run-36 rec 1 — revival families ride the same injection path as the oscillating
+        // targets: measurement-frame seed, counterexample-class (skips the live-bound gauntlet;
+        // the topic-synthesis path frames it per the family's MeasurementSpec — GROWTH for
+        // max_prime_gap, CONSTANT+secondOrder for twin_vs). Extinction backstop only: injected
+        // iff the family has zero servable rows; the rotation owns it afterward.
+        for (String lhs : seedTargets(revivalFamilies, servableLhs)) {
             Conjecture seed = new Conjecture(DOMAIN, lhs, MEASUREMENT_SEED_RHS, 0.0, 0.0);
             seed.setDroppedByKnob(DROPPED_BY_COUNTEREXAMPLE);
             seed.setUpdatedAt(Instant.now());
@@ -1668,9 +1687,11 @@ public class ConjectureMinerService implements ConjectureQueue {
             }
             augmented.add(seed);
             byKey.put(keyOf(seed.lhs(), seed.rhs()), seed);
-            log.info("measurement-target seed — created servable row for OSCILLATING open target '{}' "
-                    + "(no servable row existed); diversifiedNextN will surface it (rank 0), Stage-1f "
-                    + "reframes it to a verify_oscillation envelope investigation", lhs);
+            log.info("measurement-target seed — created servable row for {} target '{}' "
+                    + "(no servable row existed); diversifiedNextN will surface it and the "
+                    + "measurement frame drives the investigation",
+                    ScalarOpenness.OSCILLATING_TARGETS.contains(lhs)
+                            ? "OSCILLATING open" : "REVIVAL family", lhs);
         }
         return augmented == null ? existing : augmented;
     }
