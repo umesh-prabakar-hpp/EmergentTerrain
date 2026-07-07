@@ -199,3 +199,16 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > ledger block → paper #5 → re-synthesis trigger → the k(x,w) fit (warrant hint guarantees the
 > slot). Also carrying: redirect completed-paper acceptance; read-hit watch.
 
+> **Run-37 (839/841, 02:42): max_prime_gap BACK at 0.838/0.83 (2nd-best peer ever) with the
+> room's FIRST related-work POSITIONING** ("Fedotkin (2026)'s competing normalization … is not
+> prior support" — snippet-level; read-hit still pending). **CORRECTION to run-36:**
+> conjectures-math.json is a partial EXPORT, not the pool — the DB held live rows all along;
+> "extinction" was wrong; the drought ended by ordinary rotation; the revival seed correctly
+> stayed dormant (armed backstop — verified safe). Lesson: pool claims need a DB query (the
+> log-mtime lesson's sibling). Infra-rough run: 6 dead drafts on OpenRouter callStream failures
+> + 1 narration timeout — watch, no code change. max_prime_gap re-synthesis at 4/5 sources.
+> Backfill: +8 cores (790).
+
+**Next:** run — 5th max_prime_gap source → the k(x,w) fit synthesis; then D3
+(synthesis-targeted per the 07-07 design discussion).
+
