@@ -241,3 +241,14 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > reset by its own re-SYN — which posed a NEW conjecture: Wigert coordinate → ln 2; heading-echo
 > bug fixed same session). Close-out: run (fit) → build D3 on it → archive phase 33.
 
+> **Run-40 (850–854 + SYN-5e6b17df, 10:29): THE k(x,w) FIT SYNTHESIS LANDED.** Every ledgered
+> binding pair cited by paperId across 9 decades; the raw-k scatter RESOLVED — Wigert coordinate
+> descends monotonically to **ln 2** (gap 0.16999→0.00095, replicated, "no rebound"), with a
+> prediction section. Two families now converge on ln 2-class Wigert limits (max_divisor SYN
+> run-39 + this) — a cross-family observation for D3's related-work treatment. Echo fix
+> verified (5 single headings). Read-hit #3 (P-854, 0.762/0.81) — but P-854's DB persist RACED
+> the budget-stop teardown (BeanCreationNotAllowedException; file exists, ledger/harvest/confirm
+> lost, reservation self-heals) → **persist-at-shutdown guard queued with D3**. P-852: 0.817
+> honest NULL. P-850: redirect served but execution fumble (unverified sandbox fn) — acceptance
+> carries. **CLOSE-OUT: build D3 (subject in hand) + persist guard → archive phase 33.**
+
