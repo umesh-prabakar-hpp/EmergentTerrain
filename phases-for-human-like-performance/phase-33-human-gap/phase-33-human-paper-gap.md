@@ -1,6 +1,6 @@
 # Phase 33 — The human-paper gap: five lanes from "excellent memo" to "paper"
 
-**Status (2026-07-06, post run-30): ALL UNBLOCKED BUILDS SHIPPED. Validated live: T1+T2 (serve 4/4 across runs 27/29/30; the loop closed run-27 and chained same-run in 29/30), C1 (evidenced serve — P-799 opened from ledger constants), D1 (extension + named-intercept consumption → binding pairs #3/#4). Executed: L1+L1b (1,244 PDF + 654 HTML cores). Shipped flag-ON, acceptance pending: L2 read_reference + checklist (no EVIDENCE trigger yet), R1 audit v3 (no fires yet), C2 ledger synthesis (refresh trigger at 3/5 sources), R2 derive_value + two-phase question answering (2026-07-06). Not built: L3 (waits on L2 adoption), D2 (superseded by observation — chaining emerged via T2 alone), T2b/T3/D3/R3 (triggers unmet).** Successor program to the closed
+**Status (2026-07-06, post run-30): ALL UNBLOCKED BUILDS SHIPPED. Validated live: T1+T2 (serve 4/4 across runs 27/29/30; the loop closed run-27 and chained same-run in 29/30), C1 (evidenced serve — P-799 opened from ledger constants), D1 (extension + named-intercept consumption → binding pairs #3/#4). Executed: L1+L1b (1,244 PDF + 654 HTML cores). Shipped flag-ON, acceptance pending: L2 read_reference + checklist (no EVIDENCE trigger yet), R1 audit v3 (no fires yet), C2 ledger synthesis (refresh trigger at 3/5 sources), R2 derive_value + two-phase question answering (2026-07-06). Not built: L3 (waits on L2 adoption), D2 (superseded by observation — chaining emerged via T2 alone), T2b/T3/D3/R3 (triggers unmet). 2026-07-07: closing-condition diagnosis added (see §'Why the closing-condition paper is elusive') — L-lane structural fixes shipped; D3 re-scoped synthesis-first and promoted to next-build-after-the-fit.** Successor program to the closed
 open-behavior activation (G1–G5, archived 2026-07-05) and the live §32.5 grounding. Those programs
 fixed *honesty, instrumentation, and novelty scoring*; the corpus now produces short empirical
 memos with referee-grade epistemics (peer 0.833 / novelty 0.82 records; three consecutive
@@ -271,6 +271,41 @@ theorem proving; anything outside the class degrades to R2's numeric check. *Tri
 R2 live and ≥3 papers whose Rigor was capped by an uncheckable derivation step. *Effort:* L.
 
 ---
+
+## Why the closing-condition paper is elusive — diagnosis (2026-07-07)
+
+By run 38, four of the five lanes (T, D, C, R) co-occurred routinely — every near-miss (P-799,
+P-803, P-839, P-844) failed on L alone, and L fails for three compounding STRUCTURAL reasons,
+not bad luck:
+
+1. **L's trigger was anti-correlated with the papers that ace the other lanes.** The read chain
+   gated on claim-level EVIDENCE, but frontier papers — the ones that best satisfy T/D/C — get
+   SILENT as the CORRECT retrieval verdict (that is what their novelty means; observed EVIDENCE
+   confidences were only 0.29–0.31 even on hits). So the lane fired most easily for
+   rediscoveries and hardest for exactly the papers that satisfied everything else. P-839's
+   Fedotkin positioning showed the escape: related-work engagement needs the NEAREST work, not
+   a work stating the same claim. *Fixed 2026-07-07:* SILENT results already carried near-miss
+   keys as citable context — the read offer (with core-on-disk targeting) now fires on them
+   too, with adjacent-but-distinct positioning named as a reportable relationship.
+
+2. **Nothing in the incentive structure pays for reading.** The professor's rounds are
+   indirectly scored by what the panel rewards — verification depth, binding pairs — and every
+   checklist item that landed first-exposure changed what the TRACE contains. Reading produces
+   positioning PROSE, which no gate demands and no score credits; four straight skips (even
+   with cores on disk) was a budget-rational professor reading its reward function. Mitigated
+   by concreteness (the FULL-TEXT-ON-DISK offer); a panel-side scoring change was considered
+   and HELD — wider blast radius than the supply/signal fixes justify yet.
+
+3. **The strongest candidate artifacts were structurally excluded from L.** The C2 synthesis
+   pipeline (the likeliest Q5 artifact: the k(x,w) fit) has NO tools — no search, no read; it
+   cites only internal papers by design. A synthesis cannot close the phase under current
+   wiring no matter how many runs happen. *Resolution:* D3 (the full-paper pass, synthesis-
+   targeted per the 2026-07-07 design discussion) adds a grounded related-work section built
+   with search+read at compose time — D3 is therefore not presentation polish but the only
+   route by which a synthesis closes the phase.
+
+Bar note: if snippet-level positioning counted as "engages the content," P-839 already came
+within a whisker. The bar stays at full-text engagement — but the miss is by inches.
 
 ## What this phase does NOT attempt
 

@@ -222,3 +222,12 @@ read-hit watch carries; D3 goes live when the fit lands. Nothing to build.
 > ON DISK for W… — RETURNS the actual passages"). max_prime_gap re-synthesis holds at 4/5.
 > Next-run shots: 5th source → k(x,w) fit; first read-hit paper.
 
+> **Closing-condition diagnosis DOCUMENTED + fix 1 SHIPPED (2026-07-07).** Three structural
+> reasons L never co-occurs with T/D/C/R: (1) read trigger was EVIDENCE-gated while frontier
+> papers correctly get SILENT — FIXED: the core-on-disk read offer now fires on SILENT
+> near-misses too ("read the NEAREST-CONTEXT work; adjacent-but-distinct is a reportable
+> relationship"); (2) no score pays for reading (mitigated by concreteness; panel-side change
+> HELD); (3) the synthesis pipeline has no tools — a synthesis cannot close the phase until D3
+> adds compose-time search+read (D3 re-scoped as the closing route, builds after the fit).
+> Full section in phase-33 doc.
+

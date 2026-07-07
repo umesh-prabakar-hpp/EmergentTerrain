@@ -1359,12 +1359,16 @@ public class MathToolSuite {
                     // Phase 33 L2 — when the reader is wired, an EVIDENCE match is readable in
                     // full: nudge exactly one read_reference call (per-paper cap enforced in the
                     // executor).
-                    if (referenceReader != null && referenceReader.available()
-                            && grounded.contains("EVIDENCE")) {
+                    if (referenceReader != null && referenceReader.available()) {
                         // Run-38 (P-b72c-77627844) — the generic "you may read" nudge was skipped
                         // on four straight EVIDENCE matches even when the cores WERE on disk.
                         // Name the keys whose full text is guaranteed to return: a concrete
                         // zero-miss offer, not a suggestion.
+                        // 2026-07-07 (closing-condition diagnosis) — the offer now fires on
+                        // SILENT results too: SILENT is the CORRECT verdict for frontier claims
+                        // (their novelty), and the near-miss keys are already rendered as
+                        // citable context — the frontier papers that best satisfy every other
+                        // closing-condition lane were the only ones never OFFERED a read.
                         java.util.List<String> onDisk = new java.util.ArrayList<>();
                         java.util.regex.Matcher km =
                                 java.util.regex.Pattern.compile("\\bW\\d{7,}\\b").matcher(grounded);
@@ -1379,7 +1383,15 @@ public class MathToolSuite {
                                     + " — a read_reference call on one of these RETURNS the actual "
                                     + "passages (guaranteed, no miss). Read it before citing it "
                                     + "(checklist rule): position your result against the work's "
-                                    + "actual content.";
+                                    + "actual content."
+                                    + (grounded.contains("SILENT")
+                                            ? " No prior work states your claim — so read the "
+                                                    + "NEAREST-CONTEXT work and position against "
+                                                    + "it: adjacent-but-distinct (a different "
+                                                    + "normalization, a weaker range, a related "
+                                                    + "constant) is itself a reportable "
+                                                    + "relationship."
+                                            : "");
                         } else {
                             grounded += " NOTE: you may READ a matched work's full text — call "
                                     + "read_reference with its [W…] key and a focused query (ONE "
