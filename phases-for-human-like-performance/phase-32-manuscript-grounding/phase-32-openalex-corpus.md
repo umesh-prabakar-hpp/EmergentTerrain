@@ -95,9 +95,19 @@ offline (Tantivy + local embeddings), so an overnight room never touches the net
 - **Dedup + enrichment:** DOI → arXiv ID → fuzzy title (ARC order); metadata cascade fills
   venue/year/authors for citation-key fidelity. Build manifest records query/date/credit spend →
   reproducible.
+- **Subject tags (2026-07-08, see §32.5c):** `SELECT_FIELDS` now pulls `primary_topic`; each row
+  stores `field` (display name, e.g. *Mathematics*), `subfield` (id, e.g. `2602`), and `topic` (id,
+  e.g. `T11166`) for the retrieval-time subject gate. The seed pull is subfield-constrained
+  (`SEED_SUBFIELD_FILTER`, default `primary_topic.subfield.id:2602`) so field-unconstrained
+  full-text search no longer ingests cross-domain papers sharing a word. **Corpora built before this
+  carry no tags** — backfill via a non-destructive `primary_topic` enrichment over the existing ids
+  (batched `filter=openalex_id:W…|W…&select=id,primary_topic`, ~1,000 read calls; anonymous tier
+  429-throttles near the tail, so pace ≤ ~5 req/s or supply `OPENALEX_API_KEY`), not a
+  delete-and-rebuild that risks not reproducing a multi-day corpus.
 
 *Acceptance:* ≥10⁵ abstracts + ≥300 full-text cores with manifest; total spend ≤ $10 logged;
-§32.5's 20-claim probe set passes against it (that bar stays owned by §32.5); warm re-run ≈ 0 credits.
+§32.5's 20-claim probe set passes against it (that bar stays owned by §32.5, now incl. the #21
+subject-purity probe); warm re-run ≈ 0 credits.
 
 ### C — Layered external citation resolver *(implements the 30.4 design update on the JVM)*
 

@@ -212,6 +212,49 @@ carries a grounding verdict with at least one resolvable citation key or an hone
 SILENT; the narrator cites classical results from provided keys only; panel novelty on a
 genuinely-new measurement clears ~0.5; zero network on the request path.
 
+**32.5c — subject gate over BM25 near-misses (2026-07-08 review; the "related-work relevance"
+fix).** A human review of a twin-prime paper's related-work found the retrieval doing embedding-/
+keyword-shaped matching, not subject-matter awareness: of 4 surfaced near-misses, **3 were
+cross-domain noise** — turbulence-modeled-via-elliptic-curves (fluids), postsynaptic protein
+crowding (neuroscience), invertebrate stream drift (ecology) — matched only on generic words
+(*flow*, *density*, *scale*); the **1 legitimate find** (a Chowla-type bounds / prime-k-tuples
+equivalence via Gowers uniformity and Pilatte's estimates, Analytic NT) was correctly kept and
+correctly *not* claimed as precedent. Two root causes: (i) `literature_grounding.jl` BM25 had no
+subject gate; (ii) `NtCorpusBuilder.SEED_QUERIES` pull was field-unconstrained (`has_abstract:true`
+only), so full-text search on phrases like *"density of abundant numbers"* ingested ecology/
+neuroscience/fluids papers sharing the vocabulary. **The discriminator is subject
+(field/subfield/topic), not BM25 score** — the noise and the Chowla near-miss score alike, so a
+score floor would fail closed on the legitimate find (that idea was proposed and retracted on this
+evidence).
+
+Shipped vs staged (matches the phase's flag-gated-dormant discipline):
+- **Shipped** (next app restart): a SILENT-branch **subject-check guard** in
+  `MathToolSuite.formatGrounding` — cite a near-miss only when it shares the claim's object/method/
+  quantity/constant; drop generic-word overlap silently; a SILENT verdict with **zero** cited
+  context is a correct outcome. Evidence now carries + prints `field/subfield/topic` through
+  `GroundingClient.Evidence` so the professor can see each near-miss's subject.
+- **Staged, dormant behind `ET_GROUND_SUBJECTS`** (comma allowlist of field/subfield/topic
+  substrings; unset ⇒ byte-identical to prior behavior): `literature_grounding.jl` filters
+  candidates by subject **before ranking** (so confidence reflects the best *relevant* match), and
+  **keeps docs with empty subject tags** — pre-rebuild corpus rows can't regress recall.
+  `NtCorpusBuilder` retains `primary_topic` (`SELECT_FIELDS` + field/subfield/topic per row) and
+  subfield-filters the seed pull (`SEED_SUBFIELD_FILTER`, default `primary_topic.subfield.id:2602`
+  = Algebra & Number Theory, env `OPENALEX_SEED_SUBFIELD`).
+
+**Acceptance bar (golden probe).** New probe **#21** in `ground-probe-set.json`
+(`subject_pure:true`) encodes the review case; `run-ground-probes.py` gains a subject-purity check —
+every *returned* near-miss for a `subject_pure` probe must be in-subject (field = Mathematics),
+i.e. the 3 noise items are gone and Chowla-class near-misses remain. The check is skipped gracefully
+until the corpus carries field tags.
+
+**Activation (the one open step).** The existing 105,855-doc corpus predates field tags. Backfill
+them (a non-destructive OpenAlex `primary_topic` enrichment over the existing ids — the
+delete-and-rebuild alternative risks not reproducing a multi-day corpus), then run
+`run-ground-probes.py` to calibrate `ET_GROUND_SUBJECTS` (field-level `mathematics` cleanly removes
+the cross-*field* noise; a topic-level allowlist is the tighter option for the intra-math
+elliptic-curve edge case), set the env, and restart the py-sidecar (8089). `literature_grounding.jl`
+is runtime-included → py-sidecar restart only, no package rebuild.
+
 ## 32.6 — Writeup-stage small guards  *(cheap, mostly prompt-side)*
 
 Three v1 patterns adopted as narration-side refinements, each small enough to ride along:
