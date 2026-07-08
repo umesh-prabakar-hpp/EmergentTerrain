@@ -43,8 +43,11 @@ HTML members straight from the zip, decompress only the ~30k joinable ids). No n
 # 0. LOCAL: export the join-keys (done — 13 MB, 105,855 rows, 31,698 with arXiv id)
 #    ~/.emergentterrain/corpus-nt/corpus-join-keys.jsonl
 
-# 1. Provision: m6i.2xlarge + 500 GB gp3, us-east-1, Amazon Linux 2023
-# 2. Copy keys + scripts up
+# 1. Provision (after `aws login`): one command — resolves AMI, reuses the gpu-cli-key
+#    pair + a SSH security group, launches m6i.2xlarge + 500 GB gp3, prints the next steps.
+./scripts/aws/provision-build-box.sh          # account 583533133311, us-east-1 (session weeks-stale → re-login first)
+
+# 2. Copy keys + scripts up  (provision-build-box.sh prints the exact scp/ssh lines with the IP)
 scp corpus-join-keys.jsonl scripts/aws/*.py  ec2-user@$BOX:~/
 ssh ec2-user@$BOX
 pip install huggingface_hub pyarrow
