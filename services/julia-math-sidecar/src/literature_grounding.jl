@@ -129,11 +129,21 @@ function lg_tokenize(text::AbstractString)
     return tokens
 end
 
+# Flag-gated (default OFF): also index each work's full text (corpus-nt/fulltext/<key>.txt,
+# built by §32.5d/e) into BM25, capped per doc to bound the in-memory index. OFF = title+abstract
+# only (today's behavior, few-hundred-MB index). ON bloats RAM ~linearly with full-text volume —
+# turn on only with the disk-backed index (§32.5d) or ample RAM. read_reference serves full text
+# regardless of this flag (JVM-side ReferenceCoreReader); this only affects RETRIEVAL recall.
+lg_index_fulltext() = get(ENV, "ET_GROUND_INDEX_FULLTEXT", "0") == "1"
+const LG_FULLTEXT_CAP = 40_000   # chars of full text folded into the index per doc
+
 """Load abstracts.jsonl and build the BM25 index. Returns doc count."""
 function lg_init!(corpus_path::AbstractString)
     docs = LgDoc[]
     postings = Dict{String,Vector{Tuple{Int32,Int16}}}()
     doclen = Int32[]
+    ft_dir = joinpath(dirname(corpus_path), "fulltext")
+    ft_on = lg_index_fulltext() && isdir(ft_dir)
     open(corpus_path, "r") do io
         for line in eachline(io)
             isempty(strip(line)) && continue
@@ -168,9 +178,17 @@ function lg_init!(corpus_path::AbstractString)
                         msc_)
             push!(docs, doc)
             docid = Int32(length(docs))
+            indexed = title * " " * abstract_
+            if ft_on
+                ftpath = joinpath(ft_dir, key * ".txt")
+                if isfile(ftpath)
+                    ft = read(ftpath, String)
+                    indexed *= " " * (length(ft) > LG_FULLTEXT_CAP ? ft[1:LG_FULLTEXT_CAP] : ft)
+                end
+            end
             counts = Dict{String,Int}()
             ntok = 0
-            for tok in lg_tokenize(title * " " * abstract_)
+            for tok in lg_tokenize(indexed)
                 counts[tok] = get(counts, tok, 0) + 1
                 ntok += 1
             end
