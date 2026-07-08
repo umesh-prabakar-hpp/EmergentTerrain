@@ -1491,7 +1491,14 @@ public class MathToolSuite {
                     + "genuine-novelty signal: say explicitly that a corpus search found no "
                     + "prior statement of the claim. The references below are NEAR MISSES — "
                     + "related work citable as CONTEXT (as [key]), never as support for the "
-                    + "claim itself. Do not invent author-year citations beyond these keys.%n",
+                    + "claim itself. Do not invent author-year citations beyond these keys. "
+                    + "SUBJECT CHECK before you cite any near miss: cite it ONLY if it shares "
+                    + "the claim's specific subject — the same object, method, quantity, or "
+                    + "constant. A work that overlaps only on a generic word (a shared term "
+                    + "like \"flow\", \"density\", or \"scale\" used in an unrelated field) is "
+                    + "NOT related work — drop it silently, do not list it as context. It is "
+                    + "correct and expected for a SILENT result to yield NO cited context when "
+                    + "no near miss shares the subject.%n",
                     grounding.confidence()));
         }
         for (var e : grounding.evidence()) {
@@ -1500,6 +1507,8 @@ public class MathToolSuite {
             if (e.year() > 0) sb.append('(').append(e.year()).append(") ");
             sb.append(e.title());
             if (!e.venue().isBlank()) sb.append(". ").append(e.venue());
+            if (!e.field().isBlank()) sb.append(" [subject: ").append(e.field())
+                    .append(!e.subfield().isBlank() ? "/" + e.subfield() : "").append(']');
             if (!e.doi().isBlank()) sb.append(". ").append(e.doi());
             if (!e.snippet().isBlank()) sb.append("\n    \"").append(e.snippet()).append('"');
             sb.append('\n');

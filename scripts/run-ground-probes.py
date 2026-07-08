@@ -15,7 +15,7 @@
 # Env:   GROUND_URL (default http://127.0.0.1:8089/ground/claim)
 #        CORPUS (default ~/.emergentterrain/corpus-nt/abstracts.jsonl)
 # =====================================================================
-import json, os, sys, urllib.request
+import json, math, os, sys, urllib.request
 
 URL = os.environ.get("GROUND_URL", "http://127.0.0.1:8089/ground/claim")
 CORPUS = os.path.expanduser(os.environ.get(
@@ -30,7 +30,16 @@ with open(CORPUS) as f:
         if line.strip():
             corpus_keys.add(json.loads(line)["id"].rsplit("/", 1)[-1])
 
+def in_subject(ev):
+    """True if a returned near-miss is subject-relevant (Mathematics). Empty field ⇒ None
+       (pre-rebuild corpus rows carry no subject tag — unverifiable, not a violation)."""
+    field = (ev.get("field") or "").lower()
+    if not field:
+        return None
+    return "mathematic" in field
+
 rows, fabricated = [], []
+subject_violations, subject_unverifiable = [], 0
 for p in probes:
     req = urllib.request.Request(
         URL, data=json.dumps({"claim": p["claim"], "topK": 3}).encode(),
@@ -39,6 +48,17 @@ for p in probes:
     for e in d.get("evidence", []):
         if e["key"] not in corpus_keys:
             fabricated.append((p["id"], e["key"]))
+    # Golden subject-purity check (probes flagged subject_pure): every RETURNED near-miss
+    # must be in-subject — encodes the 2026-07-08 review case (drop cross-domain noise,
+    # keep the Chowla-class NT near-miss). Skipped gracefully until the field-carrying rebuild.
+    if p.get("subject_pure"):
+        for e in d.get("evidence", []):
+            ok = in_subject(e)
+            if ok is None:
+                subject_unverifiable += 1
+            elif not ok:
+                subject_violations.append(
+                    (p["id"], e["key"], e.get("field", ""), e.get("title", "")[:50]))
     rows.append({**p, "verdict": d["verdict"], "conf": d["confidence"],
                  "top": (d.get("evidence") or [{}])[0].get("title", "-")[:60]})
 
@@ -56,6 +76,12 @@ for r in rows:
 print(f"\nfabricated citation keys: {len(fabricated)}"
       + (f" {fabricated}" if fabricated else " (zero — all keys resolve in the corpus)"))
 
+print(f"\nsubject-purity (subject_pure probes): {len(subject_violations)} violation(s)"
+      + (f" {subject_violations}" if subject_violations
+         else (f" (zero, but {subject_unverifiable} near-miss(es) had no field tag — "
+               f"pre-rebuild corpus; gate not yet verifiable)" if subject_unverifiable
+               else " (zero — every returned near-miss is in-subject)")))
+
 print("\n=== offline threshold sweep (verdict recomputed from confidence) ===")
 best = (None, -1)
 for t100 in range(20, 51):
@@ -65,6 +91,7 @@ for t100 in range(20, 51):
         best = (t, a)
     if t100 % 2 == 0:
         print(f"  threshold {t:.2f} → {a}/{len(rows)}")
+bar = math.ceil(0.8 * len(rows))
 print(f"\nbest threshold {best[0]:.2f} → {best[1]}/{len(rows)} "
-      f"({100 * best[1] // len(rows)}%) — acceptance bar is ≥80% (16/20)")
-sys.exit(0 if best[1] >= 16 and not fabricated else 1)
+      f"({100 * best[1] // len(rows)}%) — acceptance bar is ≥80% ({bar}/{len(rows)})")
+sys.exit(0 if best[1] >= bar and not fabricated and not subject_violations else 1)

@@ -58,7 +58,8 @@ class LiteratureGroundingCallerTest {
                 new GroundingClient.Evidence("W2007557094",
                         "Analytic properties of Dirichlet series obtained from the error term",
                         2010, "Pacific Journal of Mathematics", "Jun Furuya, Yoshio Tanigawa",
-                        "https://doi.org/10.2140/pjm.2010.245.239", 31.9,
+                        "https://doi.org/10.2140/pjm.2010.245.239",
+                        "Mathematics", "2602", "T11166", 31.9,
                         "…the error term in the Dirichlet divisor problem…")));
         String text = MathToolSuite.formatGrounding(result, "the divisor error term oscillates");
         assertThat(text).contains("EVIDENCE").contains("Cite ONLY the keys")
@@ -72,7 +73,7 @@ class LiteratureGroundingCallerTest {
         var result = new GroundingClient.GroundingResult("SILENT", 0.28, 105855, List.of(
                 new GroundingClient.Evidence("W1199646596",
                         "The mean square of the error term", 1996, "Acta Arithmetica",
-                        "Tom Meurman", "", 29.4, "…")));
+                        "Tom Meurman", "", "Mathematics", "2602", "T11166", 29.4, "…")));
         String text = MathToolSuite.formatGrounding(result, "a novel claim");
         assertThat(text).contains("SILENT").contains("genuine-novelty signal")
                 .contains("NEAR MISSES").contains("CONTEXT")
@@ -87,7 +88,7 @@ class LiteratureGroundingCallerTest {
         var result = new GroundingClient.GroundingResult("SILENT", 0.28, 105855, List.of(
                 new GroundingClient.Evidence("W1199646596",
                         "The mean square of the error term", 1996, "Acta Arithmetica",
-                        "Tom Meurman", "", 29.4, "…")));
+                        "Tom Meurman", "", "Mathematics", "2602", "T11166", 29.4, "…")));
         String block = ReviewPanelService.renderPanelGroundingBlock(result);
         assertThat(block).contains("CORPUS GROUNDING").contains("NOVELTY grade")
                 .contains("SILENT").contains("POSITIVE evidence of novelty")
@@ -100,7 +101,8 @@ class LiteratureGroundingCallerTest {
         var result = new GroundingClient.GroundingResult("EVIDENCE", 0.44, 105855, List.of(
                 new GroundingClient.Evidence("W2007557094",
                         "Analytic properties of Dirichlet series", 2010,
-                        "Pacific Journal of Mathematics", "Furuya, Tanigawa", "", 31.9, "…")));
+                        "Pacific Journal of Mathematics", "Furuya, Tanigawa", "",
+                        "Mathematics", "2602", "T11166", 31.9, "…")));
         String block = ReviewPanelService.renderPanelGroundingBlock(result);
         assertThat(block).contains("EVIDENCE").contains("REDISCOVERY")
                 .contains("cap the").contains("[W2007557094]");

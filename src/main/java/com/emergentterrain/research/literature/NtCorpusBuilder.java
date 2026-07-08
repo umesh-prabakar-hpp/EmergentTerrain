@@ -72,7 +72,18 @@ public final class NtCorpusBuilder {
 
     private static final String SELECT_FIELDS =
             "id,doi,title,publication_year,cited_by_count,primary_location,authorships,"
-                    + "abstract_inverted_index";
+                    + "primary_topic,abstract_inverted_index";
+
+    /**
+     * 2026-07-08 subject-gate build support: constrain the SEED_QUERIES (which are otherwise
+     * field-unconstrained OpenAlex full-text searches, so a phrase like "density of abundant
+     * numbers" pulls ecology/neuroscience/fluids papers sharing the words) to the Algebra &
+     * Number Theory subfield. Env-overridable — VERIFY the id against /subfields?search=number
+     * theory before the rebuild (OpenAlex subfield "Algebra and Number Theory"). The breadth
+     * pull is already topic-scoped, so this only tightens the seed pull.
+     */
+    static final String SEED_SUBFIELD_FILTER =
+            env("OPENALEX_SEED_SUBFIELD", "primary_topic.subfield.id:2602");
 
     public static void main(String[] args) throws Exception {
         String corpusDir = env("CORPUS_DIR",
@@ -109,7 +120,8 @@ public final class NtCorpusBuilder {
             // 1) Targeted seed queries (SEARCH class, $0.001/page).
             for (String query : SEED_QUERIES) {
                 int got = pullPages(client, abstractsFile, seenIds, query,
-                        Map.of("filter", "has_abstract:true"), pagesPerQuery, query);
+                        Map.of("filter", "has_abstract:true," + SEED_SUBFIELD_FILTER),
+                        pagesPerQuery, query);
                 manifestQueries.add(OM.createObjectNode().put("query", query).put("added", got));
                 added += got;
                 System.out.printf("  seed '%s' → +%d (total %d, spent $%.4f)%n",
@@ -182,6 +194,12 @@ public final class NtCorpusBuilder {
                 authors.add(name);
             }
         }
+        // Subject tags for the retrieval-time subject gate (literature_grounding.jl):
+        // field display name + subfield id + topic id from OpenAlex primary_topic.
+        JsonNode pt = work.path("primary_topic");
+        row.put("field", pt.path("field").path("display_name").asText(""));
+        row.put("subfield", lastPathSegment(pt.path("subfield").path("id").asText("")));
+        row.put("topic", lastPathSegment(pt.path("id").asText("")));
         row.put("abstract",
                 OpenAlexClient.reconstructAbstract(work.path("abstract_inverted_index")));
         row.put("query", provenance);
@@ -216,6 +234,15 @@ public final class NtCorpusBuilder {
         manifest.put("ceiling_usd", ledger.dailyCeilingUsd());
         manifest.set("queries", queries);
         Files.writeString(dir.resolve("MANIFEST.json"), manifest.toPrettyString());
+    }
+
+    /** OpenAlex ids arrive as URLs (…/subfields/2602, …/T11166); keep the short trailing id. */
+    private static String lastPathSegment(String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        int slash = url.lastIndexOf('/');
+        return slash >= 0 ? url.substring(slash + 1) : url;
     }
 
     private static String env(String name, String fallback) {

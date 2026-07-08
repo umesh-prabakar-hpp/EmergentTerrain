@@ -28,9 +28,13 @@ public class GroundingClient {
     private static final Logger log = LoggerFactory.getLogger(GroundingClient.class);
     private static final ObjectMapper OM = new ObjectMapper();
 
-    /** One scored reference. {@code key} is the citation key (OpenAlex id, e.g. "W123"). */
+    /** One scored reference. {@code key} is the citation key (OpenAlex id, e.g. "W123").
+     *  {@code field}/{@code subfield}/{@code topic} are the OpenAlex subject tags (blank for
+     *  pre-rebuild corpus rows) — the signal the professor's subject check reads to reject a
+     *  cross-domain near-miss that overlaps only on a generic word. */
     public record Evidence(String key, String title, int year, String venue, String authors,
-                           String doi, double score, String snippet) {}
+                           String doi, String field, String subfield, String topic,
+                           double score, String snippet) {}
 
     /** verdict ∈ {EVIDENCE, SILENT}; under SILENT the evidence entries are NEAR MISSES. */
     public record GroundingResult(String verdict, double confidence, int corpusDocs,
@@ -77,6 +81,8 @@ public class GroundingClient {
                         e.path("key").asText(""), e.path("title").asText(""),
                         e.path("year").asInt(0), e.path("venue").asText(""),
                         e.path("authors").asText(""), e.path("doi").asText(""),
+                        e.path("field").asText(""), e.path("subfield").asText(""),
+                        e.path("topic").asText(""),
                         e.path("score").asDouble(0.0), e.path("snippet").asText("")));
             }
             return new GroundingResult(node.path("verdict").asText("SILENT"),
