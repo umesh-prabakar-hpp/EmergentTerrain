@@ -32,9 +32,11 @@ embeddings — which the packaged datasets already carry.
 able to build the corpus without credentials that require an institutional affiliation or a paid
 subscription. Sources fall in three tiers:
 
-- **Zero account:** unarXive (Zenodo), arXiv OAI-PMH, zbMATH Open, OEIS, DLMF, OpenAlex-anonymous.
-- **Self-serve-free credential (any individual, no affiliation):** OpenAlex key, **Semantic Scholar /
-  S2ORC key**, HuggingFace token (peS2o), CORE key. These are OSS-compatible — the same barrier as
+- **Zero account:** unarXive (Zenodo), arXiv OAI-PMH, zbMATH Open, OEIS, DLMF, OpenAlex-anonymous,
+  **peS2o on HuggingFace** (`allenai/peS2o` / `common-pile/peS2o` — ODC-BY, public, no S2 key; this is
+  how you get S2ORC full text without any Semantic Scholar credential).
+- **Self-serve-free credential (any individual, no affiliation):** OpenAlex key, Semantic Scholar /
+  S2ORC Datasets-API key (only needed for the *raw* records, not for peS2o), CORE key. Same barrier as
   the OpenAlex key `NtCorpusBuilder` already uses.
 - **Truly gated (excluded as defaults):** MathSciNet, Scopus, Web of Science (affiliation /
   subscription).
@@ -80,26 +82,30 @@ OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/ci
   `LgDoc` gains `msc` (+ `fulltext_url`, `cited_by`, `source[]`).
 
 ### Full-text source options, by credential barrier (all OSS-compatible except the last group)
-- **Zero account:**
+- **Zero account / no S2 key — RECOMMENDED, gets S2ORC coverage anyway:**
+  - **peS2o on HuggingFace** — the AllenAI-official cleaned S2ORC full text, **ODC-BY, fully open, NO
+    Semantic Scholar key** (HF-hosted; `load_dataset("allenai/peS2o", "v2")` or direct `.json.gz`
+    shards). `allenai/peS2o` v2 ≈ 39M docs (broad); **`common-pile/peS2o` ≈ 6.3M docs, openly-licensed
+    articles ONLY** — the cleanest for OSS redistribution (per-doc license in metadata). This is the
+    best of both: S2ORC-quality cross-source full text without the S2 API key OR arXiv's coverage gap.
   - **unarXive open subset** (Zenodo, no account) — structured arXiv full text + annotated citations,
-    LaTeX-derived (cleaner than PDF parsing). Covers math/CS/physics/econ (all on arXiv).
-  - **arXiv S3 bulk** (requester-pays; needs an AWS account but no approval/gating) — fuller arXiv
-    coverage beyond the permissive subset.
-  - **OpenAlex `oa_url` + Unpaywall** (email-as-param, not a gated key) — resolve OA PDF locations for
-    non-arXiv OA papers and fetch directly.
-- **One free self-serve key (no affiliation) — richest coverage:**
-  - **S2ORC / Semantic Scholar bulk** — broadest OA full text (non-arXiv too), resolved references,
-    SPECTER2 embeddings. Needs the free individual key (same tier as our OpenAlex key). Ready-to-run
-    ingester: `scratchpad/s2orc-ingest.py`. **This is a valid default**, not an excluded upgrade.
-  - **peS2o** (HuggingFace token) — ODC-BY cleaned S2ORC derivative; simplest if you just want text.
+    LaTeX-derived. Cleaner citation structure than peS2o, but arXiv-only (thin on economics).
+  - **arXiv S3 bulk** (requester-pays; AWS account, no approval/gating) — fuller arXiv coverage.
+  - **OpenAlex `oa_url` + Unpaywall** (email-as-param, not a gated key) — OA PDF locations to fetch.
+- **One free self-serve key (no affiliation) — only if you need the raw structured records:**
+  - **S2ORC via Semantic Scholar Datasets API** — the *raw* S2ORC records (resolved references broken
+    out, SPECTER2 join, continuously rebuilt). Needs the free individual key (same tier as our OpenAlex
+    key). Use only if peS2o's cleaned format is insufficient. Ingester: `scratchpad/s2orc-ingest.py`.
 - **Supplementary text only (not a record store):** math token-corpora **MathPile** (~9.5B tok,
   CC-BY-NC-SA) and **Nemotron-CC-Math** (~133B tok) — LM-pretraining streams, not per-paper records.
 - **Truly gated (excluded):** MathSciNet, Scopus, Web of Science — affiliation / subscription.
 
-Choice: **zero-friction = unarXive/arXiv** (no signup, arXiv-centric so thin on economics);
-**maximum coverage = S2ORC** (one free key, spans non-arXiv OA and gives resolved refs + embeddings).
-Both are OSS-reproducible. Recommend S2ORC if the free key is acceptable (it's the same ask as the
-OpenAlex key), falling back to unarXive/arXiv for a strictly no-account build.
+Choice: **default = `common-pile/peS2o`** (or `allenai/peS2o` for breadth) — S2ORC full-text coverage,
+ODC-BY, no S2 key, no affiliation, HF-hosted. It obsoletes the earlier "arXiv-only vs S2-key" trade:
+you get the broad cross-source coverage *and* stay credential-light. peS2o is Grobid-cleaned and
+LM-formatted (title + full text + CorpusID to rejoin metadata) — fine for BM25 + `read_reference`;
+reach for the raw S2ORC Datasets API only if you specifically need the broken-out resolved-reference
+structure. unarXive stays useful where you want LaTeX-quality inline citations for the arXiv slice.
 
 ## Sequencing
 1. **zbMATH MSC-join** onto the existing OpenAlex corpus — cheapest lever, upgrades the gate key from
