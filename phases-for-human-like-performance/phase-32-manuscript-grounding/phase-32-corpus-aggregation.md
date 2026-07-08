@@ -100,12 +100,21 @@ OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/ci
   CC-BY-NC-SA) and **Nemotron-CC-Math** (~133B tok) — LM-pretraining streams, not per-paper records.
 - **Truly gated (excluded):** MathSciNet, Scopus, Web of Science — affiliation / subscription.
 
-Choice: **default = `common-pile/peS2o`** (or `allenai/peS2o` for breadth) — S2ORC full-text coverage,
-ODC-BY, no S2 key, no affiliation, HF-hosted. It obsoletes the earlier "arXiv-only vs S2-key" trade:
-you get the broad cross-source coverage *and* stay credential-light. peS2o is Grobid-cleaned and
-LM-formatted (title + full text + CorpusID to rejoin metadata) — fine for BM25 + `read_reference`;
-reach for the raw S2ORC Datasets API only if you specifically need the broken-out resolved-reference
-structure. unarXive stays useful where you want LaTeX-quality inline citations for the arXiv slice.
+Choice between the two peS2o mirrors (both ODC-BY, public, no S2 key — the difference is per-document
+license cleanliness, NOT open-vs-closed):
+- **`allenai/peS2o`** (v2 ≈39M, v1 ≈68M) — all S2ORC papers, *mixed* per-doc licenses (open-access
+  readable, not all open-licensed). **Default when the repo ships the BUILDER and each user downloads
+  locally** (the normal OSS pattern; corpus lives in `~/.emergentterrain`, never in git) — more
+  coverage, and per-paper use is the user's own research/TDM.
+- **`common-pile/peS2o`** (≈6.3M) — filtered to openly-licensed articles ONLY, per-doc license in
+  metadata. **Choose when you intend to redistribute/bundle the built corpus** (release artifact) or
+  want maximum legal caution — clean licenses, at the cost of ~6× less coverage.
+
+Either obsoletes the earlier "arXiv-only vs S2-key" trade: broad cross-source full text while staying
+credential-light. peS2o is Grobid-cleaned and LM-formatted (title + full text + CorpusID to rejoin
+metadata) — fine for BM25 + `read_reference`; reach for the raw S2ORC Datasets API only if you need
+the broken-out resolved-reference structure. unarXive stays useful for LaTeX-quality inline citations
+on the arXiv slice.
 
 ## Sequencing
 1. **zbMATH MSC-join** onto the existing OpenAlex corpus — cheapest lever, upgrades the gate key from
