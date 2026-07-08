@@ -64,6 +64,67 @@ records) and MathPile is CC-BY-NC-SA — use as supplementary text, not the reco
 4. Broader metadata mirrors (Crossref/S2AG) only if a recall gap appears; MathSciNet/Scopus only with
    institutional access.
 
+## Domain menu — what's downloadable beyond "all math"
+
+The aggregates are NOT math-only; they are the whole academic corpus. OpenAlex exposes **26 fields**
+(each a downloadable slice; S2ORC/S2AG carry the same fields-of-study), so the expansion into
+"non-math subjects with math research opportunities" is a filter choice, not a new data source. Work
+counts (OpenAlex, 2026-07-08), for scale — note math is only 3.6M, so pulling an adjacent field
+often *exceeds* all-math:
+
+| Field | Works | Math-research relevance / MSC applied family |
+|---|---|---|
+| Mathematics | 3.6M | the spine (`11-XX` for NT) |
+| Computer Science | 15.2M | cryptography (`11T`, `94`), algorithms/complexity (`68`), coding theory — closest NT-adjacent |
+| Physics & Astronomy | 8.3M | mathematical physics (`81`, `82`), dynamical systems, random matrices (↔ RH) |
+| Economics/Econometrics/Finance | 9.0M | game theory / math-econ (`91`), optimization, stochastics |
+| Decision Sciences | 2.5M | operations research / optimization (`90`) |
+| Engineering | 50.8M | control (`93`), signal processing, PDEs (`35`), info theory (`94`) — large but mostly applied |
+| Earth & Planetary | 4.8M | geophysics, fluid dynamics (`76`) |
+| Environmental Science | 11.7M | population/ecology models (`92`), spatial statistics |
+| Neuroscience | 3.7M | computational/mathematical neuroscience (`92`) |
+| Biochem/Genetics/Mol Bio | 13.3M | mathematical & systems biology (`92`) |
+
+Priority order for expansion (math-content density × adjacency to the existing NT engine):
+**Computer Science → Physics → Economics/Decision Sciences**, then the biology/earth cluster. Each is
+opted in by adding its MSC applied family to the gate allowlist (see §32.5c scope direction) — NOT by
+loosening the gate to "keep all of field X", which would re-admit the vocabulary-only noise the gate
+exists to drop. The discriminator stays "genuine math content" (MSC / topic), never field membership.
+Storage/RAM caveat: these fields are 2–14× the size of all-math, so domain expansion multiplies the
+corpus fast — another reason the disk-backed index below is the enabling piece.
+
+## Index backend & memory sizing — the disk-backed index (the real scaling decision)
+
+The current grounding index (`literature_grounding.jl`) is **in-memory BM25**: the corpus, postings
+map, and doclen vector all live in RAM, built at py-sidecar startup. On this box (7.6 GB total,
+~4.6 GB free with the ET app + main sidecar up) that is the binding constraint for scaling — NOT
+disk (389 GB free) and NOT the corpus download.
+
+Memory scales with *text volume*, not doc count:
+- **Abstracts** (today, ~105k docs): index ≈ a few hundred MB — fits comfortably.
+- **NT full text** (~50–100k docs, S2ORC): index ≈ 0.5–1.5 GB — fits, but snug.
+- **All-math or multi-domain full text** (100k–1M+ docs): index ≈ several GB — **exceeds free RAM**,
+  spills into swap, and a swapped BM25 index means brutal per-query latency on the single-threaded
+  py-sidecar. This is where "buy more RAM / provision a cloud box" temptation appears.
+
+**The durable fix is a disk-backed index, not a bigger machine.** The §32.5 design already names
+**Tantivy** (Rust BM25, the same engine PaperQA2 uses) as the target backend. A disk-backed index is
+mmap'd: the OS pages in only the postings actually touched per query, so **resident RAM stays roughly
+flat regardless of corpus size**. Consequences:
+- The build (index construction) is a one-time offline step; it can run wherever there's RAM/CPU
+  headroom (a transient cloud box for an all-math/multi-domain build) and the resulting on-disk index
+  ships back here.
+- **Serving** any corpus that fits on disk (up to the 389 GB free) runs on this 7.6 GB box, because
+  the mmap'd index doesn't load wholesale into RAM.
+- Migration shape: `literature_grounding.jl` swaps its in-RAM `postings::Dict` + `docs::Vector` for a
+  Tantivy index handle (via a thin FFI/CLI wrapper, or a Julia disk-KV alternative); `lg_search`
+  becomes a Tantivy query; the subject gate (`ET_GROUND_SUBJECTS` / MSC) still filters candidates
+  post-retrieval. The HTTP contract (`/ground/claim`, verdict/evidence shape) is unchanged.
+
+Bottom line for provisioning: **disk-backed index → this machine serves any on-disk corpus; a cloud
+box is only ever a transient *build* accelerator (RAM + in-region S3 bandwidth), never a serving
+requirement.** In-memory BM25 → RAM caps you at ~NT-scale full text on this box.
+
 ## Caveats
 - **Bulk datasets over live APIs, always.** The 2026-07-08 OpenAlex enrichment 429-throttled twice at
   ~1 req/s on the anonymous tier; S2ORC/peS2o/arXiv/CORE all publish bulk dumps you join locally —
