@@ -26,15 +26,26 @@ filter to number theory**. Adding more raw metadata mirrors (Crossref, S2AG) on 
 ~1.1–1.3× unique papers; the real return is *facets* — full text, MSC classification, citations,
 embeddings — which the packaged datasets already carry.
 
+## Design constraint — NO GATED CREDENTIALS (open-source reproducibility)
+
+**Added 2026-07-08.** This repo is headed for open source; any user must be able to build the corpus
+with **no gated credentials** — no academic/corporate-email-approved keys, no subscriptions. This
+rules out the otherwise-attractive **Semantic Scholar bulk API / S2ORC** (its key requires an
+academic or corporate email — a hard stop for a general OSS user) and **peS2o** (HuggingFace login +
+accept-terms gate — lower barrier, but still an account). Every default source below is
+zero-credential or self-serve-free. Gated sources are documented only as *optional* upgrades for
+users who happen to have access.
+
 ## Recommended build
 
-**Best for the grounding use case: keep OpenAlex for metadata + pull S2ORC bulk for full text and
-resolved references, then apply a math filter and attach MSC via a zbMATH join. The only new code is
-the math/MSC gate + the domain sources (OEIS / NIST DLMF) no aggregator includes.**
+**Best for the grounding use case: keep OpenAlex for metadata + pull the unarXive open subset (arXiv
+full text + annotated citations, downloadable from Zenodo with NO account) for full text, then apply
+a math filter and attach MSC via a zbMATH join (open API, no key). The only new code is the math/MSC
+gate + the domain sources (OEIS / NIST DLMF) no aggregator includes.**
 
 ```
 OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/cited_by)
-   ⊕ S2ORC bulk        → structured full text + resolved references  (join by DOI/arXiv/S2 CorpusID)
+   ⊕ unarXive/arXiv    → structured full text + annotated citations   (join by arXiv id / DOI; no account)
    ⊕ zbMATH join       → MSC codes (11-XX), math-authoritative        (join by DOI/arXiv/zbl)
    → math/MSC FILTER   → keep 11-XX (+ chosen adjacencies); this is the ET_GROUND_SUBJECTS gate,
                           upgraded from OpenAlex field → MSC prefix (resolves the intra-math
@@ -43,24 +54,42 @@ OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/ci
 ```
 
 ### Reused vs. new code
-- **Reused / free:** OpenAlex (`NtCorpusBuilder`, live), S2ORC/peS2o download + join, zbMATH OAI-PMH
-  harvest for the MSC join. No harvester or dedup engine to write — the aggregates ship deduped.
+- **Reused / free (no gated credentials):** OpenAlex (`NtCorpusBuilder`, live; anonymous or optional
+  free key), the **unarXive open subset** (Zenodo download, no account), **arXiv** OAI-PMH metadata
+  (no account), zbMATH OAI-PMH for the MSC join (open API). The aggregates ship deduped — no harvester
+  or dedup engine to write.
 - **New (small):** the **math/MSC filter** (the generalized subject gate — allowlist MSC `11`), the
   **zbMATH MSC-join** pass (DOI/arXiv → MSC, analogous to the OpenAlex field enrichment written
-  2026-07-08), and the **OEIS + DLMF adapters** (domain-specific, high value for NT, not in any
-  aggregate). `LgDoc` gains `msc` (+ `fulltext_url`, `cited_by`, `source[]`).
+  2026-07-08), an **arXiv/unarXive full-text adapter** (parse the Zenodo dump, key by arXiv id/DOI),
+  and the **OEIS + DLMF adapters** (domain-specific, high value for NT, not in any aggregate).
+  `LgDoc` gains `msc` (+ `fulltext_url`, `cited_by`, `source[]`).
 
-### Alternative (fastest to clean full text)
-Grab **peS2o** from HuggingFace and filter to math by S2 field-of-study — skips even the OpenAlex
-step if a from-scratch corpus is acceptable. Math token-corpora **MathPile** (~9.5B tok) and
-**Nemotron-CC-Math** (~133B tok) isolate math text but are LM-pretraining streams (not per-paper
-records) and MathPile is CC-BY-NC-SA — use as supplementary text, not the record store.
+### Full-text source options, by credential barrier
+- **Default (zero / self-serve, OSS-safe):**
+  - **unarXive open subset** (Zenodo, no account) — structured arXiv full text + annotated citations,
+    LaTeX-derived (cleaner than PDF parsing). Covers math/CS/physics/econ (all on arXiv). Primary.
+  - **arXiv S3 bulk** (requester-pays; needs an AWS account but **no approval/gating**) — fuller
+    arXiv coverage beyond the permissive subset, if wanted.
+  - **OpenAlex `oa_url` + Unpaywall** (email-as-param, not a gated key) — resolve OA PDF locations for
+    non-arXiv OA papers and fetch directly.
+- **Optional upgrades (gated — document, don't default):**
+  - **S2ORC / Semantic Scholar bulk** — richer (resolved refs, SPECTER2), but the API key needs an
+    **academic/corporate email** → excluded as a default. A ready-to-run ingester exists
+    (`scratchpad/s2orc-ingest.py`) for users who have a key.
+  - **peS2o** (HuggingFace) — ODC-BY, but login + accept-terms gate.
+- **Supplementary text only (not a record store):** math token-corpora **MathPile** (~9.5B tok,
+  CC-BY-NC-SA) and **Nemotron-CC-Math** (~133B tok) — LM-pretraining streams, not per-paper records.
+
+Coverage note: arXiv is preprint-centric — excellent for math/CS/physics (most of the frontier is
+there), thinner for economics (many econ papers never hit arXiv). Acceptable for an open default; a
+user who wants econ depth can add a gated source themselves.
 
 ## Sequencing
 1. **zbMATH MSC-join** onto the existing OpenAlex corpus — cheapest lever, upgrades the gate key from
    field to MSC. (The §32.5c OpenAlex-field gate is the interim; MSC is the target.)
-2. **S2ORC bulk** for full text + resolved refs → real `read_reference` content; pull ALL available
-   full text for the in-scope fields up front (eager, offline), not a demand-driven cited-core subset.
+2. **unarXive open subset (+ arXiv S3)** for full text + annotated citations → real `read_reference`
+   content; pull ALL available full text for the in-scope fields up front (eager, offline), not a
+   demand-driven cited-core subset. No gated credentials (S2ORC is the optional keyed upgrade).
 3. **OEIS + DLMF** adapters — NT-specific structured grounding.
 4. Broader metadata mirrors (Crossref/S2AG) only if a recall gap appears; MathSciNet/Scopus only with
    institutional access.
@@ -102,18 +131,25 @@ compressed (~4.5×), anchored on our measured 1.18 KB/work OpenAlex schema:
 | Source | Compressed | Note |
 |---|---|---|
 | OpenAlex metadata + abstracts | **~10 GB** | the base layer |
-| **S2ORC full text — all available (~15% OA)** | **~123 GB** | 5.4M docs; the plan — pulled in full up front |
-| S2ORC full text — cited-core subset (~3%) | ~25 GB | 1.1M docs; reference only, NOT the chosen policy |
+| **arXiv full text (4 fields, S3 bulk)** | **~45 GB** | ~2M papers; open, requester-pays AWS (no approval gate) |
+| unarXive open subset (permissive only) | ~10–15 GB | **zero-credential default**; a subset of the above |
 | zbMATH MSC join | ~0.5 GB | tags the 3.6M math slice only — CS/Physics/Econ aren't in zbMATH; they take subject from OpenAlex topic |
 | OEIS | ~1 GB | fixed domain source (already have it) |
 | DLMF | <0.2 GB | fixed, tiny |
+| *(optional, gated) S2ORC full text — all OA* | *~123 GB* | *5.4M docs; broader than arXiv but needs the academic-email key* |
 
-**Plan: bulk-pull ALL available full text for the four fields up front → ~120–140 GB compressed**
-(OpenAlex metadata ~10 GB + S2ORC full text ~123 GB + the small fixed sources). This maximizes
-coverage — the project's standing preference — over a demand-driven cited-core policy (~15–20 GB) that
-would leave uncited works without full text. Both fit this box's 389 GB free. Caveat: a naive pull of
-whole S2ORC shards spikes *transient* disk above the stored size — stream-and-filter to keep the peak
-near the final footprint.
+**Plan: bulk-pull ALL available full text for the four fields up front (credential-free path):**
+- **Zero-credential (unarXive open subset): ~20–25 GB compressed** total (OpenAlex ~10 GB + unarXive
+  ~10–15 GB + small fixed sources) — the OSS default.
+- **arXiv S3 bulk (AWS account, no gating): ~55–60 GB compressed** — fuller arXiv coverage.
+- *Optional gated (S2ORC): ~120–140 GB* — broader OA coverage, but excluded as a default.
+
+All fit this box's 389 GB free. Eager (pull everything available) beats a demand-driven cited-core
+policy (~15–20 GB) that would leave uncited works without full text. Caveat: a naive pull of whole
+bulk shards spikes *transient* disk above the stored size — stream-and-filter to keep the peak near
+the final footprint. Coverage note: arXiv is preprint-centric (strong math/CS/physics, thin econ),
+which is why the credential-free totals are smaller than the gated S2ORC figure — an honest
+coverage-for-openness trade.
 
 **Build eager, but still fully offline — full text is NEVER fetched on the request path.** Two
 independent rules, don't conflate them:
@@ -125,7 +161,7 @@ independent rules, don't conflate them:
    what throttled the 2026-07-08 enrichment) and break overnight autonomy.
 
 So: the full-text corpus is built ahead of runs by the offline builder (`build-nt-corpus.sh` +
-an S2ORC full-text pass), pulling everything available — then runs consume it offline. "Eager" is
+an arXiv/unarXive full-text pass), pulling everything available — then runs consume it offline. "Eager" is
 about *how much* you pre-fetch, not *when relative to the request path*.
 
 ## Index backend & memory sizing — the disk-backed index (the real scaling decision)
@@ -137,7 +173,7 @@ disk (389 GB free) and NOT the corpus download.
 
 Memory scales with *text volume*, not doc count:
 - **Abstracts** (today, ~105k docs): index ≈ a few hundred MB — fits comfortably.
-- **NT full text** (~50–100k docs, S2ORC): index ≈ 0.5–1.5 GB — fits, but snug.
+- **NT full text** (~50–100k docs, arXiv/unarXive): index ≈ 0.5–1.5 GB — fits, but snug.
 - **All-math or multi-domain full text** (100k–1M+ docs): index ≈ several GB — **exceeds free RAM**,
   spills into swap, and a swapped BM25 index means brutal per-query latency on the single-threaded
   py-sidecar. This is where "buy more RAM / provision a cloud box" temptation appears.
@@ -167,7 +203,7 @@ requirement.** In-memory BM25 → RAM caps you at ~NT-scale full text on this bo
 - **License + provenance are heterogeneous** (OpenAlex CC0; S2ORC/peS2o research-friendly but
   attributed; MathPile CC-BY-NC-SA; zbMATH CC-BY-SA). Fine for an internal single-user grounding
   corpus; keep `source[]` per record so any redistribution can honor attribution.
-- **Diminishing returns:** after OpenAlex + zbMATH(MSC) + S2ORC(full text) + OEIS/DLMF, each extra
+- **Diminishing returns:** after OpenAlex + zbMATH(MSC) + arXiv/unarXive(full text) + OEIS/DLMF, each extra
   metadata mirror adds little. Spend effort on the MSC filter quality and the domain sources.
 
 See §32.5c in phase-32-manuscript-grounding.md (the shipped subject gate this generalizes — its
