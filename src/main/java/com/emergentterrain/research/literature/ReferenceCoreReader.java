@@ -59,18 +59,20 @@ public class ReferenceCoreReader {
         this.corpusDir = Path.of(corpusDir);
     }
 
-    /** True when a full-text core exists for this specific work (either tier). */
+    /** True when a full-text core exists for this specific work (any tier). */
     public boolean hasCore(String id) {
         if (id == null || !id.matches("[A-Za-z0-9]+")) {
             return false;
         }
         return Files.isRegularFile(corpusDir.resolve("cores-html").resolve(id + ".txt"))
+                || Files.isRegularFile(corpusDir.resolve("fulltext").resolve(id + ".txt"))
                 || Files.isRegularFile(corpusDir.resolve("cores").resolve(id + ".txt"));
     }
 
     /** True when at least one core tier exists on disk (gates tool advertising). */
     public boolean available() {
         return Files.isDirectory(corpusDir.resolve("cores-html"))
+                || Files.isDirectory(corpusDir.resolve("fulltext"))
                 || Files.isDirectory(corpusDir.resolve("cores"));
     }
 
@@ -85,11 +87,26 @@ public class ReferenceCoreReader {
                 return "read_reference: invalid key '" + key + "' — pass the [W…] key exactly as "
                         + "search_literature printed it (letters+digits only).";
             }
+            // Tier preference (best math fidelity first): cores-html (per-paper ar5iv, quotable
+            // LaTeX) → fulltext (bulk §32.5d/e: ar5iv-preferred but may be placeholder/PDF-Grobid,
+            // so paraphrase-safe) → cores (per-paper PDF, lossy).
             Path htmlCore = corpusDir.resolve("cores-html").resolve(id + ".txt");
+            Path fullText = corpusDir.resolve("fulltext").resolve(id + ".txt");
             Path pdfCore = corpusDir.resolve("cores").resolve(id + ".txt");
-            boolean html = Files.isRegularFile(htmlCore);
-            Path source = html ? htmlCore : pdfCore;
-            if (!Files.isRegularFile(source)) {
+            Path source;
+            String srcNote;
+            if (Files.isRegularFile(htmlCore)) {
+                source = htmlCore;
+                srcNote = " [source: ar5iv HTML — formulas are the author's original LaTeX, quotable]";
+            } else if (Files.isRegularFile(fullText)) {
+                source = fullText;
+                srcNote = " [source: bulk full text — math may be placeholder or PDF-extracted:"
+                        + " PARAPHRASE prior results and cite the key; do NOT quote formulas verbatim]";
+            } else if (Files.isRegularFile(pdfCore)) {
+                source = pdfCore;
+                srcNote = " [source: PDF extraction — math symbols/structure may be lossy: PARAPHRASE"
+                        + " prior results and cite the key; do NOT quote formulas verbatim from this text]";
+            } else {
                 return "read_reference: no full-text core for " + id + " — the corpus holds "
                         + "abstracts for every indexed work but full text only for the open-access "
                         + "subset. Rely on the search_literature snippet for this one.";
@@ -103,11 +120,7 @@ public class ReferenceCoreReader {
             if (title != null) {
                 sb.append(" — ").append(title);
             }
-            sb.append(html
-                    ? " [source: ar5iv HTML — formulas are the author's original LaTeX, quotable]"
-                    : " [source: PDF extraction — math symbols/structure may be lossy: PARAPHRASE "
-                            + "prior results and cite the key; do NOT quote formulas verbatim from "
-                            + "this text]");
+            sb.append(srcNote);
             sb.append("\nTop passages matching \"").append(query == null ? "" : query).append("\":");
             for (String c : top) {
                 sb.append("\n---\n").append(c);

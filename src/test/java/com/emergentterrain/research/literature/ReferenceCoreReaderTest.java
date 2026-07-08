@@ -48,6 +48,26 @@ class ReferenceCoreReaderTest {
     }
 
     @Test
+    void fulltextTier_middlePreference_paraphraseSafe() throws Exception {
+        // fulltext beats PDF cores but loses to ar5iv HTML; carries the paraphrase caveat.
+        ReferenceCoreReader r = readerWith("fulltext", "W5",
+                "The prime gap grows like log squared p per Cramer.\n\nMore body text here.");
+        Files.createDirectories(corpus.resolve("cores"));
+        Files.writeString(corpus.resolve("cores").resolve("W5.txt"), "pdf junk version");
+        assertThat(r.read("W5", "prime gap Cramer"))
+                .contains("[source: bulk full text").contains("PARAPHRASE")
+                .contains("Cramer").doesNotContain("pdf junk");
+        assertThat(r.hasCore("W5")).isTrue();
+        assertThat(r.available()).isTrue();
+
+        // ar5iv HTML still wins when both present
+        Files.createDirectories(corpus.resolve("cores-html"));
+        Files.writeString(corpus.resolve("cores-html").resolve("W5.txt"),
+                "ar5iv body with $\\log^2 p$ formula.\n\ntail");
+        assertThat(r.read("W5", "prime gap")).contains("[source: ar5iv HTML");
+    }
+
+    @Test
     void failureSoft_unknownKeyAndBadKey() throws Exception {
         ReferenceCoreReader r = readerWith("cores", "W3", "text long enough to exist here");
         assertThat(r.read("W999999", "anything")).contains("no full-text core");
