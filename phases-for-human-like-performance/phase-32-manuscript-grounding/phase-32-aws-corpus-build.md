@@ -66,10 +66,16 @@ scp fulltext.tgz  you@localbox:~/.emergentterrain/corpus-nt/
 
 ## Local integration (after ship-back)
 
-Extract `fulltext/` + `fulltext-manifest.jsonl` under `~/.emergentterrain/corpus-nt/`. Then the
-**pending** consumption wiring applies (still open, §32.5d): `literature_grounding.jl` must load
-`fulltext/<id>.txt` into the BM25 index, and `read_reference` must serve from it. Until that lands the
-store is inert — same as the unarXive run already produced.
+Extract `fulltext/` + `fulltext-manifest.jsonl` under `~/.emergentterrain/corpus-nt/`. The
+consumption wiring is now **built** (2026-07-08):
+- `read_reference` serves the `fulltext/` tier automatically (ReferenceCoreReader: cores-html →
+  **fulltext** → cores) — no config; active on next app restart.
+- Retrieval over full text is flag-gated: set `ET_GROUND_INDEX_FULLTEXT=1` on the py-sidecar to fold
+  full text into the BM25 index (capped 40k chars/doc; RAM-heavy → pair with the disk-backed index).
+  Default OFF keeps retrieval on title+abstract.
+
+So after ship-back, `read_reference` immediately positions results against the bulk full text; enable
+the index flag only when RAM/disk-backed-index allows.
 
 ## Scripts (all in `scripts/aws/`, credential-free except ar5iv's one-time license form)
 
