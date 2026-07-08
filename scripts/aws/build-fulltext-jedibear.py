@@ -56,12 +56,22 @@ def main():
     args = ap.parse_args()
     by_arxiv, by_doi = load_keys(args.keys)
 
-    files = [f for f in HfApi().list_repo_files(REPO, repo_type="dataset") if f.endswith(".parquet")]
-    print(f"{len(files)} parquet shards", flush=True)
+    files = sorted(f for f in HfApi().list_repo_files(REPO, repo_type="dataset")
+                   if f.endswith(".parquet"))
+    # Download to a flat local_dir (NOT the HF blob cache) so os.remove actually frees space —
+    # hf_hub_download's default cache keeps blobs even after the snapshot symlink is deleted, which
+    # silently fills the disk. Plus a shard checkpoint so an interrupted run resumes.
+    tmp = os.path.expanduser("~/jbtmp")
+    os.makedirs(tmp, exist_ok=True)
+    ckpt = args.out + ".shards-done"
+    done = set(x for x in open(ckpt).read().split("\n") if x) if os.path.exists(ckpt) else set()
+    print(f"{len(files)} parquet shards | {len(done)} already done", flush=True)
     matched = 0
-    with open(args.out, "w") as out:
+    with open(args.out, "a" if done else "w") as out, open(ckpt, "a") as ck:
         for i, fn in enumerate(files):
-            local = hf_hub_download(REPO, fn, repo_type="dataset")
+            if fn in done:
+                continue
+            local = hf_hub_download(REPO, fn, repo_type="dataset", local_dir=tmp)
             t = pq.read_table(local, columns=["corpus_id", "external_ids", "text"])
             for row in t.to_pylist():
                 exts = row.get("external_ids")
@@ -72,9 +82,11 @@ def main():
                     out.write(json.dumps({"id": rid, "source": "s2orc",
                                           "text": row["text"], "chars": len(row["text"])}) + "\n")
                     matched += 1
-            os.remove(local)                       # stream-and-delete: keep peak disk low
+            os.remove(local)                       # frees the real file (local_dir, not cache)
+            ck.write(fn + "\n"); ck.flush()
+            out.flush()
             print(f"  shard {i+1}/{len(files)} — matched {matched}", flush=True)
-    print(f"DONE: {matched} matched → {args.out}", flush=True)
+    print(f"DONE: {matched} matched this run → {args.out}", flush=True)
 
 if __name__ == "__main__":
     main()
