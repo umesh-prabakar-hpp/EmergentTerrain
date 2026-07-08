@@ -59,7 +59,8 @@ records) and MathPile is CC-BY-NC-SA — use as supplementary text, not the reco
 ## Sequencing
 1. **zbMATH MSC-join** onto the existing OpenAlex corpus — cheapest lever, upgrades the gate key from
    field to MSC. (The §32.5c OpenAlex-field gate is the interim; MSC is the target.)
-2. **S2ORC bulk** for full text + resolved refs → real `read_reference` content on the core cited set.
+2. **S2ORC bulk** for full text + resolved refs → real `read_reference` content; pull ALL available
+   full text for the in-scope fields up front (eager, offline), not a demand-driven cited-core subset.
 3. **OEIS + DLMF** adapters — NT-specific structured grounding.
 4. Broader metadata mirrors (Crossref/S2AG) only if a recall gap appears; MathSciNet/Scopus only with
    institutional access.
@@ -101,30 +102,31 @@ compressed (~4.5×), anchored on our measured 1.18 KB/work OpenAlex schema:
 | Source | Compressed | Note |
 |---|---|---|
 | OpenAlex metadata + abstracts | **~10 GB** | the base layer |
-| S2ORC full text — all available (~15% OA) | ~123 GB | 5.4M docs; the dominant term |
-| S2ORC full text — **cited core only (~3%)** | **~25 GB** | 1.1M docs; what the lazy policy converges to |
+| **S2ORC full text — all available (~15% OA)** | **~123 GB** | 5.4M docs; the plan — pulled in full up front |
+| S2ORC full text — cited-core subset (~3%) | ~25 GB | 1.1M docs; reference only, NOT the chosen policy |
 | zbMATH MSC join | ~0.5 GB | tags the 3.6M math slice only — CS/Physics/Econ aren't in zbMATH; they take subject from OpenAlex topic |
 | OEIS | ~1 GB | fixed domain source (already have it) |
 | DLMF | <0.2 GB | fixed, tiny |
 
-- **Metadata + lazy (cited-core) full text: ~15–20 GB compressed.**
-- **Metadata + all-available full text (bulk-pulled up front): ~120–140 GB compressed.**
+**Plan: bulk-pull ALL available full text for the four fields up front → ~120–140 GB compressed**
+(OpenAlex metadata ~10 GB + S2ORC full text ~123 GB + the small fixed sources). This maximizes
+coverage — the project's standing preference — over a demand-driven cited-core policy (~15–20 GB) that
+would leave uncited works without full text. Both fit this box's 389 GB free. Caveat: a naive pull of
+whole S2ORC shards spikes *transient* disk above the stored size — stream-and-filter to keep the peak
+near the final footprint.
 
-Everything except S2ORC full text is small — **full text is the only variable that matters, and it is
-a fetch-policy choice, not a fixed cost.** Both totals fit this box's 389 GB free. Caveat: a naive
-bulk pull of whole S2ORC shards spikes *transient* disk above the stored size — stream-and-filter to
-keep the peak near the final footprint.
+**Build eager, but still fully offline — full text is NEVER fetched on the request path.** Two
+independent rules, don't conflate them:
+1. *Coverage policy (this project's choice): EAGER.* Pull all available full text for the four fields
+   up front in the offline corpus build, not lazily/demand-driven. Maximize what's on disk.
+2. *Request-path rule (§32.5 hard invariant, unchanged): OFFLINE.* Grounding at request time reads
+   only on-disk data — a work with no stored full text falls back to its abstract/snippet; zero
+   network during a run. Live full-text fetch would put latency/429s on the critical path (exactly
+   what throttled the 2026-07-08 enrichment) and break overnight autonomy.
 
-**"Lazy" full text = offline, between-runs — NEVER on the request path.** §32.5's hard rule is that
-grounding must be fully offline at request time ("works when the room runs overnight"); fetching full
-text live during a paper's generation would put network latency/429s/failures on the critical path
-(exactly what throttled the 2026-07-08 enrichment) and break autonomy. So the pattern is:
-- *During a run:* grounding uses only on-disk data — abstracts + already-cached full text; a work
-  with no cached full text falls back to its abstract/snippet. Zero network.
-- *After / between runs:* an offline enrichment pass (like `build-nt-corpus.sh` or the primary_topic
-  backfill) fetches full text ONLY for the works actually retrieved/cited that run, so the next run
-  has them. Coverage converges to the used set — which is why the cited core is ~3% (~25 GB), not the
-  ~15% (~123 GB) a bulk pull would store. Never fetch full text on the live request path.
+So: the full-text corpus is built ahead of runs by the offline builder (`build-nt-corpus.sh` +
+an S2ORC full-text pass), pulling everything available — then runs consume it offline. "Eager" is
+about *how much* you pre-fetch, not *when relative to the request path*.
 
 ## Index backend & memory sizing — the disk-backed index (the real scaling decision)
 
