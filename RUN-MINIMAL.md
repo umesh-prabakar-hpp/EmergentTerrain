@@ -15,8 +15,9 @@ cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/sta
 # 2. Julia math sidecar
 cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_DISCOVER_EXEC=1 ./scripts/start.sh &
 
-# 2b. Py-sidecar (PyCall routes)
-cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_DISCOVER_EXEC=1 ./scripts/start-py-sidecar.sh &
+# 2b. Py-sidecar (PyCall routes + literature grounding). ET_GROUND_SUBJECTS=mathematics
+#     activates the subject gate (drops cross-domain near-misses); omit ⇒ gate dormant.
+cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics ET_DISCOVER_EXEC=1 ./scripts/start-py-sidecar.sh &
 
 # 3. Spring Boot app
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain && ./scripts/start.sh
@@ -44,6 +45,13 @@ index at startup when `~/.emergentterrain/corpus-nt/abstracts.jsonl` exists —
 adds ~20–60 s before `Listening on: 127.0.0.1:8089`; wait for it before starting
 the app if you want grounding active from the first paper. No corpus = clean
 fallback, nothing breaks.
+
+Note (2026-07-08): `ET_GROUND_SUBJECTS=mathematics` on the (2b) line activates the
+grounding **subject gate** — it drops the ~5k non-math contaminants
+(Physics/Neuroscience/Environmental/…) that BM25 otherwise surfaces on generic
+words. Read at request time but must be in the py-sidecar env at launch; unset ⇒
+dormant. Needs a subject-tagged corpus (rebuild via `build-nt-corpus.sh`). See
+RUN.md for detail; validate with `run-ground-probes.py` (probes #21–#22).
 
 ```bash
 # optional, post-run, app must be stopped
