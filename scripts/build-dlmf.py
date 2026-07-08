@@ -41,13 +41,16 @@ _TITLE = re.compile(r"<title>DLMF:\s*(.*?)</title>", re.S)
 # section links on a chapter page look like href="./25.2" or href="/25.2"
 _SEC = re.compile(r'href="\.?/?(\d+\.\d+)"')
 
+_NAV = re.compile(r"^.*?UnAnnotate\s*", re.S)   # constant DLMF top-nav chrome
+
 def strip_html(html):
     # drop script/style, then tags, collapse whitespace
     html = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
     body = re.search(r"<body.*?>(.*)</body>", html, flags=re.S | re.I)
     text = _TAG.sub(" ", body.group(1) if body else html)
     text = text.replace("&nbsp;", " ").replace("&amp;", "&").replace("&#x2061;", "")
-    return _WS.sub(" ", text).strip()
+    text = _WS.sub(" ", text).strip()
+    return _NAV.sub("", text, count=1)          # strip the leading nav so math content leads
 
 def main():
     ap = argparse.ArgumentParser()
