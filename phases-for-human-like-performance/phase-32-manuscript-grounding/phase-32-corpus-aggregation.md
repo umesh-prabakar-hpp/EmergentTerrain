@@ -26,22 +26,37 @@ filter to number theory**. Adding more raw metadata mirrors (Crossref, S2AG) on 
 ~1.1–1.3× unique papers; the real return is *facets* — full text, MSC classification, citations,
 embeddings — which the packaged datasets already carry.
 
-## Design constraint — NO GATED CREDENTIALS (open-source reproducibility)
+## Design constraint — NO AFFILIATION-GATED / SUBSCRIPTION CREDENTIALS (open-source reproducibility)
 
-**Added 2026-07-08.** This repo is headed for open source; any user must be able to build the corpus
-with **no gated credentials** — no academic/corporate-email-approved keys, no subscriptions. This
-rules out the otherwise-attractive **Semantic Scholar bulk API / S2ORC** (its key requires an
-academic or corporate email — a hard stop for a general OSS user) and **peS2o** (HuggingFace login +
-accept-terms gate — lower barrier, but still an account). Every default source below is
-zero-credential or self-serve-free. Gated sources are documented only as *optional* upgrades for
-users who happen to have access.
+**Added 2026-07-08; corrected 2026-07-08.** This repo is headed for open source; any user must be
+able to build the corpus without credentials that require an institutional affiliation or a paid
+subscription. Sources fall in three tiers:
+
+- **Zero account:** unarXive (Zenodo), arXiv OAI-PMH, zbMATH Open, OEIS, DLMF, OpenAlex-anonymous.
+- **Self-serve-free credential (any individual, no affiliation):** OpenAlex key, **Semantic Scholar /
+  S2ORC key**, HuggingFace token (peS2o), CORE key. These are OSS-compatible — the same barrier as
+  the OpenAlex key `NtCorpusBuilder` already uses.
+- **Truly gated (excluded as defaults):** MathSciNet, Scopus, Web of Science (affiliation /
+  subscription).
+
+**Correction of an earlier draft:** a prior version of this doc claimed the Semantic Scholar / S2ORC
+key "requires an academic or corporate email." That is **wrong** — the official key request states no
+affiliation requirement and issues keys to individuals; there is also a keyless public tier (standard
+Graph API endpoints, ~100 req/5 min) and a free individual key (~1 RPS). Bulk S2ORC download via the
+Datasets API does need the free key (verified: no S3 links without it), but that key is self-serve,
+not affiliation-gated. So **S2ORC is a legitimate default option** (middle tier), not an excluded one.
+The only real hard stops for OSS reproducibility are the subscription sources above.
+
+The remaining distinction is friction, not openness: unarXive/arXiv need **no account at all**, while
+S2ORC needs **one free key**. Pick by coverage-vs-zero-friction, below.
 
 ## Recommended build
 
-**Best for the grounding use case: keep OpenAlex for metadata + pull the unarXive open subset (arXiv
-full text + annotated citations, downloadable from Zenodo with NO account) for full text, then apply
-a math filter and attach MSC via a zbMATH join (open API, no key). The only new code is the math/MSC
-gate + the domain sources (OEIS / NIST DLMF) no aggregator includes.**
+**Best for the grounding use case: keep OpenAlex for metadata + pull full text (S2ORC for the richest
+coverage with one free self-serve key, OR the unarXive open subset for a strictly no-account build),
+then apply a math filter and attach MSC via a zbMATH join (open API, no key). The only new code is the
+math/MSC gate + the domain sources (OEIS / NIST DLMF) no aggregator includes.** Both full-text options
+are OSS-reproducible; see "Full-text source options" below for the coverage-vs-friction call.
 
 ```
 OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/cited_by)
@@ -64,25 +79,27 @@ OpenAlex (have)        → metadata spine (title/abstract/venue/authors/topic/ci
   and the **OEIS + DLMF adapters** (domain-specific, high value for NT, not in any aggregate).
   `LgDoc` gains `msc` (+ `fulltext_url`, `cited_by`, `source[]`).
 
-### Full-text source options, by credential barrier
-- **Default (zero / self-serve, OSS-safe):**
+### Full-text source options, by credential barrier (all OSS-compatible except the last group)
+- **Zero account:**
   - **unarXive open subset** (Zenodo, no account) — structured arXiv full text + annotated citations,
-    LaTeX-derived (cleaner than PDF parsing). Covers math/CS/physics/econ (all on arXiv). Primary.
-  - **arXiv S3 bulk** (requester-pays; needs an AWS account but **no approval/gating**) — fuller
-    arXiv coverage beyond the permissive subset, if wanted.
+    LaTeX-derived (cleaner than PDF parsing). Covers math/CS/physics/econ (all on arXiv).
+  - **arXiv S3 bulk** (requester-pays; needs an AWS account but no approval/gating) — fuller arXiv
+    coverage beyond the permissive subset.
   - **OpenAlex `oa_url` + Unpaywall** (email-as-param, not a gated key) — resolve OA PDF locations for
     non-arXiv OA papers and fetch directly.
-- **Optional upgrades (gated — document, don't default):**
-  - **S2ORC / Semantic Scholar bulk** — richer (resolved refs, SPECTER2), but the API key needs an
-    **academic/corporate email** → excluded as a default. A ready-to-run ingester exists
-    (`scratchpad/s2orc-ingest.py`) for users who have a key.
-  - **peS2o** (HuggingFace) — ODC-BY, but login + accept-terms gate.
+- **One free self-serve key (no affiliation) — richest coverage:**
+  - **S2ORC / Semantic Scholar bulk** — broadest OA full text (non-arXiv too), resolved references,
+    SPECTER2 embeddings. Needs the free individual key (same tier as our OpenAlex key). Ready-to-run
+    ingester: `scratchpad/s2orc-ingest.py`. **This is a valid default**, not an excluded upgrade.
+  - **peS2o** (HuggingFace token) — ODC-BY cleaned S2ORC derivative; simplest if you just want text.
 - **Supplementary text only (not a record store):** math token-corpora **MathPile** (~9.5B tok,
   CC-BY-NC-SA) and **Nemotron-CC-Math** (~133B tok) — LM-pretraining streams, not per-paper records.
+- **Truly gated (excluded):** MathSciNet, Scopus, Web of Science — affiliation / subscription.
 
-Coverage note: arXiv is preprint-centric — excellent for math/CS/physics (most of the frontier is
-there), thinner for economics (many econ papers never hit arXiv). Acceptable for an open default; a
-user who wants econ depth can add a gated source themselves.
+Choice: **zero-friction = unarXive/arXiv** (no signup, arXiv-centric so thin on economics);
+**maximum coverage = S2ORC** (one free key, spans non-arXiv OA and gives resolved refs + embeddings).
+Both are OSS-reproducible. Recommend S2ORC if the free key is acceptable (it's the same ask as the
+OpenAlex key), falling back to unarXive/arXiv for a strictly no-account build.
 
 ## Sequencing
 1. **zbMATH MSC-join** onto the existing OpenAlex corpus — cheapest lever, upgrades the gate key from
