@@ -8,6 +8,7 @@ chmod +x scripts/*.sh scripts/*.py
 OPENALEX_MAILTO=you@example.com ./scripts/build-nt-corpus.sh && python3 scripts/run-ground-probes.py
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-cores.sh
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-html-cores.sh
+FIELDS=math python3 scripts/build-fulltext-unarxive.py --zenodo   # §32.5d full text (unarXive open subset, 4.8 GB, no key)
 
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh

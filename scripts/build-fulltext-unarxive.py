@@ -139,26 +139,26 @@ def build(paths):
           f"({by_ax} by arXiv id, {by_ti} by title). Full text in {FT_DIR}", flush=True)
 
 def download_zenodo():
-    """Fetch the open-subset archive URLs from the Zenodo API and download them."""
+    """Download + extract the unarXive open-subset (single .tar.xz) from Zenodo;
+    return the list of extracted .jsonl paths. Idempotent: skips existing files."""
+    import tarfile
     api = f"https://zenodo.org/api/records/{ZENODO_RECORD}"
     meta = json.load(urllib.request.urlopen(api, timeout=60))
-    files = meta.get("files", [])
     staging = os.path.join(CORPUS_DIR, "unarxive-open")
     os.makedirs(staging, exist_ok=True)
-    print(f"Zenodo record {ZENODO_RECORD}: {len(files)} files", flush=True)
-    local = []
-    for f in files:
-        url = f["links"]["self"]
+    for f in meta.get("files", []):
+        if not f["key"].endswith((".tar.xz", ".tar.gz", ".tgz")):
+            continue
         dest = os.path.join(staging, f["key"])
         if not os.path.exists(dest):
             print(f"  downloading {f['key']} ({f.get('size',0)/1e9:.1f} GB) ...", flush=True)
-            urllib.request.urlretrieve(url, dest)
-        local.append(dest)
-    # NOTE: unarXive archives are compressed bundles of .jsonl; extraction layout
-    # varies by release. Extract them under `staging/` (tar/zip), then the build
-    # scans staging/**/*.jsonl(.gz). Left explicit so the operator sees the step.
-    print("Extract the downloaded archives under", staging,
-          "then re-run with --sample", staging, file=sys.stderr)
+            urllib.request.urlretrieve(f["links"]["self"], dest)
+        marker = dest + ".extracted"
+        if not os.path.exists(marker):
+            print(f"  extracting {f['key']} (tar.xz → jsonl) ...", flush=True)
+            with tarfile.open(dest, "r:*") as tf:
+                tf.extractall(staging)
+            open(marker, "w").close()
     return sorted(glob.glob(os.path.join(staging, "**", "*.jsonl*"), recursive=True))
 
 def main():
