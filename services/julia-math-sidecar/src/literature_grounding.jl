@@ -37,6 +37,9 @@ struct LgDoc
     authors::String
     doi::String
     abstract_::String
+    field::String        # OpenAlex primary_topic.field display name, e.g. "Mathematics" ("" if pre-rebuild corpus)
+    subfield::String     # primary_topic.subfield.id, e.g. "2602" (Algebra & Number Theory) ("" if absent)
+    topic::String        # primary_topic.id, e.g. "T11166" (Analytic NT) ("" if absent)
 end
 
 # 2026-07-04 curation (run-17 rec 1): the breadth pull ingested preprint-server noise —
@@ -48,6 +51,34 @@ end
 function lg_curated_out(doi::AbstractString, cited_by::Int)
     get(ENV, "ET_GROUND_CURATE", "1") == "1" || return false
     return cited_by == 0 && occursin("10.5281/zenodo", doi)
+end
+
+# 2026-07-08 (review: 3/4 retrieved near-misses were cross-domain noise — turbulence,
+# neuroscience, ecology — matched on generic words like "flow"/"density"; the one genuine
+# find, a Chowla ↔ prime-tuples paper, was correctly kept). SUBJECT GATE, applied at QUERY
+# time (retrieval, not index) so it composes with any corpus: keep a doc only if its
+# OpenAlex subject metadata is in the allowlist. Discriminator is FIELD/SUBFIELD/TOPIC, not
+# BM25 score — the noise and the good Chowla near-miss score alike; only subject separates
+# them, and a score floor would fail closed on the legitimate find.
+#
+# FLAG-GATED DORMANT (default OFF): ET_GROUND_SUBJECTS is a comma-separated allowlist of
+# field names / subfield ids / topic ids (case-insensitive substring match against each
+# doc's field, subfield, topic). Unset/blank ⇒ gate disabled ⇒ byte-identical to pre-gate
+# behavior. GRACEFUL: a doc with NO subject metadata (pre-rebuild corpus rows carry "") is
+# KEPT even when the gate is on — so staging this before the field-carrying corpus rebuild
+# can never regress recall. Activate during the rebuild once run-ground-probes.py confirms
+# the allowlist keeps the Chowla-class near-miss and drops the cross-domain noise.
+function lg_subject_allowlist()
+    raw = strip(get(ENV, "ET_GROUND_SUBJECTS", ""))
+    isempty(raw) && return String[]
+    return [lowercase(strip(s)) for s in split(raw, ',') if !isempty(strip(s))]
+end
+
+function lg_subject_ok(doc::LgDoc, allow::Vector{String})
+    isempty(allow) && return true                              # gate disabled
+    (isempty(doc.field) && isempty(doc.subfield) && isempty(doc.topic)) && return true  # graceful: pre-rebuild row
+    hay = lowercase(string(doc.field, " ", doc.subfield, " ", doc.topic))
+    return any(a -> occursin(a, hay), allow)
 end
 
 struct LgIndex
@@ -120,7 +151,10 @@ function lg_init!(corpus_path::AbstractString)
                 ""
             end
             doc = LgDoc(key, title, Int(get(row, :year, 0)),
-                        String(get(row, :venue, "")), authors, doi_, abstract_)
+                        String(get(row, :venue, "")), authors, doi_, abstract_,
+                        String(get(row, :field, "")),      # "" for pre-rebuild corpus rows
+                        String(get(row, :subfield, "")),
+                        String(get(row, :topic, "")))
             push!(docs, doc)
             docid = Int32(length(docs))
             counts = Dict{String,Int}()
@@ -187,7 +221,13 @@ function lg_search(query::AbstractString, topk::Int)
         end
     end
     isempty(scores) && return (Int32[], Float64[], 0.0)
-    order = sort(collect(scores); by=kv -> -kv[2])
+    # Subject gate: drop cross-domain candidates BEFORE ranking so topk fills with
+    # subject-relevant works and the normalized confidence reflects the best RELEVANT
+    # match, not a high-scoring noise doc. No-op when the allowlist is unset.
+    allow = lg_subject_allowlist()
+    order = sort(filter(kv -> lg_subject_ok(index.docs[kv[1]], allow), collect(scores));
+                 by=kv -> -kv[2])
+    isempty(order) && return (Int32[], Float64[], 0.0)
     top = order[1:min(topk, length(order))]
     nscore = idfsum > 0 ? top[1][2] / (idfsum * (LG_K1 + 1.0)) : 0.0
     return (Int32[kv[1] for kv in top], Float64[kv[2] for kv in top], nscore)
@@ -264,6 +304,9 @@ function handle_ground_claim(req::HTTP.Request)
             "venue" => doc.venue,
             "authors" => doc.authors,
             "doi" => doc.doi,
+            "field" => doc.field,
+            "subfield" => doc.subfield,
+            "topic" => doc.topic,
             "score" => round(scores[i]; digits=3),
             "snippet" => lg_snippet(doc, claim)))
     end
