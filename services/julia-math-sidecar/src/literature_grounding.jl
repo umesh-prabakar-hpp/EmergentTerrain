@@ -40,6 +40,7 @@ struct LgDoc
     field::String        # OpenAlex primary_topic.field display name, e.g. "Mathematics" ("" if pre-rebuild corpus)
     subfield::String     # primary_topic.subfield.id, e.g. "2602" (Algebra & Number Theory) ("" if absent)
     topic::String        # primary_topic.id, e.g. "T11166" (Analytic NT) ("" if absent)
+    msc::String          # zbMATH MSC codes, space-joined, e.g. "11N37 11M06" ("" if not zbMATH-joined)
 end
 
 # 2026-07-04 curation (run-17 rec 1): the breadth pull ingested preprint-server noise —
@@ -76,9 +77,13 @@ end
 
 function lg_subject_ok(doc::LgDoc, allow::Vector{String})
     isempty(allow) && return true                              # gate disabled
-    (isempty(doc.field) && isempty(doc.subfield) && isempty(doc.topic)) && return true  # graceful: pre-rebuild row
+    # graceful: a row with NO subject metadata at all is kept
+    (isempty(doc.field) && isempty(doc.subfield) && isempty(doc.topic) && isempty(doc.msc)) && return true
+    # MSC prefix match is anchored (allow "11" matches code "11N37" but not a stray "11" elsewhere);
+    # field/subfield/topic use substring. Allowlist entries like "11" (MSC NT) or "mathematics" both work.
     hay = lowercase(string(doc.field, " ", doc.subfield, " ", doc.topic))
-    return any(a -> occursin(a, hay), allow)
+    mscs = split(lowercase(doc.msc))
+    return any(a -> occursin(a, hay) || any(m -> startswith(m, a), mscs), allow)
 end
 
 struct LgIndex
@@ -150,11 +155,17 @@ function lg_init!(corpus_path::AbstractString)
             catch
                 ""
             end
+            msc_ = try
+                join(String.(get(row, :msc, String[])), " ")   # row stores msc as a JSON list
+            catch
+                ""
+            end
             doc = LgDoc(key, title, Int(get(row, :year, 0)),
                         String(get(row, :venue, "")), authors, doi_, abstract_,
                         String(get(row, :field, "")),      # "" for pre-rebuild corpus rows
                         String(get(row, :subfield, "")),
-                        String(get(row, :topic, "")))
+                        String(get(row, :topic, "")),
+                        msc_)
             push!(docs, doc)
             docid = Int32(length(docs))
             counts = Dict{String,Int}()
@@ -307,6 +318,7 @@ function handle_ground_claim(req::HTTP.Request)
             "field" => doc.field,
             "subfield" => doc.subfield,
             "topic" => doc.topic,
+            "msc" => doc.msc,
             "score" => round(scores[i]; digits=3),
             "snippet" => lg_snippet(doc, claim)))
     end
