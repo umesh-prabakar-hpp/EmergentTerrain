@@ -93,6 +93,39 @@ exists to drop. The discriminator stays "genuine math content" (MSC / topic), ne
 Storage/RAM caveat: these fields are 2–14× the size of all-math, so domain expansion multiplies the
 corpus fast — another reason the disk-backed index below is the enabling piece.
 
+## Storage footprint — all sources, not just OpenAlex
+
+Sizing the full stack for the realistic expansion (math + CS + Physics + Econ ≈ 36.1M works),
+compressed (~4.5×), anchored on our measured 1.18 KB/work OpenAlex schema:
+
+| Source | Compressed | Note |
+|---|---|---|
+| OpenAlex metadata + abstracts | **~10 GB** | the base layer |
+| S2ORC full text — all available (~15% OA) | ~123 GB | 5.4M docs; the dominant term |
+| S2ORC full text — **cited core only (~3%)** | **~25 GB** | 1.1M docs; what the lazy policy converges to |
+| zbMATH MSC join | ~0.5 GB | tags the 3.6M math slice only — CS/Physics/Econ aren't in zbMATH; they take subject from OpenAlex topic |
+| OEIS | ~1 GB | fixed domain source (already have it) |
+| DLMF | <0.2 GB | fixed, tiny |
+
+- **Metadata + lazy (cited-core) full text: ~15–20 GB compressed.**
+- **Metadata + all-available full text (bulk-pulled up front): ~120–140 GB compressed.**
+
+Everything except S2ORC full text is small — **full text is the only variable that matters, and it is
+a fetch-policy choice, not a fixed cost.** Both totals fit this box's 389 GB free. Caveat: a naive
+bulk pull of whole S2ORC shards spikes *transient* disk above the stored size — stream-and-filter to
+keep the peak near the final footprint.
+
+**"Lazy" full text = offline, between-runs — NEVER on the request path.** §32.5's hard rule is that
+grounding must be fully offline at request time ("works when the room runs overnight"); fetching full
+text live during a paper's generation would put network latency/429s/failures on the critical path
+(exactly what throttled the 2026-07-08 enrichment) and break autonomy. So the pattern is:
+- *During a run:* grounding uses only on-disk data — abstracts + already-cached full text; a work
+  with no cached full text falls back to its abstract/snippet. Zero network.
+- *After / between runs:* an offline enrichment pass (like `build-nt-corpus.sh` or the primary_topic
+  backfill) fetches full text ONLY for the works actually retrieved/cited that run, so the next run
+  has them. Coverage converges to the used set — which is why the cited core is ~3% (~25 GB), not the
+  ~15% (~123 GB) a bulk pull would store. Never fetch full text on the live request path.
+
 ## Index backend & memory sizing — the disk-backed index (the real scaling decision)
 
 The current grounding index (`literature_grounding.jl`) is **in-memory BM25**: the corpus, postings
