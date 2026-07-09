@@ -416,6 +416,14 @@ public class MathToolSuite {
         this.referenceReader = reader;
     }
 
+    /** Phase 32 §32.5d — OEIS/DLMF domain-reference lookups. Null-safe (off ⇒ tools not advertised). */
+    private volatile com.emergentterrain.research.literature.DomainRefClient domainRefClient;
+
+    public void setDomainRefClient(
+            com.emergentterrain.research.literature.DomainRefClient client) {
+        this.domainRefClient = client;
+    }
+
     /**
      * Phase 30 fork 2b Phase 4 — optional runtime-discovery service. Set by
      * {@link ResearchNarrationService} after Spring autowires it. The
@@ -817,7 +825,9 @@ public class MathToolSuite {
                 ((includeLiterature && literatureSearch != null)
                         ? SEARCH_LITERATURE_TOOL_JSON : "")
                         + ((referenceReader != null && referenceReader.available())
-                                ? READ_REFERENCE_TOOL_JSON : ""),
+                                ? READ_REFERENCE_TOOL_JSON : "")
+                        + (domainRefClient != null
+                                ? LOOKUP_OEIS_TOOL_JSON + LOOKUP_DLMF_TOOL_JSON : ""),
                 discoveryAvailable() ? DISCOVER_MERTENS_TOOL_JSON : "",
                 divisorDiscoveryAvailable() ? DISCOVER_DIVISOR_TOOL_JSON : "",
                 primeDiscoveryAvailable() ? DISCOVER_PRIME_TOOL_JSON : "",
@@ -878,6 +888,40 @@ public class MathToolSuite {
                     "query":{"type":"string","description":"What to look for in the text — the specific claim, constant, or exponent you are checking."}
                   },
                   "required":["key","query"]
+                }
+              }
+            }""";
+
+    /** Phase 32 §32.5d — OEIS integer-sequence identification. Advertised when domainRefClient set. */
+    private static final String LOOKUP_OEIS_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"lookup_oeis",
+                "description":"Identify an integer sequence in the OEIS (On-Line Encyclopedia of Integer Sequences). Call this when your paper computes a concrete integer sequence and you want to know whether it is a KNOWN, named one. Pass the leading terms exactly as computed. A match means the sequence is catalogued — cite the A-number and its name; no match is itself reportable (this sequence appears novel). Terms are strings so arbitrarily large integers are fine.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "terms":{"type":"array","items":{"type":"string"},"description":"The leading terms in order, e.g. [\\"0\\",\\"1\\",\\"1\\",\\"2\\",\\"3\\",\\"5\\",\\"8\\"]. Give at least 4-6 terms for a reliable match."}
+                  },
+                  "required":["terms"]
+                }
+              }
+            }""";
+
+    /** Phase 32 §32.5d — NIST DLMF special-function reference lookup. */
+    private static final String LOOKUP_DLMF_TOOL_JSON = """
+            ,{
+              "type":"function",
+              "function":{
+                "name":"lookup_dlmf",
+                "description":"Retrieve the authoritative NIST Digital Library of Mathematical Functions (DLMF) section(s) for a special-function claim — zeta, gamma, Bernoulli, L-functions, etc. Use when positioning a claim against the standard reference for a special function (definitions, formulas, zeros, asymptotics). Returns the matching sections; cite as 'DLMF \\u00a7<id>' and quote formulas as LaTeX.",
+                "parameters":{
+                  "type":"object",
+                  "properties":{
+                    "query":{"type":"string","description":"The special-function claim or quantity to look up, e.g. 'Riemann zeta function nontrivial zeros critical line'."}
+                  },
+                  "required":["query"]
                 }
               }
             }""";
@@ -1254,6 +1298,8 @@ public class MathToolSuite {
                     case "prove_identity"     -> proveIdentity(args);
                     case "search_literature"  -> searchLiterature(draft, args);
                     case "read_reference"     -> readReference(args, readReferenceCalls);
+                    case "lookup_oeis"        -> lookupOeis(args);
+                    case "lookup_dlmf"        -> lookupDlmf(args);
                     case "derive_value"       -> deriveValue(args);
                     default -> "Unknown tool: " + name;
                 };
@@ -2285,6 +2331,34 @@ public class MathToolSuite {
                     + "passages you already retrieved.";
         }
         return referenceReader.read(args.path("key").asText(""), args.path("query").asText(""));
+    }
+
+    private String lookupOeis(JsonNode args) {
+        if (domainRefClient == null) {
+            return "lookup_oeis not configured.";
+        }
+        java.util.List<String> terms = new java.util.ArrayList<>();
+        for (JsonNode t : args.path("terms")) {
+            String s = t.asText("").strip();
+            if (!s.isEmpty()) {
+                terms.add(s);
+            }
+        }
+        if (terms.isEmpty()) {
+            return "lookup_oeis: pass the sequence's leading terms in 'terms' (≥4 recommended).";
+        }
+        return domainRefClient.lookupOeis(terms, 5);
+    }
+
+    private String lookupDlmf(JsonNode args) {
+        if (domainRefClient == null) {
+            return "lookup_dlmf not configured.";
+        }
+        String query = args.path("query").asText("");
+        if (query.isBlank()) {
+            return "lookup_dlmf: pass the special-function claim/quantity in 'query'.";
+        }
+        return domainRefClient.lookupDlmf(query, 3);
     }
 
     static String appendScalarDefinitions(String result, JsonNode args) {

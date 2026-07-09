@@ -51,25 +51,24 @@ All are JSONL under `~/.emergentterrain/corpus-nt/` unless noted. `id` = OpenAle
 | Endpoint | In | Out | Wired |
 |---|---|---|---|
 | `POST /ground/claim` | `{claim, topK}` | `{verdict, confidence, evidence:[…]}` | ✅ tool `search_literature` / `read_reference` |
-| `POST /lookup/oeis` | `{terms:[…], topK}` | `{matches:[{id,name,terms_preview,url}]}` | ⚠️ endpoint live; **JVM tool pending** |
-| `POST /lookup/dlmf` | `{query, topK}` | `{sections:[{id,title,snippet,url}]}` | ⚠️ endpoint live; **JVM tool pending** |
+| `POST /lookup/oeis` | `{terms:[…], topK}` | `{matches:[{id,name,terms_preview,url}]}` | ✅ tool `lookup_oeis` |
+| `POST /lookup/dlmf` | `{query, topK}` | `{sections:[{id,title,snippet,url}]}` | ✅ tool `lookup_dlmf` |
 
 `/lookup/oeis` identifies an integer sequence (from-start signature + bounded scan; validated
 `[0,1,1,2,3,5,8,13]→A000045`). `/lookup/dlmf` is BM25 over the DLMF sections (validated
 `"zeta zeros"→§25.10`). Both load at py-sidecar startup via `dr_init_from_env!` (env `ET_DOMAIN_REFS`,
 default `corpus-nt/domain-refs`), degrade to `not_configured` when the store is absent.
 
-## 4. Remaining wiring — professor-facing OEIS/DLMF tool (spec)
+## 4. Professor-facing OEIS/DLMF tool (WIRED 2026-07-09)
 
-The sidecar lookups are live; the JVM tool that lets the professor CALL them is not yet wired (it's a
-multi-point change into `ResearchNarrationService`'s tool loop and needs a compilable app — do it in a
-git worktree or with the app stopped). To add it, mirror `search_literature`/`read_reference`:
-1. **`DomainRefClient`** (new class, mirror `GroundingClient`): `lookupOeis(terms,topK)` /
-   `lookupDlmf(query,topK)` POSTing to `app.julia.pySidecarUrl`.
-2. **`@Bean`** in `LiteratureGroundingConfig` (like `groundingClient`).
-3. **`MathToolSuite`**: a `domainRefClient` field + setter; `LOOKUP_OEIS_TOOL_JSON` /
-   `LOOKUP_DLMF_TOOL_JSON` schemas; append them in `toolsJson()` when `domainRefClient != null`;
-   dispatch cases in the executor `switch`.
-4. **`ResearchNarrationService`**: inject the bean onto the constructed `MathToolSuite` (where the
-   other clients are set) — for MATHEMATICS papers only. Gate DORMANT (null client ⇒ tools unadvertised).
-5. Prompt: OEIS for "is this computed sequence known?"; DLMF for special-function/zeta claims.
+The `lookup_oeis` / `lookup_dlmf` tools are wired end-to-end and compile-verified, flag-gated dormant:
+- `DomainRefClient` (mirrors `GroundingClient`) → `@Bean` in `DomainRefsConfig`
+  (`@ConditionalOnProperty app.research.literature.domain-refs.enabled`, **default false**).
+- `MathToolSuite`: `domainRefClient` field/setter, `LOOKUP_OEIS_TOOL_JSON`/`LOOKUP_DLMF_TOOL_JSON`
+  schemas, advertised in `toolsJson()` when the client is non-null, dispatch + `lookupOeis`/`lookupDlmf`.
+- `ResearchNarrationService`: `@Autowired(required=false)` client set on the tool suite in
+  `wireDiscoveryTool()`.
+
+**To activate:** (1) build the stores (`build-oeis.py`, `build-dlmf.py` — done); (2) restart the
+py-sidecar so `domain_refs.jl` loads; (3) set `app.research.literature.domain-refs.enabled=true`.
+Dormant (flag off / bean absent) ⇒ tools unadvertised, byte-identical to before.

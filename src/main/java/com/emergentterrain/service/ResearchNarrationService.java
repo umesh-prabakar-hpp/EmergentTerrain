@@ -1387,6 +1387,11 @@ public class ResearchNarrationService {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private com.emergentterrain.research.literature.GroundingClient groundingClient;
 
+    /** Phase 32 §32.5d — optional OEIS/DLMF lookup client; bean exists only when
+     *  {@code app.research.literature.domain-refs.enabled=true} (DomainRefsConfig). */
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.emergentterrain.research.literature.DomainRefClient domainRefClient;
+
     @jakarta.annotation.PostConstruct
     void wireDiscoveryTool() {
         if (toolSuite != null) {
@@ -1398,6 +1403,10 @@ public class ResearchNarrationService {
             toolSuite.setLadderRungBudget(ladderRungBudgetFlag);
             toolSuite.setLiteratureGrounding(groundingClient);
             toolSuite.setReferenceReader(referenceReader);
+            toolSuite.setDomainRefClient(domainRefClient);
+            if (domainRefClient != null) {
+                log.info("lookup_oeis + lookup_dlmf tools ON (domain-reference sidecar)");
+            }
             if (referenceReader != null && referenceReader.available()) {
                 log.info("read_reference mode ON (full-text cores on disk; EVIDENCE-gated, "
                         + "2 calls/paper cap)");
