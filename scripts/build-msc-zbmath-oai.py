@@ -32,13 +32,19 @@ def norm(t):
     return re.sub(r"[^a-z0-9]+", "", (t or "").lower())
 
 def fetch(url):
-    for attempt in range(5):
+    for attempt in range(8):
         try:
-            return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60).read().decode("utf-8", "replace")
-        except Exception:
-            if attempt == 4:
+            return urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=90).read().decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            if e.code == 400:               # badResumptionToken — don't retry, surface immediately
                 raise
-            time.sleep(3 * (attempt + 1))
+            if attempt == 7:
+                raise
+            time.sleep(min(5 * (attempt + 1), 40))
+        except Exception:
+            if attempt == 7:
+                raise
+            time.sleep(min(5 * (attempt + 1), 40))
 
 _REC = re.compile(r"<record>(.*?)</record>", re.S)
 _SUBJ = re.compile(r"<dc:subject>([^<]+)</dc:subject>")
@@ -47,18 +53,40 @@ _DATE = re.compile(r"<dc:date>(\d{4})</dc:date>")
 _TOKEN = re.compile(r"<resumptionToken[^>]*>([^<]*)</resumptionToken>")
 _SIZE = re.compile(r'completeListSize="(\d+)"')
 
+PARTIAL = INDEX + ".partial"   # resumable checkpoint: {idx, ambiguous, token, n}
+
 def harvest():
-    """OAI-PMH ListRecords over set=11; return {norm_title: {"msc":[...], "year":int}}."""
-    idx, ambiguous, n = {}, set(), 0
-    url = f"{OAI}?verb=ListRecords&metadataPrefix=oai_dc&set={SET}"
-    total = None
-    while url:
-        xml = fetch(url)
-        if total is None:
-            m = _SIZE.search(xml); total = int(m.group(1)) if m else "?"
+    """OAI-PMH ListRecords over set=11 → {norm_title: {msc, year}}. Resumable: checkpoints the
+    index + resumptionToken every ~1000 records so a transient HTTP 500 / throttle can't wipe the
+    ~5 h harvest — on failure it saves and exits(2); re-running resumes from the saved token."""
+    idx, ambiguous, n, token = {}, set(), 0, None
+    if os.path.exists(PARTIAL):
+        p = json.load(open(PARTIAL))
+        idx = p["idx"]; ambiguous = set(p.get("ambiguous", [])); n = p.get("n", 0); token = p.get("token")
+        print(f"RESUMING harvest: {len(idx)} titles, n={n}, token={'yes' if token else 'from start'}", flush=True)
+
+    def save():
+        json.dump({"idx": idx, "ambiguous": list(ambiguous), "token": token, "n": n}, open(PARTIAL, "w"))
+
+    total = "?"
+    while True:
+        url = (f"{OAI}?verb=ListRecords&resumptionToken={urllib.request.quote(token)}" if token
+               else f"{OAI}?verb=ListRecords&metadataPrefix=oai_dc&set={SET}")
+        try:
+            xml = fetch(url)
+        except Exception as e:
+            if "badResumptionToken" in str(e) or "HTTP Error 400" in str(e):
+                token = None; save()      # expired token → restart stream, KEEP the index
+                print(f"token expired at n={n} — checkpoint kept ({len(idx)} titles); re-run resumes from start.", flush=True)
+            else:
+                save()
+                print(f"harvest interrupted ({e}) at n={n}, {len(idx)} titles — CHECKPOINT SAVED; re-run to resume.", flush=True)
+            raise SystemExit(2)
+        m = _SIZE.search(xml)
+        if m:
+            total = int(m.group(1))
         for rec in _REC.findall(xml):
-            ts = _TITLE.search(rec)
-            ss = _SUBJ.search(rec)
+            ts = _TITLE.search(rec); ss = _SUBJ.search(rec)
             if not ts or not ss:
                 continue
             key = norm(ts.group(1))
@@ -66,19 +94,22 @@ def harvest():
                 continue
             msc = [c.strip() for c in ss.group(1).split(";") if c.strip()]
             yr = _DATE.search(rec)
-            entry = {"msc": msc, "year": int(yr.group(1)) if yr else 0}
-            if key in idx and idx[key]["msc"] != msc:   # same title, different paper → unusable
+            if key in idx and idx[key]["msc"] != msc:
                 ambiguous.add(key); idx.pop(key, None)
             else:
-                idx[key] = entry
+                idx[key] = {"msc": msc, "year": int(yr.group(1)) if yr else 0}
             n += 1
         tok = _TOKEN.search(xml)
-        tok = tok.group(1).strip() if tok else ""
-        url = f"{OAI}?verb=ListRecords&resumptionToken={urllib.request.quote(tok)}" if tok else None
-        if n % 5000 < 100:
-            print(f"  harvested ~{n}/{total} records | title-index {len(idx)} | ambiguous {len(ambiguous)}", flush=True)
+        token = tok.group(1).strip() if tok and tok.group(1).strip() else None
+        if n % 1000 < 100:
+            save()
+            print(f"  harvested ~{n}/{total} | titles {len(idx)} | ambiguous {len(ambiguous)}", flush=True)
+        if not token:
+            break
         time.sleep(0.15)
-    print(f"harvest done: {n} records, {len(idx)} usable titles ({len(ambiguous)} ambiguous dropped)", flush=True)
+    print(f"harvest done: {n} records, {len(idx)} usable titles ({len(ambiguous)} ambiguous)", flush=True)
+    if os.path.exists(PARTIAL):
+        os.remove(PARTIAL)
     return idx
 
 def main():
