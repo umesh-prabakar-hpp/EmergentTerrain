@@ -266,12 +266,23 @@ OAI-PMH endpoint at **`https://oai.zbmath.org/v1/`** with:
   `msc-oai-index.json`. **Keep the DOI-joined MSC from Approach 1 (DOI wins — higher confidence);
   title-join only fills the gaps.** Then restart py-sidecar with `ET_GROUND_SUBJECTS=11`.
 
-**OPEN / caveats (verify before trusting):**
-- **Harvest speed UNVERIFIED** — a 3-page validation *timed out at 2 min* (the OAI endpoint stalled
-  or throttled). The 60 s-timeout + 5-retry fetch can eat minutes on one bad request. Needs a real
-  monitored run; may need per-request timeout tuning, or the endpoint rate-limits like the REST API
-  did. If OAI throttles similarly, reconsider (e.g. the cached `oai_zb_preview` DOI join for a subset,
-  or accept the field-level gate which already works).
+**Harvest speed — MEASURED 2026-07-08 (monitored run):** the endpoint is throttled to **~9.4 s per
+request** (an IP-level rate-limit — identical to the REST API's 9.4 s/row, so it's the same throttle),
+but each OAI batch returns **100 records** → **~0.094 s/record → ~5 h for all 188,219 NT records**.
+That is **~100× more efficient per record than the per-DOI API** (which was 1 record/request → ~11
+days), so OAI is the right call even under the throttle. The earlier 3-page validation "timeout" was
+just this slowness × the 60 s-timeout+retry fetch on a cold start; the real run progresses fine (first
+progress line at 5,000 records ≈ 8 min). Sequential (resumptionToken chain can't be parallelized), so
+~5 h is the floor. Acceptable for a background job; MSC is an enhancement, not a blocker.
+
+**No usable HuggingFace alternative (checked 2026-07-08):** arXiv metadata snapshots
+(`librarian-bots/arxiv-metadata-snapshot`, 28.9k downloads) join by arXiv id but carry only
+`categories` (arXiv classes like math.NT) — **no MSC**. zbMATH-derived HF sets (`AnkitSatpute/
+zbMath_mscref` = text+label 82k; `math-similarity/class-zbmath-identifier` = zbMATH `an`+MSC, 439k)
+DO have MSC but are keyed by zbMATH accession ids or shaped as text→label classification — **not
+joinable** to our DOI/arXiv-keyed corpus. So the OAI harvest remains the path.
+
+**Other caveats:**
 - **Title-join is fuzzier than DOI** — mitigated by exact normalized-title match + year±1 + dropping
   ambiguous (same-title-different-paper) entries, but expect some misses and a small false-positive
   risk. DOI-joined rows (Approach 1) are exact and take precedence.
