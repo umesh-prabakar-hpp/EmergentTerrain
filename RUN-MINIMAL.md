@@ -10,6 +10,9 @@ OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-co
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-html-cores.sh
 FIELDS=math python3 scripts/build-fulltext-unarxive.py --zenodo   # §32.5d full text (unarXive open subset, 4.8 GB, no key)
 python3 scripts/msc-map.py --apply   # §32.5d MSC codes from committed map (no harvest); enables ET_GROUND_SUBJECTS=msc:11
+python3 scripts/build-oeis.py        # §32.5d OEIS domain ref (~40 MB, no key) -> domain-refs/oeis.jsonl
+python3 scripts/build-dlmf.py        # §32.5d DLMF special-functions ref (free scrape) -> domain-refs/dlmf.jsonl
+# broad full-text (jedibear/S2ORC + ar5iv bulk) needs a transient AWS box — see §32.5e / scripts/aws/provision-build-box.sh
 
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
