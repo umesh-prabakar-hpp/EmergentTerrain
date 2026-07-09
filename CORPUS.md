@@ -72,3 +72,33 @@ The `lookup_oeis` / `lookup_dlmf` tools are wired end-to-end and compile-verifie
 **To activate:** (1) build the stores (`build-oeis.py`, `build-dlmf.py` — done); (2) restart the
 py-sidecar so `domain_refs.jl` loads; (3) set `app.research.literature.domain-refs.enabled=true`.
 Dormant (flag off / bean absent) ⇒ tools unadvertised, byte-identical to before.
+
+## 5. py-sidecar memory profile (2026-07-09)
+
+The offline indices live in the single-threaded py-sidecar's RAM. Measured breakdown (fresh Julia,
+RSS delta per component; `scratchpad/memprofile.jl`):
+
+| Component | RSS added | Real retained | Notes |
+|---|---|---|---|
+| Julia runtime + code | 333 MB | (fixed) | base cost of the process |
+| Grounding BM25 index (99,344 docs) | +528 MB | ~528 MB | postings + doc store — genuine |
+| OEIS (397,240 seqs, all terms) | +664 MB | ~450 MB | terms ~300 (avg 34.4/seq), sig-dict+structs ~120, names ~28 |
+| DLMF (872 secs) | +302 MB | **<20 MB** | the delta is **allocation high-water**, not live data |
+| **Total** | **1827 MB** | ~1330 MB live | ~300–500 MB is freed-but-not-returned pages |
+
+Findings:
+- **Real consumers are grounding (~528 MB) and OEIS (~450 MB)** — legitimately-loaded indices, not waste.
+- **DLMF is tiny (<20 MB)**; its +302 MB RSS is Julia not returning freed BM25-tokenization allocations
+  to the OS. So ~300–500 MB of the total is reclaimable high-water.
+- The earlier "cap OEIS terms to 20" idea missed: terms are only ~300 MB of the 1.8 GB, and the bigger
+  shares are the grounding index (inherent), the OEIS signature dict, and the high-water. Reverted.
+
+Optimizations applied (`domain_refs.jl`, commit 4af0cea):
+- **`GC.gc(true)` after domain-refs init** — a full compacting GC returns the ~300–500 MB load-time
+  high-water to the OS.
+- **OEIS lazy-load** — `dr_init_from_env!` records the path only; `handle_lookup_oeis` loads on first
+  call (`dr_oeis_ensure!`). Since most papers never call `lookup_oeis`, the ~450 MB is deferred off
+  startup — idle footprint drops to ~grounding + base (~860 MB) + reclaimed high-water.
+
+Remaining lever (not done): the grounding index (~528 MB) only shrinks via a disk-backed (Tantivy)
+index — see §32.5d "Index backend & memory sizing".
