@@ -238,6 +238,46 @@ requirement.** In-memory BM25 → RAM caps you at ~NT-scale full text on this bo
 - **Diminishing returns:** after OpenAlex + zbMATH(MSC) + arXiv/unarXive(full text) + OEIS/DLMF, each extra
   metadata mirror adds little. Spend effort on the MSC filter quality and the domain sources.
 
+## MSC-join findings — zbMATH API grind (killed) → OAI-PMH bulk (2026-07-08)
+
+Attaching MSC codes (to upgrade the gate from field-level to `11`-XX Number Theory) went through two
+approaches. Preserved here for reference.
+
+**Approach 1 — per-DOI API (`build-msc-zbmath.py`): KILLED as impractical.** Looks each corpus row up
+in the zbMATH REST API (`?search_string=doi: <doi>`). A 30-row sample was 0.6 s/call and 77% hit
+(all 11-XX, e.g. 11N37/11M06/11P21) — but at corpus scale (105,855 sequential calls) it degraded to a
+**9.4 s/row average over 18 h (only 7,000 done → ~11-day ETA)**, almost certainly zbMATH throttling
+the retries. NOTE the query field is **`doi:`** (not `dr:`, which 404s). Killed 2026-07-08; its
+checkpoint `msc-tags.json` (7,000 looked up, **2,085 with MSC**) is preserved and reused below.
+`abstracts.jsonl` is only rewritten at completion, so nothing was corrupted.
+
+**Approach 2 — OAI-PMH bulk (`build-msc-zbmath-oai.py`): the chosen path.** zbMATH Open exposes an
+OAI-PMH endpoint at **`https://oai.zbmath.org/v1/`** with:
+- **Sets by MSC top-level class** — `setSpec=11` = "11-XX Number theory", **`completeListSize=188,219`**
+  records. So we harvest ONLY the NT set, not all ~4.5M zbMATH records.
+- **Two metadata formats**, and the trade between them is the crux:
+  - `oai_dc` — lean, fast (~100 records/batch, quick). Carries MSC as `dc:subject` (e.g.
+    `"11F46; 11F30"`), `dc:title`, `dc:date` (year) — but **NO DOI** (`dc:identifier` is zbMATH's
+    internal id). → must join by **title (+ year)**.
+  - `oai_zb_preview` — rich: `zbmath:doi` + `zbmath:classifications` + review text/references, so it
+    CAN join by DOI — but records are heavy (**~0.68 s/record → ~35 h** for 188k). Impractical.
+- **Chosen**: harvest `oai_dc` set=11 → build `norm_title → {msc, year}` index (drop titles that
+  collide across different papers) → join corpus by normalized title with year±1 → cache to
+  `msc-oai-index.json`. **Keep the DOI-joined MSC from Approach 1 (DOI wins — higher confidence);
+  title-join only fills the gaps.** Then restart py-sidecar with `ET_GROUND_SUBJECTS=11`.
+
+**OPEN / caveats (verify before trusting):**
+- **Harvest speed UNVERIFIED** — a 3-page validation *timed out at 2 min* (the OAI endpoint stalled
+  or throttled). The 60 s-timeout + 5-retry fetch can eat minutes on one bad request. Needs a real
+  monitored run; may need per-request timeout tuning, or the endpoint rate-limits like the REST API
+  did. If OAI throttles similarly, reconsider (e.g. the cached `oai_zb_preview` DOI join for a subset,
+  or accept the field-level gate which already works).
+- **Title-join is fuzzier than DOI** — mitigated by exact normalized-title match + year±1 + dropping
+  ambiguous (same-title-different-paper) entries, but expect some misses and a small false-positive
+  risk. DOI-joined rows (Approach 1) are exact and take precedence.
+- MSC is an **enhancement**, not a blocker: `ET_GROUND_SUBJECTS=mathematics` (field-level) already
+  gates correctly (§32.5c). MSC only adds finer intra-math resolution.
+
 See §32.5c in phase-32-manuscript-grounding.md (the shipped subject gate this generalizes — its
 MSC allowlist is the target this addendum builds toward) and phase-32-openalex-corpus.md item B
 (the OpenAlex build + subject-tag backfill).
