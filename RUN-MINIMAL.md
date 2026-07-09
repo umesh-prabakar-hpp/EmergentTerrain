@@ -9,6 +9,7 @@ OPENALEX_MAILTO=you@example.com ./scripts/build-nt-corpus.sh && python3 scripts/
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-fulltext-cores.sh
 OPENALEX_API_KEY=... OPENALEX_MAILTO=you@example.com ./scripts/build-html-cores.sh
 FIELDS=math python3 scripts/build-fulltext-unarxive.py --zenodo   # §32.5d full text (unarXive open subset, 4.8 GB, no key)
+python3 scripts/msc-map.py --apply   # §32.5d MSC codes from committed map (no harvest); enables ET_GROUND_SUBJECTS=11
 
 # 1. GPU engine
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrainGPUEngine && ./scripts/start.sh
@@ -18,6 +19,7 @@ cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_DISCOVER_EXEC=1 
 
 # 2b. Py-sidecar (PyCall routes + literature grounding). ET_GROUND_SUBJECTS=mathematics
 #     activates the subject gate (drops cross-domain near-misses); omit ⇒ gate dormant.
+#     Use ET_GROUND_SUBJECTS=11 for MSC Number-Theory granularity after step 0e (msc-map --apply).
 cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics ET_DISCOVER_EXEC=1 ./scripts/start-py-sidecar.sh &
 
 # 3. Spring Boot app
