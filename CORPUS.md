@@ -56,8 +56,9 @@ All are JSONL under `~/.emergentterrain/corpus-nt/` unless noted. `id` = OpenAle
 
 `/lookup/oeis` identifies an integer sequence (from-start signature + bounded scan; validated
 `[0,1,1,2,3,5,8,13]→A000045`). `/lookup/dlmf` is BM25 over the DLMF sections (validated
-`"zeta zeros"→§25.10`). Both load at py-sidecar startup via `dr_init_from_env!` (env `ET_DOMAIN_REFS`,
-default `corpus-nt/domain-refs`), degrade to `not_configured` when the store is absent.
+`"zeta zeros"→§25.10`). `dr_init_from_env!` (env `ET_DOMAIN_REFS`, default `corpus-nt/domain-refs`)
+loads DLMF eagerly at startup but **defers OEIS to first lookup** (lazy — see §5); both degrade to
+`not_configured` when the store is absent.
 
 ## 4. Professor-facing OEIS/DLMF tool (WIRED 2026-07-09)
 
