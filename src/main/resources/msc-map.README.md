@@ -16,7 +16,7 @@ count — so you always know how current this data is and where it came from. `s
 
 ## Why it's committed (and not just built)
 These codes upgrade the literature-grounding subject gate from field-level (`Mathematics`) to
-MSC-prefix (`ET_GROUND_SUBJECTS=11` = Number Theory — see §32.5c/§32.5d). Generating them requires a
+MSC-prefix (`ET_GROUND_SUBJECTS=msc:11` = Number Theory — see §32.5c/§32.5d). Generating them requires a
 **~5-hour harvest of the zbMATH OAI-PMH endpoint** (188,219 Number-Theory records, throttled to
 ~9.4 s/request and prone to transient HTTP 500s). Rather than make every open-source user endure that
 flaky harvest, the finished result (~0.3 MB gzipped) is committed here.
@@ -39,7 +39,7 @@ This file is **derived from [zbMATH Open](https://zbmath.org)** and is redistrib
 ```bash
 scripts/build-nt-corpus.sh          # build the corpus (abstracts.jsonl) first
 python3 scripts/msc-map.py --apply  # inject `msc` into abstracts.jsonl from this committed map
-# then start the py-sidecar with ET_GROUND_SUBJECTS=11 to gate on MSC Number Theory
+# then start the py-sidecar with ET_GROUND_SUBJECTS=msc:11 to gate on MSC Number Theory
 ```
 
 **Regenerate (maintainers — only when refreshing the corpus):**

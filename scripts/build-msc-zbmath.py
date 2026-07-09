@@ -95,7 +95,7 @@ def main():
     print(f"\nDONE: {looked} looked up | {hit} rows now carry MSC "
           f"({100*hit//max(looked,1)}% of looked-up)", flush=True)
     print("top MSC families:", dict(fam.most_common(10)), flush=True)
-    print("Gate: set ET_GROUND_SUBJECTS=11 (MSC Number Theory) once "
+    print("Gate: set ET_GROUND_SUBJECTS=msc:11 (MSC Number Theory) once "
           "literature_grounding.jl indexes the msc field.", flush=True)
 
 if __name__ == "__main__":

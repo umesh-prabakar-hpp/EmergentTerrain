@@ -264,7 +264,7 @@ OAI-PMH endpoint at **`https://oai.zbmath.org/v1/`** with:
 - **Chosen**: harvest `oai_dc` set=11 → build `norm_title → {msc, year}` index (drop titles that
   collide across different papers) → join corpus by normalized title with year±1 → cache to
   `msc-oai-index.json`. **Keep the DOI-joined MSC from Approach 1 (DOI wins — higher confidence);
-  title-join only fills the gaps.** Then restart py-sidecar with `ET_GROUND_SUBJECTS=11`.
+  title-join only fills the gaps.** Then restart py-sidecar with `ET_GROUND_SUBJECTS=msc:11`.
 
 **Harvest speed — MEASURED 2026-07-08 (monitored run):** the endpoint is throttled to **~9.4 s per
 request** (an IP-level rate-limit — identical to the REST API's 9.4 s/row, so it's the same throttle),

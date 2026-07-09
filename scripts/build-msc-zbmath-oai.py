@@ -13,7 +13,7 @@
 # DOI-joined MSC already gathered by the API run (msc-tags.json) — DOI wins.
 #
 # Harvest is cached to msc-oai-index.json (skip re-harvest on re-run). Merges MSC
-# into abstracts.jsonl. Then: restart py-sidecar with ET_GROUND_SUBJECTS=11.
+# into abstracts.jsonl. Then: restart py-sidecar with ET_GROUND_SUBJECTS=msc:11.
 #
 # Usage: python3 scripts/build-msc-zbmath-oai.py
 # =====================================================================
@@ -147,7 +147,7 @@ def main():
     print(f"\nDONE: MSC attached to {by_doi + by_title} rows ({by_doi} by DOI, {by_title} by title) "
           f"of {len(rows)} ({100*(by_doi+by_title)//len(rows)}%)", flush=True)
     print("top MSC families:", dict(fam.most_common(10)), flush=True)
-    print("Next: restart py-sidecar with ET_GROUND_SUBJECTS=11 to gate on MSC Number Theory.", flush=True)
+    print("Next: restart py-sidecar with ET_GROUND_SUBJECTS=msc:11 to gate on MSC Number Theory.", flush=True)
 
 if __name__ == "__main__":
     main()

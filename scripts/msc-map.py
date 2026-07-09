@@ -28,7 +28,7 @@
 #       Reads the committed src/main/resources/msc-map.jsonl.gz and injects the
 #       `msc` field into your local corpus abstracts.jsonl by OpenAlex id. Run it
 #       after build-nt-corpus.sh; then start the py-sidecar with
-#       ET_GROUND_SUBJECTS=11 to gate on MSC Number Theory. Idempotent.
+#       ET_GROUND_SUBJECTS=msc:11 to gate on MSC Number Theory. Idempotent.
 #
 #         python3 scripts/msc-map.py --apply
 #
@@ -122,7 +122,7 @@ def apply_():
             out.write(json.dumps(r) + "\n")
     os.replace(tmp, CORPUS)
     print(f"applied MSC to {hit:,} corpus rows. top families: {dict(fam.most_common(8))}", flush=True)
-    print("  next: (re)start the py-sidecar with ET_GROUND_SUBJECTS=11 to gate on MSC Number Theory.", flush=True)
+    print("  next: (re)start the py-sidecar with ET_GROUND_SUBJECTS=msc:11 to gate on MSC Number Theory.", flush=True)
 
 def main():
     ap = argparse.ArgumentParser(description="ship (--extract) or consume (--apply) the committed MSC map")
