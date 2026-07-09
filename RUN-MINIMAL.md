@@ -19,7 +19,9 @@ cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_DISCOVER_EXEC=1 
 
 # 2b. Py-sidecar (PyCall routes + literature grounding). ET_GROUND_SUBJECTS=mathematics
 #     activates the subject gate (drops cross-domain near-misses); omit ⇒ gate dormant.
-#     Use ET_GROUND_SUBJECTS=msc:11 for MSC Number-Theory granularity after step 0e (msc-map --apply).
+#     Recommended: mathematics (full-corpus, validated). msc:11 is an anchored MSC prefix
+#     (matches 11N37, not topic-id "11") — a finer OPTIONAL add-on (~40k rows have MSC after
+#     step 0e); combine if wanted: ET_GROUND_SUBJECTS=mathematics,msc:11.
 cd /opt/apps/ide/eclipse/workspace-web/julia-math-sidecar && ET_GROUND_SUBJECTS=mathematics ET_DISCOVER_EXEC=1 ./scripts/start-py-sidecar.sh &
 
 # 3. Spring Boot app
