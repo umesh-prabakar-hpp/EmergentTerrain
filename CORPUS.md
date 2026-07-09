@@ -99,7 +99,12 @@ Optimizations applied (`domain_refs.jl`, commit 4af0cea):
   high-water to the OS.
 - **OEIS lazy-load** — `dr_init_from_env!` records the path only; `handle_lookup_oeis` loads on first
   call (`dr_oeis_ensure!`). Since most papers never call `lookup_oeis`, the ~450 MB is deferred off
-  startup — idle footprint drops to ~grounding + base (~860 MB) + reclaimed high-water.
+  startup.
+
+**Verified (restart, 2026-07-09):** idle RSS **1364 MB** (down ~460 MB from 1827 MB eager) and startup
+~20 s (down from ~40 s). First `/lookup/oeis` lazily loads OEIS → **1983 MB**. Note: the `GC.gc(true)`
+reclaims only *part* of the high-water — Julia doesn't return all freed pages to the OS — so idle is
+~1364 MB, not the ~860 MB a pure grounding+base sum would suggest.
 
 Remaining lever (not done): the grounding index (~528 MB) only shrinks via a disk-backed (Tantivy)
 index — see §32.5d "Index backend & memory sizing".
