@@ -31,16 +31,11 @@ def fetch(name):
     return dest
 
 def parse_terms(line):
-    # "A000045 ,0,1,1,2,3,5,8,..."  -> ("A000045", [0,1,1,2,3,5,8,...])
+    # "A000045 ,0,1,1,2,3,5,8,..."  -> ("A000045", ["0","1","1","2","3","5","8",...])
+    # Terms kept as STRINGS: OEIS terms can be arbitrary-precision bignums that overflow Int64
+    # (and break the Julia-side lookup index). Exact string match is all the sequence lookup needs.
     aid, _, rest = line.partition(" ")
-    terms = []
-    for tok in rest.strip().strip(",").split(","):
-        tok = tok.strip()
-        if tok:
-            try:
-                terms.append(int(tok))
-            except ValueError:
-                pass
+    terms = [tok.strip() for tok in rest.strip().strip(",").split(",") if tok.strip()]
     return aid, terms
 
 def parse_name(line):
