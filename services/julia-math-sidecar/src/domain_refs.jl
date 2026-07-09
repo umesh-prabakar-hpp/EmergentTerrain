@@ -29,9 +29,8 @@ function dr_oeis_init!(path::AbstractString)
             isempty(strip(line)) && continue
             row = try JSON3.read(line) catch; continue end
             id = String(get(row, :id, "")); isempty(id) && continue
-            allt = try String.(collect(get(row, :terms, String[]))) catch; String[] end
-            isempty(allt) && continue
-            terms = length(allt) > 20 ? allt[1:20] : allt   # leading terms only: bounds RAM (~1.6GB→~0.5GB) + load time; 20 is ample for lookup
+            terms = try String.(collect(get(row, :terms, String[]))) catch; String[] end
+            isempty(terms) && continue   # store ALL terms (full sequence coverage for lookup)
             push!(seqs, OeisSeq(id, String(get(row, :name, "")), terms))
             if length(terms) >= 3
                 push!(get!(sig, (terms[1], terms[2], terms[3]), Int32[]), Int32(length(seqs)))
