@@ -45,6 +45,8 @@ using JuliaMathSidecar: safe_parse_body, ok_response, error_response,
 # Phase 32 §32.5 step 3 — offline BM25 literature grounding (/ground/claim).
 # Runtime-included like this file itself: PyCall-free, no package precompile.
 include(joinpath(@__DIR__, "literature_grounding.jl"))
+# Phase 32 §32.5d — offline OEIS + DLMF domain lookups (/lookup/oeis, /lookup/dlmf).
+include(joinpath(@__DIR__, "domain_refs.jl"))
 
 # ─── moved from handlers.jl: /prove_identity (phase-25 §25.1) ───────────
 # ---------------------------------------------------------------------
@@ -906,6 +908,9 @@ function build_py_router()
     HTTP.register!(router, "POST", "/recognise/minpoly",  handle_recognise_minpoly)
     # Phase 32 §32.5 step 3 — offline retrieval over the local NT corpus.
     HTTP.register!(router, "POST", "/ground/claim",       handle_ground_claim)
+    # Phase 32 §32.5d — OEIS + DLMF domain-reference lookups.
+    HTTP.register!(router, "POST", "/lookup/oeis",        handle_lookup_oeis)
+    HTTP.register!(router, "POST", "/lookup/dlmf",        handle_lookup_dlmf)
     return router
 end
 
@@ -941,6 +946,7 @@ function start_py_server!(; host::AbstractString="127.0.0.1", port::Integer=8089
     # Phase 32 §32.5 step 3 — build the grounding index BEFORE serving so the
     # single-threaded server never starves /healthz on a first-request build.
     lg_init_from_env!()
+    dr_init_from_env!()          # OEIS + DLMF domain-reference indices (§32.5d)
     server = HTTP.serve!(router, host, port)
     try
         wait(server)
