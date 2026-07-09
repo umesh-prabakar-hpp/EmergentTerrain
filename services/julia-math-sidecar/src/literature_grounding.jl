@@ -79,11 +79,19 @@ function lg_subject_ok(doc::LgDoc, allow::Vector{String})
     isempty(allow) && return true                              # gate disabled
     # graceful: a row with NO subject metadata at all is kept
     (isempty(doc.field) && isempty(doc.subfield) && isempty(doc.topic) && isempty(doc.msc)) && return true
-    # MSC prefix match is anchored (allow "11" matches code "11N37" but not a stray "11" elsewhere);
-    # field/subfield/topic use substring. Allowlist entries like "11" (MSC NT) or "mathematics" both work.
+    # Two allowlist entry kinds, kept DISTINCT so "11" can't leak:
+    #   "msc:11"      → anchored MSC-code prefix, matched ONLY against doc.msc (11N37 ✓, T11166 ✗)
+    #   "mathematics" → substring against field/subfield/topic (the OpenAlex tags)
     hay = lowercase(string(doc.field, " ", doc.subfield, " ", doc.topic))
     mscs = split(lowercase(doc.msc))
-    return any(a -> occursin(a, hay) || any(m -> startswith(m, a), mscs), allow)
+    return any(allow) do a
+        if startswith(a, "msc:")
+            pfx = SubString(a, 5)                              # "msc:11" → "11"
+            any(m -> startswith(m, pfx), mscs)
+        else
+            occursin(a, hay)
+        end
+    end
 end
 
 struct LgIndex
