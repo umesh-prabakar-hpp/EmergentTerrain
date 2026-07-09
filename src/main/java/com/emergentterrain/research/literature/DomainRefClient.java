@@ -46,7 +46,9 @@ public class DomainRefClient {
                 return null;
             }
             JsonNode node = OM.readTree(resp.body());
-            return node.path("ok").asBoolean(false) ? node.path("value") : null;
+            // ok_response merges the value fields into the TOP level (matches/sections live there,
+            // NOT under a "value" key — same shape GroundingClient reads).
+            return node.path("ok").asBoolean(false) ? node : null;
         } catch (Exception e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
