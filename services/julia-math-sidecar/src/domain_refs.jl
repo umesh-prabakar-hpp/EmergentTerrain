@@ -135,20 +135,35 @@ function dr_dlmf_lookup(query::AbstractString, topk::Int)
 end
 
 # ─── startup ─────────────────────────────────────────────────────────
+const OEIS_PATH = Ref{String}("")   # set at init; OEIS is LAZY-loaded on first lookup
+
+"""Load OEIS on first /lookup/oeis call (idempotent). OEIS is ~450 MB retained; most papers never
+   look up a sequence, so we defer the cost off startup (§32.5d memory profile). Full GC after."""
+function dr_oeis_ensure!()
+    OEIS[] === nothing || return
+    isempty(OEIS_PATH[]) && return
+    try
+        n = dr_oeis_init!(OEIS_PATH[])
+        @info "OEIS lazily loaded on first lookup" seqs=n
+        GC.gc(true)
+    catch e
+        @warn "OEIS lazy load failed" error=sprint(showerror, e)
+    end
+end
+
 function dr_init_from_env!()
     dir = get(ENV, "ET_DOMAIN_REFS",
               joinpath(homedir(), ".emergentterrain", "corpus-nt", "domain-refs"))
-    no, nd = 0, 0
     op = joinpath(dir, "oeis.jsonl")
-    if isfile(op)
-        no = try dr_oeis_init!(op) catch e; @warn "OEIS index failed" error=sprint(showerror, e); 0 end
-    end
+    isfile(op) && (OEIS_PATH[] = op)   # DEFER: lazy-loaded on first /lookup/oeis
+    nd = 0
     dp = joinpath(dir, "dlmf.jsonl")
     if isfile(dp)
         nd = try dr_dlmf_init!(dp) catch e; @warn "DLMF index failed" error=sprint(showerror, e); 0 end
     end
-    (no > 0 || nd > 0) && @info "domain refs ready" oeis=no dlmf=nd
-    return no, nd
+    GC.gc(true)   # return load-time transient allocations (esp. DLMF tokenization) to the OS
+    @info "domain refs ready" oeis_deferred=!isempty(OEIS_PATH[]) dlmf=nd
+    return 0, nd
 end
 
 # ─── HTTP handlers ───────────────────────────────────────────────────
@@ -157,6 +172,7 @@ function handle_lookup_oeis(req::HTTP.Request)
     body = safe_parse_body(req)
     body === nothing && (record_call!("lookup_oeis", ems(), :error);
         return error_response("bad_request", "Body is not valid JSON", ems()))
+    dr_oeis_ensure!()   # lazy-load OEIS on first lookup (deferred off startup)
     OEIS[] === nothing && (record_call!("lookup_oeis", ems(), :error);
         return error_response("not_configured", "OEIS not loaded (build-oeis.py; set ET_DOMAIN_REFS)", ems()))
     terms = [strip(String(t)) for t in get(body, :terms, String[])]
