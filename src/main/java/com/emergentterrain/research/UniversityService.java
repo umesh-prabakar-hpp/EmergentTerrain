@@ -2177,6 +2177,42 @@ public class UniversityService {
             }
         }
 
+        // Phase 34 — separate the operational disposition (PUBLISHED,
+        // NEEDS_REVISION, ...) from the reader-facing computational-paper tier.
+        // A clean pipeline result is not automatically a human-quality paper:
+        // it must carry a locked selection/confirmation plan, a reproducibility
+        // declaration, and source-grounded positioning before it can be called
+        // an artifact-backed candidate.
+        com.emergentterrain.research.publication.PublicationAssessment publicationAssessment =
+                com.emergentterrain.research.publication.ComputationalPublicationPhase.assess(
+                        draft.preRegistration(), narration.toolCallTrace(), paper.relatedWork());
+        paper.setPublicationLabel(publicationAssessment.label());
+        if (!"PUBLISHED".equals(paper.status()) && publicationAssessment.isArtifactBackedCandidate()) {
+            // A candidate must also have completed the existing integrity and
+            // review workflow cleanly; this phase never masks a revision or
+            // rejection state with a higher reader-facing tier.
+            paper.setPublicationLabel(
+                    com.emergentterrain.research.publication.PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
+        }
+        try {
+            String roomPrefix = draft.roomId().toString().substring(0, 8);
+            java.nio.file.Path artifactDir =
+                    com.emergentterrain.research.publication.ArtifactPackageWriter.write(
+                            researchOutputDir, roomPrefix, paper, draft.preRegistration(),
+                            narration.toolCallTrace(), publicationAssessment,
+                            formatPaperAsMarkdown(draft.roomId(), paper), objectMapper);
+            log.info("publication-artifact: paperId={} label={} missing={} dir={}",
+                    paper.paperId(), publicationAssessment.label(),
+                    publicationAssessment.missingRequirements().size(), artifactDir);
+        } catch (Exception e) {
+            // A missing artifact cannot carry the artifact-backed candidate
+            // label. The workflow result is still retained as an internal note.
+            if (publicationAssessment.isArtifactBackedCandidate()) {
+                paper.setPublicationLabel(
+                        com.emergentterrain.research.publication.PublicationLabel.COMPUTATIONAL_RESEARCH_NOTE);
+            }
+            log.warn("publication-artifact write failed paperId={}: {}", paper.paperId(), e.getMessage());
+        }
         addPaper(draft.roomId(), paper);
         // Phase 31 §31.1 — one outcome FACT per published paper (write-only,
         // hash-deduped, best-effort). The acceptance bar's "every published
@@ -3214,6 +3250,7 @@ public class UniversityService {
                 **Domain**: %s  |  **Topic**: %s
                 **Methodology**: %s
                 **Evidence Label**: %s
+                **Publication Label**: %s
                 **Peer Score**: %.3f%s
                 **Status**: %s
                 **Generation**: %d
@@ -3243,6 +3280,9 @@ public class UniversityService {
                 paper.domain(), paper.topic(),
                 paper.methodology(),
                 paper.evidenceLabel() != null ? paper.evidenceLabel() : EvidenceLabel.CONJECTURE,
+                paper.publicationLabel() != null
+                        ? paper.publicationLabel().displayName()
+                        : com.emergentterrain.research.publication.PublicationLabel.INTERNAL_RESEARCH_NOTE.displayName(),
                 paper.peerScore(),
                 Math.abs(paper.anomalyZScore()) >= 1.5
                         ? "  ⚑ anomaly z=%.2f".formatted(paper.anomalyZScore()) : "",

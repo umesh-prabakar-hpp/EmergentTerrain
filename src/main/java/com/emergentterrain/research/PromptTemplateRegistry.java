@@ -1134,7 +1134,12 @@ public class PromptTemplateRegistry {
                 "pre_registration":{"hypothesis":"one testable claim this parameter choice will investigate",\
                 "prediction":"expected direction or magnitude (e.g. monotone increase, value near 0.3)",\
                 "falsification_condition":"what outcome would contradict this (e.g. no correlation, 0 exceedance)",\
-                "mapping_notes":"if crossing domains: state any constants or analogies and their justification; empty string otherwise"}}
+                "mapping_notes":"if crossing domains: state any constants or analogies and their justification; empty string otherwise",\
+                "computational_study_plan":{"discovery_scope":"ranges/data used only to choose a model",\
+                "confirmation_scope":"disjoint ranges/data used only after the model is frozen",\
+                "selection_rule":"fixed score and tie-breaker used to choose one candidate",\
+                "sensitivity_plan":"predeclared alternate scales, windows, seeds, or parameters",\
+                "reproduction_command":"documented local command; do not claim it was run by the server"}}}
 
                 param1 must be an integer 10–99. param2 must be a decimal 1.0–9.0.
                 Choose values that differ from or extend what prior papers have already explored.

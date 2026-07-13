@@ -1,5 +1,7 @@
 package com.emergentterrain.research;
 
+import com.emergentterrain.research.publication.ComputationalStudyPlan;
+
 /**
  * Hypothesis pre-registration: written by the formulation LLM before computation runs.
  * Locking these fields before results are available eliminates post-hoc rationalization —
@@ -13,5 +15,12 @@ public record PreRegistration(
         String hypothesis,
         String prediction,
         String falsificationCondition,
-        String mappingNotes
-) {}
+        String mappingNotes,
+        ComputationalStudyPlan computationalStudyPlan
+) {
+    /** Keeps older callers and persisted rework snapshots source-compatible. */
+    public PreRegistration(String hypothesis, String prediction,
+                           String falsificationCondition, String mappingNotes) {
+        this(hypothesis, prediction, falsificationCondition, mappingNotes, null);
+    }
+}

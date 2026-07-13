@@ -5,6 +5,7 @@ import com.emergentterrain.research.BotLifecycleState;
 import com.emergentterrain.research.LiteratureReference;
 import com.emergentterrain.research.LiteratureSearchService;
 import com.emergentterrain.research.PreRegistration;
+import com.emergentterrain.research.publication.ComputationalStudyPlan;
 import com.emergentterrain.research.PromptTemplateIds;
 import com.emergentterrain.research.PromptTemplateRegistry;
 import com.emergentterrain.research.ResearchIdentity;
@@ -471,8 +472,18 @@ public class FormulationService {
                 String pred  = prNode.path("prediction").asText(null);
                 String falsc = prNode.path("falsification_condition").asText(null);
                 String mapN  = prNode.path("mapping_notes").asText(null);
+                JsonNode planNode = prNode.path("computational_study_plan");
+                ComputationalStudyPlan plan = null;
+                if (planNode.isObject()) {
+                    plan = new ComputationalStudyPlan(
+                            planNode.path("discovery_scope").asText(null),
+                            planNode.path("confirmation_scope").asText(null),
+                            planNode.path("selection_rule").asText(null),
+                            planNode.path("sensitivity_plan").asText(null),
+                            planNode.path("reproduction_command").asText(null));
+                }
                 if (hyp != null && !hyp.isBlank() && pred != null && !pred.isBlank()) {
-                    preReg = new PreRegistration(hyp, pred, falsc, mapN);
+                    preReg = new PreRegistration(hyp, pred, falsc, mapN, plan);
                 }
             }
             return new FormulationResult(p1, p2, q, preReg);

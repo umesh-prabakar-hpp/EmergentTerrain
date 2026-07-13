@@ -1,6 +1,7 @@
 package com.emergentterrain.research;
 
 import com.fasterxml.jackson.annotation.JsonAutoDetect;
+import com.emergentterrain.research.publication.PublicationLabel;
 import jakarta.persistence.*;
 
 import java.time.Instant;
@@ -59,6 +60,15 @@ public class ResearchPaper {
 
     private double peerScore;
     private String status;
+
+    /**
+     * Reader-facing quality tier. Unlike {@link #status}, this is not a workflow
+     * disposition: a clean PUBLISHED result can honestly remain an internal note.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "publication_label", nullable = false, length = 64,
+            columnDefinition = "varchar(64) not null default 'INTERNAL_RESEARCH_NOTE'")
+    private PublicationLabel publicationLabel = PublicationLabel.INTERNAL_RESEARCH_NOTE;
     private long tick;
     private Instant publishedAt;
     private int generation;
@@ -334,6 +344,7 @@ public class ResearchPaper {
     public List<String> reviewerBotIds() { return reviewerBotIds; }
     public double       peerScore()      { return peerScore; }
     public String       status()         { return status; }
+    public PublicationLabel publicationLabel() { return publicationLabel; }
     public long         tick()           { return tick; }
     public Instant      publishedAt()    { return publishedAt; }
     public int          generation()     { return generation; }
@@ -365,6 +376,9 @@ public class ResearchPaper {
 
     // Narrow setters used by the DISPUTED flow + program / institution attachment.
     public void setStatus(String status)             { this.status = status; }
+    public void setPublicationLabel(PublicationLabel label) {
+        this.publicationLabel = label != null ? label : PublicationLabel.INTERNAL_RESEARCH_NOTE;
+    }
     public void setConclusion(String conclusion)     { this.conclusion = conclusion; }
     public void setProgramId(UUID programId)         { this.programId = programId; }
     public void setUniversityId(UUID universityId)   { this.universityId = universityId; }
