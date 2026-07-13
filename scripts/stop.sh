@@ -65,5 +65,6 @@ kill_pattern() {
 # Then sweep the Maven launcher in case it lingered.
 kill_pattern "EmergentTerrain JVM" "$JVM_PATTERN"
 kill_pattern "Maven launcher"     "$MVN_PATTERN"
-# Then the legacy-ai-gateway started by start.sh (no-op if absent).
+# Then subscription proxies started by start.sh (no-op if absent).
+kill_pattern "local-ai-gateway" "local-ai-gateway/server.mjs"
 kill_pattern "legacy-ai-gateway" "legacy-ai-gateway/server.mjs"

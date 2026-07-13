@@ -29,6 +29,15 @@ llm-pricing:
     - "openai/gpt-oss-120b:free"      # OpenRouter free mirror — $0 actual spend
 
   providers:
+    # ChatGPT/local-ai bridge. Subscription use is not API-billed,
+    # but ET applies the public GPT-5.6 Sol API-equivalent rate to reported
+    # Codex token usage so its run-budget guard prevents unlimited queueing.
+    local-ai:
+      models:
+        "[gpt-5.6-sol]":
+          in-usd-per-mtok: 5.00
+          out-usd-per-mtok: 30.00
+
     groq:
       models:
         "[llama-3.3-70b-versatile]":

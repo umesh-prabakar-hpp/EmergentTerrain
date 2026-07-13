@@ -65,6 +65,42 @@ mkdir -p "$REPO_ROOT/logs"
 STDOUT_LOG="$REPO_ROOT/logs/maven-stdout.log"
 
 # ---------------------------------------------------------------------
+# local-ai-gateway (scripts/local-ai-gateway).
+# OpenAI-compat shim backed by the locally logged-in ChatGPT/Codex account.
+# Each request is an ephemeral read-only Codex turn in /tmp. The active
+# `local-ai` provider points at port 8788 and falls back to
+# OpenRouter when the local session cannot serve a request.
+# ---------------------------------------------------------------------
+LOCAL_AI_GATEWAY_DIR="$REPO_ROOT/scripts/local-ai-gateway"
+LOCAL_AI_GATEWAY_PATTERN="local-ai-gateway/server.mjs"
+LOCAL_AI_GATEWAY_LOG="$REPO_ROOT/logs/codex-proxy.log"
+start_codex_proxy() {
+    : > "$LOCAL_AI_GATEWAY_LOG"
+    nohup node "$LOCAL_AI_GATEWAY_DIR/server.mjs" >> "$LOCAL_AI_GATEWAY_LOG" 2>&1 &
+    echo "local-ai-gateway: started on http://127.0.0.1:8788 (PID $!), log → $LOCAL_AI_GATEWAY_LOG"
+}
+if [ "${ET_DISABLE_LOCAL_AI_GATEWAY:-0}" = "1" ]; then
+    echo "local-ai-gateway: disabled (ET_DISABLE_LOCAL_AI_GATEWAY=1)"
+elif pgrep -f "$LOCAL_AI_GATEWAY_PATTERN" >/dev/null 2>&1; then
+    if [ "${ET_RESTART_LOCAL_AI_GATEWAY:-0}" = "1" ]; then
+        echo "local-ai-gateway: restarting (ET_RESTART_LOCAL_AI_GATEWAY=1)"
+        pkill -f "$LOCAL_AI_GATEWAY_PATTERN"
+        for _ in 1 2 3 4 5 6 7 8; do pgrep -f "$LOCAL_AI_GATEWAY_PATTERN" >/dev/null 2>&1 || break; sleep 1; done
+        if command -v node >/dev/null 2>&1 && command -v codex >/dev/null 2>&1; then
+            start_codex_proxy
+        else
+            echo "local-ai-gateway: cannot restart — node or codex missing" >&2
+        fi
+    else
+        echo "local-ai-gateway: already running — set ET_RESTART_LOCAL_AI_GATEWAY=1 to reload"
+    fi
+elif ! command -v node >/dev/null 2>&1 || ! command -v codex >/dev/null 2>&1; then
+    echo "local-ai-gateway: node or codex not on PATH — OpenRouter will be used" >&2
+else
+    start_codex_proxy
+fi
+
+# ---------------------------------------------------------------------
 # legacy-ai-gateway (scripts/legacy-ai-gateway).
 # OpenAI-compat shim fronting the Claude Agent SDK on the locally
 # logged-in Pro/Max subscription. The `legacy-ai` provider in
@@ -91,7 +127,9 @@ start_claude_proxy() {
     nohup env -u ANTHROPIC_API_KEY node "$PROXY_DIR/server.mjs" >> "$PROXY_LOG" 2>&1 &
     echo "legacy-ai-gateway: started on http://127.0.0.1:8787 (PID $!), log → $PROXY_LOG"
 }
-if [ "${ET_DISABLE_CLAUDE_PROXY:-0}" = "1" ]; then
+if [ "${ET_ENABLE_LEGACY_AI_GATEWAY:-0}" != "1" ]; then
+    echo "legacy-ai-gateway: dormant (set ET_ENABLE_LEGACY_AI_GATEWAY=1 to start it)"
+elif [ "${ET_DISABLE_CLAUDE_PROXY:-0}" = "1" ]; then
     echo "legacy-ai-gateway: disabled (ET_DISABLE_CLAUDE_PROXY=1)"
 elif pgrep -f "$PROXY_PATTERN" >/dev/null 2>&1; then
     if [ "${ET_RESTART_CLAUDE_PROXY:-0}" = "1" ]; then

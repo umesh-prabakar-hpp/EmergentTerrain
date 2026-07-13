@@ -50,6 +50,30 @@ mvn spring-boot:run
 ```
 Open `http://localhost:8081/`
 
+### local-ai provider
+
+The enabled primary LLM provider is the local `local-ai-gateway` on
+`127.0.0.1:8788`. It invokes the machine's signed-in ChatGPT/Codex session
+through an ephemeral, read-only Codex CLI turn with its interactive tools
+disabled; it does **not** use an OpenAI API key or a fixed public API model id.
+Start the application through the helper so that proxy is present:
+
+```bash
+cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
+./scripts/start.sh
+```
+
+Run `codex login` first if this machine has not been authenticated. The proxy
+pins the signed-in account's confirmed default, `gpt-5.6-sol`, and returns
+Codex token usage for API-equivalent budget accounting; it rejects the public
+API slug `gpt-5-codex` on this ChatGPT-authenticated installation. Claude is disabled by default;
+OpenRouter remains the automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to
+skip the local bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1` only when intentionally
+bringing the dormant Claude bridge back up. See
+[`scripts/local-ai-gateway/README.md`](scripts/local-ai-gateway/README.md)
+for safety and timeout details. The active Codex pool permits two concurrent
+requests; account-level usage limits still apply.
+
 ## Fedora Bootstrap
 If you want one native Fedora setup path for both repos, use:
 

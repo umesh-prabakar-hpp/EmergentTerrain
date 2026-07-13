@@ -14,6 +14,7 @@ Practical repo guidance for the Spring Boot app and the Rust GPU engine.
 - `protoc`
 - Vulkan userspace stack for the GPU engine
 - PowerShell (`pwsh`) if you want to run the existing `.ps1` helper scripts on Fedora
+- Node.js and the Codex CLI when using the enabled ChatGPT/local-ai provider
 
 Fedora bootstrap helper:
 ```bash
@@ -31,6 +32,18 @@ export PATH="$JAVA_HOME/bin:$PATH"
 cd /opt/apps/ide/eclipse/workspace-web/EmergentTerrain
 mvn spring-boot:run
 ```
+
+For the configured primary LLM, prefer `./scripts/start.sh`: it starts the
+local `local-ai-gateway` on `127.0.0.1:8788` before launching the JVM.
+The proxy uses the machine's `codex login` session with an ephemeral read-only
+turn in `/tmp`; it pins the signed-in account's confirmed default,
+`gpt-5.6-sol`, and reports its token usage for API-equivalent budget accounting.
+The ChatGPT-authenticated CLI rejects `gpt-5-codex` as an explicit model
+selection on this installation. Claude is intentionally dormant
+(`legacy-ai.enabled: false`); OpenRouter is the fallback. Set
+`ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1`
+only to start the preserved legacy AI gateway for rollback testing. The Codex pool
+has `parallelism: 2`; keep it small because every request launches a Codex turn.
 
 If tests or runtime need a real DB, ensure PostgreSQL is running and the app datasource properties are correct in `src/main/resources/application.yml` or via env vars.
 
