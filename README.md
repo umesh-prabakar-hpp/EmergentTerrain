@@ -70,9 +70,10 @@ API slug `gpt-5-codex` on this ChatGPT-authenticated installation. Claude is dis
 OpenRouter remains the automatic fallback. Set `ET_DISABLE_LOCAL_AI_GATEWAY=1` to
 skip the local bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1` only when intentionally
 bringing the dormant Claude bridge back up. See
-[`scripts/local-ai-gateway/README.md`](scripts/local-ai-gateway/README.md)
-for safety and timeout details. The active Codex pool permits two concurrent
-requests; account-level usage limits still apply.
+[`docs/subscription-providers.md`](docs/subscription-providers.md) for the
+complete Codex and Claude login, activation, connection, verification, and
+troubleshooting guide. The active Codex pool permits two concurrent requests;
+account-level usage limits still apply.
 
 ## Fedora Bootstrap
 If you want one native Fedora setup path for both repos, use:

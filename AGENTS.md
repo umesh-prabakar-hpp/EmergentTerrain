@@ -44,6 +44,8 @@ selection on this installation. Claude is intentionally dormant
 `ET_DISABLE_LOCAL_AI_GATEWAY=1` to skip the bridge, or `ET_ENABLE_LEGACY_AI_GATEWAY=1`
 only to start the preserved legacy AI gateway for rollback testing. The Codex pool
 has `parallelism: 2`; keep it small because every request launches a Codex turn.
+For the exact local Codex/Claude login, proxy connection, enablement, and
+verification procedure, see `docs/subscription-providers.md`.
 
 If tests or runtime need a real DB, ensure PostgreSQL is running and the app datasource properties are correct in `src/main/resources/application.yml` or via env vars.
 

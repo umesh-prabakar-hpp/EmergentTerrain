@@ -25,7 +25,8 @@ research directory. If they provide a directory, execute the review.
 Defaults:
 
 - `--report`: `<research_dir>/REVIEW_REPORT.md`
-- `--pattern`: `P-*.md`
+- `--pattern`: `*P-*.md` (supports both `P-<id>.md` and timestamp-prefixed
+  `<timestamp>_..._P-<id>.md` output filenames)
 - Logs: auto-discover unless `--no-logs` is present
 
 ## Core Rule
@@ -37,7 +38,8 @@ papers exist, update the timestamp and report "no new papers".
 ## Discovery
 
 1. Resolve `<research_dir>` to an absolute path.
-2. List paper markdown files matching the pattern.
+2. List paper markdown files matching the pattern. Extract the stable `P-…`
+   identifier from each filename rather than assuming the filename begins with it.
 3. Read the existing report if present.
 4. Parse the per-paper ratings table for reviewed paper IDs.
 5. Identify sequence gaps and add `*(missing - sequence gap)*` rows when appropriate.
@@ -171,4 +173,3 @@ End each regenerated report with:
 ```
 
 Use the actual cadence if different.
-
