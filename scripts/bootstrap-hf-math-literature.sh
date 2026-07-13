@@ -43,6 +43,7 @@ hf download "$DATASET" \
   --revision "$REVISION" \
   --include '*.parquet' \
   --include '*.jsonl' \
+  --include '*.jsonl.gz' \
   --include 'README.md' \
   --local-dir "$DESTINATION"
 
