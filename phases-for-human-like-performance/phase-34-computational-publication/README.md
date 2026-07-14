@@ -69,10 +69,48 @@ no-problem corpus supports careful reading. Neither is evidence of novelty by
 itself, and the final paper must still use `read_reference` before making a
 load-bearing literature claim.
 
-## Import and index plan
+## Import and index preparation
 
 The downloaded files are raw corpus inputs, not a live application search
 index. Do not copy them into Git or present a retrieval hit as a citation.
+
+`scripts/prepare-hf-math-index.py` is the first operational preparation step.
+It creates a resumable SQLite FTS5 index outside the repository at
+`~/.emergentterrain/indexes/math-literature/literature.db`; its SQLite page
+cache is bounded to about 128 MiB. It requires PyArrow only for reading the
+three downloaded Parquet files:
+
+```bash
+python3 -m pip install --user pyarrow
+./scripts/prepare-hf-math-index.py --stage metadata
+./scripts/prepare-hf-math-index.py --stage theorems
+# Scan a controlled number of compressed Marin shards; re-run to resume.
+./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20
+```
+
+Use `--stage all` only when the host can give the streaming full-text pass the
+required I/O time. The script records completed Marin shards in the database,
+so a stopped full-text pass resumes without rereading completed shards. It
+also writes `MANIFEST.json` next to the database with counts, selection rule,
+and stage completion state. The raw downloads remain immutable.
+
+### Current build checkpoint (2026-07-14)
+
+The initial UW import and theorem FTS build completed successfully: the local
+manifest records 209,777 papers and 1,341,083 theorem statements. The derived
+SQLite database is about 3.4 GiB. The broad Marin input is present locally as
+392 compressed JSONL shards (about 3.4 GiB), but no Marin shard has yet been
+imported into `fulltext`/`fulltext_fts`: the manifest records zero full-text
+documents and zero processed full-text shards. No preparation process is
+currently running.
+
+This is an intentional, resumable checkpoint rather than a completed
+multi-subject rebuild. Resume it with a controlled batch such as
+`./scripts/prepare-hf-math-index.py --stage fulltext --fulltext-shard-limit 20`;
+repeat the command until all available shards are recorded, or omit the limit
+when an uninterrupted full pass is appropriate. The observed host has about
+375 GiB free disk, so capacity does not currently block retaining the broad
+source corpus and its derived index.
 
 ### Input handling
 
@@ -82,10 +120,13 @@ index. Do not copy them into Git or present a retrieval hit as a citation.
 - Marin no-problem is compressed JSONL full text. Each record carries an ar5iv
   identifier, source, format, and rendered Markdown text. Stream its shards;
   do not load the corpus into memory.
-- Marin covers arXiv broadly, not only mathematics. Join each arXiv identifier
-  to authoritative metadata and retain mathematics records before building the
-  math index. The no-problem corpus must not be indexed wholesale for a
-  mathematics-only retrieval path.
+- Marin covers arXiv broadly, not only mathematics. The preparer retains the
+  full broad source because the product target includes future computational
+  physics, chemistry, and biology work. Where an arXiv identifier occurs in UW,
+  it carries UW's primary category; the remaining Marin rows are explicitly
+  marked `ar5iv-unclassified` until a subject-metadata enrichment pass is
+  available. Mathematics is the current query-time activation scope, not a
+  destructive corpus filter.
 
 ### Linked retrieval layers
 
@@ -106,14 +147,17 @@ establish any of those labels.
 Keep raw downloads immutable under `~/.emergentterrain/corpus-hf-math/`. Write
 derived indexes separately and attach a manifest containing dataset/revision,
 input checksums, importer version, retained-document count, and index build
-time.
+time. The first preparer already records its format, selection rule, source
+location, stage states, counts, and query contract. Adding source revision and
+checksums is required before this index can support a publication-quality
+label.
 
 Wire the new indexes into `search_literature` and `read_reference` behind a
 feature flag. Before enabling them for publication-quality labels, evaluate a
 fixed mathematics claim set for correct theorem matches, correct source
-passages, and no fabricated citation keys. This import/index integration is a
-subsequent Phase 34 implementation task; the current download script only
-stages the inputs.
+passages, and no fabricated citation keys. The current preparer deliberately
+does not change the live grounding route; sidecar query integration and
+feature-gated activation remain subsequent Phase 34 tasks.
 
 ## Host capacity and index placement
 
